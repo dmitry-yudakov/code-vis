@@ -1,29 +1,115 @@
 'use strict';
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import * as path from 'path';
+
+var childProc = require('child_process');
+var opn = require('opn')
+var OSX_CHROME = 'google chrome';
+
+const express = require('express')
+const http = require('http')
+const WebSocket = require('ws');
+
+const app = express()
+app.use('/', express.static(path.join(__dirname, 'public')))
+
+let server = http.createServer(app);
+let wss = new WebSocket.Server({ server });
+
+server.on('error', err => {
+    console.log('server error:', err)
+})
+
+function openFile(parts) {
+    vscode.workspace.findFiles('**/*.{js,jsx}', '**/node_modules/**', 250)
+        .then(files => {
+            const test = filename => {
+                for (let pp of parts) {
+                    if (filename.indexOf(pp) === -1) {
+                        return false
+                    }
+                }
+                return true
+            }
+            // console.log('files', files.map(ff => ff.path).join('\n'))
+            console.log('find file matching', JSON.stringify(parts))
+            let fileToOpen = files.find(file => test(file.path.toLowerCase()))
+            if (fileToOpen) {
+                console.log('Open matching file:', fileToOpen.path, fileToOpen)
+                vscode.workspace.openTextDocument(fileToOpen.fsPath) //vscode.Uri.file(fileToOpen.external))
+                    .then(
+                    doc => vscode.window.showTextDocument(doc),
+                    err => console.log('error opening:', err)
+                    )
+
+            } else {
+                vscode.window.showErrorMessage(`File matching ${parts.join('|')} is not found`)
+            }
+        }, err => {
+            console.error(err)
+        })
+}
+
+function onCommand(command) {
+    let tokens = command.split(' ').filter(word => word).map(word => word.toLowerCase())
+    console.log('tokens', tokens)
+    let op = tokens.shift()
+    switch (op) {
+        case 'open':
+            if (tokens.length) openFile(tokens)
+            break;
+        default:
+            vscode.window.showWarningMessage('Could not recognize command: "' + command + '"')
+    }
+}
+
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+    server.listen(3789, (a, b) => console.log('Example app listening on port 3789!', a, b))
+    wss.on('connection', function connection(ws) {
+        ws.on('message', function incoming(message) {
+            console.log('received:', message);
+            let msg = JSON.parse(message)
+            if (msg.command) {
+                onCommand(msg.command)
+            }
+        });
+
+        ws.send('gotcha');
+    });
 
     // Use the console to output diagnostic information (console.log) and errors (console.error)
     // This line of code will only be executed once when your extension is activated
     console.log('Congratulations, your extension "code-ai" is now active!');
 
+    // console.log(__filename)
+    // childProc.exec('open -a "Google Chrome" ' + __filename + '.html', () => { console.log('chrome opened') });
+    childProc.exec('open -a "Google Chrome" ' + 'http://localhost:3789', () => { console.log('chrome opened') });
+
+    // let statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
+    // statusBarItem.text = 'Listening';
+    // statusBarItem.show()
+
+
+
     // The command has been defined in the package.json file
     // Now provide the implementation of the command with  registerCommand
     // The commandId parameter must match the command field in package.json
-    let disposable = vscode.commands.registerCommand('extension.sayHello', () => {
+    let disposable = vscode.commands.registerCommand('codeai.activateSpeechRecognition', () => {
         // The code you place here will be executed every time your command is executed
 
-        // Display a message box to the user
-        vscode.window.showInformationMessage('Hello World!');
+        console.log('Hey code')
+
+        wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({ command: 'listen' }))
+            }
+        });
+
     });
 
     context.subscriptions.push(disposable);
 }
 
-// this method is called when your extension is deactivated
-export function deactivate() {
-}

@@ -11,14 +11,14 @@
         "Other"
     ],
     "activationEvents": [
-        "onCommand:extension.sayHello"
+        "onCommand:codeai.activateSpeechRecognition"
     ],
     "main": "./out/extension",
     "contributes": {
         "commands": [
             {
-                "command": "extension.sayHello",
-                "title": "Hello World"
+                "command": "codeai.activateSpeechRecognition",
+                "title": "Hey code"
             }
         ]
     },
@@ -34,5 +34,10 @@
         "vscode": "^1.1.6",
         "@types/node": "^7.0.43",
         "@types/mocha": "^2.2.42"
+    },
+    "dependencies": {
+        "express": "^4.16.2",
+        "opn": "^5.1.0",
+        "ws": "^3.3.3"
     }
 }
