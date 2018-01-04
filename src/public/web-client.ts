@@ -9,13 +9,110 @@ var SpeechGrammarList = SpeechGrammarList || (typeof webkitSpeechGrammarList !==
 var SpeechRecognitionEvent = SpeechRecognitionEvent || (typeof webkitSpeechRecognitionEvent !== 'undefined' ? webkitSpeechRecognitionEvent : undefined)
 
 var grammar;
-const commands = ['open', 'up', 'down', 'go back', 'next', 'back']
+const commands = [
+    'open', 'up', 'down', 'go back', 'next', 'back',
+    'отвори', 'нагоре',
+]
 const reinitGrammar = (keywords = []) => {
     grammar = '#JSGF V1.0; grammar items; public <item> = ' + commands.concat(keywords).join(' | ') + ' ;'
 }
 reinitGrammar()
 
-let rec;
+class Recognizer {
+    recognition: any
+
+    constructor(protected conf: { onResult, continuous?, interimResults?, lang?, }) {
+    }
+
+    start(grammar) {
+        this.stop()// just in case
+
+        let recognition = new SpeechRecognition();
+        var speechRecognitionList = new SpeechGrammarList();
+        speechRecognitionList.addFromString(grammar, 1)
+        console.log('grammar:', grammar);
+        recognition.grammars = speechRecognitionList;
+        recognition.continuous = this.conf.continuous || false;
+        recognition.interimResults = this.conf.interimResults || false;
+        recognition.lang = this.conf.lang || 'en-US';
+        // recognition.lang = 'bg-BG';
+        // recognition.maxAlternatives = 1;
+        recognition.onresult = this.onresult.bind(this)
+        // recognition.onspeechend = this.onspeechend.bind(this)
+        recognition.onend = this.onspeechend.bind(this)
+        recognition.onnomatch = this.onnomatch.bind(this)
+        recognition.onerror = this.onerror.bind(this)
+        recognition.start()
+
+        this.recognition = recognition
+    }
+
+    stop() {
+        if (this.recognition) {
+            this.recognition.stop()
+        }
+    }
+
+    static isSupported() {
+        return (SpeechGrammarList != undefined)
+    }
+
+    private onresult(event) {
+        // The SpeechRecognitionEvent results property returns a SpeechRecognitionResultList object
+        // The SpeechRecognitionResultList object contains SpeechRecognitionResult objects.
+        // It has a getter so it can be accessed like an array
+        // The [last] returns the SpeechRecognitionResult at the last position.
+        // Each SpeechRecognitionResult object contains SpeechRecognitionAlternative objects that contain individual results.
+        // These also have getters so they can be accessed like arrays.
+        // The [0] returns the SpeechRecognitionAlternative at position 0.
+        // We then return the transcript property of the SpeechRecognitionAlternative object
+        console.log('results', event.results)
+        var last = event.results.length - 1;
+        var res = event.results[last][0].transcript;
+
+        console.log('Result received: ' + res)
+        console.log('Confidence: ' + event.results[0][0].confidence);
+        this.conf.onResult(null, res)
+
+        // console.log('On result - restart')
+        // this.recognition.start();
+    }
+
+    private onspeechend() {
+        if (this.conf.continuous) {
+            console.log('On speech end - restart')
+            return this.recognition.start();
+        }
+        this.recognition = null
+    }
+
+    private onnomatch(event) {
+        this.conf.onResult("Sorry, I could not understand")
+        console.log('No match')
+    }
+
+    private onerror(event) {
+        this.conf.onResult(event.error)
+        console.log('Error occurred in recognition: ' + event.error)
+    }
+}
+
+const onResult = (err, res) => {
+    console.log('Recognized', err, res)
+    console.log('Send to websocket')
+    if (err) {
+        return console.log('Error:', err)
+    }
+    ws.send(JSON.stringify({ command: res }))
+}
+
+let rec = new Recognizer({
+    continuous: true,
+    interimResults: true,
+    onResult,
+    lang: 'bg-BG',
+    // lang: 'en-US',
+});
 let ws;
 const reconnectws = () => {
     let protocol = (window.location.protocol === 'http:' ? 'ws' : 'wss')
@@ -29,97 +126,7 @@ const reconnectws = () => {
         console.log('ws message received', e.data)
         let msg = JSON.parse(e.data)
         if (msg.keywords) reinitGrammar(msg.keywords)
-        if (rec.stopped) {
-            rec.recognition.start()
-        } else {
-            rec.recognition.stop()
-            rec.recognition.start()
-        }
+        rec.start(grammar)
     }
 }
 reconnectws()
-
-function Recognizer(cbResult) {
-    this.cbResult = cbResult
-
-    this.recognition = this.__init()
-    this.stopped = true
-    // this.recognition.start();
-    // console.log('Ready to receive a command!!');
-}
-
-Recognizer.prototype.__init = function () {
-
-
-    var recognition = new SpeechRecognition();
-    var speechRecognitionList = new SpeechGrammarList();
-    speechRecognitionList.addFromString(grammar, 1);
-    recognition.grammars = speechRecognitionList;
-    // recognition.continuous = true;
-    // recognition.lang = 'en-US';
-    // recognition.lang = 'bg-BG';
-    // recognition.interimResults = true;
-    // recognition.maxAlternatives = 1;
-    recognition.onresult = this.onresult.bind(this)
-    // recognition.onspeechend = this.onspeechend.bind(this)
-    recognition.onend = this.onspeechend.bind(this)
-    recognition.onnomatch = this.onnomatch.bind(this)
-    recognition.onerror = this.onerror.bind(this)
-    return recognition
-}
-
-Recognizer.prototype.isSupported = function () {
-    return (SpeechGrammarList != undefined)
-}
-
-Recognizer.prototype.stop = function () {
-    this.recognition.stop()
-}
-
-Recognizer.prototype.onresult = function (event) {
-    // The SpeechRecognitionEvent results property returns a SpeechRecognitionResultList object
-    // The SpeechRecognitionResultList object contains SpeechRecognitionResult objects.
-    // It has a getter so it can be accessed like an array
-    // The [last] returns the SpeechRecognitionResult at the last position.
-    // Each SpeechRecognitionResult object contains SpeechRecognitionAlternative objects that contain individual results.
-    // These also have getters so they can be accessed like arrays.
-    // The [0] returns the SpeechRecognitionAlternative at position 0.
-    // We then return the transcript property of the SpeechRecognitionAlternative object
-    console.log('results', event.results)
-    var last = event.results.length - 1;
-    var res = event.results[last][0].transcript;
-
-    console.log('Result received: ' + res)
-    console.log('Confidence: ' + event.results[0][0].confidence);
-    this.cbResult(null, res)
-
-    // console.log('On result - restart')
-    // this.recognition.start();
-}
-
-Recognizer.prototype.onspeechend = function () {
-    // this.recognition.stop();
-    // console.log('On speech end - restart')
-    // this.recognition.start();
-    this.stopped = true
-}
-
-Recognizer.prototype.onnomatch = function (event) {
-    this.cbResult("Sorry, I could not understand")
-    console.log('No match')
-}
-
-Recognizer.prototype.onerror = function (event) {
-    this.cbResult(event.error)
-    console.log('Error occurred in recognition: ' + event.error)
-}
-
-rec = new Recognizer((err, res) => {
-    console.log('Recognized', err, res)
-    console.log('Send to websocket')
-    if (err) {
-        return console.log('Error:', err)
-    }
-    ws.send(JSON.stringify({ command: res }))
-})
-
