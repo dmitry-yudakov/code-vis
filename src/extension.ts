@@ -68,6 +68,8 @@ function onCommand(command) {
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
     server.listen(3789, (a, b) => console.log('Example app listening on port 3789!', a, b))
+    let conf = vscode.workspace.getConfiguration()
+    console.log('workspace conf:', conf)
     wss.on('connection', function connection(ws) {
         ws.on('message', function incoming(message) {
             console.log('received:', message);
@@ -77,9 +79,24 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
-        ws.send('gotcha');
-    });
+        let excludeConf = conf.get('search.exclude')
+        console.log('excludeConf', excludeConf)
+        let excludeStr = `{${Object.keys(excludeConf).filter(key => excludeConf[key]).join(',')}}`
+        // vscode.workspace.findFiles('**/*.{js,jsx}', '**/node_modules/**', 250)
+        vscode.workspace.findFiles('**/*.{js,jsx}', excludeStr, 2000)
+            .then(files => {
+                const re = /[_-\s./]|(?=[A-Z])/
+                let filePieces = {}
+                files.forEach(file => {
+                    file.path.split(re).forEach(piece => {
+                        filePieces[piece.toLowerCase()] = true
+                    })
+                })
+                delete filePieces['']
 
+                ws.send(JSON.stringify({ keywords: Object.keys(filePieces).sort() }));
+            });
+    })
     // Use the console to output diagnostic information (console.log) and errors (console.error)
     // This line of code will only be executed once when your extension is activated
     console.log('Congratulations, your extension "code-ai" is now active!');

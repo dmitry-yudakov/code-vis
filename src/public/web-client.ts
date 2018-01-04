@@ -8,7 +8,12 @@ var SpeechRecognition = SpeechRecognition || (typeof webkitSpeechRecognition !==
 var SpeechGrammarList = SpeechGrammarList || (typeof webkitSpeechGrammarList !== 'undefined' ? webkitSpeechGrammarList : undefined)
 var SpeechRecognitionEvent = SpeechRecognitionEvent || (typeof webkitSpeechRecognitionEvent !== 'undefined' ? webkitSpeechRecognitionEvent : undefined)
 
-
+var grammar;
+const commands = ['open', 'up', 'down', 'go back', 'next', 'back']
+const reinitGrammar = (keywords = []) => {
+    grammar = '#JSGF V1.0; grammar items; public <item> = ' + commands.concat(keywords).join(' | ') + ' ;'
+}
+reinitGrammar()
 
 let rec;
 let ws;
@@ -22,23 +27,29 @@ const reconnectws = () => {
     }, 1000)
     ws.onmessage = e => {
         console.log('ws message received', e.data)
+        let msg = JSON.parse(e.data)
+        if (msg.keywords) reinitGrammar(msg.keywords)
         if (rec.stopped) {
+            rec.recognition.start()
+        } else {
+            rec.recognition.stop()
             rec.recognition.start()
         }
     }
 }
 reconnectws()
 
-function Recognizer(predefinedItems, cbResult) {
+function Recognizer(cbResult) {
     this.cbResult = cbResult
 
-    this.recognition = this.__init(predefinedItems)
-    this.recognition.start();
-    console.log('Ready to receive a command!!');
+    this.recognition = this.__init()
+    this.stopped = true
+    // this.recognition.start();
+    // console.log('Ready to receive a command!!');
 }
 
-Recognizer.prototype.__init = function (predefinedItems) {
-    var grammar = '#JSGF V1.0; grammar items; public <item> = ' + predefinedItems.join(' | ') + ' ;'
+Recognizer.prototype.__init = function () {
+
 
     var recognition = new SpeechRecognition();
     var speechRecognitionList = new SpeechGrammarList();
@@ -103,9 +114,12 @@ Recognizer.prototype.onerror = function (event) {
     console.log('Error occurred in recognition: ' + event.error)
 }
 
-rec = new Recognizer(['open'], (err, res) => {
+rec = new Recognizer((err, res) => {
     console.log('Recognized', err, res)
     console.log('Send to websocket')
+    if (err) {
+        return console.log('Error:', err)
+    }
     ws.send(JSON.stringify({ command: res }))
 })
 
