@@ -21,8 +21,8 @@ server.on('error', err => {
 })
 
 function openFile(parts) {
-    vscode.workspace.findFiles('**/*.{js,jsx}', '**/node_modules/**', 250)
-        .then(files => {
+    vscode.workspace
+        .findFiles('**/*.{ts,tsx,js,jsx}', '**/node_modules/**', 250)
             const test = filename => {
                 for (let pp of parts) {
                     if (filename.indexOf(pp) === -1) {
@@ -83,7 +83,8 @@ export function activate(context: vscode.ExtensionContext) {
         console.log('excludeConf', excludeConf)
         let excludeStr = `{${Object.keys(excludeConf).filter(key => excludeConf[key]).join(',')}}`
         // vscode.workspace.findFiles('**/*.{js,jsx}', '**/node_modules/**', 250)
-        vscode.workspace.findFiles('**/*.{js,jsx}', excludeStr, 2000)
+        vscode.workspace
+            .findFiles('**/*.{ts,tsx,js,jsx}', excludeStr, 2000)
             .then(files => {
                 const re = /[_-\s./]|(?=[A-Z])/
                 let filePieces = {}
