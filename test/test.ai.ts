@@ -1,5 +1,6 @@
 import {
     execute,
+    handleCode,
 } from '../src/ai'
 const assert = require('assert')
 
@@ -7,11 +8,35 @@ const assert = require('assert')
 describe("Extension Tests", () => {
 
     // Defines a Mocha unit test
-    it("AI", () => {
+    it("learn function", () => {
         let out = execute('add function named gaga test')
         console.log('out:', out)
         assert.equal(out, 'How do I add function gagatest')
-        // assert.equal(-1, [1, 2, 3].indexOf(5));
-        // assert.equal(-1, [1, 2, 3].indexOf(0));
+
+        let out2 = handleCode(`function gagatest() {\n}`)
+        assert.deepEqual(out2, {
+            status: 'skill',
+            name: 'add function',
+            code: 'function __name__() {\n}',
+        })
+
+        assert.deepEqual(execute('add function named giga mega'), {
+            actions: [
+                'function gigamega() {\n}'
+            ]
+        })
+    })
+    it('learn var', () => {
+        assert.deepEqual(execute('add variable named user'), 'How do I add variable user')
+        assert.deepEqual(handleCode('let user\n'), {
+            status: 'skill',
+            name: 'add variable',
+            code: 'let __name__\n',
+        })
+        assert.deepEqual(execute('add variable named gaga'), {
+            actions: [
+                'let gaga\n'
+            ]
+        })
     });
 });
