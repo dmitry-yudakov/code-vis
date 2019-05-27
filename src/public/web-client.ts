@@ -106,13 +106,23 @@ const onResult = (err, res) => {
     ws.send(JSON.stringify({ command: res }))
 }
 
-let rec = new Recognizer({
-    continuous: true,
-    interimResults: true,
-    onResult,
-    lang: 'bg-BG',
-    // lang: 'en-US',
-});
+// let rec = new Recognizer({
+//     continuous: true,
+//     interimResults: true,
+//     onResult,
+//     lang: 'bg-BG',
+//     // lang: 'en-US',
+// });
+
+const input = window.document.getElementById('command-input');
+window.document.getElementById('command-form').onsubmit = e => {
+    console.log('on submit', e, input.value);
+    e.preventDefault();
+    const command = input.value;
+    ws.send(JSON.stringify({ command }));
+    input.value = '';
+};
+
 let ws;
 const reconnectws = () => {
     let protocol = (window.location.protocol === 'http:' ? 'ws' : 'wss')
@@ -123,10 +133,10 @@ const reconnectws = () => {
         reconnectws()
     }, 1000)
     ws.onmessage = e => {
-        console.log('ws message received', e.data)
-        let msg = JSON.parse(e.data)
-        if (msg.keywords) reinitGrammar(msg.keywords)
-        rec.start(grammar)
-    }
-}
-reconnectws()
+        console.log('ws message received', e.data);
+        let msg = JSON.parse(e.data);
+        if (msg.keywords) reinitGrammar(msg.keywords);
+        // rec.start(grammar)
+    };
+};
+reconnectws();
