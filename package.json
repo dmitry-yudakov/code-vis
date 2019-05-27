@@ -31,17 +31,17 @@
     "tt": "mocha --require ts-node/register src/test-ai/*.ts --watch --watch-extensions ts"
   },
   "devDependencies": {
-    "@types/mocha": "^2.2.48",
-    "@types/node": "^7.10.6",
-    "ts-node": "^7.0.1",
-    "typescript": "^2.9.2",
+    "@types/mocha": "^5.2.6",
+    "@types/node": "^12.0.2",
+    "ts-node": "^8.2.0",
+    "typescript": "^3.4.5",
     "vscode": "^1.1.34",
-    "vscode-languageclient": "^3.5.1",
-    "vscode-languageserver": "^3.5.1"
+    "vscode-languageclient": "^5.2.1",
+    "vscode-languageserver": "^5.2.1"
   },
   "dependencies": {
     "express": "^4.17.1",
-    "opn": "^5.5.0",
-    "ws": "^3.3.3"
+    "opn": "^6.0.0",
+    "ws": "^7.0.0"
   }
 }
