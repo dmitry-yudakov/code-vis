@@ -1,47 +1,47 @@
 {
-  "name": "code-ai",
-  "displayName": "code.ai",
-  "description": "code assistant",
-  "version": "0.0.1",
-  "publisher": "bornbrave",
-  "engines": {
-    "vscode": "^1.19.0"
-  },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [
-    "onCommand:codeai.activateSpeechRecognition"
-  ],
-  "main": "./out/extension",
-  "contributes": {
-    "commands": [
-      {
-        "command": "codeai.activateSpeechRecognition",
-        "title": "Hey code"
-      }
-    ]
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "postinstall": "node ./node_modules/vscode/bin/install",
-    "test": "npm run compile && node ./node_modules/vscode/bin/test",
-    "tt": "mocha --require ts-node/register src/test-ai/*.ts --watch --watch-extensions ts"
-  },
-  "devDependencies": {
-    "@types/mocha": "^5.2.6",
-    "@types/node": "^12.0.2",
-    "ts-node": "^8.2.0",
-    "typescript": "^3.4.5",
-    "vscode": "^1.1.34",
-    "vscode-languageclient": "^5.2.1",
-    "vscode-languageserver": "^5.2.1"
-  },
-  "dependencies": {
-    "express": "^4.17.1",
-    "opn": "^6.0.0",
-    "ws": "^7.0.0"
-  }
+    "name": "code-ai",
+    "displayName": "code.ai",
+    "description": "code assistant",
+    "version": "0.0.1",
+    "publisher": "bornbrave",
+    "engines": {
+        "vscode": "^1.34.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "*"
+    ],
+    "main": "./out/extension",
+    "contributes": {
+        "commands": [
+            {
+                "command": "codeai.activateSpeechRecognition",
+                "title": "Hey code"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "postinstall": "node ./node_modules/vscode/bin/install",
+        "test": "npm run compile && node ./node_modules/vscode/bin/test",
+        "tt": "mocha --require ts-node/register src/test-ai/*.ts --watch --watch-extensions ts"
+    },
+    "devDependencies": {
+        "@types/mocha": "^5.2.6",
+        "@types/node": "^12.0.2",
+        "ts-node": "^8.2.0",
+        "typescript": "^3.4.5",
+        "vscode": "^1.1.34",
+        "vscode-languageclient": "^5.2.1",
+        "vscode-languageserver": "^5.2.1"
+    },
+    "dependencies": {
+        "express": "^4.17.1",
+        "opn": "^6.0.0",
+        "ws": "^7.0.0"
+    }
 }

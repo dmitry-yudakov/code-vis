@@ -1,6 +1,16 @@
 'use strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import {
+    LanguageClient,
+    LanguageClientOptions,
+    ServerOptions,
+    TransportKind,
+    RequestType
+} from 'vscode-languageclient';
+
+const includeMask = '**/*.{ts,tsx,js,jsx}';
+const excludeMask = '**/node_modules/**';
 
 var childProc = require('child_process');
 var opn = require('opn');
@@ -22,45 +32,37 @@ server.on('error', err => {
 });
 
 function openFile(parts) {
-    vscode.workspace
-        .findFiles('**/*.{ts,tsx,js,jsx}', '**/node_modules/**', 250)
-        .then(
-            files => {
+    vscode.workspace.findFiles(includeMask, excludeMask, 250).then(
+        files => {
             const test = filename => {
                 for (let pp of parts) {
                     if (filename.indexOf(pp) === -1) {
-                            return false;
+                        return false;
+                    }
                 }
-            }
-                    return true;
-                };
+                return true;
+            };
             // console.log('files', files.map(ff => ff.path).join('\n'))
-                console.log('find file matching', JSON.stringify(parts));
-                let fileToOpen = files.find(file =>
-                    test(file.path.toLowerCase())
-                );
+            console.log('find file matching', JSON.stringify(parts));
+            let fileToOpen = files.find(file => test(file.path.toLowerCase()));
             if (fileToOpen) {
-                    console.log(
-                        'Open matching file:',
-                        fileToOpen.path,
-                        fileToOpen
-                    );
-                    vscode.workspace
-                        .openTextDocument(fileToOpen.fsPath) //vscode.Uri.file(fileToOpen.external))
+                console.log('Open matching file:', fileToOpen.path, fileToOpen);
+                vscode.workspace
+                    .openTextDocument(fileToOpen.fsPath) //vscode.Uri.file(fileToOpen.external))
                     .then(
-                    doc => vscode.window.showTextDocument(doc),
-                    err => console.log('error opening:', err)
-                        );
-            } else {
-                    vscode.window.showErrorMessage(
-                        `File matching ${parts.join('|')} is not found`
+                        doc => vscode.window.showTextDocument(doc),
+                        err => console.log('error opening:', err)
                     );
+            } else {
+                vscode.window.showErrorMessage(
+                    `File matching ${parts.join('|')} is not found`
+                );
             }
-            },
-            err => {
-                console.error(err);
-            }
-        );
+        },
+        err => {
+            console.error(err);
+        }
+    );
 }
 
 function onCommand(command) {
@@ -81,9 +83,7 @@ function onCommand(command) {
     }
 }
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+const openWebsocketServer = () => {
     server.listen(3789, (a, b) =>
         console.log('Example app listening on port 3789!', a, b)
     );
@@ -120,11 +120,10 @@ export function activate(context: vscode.ExtensionContext) {
                     JSON.stringify({ keywords: Object.keys(filePieces).sort() })
                 );
             });
-            });
-    // Use the console to output diagnostic information (console.log) and errors (console.error)
-    // This line of code will only be executed once when your extension is activated
-    console.log('Congratulations, your extension "code-ai" is now active!');
+    });
+};
 
+const openChrome = () => {
     // console.log(__filename)
     // childProc.exec('open -a "Google Chrome" ' + __filename + '.html', () => { console.log('chrome opened') });
     // childProc.exec('open -a "Google Chrome" ' + 'http://localhost:3789', () => { console.log('chrome opened') });
@@ -162,6 +161,61 @@ export function activate(context: vscode.ExtensionContext) {
     //     // Ignore errors.
     //     console.log('Error', err)
     // }
+};
+
+const startLanguageServer = context => {
+    let serverModule = context.asAbsolutePath(path.join('out', 'server.js'));
+    // The debug options for the server
+    let debugOptions = { execArgv: ['--nolazy', '--inspect=6019'] };
+
+    // If the extension is launched in debug mode then the debug server options are used
+    // Otherwise the run options are used
+    let serverOptions: ServerOptions = {
+        run: { module: serverModule, transport: TransportKind.ipc },
+        debug: {
+            module: serverModule,
+            transport: TransportKind.ipc,
+            options: debugOptions
+        }
+    };
+
+    // Options to control the language client
+    let clientOptions: LanguageClientOptions = {
+        // Register the server for plain text documents
+        documentSelector: [
+            { language: 'typescript' },
+            { language: 'typescriptreact' },
+            { language: 'javascript' },
+            { language: 'javascriptreact' }
+        ], // [{ scheme: 'file', language: 'plaintext' }],
+        synchronize: {
+            // Synchronize the setting section 'lspSample' to the server
+            configurationSection: 'code-ai',
+            // Notify the server about file changes to '.clientrc files contain in the workspace
+            // fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
+            // fileEvents: vscode.workspace.createFileSystemWatcher(includeMask)
+            fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
+        }
+    };
+
+    // Create the language client and start the client.
+    let client = new LanguageClient(
+        'code-ai',
+        'Code AI',
+        serverOptions,
+        clientOptions
+    );
+    return client.start();
+};
+
+// this method is called when your extension is activated
+// your extension is activated the very first time the command is executed
+export function activate(context: vscode.ExtensionContext) {
+    // Use the console to output diagnostic information (console.log) and errors (console.error)
+    // This line of code will only be executed once when your extension is activated
+    console.log('Your extension "code-ai" is now active!');
+    // openWebsocketServer();
+    // openChrome();
 
     // let statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
     // statusBarItem.text = 'Listening';
@@ -173,18 +227,37 @@ export function activate(context: vscode.ExtensionContext) {
     let disposable = vscode.commands.registerCommand(
         'codeai.activateSpeechRecognition',
         () => {
-        // The code you place here will be executed every time your command is executed
+            // The code you place here will be executed every time your command is executed
 
             console.log('Hey code');
 
             wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
+                if (client.readyState === WebSocket.OPEN) {
                     client.send(JSON.stringify({ command: 'listen' }));
-            }
-        });
+                }
+            });
         }
     );
 
     context.subscriptions.push(disposable);
-}
 
+    disposable = startLanguageServer(context);
+
+    // Push the disposable to the context's subscriptions so that the
+    // client can be deactivated on extension deactivation
+    context.subscriptions.push(disposable);
+
+    // disposable = commands.registerCommand('extension.sayHello', () => {
+    //     console.log('hello');
+    //     childProc.exec('open -a "Google Chrome" http://www.nba.com', () => {
+    //         console.log('chrome opened');
+    //     });
+    //     //Or could be: childProc.exec('open -a firefox http://your_url', callback);
+    //     // client.sendRequest(RequestType.)
+    // });
+    // context.subscriptions.push(disposable);
+
+    //     let statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
+    //     statusBarItem.text = 'Gaga';
+    //     statusBarItem.show()
+}
