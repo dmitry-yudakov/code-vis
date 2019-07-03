@@ -128,6 +128,17 @@ const onResult = (err, res) => {
     ws.send(JSON.stringify({ command: res }));
 };
 
+const appendToHistory = data => {
+    const { document: doc } = window;
+    const hitory = doc.getElementById('history');
+    const date = new Date();
+    const text = typeof data === 'string' ? data : JSON.stringify(data);
+    const li = doc.createElement('li');
+    const newRow = doc.createTextNode(`${date.toLocaleString()}: ${text}`);
+    li.appendChild(newRow);
+    hitory.appendChild(li);
+};
+
 // let rec = new Recognizer({
 //     continuous: true,
 //     interimResults: true,
@@ -150,6 +161,9 @@ const reconnectws = () => {
     let protocol = window.location.protocol === 'http:' ? 'ws' : 'wss';
     console.log('connect websocket');
     ws = new WebSocket(`${protocol}://${window.location.host}`);
+    ws.onopen = () => {
+        appendToHistory('Connected');
+    };
     ws.onclose = () =>
         setTimeout(() => {
             console.log('reconnect websocket');
@@ -158,7 +172,12 @@ const reconnectws = () => {
     ws.onmessage = e => {
         console.log('ws message received', e.data);
         let msg = JSON.parse(e.data);
-        if (msg.keywords) reinitGrammar(msg.keywords);
+        switch (msg.type) {
+            case 'keywords':
+                reinitGrammar(msg.payload);
+                appendToHistory('Keywords received');
+                break;
+        }
         // rec.start(grammar)
     };
 };

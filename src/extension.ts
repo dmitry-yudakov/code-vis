@@ -26,6 +26,18 @@ app.use('/', express.static(path.join(__dirname, 'public')));
 
 let server = http.createServer(app);
 let wss = new WebSocket.Server({ server });
+let wsConnections = [];
+
+const sendToWebsocket = (data: any) => {
+    if (wsConnections.length === 0) {
+        console.log(
+            'Error sending to websocket - not connected! Unsent msg:',
+            data
+        );
+        return;
+    }
+    for (const conn of wsConnections) conn.send(JSON.stringify(data));
+};
 
 server.on('error', err => {
     console.log('server error:', err);
@@ -95,11 +107,26 @@ function onCommand(command) {
     }
 }
 
+const tokenizeProjectFilenames = async () => {
+    const files = await listProjectFiles();
+    const re = /[_-\s./]|(?=[A-Z])/;
+    let filePieces = {};
+    for (const file of files) {
+        file.path.split(re).forEach(piece => {
+            filePieces[piece.toLowerCase()] = true;
+        });
+    }
+    delete filePieces[''];
+    return Object.keys(filePieces).sort();
+};
+
 const openWebsocketServer = () => {
     server.listen(3789, (a, b) =>
         console.log('Example app listening on port 3789!', a, b)
     );
     wss.on('connection', function connection(ws) {
+        wsConnections.push(ws);
+        console.log('Webscoket connection established');
         ws.on('message', function incoming(message) {
             console.log('received:', message);
             let msg = JSON.parse(message);
@@ -107,20 +134,13 @@ const openWebsocketServer = () => {
                 onCommand(msg.command);
             }
         });
+        ws.on('close', () => {
+            console.log('ws connection closed');
+            wsConnections = wsConnections.filter(conn => conn !== ws);
+        });
 
-        listProjectFiles().then(files => {
-            const re = /[_-\s./]|(?=[A-Z])/;
-            let filePieces = {};
-            files.forEach(file => {
-                file.path.split(re).forEach(piece => {
-                    filePieces[piece.toLowerCase()] = true;
-                });
-            });
-            delete filePieces[''];
-
-            ws.send(
-                JSON.stringify({ keywords: Object.keys(filePieces).sort() })
-            );
+        tokenizeProjectFilenames().then(keywords => {
+            sendToWebsocket({ type: 'keywords', payload: keywords });
         });
     });
 };
@@ -254,8 +274,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Use the console to output diagnostic information (console.log) and errors (console.error)
     // This line of code will only be executed once when your extension is activated
     console.log('Your extension "code-ai" is now active!');
-    // openWebsocketServer();
-    // openChrome();
+    openWebsocketServer();
+    openChrome();
 
     // let statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
     // statusBarItem.text = 'Listening';
