@@ -177,6 +177,9 @@ const reconnectws = () => {
                 reinitGrammar(msg.payload);
                 appendToHistory('Keywords received');
                 break;
+            case 'projectMap':
+                appendToHistory(msg.payload);
+                break;
         }
         // rec.start(grammar)
     };
