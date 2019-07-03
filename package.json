@@ -19,6 +19,10 @@
             {
                 "command": "codeai.activateSpeechRecognition",
                 "title": "Hey code"
+            },
+            {
+                "command": "codeai.projectMap",
+                "title": "Project Map"
             }
         ]
     },

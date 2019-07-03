@@ -210,6 +210,29 @@ const openChrome = () => {
 //     return client.start();
 // };
 
+const mapIncludes = async () => {
+    const files = await listProjectFiles(includeMask, 2000);
+    // console.log('files', files);
+    const includes = [];
+    const re = /^import (.+) from ['"](\..+)['"]/gm;
+    for (const file of files) {
+        const doc = await vscode.workspace.openTextDocument(file.path);
+        // console.log('doc text', doc.getText());
+        const relativePath = file.path.replace(vscode.workspace.rootPath, '');
+        // console.log('analyze', relativePath);
+        let out;
+        do {
+            out = re.exec(doc.getText());
+            if (!out) break;
+            const [, what, whereFrom] = out;
+            // console.log([relativePath, out[1]]);
+            // console.log(relativePath, out[1], out[2]);
+            includes.push([what, relativePath, whereFrom]);
+        } while (1);
+    }
+    return includes;
+};
+
 const contributeCommandsHandlers = {
     'codeai.activateSpeechRecognition': () => {
         console.log('Hey code');
@@ -219,6 +242,10 @@ const contributeCommandsHandlers = {
             }
         });
     },
+    'codeai.projectMap': async () => {
+        const data = await mapIncludes();
+        console.log(data);
+    }
 };
 
 // this method is called when your extension is activated
