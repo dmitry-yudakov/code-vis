@@ -98,6 +98,9 @@ function onCommand(command) {
         case 'open':
             if (tokens.length) openFile(tokens);
             break;
+        case 'project':
+            contributeCommandsHandlers['codeai.projectMap']();
+            break;
         default:
             vscode.window.showWarningMessage(
                 'Could not recognize command: "' + command + '"'

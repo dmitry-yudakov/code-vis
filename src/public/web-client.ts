@@ -122,6 +122,7 @@ class Recognizer {
 const onResult = (err, res) => {
     console.log('Recognized', err, res);
     console.log('Send to websocket');
+    appendToHistory('Voice: ' + res);
     if (err) {
         return console.log('Error:', err);
     }
@@ -137,15 +138,29 @@ const appendToHistory = data => {
     const newRow = doc.createTextNode(`${date.toLocaleString()}: ${text}`);
     li.appendChild(newRow);
     hitory.appendChild(li);
+    li.scrollIntoView();
 };
 
-// let rec = new Recognizer({
-//     continuous: true,
-//     interimResults: true,
-//     onResult,
-//     lang: 'bg-BG',
-//     // lang: 'en-US',
-// });
+let rec;
+
+const voiceButton = window.document.getElementById('voice-control');
+voiceButton.onclick = () => {
+    if (rec) {
+        appendToHistory('Voice off');
+        rec.stop();
+        rec = null;
+        return;
+    }
+    rec = new Recognizer({
+        continuous: true,
+        // interimResults: true, ??
+        onResult,
+        // lang: 'bg-BG'
+        lang: 'en-US'
+    });
+    rec.start(grammar);
+    appendToHistory('Voice on');
+};
 
 const input = window.document.getElementById('command-input');
 window.document.getElementById('command-form').onsubmit = e => {
@@ -153,6 +168,7 @@ window.document.getElementById('command-form').onsubmit = e => {
     e.preventDefault();
     const command = input.value;
     ws.send(JSON.stringify({ command }));
+    appendToHistory('Input: ' + command);
     input.value = '';
 };
 
