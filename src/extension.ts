@@ -44,10 +44,8 @@ server.on('error', err => {
 });
 
 const listProjectFiles = async (include = includeMask, limit = 10000) => {
-    let conf = vscode.workspace.getConfiguration();
-    // console.log('workspace conf:', conf);
-    let excludeConf = conf.get('search.exclude');
-    // console.log('excludeConf', excludeConf);
+    let conf = vscode.workspace.getConfiguration('search', null);
+    let excludeConf = conf.get('exclude');
     let excludeStr = `{${Object.keys(excludeConf)
         .filter(key => excludeConf[key])
         .join(',')}}`;
