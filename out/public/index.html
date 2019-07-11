@@ -1,5 +1,10 @@
 <html>
     <head>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css"
+        />
         <link rel="stylesheet" href="styles.css" />
     </head>
 
@@ -7,11 +12,11 @@
         <ul id="history"></ul>
         <div id="visual"></div>
         <div id="controls">
-        <form id="command-form">
-            <input id="command-input" name="command" />
-        </form>
-        <button id="voice-control">Voice</button>
-        <div class="hint">
+            <form id="command-form">
+                <input id="command-input" name="command" />
+            </form>
+            <button id="voice-control">Voice</button>
+            <div class="hint">
                 This tab handles the input part (speech recognition or text
                 input)
             </div>

@@ -172,6 +172,32 @@ window.document.getElementById('command-form').onsubmit = e => {
     input.value = '';
 };
 
+type Conn = { items: string[]; from: string; to: string };
+const renderGraph = (connectionsData: Conn[]) => {
+    const nodesObj = {};
+    let idx = 0;
+    const addUniqueNode = name => {
+        const id = (nodesObj[name] = nodesObj[name] || ++idx);
+        return id;
+    };
+    const edges = connectionsData.map(conn => ({
+        from: addUniqueNode(conn.from),
+        to: addUniqueNode(conn.to)
+    }));
+    const nodes = Object.keys(nodesObj).map(label => ({
+        id: nodesObj[label],
+        label
+    }));
+
+    const container = document.getElementById('visual');
+    const data = {
+        nodes: new vis.DataSet(nodes),
+        edges: new vis.DataSet(edges)
+    };
+    const options = {};
+    const network = new vis.Network(container, data, options);
+};
+
 let ws;
 const reconnectws = () => {
     let protocol = window.location.protocol === 'http:' ? 'ws' : 'wss';
@@ -195,6 +221,7 @@ const reconnectws = () => {
                 break;
             case 'projectMap':
                 appendToHistory(msg.payload);
+                renderGraph(msg.payload);
                 break;
         }
         // rec.start(grammar)
