@@ -108,6 +108,10 @@ function onCommand(command) {
             vscode.window.showWarningMessage(
                 'Could not recognize command: "' + command + '"'
             );
+            sendToWebsocket({
+                type: 'info',
+                payload: 'Unrecognized command: ' + command
+            });
     }
 }
 

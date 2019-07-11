@@ -3,6 +3,7 @@ declare var webkitSpeechGrammarList;
 declare var webkitSpeechRecognitionEvent;
 declare var window;
 declare var WebSocket;
+declare var vis;
 
 var SpeechRecognition =
     SpeechRecognition ||
@@ -189,7 +190,7 @@ const renderGraph = (connectionsData: Conn[]) => {
         label
     }));
 
-    const container = document.getElementById('visual');
+    const container = window.document.getElementById('visual');
     const data = {
         nodes: new vis.DataSet(nodes),
         edges: new vis.DataSet(edges)
@@ -223,6 +224,11 @@ const reconnectws = () => {
                 appendToHistory(msg.payload);
                 renderGraph(msg.payload);
                 break;
+            case 'info':
+                appendToHistory(msg.payload);
+                break;
+            default:
+                appendToHistory('Unrecognized: ' + JSON.stringify(msg));
         }
         // rec.start(grammar)
     };
