@@ -53,6 +53,9 @@ const listProjectFiles = async (include = includeMask, limit = 10000) => {
     return files;
 };
 
+const toRelativePath = (fullPath: string) =>
+    fullPath.replace(vscode.workspace.rootPath, '');
+
 function openFile(parts) {
     listProjectFiles().then(
         files => {
@@ -231,19 +234,78 @@ const openChrome = () => {
 //     return client.start();
 // };
 
-const mapIncludes = async () => {
+type TScanFileCallback = (relativePath: string, content: string) => void;
+
+const scanProjectFiles = async ({
+    forEveryFile
+}: {
+    forEveryFile: TScanFileCallback;
+}) => {
     const files = await listProjectFiles(includeMask, 2000);
-    // console.log('files', files);
-    const includes = [];
-    const re = /^import (.+) from ['"](\..+)['"]/gm;
     for (const file of files) {
         const doc = await vscode.workspace.openTextDocument(file.path);
-        // console.log('doc text', doc.getText());
         const relativePath = file.path.replace(vscode.workspace.rootPath, '');
+
+        await forEveryFile(relativePath, doc.getText());
+    }
+};
+
+interface IFileIncludeInfo {
+    to: string;
+    from: string;
+    items: string[];
+}
+
+const autoAppendJSextensionInPlace = (
+    info: IFileIncludeInfo,
+    projectFiles: string[]
+) => {
+    const { from } = info;
+    for (let filename of projectFiles) {
+        if (
+            filename.indexOf(from) === 0 &&
+            filename.length !== from.length &&
+            filename[from.length] === '.'
+        ) {
+            info.from = filename;
+            break;
+        }
+    }
+};
+
+const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
+    const re = /\//;
+    const { to, from } = info;
+    const pathTokens = to.split(re).filter(t => !!t);
+    pathTokens.pop(); // remove filename and leave only path
+
+    const fromTokens = from.split(re).filter(t => !!t);
+
+    for (const token of fromTokens) {
+        if (token === '.') {
+            // noop
+        } else if (token === '..') {
+            pathTokens.pop();
+        } else {
+            pathTokens.push(token);
+        }
+    }
+    info.from = '/' + pathTokens.join('/');
+    console.log(info.from, info.to);
+};
+
+const mapIncludes = async () => {
+    const includes: IFileIncludeInfo[] = [];
+    const parseAndStoreIncludes: TScanFileCallback = (
+        relativePath,
+        content
+    ) => {
+        const re = /^import (.+) from ['"](\..+)['"]/gm;
+        const re2 = /^(const|let|var) (.+) = require\(['"](\..+)['"]\)/gm;
+        // console.log('doc text', doc.getText());
         // console.log('analyze', relativePath);
-        let out;
         do {
-            out = re.exec(doc.getText());
+            let out = re.exec(content);
             if (!out) break;
             const [, what, whereFrom] = out;
             const whatSplit = what.split(/[,\s{}]+/).filter(t => !!t);
@@ -255,7 +317,33 @@ const mapIncludes = async () => {
                 from: whereFrom
             });
         } while (1);
-    }
+        do {
+            let out = re2.exec(content);
+            if (!out) break;
+            const [, , what, whereFrom] = out;
+            const whatSplit = what.split(/[,\s{}]+/).filter(t => !!t);
+            // console.log([relativePath, out[1]]);
+            // console.log(relativePath, out[1], out[2]);
+            includes.push({
+                items: whatSplit,
+                to: relativePath,
+                from: whereFrom
+            });
+        } while (1);
+    };
+
+    await scanProjectFiles({ forEveryFile: parseAndStoreIncludes });
+
+    includes.forEach(resolveRelativeIncludePathInPlace);
+
+    const projectFilesRelative = (await listProjectFiles())
+        .map(file => file.path)
+        .map(toRelativePath);
+    console.log(projectFilesRelative);
+    includes.forEach(info =>
+        autoAppendJSextensionInPlace(info, projectFilesRelative)
+    );
+
     return includes;
 };
 
