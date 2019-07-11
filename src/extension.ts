@@ -246,9 +246,14 @@ const mapIncludes = async () => {
             out = re.exec(doc.getText());
             if (!out) break;
             const [, what, whereFrom] = out;
+            const whatSplit = what.split(/[,\s{}]+/).filter(t => !!t);
             // console.log([relativePath, out[1]]);
             // console.log(relativePath, out[1], out[2]);
-            includes.push([what, relativePath, whereFrom]);
+            includes.push({
+                items: whatSplit,
+                to: relativePath,
+                from: whereFrom
+            });
         } while (1);
     }
     return includes;
