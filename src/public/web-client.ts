@@ -173,6 +173,90 @@ window.document.getElementById('command-form').onsubmit = e => {
     input.value = '';
 };
 
+const graphDefaultOptions = {
+    // locales: {
+    //     en: {
+    //         edit: 'Edit',
+    //         del: 'Delete selected',
+    //         back: 'Back',
+    //         addNode: 'Add Grouping Node',
+    //         addEdge: 'Add Edge',
+    //         editNode: 'Edit Node',
+    //         editEdge: 'Edit Edge',
+    //         addDescription: 'Click in an empty space to place a new node.',
+    //         edgeDescription: 'Click on a node and drag the edge to another node to connect them.',
+    //         editEdgeDescription: 'Click on the control points and drag them to a node to connect to it.',
+    //         createEdgeError: 'Cannot link edges to a cluster.',
+    //         deleteClusterError: 'Clusters cannot be deleted.',
+    //         editClusterError: 'Clusters cannot be edited.'
+    //       }
+    // },
+    // layout: {
+    //     hierarchical: {
+    //         direction: 'LR',
+    //     }
+    // },
+    // edges: {
+    //     color: "#000000"
+    // },
+    nodes: {
+        shape: 'box',
+        margin: 5,
+        widthConstraint: {
+            maximum: 200
+        },
+        shadow: true
+    },
+    // nodes: {
+    //     shape: 'dot',
+    // scaling: {
+    //     customScalingFunction: function (min, max, total, value) {
+    //         console.log('gaga', { min, max, total, value, this_: this });
+    //         return value / total;
+    //     },
+    //     min: 5,
+    //     max: 150
+    // }
+    // },
+    // edges: {
+    //     font: {
+    //         size: 12
+    //     },
+    //     widthConstraint: {
+    //         maximum: 90
+    //     }
+    // },
+    // manipulation: {
+    //     enabled: true,
+    //     initiallyActive: true,
+    //     addNode: (data, cb) => { console.log(data) },
+    //     addEdge: (data, cb) => { console.log('add edge', data) },
+    //     editNode: (data, cb) => { console.log(data) },
+    //     editEdge: (data, cb) => { console.log('edit edge', data) },
+    //     deleteNode: (data, cb) => { console.log(data) },
+    //     deleteEdge: (data, cb) => { console.log('delete edge', data) },
+    //     controlNodeStyle: {
+    //         // all node options are valid.
+    //     }
+    // },
+    // physics: {
+    //     barnesHut: {
+    //         centralGravity: 0.1,
+    //     },
+    //     minVelocity: 0.75
+    // },
+    edges: {
+        smooth: {
+            type: 'continuous'
+        }
+    }
+    // physics: false
+    // "physics": {
+    //     "minVelocity": 0.75,
+    //     "solver": "repulsion"
+    // }
+};
+
 type Conn = { items: string[]; from: string; to: string };
 const renderGraph = (connectionsData: Conn[]) => {
     const nodesObj = {};
@@ -183,7 +267,8 @@ const renderGraph = (connectionsData: Conn[]) => {
     };
     const edges = connectionsData.map(conn => ({
         from: addUniqueNode(conn.from),
-        to: addUniqueNode(conn.to)
+        to: addUniqueNode(conn.to),
+        arrows: 'from'
     }));
     const nodes = Object.keys(nodesObj).map(label => ({
         id: nodesObj[label],
@@ -195,8 +280,7 @@ const renderGraph = (connectionsData: Conn[]) => {
         nodes: new vis.DataSet(nodes),
         edges: new vis.DataSet(edges)
     };
-    const options = {};
-    const network = new vis.Network(container, data, options);
+    const network = new vis.Network(container, data, graphDefaultOptions);
 };
 
 let ws;
