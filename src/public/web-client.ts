@@ -191,14 +191,12 @@ const graphDefaultOptions = {
     //         editClusterError: 'Clusters cannot be edited.'
     //       }
     // },
-    // layout: {
-    //     hierarchical: {
-    //         direction: 'LR',
-    //     }
-    // },
     // edges: {
     //     color: "#000000"
     // },
+    interaction: {
+        hideEdgesOnDrag: true
+    },
     nodes: {
         shape: 'box',
         margin: 5,
@@ -249,12 +247,34 @@ const graphDefaultOptions = {
         smooth: {
             type: 'continuous'
         }
-    }
-    // physics: false
+    },
+    physics: false,
     // "physics": {
     //     "minVelocity": 0.75,
     //     "solver": "repulsion"
     // }
+    layout: {
+        hierarchical: {
+            direction: 'LR',
+            edgeMinimization: false,
+            parentCentralization: false,
+            sortMethod: 'directed'
+        }
+    },
+    configure: {
+        filter: function(option, path) {
+            for (const item of [option, path[0]]) {
+                switch (item) {
+                    case 'nodes':
+                    case 'edges':
+                    case 'manipulation':
+                        return false;
+                }
+            }
+            return true;
+        },
+        showButton: false
+    }
 };
 
 type Conn = { items: string[]; from: string; to: string };
