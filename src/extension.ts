@@ -28,6 +28,19 @@ let server = http.createServer(app);
 let wss = new WebSocket.Server({ server });
 let wsConnections = [];
 
+const hideFilesMasks: { [k: string]: RegExp } = {};
+
+const shouldIgnoreFile = filePath => {
+    for (const key in hideFilesMasks) {
+        const re = hideFilesMasks[key];
+        if (re.test(filePath)) {
+            console.log('ignore', filePath, key, re);
+            return true;
+        }
+    }
+    return false;
+};
+
 const sendToWebsocket = (data: any) => {
     if (wsConnections.length === 0) {
         console.log(
@@ -96,6 +109,17 @@ function onCommand(command) {
         .filter(word => word)
         .map(word => word.toLowerCase());
     console.log('tokens', tokens);
+
+    const unrecognized = () => {
+        vscode.window.showWarningMessage(
+            'Could not recognize command: "' + command + '"'
+        );
+        sendToWebsocket({
+            type: 'info',
+            payload: 'Unrecognized command: ' + command
+        });
+    };
+
     let op = tokens.shift();
     switch (op) {
         case 'open':
@@ -105,17 +129,30 @@ function onCommand(command) {
             const what = tokens.shift();
             if (what === 'project') {
                 contributeCommandsHandlers['codeai.projectMap']();
-                break;
+            } else {
+                unrecognized();
             }
+            break;
+        }
+        case 'hide': {
+            const maskName = tokens.join('|');
+            const what = tokens.shift();
+            let re;
+            if (what === 'directory') {
+                re = new RegExp(`^.*${tokens.join('.*')}\/`);
+            } else if (what === 'file') {
+                re = new RegExp(`^.*${['/', ...tokens].join('.*')}[^/]`);
+            } else {
+                return unrecognized();
+            }
+
+            hideFilesMasks[maskName] = re;
+
+            contributeCommandsHandlers['codeai.projectMap']();
+            break;
         }
         default:
-            vscode.window.showWarningMessage(
-                'Could not recognize command: "' + command + '"'
-            );
-            sendToWebsocket({
-                type: 'info',
-                payload: 'Unrecognized command: ' + command
-            });
+            unrecognized();
     }
 }
 
@@ -250,7 +287,11 @@ const scanProjectFiles = async ({
     forEveryFile: TScanFileCallback;
 }) => {
     const files = await listProjectFiles(includeMask, 2000);
+
     for (const file of files) {
+        if (shouldIgnoreFile(file.path)) {
+            continue;
+        }
         const doc = await vscode.workspace.openTextDocument(file.path);
         const relativePath = file.path.replace(vscode.workspace.rootPath, '');
 
@@ -303,7 +344,7 @@ const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
 };
 
 const mapIncludes = async () => {
-    const includes: IFileIncludeInfo[] = [];
+    let includes: IFileIncludeInfo[] = [];
     const parseAndStoreIncludes: TScanFileCallback = (
         relativePath,
         content
@@ -340,7 +381,11 @@ const mapIncludes = async () => {
         } while (1);
     };
 
-    await scanProjectFiles({ forEveryFile: parseAndStoreIncludes });
+    await scanProjectFiles({
+        forEveryFile: parseAndStoreIncludes
+    });
+
+    includes = includes.filter(({ from }) => !shouldIgnoreFile(from));
 
     includes.forEach(resolveRelativeIncludePathInPlace);
 
