@@ -277,6 +277,8 @@ const graphDefaultOptions = {
     }
 };
 
+let network;
+
 type Conn = { items: string[]; from: string; to: string };
 const renderGraph = (connectionsData: Conn[]) => {
     const nodesObj = {};
@@ -300,7 +302,23 @@ const renderGraph = (connectionsData: Conn[]) => {
         nodes: new vis.DataSet(nodes),
         edges: new vis.DataSet(edges)
     };
-    const network = new vis.Network(container, data, graphDefaultOptions);
+    if (!network) {
+        console.log('init new network with data', connectionsData, data);
+        network = new vis.Network(container, data, graphDefaultOptions);
+
+        network.setOptions({ physics: { stabilization: { fit: false } } });
+        network.stabilize();
+
+        network.setOptions({ physics: false });
+        // network.clusterByHubsize();
+    } else {
+        console.log(
+            'reload existing network with new data',
+            connectionsData,
+            data
+        );
+        network.setData(data);
+    }
 };
 
 let ws;
