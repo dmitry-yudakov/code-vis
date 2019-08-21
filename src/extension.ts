@@ -137,16 +137,16 @@ function onCommand(command) {
         case 'hide': {
             const maskName = tokens.join('|');
             const what = tokens.shift();
-            let re;
+            let reString;
             if (what === 'directory') {
-                re = new RegExp(`^.*${tokens.join('.*')}\/`);
+                reString = `^.*${tokens.join('.*')}\/`;
             } else if (what === 'file') {
-                re = new RegExp(`^.*${['/', ...tokens].join('.*')}[^/]`);
+                reString = `^.*${['/', ...tokens].join('.*')}[^/]`;
             } else {
                 return unrecognized();
             }
-
-            hideFilesMasks[maskName] = re;
+            console.log('Ignore regex', reString);
+            hideFilesMasks[maskName] = new RegExp(reString, 'i');
 
             contributeCommandsHandlers['codeai.projectMap']();
             break;
@@ -290,6 +290,7 @@ const scanProjectFiles = async ({
 
     for (const file of files) {
         if (shouldIgnoreFile(file.path)) {
+            console.log('ignoring', file, 'because of path');
             continue;
         }
         const doc = await vscode.workspace.openTextDocument(file.path);
@@ -340,7 +341,7 @@ const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
         }
     }
     info.from = '/' + pathTokens.join('/');
-    console.log(info.from, info.to);
+    // console.log(info.from, info.to);
 };
 
 const mapIncludes = async () => {
@@ -385,7 +386,11 @@ const mapIncludes = async () => {
         forEveryFile: parseAndStoreIncludes
     });
 
-    includes = includes.filter(({ from }) => !shouldIgnoreFile(from));
+    includes = includes.filter(({ from, ...rest }) => {
+        const ignore = shouldIgnoreFile(from);
+        if (ignore) console.log('ignoring "from"', from, rest);
+        return !ignore;
+    });
 
     includes.forEach(resolveRelativeIncludePathInPlace);
 

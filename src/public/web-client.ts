@@ -325,7 +325,8 @@ const reconnectws = () => {
                 appendToHistory('Keywords received');
                 break;
             case 'projectMap':
-                appendToHistory(msg.payload);
+                // appendToHistory(msg.payload);
+                appendToHistory('Project map received');
                 renderGraph(msg.payload);
                 break;
             case 'info':
