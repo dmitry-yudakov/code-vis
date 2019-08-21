@@ -445,10 +445,10 @@ export function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(disposable);
     }
 
-    mapIncludes().then(data => {
-        console.log(data);
-        sendToWebsocket({ type: 'projectMap', payload: data });
-    });
+    // mapIncludes().then(data => {
+    //     console.log(data);
+    //     sendToWebsocket({ type: 'projectMap', payload: data });
+    // });
 
     // disposable = startLanguageServer(context);
     // context.subscriptions.push(disposable);

@@ -310,6 +310,7 @@ const reconnectws = () => {
     ws = new WebSocket(`${protocol}://${window.location.host}`);
     ws.onopen = () => {
         appendToHistory('Connected');
+        ws.send(JSON.stringify({ command: 'map project' }));
     };
     ws.onclose = () =>
         setTimeout(() => {
