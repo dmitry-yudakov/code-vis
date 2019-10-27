@@ -32,6 +32,11 @@ const commands = [
     'отвори',
     'нагоре'
 ];
+
+const expandedSubtrees = {
+    '/': true
+};
+
 const reinitGrammar = (keywords = []) => {
     grammar =
         '#JSGF V1.0; grammar items; public <item> = ' +
@@ -195,7 +200,7 @@ const graphDefaultOptions = {
     //     color: "#000000"
     // },
     interaction: {
-        hideEdgesOnDrag: true
+        // hideEdgesOnDrag: true
     },
     nodes: {
         shape: 'box',
@@ -249,10 +254,15 @@ const graphDefaultOptions = {
         }
     },
     physics: false,
-    // "physics": {
-    //     "minVelocity": 0.75,
-    //     "solver": "repulsion"
-    // }
+    // physics: {
+    //     maxVelocity: 50,
+    //     barnesHut: {
+    //         avoidOverlap: 0.6,
+    //         centralGravity: 0.1
+    //     },
+    //     solver: 'barnesHut'
+    //     // solver: 'repulsion'
+    // },
     layout: {
         hierarchical: {
             direction: 'LR',
@@ -278,46 +288,88 @@ const graphDefaultOptions = {
 };
 
 let network;
+const nodesObj = {};
+const nodesById = {};
+let projectMapData;
 
 type Conn = { items: string[]; from: string; to: string };
 const renderGraph = (connectionsData: Conn[]) => {
-    const nodesObj = {};
-    let idx = 0;
+    const collapseIfNeeded = name => {
+        const parts = name.split('/');
+        // console.log(parts);
+        let expandingName = '';
+        do {
+            expandingName += parts.shift();
+            if (!parts.length) break;
+            expandingName += '/';
+            // console.log('check', expandingName, expandedSubtrees);
+        } while (expandedSubtrees[expandingName]);
+        return expandingName;
+    };
+    const collapsedConnectionsData = connectionsData.map(it => ({
+        ...it,
+        from: collapseIfNeeded(it.from),
+        to: collapseIfNeeded(it.to)
+    }));
+
     const addUniqueNode = name => {
-        const id = (nodesObj[name] = nodesObj[name] || ++idx);
+        const id = (nodesObj[name] = name);
         return id;
     };
-    const edges = connectionsData.map(conn => ({
-        from: addUniqueNode(conn.from),
-        to: addUniqueNode(conn.to),
+    const edgesObj: { [from: string]: string } = {};
+    for (const conn of collapsedConnectionsData) {
+        edgesObj[addUniqueNode(conn.from)] = addUniqueNode(conn.to);
+    }
+    const edges = Object.keys(edgesObj).map(from => ({
+        from,
+        to: edgesObj[from],
         arrows: 'from'
     }));
     const nodes = Object.keys(nodesObj).map(label => ({
         id: nodesObj[label],
         label
     }));
+    for (const node of nodes) nodesById[node.id] = node;
 
     const container = window.document.getElementById('visual');
     const data = {
         nodes: new vis.DataSet(nodes),
         edges: new vis.DataSet(edges)
     };
-    if (!network) {
+    if (true || !network) {
         console.log('init new network with data', connectionsData, data);
         network = new vis.Network(container, data, graphDefaultOptions);
+
+        const graphEvents = {
+            doubleClick: props => {
+                console.log(props);
+                for (const nodeId of props.nodes) {
+                    const node = nodesById[nodeId];
+                    console.log(nodeId, node);
+                    expandedSubtrees[node.label] = true;
+                }
+                network = null; // temp
+                renderGraph(projectMapData);
+            }
+        };
+
+        for (const ev in graphEvents) {
+            network.on(ev, graphEvents[ev]);
+        }
 
         network.setOptions({ physics: { stabilization: { fit: false } } });
         network.stabilize();
 
         network.setOptions({ physics: false });
         // network.clusterByHubsize();
-    } else {
-        console.log(
-            'reload existing network with new data',
-            connectionsData,
-            data
-        );
-        network.setData(data);
+
+        // } else {
+        //     console.log(
+        //         'reload existing network with new data',
+        //         connectionsData,
+        //         data
+        //     );
+        //     network.setData(data);
     }
 };
 
@@ -346,6 +398,7 @@ const reconnectws = () => {
             case 'projectMap':
                 // appendToHistory(msg.payload);
                 appendToHistory('Project map received');
+                projectMapData = msg.payload;
                 renderGraph(msg.payload);
                 break;
             case 'info':
