@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './App.css';
 import { WSConn } from './connection';
+import { DndProvider, useDrag, useDrop } from 'react-dnd';
+import Backend from 'react-dnd-html5-backend';
 
 const url = `ws://localhost:3789`;
 
@@ -24,10 +26,69 @@ const center = (node: any) => {
         width,
         height
     } = node.getBoundingClientRect();
-    const x = left + width / 2;
-    const y = top + height / 2;
-    // console.log({ left, top, right, bottom, width, height, x, y });
+    const absLeft = window.scrollX + left;
+    const absTop = window.scrollY + top;
+    const x = absLeft + width / 2;
+    const y = absTop + height / 2;
+    console.debug(
+        { absLeft, absTop, left, top, width, height, x, y },
+        window.scrollX,
+        window.scrollY
+    );
     return [x, y];
+};
+
+const Node = ({ forwardRef, children, onChange }: any) => {
+    const [, drag] = useDrag({
+        item: { type: 'NODE' },
+        end: (type, monitor) => {
+            console.log('Node drop ended', type, monitor.getDropResult());
+            console.log(
+                'Node drop end offsets',
+                monitor.getInitialClientOffset(),
+                monitor.getInitialSourceClientOffset(),
+                monitor.getClientOffset(),
+                monitor.getDifferenceFromInitialOffset(),
+                monitor.getSourceClientOffset(),
+                monitor.getClientOffset()
+            );
+            const moveResult = monitor.getDropResult();
+            if (moveResult) {
+                onChange(moveResult);
+            }
+        },
+        collect: monitor => ({
+            isDragging: !!monitor.isDragging()
+        })
+    });
+    return (
+        <div className="node" ref={forwardRef}>
+            <div ref={drag}>{children}</div>
+        </div>
+    );
+};
+
+const DND = ({ children }: any) => {
+    const [, drop] = useDrop({
+        accept: 'NODE',
+        drop: (type, monitor) => {
+            console.log(
+                'drop',
+                monitor.getInitialClientOffset(),
+                monitor.getInitialSourceClientOffset(),
+                monitor.getClientOffset(),
+                monitor.getDifferenceFromInitialOffset(),
+                monitor.getSourceClientOffset(),
+                monitor.getClientOffset()
+            );
+            return monitor.getSourceClientOffset();
+        }
+    });
+    return (
+        <div className="mapper" ref={drop}>
+            {children}
+        </div>
+    );
 };
 
 const Mapper = React.memo(({ includes }: { includes: Include[] }) => {
@@ -76,8 +137,8 @@ const Mapper = React.memo(({ includes }: { includes: Include[] }) => {
         for (const [key] of nodes) {
             const ref = nodesRefs[key];
             const el: any = ref.current;
-            el.style.left = `${rand(width)}px`;
-            el.style.top = `${rand(height)}px`;
+            el.style.left = `${rand(width - 250)}px`;
+            el.style.top = `${rand(height - 50)}px`;
             // console.log(el, el.style);
         }
         // setNodesChange(nodesChange + 1);
@@ -110,28 +171,55 @@ const Mapper = React.memo(({ includes }: { includes: Include[] }) => {
         }
     }, [nodesChange, nodesRefs, edgesMap, edgesRefs]);
 
+    const updateNodePosition = (
+        name: string,
+        pos: { x: number; y: number }
+    ) => {
+        const ref = nodesRefs[name];
+        const el: any = ref.current;
+        const x = pos.x + window.scrollX;
+        const y = pos.y + window.scrollY;
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        setNodesChange(nodesChange + 1);
+    };
+
     return (
         <div className="mapper" ref={mapperRef}>
-            {nodes.map(([name, includes]) => {
-                return (
-                    <div className="node" key={name} ref={nodesRefs[name]}>
-                        {name} ({includes.length})
-                    </div>
-                );
-            })}
-            {nodes.map(([name, includes]) => {
-                return includes.map((incl, idx) => {
-                    const key = includeKey(incl);
+            <DndProvider backend={Backend}>
+                <DND>
+                    {nodes.map(([name, includes]) => {
+                        return (
+                            <Node
+                                key={name}
+                                forwardRef={nodesRefs[name]}
+                                onChange={(res: any) =>
+                                    updateNodePosition(name, res)
+                                }
+                            >
+                                {name} ({includes.length})
+                            </Node>
+                        );
+                    })}
+                    {nodes.map(([name, includes]) => {
+                        return includes.map((incl, idx) => {
+                            const key = includeKey(incl);
 
-                    return (
-                        <div className="edge" key={key} ref={edgesRefs[key]}>
-                            <div className="edge-label">
-                                {incl.items.join(', ')}
-                            </div>
-                        </div>
-                    );
-                });
-            })}
+                            return (
+                                <div
+                                    className="edge"
+                                    key={key}
+                                    ref={edgesRefs[key]}
+                                >
+                                    <div className="edge-label">
+                                        {incl.items.join(', ')}
+                                    </div>
+                                </div>
+                            );
+                        });
+                    })}
+                </DND>
+            </DndProvider>
         </div>
     );
 });
