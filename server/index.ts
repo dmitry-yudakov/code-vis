@@ -1,9 +1,22 @@
 import * as http from 'http';
 import * as WS from 'ws';
+import { getProjectFiles } from './utils';
 
 let server = http.createServer();
 let wss = new WS.Server({ server });
 let wsConnections = [];
+
+const args = process.argv.slice(2);
+const projectPath = args[0];
+if (!projectPath) {
+    console.log('Usage: yarn start path/to/project');
+    process.exit(1);
+}
+
+console.log('Use project path', projectPath);
+
+const files = getProjectFiles(projectPath);
+console.log(files);
 
 const hideFilesMasks: { [k: string]: RegExp } = {};
 
@@ -23,6 +36,7 @@ server.on('error', err => {
 });
 
 server.listen(3789, () => console.log('Example app listening on port 3789!'));
+
 wss.on('connection', function connection(ws) {
     wsConnections.push(ws);
     console.log('Webscoket connection established');
