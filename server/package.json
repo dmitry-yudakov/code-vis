@@ -1,0 +1,21 @@
+{
+    "name": "codeai-server",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "start": "ts-node-dev --type-check --no-notify index.ts"
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "ts-node-dev": "^1.0.0-pre.44",
+        "typescript": "^3.8.3",
+        "ws": "^7.2.1"
+    },
+    "devDependencies": {
+        "@types/node": "^13.7.7",
+        "@types/ws": "^7.2.2"
+    }
+}
