@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
 import { WSConn } from './connection';
 import ReactFlow, { Background } from 'react-flow-renderer';
