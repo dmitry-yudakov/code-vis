@@ -428,7 +428,7 @@ export function activate(context: vscode.ExtensionContext) {
     // This line of code will only be executed once when your extension is activated
     console.log('Your extension "code-ai" is now active!');
     openWebsocketServer();
-    openChrome();
+    // openChrome();
 
     // let statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
     // statusBarItem.text = 'Listening';
