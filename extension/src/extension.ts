@@ -305,6 +305,11 @@ interface IFileIncludeInfo {
     from: string;
     items: string[];
 }
+interface IFunctionCallInfo {
+    name: string;
+    from: string;
+    args: string[];
+}
 
 const autoAppendJSextensionInPlace = (
     info: IFileIncludeInfo,
@@ -346,6 +351,7 @@ const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
 
 const mapIncludes = async () => {
     let includes: IFileIncludeInfo[] = [];
+    let funcCalls: IFunctionCallInfo[] = [];
     const parseAndStoreIncludes: TScanFileCallback = (
         relativePath,
         content
@@ -380,6 +386,23 @@ const mapIncludes = async () => {
                 from: whereFrom
             });
         } while (1);
+
+        console.log('in file', relativePath, 'check func call');
+        const reFuncCall = /(.*[\s()])([a-zA-Z0-9_^(]+)\((.*)\)/gm;
+        let max = 1000;
+        do {
+            let out = reFuncCall.exec(content);
+            if (!out) break;
+            const [, pre, name, args] = out;
+            console.log('func call detected', name, pre);
+            // console.log([relativePath, out[1]]);
+            // console.log(relativePath, out[1], out[2]);
+            funcCalls.push({
+                args: [args],
+                name: name,
+                from: relativePath
+            });
+        } while (--max);
     };
 
     await scanProjectFiles({
