@@ -2,84 +2,84 @@ html,
 body,
 #root,
 .App {
-    height: 100%;
-    width: 100%;
+  height: 100%;
+  width: 100%;
 }
 .mapper {
-    min-height: 2500px;
-    min-width: 2500px;
-    /* min-height: 100%;
-    min-width: 100%; */
+  height: 100%;
+  width: 100%;
+  /* min-height: 100%;
+  min-width: 100%; */
 }
 
 .history-bar {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 300px;
-    background: white;
-    opacity: 0.7;
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 300px;
+  background: white;
+  opacity: 0.7;
 }
 
 .node {
-    padding: 5px;
-    border: 1px solid #777;
-    border-radius: 3px;
-    display: inline-block;
-    margin: 5px;
+  padding: 5px;
+  border: 1px solid #777;
+  border-radius: 3px;
+  display: inline-block;
+  margin: 5px;
 
-    background-color: aquamarine;
-    z-index: 2;
+  background-color: aquamarine;
+  z-index: 2;
 }
 
 .node,
 .edge {
-    position: absolute;
+  position: absolute;
 }
 .edge {
-    width: 500px;
-    height: 458px;
-    /* background-color: aquamarine; */
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+  width: 500px;
+  height: 458px;
+  /* background-color: aquamarine; */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .edge::before {
-    content: ' ';
-    /* border: 1px solid #333; */
-    /* transform: translate(2%, 17%) rotate(45deg); */
-    height: 100%;
-    width: 100%;
-    display: inline-block;
-    position: absolute;
+  content: ' ';
+  /* border: 1px solid #333; */
+  /* transform: translate(2%, 17%) rotate(45deg); */
+  height: 100%;
+  width: 100%;
+  display: inline-block;
+  position: absolute;
 }
 /* background: linear-gradient(to top left, rgba(0,0,0,0) 0%, rgba(0,0,0,0) calc(50% - 0.8px), rgba(0,0,0,1) 50%, rgba(0,0,0,0) calc(50% + 0.8px), rgba(0,0,0,0) 100%), linear-gradient(to top right, rgba(0,0,0,0) 0%, rgba(0,0,0,0) calc(50% - 0.8px), rgba(0,0,0,1) 50%, rgba(0,0,0,0) calc(50% + 0.8px), rgba(0,0,0,0) 100%); */
 .edge.down::before {
-    background: linear-gradient(
-        to top left,
-        rgba(0, 0, 0, 0) 0%,
-        rgba(0, 0, 0, 0) calc(50% - 0.8px),
-        rgba(0, 0, 0, 1) 50%,
-        rgba(0, 0, 0, 0) calc(50% + 0.8px),
-        rgba(0, 0, 0, 0) 100%
-    );
+  background: linear-gradient(
+    to top left,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0) calc(50% - 0.8px),
+    rgba(0, 0, 0, 1) 50%,
+    rgba(0, 0, 0, 0) calc(50% + 0.8px),
+    rgba(0, 0, 0, 0) 100%
+  );
 }
 .edge.up::before {
-    background: linear-gradient(
-        to top right,
-        rgba(0, 0, 0, 0) 0%,
-        rgba(0, 0, 0, 0) calc(50% - 0.8px),
-        rgba(0, 0, 0, 1) 50%,
-        rgba(0, 0, 0, 0) calc(50% + 0.8px),
-        rgba(0, 0, 0, 0) 100%
-    );
+  background: linear-gradient(
+    to top right,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0) calc(50% - 0.8px),
+    rgba(0, 0, 0, 1) 50%,
+    rgba(0, 0, 0, 0) calc(50% + 0.8px),
+    rgba(0, 0, 0, 0) 100%
+  );
 }
 
 .edge-label {
-    padding: 3px;
-    border: 1px solid #777;
-    border-radius: 3px;
-    background-color: antiquewhite;
-    z-index: 1;
+  padding: 3px;
+  border: 1px solid #777;
+  border-radius: 3px;
+  background-color: antiquewhite;
+  z-index: 1;
 }
