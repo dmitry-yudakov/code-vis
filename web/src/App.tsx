@@ -11,6 +11,15 @@ interface Include {
   from: string;
 }
 
+export interface FileMapping {
+  content: string;
+  mapping: {
+    args: string[];
+    name: string;
+    from: string;
+  };
+}
+
 const rand = (upperLimit: number) => Math.floor(Math.random() * upperLimit);
 
 // const elements = [
@@ -79,14 +88,21 @@ const Mapper: React.FC<{
   );
 });
 
-const LogicMap: React.FC<{ data: any; onClose: () => void }> = ({
+const LogicMap: React.FC<{ data: FileMapping; onClose: () => void }> = ({
   data,
   onClose,
 }) => {
+  const [show, setShow] = useState<keyof FileMapping>('content');
+  const content = data[show];
+  const pre =
+    typeof content === 'string' ? content : JSON.stringify(content, null, 2);
   return (
     <div>
       <button onClick={() => onClose()}>Back</button>
-      <pre>{JSON.stringify(data, null, 2)}</pre>
+      <br />
+      <button onClick={() => setShow('content')}>Content</button>
+      <button onClick={() => setShow('mapping')}>Mapping</button>
+      <pre>{pre}</pre>
     </div>
   );
 };
