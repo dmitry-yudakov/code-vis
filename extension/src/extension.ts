@@ -129,6 +129,9 @@ function onCommand(command) {
       const what = tokens.shift();
       if (what === 'project') {
         contributeCommandsHandlers['codeai.projectMap']();
+      } else if (what === 'file') {
+        const filename = tokens.shift();
+        contributeCommandsHandlers['codeai.fileMap'](filename);
       } else {
         unrecognized();
       }
@@ -351,7 +354,6 @@ const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
 
 const mapIncludes = async () => {
   let includes: IFileIncludeInfo[] = [];
-  let funcCalls: IFunctionCallInfo[] = [];
   const parseAndStoreIncludes: TScanFileCallback = (relativePath, content) => {
     const re = /^import (.+) from ['"](\..+)['"]/gm;
     const re2 = /^(const|let|var) (.+) = require\(['"](\..+)['"]\)/gm;
@@ -383,23 +385,6 @@ const mapIncludes = async () => {
         from: whereFrom,
       });
     } while (1);
-
-    console.log('in file', relativePath, 'check func call');
-    const reFuncCall = /(.*[\s()])([a-zA-Z0-9_^(]+)\((.*)\)/gm;
-    let max = 1000;
-    do {
-      let out = reFuncCall.exec(content);
-      if (!out) break;
-      const [, pre, name, args] = out;
-      console.log('func call detected', name, pre);
-      // console.log([relativePath, out[1]]);
-      // console.log(relativePath, out[1], out[2]);
-      funcCalls.push({
-        args: [args],
-        name: name,
-        from: relativePath,
-      });
-    } while (--max);
   };
 
   await scanProjectFiles({
@@ -425,6 +410,47 @@ const mapIncludes = async () => {
   return includes;
 };
 
+const mapFile = async (filename: string) => {
+  const filesContents: Record<string, string> = {};
+  await scanProjectFiles({
+    forEveryFile: (name, content) => {
+      filesContents[name] = content;
+    },
+  });
+
+  const startFile = filesContents[filename];
+  // console.log('mapFile', filesContents, filename, startFile);
+  if (!startFile) throw new Error('File not found');
+
+  let funcCalls: IFunctionCallInfo[] = [];
+
+  const mapContent = (relativePath: string, content: string) => {
+    console.log('in file', relativePath, 'check func call');
+    const reFuncCall = /(.*[\s()])([a-zA-Z0-9_^(]+)\((.*)\)/gm;
+    let max = 1000;
+    do {
+      let out = reFuncCall.exec(content);
+      if (!out) break;
+      const [, pre, name, args] = out;
+      console.log('func call detected', name, pre);
+      // console.log([relativePath, out[1]]);
+      // console.log(relativePath, out[1], out[2]);
+      funcCalls.push({
+        args: [args],
+        name: name,
+        from: relativePath,
+      });
+    } while (--max);
+  };
+
+  mapContent(filename, startFile);
+
+  return {
+    type: 'fileMap',
+    payload: { content: startFile, mapping: funcCalls },
+  };
+};
+
 const contributeCommandsHandlers = {
   'codeai.activateSpeechRecognition': () => {
     console.log('Hey code');
@@ -438,6 +464,12 @@ const contributeCommandsHandlers = {
     const data = await mapIncludes();
     console.log(data);
     sendToWebsocket({ type: 'projectMap', payload: data });
+  },
+  // not sure if it's the right place
+  'codeai.fileMap': async (filename: string) => {
+    const data = await mapFile(filename);
+    console.log(data);
+    sendToWebsocket({ type: 'fileMap', payload: data });
   },
 };
 
