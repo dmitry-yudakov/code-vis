@@ -7,10 +7,12 @@ export const autoAppendJSextensionInPlace = (
   const { from } = info;
   for (let filename of projectFiles) {
     if (
+      filename.length > from.length &&
+      filename.length - from.length <= 4 &&
       filename.indexOf(from) === 0 &&
-      filename.length !== from.length &&
       filename[from.length] === '.'
     ) {
+      console.log('AutoComplete', from, 'to', filename);
       info.from = filename;
       break;
     }
