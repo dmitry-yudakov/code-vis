@@ -9,16 +9,17 @@ import {
   autoAppendJSextensionInPlace,
 } from './utils';
 
-const includeMask = '**/*.{ts,tsx,js,jsx}';
-const excludeMask = '**/node_modules/**';
-
 export default class Project {
   public files: string[] = [];
   public hideFilesMasks: { [k: string]: RegExp } = {};
 
-  constructor(public projectPath: string) {
-    this.files = getProjectFiles(projectPath);
-    console.log(this.files);
+  constructor(
+    public projectPath: string,
+    includeMask: string,
+    excludeMask?: string
+  ) {
+    this.files = getProjectFiles(projectPath, includeMask, excludeMask);
+    console.log('Project files:', this.files);
   }
 
   processCommand = async (command: string) => {
@@ -167,13 +168,7 @@ export default class Project {
 
     includes.forEach(resolveRelativeIncludePathInPlace);
 
-    const projectFilesRelative = await this.listProjectFiles();
-    // .map((file) => file)
-    // .map((f) => toRelativePath(f, projectPath));
-    console.log(projectFilesRelative);
-    includes.forEach((info) =>
-      autoAppendJSextensionInPlace(info, projectFilesRelative)
-    );
+    includes.forEach((info) => autoAppendJSextensionInPlace(info, this.files));
 
     return includes;
   }
@@ -221,30 +216,15 @@ export default class Project {
   }: {
     forEveryFile: TScanFileCallback;
   }) {
-    const files = await this.listProjectFiles(includeMask, 2000);
-
-    for (const file of files) {
+    for (const file of this.files) {
       if (this.shouldIgnoreFile(file)) {
         console.log('ignoring', file, 'because of path');
         continue;
       }
       const doc = await openFile(file, this.projectPath);
-      // const relativePath = toRelativePath(file, projectPath);
-      // const doc = await vscode.workspace.openTextDocument(file.path);
-      // const relativePath = file.path.replace(vscode.workspace.rootPath, '');
 
       await forEveryFile(file, doc);
     }
-  }
-
-  listProjectFiles(include = includeMask, limit = 10000) {
-    // let conf = vscode.workspace.getConfiguration('search', null);
-    // let excludeConf = conf.get('exclude');
-    // let excludeStr = `{${Object.keys(excludeConf)
-    //   .filter((key) => excludeConf[key])
-    //   .join(',')}}`;
-    // const files = await vscode.workspace.findFiles(include, excludeStr, limit);
-    return this.files;
   }
 
   shouldIgnoreFile = (filePath: string) =>

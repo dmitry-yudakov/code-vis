@@ -9,7 +9,11 @@ if (!projectPath) {
 }
 
 console.log('Use project path', projectPath);
-const project = new Project(projectPath);
+
+const includeMask = '**/*.{ts,tsx,js,jsx}';
+const excludeMask = '**/node_modules/**';
+
+const project = new Project(projectPath, includeMask, excludeMask);
 
 const onCommand = async (msg: string, conn: any) => {
   try {
