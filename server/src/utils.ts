@@ -1,22 +1,40 @@
-import { glob } from 'glob';
-import { promises as fs } from 'fs';
-import path from 'path';
+import { IFileIncludeInfo } from './types';
 
-export const getProjectFiles = (projectPath: string) => {
-  const reIgnore = /(node_modules|\.js\.map$)/;
-
-  const absolutePath = path.resolve(projectPath);
-  const reAbsPath = new RegExp(`^${absolutePath}/`);
-  return glob
-    .sync(
-      absolutePath + '/**/*.{js,jsx,ts,tsx}'
-      // { ignore: '**/node_modules/**' } <-- doesn't work
-    )
-    .filter((f) => !reIgnore.test(f))
-    .map((fullPath) => fullPath.replace(reAbsPath, ''));
+export const autoAppendJSextensionInPlace = (
+  info: IFileIncludeInfo,
+  projectFiles: string[]
+) => {
+  const { from } = info;
+  for (let filename of projectFiles) {
+    if (
+      filename.indexOf(from) === 0 &&
+      filename.length !== from.length &&
+      filename[from.length] === '.'
+    ) {
+      info.from = filename;
+      break;
+    }
+  }
 };
 
-export const openFile = async (filename: string, projectPath: string) => {
-  const fullpath = path.join(projectPath, filename);
-  return fs.readFile(fullpath).then((b) => b.toString());
+export const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
+  const re = /\//;
+  const { to, from } = info;
+  const pathTokens = to.split(re).filter((t) => !!t);
+  pathTokens.pop(); // remove filename and leave only path
+
+  const fromTokens = from.split(re).filter((t) => !!t);
+
+  for (const token of fromTokens) {
+    if (token === '.') {
+      // noop
+    } else if (token === '..') {
+      pathTokens.pop();
+    } else {
+      pathTokens.push(token);
+    }
+  }
+  // info.from = '/' + pathTokens.join('/');
+  info.from = pathTokens.join('/');
+  // console.log(info.from, info.to);
 };

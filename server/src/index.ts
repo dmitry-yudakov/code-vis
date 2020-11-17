@@ -1,4 +1,4 @@
-import { initProject, processCommand } from './project';
+import Project from './project';
 import { sendToWebsocket, startServer } from './wsserver';
 
 const args = process.argv.slice(2);
@@ -9,11 +9,11 @@ if (!projectPath) {
 }
 
 console.log('Use project path', projectPath);
-initProject(projectPath);
+const project = new Project(projectPath);
 
 const onCommand = async (msg: string, conn: any) => {
   try {
-    const res = await processCommand(msg);
+    const res = await project.processCommand(msg);
     sendToWebsocket(res, conn);
   } catch (err) {
     console.log('Error handing message', msg, ':', err);
