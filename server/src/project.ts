@@ -3,6 +3,7 @@ import {
   IFunctionCallInfo,
   TScanFileCallback,
   IFileIncludeInfo,
+  ProjectConfig,
 } from './types';
 import {
   resolveRelativeIncludePathInPlace,
@@ -13,13 +14,21 @@ export default class Project {
   public files: string[] = [];
   public hideFilesMasks: { [k: string]: RegExp } = {};
 
-  constructor(
-    public projectPath: string,
-    includeMask: string,
-    excludeMask?: string
-  ) {
-    this.files = getProjectFiles(projectPath, includeMask, excludeMask);
+  constructor(private projectPath: string, private config: ProjectConfig) {
+    this.files = getProjectFiles(
+      projectPath,
+      config.includeMask,
+      config.excludeMask
+    );
     console.log('Project files:', this.files);
+    console.log(
+      'Loaded total',
+      this.files.length,
+      'files from',
+      projectPath,
+      'config:',
+      config
+    );
   }
 
   processCommand = async (command: string) => {

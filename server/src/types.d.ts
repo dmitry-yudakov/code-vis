@@ -10,3 +10,8 @@ export interface IFunctionCallInfo {
   from: string;
   args: string[];
 }
+
+export interface ProjectConfig {
+  includeMask: string;
+  excludeMask?: string | string[];
+}
