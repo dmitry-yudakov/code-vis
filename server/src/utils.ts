@@ -8,7 +8,7 @@ export const autoAppendJSextensionInPlace = (
   for (let filename of projectFiles) {
     if (
       filename.length > from.length &&
-      filename.length - from.length <= 4 &&
+      filename.length - from.length <= 5 &&
       filename.indexOf(from) === 0 &&
       filename[from.length] === '.'
     ) {
