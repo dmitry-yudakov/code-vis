@@ -16,12 +16,16 @@ loadConfiguration(projectPath)
     console.log('Project conf:', conf);
     const project = new Project(projectPath, conf || defaultConfig);
 
-    const onCommand = async (msg: string, conn: any) => {
+    const onCommand = async (
+      conn: any,
+      type: string,
+      payload: string | undefined
+    ) => {
       try {
-        const res = await project.processCommand(msg);
+        const res = await project.processCommand(type, payload);
         sendToWebsocket(res, conn);
       } catch (err) {
-        console.log('Error handing message', msg, ':', err);
+        console.log('Error handing message', type, ':', err);
       }
     };
 

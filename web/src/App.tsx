@@ -160,7 +160,7 @@ const App: React.FC = () => {
       },
       () => {
         console.log('opened');
-        conn.send('map project');
+        conn.send('mapProject');
       }
     );
     refConn.current = conn;
@@ -172,7 +172,7 @@ const App: React.FC = () => {
     if (!conn) {
       return alert('Not connected to server!');
     }
-    conn.send(`map file ${nodeName}`);
+    conn.send('mapFile', nodeName);
   };
 
   return (

@@ -19,7 +19,11 @@ export const sendToWebsocket = (data: any, connection?: any) => {
 
 export const startServer = (
   port: number,
-  onCommand: (msg: string, conn: WebSocket) => void
+  onCommand: (
+    conn: WebSocket,
+    type: string,
+    payload: string | undefined
+  ) => void
 ) => {
   server.on('error', (err) => {
     console.log('server error:', err);
@@ -33,9 +37,9 @@ export const startServer = (
 
     ws.on('message', (message: string) => {
       console.log('received:', message);
-      let msg = JSON.parse(message.toString());
-      if (msg.command) {
-        onCommand(msg.command, ws);
+      const { type, payload } = JSON.parse(message.toString());
+      if (type) {
+        onCommand(ws, type, payload);
       }
     });
 

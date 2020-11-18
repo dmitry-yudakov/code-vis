@@ -31,55 +31,39 @@ export default class Project {
     );
   }
 
-  processCommand = async (command: string) => {
-    let tokens = command.split(' ').filter((word) => word);
-    console.log('tokens!', tokens);
+  processCommand = async (type: string, payload: string | undefined) => {
+    // let tokens = type.split(' ').filter((word) => word);
+    console.log('Process command', { type, payload });
 
-    const unrecognized = () => {
-      throw new Error('Could not recognize command: "' + command + '"');
-    };
-
-    let op = tokens.shift()?.toLowerCase();
-    switch (op) {
-      // case 'open':
-      //   if (tokens.length) openFile(tokens);
-      //   break;
-      case 'map': {
-        const what = tokens.shift()?.toLowerCase();
-        if (what === 'project') {
-          return this.projectMap();
-        } else if (what === 'file') {
-          const filename = tokens.shift();
-          return this.fileMap(filename!);
-        } else {
-          unrecognized();
-        }
-        break;
-      }
-      case 'hide': {
-        const maskName = tokens.join('|');
-        const what = tokens.shift();
-        let reString;
-        if (what === 'directory') {
-          reString = `^.*${tokens.join('.*')}\/`;
-        } else if (what === 'file') {
-          reString = `^.*${['/', ...tokens].join('.*')}[^/]`;
-        } else {
-          return unrecognized();
-        }
-        console.log('Ignore regex', reString);
-        this.hideFilesMasks[maskName] = new RegExp(reString, 'i');
-
+    switch (type) {
+      case 'mapProject':
         return this.projectMap();
-      }
+      case 'mapFile':
+        return this.fileMap(payload!);
       default:
-        unrecognized();
+        throw new Error('Could not recognize command: "' + type + '"');
     }
+    // case 'hide': {
+    //   const maskName = tokens.join('|');
+    //   const what = tokens.shift();
+    //   let reString;
+    //   if (what === 'directory') {
+    //     reString = `^.*${tokens.join('.*')}\/`;
+    //   } else if (what === 'file') {
+    //     reString = `^.*${['/', ...tokens].join('.*')}[^/]`;
+    //   } else {
+    //     return unrecognized();
+    //   }
+    //   console.log('Ignore regex', reString);
+    //   this.hideFilesMasks[maskName] = new RegExp(reString, 'i');
+
+    //   return this.projectMap();
+    // }
   };
 
   async projectMap() {
     const data = await this.mapIncludes();
-    console.log(data);
+    // console.log(data);
     return { type: 'projectMap', payload: data };
   }
 
