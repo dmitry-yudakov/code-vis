@@ -32,23 +32,20 @@ export default class Project {
   }
 
   processCommand = async (command: string) => {
-    let tokens = command
-      .split(' ')
-      .filter((word) => word)
-      .map((word) => word.toLowerCase());
+    let tokens = command.split(' ').filter((word) => word);
     console.log('tokens!', tokens);
 
     const unrecognized = () => {
       throw new Error('Could not recognize command: "' + command + '"');
     };
 
-    let op = tokens.shift();
+    let op = tokens.shift()?.toLowerCase();
     switch (op) {
       // case 'open':
       //   if (tokens.length) openFile(tokens);
       //   break;
       case 'map': {
-        const what = tokens.shift();
+        const what = tokens.shift()?.toLowerCase();
         if (what === 'project') {
           return this.projectMap();
         } else if (what === 'file') {
