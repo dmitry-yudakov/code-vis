@@ -1,26 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactFlow, { ArrowHeadType, Background } from 'react-flow-renderer';
 import './App.css';
 import { WSConn } from './connection';
-import ReactFlow, { Background } from 'react-flow-renderer';
+import { History } from './components/History';
+import { FileMapping, Include } from './types';
+import { extractNodes, getNodesObj, rand } from './utils';
 
 const url = `ws://localhost:3789`;
 
-interface Include {
-  items: string[];
-  to: string;
-  from: string;
-}
-
-export interface FileMapping {
-  content: string;
-  mapping: {
-    args: string[];
-    name: string;
-    from: string;
-  };
-}
-
-const rand = (upperLimit: number) => Math.floor(Math.random() * upperLimit);
 
 // const elements = [
 //   { id: "1", data: { label: "Node 1" }, position: { x: 250, y: 5 } },
@@ -32,16 +19,6 @@ const rand = (upperLimit: number) => Math.floor(Math.random() * upperLimit);
 //   },
 //   { id: "e1-2", source: "1", target: "2", animated: false },
 // ];
-
-const extractNodes = (includes: Include[]): string[] => {
-  return Array.from(new Set(includes.flatMap((incl) => [incl.from, incl.to])));
-};
-const getNodesObj = (nodes: string[]) =>
-  nodes.reduce((obj, node, idx) => {
-    obj[node] = idx.toString();
-    return obj;
-  }, {} as Record<string, string>);
-
 const Mapper: React.FC<{
   includes: Include[];
   onClick: (nodeName: string) => void;
@@ -104,18 +81,6 @@ const LogicMap: React.FC<{ data: FileMapping; onClose: () => void }> = ({
       <button onClick={() => setShow('content')}>Content</button>
       <button onClick={() => setShow('mapping')}>Mapping</button>
       <pre>{pre}</pre>
-    </div>
-  );
-};
-
-const History = ({ history }: { history: any[][] }) => {
-  return (
-    <div className="history-bar">
-      {history.map(([tm, s], idx) => (
-        <div key={s + idx}>
-          {tm.toLocaleTimeString()}: {s}
-        </div>
-      ))}
     </div>
   );
 };
