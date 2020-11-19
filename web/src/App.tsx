@@ -76,6 +76,7 @@ const Mapper: React.FC<{
     <div className="mapper">
       <ReactFlow
         elements={elements}
+        nodesConnectable={false}
         onElementClick={(e, el) => {
           if (el.data) {
             onClick(el.data.label);
