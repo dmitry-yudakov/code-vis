@@ -1,70 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ReactFlow, { ArrowHeadType, Background } from 'react-flow-renderer';
 import './App.css';
 import { WSConn } from './connection';
 import { History } from './components/History';
 import { FileMapping, Include } from './types';
-import { extractNodes, getNodesObj, rand } from './utils';
+import { IncludesHierarchy } from './components/IncludesHierarchy';
 
 const url = `ws://localhost:3789`;
-
-
-// const elements = [
-//   { id: "1", data: { label: "Node 1" }, position: { x: 250, y: 5 } },
-//   // you can also pass a React component as a label
-//   {
-//     id: "2",
-//     data: { label: <div style={{ height: 250, width: 250 }}>gaga 42</div> },
-//     position: { x: 100, y: 100 },
-//   },
-//   { id: "e1-2", source: "1", target: "2", animated: false },
-// ];
-const Mapper: React.FC<{
-  includes: Include[];
-  onClick: (nodeName: string) => void;
-}> = React.memo(({ includes, onClick }) => {
-  console.log('includes', includes);
-  const nodes = extractNodes(includes);
-  const nodesObj = getNodesObj(nodes);
-
-  const elements = [
-    // nodes
-    ...nodes.map((name) => ({
-      id: nodesObj[name],
-      data: { label: name },
-      position: { x: rand(window.innerWidth), y: rand(window.innerHeight) },
-    })),
-    // edges
-    ...includes.map(({ from, to, items }, idx) => {
-      const source = nodesObj[from];
-      const target = nodesObj[to];
-      return {
-        id: `${source}-${target}-${idx}`,
-        type: 'straight',
-        source,
-        target,
-        label: items.join(items[0] === '*' ? ' ' : ', '),
-      };
-    }),
-  ];
-
-  console.log('generated elements', elements);
-  return (
-    <div className="mapper">
-      <ReactFlow
-        elements={elements}
-        nodesConnectable={false}
-        onElementClick={(e, el) => {
-          if (el.data) {
-            onClick(el.data.label);
-          }
-        }}
-      >
-        <Background color="#aaa" gap={16} />
-      </ReactFlow>
-    </div>
-  );
-});
 
 const LogicMap: React.FC<{ data: FileMapping; onClose: () => void }> = ({
   data,
@@ -146,7 +87,7 @@ const App: React.FC = () => {
       {fileMap ? (
         <LogicMap data={fileMap} onClose={() => setFileMap(null)} />
       ) : (
-        <Mapper includes={projectMap} onClick={onNodeClick} />
+        <IncludesHierarchy includes={projectMap} onClick={onNodeClick} />
       )}
       <History history={history} />
     </div>

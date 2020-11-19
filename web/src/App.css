@@ -22,64 +22,10 @@ body,
 }
 
 .node {
-  padding: 5px;
-  border: 1px solid #777;
-  border-radius: 3px;
-  display: inline-block;
-  margin: 5px;
-
-  background-color: aquamarine;
-  z-index: 2;
-}
-
-.node,
-.edge {
-  position: absolute;
-}
-.edge {
-  width: 500px;
-  height: 458px;
-  /* background-color: aquamarine; */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.edge::before {
-  content: ' ';
-  /* border: 1px solid #333; */
-  /* transform: translate(2%, 17%) rotate(45deg); */
-  height: 100%;
+  word-wrap: break-word;
   width: 100%;
-  display: inline-block;
-  position: absolute;
-}
-/* background: linear-gradient(to top left, rgba(0,0,0,0) 0%, rgba(0,0,0,0) calc(50% - 0.8px), rgba(0,0,0,1) 50%, rgba(0,0,0,0) calc(50% + 0.8px), rgba(0,0,0,0) 100%), linear-gradient(to top right, rgba(0,0,0,0) 0%, rgba(0,0,0,0) calc(50% - 0.8px), rgba(0,0,0,1) 50%, rgba(0,0,0,0) calc(50% + 0.8px), rgba(0,0,0,0) 100%); */
-.edge.down::before {
-  background: linear-gradient(
-    to top left,
-    rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0) calc(50% - 0.8px),
-    rgba(0, 0, 0, 1) 50%,
-    rgba(0, 0, 0, 0) calc(50% + 0.8px),
-    rgba(0, 0, 0, 0) 100%
-  );
-}
-.edge.up::before {
-  background: linear-gradient(
-    to top right,
-    rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0) calc(50% - 0.8px),
-    rgba(0, 0, 0, 1) 50%,
-    rgba(0, 0, 0, 0) calc(50% + 0.8px),
-    rgba(0, 0, 0, 0) 100%
-  );
 }
 
-.edge-label {
-  padding: 3px;
-  border: 1px solid #777;
-  border-radius: 3px;
-  background-color: antiquewhite;
-  z-index: 1;
+.react-flow__handle {
+  background: none;
 }

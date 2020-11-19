@@ -12,3 +12,16 @@ export interface FileMapping {
     from: string;
   };
 }
+
+export interface Edge {
+  source: string;
+  target: string;
+}
+export interface Node {
+  id: string;
+  label: string;
+}
+export interface PositionedNode extends Node {
+  x: number;
+  y: number;
+}
