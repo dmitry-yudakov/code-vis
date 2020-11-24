@@ -1,14 +1,6 @@
 import { getProjectFiles, openFile } from './io';
-import {
-  IFunctionCallInfo,
-  TScanFileCallback,
-  IFileIncludeInfo,
-  ProjectConfig,
-} from './types';
-import {
-  resolveRelativeIncludePathInPlace,
-  autoAppendJSextensionInPlace,
-} from './utils';
+import { IFunctionCallInfo, ProjectConfig } from './types';
+import { getAnalyzer } from './analyzers';
 
 export default class Project {
   public files: string[] = [];
@@ -62,159 +54,30 @@ export default class Project {
   };
 
   async projectMap() {
-    const data = await this.mapIncludes();
+    const analyzer = getAnalyzer('js'); // temp
+    // TODO check should ignore
+    const data = await analyzer.extractFilesHierarchy(this.files, (fn) =>
+      openFile(fn, this.projectPath)
+    );
     // console.log(data);
     return { type: 'projectMap', payload: data };
   }
 
   async fileMap(filename: string) {
-    const filesContents: Record<string, string> = {};
-    await this.scanProjectFiles({
-      forEveryFile: (name, content) => {
-        filesContents[name] = content;
-      },
-    });
+    const analyzer = getAnalyzer('js'); // temp
+    const content = await openFile(filename, this.projectPath);
 
-    const startFile = filesContents[filename];
-    // console.log('mapFile', filesContents, filename, startFile);
-    if (!startFile) throw new Error('File not found');
+    if (!content) throw new Error('File not found');
 
-    let funcCalls: IFunctionCallInfo[] = [];
-
-    const mapContent = (relativePath: string, content: string) => {
-      console.log('in file', relativePath, 'check func call');
-      const reFuncCall = /(.*[\s()])([a-zA-Z0-9_^(]+)\((.*)\)/gm;
-      let max = 1000;
-      do {
-        let out = reFuncCall.exec(content);
-        if (!out) break;
-        const [, pre, name, args] = out;
-        console.log('func call detected', name, pre);
-        // console.log([relativePath, out[1]]);
-        // console.log(relativePath, out[1], out[2]);
-        funcCalls.push({
-          args: [args],
-          name: name,
-          from: relativePath,
-        });
-      } while (--max);
-    };
-
-    mapContent(filename, startFile);
+    const mapping: IFunctionCallInfo[] = analyzer.extractFileMapping(
+      this.projectPath,
+      content
+    );
 
     return {
       type: 'fileMap',
-      payload: { content: startFile, mapping: funcCalls },
+      payload: { content, mapping },
     };
-  }
-
-  async mapIncludes() {
-    let includes: IFileIncludeInfo[] = [];
-    const parseAndStoreIncludes: TScanFileCallback = (
-      relativePath,
-      content
-    ) => {
-      const re = /^import (.+) from ['"](\..+)['"]/gm;
-      const re2 = /^(const|let|var) (.+) = require\(['"](\..+)['"]\)/gm;
-      // console.log('doc text', doc.getText());
-      // console.log('analyze', relativePath);
-      do {
-        let out = re.exec(content);
-        if (!out) break;
-        const [, what, whereFrom] = out;
-        const whatSplit = what.split(/[,\s{}]+/).filter((t) => !!t);
-        // console.log([relativePath, out[1]]);
-        // console.log(relativePath, out[1], out[2]);
-        includes.push({
-          items: whatSplit,
-          to: relativePath,
-          from: whereFrom,
-        });
-      } while (1);
-      do {
-        let out = re2.exec(content);
-        if (!out) break;
-        const [, , what, whereFrom] = out;
-        const whatSplit = what.split(/[,\s{}]+/).filter((t) => !!t);
-        // console.log([relativePath, out[1]]);
-        // console.log(relativePath, out[1], out[2]);
-        includes.push({
-          items: whatSplit,
-          to: relativePath,
-          from: whereFrom,
-        });
-      } while (1);
-    };
-
-    await this.scanProjectFiles({
-      forEveryFile: parseAndStoreIncludes,
-    });
-
-    includes = includes.filter(({ from, ...rest }) => {
-      const ignore = this.shouldIgnoreFile(from);
-      if (ignore) console.log('ignoring "from"', from, rest);
-      return !ignore;
-    });
-
-    includes.forEach(resolveRelativeIncludePathInPlace);
-
-    includes.forEach((info) => autoAppendJSextensionInPlace(info, this.files));
-
-    return includes;
-  }
-
-  async mapFile(filename: string) {
-    const filesContents: Record<string, string> = {};
-    await this.scanProjectFiles({
-      forEveryFile: (name, content) => {
-        filesContents[name] = content;
-      },
-    });
-
-    const startFile = filesContents[filename];
-    // console.log('mapFile', filesContents, filename, startFile);
-    if (!startFile) throw new Error('File not found');
-
-    let funcCalls: IFunctionCallInfo[] = [];
-
-    const mapContent = (relativePath: string, content: string) => {
-      console.log('in file', relativePath, 'check func call');
-      const reFuncCall = /(.*[\s()])([a-zA-Z0-9_^(]+)\((.*)\)/gm;
-      let max = 1000;
-      do {
-        let out = reFuncCall.exec(content);
-        if (!out) break;
-        const [, pre, name, args] = out;
-        console.log('func call detected', name, pre);
-        // console.log([relativePath, out[1]]);
-        // console.log(relativePath, out[1], out[2]);
-        funcCalls.push({
-          args: [args],
-          name: name,
-          from: relativePath,
-        });
-      } while (--max);
-    };
-
-    mapContent(filename, startFile);
-
-    return [{ content: startFile, mapping: funcCalls }];
-  }
-
-  async scanProjectFiles({
-    forEveryFile,
-  }: {
-    forEveryFile: TScanFileCallback;
-  }) {
-    for (const file of this.files) {
-      if (this.shouldIgnoreFile(file)) {
-        console.log('ignoring', file, 'because of path');
-        continue;
-      }
-      const doc = await openFile(file, this.projectPath);
-
-      await forEveryFile(file, doc);
-    }
   }
 
   shouldIgnoreFile = (filePath: string) =>

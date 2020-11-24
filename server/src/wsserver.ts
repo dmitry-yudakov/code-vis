@@ -1,8 +1,8 @@
 import http from 'http';
-import * as WS from 'ws';
+import WebSocket from 'ws';
 
 let server = http.createServer();
-let wss = new WS.Server({ server });
+let wss = new WebSocket.Server({ server });
 let wsConnections: WebSocket[] = [];
 
 export const sendToWebsocket = (data: any, connection?: any) => {
