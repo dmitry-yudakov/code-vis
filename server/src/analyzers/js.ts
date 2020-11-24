@@ -2,12 +2,14 @@ import { IFileIncludeInfo, IFunctionCallInfo } from './../types';
 
 const extractIncludes = (relativePath: string, content: string) => {
   const includes: IFileIncludeInfo[] = [];
-  const re = /^import (.+) from ['"](\..+)['"]/gm;
+  const re = /^(\s*)import (.+) from ['"](\..+)['"]/gm;
+  // console.log('Analyze', relativePath, content);
 
   do {
     let out = re.exec(content);
     if (!out) break;
-    const [, what, whereFrom] = out;
+    const [, , what, whereFrom] = out;
+    // console.log('include with import', { what, whereFrom });
     const whatSplit = what.split(/[,\s{}]+/).filter((t) => !!t);
     includes.push({
       items: whatSplit,
@@ -16,12 +18,14 @@ const extractIncludes = (relativePath: string, content: string) => {
     });
   } while (1);
 
-  const re2 = /^(const|let|var) (.+) = require\(['"](\..+)['"]\)/gm;
+  const re2 = /^(\s*)(const|let|var) (.+) = require\(['"](\..+)['"]\)/gm;
 
   do {
     let out = re2.exec(content);
+    // console.log('include with require', out);
     if (!out) break;
-    const [, , what, whereFrom] = out;
+    const [, , , what, whereFrom] = out;
+    // console.log('include with require', { what, whereFrom });
     const whatSplit = what.split(/[,\s{}]+/).filter((t) => !!t);
     includes.push({
       items: whatSplit,
