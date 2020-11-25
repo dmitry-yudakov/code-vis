@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { WSConn } from './connection';
 import { History } from './components/History';
-import { FileMapping, Include } from './types';
+import { FileIncludeInfo, FileMapDetailed } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 
 const url = `ws://localhost:3789`;
 
-const LogicMap: React.FC<{ data: FileMapping; onClose: () => void }> = ({
+const LogicMap: React.FC<{ data: FileMapDetailed; onClose: () => void }> = ({
   data,
   onClose,
 }) => {
-  const [show, setShow] = useState<keyof FileMapping>('content');
+  const [show, setShow] = useState<keyof FileMapDetailed>('content');
   const content = data[show];
   const pre =
     typeof content === 'string' ? content : JSON.stringify(content, null, 2);
@@ -27,7 +27,7 @@ const LogicMap: React.FC<{ data: FileMapping; onClose: () => void }> = ({
 };
 
 const App: React.FC = () => {
-  const [projectMap, setProjectMap] = useState<Include[]>([]);
+  const [projectMap, setProjectMap] = useState<FileIncludeInfo[]>([]);
   const [fileMap, setFileMap] = useState<any>(null);
   const [history, setHistory] = useState<any[][]>([]);
   const appendToHistory = (str: string) =>
@@ -47,7 +47,7 @@ const App: React.FC = () => {
           case 'projectMap':
             // appendToHistory(msg.payload);
             appendToHistory('Project map received');
-            setProjectMap(payload as Include[]);
+            setProjectMap(payload as FileIncludeInfo[]);
             // projectMapData = msg.payload;
             // renderGraph(payload);
             break;

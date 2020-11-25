@@ -1,3 +1,4 @@
+import { FileMapping, FunctionCallInfo } from '../types';
 import jsAnalyzer from './js';
 
 describe('Includes using "import"', () => {
@@ -206,4 +207,59 @@ describe('Includes using "require"', () => {
   //       items: ['gaga', 'maga'],
   //     },
   //   ]));
+});
+
+describe('File mapping', () => {
+  test('regular functions', () => {
+    const content = `
+const somevar = 42;
+
+function gaga(a) {
+  return a + a;
+}
+
+gaga(42);
+const c = 3 + gaga(12) + FEFE(gaga(33));
+    `;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+    // console.log(content, JSON.stringify(res, null, 2));
+    expect(res).toMatchSnapshot();
+  });
+
+  test('arrow functions', () => {
+    const content = `
+const somevar = 42;
+
+const maga = (a: string, b: string) => a + b;
+const yaga = (a: number, b: any) => {
+  const c = a + b;
+  return c * 2;
+}
+maga(1,2);
+yaga(1,2);
+    `;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+    // console.log(content, JSON.stringify(res, null, 2));
+    expect(res).toMatchSnapshot();
+  });
+
+  test('class functions', () => {
+    const content = `
+class CL {
+  constructor() {
+    super();
+  };
+  propFunc = (a) => a;
+  methodFunc(a) {
+    return a;
+  }
+}
+const cl = new CL();
+cl.propFunc(42);
+cl.methodFunc(12);
+    `;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+    // console.log(content, JSON.stringify(res, null, 2));
+    expect(res).toMatchSnapshot();
+  });
 });

@@ -1,5 +1,5 @@
 import { getProjectFiles, openFile } from './io';
-import { IFunctionCallInfo, ProjectConfig } from './types';
+import { FileMapping, FunctionCallInfo, ProjectConfig } from './types';
 import { getAnalyzer } from './analyzers';
 
 export default class Project {
@@ -69,7 +69,7 @@ export default class Project {
 
     if (!content) throw new Error('File not found');
 
-    const mapping: IFunctionCallInfo[] = analyzer.extractFileMapping(
+    const mapping: FileMapping = analyzer.extractFileMapping(
       this.projectPath,
       content
     );

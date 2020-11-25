@@ -1,14 +1,29 @@
 export type TScanFileCallback = (relativePath: string, content: string) => void;
 
-export interface IFileIncludeInfo {
+export interface FileIncludeInfo {
   to: string;
   from: string;
   items: string[];
 }
-export interface IFunctionCallInfo {
+
+export interface FunctionCallInfo {
   name: string;
-  from: string;
+  filename: string;
+  pos: number;
+  end: number;
   args: string[];
+}
+export interface FunctionDeclarationInfo {
+  name: string;
+  filename: string;
+  pos: number;
+  end: number;
+  args: string[];
+}
+export interface FileMapping {
+  includes: FileIncludeInfo[];
+  functionDeclarations: FunctionDeclarationInfo[];
+  functionCalls: FunctionCallInfo[];
 }
 
 export interface ProjectConfig {

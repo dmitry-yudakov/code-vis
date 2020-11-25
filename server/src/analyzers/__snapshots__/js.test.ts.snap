@@ -1,0 +1,152 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`File mapping arrow functions 1`] = `
+Object {
+  "functionCalls": Array [
+    Object {
+      "args": Array [
+        "1",
+        "2",
+      ],
+      "end": 152,
+      "filename": "src/dir/a.js",
+      "name": "maga",
+      "pos": 142,
+    },
+    Object {
+      "args": Array [
+        "1",
+        "2",
+      ],
+      "end": 163,
+      "filename": "src/dir/a.js",
+      "name": "yaga",
+      "pos": 153,
+    },
+  ],
+  "functionDeclarations": Array [
+    Object {
+      "args": Array [
+        "a",
+        "b",
+      ],
+      "end": 66,
+      "filename": "src/dir/a.js",
+      "name": "maga",
+      "pos": 34,
+    },
+    Object {
+      "args": Array [
+        "a",
+        "b",
+      ],
+      "end": 142,
+      "filename": "src/dir/a.js",
+      "name": "yaga",
+      "pos": 80,
+    },
+  ],
+  "includes": Array [],
+}
+`;
+
+exports[`File mapping class functions 1`] = `
+Object {
+  "functionCalls": Array [
+    Object {
+      "args": Array [
+        "42",
+      ],
+      "end": 145,
+      "filename": "src/dir/a.js",
+      "name": "propFunc",
+      "pos": 129,
+    },
+    Object {
+      "args": Array [
+        "12",
+      ],
+      "end": 164,
+      "filename": "src/dir/a.js",
+      "name": "methodFunc",
+      "pos": 146,
+    },
+  ],
+  "functionDeclarations": Array [
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 69,
+      "filename": "src/dir/a.js",
+      "name": "propFunc",
+      "pos": 60,
+    },
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 106,
+      "filename": "src/dir/a.js",
+      "name": "methodFunc",
+      "pos": 70,
+    },
+  ],
+  "includes": Array [],
+}
+`;
+
+exports[`File mapping regular functions 1`] = `
+Object {
+  "functionCalls": Array [
+    Object {
+      "args": Array [
+        "42",
+      ],
+      "end": 68,
+      "filename": "src/dir/a.js",
+      "name": "gaga",
+      "pos": 58,
+    },
+    Object {
+      "args": Array [
+        "12",
+      ],
+      "end": 92,
+      "filename": "src/dir/a.js",
+      "name": "gaga",
+      "pos": 83,
+    },
+    Object {
+      "args": Array [
+        "EXPR:gaga...",
+      ],
+      "end": 109,
+      "filename": "src/dir/a.js",
+      "name": "FEFE",
+      "pos": 94,
+    },
+    Object {
+      "args": Array [
+        "33",
+      ],
+      "end": 108,
+      "filename": "src/dir/a.js",
+      "name": "gaga",
+      "pos": 100,
+    },
+  ],
+  "functionDeclarations": Array [
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 58,
+      "filename": "src/dir/a.js",
+      "name": "gaga",
+      "pos": 20,
+    },
+  ],
+  "includes": Array [],
+}
+`;

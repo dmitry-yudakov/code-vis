@@ -1,7 +1,13 @@
-import { IFileIncludeInfo, IFunctionCallInfo } from './../types';
+import {
+  FileIncludeInfo,
+  FunctionCallInfo,
+  FileMapping,
+  FunctionDeclarationInfo,
+} from './../types';
+import ts, { CallExpression, SyntaxKind } from 'typescript';
 
 const extractIncludes = (relativePath: string, content: string) => {
-  const includes: IFileIncludeInfo[] = [];
+  const includes: FileIncludeInfo[] = [];
   const re = /^(\s*)import (.+) from ['"](\..+)['"]/gm;
   // console.log('Analyze', relativePath, content);
 
@@ -36,7 +42,7 @@ const extractIncludes = (relativePath: string, content: string) => {
   return includes;
 };
 
-const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
+const resolveRelativeIncludePathInPlace = (info: FileIncludeInfo): void => {
   const re = /\//;
   const { to, from } = info;
   const pathTokens = to.split(re).filter((t) => !!t);
@@ -59,9 +65,9 @@ const resolveRelativeIncludePathInPlace = (info: IFileIncludeInfo) => {
 };
 
 const autoAppendJSextensionInPlace = (
-  info: IFileIncludeInfo,
+  info: FileIncludeInfo,
   projectFiles: string[]
-) => {
+): void => {
   const { from } = info;
   for (let filename of projectFiles) {
     if (
@@ -80,8 +86,8 @@ const autoAppendJSextensionInPlace = (
 const extractFilesHierarchy = async (
   filenames: string[],
   getFileContent: (filename: string) => Promise<string>
-): Promise<IFileIncludeInfo[]> => {
-  const includes: IFileIncludeInfo[] = await Promise.all(
+): Promise<FileIncludeInfo[]> => {
+  const includes: FileIncludeInfo[] = await Promise.all(
     filenames.map(async (filename) => {
       const content = await getFileContent(filename);
       return extractIncludes(filename, content);
@@ -95,26 +101,157 @@ const extractFilesHierarchy = async (
   return includes;
 };
 
-const extractFileMapping = (relativePath: string, content: string) => {
-  let funcCalls: IFunctionCallInfo[] = [];
+const searchFor = (
+  tree: any,
+  kind: SyntaxKind,
+  result?: any[],
+  path?: string[]
+) => {
+  const _result = result || [];
+  const _path = path || [];
+  if (_path.length > 100) {
+    console.log('Too long path in searching:', _path);
+    throw new Error('Too long path');
+  }
+  if (Array.isArray(tree)) {
+    for (const val of tree) {
+      searchFor(val, kind, _result, [..._path, 'ARR']);
+    }
+  } else if (typeof tree === 'object') {
+    if (tree.kind === kind) {
+      _result.push(tree);
+      // return;
+    }
+    for (const [key, val] of Object.entries(tree)) {
+      if (key === 'parent' || key === 'parseDiagnostics') continue;
+      // console.log('analize obj prop', key);
+      searchFor(val, kind, _result, [..._path, key]);
+    }
+  }
+  return _result;
+};
 
-  // console.log('in file', relativePath, 'check func call');
-  const reFuncCall = /(.*[\s()])([a-zA-Z0-9_^(]+)\((.*)\)/gm;
-  let max = 1000;
-  do {
-    let out = reFuncCall.exec(content);
-    if (!out) break;
-    const [, pre, name, args] = out;
-    console.log('func call detected', name, pre);
-    // console.log([relativePath, out[1]]);
-    // console.log(relativePath, out[1], out[2]);
-    funcCalls.push({
-      args: [args],
-      name: name,
-      from: relativePath,
+const extractFunctionDeclarations = (
+  filename: string,
+  sourceFile: ts.SourceFile
+): FunctionDeclarationInfo[] => {
+  const funcs = searchFor(sourceFile, SyntaxKind.FunctionDeclaration).map(
+    (node) => {
+      return {
+        name: node.name.escapedText,
+        filename,
+        pos: node.pos,
+        end: node.end,
+        args: node.parameters.map((p: any) => {
+          // console.log('Func argument:', p);
+          return p.name.escapedText;
+        }),
+      };
+    }
+  );
+
+  const arrowFuncs = searchFor(sourceFile, SyntaxKind.ArrowFunction)
+    .filter((node) => {
+      // console.log('Arrow node', node);
+      // console.log('Arrow node parent', node.parent);
+      if (node.parent?.name?.escapedText) return true;
+      console.log('Unexpected arrow func declaration:', node);
+    })
+    .map((node) => {
+      return {
+        name: node.parent.name.escapedText,
+        filename,
+        pos: node.pos,
+        end: node.end,
+        args: node.parameters.map((p: any) => {
+          // console.log('Func argument:', p);
+          return p.name.escapedText;
+        }),
+      };
     });
-  } while (--max);
-  return funcCalls;
+
+  const methods = searchFor(sourceFile, SyntaxKind.MethodDeclaration)
+    .filter((node) => {
+      // console.log('Arrow node', node);
+      // console.log('Arrow node parent', node.parent);
+      if (node.parent?.name?.escapedText) return true;
+      console.log('Unexpected method declaration:', node);
+    })
+    .map((node) => {
+      return {
+        name: node.name.escapedText,
+        filename,
+        pos: node.pos,
+        end: node.end,
+        args: node.parameters.map((p: any) => {
+          // console.log('Func argument:', p);
+          return p.name.escapedText;
+        }),
+      };
+    });
+
+  return [...funcs, ...arrowFuncs, ...methods];
+};
+
+const extractFunctionCalls = (
+  filename: string,
+  sourceFile: ts.SourceFile
+): FunctionCallInfo[] => {
+  const calls = searchFor(sourceFile, SyntaxKind.CallExpression)
+    .filter((node: any) => {
+      if (!!node.arguments && !!node.expression?.escapedText) return true;
+      if (!!node.arguments && !!node.expression?.name?.escapedText) return true;
+      if (node.expression?.kind === SyntaxKind.SuperKeyword) return false;
+      console.log('Unexpected CallExpression:', node);
+    })
+    .map((node: any) => {
+      const name =
+        node.expression.escapedText || node.expression?.name?.escapedText;
+      const args = node.arguments.map((arg: any) => {
+        // console.log('Arg', arg);
+        // console.log('Arg expr', arg.expression);
+        return arg.text || `EXPR:${arg.expression?.escapedText}...` || 'n/a';
+      });
+
+      return {
+        name,
+        args,
+        pos: node.pos,
+        end: node.end,
+        filename,
+      };
+    });
+
+  return calls;
+};
+
+const extractFileMapping = (
+  relativePath: string,
+  content: string
+): FileMapping => {
+  const sourceFile = ts.createSourceFile(
+    relativePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true
+  );
+  // console.log(sourceFile);
+
+  const includes = extractIncludes(relativePath, content);
+
+  const functionDeclarations: FunctionDeclarationInfo[] = extractFunctionDeclarations(
+    relativePath,
+    sourceFile
+  );
+
+  const functionCalls: FunctionCallInfo[] = extractFunctionCalls(
+    relativePath,
+    sourceFile
+  );
+
+  const res = { functionDeclarations, includes, functionCalls };
+  // console.log('res', JSON.stringify(res, null, 2));
+  return res;
 };
 
 export default {

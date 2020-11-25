@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactFlow, { ArrowHeadType, Background } from 'react-flow-renderer';
-import { Node, Edge, Include, PositionedNode } from '../types';
+import { Node, Edge, FileIncludeInfo, PositionedNode } from '../types';
 import { includeToGraphTypes } from '../utils';
 import dagre from 'dagre';
 
@@ -56,7 +56,7 @@ const positionElements = (
 //position: { x: rand(window.innerWidth), y: rand(window.innerHeight) },
 
 export const IncludesHierarchy: React.FC<{
-  includes: Include[];
+  includes: FileIncludeInfo[];
   onClick: (nodeName: string) => void;
 }> = React.memo(({ includes, onClick }) => {
   console.log('includes', includes);
