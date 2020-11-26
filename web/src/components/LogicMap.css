@@ -1,0 +1,26 @@
+.logic-map-panes {
+  display: flex;
+}
+.logic-map-panes .content {
+  width: 80%;
+  white-space: pre-wrap;
+}
+.logic-map-panes .mapping {
+  width: 20%;
+  font-size: 0.7em;
+  white-space: pre-wrap;
+}
+
+.simple-code {
+  opacity: 0.5;
+}
+
+.func-decl {
+  background-color: rgba(153, 153, 153, 0.158);
+  border: 1px solid #777;
+  border-radius: 3px;
+  padding: 3px;
+  margin: 3px;
+  display: block;
+  max-width: 600px;
+}

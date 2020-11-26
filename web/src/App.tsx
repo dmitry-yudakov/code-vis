@@ -2,32 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { WSConn } from './connection';
 import { History } from './components/History';
-import { FileIncludeInfo, FileMapDetailed } from './types';
+import { FileIncludeInfo } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
+import { LogicMap } from './components/LogicMap';
 
 const url = `ws://localhost:3789`;
 
-const LogicMap: React.FC<{ data: FileMapDetailed; onClose: () => void }> = ({
-  data,
-  onClose,
-}) => {
-  const [show, setShow] = useState<keyof FileMapDetailed>('content');
-  const content = data[show];
-  const pre =
-    typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-  return (
-    <div>
-      <button onClick={() => onClose()}>Back</button>
-      <br />
-      <button onClick={() => setShow('content')}>Content</button>
-      <button onClick={() => setShow('mapping')}>Mapping</button>
-      <pre>{pre}</pre>
-    </div>
-  );
-};
-
 const App: React.FC = () => {
   const [projectMap, setProjectMap] = useState<FileIncludeInfo[]>([]);
+  const [filename, setFilename] = useState<any>(null);
   const [fileMap, setFileMap] = useState<any>(null);
   const [history, setHistory] = useState<any[][]>([]);
   const appendToHistory = (str: string) =>
@@ -79,13 +62,22 @@ const App: React.FC = () => {
     if (!conn) {
       return alert('Not connected to server!');
     }
+    setFilename(nodeName);
     conn.send('mapFile', nodeName);
   };
 
   return (
     <div className="App">
-      {fileMap ? (
-        <LogicMap data={fileMap} onClose={() => setFileMap(null)} />
+      {fileMap && filename ? (
+        <LogicMap
+          data={fileMap}
+          filename={filename}
+          projectMap={projectMap}
+          onClose={() => {
+            setFileMap(null);
+            setFilename(null);
+          }}
+        />
       ) : (
         <IncludesHierarchy includes={projectMap} onClick={onNodeClick} />
       )}
