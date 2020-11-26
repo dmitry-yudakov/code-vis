@@ -224,6 +224,12 @@ const c = 3 + gaga(12) + FEFE(gaga(33));
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
     // console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
+    const funcBody = content.slice(
+      res.functionDeclarations[0].pos,
+      res.functionDeclarations[0].end
+    );
+    // console.log(`|${funcBody}|`);
+    expect(funcBody).toContain('function gaga(a) {\n  return a + a;\n}');
   });
 
   test('arrow functions', () => {
@@ -241,6 +247,57 @@ yaga(1,2);
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
     // console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
+
+    const funcBody1 = content.slice(
+      res.functionDeclarations[0].pos,
+      res.functionDeclarations[0].end
+    );
+    // console.log(`|${funcBody1}|`);
+    expect(funcBody1).toContain(
+      'const maga = (a: string, b: string) => a + b;'
+    );
+    expect(funcBody1).not.toContain('yaga');
+    const funcBody2 = content.slice(
+      res.functionDeclarations[1].pos,
+      res.functionDeclarations[1].end
+    );
+    // console.log(`|${funcBody2}|`);
+    expect(funcBody2).toContain(
+      'const yaga = (a: number, b: any) => {\n  const c = a + b;\n  return c * 2;\n}'
+    );
+    expect(funcBody2).not.toContain('maga');
+  });
+
+  test('arrow functions with more complex statements', () => {
+    const content = `
+const maga = (a: string, b: string) => a + b,
+  yaga = (a: number, b: any) => {
+    let c = a + b;
+    return c * 2;
+  };
+    `;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+    // console.log(content, JSON.stringify(res, null, 2));
+    expect(res).toMatchSnapshot();
+
+    const funcBody1 = content.slice(
+      res.functionDeclarations[0].pos,
+      res.functionDeclarations[0].end
+    );
+    // console.log(`|${funcBody1}|`);
+    expect(funcBody1).toContain('maga = (a: string, b: string) => a + b');
+    expect(funcBody1).not.toContain('yaga');
+    expect(funcBody1).not.toContain('const');
+    const funcBody2 = content.slice(
+      res.functionDeclarations[1].pos,
+      res.functionDeclarations[1].end
+    );
+    // console.log(`|${funcBody2}|`);
+    expect(funcBody2).toContain(
+      'yaga = (a: number, b: any) => {\n    let c = a + b;\n    return c * 2;\n  }'
+    );
+    expect(funcBody2).not.toContain('maga');
+    expect(funcBody2).not.toContain('const');
   });
 
   test('class functions', () => {
@@ -249,7 +306,9 @@ class CL {
   constructor() {
     super();
   };
+  
   propFunc = (a) => a;
+
   methodFunc(a) {
     return a;
   }
@@ -261,5 +320,18 @@ cl.methodFunc(12);
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
     // console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
+
+    const funcBody1 = content.slice(
+      res.functionDeclarations[0].pos,
+      res.functionDeclarations[0].end
+    );
+    // console.log(`|${funcBody1}|`);
+    expect(funcBody1).toContain('propFunc = (a) => a;');
+    const funcBody2 = content.slice(
+      res.functionDeclarations[1].pos,
+      res.functionDeclarations[1].end
+    );
+    // console.log(`|${funcBody2}|`);
+    expect(funcBody2).toContain('methodFunc(a) {\n    return a;\n  }');
   });
 });

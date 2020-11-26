@@ -30,10 +30,10 @@ Object {
         "a",
         "b",
       ],
-      "end": 66,
+      "end": 67,
       "filename": "src/dir/a.js",
       "name": "maga",
-      "pos": 34,
+      "pos": 20,
     },
     Object {
       "args": Array [
@@ -43,7 +43,36 @@ Object {
       "end": 142,
       "filename": "src/dir/a.js",
       "name": "yaga",
-      "pos": 80,
+      "pos": 67,
+    },
+  ],
+  "includes": Array [],
+}
+`;
+
+exports[`File mapping arrow functions with more complex statements 1`] = `
+Object {
+  "functionCalls": Array [],
+  "functionDeclarations": Array [
+    Object {
+      "args": Array [
+        "a",
+        "b",
+      ],
+      "end": 45,
+      "filename": "src/dir/a.js",
+      "name": "maga",
+      "pos": 6,
+    },
+    Object {
+      "args": Array [
+        "a",
+        "b",
+      ],
+      "end": 121,
+      "filename": "src/dir/a.js",
+      "name": "yaga",
+      "pos": 46,
     },
   ],
   "includes": Array [],
@@ -57,19 +86,19 @@ Object {
       "args": Array [
         "42",
       ],
-      "end": 145,
+      "end": 149,
       "filename": "src/dir/a.js",
       "name": "propFunc",
-      "pos": 129,
+      "pos": 133,
     },
     Object {
       "args": Array [
         "12",
       ],
-      "end": 164,
+      "end": 168,
       "filename": "src/dir/a.js",
       "name": "methodFunc",
-      "pos": 146,
+      "pos": 150,
     },
   ],
   "functionDeclarations": Array [
@@ -77,19 +106,19 @@ Object {
       "args": Array [
         "a",
       ],
-      "end": 69,
+      "end": 73,
       "filename": "src/dir/a.js",
       "name": "propFunc",
-      "pos": 60,
+      "pos": 47,
     },
     Object {
       "args": Array [
         "a",
       ],
-      "end": 106,
+      "end": 110,
       "filename": "src/dir/a.js",
       "name": "methodFunc",
-      "pos": 70,
+      "pos": 73,
     },
   ],
   "includes": Array [],

@@ -158,11 +158,23 @@ const extractFunctionDeclarations = (
       console.log('Unexpected arrow func declaration:', node);
     })
     .map((node) => {
+      // try to get 'const ...;' parts in pos-end too.
+      // sometimes impossible -> const a=()=>{}, b=()=>{};
+      // usually it's sole declaration: const a = () => {}
+      const isSoleDeclaration =
+        node.parent.kind === SyntaxKind.VariableDeclaration &&
+        node.parent.parent.kind === SyntaxKind.VariableDeclarationList &&
+        node.parent.parent.declarations.length === 1 &&
+        node.parent.parent.parent.kind === SyntaxKind.VariableStatement;
+      const furthestRelevantParentNode = isSoleDeclaration
+        ? node.parent.parent.parent
+        : node.parent;
+      // console.log({ isSoleDeclaration, furthestRelevantParentNode });
       return {
         name: node.parent.name.escapedText,
         filename,
-        pos: node.pos,
-        end: node.end,
+        pos: furthestRelevantParentNode.pos,
+        end: furthestRelevantParentNode.end,
         args: node.parameters.map((p: any) => {
           // console.log('Func argument:', p);
           return p.name.escapedText;
