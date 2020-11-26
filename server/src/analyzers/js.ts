@@ -137,10 +137,11 @@ const extractFunctionDeclarations = (
 ): FunctionDeclarationInfo[] => {
   const funcs = searchFor(sourceFile, SyntaxKind.FunctionDeclaration).map(
     (node) => {
+      const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
       return {
         name: node.name.escapedText,
         filename,
-        pos: node.pos,
+        pos: node.pos + leadingTriviaWidth,
         end: node.end,
         args: node.parameters.map((p: any) => {
           // console.log('Func argument:', p);
@@ -155,6 +156,7 @@ const extractFunctionDeclarations = (
       // console.log('Arrow node', node);
       // console.log('Arrow node parent', node.parent);
       if (node.parent?.name?.escapedText) return true;
+      if (node.parent.kind === SyntaxKind.CallExpression) return false; // arrow function passed as argument
       console.log('Unexpected arrow func declaration:', node);
     })
     .map((node) => {
@@ -169,11 +171,17 @@ const extractFunctionDeclarations = (
       const furthestRelevantParentNode = isSoleDeclaration
         ? node.parent.parent.parent
         : node.parent;
-      // console.log({ isSoleDeclaration, furthestRelevantParentNode });
+      const leadingTriviaWidth =
+        furthestRelevantParentNode.getLeadingTriviaWidth?.() || 0;
+      // console.log({
+      //   isSoleDeclaration,
+      //   leadingTriviaWidth,
+      //   furthestRelevantParentNode,
+      // });
       return {
         name: node.parent.name.escapedText,
         filename,
-        pos: furthestRelevantParentNode.pos,
+        pos: furthestRelevantParentNode.pos + leadingTriviaWidth,
         end: furthestRelevantParentNode.end,
         args: node.parameters.map((p: any) => {
           // console.log('Func argument:', p);
@@ -190,10 +198,11 @@ const extractFunctionDeclarations = (
       console.log('Unexpected method declaration:', node);
     })
     .map((node) => {
+      const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
       return {
         name: node.name.escapedText,
         filename,
-        pos: node.pos,
+        pos: node.pos + leadingTriviaWidth,
         end: node.end,
         args: node.parameters.map((p: any) => {
           // console.log('Func argument:', p);
@@ -245,7 +254,8 @@ const extractFileMapping = (
     relativePath,
     content,
     ts.ScriptTarget.Latest,
-    true
+    true,
+    ts.ScriptKind.TSX // should be the worst case
   );
   // console.log(sourceFile);
 

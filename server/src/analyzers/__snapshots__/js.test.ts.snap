@@ -33,7 +33,7 @@ Object {
       "end": 67,
       "filename": "src/dir/a.js",
       "name": "maga",
-      "pos": 20,
+      "pos": 22,
     },
     Object {
       "args": Array [
@@ -43,7 +43,7 @@ Object {
       "end": 142,
       "filename": "src/dir/a.js",
       "name": "yaga",
-      "pos": 67,
+      "pos": 68,
     },
   ],
   "includes": Array [],
@@ -62,7 +62,7 @@ Object {
       "end": 45,
       "filename": "src/dir/a.js",
       "name": "maga",
-      "pos": 6,
+      "pos": 7,
     },
     Object {
       "args": Array [
@@ -72,7 +72,7 @@ Object {
       "end": 121,
       "filename": "src/dir/a.js",
       "name": "yaga",
-      "pos": 46,
+      "pos": 49,
     },
   ],
   "includes": Array [],
@@ -109,7 +109,7 @@ Object {
       "end": 73,
       "filename": "src/dir/a.js",
       "name": "propFunc",
-      "pos": 47,
+      "pos": 53,
     },
     Object {
       "args": Array [
@@ -118,7 +118,58 @@ Object {
       "end": 110,
       "filename": "src/dir/a.js",
       "name": "methodFunc",
-      "pos": 73,
+      "pos": 77,
+    },
+  ],
+  "includes": Array [],
+}
+`;
+
+exports[`File mapping jsx 1`] = `
+Object {
+  "functionCalls": Array [
+    Object {
+      "args": Array [
+        "CLICK",
+      ],
+      "end": 136,
+      "filename": "src/dir/a.tsx",
+      "name": "alert",
+      "pos": 117,
+    },
+    Object {
+      "args": Array [
+        "EXPR:undefined...",
+      ],
+      "end": 370,
+      "filename": "src/dir/a.tsx",
+      "name": "map",
+      "pos": 194,
+    },
+    Object {
+      "args": Array [],
+      "end": 288,
+      "filename": "src/dir/a.tsx",
+      "name": "toLocaleTimeString",
+      "pos": 265,
+    },
+  ],
+  "functionDeclarations": Array [
+    Object {
+      "args": Array [
+        undefined,
+      ],
+      "end": 390,
+      "filename": "src/dir/a.tsx",
+      "name": "History",
+      "pos": 28,
+    },
+    Object {
+      "args": Array [],
+      "end": 141,
+      "filename": "src/dir/a.tsx",
+      "name": "onClick",
+      "pos": 94,
     },
   ],
   "includes": Array [],
@@ -173,7 +224,7 @@ Object {
       "end": 58,
       "filename": "src/dir/a.js",
       "name": "gaga",
-      "pos": 20,
+      "pos": 22,
     },
   ],
   "includes": Array [],

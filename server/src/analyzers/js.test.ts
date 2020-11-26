@@ -1,5 +1,5 @@
-import { FileMapping, FunctionCallInfo } from '../types';
 import jsAnalyzer from './js';
+const { DEBUG } = process.env;
 
 describe('Includes using "import"', () => {
   test('from same directory', () =>
@@ -222,13 +222,13 @@ gaga(42);
 const c = 3 + gaga(12) + FEFE(gaga(33));
     `;
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
-    // console.log(content, JSON.stringify(res, null, 2));
+    DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
     const funcBody = content.slice(
       res.functionDeclarations[0].pos,
       res.functionDeclarations[0].end
     );
-    // console.log(`|${funcBody}|`);
+    DEBUG && console.log(`|${funcBody}|`);
     expect(funcBody).toContain('function gaga(a) {\n  return a + a;\n}');
   });
 
@@ -245,14 +245,14 @@ maga(1,2);
 yaga(1,2);
     `;
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
-    // console.log(content, JSON.stringify(res, null, 2));
+    DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
     const funcBody1 = content.slice(
       res.functionDeclarations[0].pos,
       res.functionDeclarations[0].end
     );
-    // console.log(`|${funcBody1}|`);
+    DEBUG && console.log(`|${funcBody1}|`);
     expect(funcBody1).toContain(
       'const maga = (a: string, b: string) => a + b;'
     );
@@ -261,7 +261,7 @@ yaga(1,2);
       res.functionDeclarations[1].pos,
       res.functionDeclarations[1].end
     );
-    // console.log(`|${funcBody2}|`);
+    DEBUG && console.log(`|${funcBody2}|`);
     expect(funcBody2).toContain(
       'const yaga = (a: number, b: any) => {\n  const c = a + b;\n  return c * 2;\n}'
     );
@@ -277,14 +277,14 @@ const maga = (a: string, b: string) => a + b,
   };
     `;
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
-    // console.log(content, JSON.stringify(res, null, 2));
+    DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
     const funcBody1 = content.slice(
       res.functionDeclarations[0].pos,
       res.functionDeclarations[0].end
     );
-    // console.log(`|${funcBody1}|`);
+    DEBUG && console.log(`|${funcBody1}|`);
     expect(funcBody1).toContain('maga = (a: string, b: string) => a + b');
     expect(funcBody1).not.toContain('yaga');
     expect(funcBody1).not.toContain('const');
@@ -292,7 +292,7 @@ const maga = (a: string, b: string) => a + b,
       res.functionDeclarations[1].pos,
       res.functionDeclarations[1].end
     );
-    // console.log(`|${funcBody2}|`);
+    DEBUG && console.log(`|${funcBody2}|`);
     expect(funcBody2).toContain(
       'yaga = (a: number, b: any) => {\n    let c = a + b;\n    return c * 2;\n  }'
     );
@@ -318,20 +318,61 @@ cl.propFunc(42);
 cl.methodFunc(12);
     `;
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
-    // console.log(content, JSON.stringify(res, null, 2));
+    DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
     const funcBody1 = content.slice(
       res.functionDeclarations[0].pos,
       res.functionDeclarations[0].end
     );
-    // console.log(`|${funcBody1}|`);
+    DEBUG && console.log(`|${funcBody1}|`);
     expect(funcBody1).toContain('propFunc = (a) => a;');
     const funcBody2 = content.slice(
       res.functionDeclarations[1].pos,
       res.functionDeclarations[1].end
     );
-    // console.log(`|${funcBody2}|`);
+    DEBUG && console.log(`|${funcBody2}|`);
     expect(funcBody2).toContain('methodFunc(a) {\n    return a;\n  }');
+  });
+
+  test('jsx', () => {
+    const content = `import React from 'react';
+
+export const History = ({ history }: { history: any[][] }) => {
+  const onClick = () => {
+    alert('CLICK');
+  }
+  return (
+    <div className="history-bar">
+      {history.map(([tm, s], idx) => (
+        <div key={s + idx}>
+          {tm.toLocaleTimeString()}: {s}
+          <button onClick={onClick}>Button</button>
+        </div>
+      ))}
+    </div>
+  );
+};
+    `;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.tsx', content);
+    DEBUG && console.log(content, JSON.stringify(res, null, 2));
+    expect(res).toMatchSnapshot();
+
+    const funcBody1 = content.slice(
+      res.functionDeclarations[0].pos,
+      res.functionDeclarations[0].end
+    );
+    DEBUG && console.log(`|${funcBody1}|`);
+    expect(funcBody1).toContain('export const History = ({ history }:');
+    expect(funcBody1).toContain('<div');
+    expect(funcBody1).toContain('</div>');
+    const funcBody2 = content.slice(
+      res.functionDeclarations[1].pos,
+      res.functionDeclarations[1].end
+    );
+    DEBUG && console.log(`|${funcBody2}|`);
+    expect(funcBody2).toEqual(
+      "const onClick = () => {\n    alert('CLICK');\n  }"
+    );
   });
 });
