@@ -211,7 +211,7 @@ const extractFunctionDeclarations = (
       };
     });
 
-  return [...funcs, ...arrowFuncs, ...methods];
+  return [...funcs, ...arrowFuncs, ...methods].sort((l, r) => l.pos - r.pos);
 };
 
 const extractFunctionCalls = (

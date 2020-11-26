@@ -335,6 +335,105 @@ cl.methodFunc(12);
     expect(funcBody2).toContain('methodFunc(a) {\n    return a;\n  }');
   });
 
+  test('async/await functions', () => {
+    const content = `
+function gaga(a) {
+  return 42;
+}
+async function agaga(a) {
+  return 42;
+}
+const amaga = async (a) => 42;
+const maga = (a) => 42;
+await agaga(11);
+await amaga(22);
+gaga(111);
+maga(1221);
+    `;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+    DEBUG && console.log(content, JSON.stringify(res, null, 2));
+    expect(res).toMatchSnapshot();
+
+    const funcBody1 = content.slice(
+      res.functionDeclarations[0].pos,
+      res.functionDeclarations[0].end
+    );
+    DEBUG && console.log(`|${funcBody1}|`);
+    expect(funcBody1).toContain('function gaga(a) {\n  return 42;\n}');
+
+    const funcBody2 = content.slice(
+      res.functionDeclarations[1].pos,
+      res.functionDeclarations[1].end
+    );
+    DEBUG && console.log(`|${funcBody2}|`);
+    expect(funcBody2).toContain('async function agaga(a) {\n  return 42;\n}');
+
+    const funcBody3 = content.slice(
+      res.functionDeclarations[2].pos,
+      res.functionDeclarations[2].end
+    );
+    DEBUG && console.log(`|${funcBody3}|`);
+    expect(funcBody3).toContain('const amaga = async (a) => 42;');
+
+    const funcBody4 = content.slice(
+      res.functionDeclarations[3].pos,
+      res.functionDeclarations[3].end
+    );
+    DEBUG && console.log(`|${funcBody4}|`);
+    expect(funcBody4).toContain('const maga = (a) => 42;');
+  });
+
+  test('async/await functions in class', () => {
+    const content = `
+class CL {]
+  propFunc = (a) => a;
+  async methodFuncAsync(a) {
+    return a;
+  }
+  propFuncAsync = async (a) => a;
+  methodFunc(a) {
+    return a;
+  }
+}
+const cl = new CL();
+await cl.propFuncAsync(42);
+await cl.methodFuncAsync(12);
+    `;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+    DEBUG && console.log(content, JSON.stringify(res, null, 2));
+    expect(res).toMatchSnapshot();
+
+    const funcBody1 = content.slice(
+      res.functionDeclarations[0].pos,
+      res.functionDeclarations[0].end
+    );
+    DEBUG && console.log(`|${funcBody1}|`);
+    expect(funcBody1).toContain('propFunc = (a) => a;');
+
+    const funcBody2 = content.slice(
+      res.functionDeclarations[1].pos,
+      res.functionDeclarations[1].end
+    );
+    DEBUG && console.log(`|${funcBody2}|`);
+    expect(funcBody2).toContain(
+      'async methodFuncAsync(a) {\n    return a;\n  }'
+    );
+
+    const funcBody3 = content.slice(
+      res.functionDeclarations[2].pos,
+      res.functionDeclarations[2].end
+    );
+    DEBUG && console.log(`|${funcBody3}|`);
+    expect(funcBody3).toContain('propFuncAsync = async (a) => a;');
+
+    const funcBody4 = content.slice(
+      res.functionDeclarations[3].pos,
+      res.functionDeclarations[3].end
+    );
+    DEBUG && console.log(`|${funcBody4}|`);
+    expect(funcBody4).toContain('methodFunc(a) {\n    return a;\n  }');
+  });
+
   test('jsx', () => {
     const content = `import React from 'react';
 

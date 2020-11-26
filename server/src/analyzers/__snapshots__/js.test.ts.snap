@@ -79,6 +79,152 @@ Object {
 }
 `;
 
+exports[`File mapping async/await functions 1`] = `
+Object {
+  "functionCalls": Array [
+    Object {
+      "args": Array [
+        "11",
+      ],
+      "end": 146,
+      "filename": "src/dir/a.js",
+      "name": "agaga",
+      "pos": 136,
+    },
+    Object {
+      "args": Array [
+        "22",
+      ],
+      "end": 163,
+      "filename": "src/dir/a.js",
+      "name": "amaga",
+      "pos": 153,
+    },
+    Object {
+      "args": Array [
+        "111",
+      ],
+      "end": 174,
+      "filename": "src/dir/a.js",
+      "name": "gaga",
+      "pos": 164,
+    },
+    Object {
+      "args": Array [
+        "1221",
+      ],
+      "end": 186,
+      "filename": "src/dir/a.js",
+      "name": "maga",
+      "pos": 175,
+    },
+  ],
+  "functionDeclarations": Array [
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 34,
+      "filename": "src/dir/a.js",
+      "name": "gaga",
+      "pos": 1,
+    },
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 75,
+      "filename": "src/dir/a.js",
+      "name": "agaga",
+      "pos": 35,
+    },
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 106,
+      "filename": "src/dir/a.js",
+      "name": "amaga",
+      "pos": 76,
+    },
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 130,
+      "filename": "src/dir/a.js",
+      "name": "maga",
+      "pos": 107,
+    },
+  ],
+  "includes": Array [],
+}
+`;
+
+exports[`File mapping async/await functions in class 1`] = `
+Object {
+  "functionCalls": Array [
+    Object {
+      "args": Array [
+        "42",
+      ],
+      "end": 202,
+      "filename": "src/dir/a.js",
+      "name": "propFuncAsync",
+      "pos": 181,
+    },
+    Object {
+      "args": Array [
+        "12",
+      ],
+      "end": 232,
+      "filename": "src/dir/a.js",
+      "name": "methodFuncAsync",
+      "pos": 209,
+    },
+  ],
+  "functionDeclarations": Array [
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 35,
+      "filename": "src/dir/a.js",
+      "name": "propFunc",
+      "pos": 15,
+    },
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 82,
+      "filename": "src/dir/a.js",
+      "name": "methodFuncAsync",
+      "pos": 38,
+    },
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 116,
+      "filename": "src/dir/a.js",
+      "name": "propFuncAsync",
+      "pos": 85,
+    },
+    Object {
+      "args": Array [
+        "a",
+      ],
+      "end": 152,
+      "filename": "src/dir/a.js",
+      "name": "methodFunc",
+      "pos": 119,
+    },
+  ],
+  "includes": Array [],
+}
+`;
+
 exports[`File mapping class functions 1`] = `
 Object {
   "functionCalls": Array [
