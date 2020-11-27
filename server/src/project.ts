@@ -70,8 +70,9 @@ export default class Project {
     if (!content) throw new Error('File not found');
 
     const mapping: FileMapping = analyzer.extractFileMapping(
-      this.projectPath,
-      content
+      filename,
+      content,
+      this.files
     );
 
     return {

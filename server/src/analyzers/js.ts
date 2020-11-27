@@ -40,6 +40,9 @@ const extractIncludes = (relativePath: string, content: string) => {
       from: whereFrom,
     });
   } while (1);
+
+  includes.forEach(resolveRelativeIncludePathInPlace);
+
   return includes;
 };
 
@@ -116,7 +119,6 @@ const extractFilesHierarchy = async (
     })
   ).then((nestedIncludes) => nestedIncludes.flat());
 
-  includes.forEach(resolveRelativeIncludePathInPlace);
 
   includes.forEach((info) => {
     info.from = tryAutoResolveProjectModule(info.from, filenames) || info.from;
@@ -271,11 +273,12 @@ const extractFunctionCalls = (
 };
 
 const extractFileMapping = (
-  relativePath: string,
-  content: string
+  filename: string,
+  content: string,
+  projectFilenames: string[] = []
 ): FileMapping => {
   const sourceFile = ts.createSourceFile(
-    relativePath,
+    filename,
     content,
     ts.ScriptTarget.Latest,
     true,
@@ -283,15 +286,20 @@ const extractFileMapping = (
   );
   // console.log(sourceFile);
 
-  const includes = extractIncludes(relativePath, content);
+  const includes = extractIncludes(filename, content);
+
+  includes.forEach((info) => {
+    info.from =
+      tryAutoResolveProjectModule(info.from, projectFilenames) || info.from;
+  });
 
   const functionDeclarations: FunctionDeclarationInfo[] = extractFunctionDeclarations(
-    relativePath,
+    filename,
     sourceFile
   );
 
   const functionCalls: FunctionCallInfo[] = extractFunctionCalls(
-    relativePath,
+    filename,
     sourceFile
   );
 
