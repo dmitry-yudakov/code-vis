@@ -23,7 +23,7 @@ export default class Project {
     );
   }
 
-  processCommand = async (type: string, payload: string | undefined) => {
+  processCommand = async (type: string, payload: any | undefined) => {
     // let tokens = type.split(' ').filter((word) => word);
     console.log('Process command', { type, payload });
 
@@ -31,7 +31,7 @@ export default class Project {
       case 'mapProject':
         return this.projectMap();
       case 'mapFile':
-        return this.fileMap(payload!);
+        return this.fileMap(payload.filename, payload.includeRelated);
       default:
         throw new Error('Could not recognize command: "' + type + '"');
     }
@@ -63,7 +63,8 @@ export default class Project {
     return { type: 'projectMap', payload: data };
   }
 
-  async fileMap(filename: string) {
+  async fileMap(filename: string, includeRelated = false) {
+    console.log('fileMap command', { filename, includeRelated });
     const analyzer = getAnalyzer('js'); // temp
     const content = await openFile(filename, this.projectPath);
 
@@ -74,10 +75,20 @@ export default class Project {
       content,
       this.files
     );
+    const payload = [{ content, mapping, filename }];
+
+    if (includeRelated) {
+      for (const fnm of mapping.includes.map((ii) => ii.from)) {
+        const cont = await openFile(fnm, this.projectPath);
+        const mpng = analyzer.extractFileMapping(fnm, cont, this.files);
+
+        payload.push({ content: cont, mapping: mpng, filename: fnm });
+      }
+    }
 
     return {
       type: 'fileMap',
-      payload: [{ content, mapping, filename }],
+      payload,
     };
   }
 

@@ -9,7 +9,7 @@ export class WSConn {
     this.ws = this.reconnectws();
   }
 
-  send(command: string, payload?: string) {
+  send(command: string, payload?: object) {
     this.ws.send(JSON.stringify({ type: command, payload }));
   }
 

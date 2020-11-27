@@ -16,7 +16,7 @@ import { LogicMap } from './components/LogicMap';
 
 const url = `ws://localhost:3789`;
 let conn: WSConn;
-const sendToServer = (command: string, payload: string) => {
+const sendToServer = (command: string, payload: object) => {
   if (!conn) {
     console.log(
       'Cannot send',
@@ -39,7 +39,7 @@ const FileScreen: React.FC = () => {
   const filename = decodeURIComponent(filenameEnc);
   const router = useHistory();
 
-  useEffect(() => sendToServer('mapFile', JSON.stringify(filename)), [
+  useEffect(() => sendToServer('mapFile', { filename, includeRelated: true }), [
     filename,
   ]);
 
@@ -47,6 +47,9 @@ const FileScreen: React.FC = () => {
 
   const fileData = filesMappings[filename];
   if (!fileData) return <div>Loading...</div>;
+
+  // TODO show related files too
+  // TODO show files referencing this one too
 
   return (
     <LogicMap
