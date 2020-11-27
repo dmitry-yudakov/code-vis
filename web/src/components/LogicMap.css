@@ -11,16 +11,28 @@
   white-space: pre-wrap;
 }
 
+.simple-code,
+.func-decl {
+  display: block;
+}
 .simple-code {
   opacity: 0.5;
+  background-color: rgba(153, 153, 153, 0.1);
+  padding: 3px;
+  margin: 3px;
 }
-
 .func-decl {
   background-color: rgba(153, 153, 153, 0.158);
   border: 1px solid #777;
   border-radius: 3px;
   padding: 3px;
   margin: 3px;
-  display: block;
+}
+.file-view {
   max-width: 600px;
+  padding: 3px;
+  margin: 3px;
+  background-color: rgba(153, 153, 153, 0.05);
+  border: 1px solid #999;
+  border-radius: 3px;
 }

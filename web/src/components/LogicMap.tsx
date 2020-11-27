@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -15,7 +15,7 @@ const enrichContent = (
   let prevIdx = 0;
   const items: any[] = [];
   for (const fd of functionDeclarations) {
-    const { pos, end, name } = fd;
+    const { pos, end } = fd;
 
     if (prevIdx > pos) {
       console.log('Must be nested function - currently not supported', fd);
@@ -24,27 +24,66 @@ const enrichContent = (
 
     if (prevIdx < pos) {
       items.push(
-        <span className="simple-code" key={key(prevIdx, pos)}>
-          {content.slice(prevIdx, pos)}
-        </span>
+        <SimpleCode
+          key={key(prevIdx, pos)}
+          code={content.slice(prevIdx, pos)}
+        />
       );
     }
     const body = content.slice(pos, end);
-    items.push(
-      <span className="func-decl" key={key(pos, end)} title={name}>
-        {body}
-      </span>
-    );
+    items.push(<FunctionView func={fd} body={body} key={key(pos, end)} />);
     prevIdx = end;
   }
   if (prevIdx < content.length) {
     items.push(
-      <span key={key(prevIdx, content.length)}>
-        {content.slice(prevIdx, content.length)}
-      </span>
+      <SimpleCode
+        key={key(prevIdx, content.length)}
+        code={content.slice(prevIdx, content.length)}
+      />
     );
   }
   return items;
+};
+
+const FunctionView: React.FC<{
+  func: FunctionDeclarationInfo;
+  body: string;
+}> = ({ func, body }) => {
+  const [expand, setExpand] = useState(false);
+  const { name, args } = func;
+  const shortView = `func ${name} (${args.join(', ')}) ...`;
+  return (
+    <div className="func-decl" title={name} onClick={() => setExpand(!expand)}>
+      {expand ? body : shortView}
+    </div>
+  );
+};
+
+const SimpleCode: React.FC<{ code: string }> = ({ code }) => {
+  const [expand, setExpand] = useState(false);
+  const shortView = `code...`;
+  return (
+    <div className="simple-code" onClick={() => setExpand(!expand)}>
+      {expand ? code : shortView}
+    </div>
+  );
+};
+
+const FileView: React.FC<{
+  fileDetails: FileMapDetailed;
+  filename: string;
+}> = ({ fileDetails, filename }) => {
+  const { content, mapping } = fileDetails;
+  const { functionDeclarations, functionCalls } = mapping;
+  const fileContent = enrichContent(content, functionDeclarations);
+
+  console.log({ functionDeclarations, functionCalls });
+  return (
+    <div className="file-view">
+      <h3>{filename}</h3>
+      {fileContent}
+    </div>
+  );
 };
 
 export const LogicMap: React.FC<{
@@ -53,15 +92,10 @@ export const LogicMap: React.FC<{
   projectMap: FileIncludeInfo[];
   onClose: () => void;
 }> = ({ data, filename, projectMap, onClose }) => {
-  const { content, mapping } = data;
+  const { mapping } = data;
 
   const includes = projectMap.filter((incl) => incl.to === filename);
   const includedIn = projectMap.filter((incl) => incl.from === filename);
-
-  const { functionDeclarations, functionCalls } = mapping;
-  console.log({ functionDeclarations, functionCalls });
-
-  const fileContent = enrichContent(content, functionDeclarations);
 
   return (
     <div>
@@ -86,8 +120,7 @@ export const LogicMap: React.FC<{
       <div className="logic-map-panes">
         <div className="content">
           <h3>Content</h3>
-          {/* {content} */}
-          {fileContent}
+          <FileView fileDetails={data} filename={filename} />
         </div>
         <div className="mapping">
           <h3>Mapping</h3>
