@@ -4,6 +4,7 @@ import {
   FileMapping,
   FunctionDeclarationInfo,
 } from './../types';
+import path from 'path';
 import ts, { CallExpression, SyntaxKind } from 'typescript';
 
 const extractIncludes = (relativePath: string, content: string) => {
@@ -64,23 +65,44 @@ const resolveRelativeIncludePathInPlace = (info: FileIncludeInfo): void => {
   // console.log(info.from, info.to);
 };
 
-const autoAppendJSextensionInPlace = (
-  info: FileIncludeInfo,
+const _commonCompletionSuffixes = [
+  '.js',
+  '.ts',
+  '.jsx',
+  '.tsx',
+  '.d.ts',
+  '/index.js',
+  '/index.ts',
+  '/index.jsx',
+  '/index.tsx',
+];
+
+export const tryAutoResolveProjectModule = (
+  incompleteFilename: string,
   projectFiles: string[]
-): void => {
-  const { from } = info;
-  for (let filename of projectFiles) {
-    if (
-      filename.length > from.length &&
-      filename.length - from.length <= 5 &&
-      filename.indexOf(from) === 0 &&
-      filename[from.length] === '.'
-    ) {
-      console.log('AutoComplete', from, 'to', filename);
-      info.from = filename;
-      break;
+): string | null => {
+  if (path.extname(incompleteFilename)) return null; // already complete
+
+  for (let completeFilename of projectFiles) {
+    if (completeFilename.length - incompleteFilename.length < 3) continue; // too short
+
+    // could be useful to autodetect extension or dangerous, disabled it for the moment...
+    // const ext = path.extname(completeFilename);
+    // if (completeFilename === incompleteFilename + ext) {
+    //   console.log('AutoResolved', incompleteFilename, 'to', completeFilename);
+    //   return completeFilename;
+    // }
+
+    for (const suffix of _commonCompletionSuffixes) {
+      if (completeFilename === incompleteFilename + suffix) {
+        console.log('AutoResolved', incompleteFilename, 'to', completeFilename);
+
+        return completeFilename;
+      }
     }
   }
+  console.log('Could not AutoResolve', incompleteFilename);
+  return null;
 };
 
 const extractFilesHierarchy = async (
@@ -96,7 +118,9 @@ const extractFilesHierarchy = async (
 
   includes.forEach(resolveRelativeIncludePathInPlace);
 
-  includes.forEach((info) => autoAppendJSextensionInPlace(info, filenames));
+  includes.forEach((info) => {
+    info.from = tryAutoResolveProjectModule(info.from, filenames) || info.from;
+  });
 
   return includes;
 };
