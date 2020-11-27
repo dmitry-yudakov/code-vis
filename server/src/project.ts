@@ -77,7 +77,7 @@ export default class Project {
 
     return {
       type: 'fileMap',
-      payload: { content, mapping },
+      payload: [{ content, mapping, filename }],
     };
   }
 

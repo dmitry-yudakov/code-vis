@@ -1,45 +1,101 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext, useMemo } from 'react';
 import './App.css';
+import {
+  BrowserRouter as Router,
+  Switch,
+  Route,
+  useParams,
+  useHistory,
+} from 'react-router-dom';
+import lodash from 'lodash';
 import { WSConn } from './connection';
 import { History } from './components/History';
-import { FileIncludeInfo } from './types';
+import { FileIncludeInfo, FileMapDetailed } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
 
 const url = `ws://localhost:3789`;
+let conn: WSConn;
+const sendToServer = (command: string, payload: string) => {
+  if (!conn) {
+    console.log(
+      'Cannot send',
+      command,
+      '- no connection to server. Try again in a sec'
+    );
+    setTimeout(() => sendToServer(command, payload), 500);
+    return;
+  }
+  conn.send(command, payload);
+};
+
+const ProjectDataContext = React.createContext<{
+  projectMap: FileIncludeInfo[];
+  filesMappings: Record<string, FileMapDetailed>;
+}>({ projectMap: [], filesMappings: {} });
+
+const FileScreen: React.FC = () => {
+  const { filename: filenameEnc } = useParams<{ filename: string }>();
+  const filename = decodeURIComponent(filenameEnc);
+  const router = useHistory();
+
+  useEffect(() => sendToServer('mapFile', JSON.stringify(filename)), [
+    filename,
+  ]);
+
+  const { projectMap, filesMappings } = useContext(ProjectDataContext);
+
+  const fileData = filesMappings[filename];
+  if (!fileData) return <div>Loading...</div>;
+
+  return (
+    <LogicMap
+      data={fileData}
+      filename={filename}
+      projectMap={projectMap}
+      onClose={() => router.push('/')}
+    />
+  );
+};
 
 const App: React.FC = () => {
+  const router = useHistory();
+
   const [projectMap, setProjectMap] = useState<FileIncludeInfo[]>([]);
-  const [filename, setFilename] = useState<any>(null);
-  const [fileMap, setFileMap] = useState<any>(null);
+  const [filesMappings, setFilesMappings] = useState<
+    Record<string, FileMapDetailed>
+  >({});
+  const contextVal = useMemo(() => ({ projectMap, filesMappings }), [
+    projectMap,
+    filesMappings,
+  ]);
+
   const [history, setHistory] = useState<any[][]>([]);
   const appendToHistory = (str: string) =>
     setHistory((hist) => [...hist, [new Date(), str]]);
 
   const refConn = useRef<WSConn | null>(null);
   useEffect(() => {
-    const conn = new WSConn(
+    conn = new WSConn(
       url,
       (type, payload) => {
         console.log(type, payload);
         switch (type) {
           case 'keywords':
-            // reinitGrammar(msg.payload);
             appendToHistory('Keywords received');
             break;
           case 'projectMap':
-            // appendToHistory(msg.payload);
             appendToHistory('Project map received');
             setProjectMap(payload as FileIncludeInfo[]);
-            // projectMapData = msg.payload;
-            // renderGraph(payload);
             break;
           case 'fileMap':
             appendToHistory('File map received');
             console.log('fileMap', payload);
-            setFileMap(payload);
-            // projectMapData = msg.payload;
-            // renderGraph(payload);
+            const mappingsObj = lodash.keyBy(payload, 'filename');
+            setFilesMappings((filesMappings) => ({
+              ...filesMappings,
+              ...mappingsObj,
+            }));
             break;
           case 'info':
             appendToHistory(JSON.stringify(payload));
@@ -56,34 +112,35 @@ const App: React.FC = () => {
     refConn.current = conn;
   }, []);
 
-  const onNodeClick = (nodeName: string) => {
-    console.log('Click on', nodeName);
+  const onNodeClick = (fileName: string) => {
+    console.log('Click on', fileName);
     const conn = refConn.current;
     if (!conn) {
       return alert('Not connected to server!');
     }
-    setFilename(nodeName);
-    conn.send('mapFile', nodeName);
+    router.push(`/f/${encodeURIComponent(fileName)}`);
   };
 
   return (
     <div className="App">
-      {fileMap && filename ? (
-        <LogicMap
-          data={fileMap}
-          filename={filename}
-          projectMap={projectMap}
-          onClose={() => {
-            setFileMap(null);
-            setFilename(null);
-          }}
-        />
-      ) : (
-        <IncludesHierarchy includes={projectMap} onClick={onNodeClick} />
-      )}
+      <ProjectDataContext.Provider value={contextVal}>
+        <Switch>
+          <Route path="/f/:filename">
+            <FileScreen />
+          </Route>
+          <Route path="/">
+            <IncludesHierarchy includes={projectMap} onClick={onNodeClick} />
+          </Route>
+        </Switch>
+      </ProjectDataContext.Provider>
       <History history={history} />
     </div>
   );
 };
 
-export default App;
+const defaultApp = () => (
+  <Router>
+    <App />
+  </Router>
+);
+export default defaultApp;
