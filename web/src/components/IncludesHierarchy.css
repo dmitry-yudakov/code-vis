@@ -1,0 +1,13 @@
+.file-path,
+.file-ext {
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+.file-name {
+  font-size: 1.3em;
+  font-weight: 500;
+}
+.file-name,
+.file-ext {
+  display: inline-block;
+}
