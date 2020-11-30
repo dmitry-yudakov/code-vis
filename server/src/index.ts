@@ -30,6 +30,11 @@ loadConfiguration(projectPath)
     };
 
     startServer(3789, onCommand);
+
+    return project;
+  })
+  .then((project) => {
+    return project.recreateProjectMap();
   })
   .catch((err) => {
     console.log('Error starting project:', err);

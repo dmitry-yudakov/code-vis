@@ -1,9 +1,10 @@
 import { getProjectFiles, openFile } from './io';
-import { FileMapping, FunctionCallInfo, ProjectConfig } from './types';
+import { FileIncludeInfo, FileMapping, ProjectConfig } from './types';
 import { getAnalyzer } from './analyzers';
 
 export default class Project {
   public files: string[] = [];
+  public projectMap: FileIncludeInfo[] = [];
   public hideFilesMasks: { [k: string]: RegExp } = {};
 
   constructor(private projectPath: string, private config: ProjectConfig) {
@@ -29,9 +30,12 @@ export default class Project {
 
     switch (type) {
       case 'mapProject':
-        return this.projectMap();
+        return this.handleCommandProjectMap();
       case 'mapFile':
-        return this.fileMap(payload.filename, payload.includeRelated);
+        return this.handleCommandFileMap(
+          payload.filename,
+          payload.includeRelated
+        );
       default:
         throw new Error('Could not recognize command: "' + type + '"');
     }
@@ -53,17 +57,21 @@ export default class Project {
     // }
   };
 
-  async projectMap() {
+  async recreateProjectMap() {
     const analyzer = getAnalyzer('js'); // temp
     // TODO check should ignore
-    const data = await analyzer.extractFilesHierarchy(this.files, (fn) =>
+    this.projectMap = await analyzer.extractFilesHierarchy(this.files, (fn) =>
       openFile(fn, this.projectPath)
     );
+  }
+  async handleCommandProjectMap() {
+    this.recreateProjectMap();
+
     // console.log(data);
-    return { type: 'projectMap', payload: data };
+    return { type: 'projectMap', payload: this.projectMap };
   }
 
-  async fileMap(filename: string, includeRelated = false) {
+  async handleCommandFileMap(filename: string, includeRelated = false) {
     console.log('fileMap command', { filename, includeRelated });
     const analyzer = getAnalyzer('js'); // temp
     const content = await openFile(filename, this.projectPath);
@@ -79,6 +87,15 @@ export default class Project {
 
     if (includeRelated) {
       for (const fnm of mapping.includes.map((ii) => ii.from)) {
+        const cont = await openFile(fnm, this.projectPath);
+        const mpng = analyzer.extractFileMapping(fnm, cont, this.files);
+
+        payload.push({ content: cont, mapping: mpng, filename: fnm });
+      }
+
+      for (const fnm of this.projectMap
+        .filter((ii) => ii.from === filename)
+        .map((ii) => ii.to)) {
         const cont = await openFile(fnm, this.projectPath);
         const mpng = analyzer.extractFileMapping(fnm, cont, this.files);
 
