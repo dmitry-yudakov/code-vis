@@ -4,6 +4,7 @@ import { Node, Edge, FileIncludeInfo, PositionedNode } from '../types';
 import { includeToGraphTypes } from '../utils';
 import dagre from 'dagre';
 import './IncludesHierarchy.css';
+import { FilenamePrettyView } from './FilenamePrettyView';
 
 // const calcEdgeWeightBySimilarity = (incl: Include) => {
 //   const {to, from} = incl;
@@ -112,28 +113,6 @@ export const IncludesHierarchy: React.FC<{
   );
 });
 
-const reFilenameParts = /([^/\\]+)[.]{1}([^.]+)$/;
-const getFilenameParts = (filename: string) => {
-  const res = reFilenameParts.exec(filename);
-  if (!res) return { path: '', name: filename, ext: '' };
-  const [, name, ext] = res;
-  const path = filename.replace(reFilenameParts, '');
-  const parts = {
-    path,
-    name,
-    ext,
-  };
-  // console.log('filename parts:', parts);
-  return parts;
-};
-
-const NodeView: React.FC<{ node: Node }> = ({ node }) => {
-  const { path, name, ext } = getFilenameParts(node.label);
-  return (
-    <div className="node">
-      <div className="file-path">{path}</div>
-      <div className="file-name">{name}</div>
-      <div className="file-ext">.{ext}</div>
-    </div>
-  );
-};
+const NodeView: React.FC<{ node: Node }> = ({ node }) => (
+  <FilenamePrettyView filename={node.label} />
+);

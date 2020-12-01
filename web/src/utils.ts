@@ -20,3 +20,24 @@ export const includeToGraphTypes = (
   }));
   return { nodes, edges };
 };
+
+const _reSomeContent = /\S/gm;
+
+export const isEmptyContent = (content: string): boolean => {
+  return !_reSomeContent.test(content);
+};
+
+const reFilenameParts = /([^/\\]+)\.([^.]+)$/;
+export const getFilenameParts = (filename: string) => {
+  const res = reFilenameParts.exec(filename);
+  if (!res) return { path: '', name: filename, ext: '' };
+  const [, name, ext] = res;
+  const path = filename.replace(reFilenameParts, '');
+  const parts = {
+    path,
+    name,
+    ext,
+  };
+  // console.log('filename parts:', parts);
+  return parts;
+};
