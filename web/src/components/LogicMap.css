@@ -57,3 +57,8 @@
   border: 1px solid #999;
   border-radius: 3px;
 }
+.file-view .file-view-heading {
+  padding: 5px;
+  margin-bottom: 0.7em;
+  border-bottom: 1px solid lightgrey;
+}

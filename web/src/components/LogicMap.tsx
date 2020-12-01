@@ -5,6 +5,7 @@ import {
   FunctionDeclarationInfo,
 } from '../types';
 import { isEmptyContent } from '../utils';
+import { FilenamePrettyView } from './FilenamePrettyView';
 import './LogicMap.css';
 
 const key = (pos: number, end: number) => `${pos}-${end}`;
@@ -84,7 +85,9 @@ const FileView: React.FC<{
   console.log({ functionDeclarations, functionCalls });
   return (
     <div className="file-view">
-      <h3>{filename}</h3>
+      <div className="file-view-heading">
+        <FilenamePrettyView filename={filename} />
+      </div>
       {fileContent}
     </div>
   );
