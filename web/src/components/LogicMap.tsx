@@ -90,12 +90,17 @@ const FileView: React.FC<{
   );
 };
 
+const HiddenRelatedFile: React.FC<{ filename: string }> = ({ filename }) => {
+  return <div className="hidden-file">{filename} hidden</div>;
+};
+
 export const LogicMap: React.FC<{
   data: FileMapDetailed;
   filename: string;
   projectMap: FileIncludeInfo[];
+  onRequestRelatedFile: (filename: string) => FileMapDetailed | null;
   onClose: () => void;
-}> = ({ data, filename, projectMap, onClose }) => {
+}> = ({ data, filename, projectMap, onRequestRelatedFile, onClose }) => {
   const { mapping } = data;
 
   const includes = projectMap.filter((incl) => incl.to === filename);
@@ -109,22 +114,48 @@ export const LogicMap: React.FC<{
         <h3>Includes</h3>
         {includes.map((incl, idx) => (
           <div key={incl.from + idx}>
-            {incl.items.join(',')} from <strong>{incl.to}</strong>
+            {incl.items.join(',')} from <strong>{incl.from}</strong>
           </div>
         ))}
       </div>
       <div>
         <h3>Referenced in</h3>
         {includedIn.map((incl, idx) => (
-          <div key={incl.from + idx}>
+          <div key={incl.to + idx}>
             <strong>{incl.to}</strong>: {incl.items.join(',')}
           </div>
         ))}
       </div>
       <div className="logic-map-panes">
         <div className="content">
-          <h3>Content</h3>
-          <FileView fileDetails={data} filename={filename} />
+          <div className="references">
+            <h3>References</h3>
+            {includedIn.map((incl, idx) => {
+              const fn = incl.to;
+              const data = onRequestRelatedFile(fn);
+              return data ? (
+                <FileView key={fn + idx} fileDetails={data} filename={fn} />
+              ) : (
+                <HiddenRelatedFile key={fn + idx} filename={fn} />
+              );
+            })}
+          </div>
+          <div className="main-content">
+            <h3>Content</h3>
+            <FileView fileDetails={data} filename={filename} />
+          </div>
+          <div className="includes">
+            <h3>Includes</h3>
+            {includes.map((incl, idx) => {
+              const fn = incl.from;
+              const data = onRequestRelatedFile(fn);
+              return data ? (
+                <FileView key={fn + idx} fileDetails={data} filename={fn} />
+              ) : (
+                <HiddenRelatedFile key={fn + idx} filename={fn} />
+              );
+            })}
+          </div>
         </div>
         <div className="mapping">
           <h3>Mapping</h3>

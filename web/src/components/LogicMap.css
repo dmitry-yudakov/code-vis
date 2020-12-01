@@ -1,14 +1,35 @@
 .logic-map-panes {
   display: flex;
 }
+
 .logic-map-panes .content {
+  display: flex;
   width: 80%;
-  white-space: pre-wrap;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 .logic-map-panes .mapping {
   width: 20%;
   font-size: 0.7em;
   white-space: pre-wrap;
+}
+
+.logic-map-panes .content .main-content {
+  width: 50%;
+  white-space: pre-wrap;
+}
+.logic-map-panes .content .references,
+.logic-map-panes .content .includes {
+  width: 20%;
+  white-space: pre-wrap;
+}
+.logic-map-panes .content .references {
+  transform: scale(0.7);
+  transform-origin: top left;
+}
+.logic-map-panes .content .includes {
+  transform: scale(0.7);
+  transform-origin: top right;
 }
 
 .simple-code,

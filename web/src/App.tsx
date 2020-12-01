@@ -57,6 +57,7 @@ const FileScreen: React.FC = () => {
       filename={filename}
       projectMap={projectMap}
       onClose={() => router.push('/')}
+      onRequestRelatedFile={(fn) => filesMappings[fn] || null}
     />
   );
 };
