@@ -4,6 +4,7 @@ import {
   FileMapDetailed,
   FunctionDeclarationInfo,
 } from '../types';
+import { isEmptyContent } from '../utils';
 import './LogicMap.css';
 
 const key = (pos: number, end: number) => `${pos}-${end}`;
@@ -61,7 +62,10 @@ const FunctionView: React.FC<{
 
 const SimpleCode: React.FC<{ code: string }> = ({ code }) => {
   const [expand, setExpand] = useState(false);
-  const shortView = `code...`;
+  if (isEmptyContent(code)) return <span />;
+
+  const linesCount = code.match(/\n/g)?.length || 1;
+  const shortView = `code... ${linesCount} lines`;
   return (
     <div className="simple-code" onClick={() => setExpand(!expand)}>
       {expand ? code : shortView}
