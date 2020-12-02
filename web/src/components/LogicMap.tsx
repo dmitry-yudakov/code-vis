@@ -2,67 +2,191 @@ import React, { useState } from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
+  FunctionCallInfo,
   FunctionDeclarationInfo,
 } from '../types';
 import { isEmptyContent } from '../utils';
 import { FilenamePrettyView } from './FilenamePrettyView';
 import './LogicMap.css';
 
-const key = (pos: number, end: number) => `${pos}-${end}`;
+enum LogicNodeType {
+  file,
+  code,
+  call,
+  decl,
+}
 
-const enrichContent = (
-  content: string,
-  functionDeclarations: FunctionDeclarationInfo[]
-) => {
-  let prevIdx = 0;
-  const items: any[] = [];
-  for (const fd of functionDeclarations) {
-    const { pos, end } = fd;
+interface LogicNode {
+  type: LogicNodeType;
+  value: string | FunctionDeclarationInfo | FunctionCallInfo;
+  pos: number;
+  end: number;
+  children: LogicNode[];
+}
 
-    if (prevIdx > pos) {
-      console.log('Must be nested function - currently not supported', fd);
-      continue;
+const buildNodesTree = (
+  functionDeclarations: FunctionDeclarationInfo[],
+  functionCalls: FunctionCallInfo[],
+  contentSize: number
+): LogicNode => {
+  const nodes: LogicNode[] = [
+    // whole file - root node
+    {
+      type: LogicNodeType.file,
+      pos: 0,
+      end: contentSize,
+      children: [],
+      value: '',
+    },
+
+    // decls
+    ...functionDeclarations.map((f) => ({
+      type: LogicNodeType.decl,
+      value: f,
+      pos: f.pos,
+      end: f.end,
+      children: [],
+    })),
+
+    // calls
+    ...functionCalls.map((f) => ({
+      type: LogicNodeType.call,
+      value: f,
+      pos: f.pos,
+      end: f.end,
+      children: [],
+    })),
+  ].sort((l, r) => l.pos - r.pos);
+  // console.log('NODES:', funcs);
+
+  const emplaceCurrentNode = (currentIndex: number) => {
+    const current = nodes[currentIndex];
+
+    for (
+      let reverseSearchIndex = currentIndex - 1;
+      reverseSearchIndex >= 0;
+      --reverseSearchIndex
+    ) {
+      const potentialParent = nodes[reverseSearchIndex];
+      if (
+        potentialParent.pos < current.pos &&
+        current.end < potentialParent.end
+      ) {
+        potentialParent.children.push(current);
+        return;
+      }
+    }
+    console.log('WTF, cannot emplace current node', { i: currentIndex, nodes });
+  };
+
+  for (let currentIndex = 1; currentIndex < nodes.length; ++currentIndex) {
+    emplaceCurrentNode(currentIndex);
+  }
+
+  const fillGaps = (node: LogicNode) => {
+    let currentPos = node.pos;
+    const enrichedChildren = [];
+
+    for (const child of node.children) {
+      if (child.pos > currentPos) {
+        enrichedChildren.push({
+          type: LogicNodeType.code,
+          pos: currentPos,
+          end: child.pos,
+          value: 'FILL LATER',
+          children: [],
+        });
+      }
+
+      enrichedChildren.push(child);
+      currentPos = child.end;
     }
 
-    if (prevIdx < pos) {
-      items.push(
-        <SimpleCode
-          key={key(prevIdx, pos)}
-          code={content.slice(prevIdx, pos)}
-        />
-      );
+    if (currentPos < node.end) {
+      enrichedChildren.push({
+        type: LogicNodeType.code,
+        pos: currentPos,
+        end: node.end,
+        value: 'FILL LATER',
+        children: [],
+      });
     }
-    const body = content.slice(pos, end);
-    items.push(<FunctionView func={fd} body={body} key={key(pos, end)} />);
-    prevIdx = end;
-  }
-  if (prevIdx < content.length) {
-    items.push(
-      <SimpleCode
-        key={key(prevIdx, content.length)}
-        code={content.slice(prevIdx, content.length)}
-      />
-    );
-  }
-  return items;
+
+    node.children = enrichedChildren;
+  };
+
+  nodes.forEach(fillGaps);
+
+  // console.log('STRUCTURED NODES', nodes[0], nodes);
+
+  return nodes[0];
 };
 
-const FunctionView: React.FC<{
+const renderChildren = (content: string, children: LogicNode[]) => {
+  return children.map((child) => {
+    const { type, pos, end, value } = child;
+
+    const body = content.slice(pos, end);
+    const key = `${pos}-${end}`;
+    const children = renderChildren(content, child.children);
+
+    switch (type) {
+      case LogicNodeType.code:
+        return (
+          <SimpleCode key={key} code={body}>
+            {/* {children} */}
+          </SimpleCode>
+        );
+      case LogicNodeType.decl:
+        return (
+          <FunctionDeclarationView
+            key={key}
+            func={value as FunctionDeclarationInfo}
+            body={body}
+          >
+            {children}
+          </FunctionDeclarationView>
+        );
+      case LogicNodeType.call:
+        return (
+          <FunctionCallView
+            key={key}
+            func={value as FunctionCallInfo}
+            body={body}
+          >
+            {children}
+          </FunctionCallView>
+        );
+      default:
+        return <div>WTF</div>;
+    }
+  });
+};
+
+const FunctionCallView: React.FC<{ func: FunctionCallInfo; body: string }> = ({
+  // func,
+  body,
+  // children,
+}) => {
+  return <div className="func-call">{body}</div>;
+};
+
+const FunctionDeclarationView: React.FC<{
   func: FunctionDeclarationInfo;
   body: string;
-}> = ({ func, body }) => {
-  const [expand, setExpand] = useState(false);
+}> = ({ func, body, children }) => {
+  const [expand, setExpand] = useState(true);
   const { name, args } = func;
   const shortView = `func ${name} (${args.join(', ')}) ...`;
   return (
     <div className="func-decl" title={name} onClick={() => setExpand(!expand)}>
-      {expand ? body : shortView}
+      {expand ? children : shortView}
     </div>
   );
 };
 
 const SimpleCode: React.FC<{ code: string }> = ({ code }) => {
-  const [expand, setExpand] = useState(false);
+  const [expand, setExpand] = useState(true);
   if (isEmptyContent(code)) return <span />;
 
   const linesCount = code.match(/\n/g)?.length || 1;
@@ -80,7 +204,13 @@ const FileView: React.FC<{
 }> = ({ fileDetails, filename }) => {
   const { content, mapping } = fileDetails;
   const { functionDeclarations, functionCalls } = mapping;
-  const fileContent = enrichContent(content, functionDeclarations);
+
+  const fileStruct = buildNodesTree(
+    functionDeclarations,
+    functionCalls,
+    content.length
+  );
+  const fileContent = renderChildren(content, fileStruct.children);
 
   console.log({ functionDeclarations, functionCalls });
   return (
