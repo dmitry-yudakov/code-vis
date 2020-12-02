@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
+  FileMapping,
   FunctionCallInfo,
   FunctionDeclarationInfo,
 } from '../types';
@@ -122,6 +123,21 @@ const buildNodesTree = (
   return nodes[0];
 };
 
+const dropIrrelevantFunctionCalls = (mapping: FileMapping): FileMapping => {
+  const includedItems = new Set(mapping.includes.flatMap((incl) => incl.items));
+  const declaredItems = new Set(
+    mapping.functionDeclarations.flatMap((decl) => decl.name)
+  );
+  const filteredMapping = {
+    ...mapping,
+    functionCalls: mapping.functionCalls.filter(
+      (fc) => includedItems.has(fc.name) || declaredItems.has(fc.name)
+    ),
+  };
+
+  return filteredMapping;
+};
+
 const renderChildren = (content: string, children: LogicNode[]) => {
   return children.map((child) => {
     const { type, pos, end, value } = child;
@@ -203,7 +219,9 @@ const FileView: React.FC<{
   filename: string;
 }> = ({ fileDetails, filename }) => {
   const { content, mapping } = fileDetails;
-  const { functionDeclarations, functionCalls } = mapping;
+  const { functionDeclarations, functionCalls } = dropIrrelevantFunctionCalls(
+    mapping
+  );
 
   const fileStruct = buildNodesTree(
     functionDeclarations,
