@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -6,137 +6,37 @@ import {
   FunctionCallInfo,
   FunctionDeclarationInfo,
 } from '../types';
-import { isEmptyContent } from '../utils';
+import {
+  isEmptyContent,
+  buildNodesTree,
+  dropIrrelevantFunctionCalls,
+  funcCallSlug,
+  funcDeclSlug,
+  funcDeclSlugFromPieces,
+} from '../utils';
 import { FilenamePrettyView } from './FilenamePrettyView';
+import ReactFlow, {
+  // ArrowHeadType,
+  // Background,
+  Controls,
+  Handle,
+  Position,
+} from 'react-flow-renderer';
 import './LogicMap.css';
 
-enum LogicNodeType {
+export enum LogicNodeType {
   file,
   code,
   call,
   decl,
 }
-
-interface LogicNode {
+export interface LogicNode {
   type: LogicNodeType;
   value: string | FunctionDeclarationInfo | FunctionCallInfo;
   pos: number;
   end: number;
   children: LogicNode[];
 }
-
-const buildNodesTree = (
-  functionDeclarations: FunctionDeclarationInfo[],
-  functionCalls: FunctionCallInfo[],
-  contentSize: number
-): LogicNode => {
-  const nodes: LogicNode[] = [
-    // whole file - root node
-    {
-      type: LogicNodeType.file,
-      pos: 0,
-      end: contentSize,
-      children: [],
-      value: '',
-    },
-
-    // decls
-    ...functionDeclarations.map((f) => ({
-      type: LogicNodeType.decl,
-      value: f,
-      pos: f.pos,
-      end: f.end,
-      children: [],
-    })),
-
-    // calls
-    ...functionCalls.map((f) => ({
-      type: LogicNodeType.call,
-      value: f,
-      pos: f.pos,
-      end: f.end,
-      children: [],
-    })),
-  ].sort((l, r) => l.pos - r.pos);
-  // console.log('NODES:', funcs);
-
-  const emplaceCurrentNode = (currentIndex: number) => {
-    const current = nodes[currentIndex];
-
-    for (
-      let reverseSearchIndex = currentIndex - 1;
-      reverseSearchIndex >= 0;
-      --reverseSearchIndex
-    ) {
-      const potentialParent = nodes[reverseSearchIndex];
-      if (
-        potentialParent.pos < current.pos &&
-        current.end < potentialParent.end
-      ) {
-        potentialParent.children.push(current);
-        return;
-      }
-    }
-    console.log('WTF, cannot emplace current node', { i: currentIndex, nodes });
-  };
-
-  for (let currentIndex = 1; currentIndex < nodes.length; ++currentIndex) {
-    emplaceCurrentNode(currentIndex);
-  }
-
-  const fillGaps = (node: LogicNode) => {
-    let currentPos = node.pos;
-    const enrichedChildren = [];
-
-    for (const child of node.children) {
-      if (child.pos > currentPos) {
-        enrichedChildren.push({
-          type: LogicNodeType.code,
-          pos: currentPos,
-          end: child.pos,
-          value: 'FILL LATER',
-          children: [],
-        });
-      }
-
-      enrichedChildren.push(child);
-      currentPos = child.end;
-    }
-
-    if (currentPos < node.end) {
-      enrichedChildren.push({
-        type: LogicNodeType.code,
-        pos: currentPos,
-        end: node.end,
-        value: 'FILL LATER',
-        children: [],
-      });
-    }
-
-    node.children = enrichedChildren;
-  };
-
-  nodes.forEach(fillGaps);
-
-  // console.log('STRUCTURED NODES', nodes[0], nodes);
-
-  return nodes[0];
-};
-
-const dropIrrelevantFunctionCalls = (mapping: FileMapping): FileMapping => {
-  const includedItems = new Set(mapping.includes.flatMap((incl) => incl.items));
-  const declaredItems = new Set(
-    mapping.functionDeclarations.flatMap((decl) => decl.name)
-  );
-  const filteredMapping = {
-    ...mapping,
-    functionCalls: mapping.functionCalls.filter(
-      (fc) => includedItems.has(fc.name) || declaredItems.has(fc.name)
-    ),
-  };
-
-  return filteredMapping;
-};
 
 const renderChildren = (content: string, children: LogicNode[]) => {
   return children.map((child) => {
@@ -180,22 +80,41 @@ const renderChildren = (content: string, children: LogicNode[]) => {
 };
 
 const FunctionCallView: React.FC<{ func: FunctionCallInfo; body: string }> = ({
-  // func,
+  func,
   body,
-  // children,
 }) => {
-  return <div className="func-call">{body}</div>;
+  const handleId = funcCallSlug(func);
+  return (
+    <div className="func-call">
+      <Handle
+        type="source"
+        className="func-call-handle"
+        position={Position.Right}
+        id={handleId}
+      />
+      {body}
+    </div>
+  );
 };
 
 const FunctionDeclarationView: React.FC<{
   func: FunctionDeclarationInfo;
   body: string;
-}> = ({ func, body, children }) => {
+}> = ({ func, children }) => {
   const [expand, setExpand] = useState(true);
   const { name, args } = func;
   const shortView = `func ${name} (${args.join(', ')}) ...`;
+
+  const handleId = funcDeclSlug(func);
+
   return (
     <div className="func-decl" title={name} onClick={() => setExpand(!expand)}>
+      <Handle
+        type="target"
+        className="func-decl-handle"
+        position={Position.Left}
+        id={handleId}
+      />
       {expand ? children : shortView}
     </div>
   );
@@ -217,7 +136,8 @@ const SimpleCode: React.FC<{ code: string }> = ({ code }) => {
 const FileView: React.FC<{
   fileDetails: FileMapDetailed;
   filename: string;
-}> = ({ fileDetails, filename }) => {
+  ref?: React.Ref<any>;
+}> = ({ fileDetails, filename, ref }) => {
   const { content, mapping } = fileDetails;
   const { functionDeclarations, functionCalls } = dropIrrelevantFunctionCalls(
     mapping
@@ -232,7 +152,7 @@ const FileView: React.FC<{
 
   console.log({ functionDeclarations, functionCalls });
   return (
-    <div className="file-view">
+    <div className="file-view" ref={ref}>
       <div className="file-view-heading">
         <FilenamePrettyView filename={filename} />
       </div>
@@ -245,6 +165,78 @@ const HiddenRelatedFile: React.FC<{ filename: string }> = ({ filename }) => {
   return <div className="hidden-file">{filename} hidden</div>;
 };
 
+export const generateConnections = (
+  mainFilename: string,
+  mainFileMapping: FileMapping,
+  referencesMappings: Record<string, FileMapDetailed | null>
+) => {
+  const includedItems = new Set(
+    mainFileMapping.includes.flatMap((incl) => incl.items)
+  );
+  const declaredItems = new Set(
+    mainFileMapping.functionDeclarations.flatMap((decl) => decl.name)
+  );
+
+  const mainFileCalls = mainFileMapping.functionCalls
+    .filter(
+      (fc) => includedItems.has(fc.name)
+      //  || declaredItems.has(fc.name)
+    )
+    .map((fc) => {
+      const { name } = fc;
+
+      const sourceHandle = funcCallSlug(fc);
+      const fdFilename = mainFileMapping.includes.find((incl) =>
+        incl.items.includes(name)
+      )!.from;
+      //includedItems.has(name)      ?
+      // : mainFilename;
+
+      const targetHandle = funcDeclSlugFromPieces(fdFilename, name);
+
+      return {
+        id: `${sourceHandle}-${targetHandle}`,
+        source: mainFilename,
+        target: fdFilename,
+        sourceHandle,
+        targetHandle,
+      };
+    });
+
+  const referencesCallsFromMain = Object.entries(referencesMappings).flatMap(
+    ([flnm, fnMapping]) => {
+      if (!fnMapping) return [];
+
+      const itemsIncludedFromMainFile = new Set(
+        fnMapping.mapping.includes
+          .filter((incl) => incl.from === mainFilename)
+          .flatMap((incl) => incl.items)
+      );
+      //
+
+      return fnMapping.mapping.functionCalls
+        .filter(
+          (fc) =>
+            itemsIncludedFromMainFile.has(fc.name) && declaredItems.has(fc.name)
+        )
+        .map((fc) => {
+          const { name } = fc;
+          const sourceHandle = funcCallSlug(fc);
+          const targetHandle = funcDeclSlugFromPieces(mainFilename, name);
+          return {
+            id: `${sourceHandle}-${targetHandle}`,
+            source: fc.filename,
+            target: mainFilename,
+            sourceHandle,
+            targetHandle,
+          };
+        });
+    }
+  );
+
+  return mainFileCalls.concat(referencesCallsFromMain);
+};
+
 export const LogicMap: React.FC<{
   data: FileMapDetailed;
   filename: string;
@@ -252,67 +244,118 @@ export const LogicMap: React.FC<{
   onRequestRelatedFile: (filename: string) => FileMapDetailed | null;
   onClose: () => void;
 }> = ({ data, filename, projectMap, onRequestRelatedFile, onClose }) => {
-  const { mapping } = data;
+  const ref_onRequestRelatedFile = useRef(onRequestRelatedFile);
 
-  const includes = projectMap.filter((incl) => incl.to === filename);
-  const includedIn = projectMap.filter((incl) => incl.from === filename);
+  const elements = useMemo(() => {
+    const includes = projectMap
+      .filter((incl) => incl.to === filename)
+      .map((incl) => incl.from);
+    const references = projectMap
+      .filter((incl) => incl.from === filename)
+      .map((incl) => incl.to);
 
+    const includesMappings = Object.fromEntries(
+      includes.map((flnm) => [flnm, ref_onRequestRelatedFile.current(flnm)])
+    );
+    const referencesMappings = Object.fromEntries(
+      references.map((flnm) => [flnm, ref_onRequestRelatedFile.current(flnm)])
+    );
+
+    const { mapping } = data;
+    const connections = generateConnections(
+      filename,
+      mapping,
+      referencesMappings
+    );
+    console.log('Connections', connections);
+
+    const colWidth = window.innerWidth / 3;
+    const mainWidth = colWidth * 0.85; //* 1.85;
+    const supplWidth = colWidth * 0.85;
+    const middleColOffet = colWidth;
+    const rightColOffet = colWidth * 2;
+
+    const elements = [
+      ...connections,
+      {
+        id: filename,
+        data: {
+          label: <FileView fileDetails={data} filename={filename} />,
+        },
+        style: {
+          // width: 500,
+          width: mainWidth,
+        },
+        position: {
+          x: middleColOffet,
+          y: 0,
+        },
+      },
+
+      ...references.map((fn, idx) => {
+        const id = fn;
+        const fMapping = referencesMappings[fn];
+        const el = fMapping ? (
+          <FileView key={id} fileDetails={fMapping} filename={fn} />
+        ) : (
+          <HiddenRelatedFile key={id} filename={fn} />
+        );
+        return {
+          id,
+          data: {
+            label: el,
+          },
+          style: {
+            width: supplWidth,
+          },
+          position: {
+            x: 10 + idx * 10,
+            y: idx * 300,
+          },
+        };
+      }),
+
+      ...includes.map((fn, idx) => {
+        const id = fn;
+        const fMapping = includesMappings[fn];
+        const el = fMapping ? (
+          <FileView key={id} fileDetails={fMapping} filename={fn} />
+        ) : (
+          <HiddenRelatedFile key={id} filename={fn} />
+        );
+        return {
+          id,
+          data: {
+            label: el,
+          },
+          style: {
+            width: supplWidth,
+          },
+          position: {
+            x: rightColOffet + idx * 10,
+            y: idx * 300,
+          },
+        };
+      }),
+    ];
+    return elements;
+  }, [data, filename, projectMap]);
+
+  console.log('Elements', elements);
   return (
-    <div>
-      <button onClick={() => onClose()}>Back</button>
-      <div>
-        <h2>{filename}</h2>
-        <h3>Includes</h3>
-        {includes.map((incl, idx) => (
-          <div key={incl.from + idx}>
-            {incl.items.join(',')} from <strong>{incl.from}</strong>
-          </div>
-        ))}
+    <div className="logic-map-main">
+      <div style={{ position: 'fixed', top: 10, left: 10, zIndex: 5 }}>
+        <button onClick={() => onClose()}>X</button>
       </div>
-      <div>
-        <h3>Referenced in</h3>
-        {includedIn.map((incl, idx) => (
-          <div key={incl.to + idx}>
-            <strong>{incl.to}</strong>: {incl.items.join(',')}
-          </div>
-        ))}
-      </div>
-      <div className="logic-map-panes">
-        <div className="content">
-          <div className="references">
-            <h3>References</h3>
-            {includedIn.map((incl, idx) => {
-              const fn = incl.to;
-              const data = onRequestRelatedFile(fn);
-              return data ? (
-                <FileView key={fn + idx} fileDetails={data} filename={fn} />
-              ) : (
-                <HiddenRelatedFile key={fn + idx} filename={fn} />
-              );
-            })}
-          </div>
-          <div className="main-content">
-            <h3>Content</h3>
-            <FileView fileDetails={data} filename={filename} />
-          </div>
-          <div className="includes">
-            <h3>Includes</h3>
-            {includes.map((incl, idx) => {
-              const fn = incl.from;
-              const data = onRequestRelatedFile(fn);
-              return data ? (
-                <FileView key={fn + idx} fileDetails={data} filename={fn} />
-              ) : (
-                <HiddenRelatedFile key={fn + idx} filename={fn} />
-              );
-            })}
-          </div>
-        </div>
-        <div className="mapping">
-          <h3>Mapping</h3>
-          {JSON.stringify(mapping, null, 2)}
-        </div>
-      </div>
+      <ReactFlow
+        elements={elements}
+        nodesConnectable={false}
+        // nodesDraggable={false}
+        // zoomOnScroll={false}
+        // panOnScroll={true}
+      >
+        <Controls />
+      </ReactFlow>
     </div>
   );
 };

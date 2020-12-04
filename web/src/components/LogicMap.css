@@ -31,6 +31,11 @@
   transform-origin: top right;
 }
 
+.func-decl,
+.simple-code,
+.func-call {
+  position: relative;
+}
 .func-decl {
   display: block;
 }
@@ -39,8 +44,7 @@
   display: inline;
 }
 .simple-code {
-  opacity: 0.5;
-  background-color: rgba(153, 153, 153, 0.1);
+  opacity: 0.85;
 }
 .func-decl {
   background-color: rgba(153, 153, 153, 0.158);
@@ -50,19 +54,45 @@
   margin: 3px;
 }
 .func-call {
-  background-color: rgb(150 210 163 / 56%);
+  background-color: rgb(150 210 163 / 6%);
 }
 
 .file-view {
-  max-width: 600px;
-  padding: 3px;
-  margin: 1em;
-  background-color: rgba(153, 153, 153, 0.05);
-  border: 1px solid #999;
-  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  text-align: left;
 }
 .file-view .file-view-heading {
   padding: 5px;
   margin-bottom: 0.7em;
   border-bottom: 1px solid lightgrey;
+}
+
+.logic-map-main {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+}
+.logic-map-main .react-flow__node {
+  background: rgba(245, 249, 249, 0.48);
+}
+.logic-map-main .react-flow__handle {
+  background: rgba(182, 182, 182, 0.3);
+  border: none;
+}
+.logic-map-main .func-decl-handle {
+  top: 50%;
+  left: -5px;
+}
+.logic-map-main .func-call-handle {
+  top: 50%;
+  right: -15px;
+}
+
+.logic-connections-pane {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
 }
