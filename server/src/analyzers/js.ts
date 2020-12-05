@@ -7,39 +7,115 @@ import {
 import path from 'path';
 import ts, { CallExpression, SyntaxKind } from 'typescript';
 
-const extractIncludes = (relativePath: string, content: string) => {
-  const includes: FileIncludeInfo[] = [];
-  const re = /^(\s*)import (.+) from ['"](\..+)['"]/gm;
-  // console.log('Analyze', relativePath, content);
+const parseFile = (filename: string, content: string) =>
+  ts.createSourceFile(
+    filename,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX // should be the worst case
+  );
 
-  do {
-    let out = re.exec(content);
-    if (!out) break;
-    const [, , what, whereFrom] = out;
-    // console.log('include with import', { what, whereFrom });
-    const whatSplit = what.split(/[,\s{}]+/).filter((t) => !!t);
-    includes.push({
-      items: whatSplit,
-      to: relativePath,
-      from: whereFrom,
+// strip 'parent'
+function pp(obj: any) {
+  const { parent, ...rest } = obj;
+  return rest;
+}
+
+const extractIncludes = (
+  filename: string,
+  content: string,
+  sourceFile: ts.SourceFile
+) => {
+  const imports = searchFor(sourceFile.statements, SyntaxKind.ImportDeclaration)
+    .filter((node) => {
+      // console.log('Import node', node);
+      if (node.moduleSpecifier?.text?.[0] === '.') return true;
+      // console.log('Ignore non-local import', pp(node));
+      console.log('Ignore non-local import from', node.moduleSpecifier?.text);
+    })
+    .map((node) => {
+      const from = node.moduleSpecifier?.text as string;
+      // console.log('Import from', from);
+      const name = node.importClause?.name?.escapedText;
+      // console.log('Import name', name);
+      const items: string[] = [];
+      if (typeof name === 'string') {
+        items.push(name);
+      }
+
+      const namespaceName = node.importClause?.namedBindings?.name?.escapedText;
+      if (namespaceName) {
+        items.push(namespaceName);
+      }
+
+      const namedBindings = node.importClause?.namedBindings?.elements
+        ?.map((b: any) => {
+          const name = b.name?.escapedText;
+          if (!name) {
+            console.log('Error getting import named binding', b);
+            return null;
+          }
+          return name;
+        })
+        .map((nb: string | null) => nb || 'n/a');
+
+      if (namedBindings) {
+        namedBindings.forEach((nb: any) => items.push(nb));
+      }
+
+      if (!items.length) {
+        console.log('Unsupported import:', pp(node));
+        return null;
+      }
+      return {
+        items,
+        from,
+        to: filename,
+      };
+    })
+    .filter((incl) => !!incl) as FileIncludeInfo[];
+
+  const requires = searchFor(sourceFile.statements, SyntaxKind.CallExpression)
+    .filter((node) => {
+      if (
+        node.expression?.escapedText === 'require' &&
+        node.parent?.kind === SyntaxKind.VariableDeclaration
+      )
+        return true;
+    })
+    .map((node) => {
+      // console.log('Require node', pp(node));
+
+      const from = node.arguments?.[0]?.text;
+
+      const items: string[] = [];
+      const name = node.parent.name?.escapedText;
+      if (name) {
+        items.push(name);
+      }
+      const nameElements = node.parent.name?.elements;
+      nameElements?.forEach((el: any) => {
+        const name = el.name?.escapedText;
+        if (typeof name !== 'string') {
+          console.log('Cannot resolve require element name', el, nameElements);
+          return;
+        }
+        items.push(name);
+      });
+
+      if (!items.length) {
+        console.log('Cannot resolve require items', pp(node.parent));
+      }
+
+      return {
+        from,
+        to: filename,
+        items,
+      };
     });
-  } while (1);
 
-  const re2 = /^(\s*)(const|let|var) (.+) = require\(['"](\..+)['"]\)/gm;
-
-  do {
-    let out = re2.exec(content);
-    // console.log('include with require', out);
-    if (!out) break;
-    const [, , , what, whereFrom] = out;
-    // console.log('include with require', { what, whereFrom });
-    const whatSplit = what.split(/[,\s{}]+/).filter((t) => !!t);
-    includes.push({
-      items: whatSplit,
-      to: relativePath,
-      from: whereFrom,
-    });
-  } while (1);
+  const includes: FileIncludeInfo[] = imports.concat(requires);
 
   includes.forEach(resolveRelativeIncludePathInPlace);
 
@@ -115,10 +191,10 @@ const extractFilesHierarchy = async (
   const includes: FileIncludeInfo[] = await Promise.all(
     filenames.map(async (filename) => {
       const content = await getFileContent(filename);
-      return extractIncludes(filename, content);
+      const sourceFile = parseFile(filename, content);
+      return extractIncludes(filename, content, sourceFile);
     })
   ).then((nestedIncludes) => nestedIncludes.flat());
-
 
   includes.forEach((info) => {
     info.from = tryAutoResolveProjectModule(info.from, filenames) || info.from;
@@ -277,16 +353,9 @@ const extractFileMapping = (
   content: string,
   projectFilenames: string[] = []
 ): FileMapping => {
-  const sourceFile = ts.createSourceFile(
-    filename,
-    content,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX // should be the worst case
-  );
-  // console.log(sourceFile);
+  const sourceFile = parseFile(filename, content);
 
-  const includes = extractIncludes(filename, content);
+  const includes = extractIncludes(filename, content, sourceFile);
 
   includes.forEach((info) => {
     info.from =

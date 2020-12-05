@@ -46,13 +46,13 @@ describe('Includes using "import"', () => {
     expect(
       jsAnalyzer.extractFilesHierarchy(
         ['src/dir/a.js'],
-        async () => `import { gaga, maga }, yaga from './b.js'`
+        async () => `import yaga, { gaga, maga } from './b.js'`
       )
     ).resolves.toEqual([
       {
         from: 'src/dir/b.js',
         to: 'src/dir/a.js',
-        items: ['gaga', 'maga', 'yaga'],
+        items: ['yaga', 'gaga', 'maga'],
       },
     ]));
 
@@ -78,24 +78,56 @@ describe('Includes using "import"', () => {
       },
     ]));
 
-  // test('multiple lines', () =>
-  //   expect(
-  //     jsAnalyzer.extractFilesHierarchy(
-  //       ['src/dir/a.js'],
-  //       async () => `
-  //     import {
-  //       gaga,
-  //       maga
-  //     } from './b.js';
-  //     `
-  //     )
-  //   ).resolves.toEqual([
-  //     {
-  //       from: 'src/dir/b.js',
-  //       to: 'src/dir/a.js',
-  //       items: ['gaga', 'maga'],
-  //     },
-  //   ]));
+  test('multiple lines', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.js'],
+        async () => `
+      import {
+        gaga,
+        maga
+      } from './b.js';
+      `
+      )
+    ).resolves.toEqual([
+      {
+        from: 'src/dir/b.js',
+        to: 'src/dir/a.js',
+        items: ['gaga', 'maga'],
+      },
+    ]));
+
+  test('import with alias', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.js'],
+        async () => `
+      import { gaga as aliasGaga } from './b.js';
+      `
+      )
+    ).resolves.toEqual([
+      {
+        from: 'src/dir/b.js',
+        to: 'src/dir/a.js',
+        items: ['aliasGaga'],
+      },
+    ]));
+
+  test('import namespace', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.js'],
+        async () => `
+      import * as namespaceGaga from './b.js';
+      `
+      )
+    ).resolves.toEqual([
+      {
+        from: 'src/dir/b.js',
+        to: 'src/dir/a.js',
+        items: ['namespaceGaga'],
+      },
+    ]));
 });
 
 describe('Includes using "require"', () => {
@@ -189,24 +221,24 @@ describe('Includes using "require"', () => {
       },
     ]));
 
-  // test('multiple lines', () =>
-  //   expect(
-  //     jsAnalyzer.extractFilesHierarchy(
-  //       ['src/dir/a.js'],
-  //       async () => `
-  //     const {
-  //       gaga,
-  //       maga
-  //     } = require('./b.js');
-  //     `
-  //     )
-  //   ).resolves.toEqual([
-  //     {
-  //       from: 'src/dir/b.js',
-  //       to: 'src/dir/a.js',
-  //       items: ['gaga', 'maga'],
-  //     },
-  //   ]));
+  test('multiple lines', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.js'],
+        async () => `
+      const {
+        gaga,
+        maga
+      } = require('./b.js');
+      `
+      )
+    ).resolves.toEqual([
+      {
+        from: 'src/dir/b.js',
+        to: 'src/dir/a.js',
+        items: ['gaga', 'maga'],
+      },
+    ]));
 });
 
 describe('File mapping', () => {
