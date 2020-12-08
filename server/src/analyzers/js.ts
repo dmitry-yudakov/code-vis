@@ -30,12 +30,17 @@ const extractIncludes = (
   const imports = searchFor(sourceFile.statements, SyntaxKind.ImportDeclaration)
     .filter((node) => {
       // console.log('Import node', node);
+      if (!node.importClause) return false;
       if (node.moduleSpecifier?.text?.[0] === '.') return true;
       // console.log('Ignore non-local import', pp(node));
       console.log('Ignore non-local import from', node.moduleSpecifier?.text);
     })
     .map((node) => {
       const from = node.moduleSpecifier?.text as string;
+      if (!from) {
+        console.log('Unable to extract module name from', filename, pp(node));
+        throw new Error('Unable to export module name from import');
+      }
       // console.log('Import from', from);
       const name = node.importClause?.name?.escapedText;
       // console.log('Import name', name);
@@ -80,7 +85,8 @@ const extractIncludes = (
     .filter((node) => {
       if (
         node.expression?.escapedText === 'require' &&
-        node.parent?.kind === SyntaxKind.VariableDeclaration
+        node.parent?.kind === SyntaxKind.VariableDeclaration &&
+        node.arguments?.[0]?.kind === SyntaxKind.StringLiteral
       )
         return true;
     })
@@ -88,6 +94,10 @@ const extractIncludes = (
       // console.log('Require node', pp(node));
 
       const from = node.arguments?.[0]?.text;
+      if (!from) {
+        console.log('Unable to extract module name from', filename, pp(node));
+        throw new Error('Unable to export module name from require');
+      }
 
       const items: string[] = [];
       const name = node.parent.name?.escapedText;

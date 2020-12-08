@@ -128,6 +128,16 @@ describe('Includes using "import"', () => {
         items: ['namespaceGaga'],
       },
     ]));
+
+  test('ignore clauseless imports', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.js'],
+        async () => `
+      import './b.js';
+      `
+      )
+    ).resolves.toEqual([]));
 });
 
 describe('Includes using "require"', () => {
@@ -239,6 +249,16 @@ describe('Includes using "require"', () => {
         items: ['gaga', 'maga'],
       },
     ]));
+
+  test('ignore dynamic requires', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.js'],
+        async () => `
+      const gaga = require(someVar);
+      `
+      )
+    ).resolves.toEqual([]));
 });
 
 describe('File mapping', () => {
