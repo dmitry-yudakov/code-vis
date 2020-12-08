@@ -55,7 +55,12 @@ const positionElements = (
   return posNodes;
 };
 
-//position: { x: rand(window.innerWidth), y: rand(window.innerHeight) },
+const MAX_ITEMS_TO_SHOW = 3;
+const edgeLabel = (items: string[]) => {
+  if (items.length <= MAX_ITEMS_TO_SHOW) return items.join(', ');
+  const extra = items.length - MAX_ITEMS_TO_SHOW;
+  return `${items.slice(0, MAX_ITEMS_TO_SHOW).join(', ')}... ${extra} more`;
+};
 
 export const IncludesHierarchy: React.FC<{
   includes: FileIncludeInfo[];
@@ -82,13 +87,14 @@ export const IncludesHierarchy: React.FC<{
       // const source = nodesObj[from];
       // const target = nodesObj[to];
       const items = includes[idx].items;
+      const label = edgeLabel(items);
       return {
         id: `${source}-${target}-${idx}`,
         // type: 'straight',
         arrowHeadType: ArrowHeadType.Arrow,
         source,
         target,
-        label: items.join(items[0] === '*' ? ' ' : ', '),
+        label,
       };
     }),
   ];
