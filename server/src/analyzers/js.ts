@@ -86,7 +86,8 @@ const extractIncludes = (
       if (
         node.expression?.escapedText === 'require' &&
         node.parent?.kind === SyntaxKind.VariableDeclaration &&
-        node.arguments?.[0]?.kind === SyntaxKind.StringLiteral
+        node.arguments?.[0]?.kind === SyntaxKind.StringLiteral &&
+        node.arguments[0].text?.[0] === '.'
       )
         return true;
     })

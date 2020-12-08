@@ -259,6 +259,16 @@ describe('Includes using "require"', () => {
       `
       )
     ).resolves.toEqual([]));
+
+  test('ignore node_modules requires', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.js'],
+        async () => `
+      const moment = require('moment');
+      `
+      )
+    ).resolves.toEqual([]));
 });
 
 describe('File mapping', () => {
