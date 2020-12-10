@@ -95,8 +95,8 @@ export const buildNodesTree = (
     ) {
       const potentialParent = nodes[reverseSearchIndex];
       if (
-        potentialParent.pos < current.pos &&
-        current.end < potentialParent.end
+        potentialParent.pos <= current.pos &&
+        current.end <= potentialParent.end
       ) {
         potentialParent.children.push(current);
         return;
