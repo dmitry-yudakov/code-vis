@@ -152,13 +152,15 @@ export const dropIrrelevantFunctionCalls = (
   mapping: FileMapping
 ): FileMapping => {
   const includedItems = new Set(mapping.includes.flatMap((incl) => incl.items));
-  const declaredItems = new Set(
-    mapping.functionDeclarations.flatMap((decl) => decl.name)
-  );
+  // const declaredItems = new Set(
+  //   mapping.functionDeclarations.flatMap((decl) => decl.name)
+  // );
   const filteredMapping = {
     ...mapping,
     functionCalls: mapping.functionCalls.filter(
-      (fc) => includedItems.has(fc.name) || declaredItems.has(fc.name)
+      (fc) => includedItems.has(fc.name)
+      // temp
+      //|| declaredItems.has(fc.name)
     ),
   };
 

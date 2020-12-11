@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -7,7 +7,6 @@ import {
   FunctionDeclarationInfo,
 } from '../types';
 import {
-  isEmptyContent,
   buildNodesTree,
   dropIrrelevantFunctionCalls,
   funcCallSlug,
@@ -22,6 +21,11 @@ import ReactFlow, {
   Handle,
   Position,
 } from 'react-flow-renderer';
+import { UnControlled as CodeMirror } from 'react-codemirror2';
+import 'codemirror/lib/codemirror.css';
+import 'codemirror/theme/material.css';
+import 'codemirror/mode/xml/xml';
+import 'codemirror/mode/javascript/javascript';
 import './LogicMap.css';
 
 export enum LogicNodeType {
@@ -37,6 +41,32 @@ export interface LogicNode {
   end: number;
   children: LogicNode[];
 }
+
+const CodeMirrorContext = React.createContext<any>(null);
+const CodeMirrorProvider: React.FC<{ content: string }> = ({
+  content,
+  children,
+}) => {
+  const [inst, setInst] = useState(null);
+  return (
+    <>
+      <CodeMirror
+        editorDidMount={(editor) => setInst(editor)}
+        value={content}
+        options={{
+          mode: 'javascript',
+          lineNumbers: true,
+          lineWrapping: true,
+        }}
+        // onChange={(editor, data, value) => {
+        // }}
+      />
+      <CodeMirrorContext.Provider value={inst}>
+        {children}
+      </CodeMirrorContext.Provider>
+    </>
+  );
+};
 
 const renderChildren = (content: string, children: LogicNode[]) => {
   return children.map((child) => {
@@ -82,18 +112,42 @@ const renderChildren = (content: string, children: LogicNode[]) => {
 const FunctionCallView: React.FC<{ func: FunctionCallInfo; body: string }> = ({
   func,
   body,
+  children,
 }) => {
   const handleId = funcCallSlug(func);
+
+  const ref = useRef<any>();
+  const cm = useContext(CodeMirrorContext);
+
+  const el = ref.current;
+  const { pos, end } = func;
+  useEffect(() => {
+    // console.log('FunctionCallView', { pos, end, cm, el });
+
+    if (!cm || !el) return;
+
+    // underline
+    cm.markText(cm.posFromIndex(pos), cm.posFromIndex(end), {
+      className: 'func-call-2',
+    });
+
+    // handle
+    cm.addWidget(cm.posFromIndex(end), el);
+  }, [cm, el, pos, end]);
+
   return (
-    <div className="func-call">
-      <Handle
-        type="source"
-        className="func-call-handle"
-        position={Position.Right}
-        id={handleId}
-      />
-      {body}
-    </div>
+    <>
+      <div ref={ref}>
+        <Handle
+          type="source"
+          className="func-call-handle"
+          position={Position.Right}
+          id={handleId}
+        />
+        {/* {body} */}
+      </div>
+      {children}
+    </>
   );
 };
 
@@ -101,36 +155,74 @@ const FunctionDeclarationView: React.FC<{
   func: FunctionDeclarationInfo;
   body: string;
 }> = ({ func, children }) => {
-  const [expand, setExpand] = useState(true);
-  const { name, args } = func;
-  const shortView = `func ${name} (${args.join(', ')}) ...`;
+  // const [expand, setExpand] = useState(true);
+  // const { name, args } = func;
+  // const shortView = `func ${name} (${args.join(', ')}) ...`;
 
   const handleId = funcDeclSlug(func);
 
+  const ref = useRef<any>();
+  const cm = useContext(CodeMirrorContext);
+
+  const el = ref.current;
+  const { pos, end } = func;
+  useEffect(() => {
+    // console.log('FunctionDeclarationView', { pos, end, cm, el });
+
+    if (!cm || !el) return;
+
+    // underline
+    cm.markText(cm.posFromIndex(pos), cm.posFromIndex(end), {
+      // className: 'func-decl-2',
+      startStyle: 'func-decl-2',
+    });
+
+    // handle
+    cm.addWidget(cm.posFromIndex(pos), el);
+  }, [cm, el, pos, end]);
+
   return (
-    <div className="func-decl" title={name} onClick={() => setExpand(!expand)}>
-      <Handle
-        type="target"
-        className="func-decl-handle"
-        position={Position.Left}
-        id={handleId}
-      />
-      {expand ? children : shortView}
-    </div>
+    // <div className="func-decl" title={name} onClick={() => setExpand(!expand)}>
+    <>
+      <div ref={ref}>
+        <Handle
+          type="target"
+          className="func-decl-handle"
+          position={Position.Left}
+          id={handleId}
+        />
+        {/* {expand ? children : shortView} */}
+      </div>
+      {children}
+    </>
   );
 };
 
 const SimpleCode: React.FC<{ code: string }> = ({ code }) => {
-  const [expand, setExpand] = useState(true);
-  if (isEmptyContent(code)) return <span />;
+  return <span />;
+  // const [expand, setExpand] = useState(true);
+  // if (isEmptyContent(code)) return <span />;
 
-  const linesCount = code.match(/\n/g)?.length || 1;
-  const shortView = `code... ${linesCount} lines`;
-  return (
-    <div className="simple-code" onClick={() => setExpand(!expand)}>
-      {expand ? code : shortView}
-    </div>
-  );
+  // const linesCount = code.match(/\n/g)?.length || 1;
+  // const shortView = `code... ${linesCount} lines`;
+  // return (
+  //   <div className="simple-code" onClick={() => setExpand(!expand)}>
+  //     {expand ? (
+  //       <CodeMirror
+  //         value={code}
+  //         options={{
+  //           mode: 'javascript',
+  //           theme: 'material',
+  //           lineNumbers: true,
+  //         }}
+  //         // onChange={(editor, data, value) => {
+  //         // }}
+  //       />
+  //     ) : (
+  //       shortView
+  //     )}
+  //   </div>
+  // );
 };
 
 const FileView: React.FC<{
@@ -156,7 +248,7 @@ const FileView: React.FC<{
       <div className="file-view-heading">
         <FilenamePrettyView filename={filename} />
       </div>
-      {fileContent}
+      <CodeMirrorProvider content={content}>{fileContent}</CodeMirrorProvider>
     </div>
   );
 };
@@ -285,6 +377,7 @@ export const LogicMap: React.FC<{
         style: {
           // width: 500,
           width: mainWidth,
+          // height: 1000,
         },
         position: {
           x: middleColOffet,
@@ -351,8 +444,9 @@ export const LogicMap: React.FC<{
         elements={elements}
         nodesConnectable={false}
         // nodesDraggable={false}
-        // zoomOnScroll={false}
+        zoomOnScroll={true}
         // panOnScroll={true}
+        onlyRenderVisibleElements={false}
       >
         <Controls />
       </ReactFlow>

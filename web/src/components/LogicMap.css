@@ -76,17 +76,27 @@
 }
 .logic-map-main .react-flow__node {
   background: rgba(245, 249, 249, 0.48);
+  padding: 0;
 }
 .logic-map-main .react-flow__handle {
   background: rgba(182, 182, 182, 0.3);
   border: none;
 }
+
+.logic-map-main .react-flow__edge-path {
+  stroke: rgba(0, 128, 0, 0.55);
+}
+.logic-map-main .func-decl-handle,
+.logic-map-main .func-call-handle {
+  background: rgba(0, 128, 0, 0.85);
+  z-index: 100;
+}
 .logic-map-main .func-decl-handle {
-  top: 50%;
+  /* top: 50%; */
   left: -5px;
 }
 .logic-map-main .func-call-handle {
-  top: 50%;
+  /* top: 50%; */
   right: -15px;
 }
 
@@ -95,4 +105,20 @@
   top: 0;
   left: 0;
   z-index: -1;
+}
+
+.CodeMirror {
+  background: rgb(255 255 255 / 40%) !important;
+  height: auto;
+}
+.CodeMirror-gutters {
+  background-color: rgb(247 247 247 / 40%);
+}
+
+.func-decl-2 {
+  /* background: rgba(0, 128, 0, 0.05); */
+  border-bottom: 1px solid rgba(0, 128, 0, 0.85);
+}
+.func-call-2 {
+  background: rgba(255, 0, 0, 0.05);
 }
