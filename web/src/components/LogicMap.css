@@ -107,14 +107,6 @@
   z-index: -1;
 }
 
-.CodeMirror {
-  background: rgb(255 255 255 / 40%) !important;
-  height: auto;
-}
-.CodeMirror-gutters {
-  background-color: rgb(247 247 247 / 40%);
-}
-
 .func-decl-2 {
   /* background: rgba(0, 128, 0, 0.05); */
   border-bottom: 1px solid rgba(0, 128, 0, 0.85);

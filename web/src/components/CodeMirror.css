@@ -1,0 +1,7 @@
+.CodeMirror {
+  background: rgb(255 255 255 / 40%) !important;
+  height: auto !important;
+}
+.CodeMirror-gutters {
+  background-color: rgb(247 247 247 / 40%);
+}

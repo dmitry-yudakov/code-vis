@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef } from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -21,12 +21,12 @@ import ReactFlow, {
   Handle,
   Position,
 } from 'react-flow-renderer';
-import { UnControlled as CodeMirror } from 'react-codemirror2';
-import 'codemirror/lib/codemirror.css';
-import 'codemirror/theme/material.css';
-import 'codemirror/mode/xml/xml';
-import 'codemirror/mode/javascript/javascript';
 import './LogicMap.css';
+import {
+  CodeMirrorProvider as CodeViewProvider,
+  useFuncCall,
+  useFuncDecl,
+} from './CodeMirror';
 
 export enum LogicNodeType {
   file,
@@ -41,32 +41,6 @@ export interface LogicNode {
   end: number;
   children: LogicNode[];
 }
-
-const CodeMirrorContext = React.createContext<any>(null);
-const CodeMirrorProvider: React.FC<{ content: string }> = ({
-  content,
-  children,
-}) => {
-  const [inst, setInst] = useState(null);
-  return (
-    <>
-      <CodeMirror
-        editorDidMount={(editor) => setInst(editor)}
-        value={content}
-        options={{
-          mode: 'javascript',
-          lineNumbers: true,
-          lineWrapping: true,
-        }}
-        // onChange={(editor, data, value) => {
-        // }}
-      />
-      <CodeMirrorContext.Provider value={inst}>
-        {children}
-      </CodeMirrorContext.Provider>
-    </>
-  );
-};
 
 const renderChildren = (content: string, children: LogicNode[]) => {
   return children.map((child) => {
@@ -116,24 +90,7 @@ const FunctionCallView: React.FC<{ func: FunctionCallInfo; body: string }> = ({
 }) => {
   const handleId = funcCallSlug(func);
 
-  const ref = useRef<any>();
-  const cm = useContext(CodeMirrorContext);
-
-  const el = ref.current;
-  const { pos, end } = func;
-  useEffect(() => {
-    // console.log('FunctionCallView', { pos, end, cm, el });
-
-    if (!cm || !el) return;
-
-    // underline
-    cm.markText(cm.posFromIndex(pos), cm.posFromIndex(end), {
-      className: 'func-call-2',
-    });
-
-    // handle
-    cm.addWidget(cm.posFromIndex(end), el);
-  }, [cm, el, pos, end]);
+  const ref = useFuncCall(func);
 
   return (
     <>
@@ -161,25 +118,7 @@ const FunctionDeclarationView: React.FC<{
 
   const handleId = funcDeclSlug(func);
 
-  const ref = useRef<any>();
-  const cm = useContext(CodeMirrorContext);
-
-  const el = ref.current;
-  const { pos, end } = func;
-  useEffect(() => {
-    // console.log('FunctionDeclarationView', { pos, end, cm, el });
-
-    if (!cm || !el) return;
-
-    // underline
-    cm.markText(cm.posFromIndex(pos), cm.posFromIndex(end), {
-      // className: 'func-decl-2',
-      startStyle: 'func-decl-2',
-    });
-
-    // handle
-    cm.addWidget(cm.posFromIndex(pos), el);
-  }, [cm, el, pos, end]);
+  const ref = useFuncDecl(func);
 
   return (
     // <div className="func-decl" title={name} onClick={() => setExpand(!expand)}>
@@ -248,7 +187,7 @@ const FileView: React.FC<{
       <div className="file-view-heading">
         <FilenamePrettyView filename={filename} />
       </div>
-      <CodeMirrorProvider content={content}>{fileContent}</CodeMirrorProvider>
+      <CodeViewProvider content={content}>{fileContent}</CodeViewProvider>
     </div>
   );
 };
