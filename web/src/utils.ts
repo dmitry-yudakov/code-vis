@@ -1,12 +1,12 @@
-import { LogicNode, LogicNodeType } from './components/LogicMap';
+import { LogicNode, LogicNodeType } from './components/FilesMapping';
 import {
   Node,
   Edge,
   FileIncludeInfo,
-  FileMapping,
   FunctionCallInfo,
   FunctionDeclarationInfo,
 } from './types';
+import dagre from 'dagre';
 
 export const rand = (upperLimit: number) =>
   Math.floor(Math.random() * upperLimit);
@@ -48,6 +48,20 @@ export const getFilenameParts = (filename: string) => {
   };
   // console.log('filename parts:', parts);
   return parts;
+};
+
+export const findRelatedFiles = (
+  filename: string,
+  projectMap: FileIncludeInfo[]
+): string[] => {
+  const includes = projectMap
+    .filter((incl) => incl.to === filename)
+    .map((incl) => incl.from);
+  const references = projectMap
+    .filter((incl) => incl.from === filename)
+    .map((incl) => incl.to);
+
+  return uniq([...includes, ...references]);
 };
 
 export const buildNodesTree = (
@@ -148,25 +162,6 @@ export const buildNodesTree = (
   return nodes[0];
 };
 
-export const dropIrrelevantFunctionCalls = (
-  mapping: FileMapping
-): FileMapping => {
-  const includedItems = new Set(mapping.includes.flatMap((incl) => incl.items));
-  // const declaredItems = new Set(
-  //   mapping.functionDeclarations.flatMap((decl) => decl.name)
-  // );
-  const filteredMapping = {
-    ...mapping,
-    functionCalls: mapping.functionCalls.filter(
-      (fc) => includedItems.has(fc.name)
-      // temp
-      //|| declaredItems.has(fc.name)
-    ),
-  };
-
-  return filteredMapping;
-};
-
 export const funcCallSlug = (fc: FunctionCallInfo) =>
   `call:${fc.filename}->${fc.name}:${fc.pos}`;
 export const funcDeclSlugFromPieces = (filename: string, name: string) =>
@@ -175,3 +170,51 @@ export const funcDeclSlug = (fd: FunctionDeclarationInfo) =>
   funcDeclSlugFromPieces(fd.filename, fd.name);
 
 export const uniq = (arr: string[]): string[] => Array.from(new Set(arr));
+
+export const applyGraphLayout = (
+  nodes: Node[] | (() => Node[]),
+  edges: Edge[] | (() => Edge[]),
+  cbApplyPosition: (node: Node, x: number, y: number) => void,
+  nodeWidth: number = 200,
+  nodeHeight: number = 100
+): void => {
+  const g = new dagre.graphlib.Graph({
+    multigraph: true,
+    compound: true,
+    directed: true,
+  });
+
+  // Set an object for the graph label
+  g.setGraph({
+    rankdir: 'LR',
+    // align: 'UR',
+    // ranker: 'tight-tree',
+    ranker: 'longest-path',
+    nodesep: 1,
+    ranksep: 1,
+  });
+
+  // Default to assigning a new object as a label for each new edge.
+  g.setDefaultEdgeLabel(function () {
+    return {};
+  });
+
+  const _nodes = typeof nodes === 'function' ? nodes() : nodes;
+  for (const n of _nodes)
+    g.setNode(n.id, { label: n.label, width: nodeWidth, height: nodeHeight });
+
+  // Add edges to the graph.
+  const _edges = typeof edges === 'function' ? edges() : edges;
+  for (const e of _edges) g.setEdge(e.source, e.target);
+
+  dagre.layout(g);
+
+  //const posNodes =
+  _nodes.forEach((node) => {
+    const { x, y } = g.node(node.id);
+    cbApplyPosition(node, x, y);
+    // return { ...node, x, y };
+  });
+  // console.log('positioned nodes', _nodes);
+  // return posNodes;
+};

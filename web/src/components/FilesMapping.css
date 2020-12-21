@@ -1,0 +1,83 @@
+.files-mapping-main .func-decl,
+.files-mapping-main .simple-code,
+.files-mapping-main .func-call {
+  position: relative;
+}
+.files-mapping-main .func-decl {
+  display: block;
+}
+.files-mapping-main .simple-code,
+.files-mapping-main .func-call {
+  display: inline;
+}
+.files-mapping-main .simple-code {
+  opacity: 0.85;
+}
+.files-mapping-main .func-decl {
+  background-color: rgba(153, 153, 153, 0.158);
+  border: 1px solid #777;
+  border-radius: 3px;
+  padding: 3px;
+  margin: 3px;
+}
+.files-mapping-main .func-call {
+  background-color: rgb(150 210 163 / 6%);
+}
+
+.file-view {
+  white-space: pre-wrap;
+  word-break: break-all;
+  text-align: left;
+}
+.file-view .file-view-heading {
+  padding: 5px;
+  margin-bottom: 0.7em;
+  border-bottom: 1px solid lightgrey;
+}
+
+.files-mapping-main {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+}
+.files-mapping-main .react-flow__node {
+  background: rgba(245, 249, 249, 0.48);
+  padding: 0;
+}
+.files-mapping-main .react-flow__handle {
+  background: rgba(182, 182, 182, 0.3);
+  border: none;
+}
+
+.files-mapping-main .react-flow__edge-path {
+  stroke: rgba(0, 128, 0, 0.55);
+}
+.files-mapping-main .func-decl-handle,
+.files-mapping-main .func-call-handle {
+  background: rgba(0, 128, 0, 0.85);
+  z-index: 100;
+}
+.files-mapping-main .func-decl-handle {
+  /* top: 50%; */
+  left: -5px;
+}
+.files-mapping-main .func-call-handle {
+  /* top: 50%; */
+  right: -15px;
+}
+
+.logic-connections-pane {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+}
+
+.files-mapping-main .func-decl-2 {
+  /* background: rgba(0, 128, 0, 0.05); */
+  border-bottom: 1px solid rgba(0, 128, 0, 0.85);
+}
+.files-mapping-main .func-call-2 {
+  background: rgba(255, 0, 0, 0.05);
+}

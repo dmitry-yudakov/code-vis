@@ -1,15 +1,20 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
-
-import MonacoEditor, { monaco } from '@monaco-editor/react';
+import MonacoEditor, { monaco as __monaco } from '@monaco-editor/react';
 import { FunctionCallInfo, FunctionDeclarationInfo } from '../types';
+import { useDebouncedCallback } from 'use-debounce';
 
-monaco
+let monaco: any;
+
+__monaco
   .init()
-  .then((monaco) => {
+  .then((monacoInst) => {
+    monaco = monacoInst;
+
     /* here is the instance of monaco, so you can use the `monaco.languages` or whatever you want */
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
       noSemanticValidation: true,
       noSyntaxValidation: true,
+      noSuggestionDiagnostics: true,
     });
   })
   .catch((error) =>
@@ -17,60 +22,119 @@ monaco
   );
 
 const monacoOptions = {
+  wordWrap: 'on',
   minimap: {
     enabled: false,
   },
-  // lineNumbers: true,
-  wordWrap: 'on',
+
+  scrollBeyondLastLine: false,
+  wrappingStrategy: 'advanced',
+  overviewRulerLanes: 0,
+
+  lineNumbers: 'off',
 };
 
 const MonacoEditorContext = React.createContext<any>(null);
-export const MonacoEditorProvider: React.FC<{ content: string }> = ({
-  content,
-  children,
-}) => {
-  const [inst, setInst] = useState<any>(null);
+export const MonacoEditorProvider: React.FC<{
+  content: string;
+  onScroll?: () => void;
+}> = ({ content, children, onScroll }) => {
+  const [editor, setEditor] = useState<any>(null);
+
+  const ref = useRef<HTMLDivElement | null>(null);
+  const container = ref.current;
+
+  const debOnScroll = useDebouncedCallback(onScroll || (() => {}), 200);
+  const isOnScrollSet = !!onScroll;
+
+  const updateHeight = useDebouncedCallback(() => {
+    // console.log('try to update height');
+    if (!editor || !container) return;
+    const width = 500;
+    // let ignoreEvent = false;
+    // if (ignoreEvent) return;
+
+    const contentHeight = Math.min(1000, editor.getContentHeight());
+    container.style.width = `${width}px`;
+    container.style.height = `${contentHeight}px`;
+    try {
+      // ignoreEvent = true;
+      const newLayout = { width, height: contentHeight };
+      // console.log('Apply layout', newLayout, 'to editor', editor);
+      editor.layout(newLayout);
+    } finally {
+      // ignoreEvent = false;
+    }
+  }, 100);
+
+  useEffect(() => {
+    if (!editor || !container) return;
+
+    editor.onDidContentSizeChange(updateHeight.callback);
+    updateHeight.callback();
+    if (isOnScrollSet) editor.onDidScrollChange(debOnScroll.callback);
+  }, [editor, container, isOnScrollSet, debOnScroll, updateHeight]);
+
   return (
-    <>
+    <div ref={ref}>
       <MonacoEditor
-        editorDidMount={(_, editor) => setInst(editor)}
+        editorDidMount={(_, editor) => setEditor(editor)}
         value={content}
         language="typescript"
-        height={500}
+        // height={500}
         options={monacoOptions}
         // onChange={(editor, data, value) => {
         // }}
       />
-      <MonacoEditorContext.Provider value={inst}>
+      <MonacoEditorContext.Provider value={editor}>
         {children}
       </MonacoEditorContext.Provider>
-    </>
+    </div>
   );
 };
 
-export const useFuncCall = (func: FunctionCallInfo) => {
+export const useFuncCall = (
+  func: FunctionCallInfo,
+  parent: FunctionDeclarationInfo | null
+) => {
   const ref = useRef<any>();
-  const cm = useContext(MonacoEditorContext);
+  const editor = useContext(MonacoEditorContext);
 
-  const el = ref.current;
-  const { pos, end } = func;
+  // const el = ref.current;
+  const offset = parent ? parent.pos : 0;
+  // const callUniqueClass = funcCallSlug(func).replace(/[^a-zA-Z0-9-]/g, '_');
+
   useEffect(() => {
-    // console.log('FunctionCallView', { pos, end, cm, el });
+    const { pos, end } = func;
 
-    if (!cm || !el) return;
+    if (!editor) return;
 
-    // underline
-    // cm.markText(cm.posFromIndex(pos), cm.posFromIndex(end), {
-    //   className: 'func-call-2',
-    // });
-
-    // // handle
-    // cm.addWidget(cm.posFromIndex(end), el);
-  }, [cm, el, pos, end]);
+    editor.deltaDecorations(
+      [],
+      [
+        {
+          range: _range(pos - offset, end - offset, editor),
+          // options: { inlineClassName: `func-call ${callUniqueClass}` },
+          options: {
+            className: 'func-call',
+            // afterContentClassName: callUniqueClass,
+            // isWholeLine: true,
+            // linesDecorationsClassName: `func-call-line ${callUniqueClass}`,
+          },
+        },
+      ]
+    );
+  }, [editor, func, offset]);
   return ref;
 };
 
 export const useFuncDecl = (func: FunctionDeclarationInfo) => {
+  const ref = useRef<any>();
+  // noop
+  return ref;
+};
+
+export const useInnerFuncDecl = (func: FunctionDeclarationInfo) => {
   const ref = useRef<any>();
   const cm = useContext(MonacoEditorContext);
 
@@ -92,3 +156,10 @@ export const useFuncDecl = (func: FunctionDeclarationInfo) => {
   }, [cm, el, pos, end]);
   return ref;
 };
+
+function _range(pos: number, end: number, editor: any) {
+  return monaco.Range.fromPositions(
+    editor.getModel().getPositionAt(pos),
+    editor.getModel().getPositionAt(end)
+  );
+}

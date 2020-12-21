@@ -1,8 +1,7 @@
 import React from 'react';
 import ReactFlow, { ArrowHeadType, Background } from 'react-flow-renderer';
-import { Node, Edge, FileIncludeInfo, PositionedNode } from '../types';
-import { includeToGraphTypes } from '../utils';
-import dagre from 'dagre';
+import { Node, FileIncludeInfo, PositionedNode } from '../types';
+import { includeToGraphTypes, applyGraphLayout } from '../utils';
 import './IncludesHierarchy.css';
 import { FilenamePrettyView } from './FilenamePrettyView';
 
@@ -15,45 +14,6 @@ import { FilenamePrettyView } from './FilenamePrettyView';
 //   }
 //   return i;
 // }
-
-const positionElements = (
-  nodes: Node[],
-  edges: Edge[],
-  nodeWidth: number = 200,
-  nodeHeight: number = 100
-): PositionedNode[] => {
-  const g = new dagre.graphlib.Graph({ multigraph: true, compound: true });
-
-  // Set an object for the graph label
-  g.setGraph({
-    rankdir: 'LR',
-    // align: 'UR',
-    // ranker: 'tight-tree',
-    ranker: 'longest-path',
-    nodesep: 1,
-    ranksep: 1,
-  });
-
-  // Default to assigning a new object as a label for each new edge.
-  g.setDefaultEdgeLabel(function () {
-    return {};
-  });
-
-  for (const n of nodes)
-    g.setNode(n.id, { label: n.label, width: nodeWidth, height: nodeHeight });
-
-  // Add edges to the graph.
-  for (const e of edges) g.setEdge(e.source, e.target);
-
-  dagre.layout(g);
-
-  const posNodes = nodes.map((node) => {
-    const { x, y } = g.node(node.id);
-    return { ...node, x, y };
-  });
-  console.log('positioned nodes', posNodes);
-  return posNodes;
-};
 
 const MAX_ITEMS_TO_SHOW = 3;
 const edgeLabel = (items: string[]) => {
@@ -69,9 +29,20 @@ export const IncludesHierarchy: React.FC<{
   console.log('includes', includes);
   const { nodes, edges } = includeToGraphTypes(includes);
 
-  const positionedNodes = positionElements(nodes, edges);
+  applyGraphLayout(
+    nodes,
+    edges,
+    (n, x, y) => {
+      const p = n as PositionedNode;
+      p.x = x;
+      p.y = y;
+    },
+    250,
+    200
+  );
+
   const elements = [
-    ...positionedNodes.map((node) => {
+    ...(nodes as PositionedNode[]).map((node) => {
       const { id, x, y } = node;
       return {
         id,

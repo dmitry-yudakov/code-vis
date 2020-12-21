@@ -1,73 +1,3 @@
-.logic-map-panes {
-  display: flex;
-}
-
-.logic-map-panes .content {
-  display: flex;
-  width: 80%;
-  align-items: flex-start;
-  justify-content: space-between;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.logic-map-panes .mapping {
-  width: 20%;
-  font-size: 0.7em;
-}
-
-.logic-map-panes .content .main-content {
-  width: 50%;
-}
-.logic-map-panes .content .references,
-.logic-map-panes .content .includes {
-  width: 20%;
-}
-.logic-map-panes .content .references {
-  transform: scale(0.7);
-  transform-origin: top left;
-}
-.logic-map-panes .content .includes {
-  transform: scale(0.7);
-  transform-origin: top right;
-}
-
-.func-decl,
-.simple-code,
-.func-call {
-  position: relative;
-}
-.func-decl {
-  display: block;
-}
-.simple-code,
-.func-call {
-  display: inline;
-}
-.simple-code {
-  opacity: 0.85;
-}
-.func-decl {
-  background-color: rgba(153, 153, 153, 0.158);
-  border: 1px solid #777;
-  border-radius: 3px;
-  padding: 3px;
-  margin: 3px;
-}
-.func-call {
-  background-color: rgb(150 210 163 / 6%);
-}
-
-.file-view {
-  white-space: pre-wrap;
-  word-break: break-all;
-  text-align: left;
-}
-.file-view .file-view-heading {
-  padding: 5px;
-  margin-bottom: 0.7em;
-  border-bottom: 1px solid lightgrey;
-}
-
 .logic-map-main {
   height: 100vh;
   width: 100vw;
@@ -79,7 +9,7 @@
   padding: 0;
 }
 .logic-map-main .react-flow__handle {
-  background: rgba(182, 182, 182, 0.3);
+  background: rgba(0, 0, 0, 0.5);
   border: none;
 }
 
@@ -96,21 +26,52 @@
   left: -5px;
 }
 .logic-map-main .func-call-handle {
-  /* top: 50%; */
-  right: -15px;
+  /* top: 50%;
+  right: -15px; */
 }
 
-.logic-connections-pane {
+.logic-map-main .func-decl .func-decl-title {
+  padding-right: 3em;
+}
+.logic-map-main .func-decl button.expand-collapse {
   position: absolute;
-  top: 0;
-  left: 0;
-  z-index: -1;
+  top: 0px;
+  right: 0px;
 }
 
-.func-decl-2 {
-  /* background: rgba(0, 128, 0, 0.05); */
-  border-bottom: 1px solid rgba(0, 128, 0, 0.85);
+.logic-map-main .func-call {
+  background-color: #a5f7f7;
 }
-.func-call-2 {
-  background: rgba(255, 0, 0, 0.05);
+.logic-map-main .func-call-line {
+  background-color: #a5f7f79f;
 }
+.func-call-handle-wrapper {
+  position: relative;
+  display: inline;
+  height: 3px;
+  width: 3px;
+  /* border: yellowgreen solid 1px; */
+}
+
+.logic-map-main .func-decl {
+  padding: 0.5em;
+  max-width: 400px;
+  word-break: break-all;
+}
+.logic-map-main .func-decl.expanded {
+  max-width: 500px;
+  z-index: 3;
+}
+
+/* .logic-map-main .func-decl:not(.expanded) .monaco-editor { */
+.logic-map-main .func-decl .monaco-editor,
+.logic-map-main .func-decl .monaco-editor-background,
+.logic-map-main .func-decl .monaco-editor .inputarea.ime-input {
+  background-color: #fffffe50 !important;
+}
+
+/* .monaco-editor,
+.monaco-editor-background,
+.monaco-editor .inputarea.ime-input {
+  background-color: #fffffe50 !important;
+} */

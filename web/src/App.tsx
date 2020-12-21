@@ -53,7 +53,6 @@ const FileScreen: React.FC = () => {
 
   return (
     <LogicMap
-      data={fileData}
       filename={filename}
       projectMap={projectMap}
       onClose={() => router.push('/')}
