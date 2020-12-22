@@ -1,5 +1,5 @@
 import React from 'react';
-import ReactFlow, { ArrowHeadType, Background } from 'react-flow-renderer';
+import ReactFlow, { ArrowHeadType, Controls } from 'react-flow-renderer';
 import { Node, FileIncludeInfo, PositionedNode } from '../types';
 import { includeToGraphTypes, applyGraphLayout } from '../utils';
 import './IncludesHierarchy.css';
@@ -77,6 +77,7 @@ export const IncludesHierarchy: React.FC<{
         elements={elements}
         nodesConnectable={false}
         // panOnScroll
+        minZoom={0.01}
         onElementClick={(e, el) => {
           if (el.data) {
             // onClick(el.data.label);
@@ -84,7 +85,7 @@ export const IncludesHierarchy: React.FC<{
           }
         }}
       >
-        <Background color="#aaa" gap={16} />
+        <Controls />
       </ReactFlow>
     </div>
   );
