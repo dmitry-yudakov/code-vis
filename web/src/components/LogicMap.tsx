@@ -350,7 +350,8 @@ export const LogicMap: React.FC<{
       n.__originalNode.position.y = y;
     },
     650,
-    150
+    150,
+    'LR'
   );
 
   console.log('Elements', elements);

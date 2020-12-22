@@ -176,7 +176,8 @@ export const applyGraphLayout = (
   edges: Edge[] | (() => Edge[]),
   cbApplyPosition: (node: Node, x: number, y: number) => void,
   nodeWidth: number = 200,
-  nodeHeight: number = 100
+  nodeHeight: number = 100,
+  rankDirection = 'TB'
 ): void => {
   const g = new dagre.graphlib.Graph({
     multigraph: true,
@@ -184,9 +185,9 @@ export const applyGraphLayout = (
     directed: true,
   });
 
-  // Set an object for the graph label
+  // https://github.com/dagrejs/dagre/wiki#configuring-the-layout
   g.setGraph({
-    rankdir: 'LR',
+    rankdir: rankDirection, // TB | LR
     // align: 'UR',
     // ranker: 'tight-tree',
     ranker: 'longest-path',
