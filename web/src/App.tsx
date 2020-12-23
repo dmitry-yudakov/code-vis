@@ -14,6 +14,7 @@ import { FileIncludeInfo, FileMapDetailed } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
 import Menu from './atoms/Menu';
+import { FilesMapping } from './components/FilesMapping';
 
 const url = `ws://localhost:3789`;
 let conn: WSConn;
@@ -35,7 +36,9 @@ const ProjectDataContext = React.createContext<{
   filesMappings: Record<string, FileMapDetailed>;
 }>({ projectMap: [], filesMappings: {} });
 
-const FileScreen: React.FC = () => {
+const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
+  fineGrained = false,
+}) => {
   const { filename: filenameEnc } = useParams<{ filename: string }>();
   const filename = decodeURIComponent(filenameEnc);
   const router = useHistory();
@@ -52,8 +55,16 @@ const FileScreen: React.FC = () => {
   // TODO show related files too
   // TODO show files referencing this one too
 
-  return (
+  return fineGrained ? (
     <LogicMap
+      filename={filename}
+      projectMap={projectMap}
+      onClose={() => router.push('/')}
+      onRequestRelatedFile={(fn) => filesMappings[fn] || null}
+    />
+  ) : (
+    <FilesMapping
+      data={fileData}
       filename={filename}
       projectMap={projectMap}
       onClose={() => router.push('/')}
@@ -123,6 +134,9 @@ const App: React.FC = () => {
           <Route path="/f/:filename">
             <FileScreen />
           </Route>
+          <Route path="/l/:filename">
+            <FileScreen fineGrained />
+          </Route>
           <Route path="/">
             <IncludesHierarchy
               includes={projectMap}
@@ -132,6 +146,10 @@ const App: React.FC = () => {
                   options={[
                     [
                       'Logic Map',
+                      () => router.push(`/l/${encodeURIComponent(filename)}`),
+                    ],
+                    [
+                      'File Map',
                       () => router.push(`/f/${encodeURIComponent(filename)}`),
                     ],
                   ]}
