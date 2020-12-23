@@ -43,6 +43,7 @@
 }
 .logic-map-main .func-decl button.expand-collapse {
   position: absolute;
+  z-index: 1;
   top: 0px;
   right: 0px;
 }
