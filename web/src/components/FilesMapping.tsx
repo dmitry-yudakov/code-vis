@@ -97,7 +97,7 @@ const FunctionCallView: React.FC<{
 
   return (
     <>
-      <div ref={ref}>
+      <div ref={ref} className="handle-wrapper">
         <Handle
           type="source"
           className="func-call-handle"
@@ -126,7 +126,7 @@ const FunctionDeclarationView: React.FC<{
   return (
     // <div className="func-decl" title={name} onClick={() => setExpand(!expand)}>
     <>
-      <div ref={ref}>
+      <div ref={ref} className="handle-wrapper">
         <Handle
           type="target"
           className="func-decl-handle"

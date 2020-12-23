@@ -71,6 +71,10 @@
   /* top: 50%; */
   right: -15px;
 }
+.files-mapping-main .handle-wrapper {
+  height: 2px;
+  width: 2px;
+}
 
 .logic-connections-pane {
   position: absolute;
