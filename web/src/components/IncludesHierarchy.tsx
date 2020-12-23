@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactFlow, { ArrowHeadType, Controls } from 'react-flow-renderer';
+import { FilenamePrettyView } from '../atoms';
 import { Node, FileIncludeInfo, PositionedNode } from '../types';
 import { includeToGraphTypes, applyGraphLayout } from '../utils';
 import './IncludesHierarchy.css';
-import { FilenamePrettyView } from './FilenamePrettyView';
 
 // const calcEdgeWeightBySimilarity = (incl: Include) => {
 //   const {to, from} = incl;
@@ -24,8 +24,12 @@ const edgeLabel = (items: string[]) => {
 
 export const IncludesHierarchy: React.FC<{
   includes: FileIncludeInfo[];
-  onClick: (nodeName: string) => void;
-}> = React.memo(({ includes, onClick }) => {
+  renderNodeMenu: (
+    filename: string,
+    anchor: Element,
+    onClose: () => void
+  ) => JSX.Element;
+}> = React.memo(({ includes, renderNodeMenu }) => {
   console.log('includes', includes);
   const { nodes, edges } = includeToGraphTypes(includes);
 
@@ -41,13 +45,18 @@ export const IncludesHierarchy: React.FC<{
     200
   );
 
+  const [showMenu, setShowMenu] = useState<{
+    anchor: Element;
+    node: Node;
+  } | null>(null);
+
   const elements = [
     ...(nodes as PositionedNode[]).map((node) => {
       const { id, x, y } = node;
       return {
         id,
         data: {
-          label: <NodeView node={node} />,
+          label: <FileView node={node} />,
           node,
         },
         position: { x, y },
@@ -80,17 +89,20 @@ export const IncludesHierarchy: React.FC<{
         minZoom={0.01}
         onElementClick={(e, el) => {
           if (el.data) {
-            // onClick(el.data.label);
-            onClick(el.data.node.label);
+            setShowMenu({ anchor: e.target as Element, node: el.data.node });
           }
         }}
       >
         <Controls />
       </ReactFlow>
+      {!!showMenu &&
+        renderNodeMenu(showMenu.node.label, showMenu.anchor, () =>
+          setShowMenu(null)
+        )}
     </div>
   );
 });
 
-const NodeView: React.FC<{ node: Node }> = ({ node }) => (
+const FileView: React.FC<{ node: Node }> = ({ node }) => (
   <FilenamePrettyView filename={node.label} />
 );

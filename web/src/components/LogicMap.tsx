@@ -1,4 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { IconButton } from '@material-ui/core';
+import { ExpandLess, ExpandMore } from '@material-ui/icons';
+import Grow from '@material-ui/core/Grow';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -14,6 +17,7 @@ import {
   funcDeclSlug,
   funcDeclSlugFromPieces,
 } from '../utils';
+import { CloseButton } from '../atoms';
 import ReactFlow, {
   Edge as ReactFlowEdge,
   Controls,
@@ -219,19 +223,23 @@ const FunctionDeclarationView: React.FC<{
   );
 
   return (
-    <>
-      <div
-        className={cx('func-decl', expand && 'expanded')}
-        title={`${name} - ${filename}`}
-        style={{ width: expand ? 500 : undefined }}
+    <div
+      className={cx('func-decl', expand && 'expanded')}
+      title={`${name} - ${filename}`}
+      style={{ width: expand ? 500 : undefined }}
+    >
+      <IconButton
+        size="small"
+        className="expand-collapse"
+        onClick={handleExpandCollapse}
       >
-        <button className="expand-collapse" onClick={handleExpandCollapse}>
-          {expand ? '>-<' : '<->'}
-        </button>
+        {expand ? <ExpandLess /> : <ExpandMore />}
+      </IconButton>
 
-        {expand ? (
+      {expand ? (
+        <Grow in={expand}>
           <div>
-            <h4>{shortView}</h4>
+            <div className="filename">{filename}</div>
             <CodeViewProvider
               content={content.slice(func.pos, func.end)}
               onScroll={onScroll}
@@ -239,11 +247,11 @@ const FunctionDeclarationView: React.FC<{
               {renderChildren(content, innerNodes, func)}
             </CodeViewProvider>
           </div>
-        ) : (
-          shortView
-        )}
-      </div>
-    </>
+        </Grow>
+      ) : (
+        shortView
+      )}
+    </div>
   );
 };
 
@@ -377,7 +385,7 @@ export const LogicMap: React.FC<{
 const TopLeftCloseButton: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   return (
     <div style={{ position: 'fixed', top: 10, left: 10, zIndex: 5 }}>
-      <button onClick={onClose}>X</button>
+      <CloseButton onClick={onClose} />
     </div>
   );
 };

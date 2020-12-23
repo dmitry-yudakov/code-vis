@@ -13,6 +13,7 @@ import { History } from './components/History';
 import { FileIncludeInfo, FileMapDetailed } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
+import Menu from './atoms/Menu';
 
 const url = `ws://localhost:3789`;
 let conn: WSConn;
@@ -115,15 +116,6 @@ const App: React.FC = () => {
     refConn.current = conn;
   }, []);
 
-  const onNodeClick = (fileName: string) => {
-    console.log('Click on', fileName);
-    const conn = refConn.current;
-    if (!conn) {
-      return alert('Not connected to server!');
-    }
-    router.push(`/f/${encodeURIComponent(fileName)}`);
-  };
-
   return (
     <div className="App">
       <ProjectDataContext.Provider value={contextVal}>
@@ -132,7 +124,21 @@ const App: React.FC = () => {
             <FileScreen />
           </Route>
           <Route path="/">
-            <IncludesHierarchy includes={projectMap} onClick={onNodeClick} />
+            <IncludesHierarchy
+              includes={projectMap}
+              renderNodeMenu={(filename, anchor, onClose) => (
+                <Menu
+                  positionAnchor={anchor}
+                  options={[
+                    [
+                      'Logic Map',
+                      () => router.push(`/f/${encodeURIComponent(filename)}`),
+                    ],
+                  ]}
+                  onClose={onClose}
+                />
+              )}
+            />
           </Route>
         </Switch>
       </ProjectDataContext.Provider>

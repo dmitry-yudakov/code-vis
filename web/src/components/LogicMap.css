@@ -25,13 +25,21 @@
   /* top: 50%; */
   left: -5px;
 }
-.logic-map-main .func-call-handle {
-  /* top: 50%;
-  right: -15px; */
-}
+/* .logic-map-main .func-call-handle {
+  top: 50%;
+  right: -15px;
+} */
 
 .logic-map-main .func-decl .func-decl-title {
   padding-right: 3em;
+  line-height: 1.5em;
+}
+.logic-map-main .func-decl .filename {
+  opacity: 0.6;
+  font-style: italic;
+  text-align: left;
+  /* line-height: 2em; */
+  padding: 7px 25px;
 }
 .logic-map-main .func-decl button.expand-collapse {
   position: absolute;
@@ -65,9 +73,20 @@
 
 /* .logic-map-main .func-decl:not(.expanded) .monaco-editor { */
 .logic-map-main .func-decl .monaco-editor,
+.logic-map-main .func-decl .monaco-editor .margin,
 .logic-map-main .func-decl .monaco-editor-background,
 .logic-map-main .func-decl .monaco-editor .inputarea.ime-input {
   background-color: #fffffe50 !important;
+}
+
+.logic-map-main .react-flow__node-default {
+  box-shadow: 0 1px 4px 1px rgba(0, 0, 0, 0.08);
+  border: none;
+  background: rgba(255, 255, 255, 0.509);
+}
+.logic-map-main .react-flow__node-default:hover {
+  box-shadow: 0 1px 5px 2px rgba(0, 0, 0, 0.18);
+  transform: scale(1.05);
 }
 
 /* .monaco-editor,

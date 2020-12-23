@@ -12,7 +12,7 @@ import {
   funcDeclSlug,
   funcDeclSlugFromPieces,
 } from '../utils';
-import { FilenamePrettyView } from './FilenamePrettyView';
+import { FilenamePrettyView } from '../atoms';
 import ReactFlow, {
   // ArrowHeadType,
   // Background,
