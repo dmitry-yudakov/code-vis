@@ -347,10 +347,12 @@ const extractFunctionCalls = (
         return arg.text || `EXPR:${arg.expression?.escapedText}...` || 'n/a';
       });
 
+      const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
+
       return {
         name,
         args,
-        pos: node.pos,
+        pos: node.pos + leadingTriviaWidth,
         end: node.end,
         filename,
       };

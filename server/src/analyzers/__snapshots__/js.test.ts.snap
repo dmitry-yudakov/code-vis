@@ -11,7 +11,7 @@ Object {
       "end": 152,
       "filename": "src/dir/a.js",
       "name": "maga",
-      "pos": 142,
+      "pos": 143,
     },
     Object {
       "args": Array [
@@ -21,7 +21,7 @@ Object {
       "end": 163,
       "filename": "src/dir/a.js",
       "name": "yaga",
-      "pos": 153,
+      "pos": 154,
     },
   ],
   "functionDeclarations": Array [
@@ -89,7 +89,7 @@ Object {
       "end": 146,
       "filename": "src/dir/a.js",
       "name": "agaga",
-      "pos": 136,
+      "pos": 137,
     },
     Object {
       "args": Array [
@@ -98,7 +98,7 @@ Object {
       "end": 163,
       "filename": "src/dir/a.js",
       "name": "amaga",
-      "pos": 153,
+      "pos": 154,
     },
     Object {
       "args": Array [
@@ -107,7 +107,7 @@ Object {
       "end": 174,
       "filename": "src/dir/a.js",
       "name": "gaga",
-      "pos": 164,
+      "pos": 165,
     },
     Object {
       "args": Array [
@@ -116,7 +116,7 @@ Object {
       "end": 186,
       "filename": "src/dir/a.js",
       "name": "maga",
-      "pos": 175,
+      "pos": 176,
     },
   ],
   "functionDeclarations": Array [
@@ -171,7 +171,7 @@ Object {
       "end": 202,
       "filename": "src/dir/a.js",
       "name": "propFuncAsync",
-      "pos": 181,
+      "pos": 182,
     },
     Object {
       "args": Array [
@@ -180,7 +180,7 @@ Object {
       "end": 232,
       "filename": "src/dir/a.js",
       "name": "methodFuncAsync",
-      "pos": 209,
+      "pos": 210,
     },
   ],
   "functionDeclarations": Array [
@@ -235,7 +235,7 @@ Object {
       "end": 149,
       "filename": "src/dir/a.js",
       "name": "propFunc",
-      "pos": 133,
+      "pos": 134,
     },
     Object {
       "args": Array [
@@ -244,7 +244,7 @@ Object {
       "end": 168,
       "filename": "src/dir/a.js",
       "name": "methodFunc",
-      "pos": 150,
+      "pos": 151,
     },
   ],
   "functionDeclarations": Array [
@@ -281,7 +281,7 @@ Object {
       "end": 136,
       "filename": "src/dir/a.tsx",
       "name": "alert",
-      "pos": 117,
+      "pos": 122,
     },
     Object {
       "args": Array [
@@ -332,7 +332,7 @@ Object {
       "end": 68,
       "filename": "src/dir/a.js",
       "name": "gaga",
-      "pos": 58,
+      "pos": 60,
     },
     Object {
       "args": Array [
@@ -341,7 +341,7 @@ Object {
       "end": 92,
       "filename": "src/dir/a.js",
       "name": "gaga",
-      "pos": 83,
+      "pos": 84,
     },
     Object {
       "args": Array [
@@ -350,7 +350,7 @@ Object {
       "end": 109,
       "filename": "src/dir/a.js",
       "name": "FEFE",
-      "pos": 94,
+      "pos": 95,
     },
     Object {
       "args": Array [
