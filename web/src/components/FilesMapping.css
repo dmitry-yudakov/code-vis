@@ -41,9 +41,14 @@
   overflow: hidden;
   position: relative;
 }
-.files-mapping-main .react-flow__node {
+.files-mapping-main .react-flow__node-default {
   background: rgba(245, 249, 249, 0.48);
+  box-shadow: 0 1px 4px 1px rgba(0, 0, 0, 0.08);
   padding: 0;
+  border: none;
+}
+.files-mapping-main .react-flow__node-default:hover {
+  box-shadow: 0 1px 5px 2px rgba(0, 0, 0, 0.18);
 }
 .files-mapping-main .react-flow__handle {
   background: rgba(182, 182, 182, 0.3);

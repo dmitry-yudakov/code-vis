@@ -12,7 +12,7 @@ import {
   funcDeclSlug,
   funcDeclSlugFromPieces,
 } from '../utils';
-import { FilenamePrettyView } from '../atoms';
+import { CloseButton, FilenamePrettyView } from '../atoms';
 import ReactFlow, {
   // ArrowHeadType,
   // Background,
@@ -308,6 +308,7 @@ export const FilesMapping: React.FC<{
     const supplWidth = colWidth * 0.85;
     const middleColOffet = colWidth;
     const rightColOffet = colWidth * 2;
+    const initialOffsetY = 70;
 
     const elements = [
       ...connections,
@@ -323,7 +324,7 @@ export const FilesMapping: React.FC<{
         },
         position: {
           x: middleColOffet,
-          y: 0,
+          y: initialOffsetY,
         },
       },
 
@@ -345,7 +346,7 @@ export const FilesMapping: React.FC<{
           },
           position: {
             x: 10 + idx * 10,
-            y: idx * 300,
+            y: initialOffsetY + idx * 300,
           },
         };
       }),
@@ -368,7 +369,7 @@ export const FilesMapping: React.FC<{
           },
           position: {
             x: rightColOffet + idx * 10,
-            y: idx * 300,
+            y: initialOffsetY + idx * 300,
           },
         };
       }),
@@ -380,7 +381,7 @@ export const FilesMapping: React.FC<{
   return (
     <div className="files-mapping-main">
       <div style={{ position: 'fixed', top: 10, left: 10, zIndex: 5 }}>
-        <button onClick={() => onClose()}>X</button>
+        <CloseButton onClick={() => onClose()} />
       </div>
       <ReactFlow
         elements={elements}
