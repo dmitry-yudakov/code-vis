@@ -1,5 +1,5 @@
 import React from 'react';
-import { Popover, Button } from '@material-ui/core';
+import { Popover, Button, ButtonGroup } from '@material-ui/core';
 
 const Menu: React.FC<{
   options: Array<[string, () => void]>;
@@ -20,11 +20,13 @@ const Menu: React.FC<{
       open
       onClose={onClose}
     >
-      {options.map(([name, action]) => (
-        <Button key={name} onClick={() => action()}>
-          {name}
-        </Button>
-      ))}
+      <ButtonGroup>
+        {options.map(([name, action]) => (
+          <Button key={name} onClick={() => action()}>
+            {name}
+          </Button>
+        ))}
+      </ButtonGroup>
     </Popover>
   );
 };
