@@ -68,8 +68,8 @@
   left: -5px;
 }
 .files-mapping-main .func-call-handle {
-  /* top: 50%; */
-  right: -15px;
+  top: -0.5em;
+  right: -1em;
 }
 .files-mapping-main .handle-wrapper {
   height: 2px;
