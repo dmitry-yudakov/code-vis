@@ -2,7 +2,8 @@ import { glob } from 'glob';
 import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
-import { ProjectConfig } from './types';
+import { ProjectChangeEvent, ProjectConfig } from './types';
+import chokidar from 'chokidar';
 
 export const getProjectFiles = (
   projectPath: string,
@@ -19,6 +20,21 @@ export const getProjectFiles = (
 export const openFile = async (filename: string, projectPath: string) => {
   const fullpath = path.join(projectPath, filename);
   return fs.readFile(fullpath).then((b) => b.toString());
+};
+
+export const watchDirectory = (
+  path: string,
+  onChange: (e: ProjectChangeEvent) => void
+) => {
+  const watcher = chokidar.watch('.', {
+    cwd: path,
+    ignoreInitial: true,
+    persistent: true,
+  });
+  watcher
+    .on('add', (path) => onChange({ type: 'add', path }))
+    .on('change', (path) => onChange({ type: 'change', path }))
+    .on('unlink', (path) => onChange({ type: 'remove', path }));
 };
 
 const configsPath = path.join(homedir(), '/.code-ai');

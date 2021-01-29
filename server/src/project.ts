@@ -1,5 +1,10 @@
-import { getProjectFiles, openFile } from './io';
-import { FileIncludeInfo, FileMapping, ProjectConfig } from './types';
+import { getProjectFiles, openFile, watchDirectory } from './io';
+import {
+  FileIncludeInfo,
+  FileMapping,
+  ProjectChangeEvent,
+  ProjectConfig,
+} from './types';
 import { getAnalyzer } from './analyzers';
 
 export default class Project {
@@ -8,20 +13,7 @@ export default class Project {
   public hideFilesMasks: { [k: string]: RegExp } = {};
 
   constructor(private projectPath: string, private config: ProjectConfig) {
-    this.files = getProjectFiles(
-      projectPath,
-      config.includeMask,
-      config.excludeMask
-    );
-    console.log('Project files:', this.files);
-    console.log(
-      'Loaded total',
-      this.files.length,
-      'files from',
-      projectPath,
-      'config:',
-      config
-    );
+    this.reloadProject();
   }
 
   processCommand = async (type: string, payload: any | undefined) => {
@@ -56,6 +48,38 @@ export default class Project {
     //   return this.projectMap();
     // }
   };
+
+  watch(callback: (e: ProjectChangeEvent) => void) {
+    watchDirectory(this.projectPath, async (e) => {
+      console.log('Watcher:', e);
+      // switch (e.type) {
+      //   case 'add':
+      //   case 'remove':
+      // even file change could contain changes for import, so reload is needed, TODO better
+      this.reloadProject();
+      await this.recreateProjectMap();
+      //     break;
+      // }
+      callback(e);
+    });
+  }
+
+  reloadProject() {
+    this.files = getProjectFiles(
+      this.projectPath,
+      this.config.includeMask,
+      this.config.excludeMask
+    );
+    console.log('Project files:', this.files);
+    console.log(
+      'Loaded total',
+      this.files.length,
+      'files from',
+      this.projectPath,
+      'config:',
+      this.config
+    );
+  }
 
   async recreateProjectMap() {
     const analyzer = getAnalyzer('js'); // temp

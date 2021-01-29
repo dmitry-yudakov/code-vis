@@ -31,6 +31,10 @@ loadConfiguration(projectPath)
 
     startServer(3789, onCommand);
 
+    project.watch((e) =>
+      sendToWebsocket({ type: 'projectContentChange', payload: e })
+    );
+
     return project;
   })
   .then((project) => {

@@ -34,7 +34,8 @@ const sendToServer = (command: string, payload: object) => {
 const ProjectDataContext = React.createContext<{
   projectMap: FileIncludeInfo[];
   filesMappings: Record<string, FileMapDetailed>;
-}>({ projectMap: [], filesMappings: {} });
+  forceReloadToken: number;
+}>({ projectMap: [], filesMappings: {}, forceReloadToken: 0 });
 
 const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   fineGrained = false,
@@ -43,11 +44,14 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   const filename = decodeURIComponent(filenameEnc);
   const router = useHistory();
 
+  const { projectMap, filesMappings, forceReloadToken } = useContext(
+    ProjectDataContext
+  );
+
   useEffect(() => sendToServer('mapFile', { filename, includeRelated: true }), [
     filename,
+    forceReloadToken,
   ]);
-
-  const { projectMap, filesMappings } = useContext(ProjectDataContext);
 
   const fileData = filesMappings[filename];
   if (!fileData) return <div>Loading...</div>;
@@ -80,14 +84,30 @@ const App: React.FC = () => {
   const [filesMappings, setFilesMappings] = useState<
     Record<string, FileMapDetailed>
   >({});
-  const contextVal = useMemo(() => ({ projectMap, filesMappings }), [
-    projectMap,
-    filesMappings,
-  ]);
+
+  const [forceReloadDep, setForceReloadDep] = useState(0);
+
+  const contextVal = useMemo(
+    () => ({ projectMap, filesMappings, forceReloadToken: forceReloadDep }),
+    [projectMap, filesMappings, forceReloadDep]
+  );
 
   const [history, setHistory] = useState<any[][]>([]);
   const appendToHistory = (str: string) =>
     setHistory((hist) => [...hist, [new Date(), str]]);
+
+  const refWatcherHandler = useRef<any>();
+  refWatcherHandler.current = (type: string, path: string) => {
+    // switch (type) {
+    //   case 'add':
+    //   case 'remove':
+    conn.send('mapProject');
+    // break;
+    // case 'change':
+    // if(!!filesMappings[path]) {}
+    // }
+    setForceReloadDep((i) => i + 1);
+  };
 
   const refConn = useRef<WSConn | null>(null);
   useEffect(() => {
@@ -114,6 +134,10 @@ const App: React.FC = () => {
             break;
           case 'info':
             appendToHistory(JSON.stringify(payload));
+            break;
+          case 'projectContentChange':
+            const { type, path } = payload as any;
+            refWatcherHandler.current(type, path);
             break;
           default:
           // appendToHistory('Unrecognized: ' + JSON.stringify(msg));

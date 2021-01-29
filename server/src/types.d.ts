@@ -30,3 +30,8 @@ export interface ProjectConfig {
   includeMask: string;
   excludeMask?: string | string[];
 }
+
+export interface ProjectChangeEvent {
+  type: 'add' | 'change' | 'remove';
+  path: string;
+}
