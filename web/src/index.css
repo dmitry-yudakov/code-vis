@@ -11,3 +11,11 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+.handsfree-debugger {
+  position: fixed;
+  bottom: 1em;
+  right: 1em;
+  width: 25em;
+  z-index: 100;
+}

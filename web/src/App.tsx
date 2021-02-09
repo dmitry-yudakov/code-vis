@@ -15,6 +15,11 @@ import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
 import Menu from './atoms/Menu';
 import { FilesMapping } from './components/FilesMapping';
+import { initHandsfree, disableHandsfree } from './handsfree';
+
+setTimeout(() => {
+  initHandsfree();
+}, 1000);
 
 const url = `ws://localhost:3789`;
 let conn: WSConn;
