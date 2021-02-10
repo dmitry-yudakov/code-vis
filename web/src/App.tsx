@@ -8,7 +8,7 @@ import {
   useHistory,
 } from 'react-router-dom';
 import lodash from 'lodash';
-import { WSConn } from './connection';
+import { initConnection, sendToServer } from './connection';
 import { History } from './components/History';
 import { FileIncludeInfo, FileMapDetailed } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
@@ -17,19 +17,6 @@ import Menu from './atoms/Menu';
 import { FilesMapping } from './components/FilesMapping';
 
 const url = `ws://localhost:3789`;
-let conn: WSConn;
-const sendToServer = (command: string, payload: object) => {
-  if (!conn) {
-    console.log(
-      'Cannot send',
-      command,
-      '- no connection to server. Try again in a sec'
-    );
-    setTimeout(() => sendToServer(command, payload), 500);
-    return;
-  }
-  conn.send(command, payload);
-};
 
 const ProjectDataContext = React.createContext<{
   projectMap: FileIncludeInfo[];
@@ -101,7 +88,7 @@ const App: React.FC = () => {
     // switch (type) {
     //   case 'add':
     //   case 'remove':
-    conn.send('mapProject');
+    sendToServer('mapProject');
     // break;
     // case 'change':
     // if(!!filesMappings[path]) {}
@@ -109,46 +96,43 @@ const App: React.FC = () => {
     setForceReloadDep((i) => i + 1);
   };
 
-  const refConn = useRef<WSConn | null>(null);
   useEffect(() => {
-    conn = new WSConn(
-      url,
-      (type, payload) => {
-        console.log(type, payload);
-        switch (type) {
-          case 'keywords':
-            appendToHistory('Keywords received');
-            break;
-          case 'projectMap':
-            appendToHistory('Project map received');
-            setProjectMap(payload as FileIncludeInfo[]);
-            break;
-          case 'fileMap':
-            appendToHistory('File map received');
-            console.log('fileMap', payload);
-            const mappingsObj = lodash.keyBy(payload, 'filename');
-            setFilesMappings((filesMappings) => ({
-              ...filesMappings,
-              ...mappingsObj,
-            }));
-            break;
-          case 'info':
-            appendToHistory(JSON.stringify(payload));
-            break;
-          case 'projectContentChange':
-            const { type, path } = payload as any;
-            refWatcherHandler.current(type, path);
-            break;
-          default:
-          // appendToHistory('Unrecognized: ' + JSON.stringify(msg));
-        }
-      },
-      () => {
-        console.log('opened');
-        conn.send('mapProject');
+    const onMessage = (type: string, payload: object) => {
+      console.log(type, payload);
+      switch (type) {
+        case 'keywords':
+          appendToHistory('Keywords received');
+          break;
+        case 'projectMap':
+          appendToHistory('Project map received');
+          setProjectMap(payload as FileIncludeInfo[]);
+          break;
+        case 'fileMap':
+          appendToHistory('File map received');
+          console.log('fileMap', payload);
+          const mappingsObj = lodash.keyBy(payload, 'filename');
+          setFilesMappings((filesMappings) => ({
+            ...filesMappings,
+            ...mappingsObj,
+          }));
+          break;
+        case 'info':
+          appendToHistory(JSON.stringify(payload));
+          break;
+        case 'projectContentChange':
+          const { type, path } = payload as any;
+          refWatcherHandler.current(type, path);
+          break;
+        default:
+        // appendToHistory('Unrecognized: ' + JSON.stringify(msg));
       }
-    );
-    refConn.current = conn;
+    };
+    const onOpen = () => {
+      console.log('opened');
+      sendToServer('mapProject');
+    };
+
+    initConnection({ url, onOpen, onMessage });
   }, []);
 
   return (
