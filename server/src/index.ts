@@ -23,7 +23,7 @@ loadConfiguration(projectPath)
     ) => {
       try {
         const res = await project.processCommand(type, payload);
-        sendToWebsocket(res, conn);
+        if (res) sendToWebsocket(res, conn);
       } catch (err) {
         console.log('Error handing message', type, ':', err);
       }

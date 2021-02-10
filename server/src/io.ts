@@ -22,6 +22,15 @@ export const openFile = async (filename: string, projectPath: string) => {
   return fs.readFile(fullpath).then((b) => b.toString());
 };
 
+export const saveFile = async (
+  filename: string,
+  projectPath: string,
+  content: string
+) => {
+  const fullpath = path.join(projectPath, filename);
+  return fs.writeFile(fullpath, content);
+};
+
 export const watchDirectory = (
   path: string,
   onChange: (e: ProjectChangeEvent) => void

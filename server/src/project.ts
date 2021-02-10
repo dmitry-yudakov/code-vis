@@ -1,4 +1,4 @@
-import { getProjectFiles, openFile, watchDirectory } from './io';
+import { getProjectFiles, openFile, saveFile, watchDirectory } from './io';
 import {
   FileIncludeInfo,
   FileMapping,
@@ -27,6 +27,13 @@ export default class Project {
         return this.handleCommandFileMap(
           payload.filename,
           payload.includeRelated
+        );
+      case 'saveFile':
+        return this.handleCommandSaveFile(
+          payload.filename,
+          payload.content,
+          payload.pos,
+          payload.end
         );
       default:
         throw new Error('Could not recognize command: "' + type + '"');
@@ -131,6 +138,26 @@ export default class Project {
       type: 'fileMap',
       payload,
     };
+  }
+
+  async handleCommandSaveFile(
+    filename: string,
+    content: string,
+    pos: number | undefined,
+    end: number | undefined
+  ) {
+    console.log('handle saveFile', { filename, pos, end }, content);
+    if (filename.includes('..')) throw new Error('Filename should not have ..');
+
+    let content2save = content;
+
+    if (pos !== undefined) {
+      const fileContent = await openFile(filename, this.projectPath);
+      content2save =
+        fileContent.slice(0, pos) + content + fileContent.slice(end);
+    }
+
+    await saveFile(filename, this.projectPath, content2save);
   }
 
   shouldIgnoreFile = (filePath: string) =>

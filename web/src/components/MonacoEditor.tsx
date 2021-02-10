@@ -37,12 +37,15 @@ const monacoOptions = {
 const MonacoEditorContext = React.createContext<any>(null);
 export const MonacoEditorProvider: React.FC<{
   content: string;
+  onChange?: (content: string) => void;
   onScroll?: () => void;
-}> = ({ content, children, onScroll }) => {
+}> = ({ content, children, onChange, onScroll }) => {
   const [editor, setEditor] = useState<any>(null);
 
   const ref = useRef<HTMLDivElement | null>(null);
   const container = ref.current;
+
+  const debOnChange = useDebouncedCallback(onChange || (() => {}), 200);
 
   const debOnScroll = useDebouncedCallback(onScroll || (() => {}), 200);
   const isOnScrollSet = !!onScroll;
@@ -73,7 +76,20 @@ export const MonacoEditorProvider: React.FC<{
     editor.onDidContentSizeChange(updateHeight.callback);
     updateHeight.callback();
     if (isOnScrollSet) editor.onDidScrollChange(debOnScroll.callback);
-  }, [editor, container, isOnScrollSet, debOnScroll, updateHeight]);
+
+    editor.getModel().onDidChangeContent((e: any) => {
+      const newContent = editor.getModel().getValue();
+      console.log('Content changed', e, newContent);
+      debOnChange.callback(newContent);
+    });
+  }, [
+    editor,
+    container,
+    debOnChange,
+    isOnScrollSet,
+    debOnScroll,
+    updateHeight,
+  ]);
 
   return (
     <div ref={ref}>

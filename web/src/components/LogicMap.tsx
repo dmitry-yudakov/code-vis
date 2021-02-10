@@ -207,8 +207,27 @@ const FunctionDeclarationView: React.FC<{
   innerNodes: LogicNode[];
   content: string;
   onScroll?: () => void;
-}> = ({ func, content, innerNodes, onScroll }) => {
+  onSave: (content: string) => Promise<void>;
+}> = ({ func, content: fileContent, innerNodes, onScroll, onSave }) => {
+  const content = fileContent.slice(func.pos, func.end);
   const [expand, setExpand] = useState(true);
+  const [newContent, setNewContent] = useState<string | null>(null);
+  const onContentChange = (newContent: string) => {
+    setNewContent(newContent === content ? null : newContent);
+  };
+  const isModified = newContent !== null && newContent !== content;
+
+  const _onSave = () => {
+    if (newContent === null) throw new Error('New content not set');
+
+    console.log('Save', newContent);
+    onSave(newContent)
+      .then(() => setNewContent(null))
+      .catch((err) => {
+        console.log('Error saving:', err);
+        alert('Error saving content');
+      });
+  };
 
   const handleExpandCollapse = () => {
     setExpand(!expand);
@@ -228,6 +247,12 @@ const FunctionDeclarationView: React.FC<{
       title={`${name} - ${filename}`}
       style={{ width: expand ? 500 : undefined }}
     >
+      {isModified && (
+        <div>
+          <button onClick={_onSave}>Save</button>
+          <button onClick={() => setNewContent(null)}>Clear</button>
+        </div>
+      )}
       <IconButton
         size="small"
         className="expand-collapse"
@@ -241,7 +266,8 @@ const FunctionDeclarationView: React.FC<{
           <div>
             <div className="filename">{filename}</div>
             <CodeViewProvider
-              content={content.slice(func.pos, func.end)}
+              content={newContent || content}
+              onChange={onContentChange}
               onScroll={onScroll}
             >
               {renderChildren(content, innerNodes, func)}
@@ -259,11 +285,18 @@ export const LogicMap: React.FC<{
   filename: string;
   projectMap: FileIncludeInfo[];
   onRequestRelatedFile: (filename: string) => FileMapDetailed | null;
+  onSave: (
+    filename: string,
+    content: string,
+    pos: number,
+    end: number
+  ) => Promise<void>;
   onClose: () => void;
 }> = ({
   filename: startFilename,
   projectMap,
   onRequestRelatedFile,
+  onSave,
   onClose,
 }) => {
   const relatedFiles = findRelatedFiles(startFilename, projectMap);
@@ -313,6 +346,11 @@ export const LogicMap: React.FC<{
           0 //refreshTicker
         );
 
+        const _onSave = (newContent: string) => {
+          const { filename, pos, end } = func;
+          return onSave(filename, newContent, pos, end);
+        };
+
         return [
           {
             id: funcDeclSlug(func),
@@ -322,6 +360,7 @@ export const LogicMap: React.FC<{
                   func={func}
                   content={content}
                   innerNodes={node.children}
+                  onSave={_onSave}
                   // onScroll={() => setRefresh((i) => i + 1)}
                 >
                   {content.slice(func.pos, func.end)}
