@@ -63,6 +63,9 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
       projectMap={projectMap}
       onClose={() => router.push('/')}
       onRequestRelatedFile={(fn) => filesMappings[fn] || null}
+      onSave={async (filename, content) =>
+        sendToServer('saveFile', { filename, content })
+      }
     />
   );
 };

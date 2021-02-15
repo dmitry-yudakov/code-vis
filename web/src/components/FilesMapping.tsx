@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -170,9 +170,29 @@ const SimpleCode: React.FC<{ code: string }> = ({ code }) => {
 const FileView: React.FC<{
   fileDetails: FileMapDetailed;
   filename: string;
+  onSave: (content: string) => Promise<void>;
   ref?: React.Ref<any>;
-}> = ({ fileDetails, filename, ref }) => {
+}> = ({ fileDetails, filename, onSave, ref }) => {
   const { content, mapping } = fileDetails;
+
+  const [newContent, setNewContent] = useState<null | string>(null);
+  const onChangeContent = (val: string) => {
+    setNewContent(val !== content ? val : null);
+  };
+  const isModified = !!newContent && newContent !== content;
+
+  const _onSave = () => {
+    if (newContent === null) throw new Error('New content not set');
+
+    console.log('Save', newContent);
+    onSave(newContent)
+      .then(() => setNewContent(null))
+      .catch((err) => {
+        console.log('Error saving:', err);
+        alert('Error saving content');
+      });
+  };
+
   const { functionDeclarations, functionCalls } = dropIrrelevantFunctionCalls(
     mapping
   );
@@ -189,8 +209,19 @@ const FileView: React.FC<{
     <div className="file-view" ref={ref}>
       <div className="file-view-heading">
         <FilenamePrettyView filename={filename} />
+        {isModified && (
+          <div>
+            <button onClick={_onSave}>Save</button>
+            <button onClick={() => setNewContent(null)}>Clear</button>
+          </div>
+        )}
       </div>
-      <CodeViewProvider content={content}>{fileContent}</CodeViewProvider>
+      <CodeViewProvider
+        content={newContent || content}
+        onChange={onChangeContent}
+      >
+        {fileContent}
+      </CodeViewProvider>
     </div>
   );
 };
@@ -276,9 +307,18 @@ export const FilesMapping: React.FC<{
   filename: string;
   projectMap: FileIncludeInfo[];
   onRequestRelatedFile: (filename: string) => FileMapDetailed | null;
+  onSave: (filename: string, content: string) => Promise<void>;
   onClose: () => void;
-}> = ({ data, filename, projectMap, onRequestRelatedFile, onClose }) => {
+}> = ({
+  data,
+  filename,
+  projectMap,
+  onRequestRelatedFile,
+  onSave,
+  onClose,
+}) => {
   const ref_onRequestRelatedFile = useRef(onRequestRelatedFile);
+  const ref_onSave = useRef(onSave);
 
   const elements = useMemo(() => {
     const includes = projectMap
@@ -315,7 +355,13 @@ export const FilesMapping: React.FC<{
       {
         id: filename,
         data: {
-          label: <FileView fileDetails={data} filename={filename} />,
+          label: (
+            <FileView
+              fileDetails={data}
+              filename={filename}
+              onSave={(content) => ref_onSave.current(filename, content)}
+            />
+          ),
         },
         style: {
           // width: 500,
@@ -332,7 +378,12 @@ export const FilesMapping: React.FC<{
         const id = fn;
         const fMapping = referencesMappings[fn];
         const el = fMapping ? (
-          <FileView key={id} fileDetails={fMapping} filename={fn} />
+          <FileView
+            key={id}
+            fileDetails={fMapping}
+            filename={fn}
+            onSave={(content) => ref_onSave.current(fn, content)}
+          />
         ) : (
           <HiddenRelatedFile key={id} filename={fn} />
         );
@@ -355,7 +406,12 @@ export const FilesMapping: React.FC<{
         const id = fn;
         const fMapping = includesMappings[fn];
         const el = fMapping ? (
-          <FileView key={id} fileDetails={fMapping} filename={fn} />
+          <FileView
+            key={id}
+            fileDetails={fMapping}
+            filename={fn}
+            onSave={(content) => ref_onSave.current(fn, content)}
+          />
         ) : (
           <HiddenRelatedFile key={id} filename={fn} />
         );

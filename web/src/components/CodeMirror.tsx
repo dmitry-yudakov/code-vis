@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { FunctionCallInfo, FunctionDeclarationInfo } from '../types';
-import { UnControlled as CodeMirror } from 'react-codemirror2';
+import { Controlled as CodeMirror } from 'react-codemirror2';
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/theme/material.css';
 import 'codemirror/mode/xml/xml';
@@ -8,20 +8,23 @@ import 'codemirror/mode/javascript/javascript';
 import './CodeMirror.css';
 
 const CodeMirrorContext = React.createContext<any>(null);
-export const CodeMirrorProvider: React.FC<{ content: string }> = ({
-  content,
-  children,
-}) => {
+export const CodeMirrorProvider: React.FC<{
+  content: string;
+  onChange?: (content: string) => void;
+}> = ({ content, onChange, children }) => {
   const [inst, setInst] = useState(null);
   return (
     <>
       <CodeMirror
         editorDidMount={(editor) => setInst(editor)}
         value={content}
+        onChange={(editor, data, value) => console.log('onChange done', value)}
+        onBeforeChange={(editor, data, value) => onChange?.(value)}
         options={{
           mode: 'javascript',
           lineNumbers: true,
           lineWrapping: true,
+          readOnly: !onChange,
         }}
         // onChange={(editor, data, value) => {
         // }}
