@@ -51,7 +51,7 @@ export const useFuncCall = (func: FunctionCallInfo) => {
     });
 
     // handle
-    cm.addWidget(cm.posFromIndex(end), el);
+    // cm.addWidget(cm.posFromIndex(end), el);
   }, [cm, el, pos, end]);
 
   return ref;
@@ -75,7 +75,7 @@ export const useFuncDecl = (func: FunctionDeclarationInfo) => {
     });
 
     // handle
-    cm.addWidget(cm.posFromIndex(pos), el);
+    // cm.addWidget(cm.posFromIndex(pos), el);
   }, [cm, el, pos, end]);
   return ref;
 };
