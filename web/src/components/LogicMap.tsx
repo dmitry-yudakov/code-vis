@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IconButton } from '@material-ui/core';
+import { Button, ButtonGroup, IconButton } from '@material-ui/core';
 import { ExpandLess, ExpandMore } from '@material-ui/icons';
 import Grow from '@material-ui/core/Grow';
 import {
@@ -17,7 +17,7 @@ import {
   funcDeclSlug,
   funcDeclSlugFromPieces,
 } from '../utils';
-import { CloseButton } from '../atoms';
+import { CloseButton, StandoutBar } from '../atoms';
 import ReactFlow, {
   Edge as ReactFlowEdge,
   Controls,
@@ -248,10 +248,14 @@ const FunctionDeclarationView: React.FC<{
       style={{ width: expand ? 500 : undefined }}
     >
       {isModified && (
-        <div>
-          <button onClick={_onSave}>Save</button>
-          <button onClick={() => setNewContent(null)}>Clear</button>
-        </div>
+        <StandoutBar>
+          <ButtonGroup>
+            <Button variant="contained" color="primary" onClick={_onSave}>
+              Save
+            </Button>
+            <Button onClick={() => setNewContent(null)}>Discard</Button>
+          </ButtonGroup>
+        </StandoutBar>
       )}
       <IconButton
         size="small"

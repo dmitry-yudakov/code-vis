@@ -12,7 +12,7 @@ import {
   funcDeclSlug,
   funcDeclSlugFromPieces,
 } from '../utils';
-import { CloseButton, FilenamePrettyView } from '../atoms';
+import { CloseButton, FilenamePrettyView, StandoutBar } from '../atoms';
 import ReactFlow, {
   // ArrowHeadType,
   // Background,
@@ -31,6 +31,7 @@ import {
   useFuncCall,
   useFuncDecl,
 } from './CodeMirror';
+import { ButtonGroup, Button } from '@material-ui/core';
 
 export enum LogicNodeType {
   file,
@@ -210,10 +211,14 @@ const FileView: React.FC<{
       <div className="file-view-heading">
         <FilenamePrettyView filename={filename} />
         {isModified && (
-          <div>
-            <button onClick={_onSave}>Save</button>
-            <button onClick={() => setNewContent(null)}>Clear</button>
-          </div>
+          <StandoutBar>
+            <ButtonGroup>
+              <Button variant="contained" color="primary" onClick={_onSave}>
+                Save
+              </Button>
+              <Button onClick={() => setNewContent(null)}>Discard</Button>
+            </ButtonGroup>
+          </StandoutBar>
         )}
       </div>
       <CodeViewProvider
