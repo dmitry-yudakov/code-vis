@@ -210,7 +210,7 @@ const FunctionDeclarationView: React.FC<{
   onSave: (content: string) => Promise<void>;
 }> = ({ func, content: fileContent, innerNodes, onScroll, onSave }) => {
   const content = fileContent.slice(func.pos, func.end);
-  const [expand, setExpand] = useState(true);
+  const [expand, setExpand] = useState(false);
   const [newContent, setNewContent] = useState<string | null>(null);
   const onContentChange = (newContent: string) => {
     setNewContent(newContent === content ? null : newContent);
