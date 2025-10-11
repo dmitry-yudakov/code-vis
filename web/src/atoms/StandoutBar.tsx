@@ -5,7 +5,7 @@ export const StandoutBar: React.FC = ({ children }) => {
     <div
       style={{
         position: 'absolute',
-        bottom: '105%',
+        bottom: '100%',
         width: '100%',
         textAlign: 'center',
       }}

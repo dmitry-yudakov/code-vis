@@ -237,7 +237,7 @@ const FunctionDeclarationView: React.FC<{
   const { name, args, filename } = func;
   const shortView = (
     <span className="func-decl-title">
-      func <strong>{name}</strong> ({args.join(', ')}) - {filename}
+      <strong>{name}</strong> ({args.join(', ')}) - {filename}
     </span>
   );
 
@@ -247,6 +247,7 @@ const FunctionDeclarationView: React.FC<{
       title={`${name} - ${filename}`}
       style={{ width: expand ? 500 : undefined }}
     >
+      <img src="/func-32.png" alt="func" className="func-icon"/>
       {isModified && (
         <StandoutBar>
           <ButtonGroup>

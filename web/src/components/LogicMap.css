@@ -8,6 +8,9 @@
   background: rgba(245, 249, 249, 0.48);
   padding: 0;
 }
+.logic-map-main .react-flow__node.selected {
+  background: rgba(245, 249, 249);
+}
 .logic-map-main .react-flow__handle {
   background: rgba(0, 0, 0, 0.5);
   border: none;
@@ -70,6 +73,10 @@
 .logic-map-main .func-decl.expanded {
   max-width: 500px;
   z-index: 3;
+}
+.logic-map-main .func-decl .func-icon {
+  height: 1em;
+  width: 1em;
 }
 
 /* .logic-map-main .func-decl:not(.expanded) .monaco-editor { */

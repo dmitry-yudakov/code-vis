@@ -47,6 +47,9 @@
   padding: 0;
   border: none;
 }
+.files-mapping-main .react-flow__node-default.selected {
+  background: rgba(245, 249, 249);
+}
 .files-mapping-main .react-flow__node-default:hover {
   box-shadow: 0 1px 5px 2px rgba(0, 0, 0, 0.18);
 }
