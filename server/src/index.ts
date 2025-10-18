@@ -29,7 +29,21 @@ loadConfiguration(projectPath)
       }
     };
 
-    startServer(3789, onCommand);
+    const onRequest = async (
+      conn: any,
+      type: string,
+      payload: string | undefined
+    ) => {
+      try {
+        const res = await project.processCommand(type, payload);
+        return res; // Return the result directly for request-response pattern
+      } catch (err) {
+        console.log('Error handling request', type, ':', err);
+        throw err; // Re-throw to be handled by the request handler
+      }
+    };
+
+    startServer(3789, onCommand, onRequest);
 
     project.watch((e) =>
       sendToWebsocket({ type: 'projectContentChange', payload: e })
