@@ -375,10 +375,8 @@ const extractFileMapping = (
       tryAutoResolveProjectModule(info.from, projectFilenames) || info.from;
   });
 
-  const functionDeclarations: FunctionDeclarationInfo[] = extractFunctionDeclarations(
-    filename,
-    sourceFile
-  );
+  const functionDeclarations: FunctionDeclarationInfo[] =
+    extractFunctionDeclarations(filename, sourceFile);
 
   const functionCalls: FunctionCallInfo[] = extractFunctionCalls(
     filename,
