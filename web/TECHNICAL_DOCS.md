@@ -82,7 +82,7 @@ ProjectDataContext = {
 - Fallback to polling if WebSocket unavailable
 - Event listener for all custom events
 - Error handling and logging
-- Debug logging with 🟢 CLIENT markers
+- Debug logging with CLIENT markers
 
 #### Project API (`index.ts`)
 

@@ -38,9 +38,9 @@ export const projectApi = {
    * Get project map (file hierarchy)
    */
   async getProjectMap() {
-    console.log('🟢 CLIENT: projectApi.getProjectMap() called');
+    console.log('CLIENT: projectApi.getProjectMap() called');
     const result = await getConnection().request<any[]>('mapProject');
-    console.log('🟢 CLIENT: projectApi.getProjectMap() received', {
+    console.log('CLIENT: projectApi.getProjectMap() received', {
       resultType: typeof result,
       isArray: Array.isArray(result),
       length: result ? result.length : 'null/undefined',
@@ -52,7 +52,7 @@ export const projectApi = {
    * Get detailed file mapping
    */
   async getFileMap(filename: string, includeRelated = false) {
-    console.log('🟢 CLIENT: projectApi.getFileMap() called', {
+    console.log('CLIENT: projectApi.getFileMap() called', {
       filename,
       includeRelated,
     });
@@ -60,7 +60,7 @@ export const projectApi = {
       filename,
       includeRelated,
     });
-    console.log('🟢 CLIENT: projectApi.getFileMap() received', {
+    console.log('CLIENT: projectApi.getFileMap() received', {
       resultType: typeof result,
       isArray: Array.isArray(result),
       length: result ? result.length : 'null/undefined',
@@ -89,9 +89,9 @@ export const projectApi = {
    * Subscribe to project content changes
    */
   onProjectChange(handler: (event: any) => void) {
-    console.log('🟢 CLIENT: projectApi.onProjectChange() subscribed');
+    console.log('CLIENT: projectApi.onProjectChange() subscribed');
     return getConnection().on('projectContentChange', (event) => {
-      console.log('🟢 CLIENT: projectContentChange event received', event);
+      console.log('CLIENT: projectContentChange event received', event);
       handler(event);
     });
   },
@@ -100,9 +100,9 @@ export const projectApi = {
    * Subscribe to project map updates
    */
   onProjectMap(handler: (data: any) => void) {
-    console.log('🟢 CLIENT: projectApi.onProjectMap() subscribed');
+    console.log('CLIENT: projectApi.onProjectMap() subscribed');
     return getConnection().on('projectMap', (data) => {
-      console.log('🟢 CLIENT: projectMap event received', {
+      console.log('CLIENT: projectMap event received', {
         dataType: typeof data,
         isArray: Array.isArray(data),
         length: data ? data.length : 'null/undefined',
@@ -115,9 +115,9 @@ export const projectApi = {
    * Subscribe to file map updates
    */
   onFileMap(handler: (data: any) => void) {
-    console.log('🟢 CLIENT: projectApi.onFileMap() subscribed');
+    console.log('CLIENT: projectApi.onFileMap() subscribed');
     return getConnection().on('fileMap', (data) => {
-      console.log('🟢 CLIENT: fileMap event received', {
+      console.log('CLIENT: fileMap event received', {
         dataType: typeof data,
         isArray: Array.isArray(data),
         length: data ? data.length : 'null/undefined',

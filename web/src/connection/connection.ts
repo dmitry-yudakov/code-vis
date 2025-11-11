@@ -64,7 +64,7 @@ export class SocketConnection {
     data?: any,
     timeoutMs = 30000
   ): Promise<T> {
-    console.log('🟢 CLIENT: request() called', { event, data });
+    console.log('CLIENT: request() called', { event, data });
     return new Promise((resolve, reject) => {
       if (!this.isConnected()) {
         console.error('❌ CLIENT: request() failed - not connected');
@@ -79,24 +79,29 @@ export class SocketConnection {
 
       this.socket.emit(event, data, (response: any) => {
         clearTimeout(timeout);
-        console.log('🟢 CLIENT: request() response received', { 
-          event, 
+        console.log('CLIENT: request() response received', {
+          event,
           responseType: typeof response,
           hasSuccess: response?.hasOwnProperty('success'),
           success: response?.success,
           hasData: response?.hasOwnProperty('data'),
-          dataType: response?.data ? typeof response.data : 'undefined'
+          dataType: response?.data ? typeof response.data : 'undefined',
         });
 
         if (response?.success === false) {
-          console.error('❌ CLIENT: request() failed', { event, error: response.error });
+          console.error('❌ CLIENT: request() failed', {
+            event,
+            error: response.error,
+          });
           reject(new Error(response.error || 'Request failed'));
         } else if (response?.success === true) {
-          console.log('🟢 CLIENT: request() success, resolving with data');
+          console.log('CLIENT: request() success, resolving with data');
           resolve(response.data as T);
         } else {
           // Handle non-standard responses
-          console.warn('⚠️ CLIENT: request() non-standard response, resolving as-is');
+          console.warn(
+            '⚠️ CLIENT: request() non-standard response, resolving as-is'
+          );
           resolve(response as T);
         }
       });

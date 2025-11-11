@@ -51,17 +51,17 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
     // Check if we already have the data in context
     const cachedData = filesMappings[filename];
     if (cachedData) {
-      console.log('🟢 FileScreen: Using cached data for', filename);
+      console.log('FileScreen: Using cached data for', filename);
       setLocalFileData(cachedData);
       return;
     }
 
     // Otherwise, fetch it
-    console.log('🟢 FileScreen: Fetching file map for', filename);
+    console.log('FileScreen: Fetching file map for', filename);
     projectApi
       .getFileMap(filename, true)
       .then((data) => {
-        console.log('🟢 FileScreen: Received file map data', {
+        console.log('FileScreen: Received file map data', {
           dataType: typeof data,
           isArray: Array.isArray(data),
           length: data ? data.length : 0,
@@ -82,7 +82,7 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
             }
           });
           console.log(
-            '🟢 FileScreen: Stored related files',
+            'FileScreen: Stored related files',
             Object.keys(allFilesMap)
           );
           setRelatedFiles(allFilesMap);
@@ -98,7 +98,7 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   const getRelatedFile = useCallback(
     (fn: string) => {
       const result = relatedFiles[fn] || filesMappings[fn] || null;
-      console.log('🟢 getRelatedFile called', {
+      console.log('getRelatedFile called', {
         requestedFile: fn,
         foundInRelated: !!relatedFiles[fn],
         foundInContext: !!filesMappings[fn],
@@ -177,22 +177,22 @@ const App: React.FC = () => {
 
     // Handle connection events
     conn.on('connect', async () => {
-      console.log('🟢 APP: Connected to server');
+      console.log('APP: Connected to server');
       setConnectionStatus('connected');
       appendToHistory('Connected to server');
 
       // Load initial project map
       try {
-        console.log('🟢 APP: Requesting initial project map...');
+        console.log('APP: Requesting initial project map...');
         const map = await projectApi.getProjectMap();
-        console.log('🟢 APP: Received project map', {
+        console.log('APP: Received project map', {
           mapType: typeof map,
           isArray: Array.isArray(map),
           length: map ? map.length : 'null/undefined',
           firstItem: map && map[0] ? Object.keys(map[0]) : 'none',
         });
         setProjectMap(map);
-        console.log('🟢 APP: setProjectMap called with', {
+        console.log('APP: setProjectMap called with', {
           length: map ? map.length : 0,
         });
         appendToHistory('Project map loaded');
@@ -232,19 +232,19 @@ const App: React.FC = () => {
 
     // Subscribe to project map updates
     const unsubscribeProjectMap = projectApi.onProjectMap((data) => {
-      console.log('🟢 APP: onProjectMap handler called', {
+      console.log('APP: onProjectMap handler called', {
         dataType: typeof data,
         isArray: Array.isArray(data),
         length: data ? data.length : 'null/undefined',
       });
       appendToHistory('Project map updated');
       setProjectMap(data);
-      console.log('🟢 APP: setProjectMap called from onProjectMap');
+      console.log('APP: setProjectMap called from onProjectMap');
     });
 
     // Subscribe to file map updates
     const unsubscribeFileMap = projectApi.onFileMap((data) => {
-      console.log('🟢 APP: onFileMap handler called', {
+      console.log('APP: onFileMap handler called', {
         dataType: typeof data,
         isArray: Array.isArray(data),
         length: data ? data.length : 'null/undefined',

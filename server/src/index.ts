@@ -20,9 +20,9 @@ loadConfiguration(projectPath)
     const handlers = {
       // Map project - returns full project hierarchy
       mapProject: async (socket: any, payload: any, ack?: any) => {
-        console.log('🔵 SERVER: mapProject handler called', { hasAck: !!ack });
+        console.log('mapProject handler called', { hasAck: !!ack });
         const result = await project.processCommand('mapProject', payload);
-        console.log('🔵 SERVER: mapProject result', {
+        console.log('mapProject result', {
           hasResult: !!result,
           hasPayload: !!(result && result.payload),
           payloadType:
@@ -33,13 +33,13 @@ loadConfiguration(projectPath)
         if (result && result.payload) {
           if (ack) {
             // Send via acknowledgment if callback provided
-            console.log('🔵 SERVER: Sending mapProject via acknowledgment', {
+            console.log('Sending mapProject via acknowledgment', {
               dataLength: result.payload.length,
             });
             ack({ success: true, data: result.payload });
           } else {
             // Send as event if no callback
-            console.log('🔵 SERVER: Sending mapProject via event', {
+            console.log('Sending mapProject via event', {
               dataLength: result.payload.length,
             });
             socket.emit('projectMap', result.payload);
@@ -53,12 +53,12 @@ loadConfiguration(projectPath)
 
       // Map file - returns detailed file analysis
       mapFile: async (socket: any, payload: any, ack?: any) => {
-        console.log('🔵 SERVER: mapFile handler called', {
+        console.log('mapFile handler called', {
           payload,
           hasAck: !!ack,
         });
         const result = await project.processCommand('mapFile', payload);
-        console.log('🔵 SERVER: mapFile result', {
+        console.log('mapFile result', {
           hasResult: !!result,
           hasPayload: !!(result && result.payload),
           payloadLength: result && result.payload ? result.payload.length : 0,
@@ -66,10 +66,10 @@ loadConfiguration(projectPath)
 
         if (result && result.payload) {
           if (ack) {
-            console.log('🔵 SERVER: Sending mapFile via acknowledgment');
+            console.log('Sending mapFile via acknowledgment');
             ack({ success: true, data: result.payload });
           } else {
-            console.log('🔵 SERVER: Sending mapFile via event');
+            console.log('Sending mapFile via event');
             socket.emit('fileMap', result.payload);
           }
         }
@@ -88,14 +88,11 @@ loadConfiguration(projectPath)
     };
 
     startServer(3789, handlers);
-    console.log(
-      '🔵 SERVER: Server started, handlers registered:',
-      Object.keys(handlers)
-    );
+    console.log('Server started, handlers registered:', Object.keys(handlers));
 
     // Watch for file changes and broadcast to all clients
     project.watch((e) => {
-      console.log('🔵 SERVER: Broadcasting projectContentChange', e);
+      console.log('Broadcasting projectContentChange', e);
       broadcast('projectContentChange', e);
     });
 
