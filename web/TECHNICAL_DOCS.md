@@ -17,11 +17,12 @@ The web component is a React-based single-page application (SPA) that provides a
 
 #### 2. Main Application (`src/App.tsx`)
 - **Purpose**: Root component with routing and state management
-- **State Management**: React hooks (useState, useEffect, useContext)
+- **State Management**: React hooks (useState, useEffect, useCallback)
 - **Key State**:
   - `projectMap: FileIncludeInfo[]` - Project-wide import/export relationships
   - `filesMappings: Record<string, FileMapDetailed>` - Cached file analysis results
-  - `forceReloadDep: number` - Trigger for refreshing data
+  - `forceReloadDep: number` - Trigger for refreshing data on file changes
+  - `connectionStatus: 'connecting'|'connected'|'disconnected'` - WebSocket status
   - `history: any[][]` - Event log for debugging
 
 **Routing Structure**:
@@ -38,76 +39,80 @@ ProjectDataContext = {
 }
 ```
 
-**Message Handlers**:
-- `keywords` - Reserved for future use
-- `projectMap` - Updates project hierarchy
-- `fileMap` - Updates file mappings cache (merged, not replaced)
-- `info` - Generic info messages
-- `projectContentChange` - File system change events
+**Connection Initialization**:
+- On mount: `initConnection()` creates Socket.IO connection
+- Subscribes to: `connect`, `disconnect`, `error` events
+- On connect: Loads initial project map via `projectApi.getProjectMap()`
+- Subscribes to: `projectChange`, `projectMap`, `fileMap` events
+- Cleanup: Unsubscribes and disconnects on unmount
 
-**Auto-reload Behavior**:
-- File changes trigger `mapProject` command
-- Increments `forceReloadToken` to force component refresh
-- Invalidates cached file mappings
+**FileScreen Sub-Component**:
+- Local state for current file data and related files
+- `useEffect` fetches file map when filename changes
+- `useCallback` for memoized `getRelatedFile()` function
+- Returns related files from local state or context cache
+- Component key forces re-render when related files count changes
 
 ### Connection Layer (`src/connection/`)
 
 #### Socket.IO Connection (`connection.ts`)
 
-**Class**: `SocketConn`
-- **Purpose**: WebSocket abstraction with Socket.IO
+**Class**: `SocketConnection`
+- **Purpose**: WebSocket abstraction layer over Socket.IO
 - **URL Format**: `ws://localhost:3789`
 
 **Key Methods**:
-- `send(command, payload?)` - Fire-and-forget event
-- `request(command, payload?)` - Request-response with Promise
-- `connect()` - Establish Socket.IO connection
-- `disconnect()` - Close connection
-- `isConnected()` - Check connection state
+- `request<T>(event: string, data?: any): Promise<T>` - Send request with acknowledgment callback
+  - Returns Promise that resolves to server response
+  - Used for request-response patterns (mapProject, mapFile, saveFile)
+  
+- `emit(event: string, data?: any): void` - Fire-and-forget event sending
+  - No response expected
+  - Used for one-way notifications
+
+- `on(event: string, handler: (data: any) => void): () => void` - Subscribe to server events
+  - Returns unsubscribe function
+  - Used for broadcast events (projectContentChange, projectMap, fileMap)
+
+- `disconnect(): void` - Close Socket.IO connection
+- `isConnected(): boolean` - Check connection state
 
 **Connection Features**:
 - Auto-reconnection on disconnect
 - Fallback to polling if WebSocket unavailable
 - Event listener for all custom events
 - Error handling and logging
+- Debug logging with 🟢 CLIENT markers
 
-**Legacy**: `WSConn` class extends `SocketConn` for backward compatibility
+#### Project API (`index.ts`)
 
-#### API Helpers (`api.ts`)
+**Purpose**: High-level typed API for project operations wrapping SocketConnection
 
-**Purpose**: HTTP-like REST API pattern over Socket.IO
-
-**Main Function**:
+**API Methods**:
 ```typescript
-apiRequest<T>(command: string, payload?: any, options?: RequestOptions): Promise<T>
+projectApi = {
+  getProjectMap(): Promise<FileIncludeInfo[]>
+  getFileMap(filename: string, includeRelated: boolean): Promise<FileMapDetailed[]>
+  saveFile(filename: string, content: string, pos?: number, end?: number): Promise<any>
+  onProjectChange(handler): () => void
+  onProjectMap(handler): () => void
+  onFileMap(handler): () => void
+}
 ```
 
-**Options**:
-- `timeout?: number` - Request timeout in milliseconds (default: 30000)
-- `retries?: number` - Retry attempts on failure (default: 0)
-- Exponential backoff between retries
+**Request Methods** (use acknowledgment):
+- `getProjectMap()` - Fetch complete project hierarchy
+- `getFileMap(filename, includeRelated)` - Fetch file analysis and related files
+- `saveFile(...)` - Save file content to disk
 
-**HTTP-Style Methods**:
-- `api.get(endpoint, params?, options?)` - Sends `get_{endpoint}` command
-- `api.post(endpoint, data?, options?)` - Sends `post_{endpoint}` command
-- `api.put(endpoint, data?, options?)` - Sends `put_{endpoint}` command
-- `api.delete(endpoint, params?, options?)` - Sends `delete_{endpoint}` command
+**Event Subscriptions** (listen for broadcasts):
+- `onProjectChange(handler)` - Listen for file system changes
+- `onProjectMap(handler)` - Listen for project map updates
+- `onFileMap(handler)` - Listen for file map broadcasts
 
-**Example Usage**:
-```typescript
-// With timeout and retries
-const data = await apiRequest('mapFile', { filename: 'App.tsx' }, {
-  timeout: 5000,
-  retries: 2
-});
-
-// HTTP-like style
-const project = await api.get('project');
-```
-
-#### Connection Index (`connection/index.ts`)
-- Exports unified interface for connection management
-- Provides `initConnection()`, `sendToServer()`, `requestFromServer()` functions
+**Legacy Compatibility**:
+- `sendToServer(command, payload)` - Fire-and-forget event
+- `requestFromServer(command, payload)` - Promise-based request
 
 ### Visualization Components
 
@@ -318,65 +323,102 @@ interface PositionedNode extends Node {
 
 ### Initialization Flow
 1. App mounts → `useEffect` in App.tsx
-2. `initConnection()` establishes Socket.IO connection
-3. On connection: Send `mapProject` command
-4. Server responds with `projectMap` message
-5. State updated → IncludesHierarchy renders
+2. `initConnection(url)` creates Socket.IO connection to server
+3. On 'connect' event:
+   - `projectApi.getProjectMap()` sends 'mapProject' request with acknowledgment
+   - Server responds via callback with `FileIncludeInfo[]`
+   - `setProjectMap()` updates state
+4. Subscribe to broadcast events:
+   - `onProjectChange()` - Listen for file system changes
+   - `onProjectMap()` - Listen for project map updates
+   - `onFileMap()` - Listen for file map data
+5. IncludesHierarchy renders with project structure
 
 ### File Navigation Flow
 1. User clicks file in graph → Router navigates to `/f/{filename}`
-2. `FileScreen` component mounts
-3. `useEffect` sends `mapFile` command with `includeRelated: true`
-4. Server responds with `fileMap` containing:
-   - Target file analysis
-   - All imported files analysis
-   - All importing files analysis
-5. Data cached in `filesMappings` state
-6. FilesMapping/LogicMap component renders
+2. `FileScreen` component mounts with `filename` prop
+3. `useEffect` in FileScreen:
+   - Checks if `filesMappings[filename]` exists in cache
+   - If cached: Use cached data
+   - If not cached: Call `projectApi.getFileMap(filename, true)`
+4. `getFileMap()` sends 'mapFile' request with acknowledgment
+5. Server responds via callback with `FileMapDetailed[]` (file + related files)
+6. `setLocalFileData()` and `setRelatedFiles()` update local state
+7. FilesMapping/LogicMap component renders with:
+   - File content and analysis
+   - Related files fetched (imported and importing files)
+8. Component key changes when related files load → Forces re-render
 
 ### File Editing Flow
 1. User edits code in CodeMirror/Monaco
 2. Clicks save button
 3. Component calls `onSave(filename, content, pos?, end?)`
-4. Sends `saveFile` command to server
+4. `projectApi.saveFile(filename, content, pos, end)` sends 'saveFile' request
 5. Server writes file to disk
-6. File watcher triggers → Server sends `projectContentChange`
-7. Client receives event → Reloads project map
-8. UI updates with new data
+6. Server file watcher detects change
+7. Server broadcasts 'projectContentChange' event to all clients
+8. Client receives event via `onProjectChange()`:
+   - Calls `projectApi.getProjectMap()` to reload
+   - Increments `forceReloadToken` to trigger component refresh
+9. UI updates with new data
 
 ### Change Detection Flow
-1. File changes on disk (external edit)
+1. File changes on disk (external edit or save)
 2. Server chokidar watcher detects change
-3. Server broadcasts `projectContentChange` event
-4. Client increments `forceReloadToken`
-5. Components with `useEffect` depending on token re-fetch data
-6. UI updates automatically
+3. Server calls `broadcast('projectContentChange', event)`
+4. All connected clients receive 'projectContentChange' event
+5. Client's `onProjectChange()` handler triggered
+6. Client reloads project map and increments `forceReloadToken`
+7. Components with `useEffect` depending on token re-fetch data
+8. UI updates automatically to reflect changes
 
 ## Communication Protocol
 
 ### Client → Server
 
-**Send Command (event)**:
-```javascript
-sendToServer('mapProject');
-sendToServer('mapFile', { filename: 'src/App.tsx', includeRelated: true });
-sendToServer('saveFile', { filename: 'src/App.tsx', content: '...' });
+**Request with Response** (acknowledgment-based):
+```typescript
+// Get project map
+const map = await projectApi.getProjectMap();
+
+// Get file analysis with related files
+const files = await projectApi.getFileMap('src/App.tsx', true);
+
+// Save file
+await projectApi.saveFile('src/App.tsx', content, startPos, endPos);
 ```
 
-**Request (with response)**:
+**Under the hood**:
 ```javascript
-const result = await requestFromServer('mapFile', { filename: 'src/App.tsx' });
+socket.emit('mapProject', payload, (response) => {
+  // response: { success: true, data: [...] }
+})
 ```
 
 ### Server → Client
 
-**Message Event**:
-```javascript
-{
-  type: 'projectMap' | 'fileMap' | 'projectContentChange' | 'info',
-  payload: any
-}
+**Subscribe to Events** (broadcast):
+```typescript
+projectApi.onProjectChange(({ type, path }) => {
+  // Handle file system change
+  console.log(`File ${type}: ${path}`);
+});
+
+projectApi.onProjectMap((data) => {
+  // Handle project map update
+  setProjectMap(data);
+});
+
+projectApi.onFileMap((data) => {
+  // Handle file map broadcast
+  updateFilesMappings(data);
+});
 ```
+
+**Event Types**:
+- `projectContentChange` - `{ type: 'add'|'change'|'remove', path: string }`
+- `projectMap` - `FileIncludeInfo[]` - Full project hierarchy
+- `fileMap` - `FileMapDetailed[]` - File analysis results
 
 ## Component Hierarchy
 

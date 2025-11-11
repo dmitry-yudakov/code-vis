@@ -16,7 +16,19 @@ The server component is a Node.js/TypeScript application that analyzes JavaScrip
   - Initialize Project instance
   - Start Socket.IO WebSocket server on port 3789
   - Set up file watching for project changes
-  - Handle command routing between clients and Project instance
+  - Register native event handlers (mapProject, mapFile, saveFile)
+  - Broadcast project content changes to all clients
+
+**Handler Registration**:
+```typescript
+const handlers = {
+  mapProject: async (socket, payload, ack) => { ... },
+  mapFile: async (socket, payload, ack) => { ... },
+  saveFile: async (socket, payload, ack) => { ... },
+};
+startServer(3789, handlers);
+```
+Each handler receives the socket, payload, and optional acknowledgment callback.
 
 #### 2. Project Manager (`src/project.ts`)
 - **Purpose**: Core project analysis and management
@@ -57,24 +69,29 @@ The server component is a Node.js/TypeScript application that analyzes JavaScrip
 
 **Communication Patterns**:
 
-1. **Event-based (fire-and-forget)**:
-   ```typescript
-   socket.on('command', { type: string, payload?: any })
-   ```
-   - Client sends command, no response expected
-   - Server may send unsolicited 'message' events
+Uses native Socket.IO named events instead of generic wrappers:
 
-2. **Request-response (with callback)**:
+1. **Request-response events (with acknowledgment)**:
    ```typescript
-   socket.on('request', { type: string, payload?: any }, callback)
+   socket.on('mapProject', async (payload, ack) => {
+     const result = await handler(socket, payload);
+     ack({ success: true, data: result });
+   })
    ```
-   - Client sends request and waits for callback
-   - Callback receives: `{ success: boolean, data?: any, error?: string }`
+   - Client sends named event and expects callback acknowledgment
+   - Callback (ack) receives response with data or error
+
+2. **Server → Client broadcast events**:
+   ```typescript
+   io.emit('projectContentChange', data)
+   ```
+   - Server broadcasts events to all connected clients
+   - Events like `projectMap`, `fileMap`, `projectContentChange`
 
 **API Functions**:
-- `startServer(port, onCommand, onRequest?)` - Initialize server with handlers
-- `sendToWebsocket(data, connection?)` - Send message to client(s)
-- `broadcast(event, data)` - Broadcast to all connected clients
+- `startServer(port, handlers: Record<string, Handler>)` - Initialize server with handler object
+- `broadcast(event: string, data: any)` - Broadcast to all connected clients
+- Handler signature: `async (socket: Socket, payload: any, ack?: Function) => void`
 
 #### 4. File I/O (`src/io.ts`)
 - **Purpose**: File system operations and configuration management
@@ -204,38 +221,45 @@ interface ProjectChangeEvent {
 
 ### Client → Server
 
-**Command Format** (event-based):
+**Native Event Format** (named events with acknowledgment):
 ```javascript
-socket.emit('command', {
-  type: 'mapProject' | 'mapFile' | 'saveFile',
-  payload?: object
+// Map project (full hierarchy)
+socket.emit('mapProject', payload, (response) => {
+  // response: { success: true, data: [...] }
 })
-```
 
-**Request Format** (request-response):
-```javascript
-socket.emit('request', {
-  type: 'mapProject' | 'mapFile' | 'saveFile',
-  payload?: object
-}, (response) => {
-  // response: { success: boolean, data?: any, error?: string }
+// Map file (detailed analysis)
+socket.emit('mapFile', { filename, includeRelated }, (response) => {
+  // response: { success: true, data: [...] }
+})
+
+// Save file
+socket.emit('saveFile', { filename, content, pos?, end? }, (response) => {
+  // response: { success: true }
 })
 ```
 
 ### Server → Client
 
-**Message Format**:
+**Broadcast Events** (fire-and-forget):
 ```javascript
-socket.emit('message', {
-  type: string,
-  payload: any
-})
+// Project map update
+io.emit('projectMap', data)
+
+// File map update  
+io.emit('fileMap', data)
+
+// File system change notification
+io.emit('projectContentChange', { type, path })
 ```
 
-**Common Message Types**:
-- `projectMap` - Complete import/export hierarchy
-- `fileMap` - Detailed file analysis with related files
-- `projectContentChange` - File system change notification
+**Event Types**:
+- `mapProject` (request) - Returns: `FileIncludeInfo[]` - Complete import/export hierarchy
+- `mapFile` (request) - Returns: `FileMapDetailed[]` - File analysis with related files
+- `saveFile` (request) - Returns: `{ success: boolean }` - File write confirmation
+- `projectMap` (broadcast) - Sends: Complete project hierarchy to all clients
+- `fileMap` (broadcast) - Sends: File map data to all clients
+- `projectContentChange` (broadcast) - Sends: `{ type, path }` on file system changes
 
 ## File System Watching
 
