@@ -8,95 +8,80 @@ let io = new SocketIOServer(server, {
     methods: ['GET', 'POST'],
   },
 });
-let socketConnections: Socket[] = [];
 
-export const sendToWebsocket = (data: any, connection?: Socket) => {
-  if (socketConnections.length === 0) {
-    console.log('Error sending to socket - not connected! Unsent msg:', data);
-    return;
-  }
-  for (const conn of connection ? [connection] : socketConnections)
-    conn.emit('message', data);
-};
-
-// New helper for sending responses to specific requests
-export const sendResponse = (socket: Socket, requestId: string, data: any) => {
-  socket.emit('response', { requestId, data });
-};
-
-// Broadcast to all connected clients
+// Use Socket.IO's native event system instead of custom message wrapper
 export const broadcast = (event: string, data: any) => {
   io.emit(event, data);
 };
 
-// Define command handler types
-type EventCommandHandler = (
-  conn: Socket,
-  type: string,
-  payload: string | undefined
+// Send to specific socket
+export const sendToSocket = (socket: Socket, event: string, data: any) => {
+  socket.emit(event, data);
+};
+
+// Handler types using Socket.IO acknowledgments
+type CommandHandler = (
+  socket: Socket,
+  payload: any,
+  ack?: (response: any) => void
 ) => void | Promise<void>;
 
-type RequestCommandHandler = (
-  conn: Socket,
-  type: string,
-  payload: string | undefined
-) => Promise<any>;
+interface CommandHandlers {
+  [command: string]: CommandHandler;
+}
 
-export const startServer = (
-  port: number,
-  onCommand: EventCommandHandler,
-  onRequest?: RequestCommandHandler
-) => {
+export const startServer = (port: number, handlers: CommandHandlers) => {
   server.on('error', (err) => {
-    console.log('server error:', err);
+    console.log('Server error:', err);
   });
 
-  server.listen(port, () => console.log('Example app listening on port', port));
+  server.listen(port, () => console.log('Server listening on port', port));
 
   io.on('connection', (socket: Socket) => {
-    socketConnections.push(socket);
-    console.log('Socket.IO connection established');
+    console.log('Socket.IO connection established', socket.id);
 
-    // Handle traditional event-based messages
-    socket.on('command', (data: { type: string; payload?: any }) => {
-      console.log('received command:', data);
-      if (data.type) {
-        onCommand(socket, data.type, data.payload);
-      }
-    });
+    // Register handlers for each command as separate events
+    Object.entries(handlers).forEach(([eventName, handler]) => {
+      socket.on(
+        eventName,
+        async (payload: any, ack?: (response: any) => void) => {
+          console.log(`Received event: ${eventName}`, payload);
 
-    // Handle request-response pattern
-    socket.on(
-      'request',
-      async (data: { type: string; payload?: any }, callback) => {
-        console.log('received request:', data);
-        try {
-          if (data.type && callback) {
-            if (onRequest) {
-              // Use dedicated request handler if provided
-              const result = await onRequest(socket, data.type, data.payload);
-              callback({ success: true, data: result });
-            } else {
-              // Fallback to regular command handler
-              await onCommand(socket, data.type, data.payload);
-              callback({ success: true });
+          try {
+            await handler(socket, payload, ack);
+          } catch (error) {
+            console.error(`Error handling ${eventName}:`, error);
+
+            // If acknowledgment expected, send error response
+            if (ack && typeof ack === 'function') {
+              ack({
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error',
+              });
             }
           }
-        } catch (error) {
-          if (callback)
-            callback({
-              success: false,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            });
         }
-      }
-    );
-
-    socket.on('disconnect', () => {
-      console.log('Socket.IO connection closed');
-      socketConnections = socketConnections.filter(
-        (conn: Socket) => conn !== socket
       );
     });
+
+    socket.on('disconnect', (reason) => {
+      console.log('Socket.IO disconnected:', socket.id, reason);
+    });
+
+    socket.on('error', (error) => {
+      console.error('Socket error:', error);
+    });
   });
+
+  return io;
+};
+
+// Helper to send error responses
+export const sendError = (socket: Socket, event: string, error: string) => {
+  socket.emit(event, { success: false, error });
+};
+
+// Get number of connected clients
+export const getConnectionCount = (): number => {
+  return io.engine.clientsCount;
 };
