@@ -1,6 +1,6 @@
 import { FC, SyntheticEvent } from 'react';
-import IconButton from '@material-ui/core/IconButton';
-import CloseIcon from '@material-ui/icons/CloseOutlined';
+import IconButton from '@mui/material/IconButton';
+import CloseIcon from '@mui/icons-material/CloseOutlined';
 
 export const CloseButton: FC<{ onClick: (e: SyntheticEvent) => void }> = ({
   onClick,

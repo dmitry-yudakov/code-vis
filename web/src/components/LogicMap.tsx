@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
-import { Button, ButtonGroup, IconButton } from '@material-ui/core';
-import { ExpandLess, ExpandMore } from '@material-ui/icons';
-import Grow from '@material-ui/core/Grow';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Button, ButtonGroup, IconButton, Grow } from '@mui/material';
+import { ExpandLess, ExpandMore } from '@mui/icons-material';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -23,6 +22,10 @@ import ReactFlow, {
   Controls,
   // Handle,
   Position,
+  applyNodeChanges,
+  applyEdgeChanges,
+  NodeChange,
+  EdgeChange,
 } from 'react-flow-renderer';
 import './LogicMap.css';
 import cx from 'clsx';
@@ -132,6 +135,7 @@ const FunctionCallView: React.FC<{
   func: FunctionCallInfo;
   parent: FunctionDeclarationInfo | null;
   content: string;
+  children?: React.ReactNode;
 }> = ({ func, content, parent, children }) => {
   useFuncCall(func, parent);
 
@@ -149,6 +153,7 @@ const FunctionInnerDeclarationView: React.FC<{
   func: FunctionDeclarationInfo;
   innerNodes: LogicNode[];
   content: string;
+  children?: React.ReactNode;
 }> = ({ func, content, innerNodes, children }) => {
   // const [expand, setExpand] = useState(false);
   // const ref = useInnerFuncDecl(func);
@@ -208,6 +213,7 @@ const FunctionDeclarationView: React.FC<{
   content: string;
   onScroll?: () => void;
   onSave: (content: string) => Promise<void>;
+  children?: React.ReactNode;
 }> = ({ func, content: fileContent, innerNodes, onScroll, onSave }) => {
   const content = fileContent.slice(func.pos, func.end);
   const [expand, setExpand] = useState(false);
@@ -247,7 +253,7 @@ const FunctionDeclarationView: React.FC<{
       title={`${name} - ${filename}`}
       style={{ width: expand ? 500 : undefined }}
     >
-      <img src="/func-32.png" alt="func" className="func-icon"/>
+      <img src="/func-32.png" alt="func" className="func-icon" />
       {isModified && (
         <StandoutBar>
           <ButtonGroup>
@@ -304,16 +310,22 @@ export const LogicMap: React.FC<{
   onSave,
   onClose,
 }) => {
-  const relatedFiles = findRelatedFiles(startFilename, projectMap);
-  const allMappingsByFilename = {
-    [startFilename]: onRequestRelatedFile(startFilename),
-    ...Object.fromEntries(
-      relatedFiles.map((flnm) => [flnm, onRequestRelatedFile(flnm)])
-    ),
-  };
-  const allMappings = Object.values(allMappingsByFilename).filter(
-    (mapping) => !!mapping
-  ) as FileMapDetailed[];
+  const relatedFiles = useMemo(
+    () => findRelatedFiles(startFilename, projectMap),
+    [startFilename, projectMap]
+  );
+
+  const allMappings = useMemo(() => {
+    const allMappingsByFilename = {
+      [startFilename]: onRequestRelatedFile(startFilename),
+      ...Object.fromEntries(
+        relatedFiles.map((flnm) => [flnm, onRequestRelatedFile(flnm)])
+      ),
+    };
+    return Object.values(allMappingsByFilename).filter(
+      (mapping) => !!mapping
+    ) as FileMapDetailed[];
+  }, [startFilename, relatedFiles, onRequestRelatedFile]);
 
   // const [refreshTicker, setRefresh] = useState(0);
   // console.log('refreshTicker', refreshTicker);
@@ -324,40 +336,42 @@ export const LogicMap: React.FC<{
   //   setTimeout(() => setShowConnections(true), 2000);
   // }, []);
 
-  const elements = allMappings.flatMap((fileDetails, fileIdx) => {
-    if (!fileDetails) return [];
-    const { content, mapping } = fileDetails;
-    const { functionDeclarations, functionCalls } = dropUnmatchedFunctionCalls(
-      mapping
-    );
+  const { allNodes, allEdges } = useMemo(() => {
+    const allNodes: any[] = [];
+    const allEdges: any[] = [];
 
-    const fileStruct = buildNodesTree(
-      functionDeclarations,
-      functionCalls,
-      content.length
-    );
+    allMappings.forEach((fileDetails, fileIdx) => {
+      if (!fileDetails) return;
+      const { content, mapping } = fileDetails;
+      const { functionDeclarations, functionCalls } =
+        dropUnmatchedFunctionCalls(mapping);
 
-    return fileStruct.children
-      .filter((it) => it.type === LogicNodeType.decl)
-      .flatMap((node, idx) => {
-        const func = node.value as FunctionDeclarationInfo;
+      const fileStruct = buildNodesTree(
+        functionDeclarations,
+        functionCalls,
+        content.length
+      );
 
-        const connections = generateConnections(
-          func,
-          node.children
-            .filter((n) => n.type === LogicNodeType.call)
-            .map((node) => node.value as FunctionCallInfo), // TODO search recursive
-          mapping,
-          0 //refreshTicker
-        );
+      fileStruct.children
+        .filter((it) => it.type === LogicNodeType.decl)
+        .forEach((node, idx) => {
+          const func = node.value as FunctionDeclarationInfo;
 
-        const _onSave = (newContent: string) => {
-          const { filename, pos, end } = func;
-          return onSave(filename, newContent, pos, end);
-        };
+          const connections = generateConnections(
+            func,
+            node.children
+              .filter((n) => n.type === LogicNodeType.call)
+              .map((node) => node.value as FunctionCallInfo), // TODO search recursive
+            mapping,
+            0 //refreshTicker
+          );
 
-        return [
-          {
+          const _onSave = (newContent: string) => {
+            const { filename, pos, end } = func;
+            return onSave(filename, newContent, pos, end);
+          };
+
+          allNodes.push({
             id: funcDeclSlug(func),
             data: {
               label: (
@@ -384,38 +398,56 @@ export const LogicMap: React.FC<{
             },
             targetPosition: Position.Left,
             sourcePosition: Position.Right,
-          },
-          ...connections,
-        ];
-      });
-  });
+          });
 
-  // const
-  applyGraphLayout(
-    () =>
-      elements
-        .filter((e: any) => !!e.position)
-        .map((e) => ({ id: e.id, label: e.id, __originalNode: e })),
-    () => elements.filter((e: any) => e.source && e.target) as ReactFlowEdge[],
-    (n: any, x, y) => {
-      n.__originalNode.position.x = x;
-      n.__originalNode.position.y = y;
-    },
-    650,
-    150,
-    'LR'
-  );
+          allEdges.push(...connections);
+        });
+    });
 
-  console.log('Elements', elements);
+    // Apply layout to nodes only
+    applyGraphLayout(
+      () => allNodes.map((e) => ({ id: e.id, label: e.id, __originalNode: e })),
+      () => allEdges,
+      (n: any, x, y) => {
+        n.__originalNode.position.x = x;
+        n.__originalNode.position.y = y;
+      },
+      650,
+      150,
+      'LR'
+    );
+
+    return { allNodes, allEdges };
+  }, [allMappings]);
+
+  console.log('Elements', { nodes: allNodes, edges: allEdges });
+
+  const [nodes, setNodes] = useState<any>(allNodes);
+  const [edges, setEdges] = useState<any>(allEdges);
+
+  useEffect(() => {
+    setNodes(allNodes);
+    setEdges(allEdges);
+  }, [allNodes, allEdges]);
+
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((nds: any) => applyNodeChanges(changes, nds));
+  }, []);
+
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds: any) => applyEdgeChanges(changes, eds));
+  }, []);
+
   return (
     <div className="logic-map-main">
       <TopLeftCloseButton onClose={onClose} />
       <ReactFlow
-        elements={
-          showConnections ? elements : elements.filter((e: any) => !e.source)
-        }
+        nodes={nodes}
+        edges={showConnections ? edges : []}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         nodesConnectable={false}
-        // nodesDraggable={false}
+        nodesDraggable={true}
         zoomOnScroll={true}
         // panOnScroll={true}
         onlyRenderVisibleElements={false}

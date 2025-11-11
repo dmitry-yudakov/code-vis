@@ -1,4 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, {
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+} from 'react';
 import {
   FileIncludeInfo,
   FileMapDetailed,
@@ -19,6 +25,10 @@ import ReactFlow, {
   Controls,
   Handle,
   Position,
+  applyNodeChanges,
+  applyEdgeChanges,
+  NodeChange,
+  EdgeChange,
 } from 'react-flow-renderer';
 import './FilesMapping.css';
 // import {
@@ -31,7 +41,7 @@ import {
   useFuncCall,
   useFuncDecl,
 } from './CodeMirror';
-import { ButtonGroup, Button } from '@material-ui/core';
+import { ButtonGroup, Button } from '@mui/material';
 
 export enum LogicNodeType {
   file,
@@ -91,6 +101,7 @@ const renderChildren = (content: string, children: LogicNode[]) => {
 const FunctionCallView: React.FC<{
   func: FunctionCallInfo;
   content: string;
+  children?: React.ReactNode;
 }> = ({ func, content, children }) => {
   const handleId = funcCallSlug(func);
 
@@ -115,6 +126,7 @@ const FunctionCallView: React.FC<{
 const FunctionDeclarationView: React.FC<{
   func: FunctionDeclarationInfo;
   content: string;
+  children?: React.ReactNode;
 }> = ({ func, children }) => {
   // const [expand, setExpand] = useState(true);
   // const { name, args } = func;
@@ -194,9 +206,8 @@ const FileView: React.FC<{
       });
   };
 
-  const { functionDeclarations, functionCalls } = dropIrrelevantFunctionCalls(
-    mapping
-  );
+  const { functionDeclarations, functionCalls } =
+    dropIrrelevantFunctionCalls(mapping);
 
   const fileStruct = buildNodesTree(
     functionDeclarations,
@@ -341,12 +352,8 @@ export const FilesMapping: React.FC<{
     );
 
     const { mapping } = data;
-    const connections = generateConnections(
-      filename,
-      mapping,
-      referencesMappings
-    );
-    console.log('Connections', connections);
+    const edges = generateConnections(filename, mapping, referencesMappings);
+    console.log('Connections', edges);
 
     const colWidth = window.innerWidth / 3;
     const mainWidth = colWidth * 0.85; //* 1.85;
@@ -355,8 +362,7 @@ export const FilesMapping: React.FC<{
     const rightColOffet = colWidth * 2;
     const initialOffsetY = 70;
 
-    const elements = [
-      ...connections,
+    const nodes = [
       {
         id: filename,
         data: {
@@ -435,8 +441,24 @@ export const FilesMapping: React.FC<{
         };
       }),
     ];
-    return elements;
+    return { nodes, edges };
   }, [data, filename, projectMap]);
+
+  const [nodes, setNodes] = useState<any>(() => elements.nodes);
+  const [edges, setEdges] = useState<any>(() => elements.edges);
+
+  useEffect(() => {
+    setNodes(elements.nodes);
+    setEdges(elements.edges);
+  }, [elements]);
+
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((nds: any) => applyNodeChanges(changes, nds));
+  }, []);
+
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds: any) => applyEdgeChanges(changes, eds));
+  }, []);
 
   console.log('Elements', elements);
   return (
@@ -445,9 +467,12 @@ export const FilesMapping: React.FC<{
         <CloseButton onClick={() => onClose()} />
       </div>
       <ReactFlow
-        elements={elements}
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         nodesConnectable={false}
-        // nodesDraggable={false}
+        nodesDraggable={true}
         zoomOnScroll={true}
         // panOnScroll={true}
         onlyRenderVisibleElements={false}

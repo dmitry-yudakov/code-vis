@@ -11,6 +11,7 @@ const CodeMirrorContext = React.createContext<any>(null);
 export const CodeMirrorProvider: React.FC<{
   content: string;
   onChange?: (content: string) => void;
+  children?: React.ReactNode;
 }> = ({ content, onChange, children }) => {
   const [inst, setInst] = useState(null);
   return (
@@ -37,7 +38,7 @@ export const CodeMirrorProvider: React.FC<{
 };
 
 export const useFuncCall = (func: FunctionCallInfo) => {
-  const ref = useRef<any>();
+  const ref = useRef<any>(null);
   const cm = useContext(CodeMirrorContext);
 
   const el = ref.current;
@@ -61,7 +62,7 @@ export const useFuncCall = (func: FunctionCallInfo) => {
 };
 
 export const useFuncDecl = (func: FunctionDeclarationInfo) => {
-  const ref = useRef<any>();
+  const ref = useRef<any>(null);
   const cm = useContext(CodeMirrorContext);
 
   const el = ref.current;

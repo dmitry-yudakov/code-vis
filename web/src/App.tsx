@@ -8,10 +8,10 @@ import React, {
 import './App.css';
 import {
   BrowserRouter as Router,
-  Switch,
+  Routes,
   Route,
   useParams,
-  useHistory,
+  useNavigate,
 } from 'react-router-dom';
 import lodash from 'lodash';
 import { initConnection, projectApi } from './connection';
@@ -34,8 +34,8 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   fineGrained = false,
 }) => {
   const { filename: filenameEnc } = useParams<{ filename: string }>();
-  const filename = decodeURIComponent(filenameEnc);
-  const router = useHistory();
+  const filename = decodeURIComponent(filenameEnc || '');
+  const navigate = useNavigate();
 
   const { projectMap, filesMappings, forceReloadToken } =
     useContext(ProjectDataContext);
@@ -118,7 +118,7 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
       key={`${filename}-${Object.keys(relatedFiles).length}`}
       filename={filename}
       projectMap={projectMap}
-      onClose={() => router.push('/')}
+      onClose={() => navigate('/')}
       onRequestRelatedFile={getRelatedFile}
       onSave={async (filename, content, pos, end) => {
         try {
@@ -135,7 +135,7 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
       data={fileData}
       filename={filename}
       projectMap={projectMap}
-      onClose={() => router.push('/')}
+      onClose={() => navigate('/')}
       onRequestRelatedFile={getRelatedFile}
       onSave={async (filename, content) => {
         try {
@@ -150,7 +150,7 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
 };
 
 const App: React.FC = () => {
-  const router = useHistory();
+  const navigate = useNavigate();
 
   const [projectMap, setProjectMap] = useState<FileIncludeInfo[]>([]);
   const [filesMappings, setFilesMappings] = useState<
@@ -277,40 +277,38 @@ const App: React.FC = () => {
       </div>
 
       <ProjectDataContext.Provider value={contextVal}>
-        <Switch>
-          <Route path="/f/:filename">
-            <FileScreen />
-          </Route>
-          <Route path="/fine/:filename">
-            <FileScreen fineGrained />
-          </Route>
-          <Route path="/">
-            <IncludesHierarchy
-              includes={projectMap}
-              renderNodeMenu={(
-                filename: string,
-                anchor: Element,
-                onClose: () => void
-              ) => (
-                <Menu
-                  positionAnchor={anchor}
-                  options={[
-                    [
-                      'Logic Map',
-                      () =>
-                        router.push(`/fine/${encodeURIComponent(filename)}`),
-                    ],
-                    [
-                      'File Map',
-                      () => router.push(`/f/${encodeURIComponent(filename)}`),
-                    ],
-                  ]}
-                  onClose={onClose}
-                />
-              )}
-            />
-          </Route>
-        </Switch>
+        <Routes>
+          <Route path="/f/:filename" element={<FileScreen />} />
+          <Route path="/fine/:filename" element={<FileScreen fineGrained />} />
+          <Route
+            path="/"
+            element={
+              <IncludesHierarchy
+                includes={projectMap}
+                renderNodeMenu={(
+                  filename: string,
+                  anchor: HTMLElement | null,
+                  onClose: () => void
+                ) => (
+                  <Menu
+                    positionAnchor={anchor}
+                    options={[
+                      [
+                        'Logic Map',
+                        () => navigate(`/fine/${encodeURIComponent(filename)}`),
+                      ],
+                      [
+                        'File Map',
+                        () => navigate(`/f/${encodeURIComponent(filename)}`),
+                      ],
+                    ]}
+                    onClose={onClose}
+                  />
+                )}
+              />
+            }
+          />
+        </Routes>
         <History history={history} />
       </ProjectDataContext.Provider>
     </div>

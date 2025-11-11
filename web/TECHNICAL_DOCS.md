@@ -9,11 +9,12 @@ The web component is a React-based single-page application (SPA) that provides a
 ### Core Structure
 
 #### 1. Entry Point (`src/index.tsx`)
-- **Purpose**: Application bootstrap
+- **Purpose**: Application bootstrap using React 19 createRoot API
 - **Responsibilities**:
-  - Mount React app to DOM element `#root`
-  - Initialize service worker (disabled by default)
-- **Technology**: React 17 with ReactDOM
+  - Mount React app to DOM element `#root` using `ReactDOM.createRoot()`
+  - Wrap app in `React.StrictMode` for development warnings
+- **Technology**: React 19 with React DOM
+- **No Service Worker**: Disabled by default (can be added for PWA support)
 
 #### 2. Main Application (`src/App.tsx`)
 - **Purpose**: Root component with routing and state management
@@ -292,32 +293,47 @@ interface PositionedNode extends Node {
 
 ## Technology Stack
 
-- **Framework**: React 17.0.1
-- **Language**: TypeScript 4.1.2
-- **Build Tool**: Create React App (react-scripts 4.0.1)
-- **Module System**: ESNext with JSX support
+- **Framework**: React 19.0.0
+- **Language**: TypeScript 5.6.3
+- **Build Tool**: Vite 5.4.0
+- **Module System**: ES Modules (ESNext)
 - **Key Dependencies**:
   - `socket.io-client@^4.8.1` - WebSocket client
-  - `react-flow-renderer@^8.0.0` - Graph visualization
-  - `@monaco-editor/react@^3.7.2` - Code editor (VS Code engine)
-  - `codemirror@^5.58.3` - Alternative lightweight editor
+  - `react-flow-renderer@^11.0.1` - Graph visualization
+  - `@monaco-editor/react@^4.6.0` - Code editor (VS Code engine)
+  - `codemirror@^5.65.2` - Alternative lightweight editor
   - `dagre@^0.8.5` - Graph layout algorithm
-  - `@material-ui/core@^4.11.2` - UI components
-  - `react-router-dom@^5.2.0` - Client-side routing
-  - `lodash@^4.17.20` - Utility functions
-  - `use-debounce@^5.2.0` - Debounce hooks
+  - `@material-ui/core@^4.12.4` - UI components
+  - `react-router-dom@^6.24.2` - Client-side routing (v6)
+  - `lodash@^4.17.21` - Utility functions
+  - `use-debounce@^10.0.3` - Debounce hooks
 
 ## Build & Development
 
 **Scripts**:
-- `yarn start` - Development server on port 3000
-- `yarn build` - Production build to `build/`
-- `yarn test` - Run tests with React Testing Library
-- `yarn eject` - Eject from CRA (irreversible)
+- `yarn dev` - Development server on port 3000 with hot reload
+- `yarn build` - Production build to `build/` with TypeScript type checking
+- `yarn preview` - Preview production build locally
+- `yarn test` - Run tests with Vitest
+- `yarn lint` - Type check with TypeScript
 
 **Configuration**:
-- `tsconfig.json`: Strict mode, JSX transform, no emit
-- ESLint extends `react-app` configuration
+- `vite.config.ts`: Vite configuration with React plugin, dev server proxy to port 3789, and chunk splitting
+- `tsconfig.json`: ES2020 target, ESNext modules, strict mode, bundler module resolution
+- `.env`, `.env.development`, `.env.production`: Environment variables with `VITE_` prefix
+
+## Vite Configuration
+
+**Key Features**:
+- **React Plugin**: Uses `@vitejs/plugin-react` for JSX transformation with automatic import optimization
+- **Dev Server**: Port 3000 with automatic browser opening
+- **Socket.IO Proxy**: `/socket.io` routes to `http://localhost:3789` with WebSocket support
+- **Build Output**: Outputs to `build/` directory (CRA compatible)
+- **Code Splitting**: Manual chunks for `react-vendor`, `flow-vendor`, and `editor-vendor` for optimal caching
+- **Module Resolution**: Uses Bundler strategy for better npm package resolution
+- **Source Maps**: Disabled in build for size optimization
+
+**Module Type**: `"type": "module"` in package.json enables native ES modules
 
 ## Data Flow
 

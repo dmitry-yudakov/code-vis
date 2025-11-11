@@ -1,13 +1,13 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import MonacoEditor, { monaco as __monaco } from '@monaco-editor/react';
+import MonacoEditor, { loader } from '@monaco-editor/react';
 import { FunctionCallInfo, FunctionDeclarationInfo } from '../types';
 import { useDebouncedCallback } from 'use-debounce';
 
 let monaco: any;
 
-__monaco
+loader
   .init()
-  .then((monacoInst) => {
+  .then((monacoInst: any) => {
     monaco = monacoInst;
 
     /* here is the instance of monaco, so you can use the `monaco.languages` or whatever you want */
@@ -17,7 +17,7 @@ __monaco
       noSuggestionDiagnostics: true,
     });
   })
-  .catch((error) =>
+  .catch((error: any) =>
     console.error('An error occurred during initialization of Monaco: ', error)
   );
 
@@ -39,6 +39,7 @@ export const MonacoEditorProvider: React.FC<{
   content: string;
   onChange?: (content: string) => void;
   onScroll?: () => void;
+  children?: React.ReactNode;
 }> = ({ content, children, onChange, onScroll }) => {
   const [editor, setEditor] = useState<any>(null);
 
@@ -73,14 +74,14 @@ export const MonacoEditorProvider: React.FC<{
   useEffect(() => {
     if (!editor || !container) return;
 
-    editor.onDidContentSizeChange(updateHeight.callback);
-    updateHeight.callback();
-    if (isOnScrollSet) editor.onDidScrollChange(debOnScroll.callback);
+    editor.onDidContentSizeChange(updateHeight);
+    updateHeight();
+    if (isOnScrollSet) editor.onDidScrollChange(debOnScroll);
 
     editor.getModel().onDidChangeContent((e: any) => {
       const newContent = editor.getModel().getValue();
       console.log('Content changed', e, newContent);
-      debOnChange.callback(newContent);
+      debOnChange(newContent);
     });
   }, [
     editor,
@@ -94,7 +95,7 @@ export const MonacoEditorProvider: React.FC<{
   return (
     <div ref={ref}>
       <MonacoEditor
-        editorDidMount={(_, editor) => setEditor(editor)}
+        onMount={(_editor: any) => setEditor(_editor)}
         value={content}
         language="typescript"
         // height={500}
@@ -113,7 +114,7 @@ export const useFuncCall = (
   func: FunctionCallInfo,
   parent: FunctionDeclarationInfo | null
 ) => {
-  const ref = useRef<any>();
+  const ref = useRef<any>(null);
   const editor = useContext(MonacoEditorContext);
 
   // const el = ref.current;
@@ -145,13 +146,13 @@ export const useFuncCall = (
 };
 
 export const useFuncDecl = (func: FunctionDeclarationInfo) => {
-  const ref = useRef<any>();
+  const ref = useRef<any>(null);
   // noop
   return ref;
 };
 
 export const useInnerFuncDecl = (func: FunctionDeclarationInfo) => {
-  const ref = useRef<any>();
+  const ref = useRef<any>(null);
   const cm = useContext(MonacoEditorContext);
 
   const el = ref.current;
