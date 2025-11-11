@@ -222,7 +222,7 @@ const searchFor = (
 ) => {
   const _result = result || [];
   const _path = path || [];
-  if (_path.length > 100) {
+  if (_path.length > 300) {
     console.log('Too long path in searching:', _path);
     throw new Error('Too long path');
   }
