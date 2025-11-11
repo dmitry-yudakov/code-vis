@@ -89,16 +89,29 @@ export default class Project {
   }
 
   async recreateProjectMap() {
+    console.log('recreateProjectMap called, files count:', this.files.length);
     const analyzer = getAnalyzer('js'); // temp
     // TODO check should ignore
     this.projectMap = await analyzer.extractFilesHierarchy(this.files, (fn) =>
       openFile(fn, this.projectPath)
     );
+    console.log(
+      'recreateProjectMap completed, projectMap length:',
+      this.projectMap.length
+    );
   }
   async handleCommandProjectMap() {
-    this.recreateProjectMap();
+    console.log(
+      'handleCommandProjectMap called, current projectMap length:',
+      this.projectMap.length
+    );
+    await this.recreateProjectMap();
 
     // console.log(data);
+    console.log(
+      'handleCommandProjectMap returning, projectMap length:',
+      this.projectMap.length
+    );
     return { type: 'projectMap', payload: this.projectMap };
   }
 
