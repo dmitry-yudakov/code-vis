@@ -221,26 +221,25 @@ const searchFor = (
   path?: string[]
 ) => {
   const _result = result || [];
-  const _path = path || [];
-  if (_path.length > 300) {
-    console.log('Too long path in searching:', _path);
-    throw new Error('Too long path');
-  }
+
+  const visit = (node: ts.Node) => {
+    if (node.kind === kind) {
+      _result.push(node);
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
   if (Array.isArray(tree)) {
     for (const val of tree) {
-      searchFor(val, kind, _result, [..._path, 'ARR']);
+      if (val && typeof val.kind === 'number') {
+        visit(val as ts.Node);
+      }
     }
-  } else if (typeof tree === 'object') {
-    if (tree.kind === kind) {
-      _result.push(tree);
-      // return;
-    }
-    for (const [key, val] of Object.entries(tree)) {
-      if (key === 'parent' || key === 'parseDiagnostics') continue;
-      // console.log('analize obj prop', key);
-      searchFor(val, kind, _result, [..._path, key]);
-    }
+  } else if (tree && typeof tree.kind === 'number') {
+    visit(tree as ts.Node);
   }
+
   return _result;
 };
 
