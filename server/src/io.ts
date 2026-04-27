@@ -1,9 +1,10 @@
 import { glob } from 'glob';
-import { promises as fs } from 'fs';
+import { promises as fs, readFileSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
 import { ProjectChangeEvent, ProjectConfig } from './types';
 import chokidar from 'chokidar';
+import ignore from 'ignore';
 
 export const getProjectFiles = (
   projectPath: string,
@@ -12,9 +13,32 @@ export const getProjectFiles = (
 ) => {
   const absolutePath = path.resolve(projectPath);
   const reAbsPath = new RegExp(`^${absolutePath}/`);
-  return glob
+
+  let files = glob
     .sync(path.join(absolutePath, includeMask), { ignore: excludeMask })
     .map((fullPath) => fullPath.replace(reAbsPath, ''));
+
+  // Find all .gitignore files in the project tree and apply each one
+  // relative to the directory it lives in (mirrors git behaviour).
+  const gitignorePaths = glob.sync('**/.gitignore', {
+    cwd: absolutePath,
+    dot: true,
+    ignore: ['**/node_modules/**'],
+  });
+
+  for (const gitignoreRelPath of gitignorePaths) {
+    const dir = path.dirname(gitignoreRelPath); // '.' for root
+    const prefix = dir === '.' ? '' : dir + '/';
+    const ig = ignore();
+    ig.add(readFileSync(path.join(absolutePath, gitignoreRelPath)).toString());
+
+    files = files.filter((f) => {
+      if (!f.startsWith(prefix)) return true; // outside this .gitignore's scope
+      return !ig.ignores(f.slice(prefix.length));
+    });
+  }
+
+  return files;
 };
 
 export const openFile = async (filename: string, projectPath: string) => {
