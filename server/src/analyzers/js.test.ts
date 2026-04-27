@@ -496,6 +496,25 @@ await cl.methodFuncAsync(12);
     expect(funcBody4).toContain('methodFunc(a) {\n    return a;\n  }');
   });
 
+  test('deep binary expressions do not overflow traversal', () => {
+    const expression = Array.from({ length: 400 }, (_, index) => index).join(
+      ' + '
+    );
+    const content = `const value = ${expression};`;
+
+    let res: ReturnType<typeof jsAnalyzer.extractFileMapping> | undefined;
+
+    expect(() => {
+      res = jsAnalyzer.extractFileMapping('src/dir/a.tsx', content);
+    }).not.toThrow();
+
+    expect(res).toEqual({
+      includes: [],
+      functionCalls: [],
+      functionDeclarations: [],
+    });
+  });
+
   test('jsx', () => {
     const content = `import React from 'react';
 

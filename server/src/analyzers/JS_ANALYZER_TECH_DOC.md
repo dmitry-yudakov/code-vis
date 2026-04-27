@@ -141,7 +141,7 @@ Attempts to resolve module paths without extensions by trying common suffixes.
 **Example**: `'./utils'` → `'./utils.ts'` or `'./utils/index.ts'`
 
 ### `searchFor(tree: any, kind: SyntaxKind, result?: any[], path?: string[]): any[]`
-Recursive AST traversal to find all nodes of a specific `SyntaxKind`. Includes infinite recursion protection (max depth: 100).
+Recursive AST traversal to find all nodes of a specific `SyntaxKind`. Traverses TypeScript AST children via `ts.forEachChild` instead of walking arbitrary object properties, which keeps traversal aligned with the compiler AST shape and avoids false recursion over deep expression chains.
 
 ---
 
