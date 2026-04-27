@@ -2,6 +2,10 @@ import React, { useContext, useEffect, useRef, useState } from 'react';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import { FunctionCallInfo, FunctionDeclarationInfo } from '../types';
 import { useDebouncedCallback } from 'use-debounce';
+import {
+  getFunctionCallHoverMarkdown,
+  getFunctionCallKindClassName,
+} from './functionCallMetadata';
 
 let monaco: any;
 
@@ -123,6 +127,8 @@ export const useFuncCall = (
 
   useEffect(() => {
     const { pos, end } = func;
+    const kindClassName = getFunctionCallKindClassName(func);
+    const hoverMessage = getFunctionCallHoverMarkdown(func);
 
     if (!editor) return;
 
@@ -133,7 +139,8 @@ export const useFuncCall = (
           range: _range(pos - offset, end - offset, editor),
           // options: { inlineClassName: `func-call ${callUniqueClass}` },
           options: {
-            className: 'func-call',
+            className: `func-call ${kindClassName}`,
+            hoverMessage: [{ value: hoverMessage }],
             // afterContentClassName: callUniqueClass,
             // isWholeLine: true,
             // linesDecorationsClassName: `func-call-line ${callUniqueClass}`,

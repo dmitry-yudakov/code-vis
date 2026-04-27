@@ -1,6 +1,10 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { FunctionCallInfo, FunctionDeclarationInfo } from '../types';
 import { Controlled as CodeMirror } from 'react-codemirror2';
+import {
+  getFunctionCallKindClassName,
+  getFunctionCallTooltip,
+} from './functionCallMetadata';
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/theme/material.css';
 import 'codemirror/mode/xml/xml';
@@ -46,12 +50,17 @@ export const useFuncCall = (func: FunctionCallInfo) => {
 
   useEffect(() => {
     // console.log('FunctionCallView', { pos, end, cm, el });
+    const callKindClassName = getFunctionCallKindClassName(func);
+    const tooltip = getFunctionCallTooltip(func);
 
     if (!cm || !el) return;
 
     // underline
     cm.markText(cm.posFromIndex(pos), cm.posFromIndex(end), {
-      className: 'func-call-2',
+      className: `func-call-2 ${callKindClassName}`,
+      attributes: {
+        title: tooltip,
+      },
     });
 
     // handle

@@ -556,3 +556,186 @@ export const History = ({ history }: { history: any[][] }) => {
     );
   });
 });
+
+describe('Function call improvements', () => {
+  const findCall = (
+    calls: Array<Record<string, any>>,
+    name: string,
+    callKind?: string
+  ) =>
+    calls.find((call) => {
+      if (call.name !== name) {
+        return false;
+      }
+      if (!callKind) {
+        return true;
+      }
+      return call.callKind === callKind;
+    });
+
+  test('JSX component', () => {
+    const content = `<Button onClick={handler}>Click</Button>`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.tsx', content);
+
+    const buttonCall = findCall(res.functionCalls, 'Button', 'jsx-component');
+    expect(buttonCall).toBeDefined();
+    expect(buttonCall?.args).toContain('EXPR:onClick...');
+  });
+
+  test('JSX member component', () => {
+    const content = `<Layout.Header />`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.tsx', content);
+
+    const headerCall = findCall(res.functionCalls, 'Header', 'jsx-component');
+    expect(headerCall).toBeDefined();
+    expect(headerCall?.calleeText).toBe('Layout.Header');
+    expect(headerCall?.callChain).toEqual(['Layout', 'Header']);
+  });
+
+  test('JSX intrinsic element ignored', () => {
+    const content = `<div><span>Text</span></div>`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.tsx', content);
+
+    expect(res.functionCalls.some((call) => call.name === 'div')).toBe(false);
+    expect(res.functionCalls.some((call) => call.name === 'span')).toBe(false);
+    expect(
+      res.functionCalls.some((call) => call.callKind === 'jsx-component')
+    ).toBe(false);
+  });
+
+  test('simple constructor call', () => {
+    const content = `const obj = new MyClass();`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+
+    const constructorCall = findCall(
+      res.functionCalls,
+      'MyClass',
+      'constructor'
+    );
+    expect(constructorCall).toBeDefined();
+    expect(constructorCall?.isBuiltin).toBeUndefined();
+  });
+
+  test('builtin constructor', () => {
+    const content = `const now = new Date(2025, 10, 11);`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+
+    const constructorCall = findCall(res.functionCalls, 'Date', 'constructor');
+    expect(constructorCall).toBeDefined();
+    expect(constructorCall?.isBuiltin).toBe(true);
+  });
+
+  test('namespaced constructor', () => {
+    const content = `const obj = new utils.Helper();`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+
+    const constructorCall = findCall(
+      res.functionCalls,
+      'Helper',
+      'constructor'
+    );
+    expect(constructorCall).toBeDefined();
+    expect(constructorCall?.calleeText).toBe('utils.Helper');
+    expect(constructorCall?.callChain).toEqual(['utils', 'Helper']);
+  });
+
+  test('property access call metadata', () => {
+    const content = `console.log('test');`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+
+    const logCall = findCall(res.functionCalls, 'log');
+    expect(logCall).toBeDefined();
+    expect(logCall?.calleeText).toBe('console.log');
+    expect(logCall?.receiverText).toBe('console');
+    expect(logCall?.receiverKind).toBe('identifier');
+    expect(logCall?.callChain).toEqual(['console', 'log']);
+  });
+
+  test('deep property chain metadata', () => {
+    const content = `app.services.database.connect();`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+
+    const connectCall = findCall(res.functionCalls, 'connect');
+    expect(connectCall).toBeDefined();
+    expect(connectCall?.calleeText).toBe('app.services.database.connect');
+    expect(connectCall?.receiverText).toBe('app.services.database');
+    expect(connectCall?.receiverKind).toBe('property');
+    expect(connectCall?.callChain).toEqual([
+      'app',
+      'services',
+      'database',
+      'connect',
+    ]);
+  });
+
+  test('call result receiver', () => {
+    const content = `str.trim().toLowerCase();`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+
+    const trimCall = findCall(res.functionCalls, 'trim');
+    expect(trimCall).toBeDefined();
+    expect(trimCall?.calleeText).toBe('str.trim');
+    expect(trimCall?.receiverKind).toBe('identifier');
+
+    const toLowerCaseCall = findCall(res.functionCalls, 'toLowerCase');
+    expect(toLowerCaseCall).toBeDefined();
+    expect(toLowerCaseCall?.receiverKind).toBe('call-result');
+    expect(toLowerCaseCall?.calleeText).toBeUndefined();
+  });
+
+  test('styled component tag', () => {
+    const content = "const Button = styled.button`color: red;`;";
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.tsx', content);
+
+    const tagCall = findCall(res.functionCalls, 'button', 'tagged-template');
+    expect(tagCall).toBeDefined();
+    expect(tagCall?.calleeText).toBe('styled.button');
+    expect(tagCall?.callChain).toEqual(['styled', 'button']);
+  });
+
+  test('SQL template', () => {
+    const content = 'const query = sql`SELECT * FROM users`;';
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.ts', content);
+
+    const tagCall = findCall(res.functionCalls, 'sql', 'tagged-template');
+    expect(tagCall).toBeDefined();
+  });
+
+  test('optional chaining call', () => {
+    const content = `user?.getName?.();`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.ts', content);
+
+    const call = findCall(res.functionCalls, 'getName');
+    expect(call).toBeDefined();
+    expect(call?.isOptional).toBe(true);
+  });
+
+  test('array element call', () => {
+    const content = `callbacks[0]();`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.ts', content);
+
+    const call = findCall(res.functionCalls, '[element-access]');
+    expect(call).toBeDefined();
+    expect(call?.receiverKind).toBe('element-access');
+    expect(call?.calleeText).toBe('callbacks[0]');
+  });
+
+  test('parenthesized call result', () => {
+    const content = `(getCallback())();`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.ts', content);
+
+    const call = findCall(res.functionCalls, '[call-result]');
+    expect(call).toBeDefined();
+    expect(call?.receiverKind).toBe('call-result');
+  });
+
+  test('name stays terminal for compatibility', () => {
+    const content = `console.log('hello');`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
+
+    const logCall = findCall(res.functionCalls, 'log');
+    expect(logCall).toBeDefined();
+    expect(logCall?.name).toBe('log');
+    expect(logCall?.calleeText).toBe('console.log');
+  });
+});

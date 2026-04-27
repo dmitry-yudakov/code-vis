@@ -53,6 +53,16 @@
 
 .logic-map-main .func-call {
   background-color: #a5f7f7;
+  cursor: help;
+}
+.logic-map-main .func-call.func-call-kind-constructor {
+  background-color: #d3e5ff;
+}
+.logic-map-main .func-call.func-call-kind-jsx-component {
+  background-color: #ffe8bf;
+}
+.logic-map-main .func-call.func-call-kind-tagged-template {
+  background-color: #d5f4e2;
 }
 .logic-map-main .func-call-line {
   background-color: #a5f7f79f;

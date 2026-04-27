@@ -5,7 +5,7 @@ import {
   FunctionDeclarationInfo,
 } from './../types';
 import path from 'path';
-import ts, { CallExpression, SyntaxKind } from 'typescript';
+import ts, { SyntaxKind } from 'typescript';
 
 const parseFile = (filename: string, content: string) =>
   ts.createSourceFile(
@@ -326,38 +326,418 @@ const extractFunctionDeclarations = (
   return [...funcs, ...arrowFuncs, ...methods].sort((l, r) => l.pos - r.pos);
 };
 
+type ReceiverKind =
+  | 'identifier'
+  | 'property'
+  | 'element-access'
+  | 'call-result'
+  | 'unknown';
+
+interface ResolvedCalleeInfo {
+  name: string;
+  calleeText?: string;
+  callChain?: string[];
+  receiverText?: string;
+  receiverKind?: ReceiverKind;
+  isOptional?: boolean;
+}
+
+const BUILTIN_CONSTRUCTOR_NAMES = new Set([
+  'Array',
+  'ArrayBuffer',
+  'BigInt',
+  'Boolean',
+  'DataView',
+  'Date',
+  'Error',
+  'EvalError',
+  'Float32Array',
+  'Float64Array',
+  'Function',
+  'Int8Array',
+  'Int16Array',
+  'Int32Array',
+  'Map',
+  'Number',
+  'Object',
+  'Promise',
+  'RangeError',
+  'ReferenceError',
+  'RegExp',
+  'Set',
+  'String',
+  'SyntaxError',
+  'TypeError',
+  'Uint8Array',
+  'Uint8ClampedArray',
+  'Uint16Array',
+  'Uint32Array',
+  'URIError',
+  'WeakMap',
+  'WeakSet',
+]);
+
+const unwrapParenthesizedExpression = (expression: ts.Expression) => {
+  let current: ts.Expression = expression;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const normalizeNodeText = (node: ts.Node, sourceFile: ts.SourceFile): string =>
+  node.getText(sourceFile).replace(/\s+/g, ' ').trim();
+
+const getMemberNameText = (name: ts.Node): string | null => {
+  if (ts.isIdentifier(name as ts.Node)) {
+    return (name as ts.Identifier).text;
+  }
+  const escapedText = (name as any)?.escapedText;
+  if (typeof escapedText === 'string') {
+    return escapedText;
+  }
+  const text = (name as any)?.getText?.();
+  if (typeof text === 'string' && text.length > 0) {
+    return text.replace(/^#/, '');
+  }
+  return null;
+};
+
+const extractSimplePropertyChain = (
+  expression: ts.Expression
+): string[] | null => {
+  const expr = unwrapParenthesizedExpression(expression);
+  if (ts.isIdentifier(expr)) {
+    return [expr.text];
+  }
+  if (expr.kind === SyntaxKind.ThisKeyword) {
+    return ['this'];
+  }
+  if (ts.isPropertyAccessExpression(expr)) {
+    const left = extractSimplePropertyChain(expr.expression);
+    const right = getMemberNameText(expr.name);
+    if (!left || !right) {
+      return null;
+    }
+    return left.concat(right);
+  }
+  return null;
+};
+
+const inferReceiverKind = (expression: ts.Expression): ReceiverKind => {
+  const expr = unwrapParenthesizedExpression(expression);
+  if (ts.isIdentifier(expr) || expr.kind === SyntaxKind.ThisKeyword) {
+    return 'identifier';
+  }
+  if (ts.isPropertyAccessExpression(expr)) {
+    const chain = extractSimplePropertyChain(expr);
+    if (chain) {
+      return chain.length > 1 ? 'property' : 'identifier';
+    }
+    return 'unknown';
+  }
+  if (ts.isElementAccessExpression(expr)) {
+    return 'element-access';
+  }
+  if (
+    ts.isCallExpression(expr) ||
+    ts.isNewExpression(expr) ||
+    ts.isTaggedTemplateExpression(expr)
+  ) {
+    return 'call-result';
+  }
+  return 'unknown';
+};
+
+const isExpressionOptional = (expression: ts.Expression): boolean => {
+  const expr = unwrapParenthesizedExpression(expression);
+  if ((expr as any)?.questionDotToken) {
+    return true;
+  }
+  if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
+    return isExpressionOptional(expr.expression);
+  }
+  if (ts.isCallExpression(expr)) {
+    return isExpressionOptional(expr.expression);
+  }
+  return false;
+};
+
+const extractElementAccessTerminalName = (
+  expression: ts.ElementAccessExpression
+): string | null => {
+  const arg = expression.argumentExpression;
+  if (!arg) {
+    return null;
+  }
+  if (ts.isStringLiteralLike(arg)) {
+    return arg.text;
+  }
+  return null;
+};
+
+const resolveCallee = (
+  expression: ts.Expression,
+  sourceFile: ts.SourceFile
+): ResolvedCalleeInfo => {
+  const expr = unwrapParenthesizedExpression(expression);
+
+  if (ts.isIdentifier(expr)) {
+    return {
+      name: expr.text,
+      isOptional: isExpressionOptional(expression),
+    };
+  }
+
+  if (ts.isPropertyAccessExpression(expr)) {
+    const name = getMemberNameText(expr.name) || '[unknown]';
+    const receiverKind = inferReceiverKind(expr.expression);
+    const receiverChain = extractSimplePropertyChain(expr.expression);
+    const calleeChain = extractSimplePropertyChain(expr);
+
+    const callee: ResolvedCalleeInfo = {
+      name,
+      receiverKind,
+      isOptional: isExpressionOptional(expression),
+    };
+
+    if (receiverChain && receiverChain.length > 0) {
+      callee.receiverText = receiverChain.join('.');
+    } else if (receiverKind === 'element-access') {
+      callee.receiverText = normalizeNodeText(expr.expression, sourceFile);
+    }
+
+    if (receiverKind !== 'call-result') {
+      if (calleeChain && calleeChain.length > 1) {
+        callee.callChain = calleeChain;
+        callee.calleeText = calleeChain.join('.');
+      } else {
+        callee.calleeText = normalizeNodeText(expr, sourceFile);
+      }
+    }
+
+    return callee;
+  }
+
+  if (ts.isElementAccessExpression(expr)) {
+    const terminalName = extractElementAccessTerminalName(expr);
+    return {
+      name: terminalName || '[element-access]',
+      calleeText: normalizeNodeText(expr, sourceFile),
+      receiverText: normalizeNodeText(expr.expression, sourceFile),
+      receiverKind: 'element-access',
+      isOptional: isExpressionOptional(expression),
+    };
+  }
+
+  if (
+    ts.isCallExpression(expr) ||
+    ts.isNewExpression(expr) ||
+    ts.isTaggedTemplateExpression(expr)
+  ) {
+    return {
+      name: '[call-result]',
+      receiverKind: 'call-result',
+      isOptional: isExpressionOptional(expression),
+    };
+  }
+
+  if (expr.kind === SyntaxKind.ThisKeyword) {
+    return {
+      name: 'this',
+      receiverKind: 'identifier',
+      isOptional: isExpressionOptional(expression),
+    };
+  }
+
+  return {
+    name: normalizeNodeText(expr, sourceFile) || '[unknown]',
+    receiverKind: 'unknown',
+    isOptional: isExpressionOptional(expression),
+  };
+};
+
+const extractExpressionArgs = (
+  args: ts.NodeArray<ts.Expression> | undefined,
+  sourceFile: ts.SourceFile
+): string[] => {
+  if (!args) {
+    return [];
+  }
+  return args.map((arg) => {
+    const argAny = arg as any;
+    if (typeof argAny.text === 'string' || typeof argAny.text === 'number') {
+      return String(argAny.text);
+    }
+    if (typeof argAny.expression?.escapedText === 'string') {
+      return `EXPR:${argAny.expression.escapedText}...`;
+    }
+    if (ts.isIdentifier(arg)) {
+      return arg.text;
+    }
+    return `EXPR:${normalizeNodeText(arg, sourceFile).slice(0, 40)}...`;
+  });
+};
+
+const extractJsxArgs = (
+  attributes: ts.JsxAttributes,
+  sourceFile: ts.SourceFile
+): string[] => {
+  return attributes.properties.map((prop) => {
+    if (ts.isJsxAttribute(prop)) {
+      const attrName = prop.name.getText(sourceFile);
+      const { initializer } = prop;
+      if (!initializer) {
+        return attrName;
+      }
+      if (ts.isStringLiteral(initializer)) {
+        return `${attrName}=${initializer.text}`;
+      }
+      return `EXPR:${attrName}...`;
+    }
+    return `EXPR:${normalizeNodeText(prop.expression, sourceFile).slice(0, 40)}...`;
+  });
+};
+
+const shouldIncludeJsxTag = (name: string): boolean => /^[A-Z]/.test(name);
+
+const applyCalleeInfo = (
+  callInfo: FunctionCallInfo,
+  calleeInfo: ResolvedCalleeInfo
+) => {
+  if (calleeInfo.calleeText) {
+    callInfo.calleeText = calleeInfo.calleeText;
+  }
+  if (calleeInfo.callChain && calleeInfo.callChain.length > 0) {
+    callInfo.callChain = calleeInfo.callChain;
+  }
+  if (calleeInfo.receiverText) {
+    callInfo.receiverText = calleeInfo.receiverText;
+  }
+  if (calleeInfo.receiverKind) {
+    callInfo.receiverKind = calleeInfo.receiverKind;
+  }
+  if (calleeInfo.isOptional) {
+    callInfo.isOptional = true;
+  }
+};
+
 const extractFunctionCalls = (
   filename: string,
   sourceFile: ts.SourceFile
 ): FunctionCallInfo[] => {
-  const calls = searchFor(sourceFile, SyntaxKind.CallExpression)
-    .filter((node: any) => {
-      if (!!node.arguments && !!node.expression?.escapedText) return true;
-      if (!!node.arguments && !!node.expression?.name?.escapedText) return true;
-      if (node.expression?.kind === SyntaxKind.SuperKeyword) return false;
-      console.log('Unexpected CallExpression:', node);
-    })
-    .map((node: any) => {
-      const name =
-        node.expression.escapedText || node.expression?.name?.escapedText;
-      const args = node.arguments.map((arg: any) => {
-        // console.log('Arg', arg);
-        // console.log('Arg expr', arg.expression);
-        return arg.text || `EXPR:${arg.expression?.escapedText}...` || 'n/a';
-      });
-
+  const callExpressions = searchFor(
+    sourceFile,
+    SyntaxKind.CallExpression
+  ) as ts.CallExpression[];
+  const callExpressionCalls = callExpressions
+    .filter((node) => node.expression?.kind !== SyntaxKind.SuperKeyword)
+    .map((node) => {
+      const calleeInfo = resolveCallee(node.expression, sourceFile);
       const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
-
-      return {
-        name,
-        args,
+      const info: FunctionCallInfo = {
+        name: calleeInfo.name,
+        args: extractExpressionArgs(node.arguments, sourceFile),
         pos: node.pos + leadingTriviaWidth,
         end: node.end,
         filename,
       };
+      applyCalleeInfo(info, calleeInfo);
+      return info;
     });
 
-  return calls;
+  const newExpressions = searchFor(
+    sourceFile,
+    SyntaxKind.NewExpression
+  ) as ts.NewExpression[];
+  const constructorCalls = newExpressions.map((node) => {
+    const calleeInfo = resolveCallee(node.expression, sourceFile);
+    const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
+    const info: FunctionCallInfo = {
+      name: calleeInfo.name,
+      args: extractExpressionArgs(node.arguments, sourceFile),
+      pos: node.pos + leadingTriviaWidth,
+      end: node.end,
+      filename,
+      callKind: 'constructor',
+    };
+    applyCalleeInfo(info, calleeInfo);
+    if (BUILTIN_CONSTRUCTOR_NAMES.has(info.name)) {
+      info.isBuiltin = true;
+    }
+    return info;
+  });
+
+  const taggedTemplates = searchFor(
+    sourceFile,
+    SyntaxKind.TaggedTemplateExpression
+  ) as ts.TaggedTemplateExpression[];
+  const taggedTemplateCalls = taggedTemplates.map((node) => {
+    const calleeInfo = resolveCallee(node.tag, sourceFile);
+    const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
+    const info: FunctionCallInfo = {
+      name: calleeInfo.name,
+      args: [],
+      pos: node.pos + leadingTriviaWidth,
+      end: node.end,
+      filename,
+      callKind: 'tagged-template',
+    };
+    applyCalleeInfo(info, calleeInfo);
+    return info;
+  });
+
+  const jsxOpenings = searchFor(
+    sourceFile,
+    SyntaxKind.JsxOpeningElement
+  ) as ts.JsxOpeningElement[];
+  const jsxSelfClosings = searchFor(
+    sourceFile,
+    SyntaxKind.JsxSelfClosingElement
+  ) as ts.JsxSelfClosingElement[];
+
+  const jsxNodes: Array<ts.JsxOpeningElement | ts.JsxSelfClosingElement> = [
+    ...jsxOpenings,
+    ...jsxSelfClosings,
+  ];
+
+  const jsxCalls = jsxNodes
+    .map((node) => {
+      const tagName = node.tagName as ts.Node;
+      const isSupportedTagName =
+        ts.isIdentifier(tagName) ||
+        ts.isPropertyAccessExpression(tagName) ||
+        tagName.kind === SyntaxKind.ThisKeyword;
+      if (!isSupportedTagName) {
+        return null;
+      }
+      const calleeInfo = resolveCallee(
+        node.tagName as unknown as ts.Expression,
+        sourceFile
+      );
+      if (!shouldIncludeJsxTag(calleeInfo.name)) {
+        return null;
+      }
+
+      const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
+      const info: FunctionCallInfo = {
+        name: calleeInfo.name,
+        args: extractJsxArgs(node.attributes, sourceFile),
+        pos: node.pos + leadingTriviaWidth,
+        end: node.end,
+        filename,
+        callKind: 'jsx-component',
+      };
+      applyCalleeInfo(info, calleeInfo);
+      return info;
+    })
+    .filter((call): call is FunctionCallInfo => !!call);
+
+  return callExpressionCalls
+    .concat(constructorCalls)
+    .concat(taggedTemplateCalls)
+    .concat(jsxCalls)
+    .sort((left, right) => left.pos - right.pos || left.end - right.end);
 };
 
 const extractFileMapping = (

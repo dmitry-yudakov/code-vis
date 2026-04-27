@@ -1,762 +1,531 @@
 # JS/TS Analyzer Improvement Plan
 
 **Created:** November 11, 2025  
-**Status:** Planning Phase
+**Last Revised:** April 27, 2026  
+**Status:** Implemented
 
 ## Overview
 
-This document outlines a comprehensive plan to improve function call detection in the JavaScript/TypeScript analyzer, addressing critical gaps in JSX/React support and modern JavaScript patterns.
+This document revises the original analyzer improvement plan to make it safe to ship without breaking current consumers.
+
+The main constraint is that the current UI and downstream logic match calls by `FunctionCallInfo.name`. That field must remain backward-compatible while the analyzer learns richer call shapes.
+
+## Goals
+
+1. Detect more real call-like constructs in JS/TS and TSX.
+2. Preserve the current meaning of `FunctionCallInfo.name` for existing consumers.
+3. Add optional metadata for richer context instead of replacing existing fields.
+4. Roll changes out in small phases with regression coverage in both server and web layers.
+
+## Non-Goals
+
+1. Do not change `FunctionCallInfo.name` from terminal callable name to full chain in the first rollout.
+2. Do not treat lowercase JSX intrinsic tags like `div` and `span` as function calls.
+3. Do not bundle export-graph work into the first call-detection rollout.
+4. Do not require TypeScript type-checker integration for this phase.
 
 ---
 
 ## Current Gaps Summary
 
-### Critical (High Priority)
-1. **JSX Elements** - Not detected as function calls (React components)
-2. **Constructor Calls** - `new MyClass()` not detected
+### Critical
+1. **JSX component usage** - `<Button />` and `<Layout.Header />` are not detected.
+2. **Constructor calls** - `new MyClass()` is not detected.
 
-### Important (Medium Priority)
-3. **Property Access Chains** - Only captures method name, loses object context
-4. **Tagged Template Literals** - styled-components, SQL templates not detected
+### Important
+3. **Call context** - `obj.method()` is reduced to `method`, so receiver context is lost.
+4. **Tagged templates** - `styled.button\`...\`` and `sql\`...\`` are not detected.
 
-### Nice to Have (Lower Priority)
-5. **Optional Chaining Calls** - `obj?.method()` 
-6. **Indirect/Computed Calls** - `(func)()`, `arr[0]()`
+### Nice to Have
+5. **Optional chaining calls** - `obj?.method?.()` lacks explicit metadata.
+6. **Indirect/computed calls** - `(fn)()` and `arr[0]()` are not represented consistently.
+
+---
+
+## Compatibility Constraints
+
+The current analyzer and UI rely on these assumptions:
+
+1. `FunctionCallInfo.name` is the terminal callable identifier used for matching against imports and declarations.
+2. `FileMapping` is mirrored in both server and web type definitions.
+3. Existing snapshots and UI filters assume a stable payload shape.
+
+That means the first implementation must extend the data model, not redefine it.
+
+---
+
+## Data Model Decision
+
+### Existing field that stays stable
+
+```typescript
+interface FunctionCallInfo {
+  name: string;      // KEEP: terminal callable name for compatibility
+  filename: string;
+  pos: number;
+  end: number;
+  args: string[];
+}
+```
+
+### Revised non-breaking shape
+
+```typescript
+interface FunctionCallInfo {
+  name: string;               // Stable terminal name: method, Button, Date, sql
+  filename: string;
+  pos: number;
+  end: number;
+  args: string[];
+  calleeText?: string;        // Printable form: console.log, styled.button
+  callChain?: string[];       // Structured path when representable
+  callKind?: 'call' | 'constructor' | 'jsx-component' | 'tagged-template';
+  receiverText?: string;      // console, app.services.db, or synthetic marker
+  receiverKind?: 'identifier' | 'property' | 'element-access' | 'call-result' | 'unknown';
+  isOptional?: boolean;
+  isBuiltin?: boolean;
+}
+```
+
+### Compatibility rules
+
+1. `name` remains the terminal symbol currently used by consumers.
+2. New fields are optional everywhere.
+3. Existing filters should continue to work even if they ignore all new metadata.
+4. Server and web copies of the shared interfaces must be updated together.
+
+### Representation rules
+
+1. `console.log()` -> `name: "log"`, `calleeText: "console.log"`, `callChain: ["console", "log"]`
+2. `new Date()` -> `name: "Date"`, `callKind: "constructor"`, `isBuiltin: true`
+3. `<Button />` -> `name: "Button"`, `callKind: "jsx-component"`
+4. `<Layout.Header />` -> `name: "Header"`, `calleeText: "Layout.Header"`, `callChain: ["Layout", "Header"]`
+5. `styled.button\`...\`` -> `name: "button"`, `calleeText: "styled.button"`, `callKind: "tagged-template"`
+6. `str.trim().toLowerCase()` ->
+   - `trim`: `name: "trim"`, `calleeText: "str.trim"`, `receiverKind: "identifier"`
+   - `toLowerCase`: `name: "toLowerCase"`, `receiverKind: "call-result"`, `calleeText` omitted if a stable string is not available
+
+This avoids inventing unstable placeholders like `"?.toLowerCase"`.
 
 ---
 
 ## Implementation Plan
 
-### Phase 1: JSX Element Detection (CRITICAL)
+### Phase 1: JSX Component Detection
 
-**Objective:** Detect JSX elements as function calls for React codebases
+**Objective:** Detect React-style component usage without polluting results with intrinsic DOM tags.
 
-**SyntaxKind Types to Add:**
-- `JsxOpeningElement` - `<Component>`
-- `JsxSelfClosingElement` - `<Component />`
+**SyntaxKind types:**
+- `JsxOpeningElement`
+- `JsxSelfClosingElement`
 
-**Implementation Steps:**
+**Scope decisions:**
+1. Include component-like tags only.
+2. Exclude lowercase intrinsic tags such as `div`, `span`, and `button`.
+3. Exclude JSX fragments.
+4. Support member-expression components such as `<Layout.Header />`.
 
-1. **Add JSX Element Extraction Function**
-   ```typescript
-   const extractJsxElementCalls = (
-     filename: string,
-     sourceFile: ts.SourceFile
-   ): FunctionCallInfo[] => {
-     // Search for opening elements: <Component>
-     const openingElements = searchFor(sourceFile, SyntaxKind.JsxOpeningElement);
-     
-     // Search for self-closing elements: <Component />
-     const selfClosingElements = searchFor(sourceFile, SyntaxKind.JsxSelfClosingElement);
-     
-     return [...openingElements, ...selfClosingElements]
-       .map(node => ({
-         name: node.tagName.escapedText || node.tagName.getText(),
-         args: extractJsxAttributes(node), // Convert JSX props to args
-         pos: node.pos + (node.getLeadingTriviaWidth?.() || 0),
-         end: node.end,
-         filename,
-         isJsx: true // Flag to distinguish JSX calls
-       }));
-   };
-   ```
+**Detection rule:**
+Treat a JSX tag as a component call only when the terminal segment is component-like, meaning it starts with an uppercase letter.
 
-2. **Handle JSX Attributes as Arguments**
-   ```typescript
-   const extractJsxAttributes = (node: JsxElement): string[] => {
-     // Convert <Component prop1="value" prop2={expr} /> 
-     // to argument list representation
-     return node.attributes.properties.map(attr => {
-       if (attr.initializer) {
-         return attr.initializer.text || 'EXPR:...';
-       }
-       return 'true'; // Boolean props without value
-     });
-   };
-   ```
-
-3. **Integrate into `extractFunctionCalls`**
-   ```typescript
-   const extractFunctionCalls = (filename: string, sourceFile: ts.SourceFile): FunctionCallInfo[] => {
-     const regularCalls = searchFor(sourceFile, SyntaxKind.CallExpression)...;
-     const jsxCalls = extractJsxElementCalls(filename, sourceFile);
-     
-     return [...regularCalls, ...jsxCalls].sort((a, b) => a.pos - b.pos);
-   };
-   ```
-
-**Edge Cases to Handle:**
-- JSX fragments: `<>...</>`
-- Namespaced components: `<Component.Subcomponent>`
-- Member expressions: `<obj.Component>`
-- Intrinsic elements: `<div>`, `<span>` (lowercase HTML tags)
-
-**Test Cases:**
+**Planned output examples:**
 ```typescript
-test('JSX opening element', () => {
+<Button onClick={handler} />
+// { name: 'Button', callKind: 'jsx-component', args: ['EXPR:onClick...'] }
+
+<Layout.Header />
+// {
+//   name: 'Header',
+//   calleeText: 'Layout.Header',
+//   callChain: ['Layout', 'Header'],
+//   callKind: 'jsx-component'
+// }
+```
+
+**Tests:**
+```typescript
+test('JSX component', () => {
   const content = `<Button onClick={handler}>Click</Button>`;
-  // Should detect Button as function call
+  // Should detect Button
 });
 
-test('JSX self-closing element', () => {
-  const content = `<Input value={val} onChange={fn} />`;
-  // Should detect Input as function call
+test('JSX member component', () => {
+  const content = `<Layout.Header />`;
+  // Should detect terminal name Header with callChain ['Layout', 'Header']
 });
 
-test('JSX nested components', () => {
-  const content = `<Container><Header /><Body /></Container>`;
-  // Should detect Container, Header, Body
-});
-
-test('JSX with intrinsic elements', () => {
+test('JSX intrinsic element ignored', () => {
   const content = `<div><span>Text</span></div>`;
-  // Should detect div and span
+  // Should not create FunctionCallInfo entries for div or span
 });
 ```
 
-**Estimated Effort:** 4-6 hours
+**Estimated effort:** 3-5 hours
 
 ---
 
 ### Phase 2: Constructor Call Detection
 
-**Objective:** Detect `new` expressions as function calls
+**Objective:** Detect `new` expressions as call-like nodes.
 
-**SyntaxKind to Add:**
+**SyntaxKind types:**
 - `NewExpression`
 
-**Implementation Steps:**
+**Output rules:**
+1. Keep `name` as the terminal constructor name.
+2. Populate `calleeText` and `callChain` when the constructor is accessed through a property chain.
+3. Set `callKind: 'constructor'`.
+4. Add `isBuiltin` for standard built-ins.
 
-1. **Add Constructor Call Extraction**
-   ```typescript
-   const extractConstructorCalls = (
-     filename: string,
-     sourceFile: ts.SourceFile
-   ): FunctionCallInfo[] => {
-     return searchFor(sourceFile, SyntaxKind.NewExpression)
-       .map(node => {
-         const name = node.expression.escapedText || 
-                     node.expression.name?.escapedText ||
-                     'AnonymousClass';
-         
-         const args = node.arguments?.map(arg => 
-           arg.text || `EXPR:${arg.expression?.escapedText}...` || 'n/a'
-         ) || [];
-         
-         return {
-           name,
-           args,
-           pos: node.pos + (node.getLeadingTriviaWidth?.() || 0),
-           end: node.end,
-           filename,
-           isConstructor: true // Flag for constructor calls
-         };
-       });
-   };
-   ```
-
-2. **Integrate into `extractFunctionCalls`**
-
-**Built-in Constructor Handling:**
-
-Add a list of standard built-in constructors that should be flagged:
+**Examples:**
 ```typescript
-const BUILTIN_CONSTRUCTORS = new Set([
-  'Date', 'Array', 'Object', 'String', 'Number', 'Boolean', 'RegExp',
-  'Map', 'Set', 'WeakMap', 'WeakSet', 'Promise', 'Error', 'TypeError',
-  'RangeError', 'SyntaxError', 'URIError', 'EvalError', 'ArrayBuffer',
-  'DataView', 'Int8Array', 'Uint8Array', // ... etc
-]);
+new MyClass()
+// { name: 'MyClass', callKind: 'constructor', isBuiltin: false }
 
-// Add flag to FunctionCallInfo
-return {
-  name,
-  args,
-  isBuiltin: BUILTIN_CONSTRUCTORS.has(name),
-  isConstructor: true,
-  // ... rest
-};
+new utils.Helper()
+// {
+//   name: 'Helper',
+//   calleeText: 'utils.Helper',
+//   callChain: ['utils', 'Helper'],
+//   callKind: 'constructor'
+// }
 ```
 
-This allows consumers to filter out built-ins if desired, similar to how non-local imports are filtered.
-
-**Test Cases:**
+**Tests:**
 ```typescript
 test('simple constructor call', () => {
   const content = `const obj = new MyClass();`;
-  // Should detect MyClass as constructor call, isBuiltin: false
+  // Should detect MyClass as constructor call
 });
 
 test('builtin constructor', () => {
   const content = `const now = new Date(2025, 10, 11);`;
-  // Should detect Date with 3 arguments, isBuiltin: true
+  // Should detect Date with isBuiltin true
 });
 
 test('namespaced constructor', () => {
   const content = `const obj = new utils.Helper();`;
-  // Should detect utils.Helper, isBuiltin: false
+  // Should detect Helper with calleeText utils.Helper
 });
 ```
 
-**Estimated Effort:** 2-3 hours
+**Estimated effort:** 2-3 hours
 
 ---
 
-### Phase 3: Property Access Chain Tracking
+### Phase 3: Call Context Metadata
 
-**Objective:** Capture full object.method() chains, not just method name
+**Objective:** Add receiver and chain metadata without changing existing call identity.
 
-**Current Behavior:**
+**Why this is separate:**
+The original plan proposed replacing `name` with `obj.method`. That would break current matching behavior in the UI. This phase adds context while keeping old consumers working.
+
+**Rules:**
+1. `name` stays the terminal callable token.
+2. `calleeText` is populated only when a stable textual path is available.
+3. `callChain` is populated only for straightforward identifier/property chains.
+4. Calls on returned values use `receiverKind: 'call-result'` instead of unstable synthetic names.
+
+**Examples:**
 ```typescript
-obj.method() → name: "method" (loses "obj")
-a.b.c.method() → name: "method" (loses "a.b.c")
+console.log('test');
+// {
+//   name: 'log',
+//   calleeText: 'console.log',
+//   receiverText: 'console',
+//   receiverKind: 'identifier',
+//   callChain: ['console', 'log']
+// }
+
+app.services.database.connect();
+// {
+//   name: 'connect',
+//   calleeText: 'app.services.database.connect',
+//   receiverText: 'app.services.database',
+//   callChain: ['app', 'services', 'database', 'connect']
+// }
+
+str.trim().toLowerCase();
+// trim -> name 'trim', calleeText 'str.trim'
+// toLowerCase -> name 'toLowerCase', receiverKind 'call-result'
 ```
 
-**Desired Behavior:**
+**Edge cases:**
+1. `obj['method']()`
+2. `obj.arr[0].method()`
+3. `str.trim().toLowerCase()`
+4. `(factory())()`
+
+**Tests:**
 ```typescript
-obj.method() → name: "obj.method" or { object: "obj", method: "method" }
-a.b.c.method() → name: "a.b.c.method" or chain: ["a", "b", "c", "method"]
-```
-
-**Implementation Steps:**
-
-1. **Update Call Expression Handler**
-   ```typescript
-   const extractFullCallChain = (node: CallExpression): string => {
-     if (node.expression.kind === SyntaxKind.PropertyAccessExpression) {
-       const chain = [];
-       let current = node.expression;
-       
-       // Walk up the property access chain
-       while (current.kind === SyntaxKind.PropertyAccessExpression) {
-         chain.unshift(current.name.escapedText);
-         current = current.expression;
-       }
-       
-       // Add the root identifier
-       if (current.escapedText) {
-         chain.unshift(current.escapedText);
-       }
-       
-       return chain.join('.');
-     }
-     
-     // Fallback to current behavior
-     return node.expression.escapedText || 
-            node.expression?.name?.escapedText;
-   };
-   ```
-
-2. **Update FunctionCallInfo Type** (in types.d.ts)
-   ```typescript
-   interface FunctionCallInfo {
-     name: string;           // Full chain: "obj.method"
-     callChain?: string[];   // Optional: ["obj", "method"]
-     filename: string;
-     pos: number;
-     end: number;
-     args: string[];
-   }
-   ```
-
-**Edge Cases:**
-- Computed property access: `obj['method']()`
-- Chained calls: `obj.method1().method2()`
-- Mix of property and element access: `obj.arr[0].method()`
-
-**Test Cases:**
-```typescript
-test('property access call', () => {
+test('property access call metadata', () => {
   const content = `console.log('test');`;
-  // Should detect name: "console.log"
+  // name should stay 'log'
+  // calleeText should be 'console.log'
 });
 
-test('deep property chain', () => {
+test('deep property chain metadata', () => {
   const content = `app.services.database.connect();`;
-  // Should detect name: "app.services.database.connect"
+  // name should stay 'connect'
+  // callChain should capture the full path
 });
 
-test('chained method calls', () => {
+test('call result receiver', () => {
   const content = `str.trim().toLowerCase();`;
-  // Should detect both "str.trim" and "?.toLowerCase" (from result)
+  // toLowerCase should use receiverKind 'call-result'
 });
 ```
 
-**Estimated Effort:** 3-4 hours
+**Estimated effort:** 3-5 hours
 
 ---
 
-### Phase 4: Tagged Template Literals
+### Phase 4: Tagged Template Detection
 
-**Objective:** Detect tagged template function calls (styled-components, SQL builders)
+**Objective:** Detect tagged template usage as call-like nodes.
 
-**SyntaxKind to Add:**
+**SyntaxKind types:**
 - `TaggedTemplateExpression`
 
-**Implementation Steps:**
+**Output rules:**
+1. `name` remains the terminal tag segment.
+2. `calleeText` and `callChain` are added when the tag is a property chain.
+3. `callKind` is `tagged-template`.
 
-1. **Add Tagged Template Extraction**
-   ```typescript
-   const extractTaggedTemplateCalls = (
-     filename: string,
-     sourceFile: ts.SourceFile
-   ): FunctionCallInfo[] => {
-     return searchFor(sourceFile, SyntaxKind.TaggedTemplateExpression)
-       .map(node => {
-         const name = node.tag.escapedText || 
-                     node.tag.name?.escapedText ||
-                     extractFullCallChain(node.tag);
-         
-         // Template strings are tricky - just mark as TEMPLATE
-         const templateContent = node.template.getText().substring(0, 50);
-         
-         return {
-           name,
-           args: [`TEMPLATE:\`${templateContent}...\``],
-           pos: node.pos + (node.getLeadingTriviaWidth?.() || 0),
-           end: node.end,
-           filename,
-           isTaggedTemplate: true
-         };
-       });
-   };
-   ```
-
-**Test Cases:**
+**Examples:**
 ```typescript
-test('styled component', () => {
-  const content = `const Button = styled.button\`color: red;\`;`;
-  // Should detect "styled.button"
+styled.button`color: red;`
+// {
+//   name: 'button',
+//   calleeText: 'styled.button',
+//   callChain: ['styled', 'button'],
+//   callKind: 'tagged-template'
+// }
+
+sql`SELECT * FROM users`
+// { name: 'sql', callKind: 'tagged-template' }
+```
+
+**Tests:**
+```typescript
+test('styled component tag', () => {
+  const content = "const Button = styled.button`color: red;`;";
+  // Should detect button with calleeText styled.button
 });
 
 test('SQL template', () => {
-  const content = `const query = sql\`SELECT * FROM users\`;`;
-  // Should detect "sql"
-});
-
-test('custom tag function', () => {
-  const content = `const str = myTag\`Hello \${name}\`;`;
-  // Should detect "myTag"
+  const content = "const query = sql`SELECT * FROM users`;";
+  // Should detect sql
 });
 ```
 
-**Estimated Effort:** 2-3 hours
+**Estimated effort:** 2-3 hours
 
 ---
 
-### Phase 5: Optional Chaining & Advanced Patterns
+### Phase 5: Optional Chaining and Advanced Forms
 
-**Objective:** Support modern JavaScript call patterns
+**Objective:** Add consistent metadata for modern call patterns.
 
-**Implementation Steps:**
+**Scope:**
+1. Optional chaining calls
+2. Parenthesized calls
+3. Element-access calls
 
-1. **Optional Chaining**
-   - Already handled by CallExpression if expression is PropertyAccessExpression
-   - May need to check for QuestionDotToken
-   - Extract with optional indicator: `obj?.method` vs `obj.method`
+**Representation rules:**
+1. `user?.getName?.()` keeps `name: 'getName'` and sets `isOptional: true`.
+2. `callbacks[0]()` may use `receiverKind: 'element-access'` and omit `callChain` if the expression is not a clean identifier chain.
+3. `(getCallback())()` uses `receiverKind: 'call-result'`.
 
-2. **Indirect Calls**
-   ```typescript
-   // ParenthesizedExpression: (func)()
-   // ElementAccessExpression: arr[0](), obj['method']()
-   
-   const extractIndirectCalls = (node: CallExpression): string => {
-     if (node.expression.kind === SyntaxKind.ParenthesizedExpression) {
-       return extractFromParenthesized(node.expression);
-     }
-     if (node.expression.kind === SyntaxKind.ElementAccessExpression) {
-       return extractFromElementAccess(node.expression);
-     }
-     // ... existing logic
-   };
-   ```
-
-**Test Cases:**
+**Tests:**
 ```typescript
 test('optional chaining call', () => {
   const content = `user?.getName?.();`;
-  // Should detect getName with optional marker
+  // Should detect getName with isOptional true
 });
 
 test('array element call', () => {
   const content = `callbacks[0]();`;
-  // Should detect as callbacks[0] or similar
+  // Should detect a call with receiverKind element-access
 });
 
-test('parenthesized call', () => {
+test('parenthesized call result', () => {
   const content = `(getCallback())();`;
-  // Should detect the call
+  // Should detect a call with receiverKind call-result
 });
 ```
 
-**Estimated Effort:** 2-3 hours
+**Estimated effort:** 2-4 hours
 
 ---
 
-### Phase 6: Testing & Documentation
+### Phase 6: Test and Consumer Validation
 
-**Test Coverage Goals:**
-- ✅ All new call patterns have positive tests
-- ✅ Edge cases covered (nested, chained, mixed)
-- ✅ Snapshot tests updated
-- ✅ Performance tests (large files with many JSX elements)
+**Objective:** Prevent analyzer improvements from silently breaking the UI or payload contract.
 
-**Documentation Updates:**
+**Required coverage:**
+1. Positive analyzer tests for each new pattern.
+2. Negative tests for excluded JSX intrinsic tags.
+3. Snapshot updates only after targeted assertions exist.
+4. Contract checks for both copies of shared types.
+5. At least one consumer-level check for filtering logic that currently uses `fc.name`.
 
-1. **Update JS_ANALYZER_TECH_DOC.md:**
-   - Add section on JSX call detection
-   - Document new FunctionCallInfo properties
-   - List all supported call patterns
-   - Add examples for each pattern
+**Files that must be reviewed together:**
+1. `server/src/types.d.ts`
+2. `web/src/types.d.ts`
+3. `server/src/analyzers/js.test.ts`
+4. `web/src/components/LogicMap.tsx`
+5. `web/src/components/FilesMapping.tsx`
 
-2. **Update Known Limitations:**
-   - Remove fixed items
-   - Add any new limitations discovered
+**Documentation updates:**
+1. Update `JS_ANALYZER_TECH_DOC.md` to document the revised shape.
+2. Add migration notes that `name` remains stable and new fields are optional.
+3. List excluded JSX intrinsic tags as an intentional limitation.
 
-3. **Add Migration Notes:**
-   - Breaking changes (if any)
-   - New data structure fields
-   - Backward compatibility considerations
-
-**Estimated Effort:** 3-4 hours
+**Estimated effort:** 3-4 hours
 
 ---
 
-## Implementation Order (Recommended)
+## Delivery Order
 
-### Sprint 1 (High Priority - Core Call Detection)
-1. **Phase 1: JSX Elements** - Most critical for React codebases
-2. **Phase 2: Constructor Calls** - Common pattern, easy win, includes built-in flagging
-3. **Phase 8a: Tests for Phase 1-2** - Ensure quality
+### Sprint 1: Safe Call Coverage ✓
+1. Phase 1: JSX component detection ✓
+2. Phase 2: Constructor detection ✓
+3. Phase 6a: Targeted tests for phases 1-2 ✓
 
-### Sprint 2 (Medium Priority - Improve Context)
-4. **Phase 3: Property Chains** - Improves context for method calls
-5. **Phase 4: Tagged Templates** - Important for styled-components users
-6. **Phase 8b: Tests for Phase 3-4** - Ensure quality
+### Sprint 2: Richer Metadata ✓
+4. Phase 3: Call context metadata ✓
+5. Phase 4: Tagged template detection ✓
+6. Phase 6b: Consumer validation for `name` compatibility ✓
 
-### Sprint 3 (Complete the Graph)
-7. **Phase 7: Export Detection** - Completes import/export relationships
-8. **Phase 5: Advanced Patterns** - Optional chaining, indirect calls
-9. **Phase 8c: Tests for Phase 5-7** - Ensure quality
+### Sprint 3: Advanced Forms ✓
+7. Phase 5: Optional chaining and advanced call forms ✓
+8. Phase 6c: Snapshot refresh and documentation updates ✓
 
-### Sprint 4 (Polish & Document)
-10. **Phase 9: Final Documentation** - Update all docs with new features
-
----
-
-## Total Estimated Effort
-
-- **Phase 1 (JSX):** 4-6 hours
-- **Phase 2 (Constructors):** 2-3 hours
-- **Phase 3 (Property Chains):** 3-4 hours
-- **Phase 4 (Tagged Templates):** 2-3 hours
-- **Phase 5 (Advanced):** 2-3 hours
-- **Phase 7 (Exports):** 4-6 hours
-- **Phase 8 (Testing):** 4-5 hours
-- **Phase 9 (Documentation):** 2-3 hours
-
-**Total: 23-33 hours** (3-4 full work days)
+### Deferred Track: Export Graph Work
+Export detection is valuable, but it expands `FileMapping` and affects more consumers. It should be implemented as a separate follow-up after the call-shape rollout is stable.
 
 ---
 
-## Breaking Changes & Migration
+## Rollout Strategy
 
-### Potential Breaking Changes:
+### Step 1: Analyzer-first, non-breaking payload
+Ship new optional metadata while preserving existing fields and matching behavior.
 
-1. **More function calls detected** - Consumers expecting only explicit calls may see JSX elements now
-2. **Name format changes** - Property chains now include full path (`obj.method` vs `method`)
-3. **New optional fields** - `isJsx`, `isConstructor`, `isTaggedTemplate`, `callChain`
+### Step 2: Consumer review
+Confirm the web UI continues to work when ignoring all new fields.
 
-### Migration Strategy:
+### Step 3: Consumer enhancement
+Optionally teach the UI to display or use `calleeText`, `callChain`, and `callKind`.
 
-- Add feature flags for backward compatibility
-- Version the output format
-- Provide data transformation helpers
-- Update all consumers in the same release
+### Step 4: Separate export-detection plan
+Only after the above is stable, introduce `exports` into `FileMapping` in a separate change.
+
+If feature flags are needed, gate only the new metadata population or UI usage. Do not gate the existing `name` semantics.
+
+---
+
+## Estimated Effort
+
+- **Phase 1 (JSX components):** 3-5 hours
+- **Phase 2 (constructors):** 2-3 hours
+- **Phase 3 (call metadata):** 3-5 hours
+- **Phase 4 (tagged templates):** 2-3 hours
+- **Phase 5 (advanced forms):** 2-4 hours
+- **Phase 6 (tests and consumer validation):** 3-4 hours
+
+**Total:** 15-24 hours
+
+This excludes the deferred export-detection track.
+
+---
+
+## Breaking Changes and Migration
+
+### Planned breaking changes
+
+None in the initial rollout.
+
+### Additive changes
+
+1. More calls will be detected.
+2. New optional metadata fields will appear in `FunctionCallInfo`.
+3. Constructors, JSX components, and tagged templates will be distinguishable through `callKind`.
+
+### Migration notes
+
+1. Existing consumers may continue using `name` exactly as today.
+2. Consumers that want richer display can opt into `calleeText` and `callChain`.
+3. Any future change to `FileMapping` shape beyond optional fields should be treated as a separate contract change.
 
 ---
 
 ## Success Metrics
 
-- ✅ All test cases pass
-- ✅ JSX test shows `<Button>`, `<div>` as function calls
-- ✅ Constructor test shows `new MyClass()` detected
-- ✅ Property chain test shows full `obj.method` names
-- ✅ Performance: <10% degradation on large files
-- ✅ Zero regressions in existing functionality
+1. Existing consumers continue to match calls by `name` with no logic change required.
+2. `<Button />` and `<Layout.Header />` are detected.
+3. Lowercase intrinsic JSX tags remain excluded.
+4. `new MyClass()` and `new utils.Helper()` are detected.
+5. `console.log()` and `styled.button\`...\`` expose richer metadata without changing `name`.
+6. Performance regression stays below 10% on representative files.
+7. Existing analyzer behavior outside the targeted cases does not regress.
 
 ---
 
 ## Risk Assessment
 
-### Low Risk:
-- Constructor calls - straightforward addition
-- Tagged templates - isolated feature
+### Low Risk
+1. Constructor detection
+2. Tagged template detection
 
-### Medium Risk:
-- Property chains - Changes existing behavior, may affect consumers
-- JSX elements - Complex, many edge cases
+### Medium Risk
+1. JSX component detection because TSX has several tag shapes
+2. Optional chaining and computed calls because representation gets ambiguous quickly
 
-### High Risk:
-- None identified
+### High Risk
+1. Any change that alters the meaning of `FunctionCallInfo.name`
+2. Any change that expands `FileMapping` in a way that server and web do not adopt together
 
-### Mitigation:
-- Comprehensive test coverage before implementation
-- Feature flags for gradual rollout
-- Run against real-world codebases for validation
-
----
-
-## Already Supported (No Work Needed) ✅
-
-These patterns are **already working** in the current implementation:
-
-1. **Import aliases:** `import { a as b } from './m'`
-   - Extracts the alias name (`b`) which is correct for tracking usage
-   
-2. **Namespace imports:** `import * as ns from './m'`
-   - Extracts the namespace identifier (`ns`)
-
-Both are tested and working in `js.test.ts`.
+### Mitigation
+1. Keep `name` stable.
+2. Add only optional metadata in the first rollout.
+3. Update duplicated types in server and web together.
+4. Add consumer-focused checks before relying on new fields.
+5. Keep export detection in a separate follow-up plan.
 
 ---
 
-## Phase 7: Export Detection (RECOMMENDED - Completes the Graph)
+## Deferred Follow-Up: Export Detection
 
-**Objective:** Track what each file exports to validate import/export relationships and detect dead code
+Export detection still makes sense, but it should not be combined with the first call-detection rollout.
 
-**Why This Fits Here:**
-Your tool builds a **complete project call graph**. Currently you track:
-- ✅ What files import (dependencies)
-- ✅ What functions are declared
-- ✅ What functions are called
-- ❌ What files export (missing piece!)
+When revisited, it should answer these questions first:
 
-Without export tracking, you can't:
-- Validate that imports match actual exports
-- Detect exported functions never imported anywhere (dead code)
-- Show complete "provider → consumer" relationships
-- Distinguish between public API (exported) vs internal functions
+1. Should `FileMapping` gain optional `exports`, or should exports live in a separate payload?
+2. Which consumers actually need export data?
+3. How will re-exports and CommonJS exports be represented?
+4. Is this a contract extension or a new API surface?
 
-**Architecture Fit:**
-The `FileMapping` structure naturally extends to include exports:
-```typescript
-interface FileMapping {
-  includes: FileIncludeInfo[];      // What this file imports
-  exports: FileExportInfo[];        // NEW: What this file exports
-  functionDeclarations: FunctionDeclarationInfo[];
-  functionCalls: FunctionCallInfo[];
-}
-```
-
-**SyntaxKind Types to Add:**
-- `ExportAssignment` - `module.exports = ...`, `export = ...`
-- `ExportDeclaration` - `export { a, b }`, `export * from './m'`
-- `ExportSpecifier` - Individual items in export lists
-- Check variable/function declarations with `ExportKeyword` modifier
-
-**Implementation Steps:**
-
-1. **Define Export Info Type** (in types.d.ts)
-   ```typescript
-   export interface FileExportInfo {
-     from: string;           // File doing the export
-     items: string[];        // What's being exported
-     isDefault?: boolean;    // Default export?
-     isReExport?: boolean;   // Re-export from another file?
-     reExportFrom?: string;  // Source file if re-export
-   }
-   ```
-
-2. **Add Export Extraction Function**
-   ```typescript
-   const extractExports = (
-     filename: string,
-     sourceFile: ts.SourceFile
-   ): FileExportInfo[] => {
-     const exports: FileExportInfo[] = [];
-     
-     // ES6 named exports: export { a, b }
-     searchFor(sourceFile, SyntaxKind.ExportDeclaration).forEach(node => {
-       if (node.exportClause?.elements) {
-         const items = node.exportClause.elements.map(
-           el => el.name.escapedText
-         );
-         const reExportFrom = node.moduleSpecifier?.text;
-         
-         exports.push({
-           from: filename,
-           items,
-           isReExport: !!reExportFrom,
-           reExportFrom
-         });
-       }
-     });
-     
-     // ES6 default export: export default ...
-     searchFor(sourceFile, SyntaxKind.ExportAssignment).forEach(node => {
-       // Get name from expression if possible
-       const name = node.expression?.name?.escapedText || 'default';
-       exports.push({
-         from: filename,
-         items: [name],
-         isDefault: true
-       });
-     });
-     
-     // Export declarations: export const x = ..., export function f() {}
-     sourceFile.statements.forEach(statement => {
-       if (statement.modifiers?.some(m => m.kind === SyntaxKind.ExportKeyword)) {
-         const name = extractNameFromStatement(statement);
-         if (name) {
-           exports.push({
-             from: filename,
-             items: [name]
-           });
-         }
-       }
-     });
-     
-     // CommonJS: module.exports = ..., module.exports.x = ...
-     // (More complex - need to find assignments to module.exports)
-     const moduleExports = extractCommonJSExports(sourceFile, filename);
-     exports.push(...moduleExports);
-     
-     return exports;
-   };
-   ```
-
-3. **CommonJS Export Extraction**
-   ```typescript
-   const extractCommonJSExports = (
-     sourceFile: ts.SourceFile,
-     filename: string
-   ): FileExportInfo[] => {
-     const exports: FileExportInfo[] = [];
-     
-     // Find: module.exports = { a, b }
-     // Find: module.exports.something = ...
-     // This requires traversing BinaryExpression with left side matching
-     // module.exports pattern
-     
-     searchFor(sourceFile, SyntaxKind.BinaryExpression)
-       .filter(node => {
-         // Check if left side is module.exports
-         return node.left?.expression?.escapedText === 'module' &&
-                node.left?.name?.escapedText === 'exports';
-       })
-       .forEach(node => {
-         // Extract what's being assigned
-         const items = extractItemsFromExportAssignment(node.right);
-         if (items.length) {
-           exports.push({ from: filename, items });
-         }
-       });
-     
-     return exports;
-   };
-   ```
-
-4. **Integrate into FileMapping**
-   ```typescript
-   const extractFileMapping = (
-     filename: string,
-     content: string,
-     projectFilenames: string[] = []
-   ): FileMapping => {
-     const sourceFile = parseFile(filename, content);
-     
-     const includes = extractIncludes(filename, content, sourceFile);
-     const exports = extractExports(filename, sourceFile); // NEW
-     const functionDeclarations = extractFunctionDeclarations(filename, sourceFile);
-     const functionCalls = extractFunctionCalls(filename, sourceFile);
-     
-     return { includes, exports, functionDeclarations, functionCalls };
-   };
-   ```
-
-5. **Update Project Hierarchy**
-   - Consider adding a project-level export map similar to import hierarchy
-   - Or keep exports in individual file mappings (simpler)
-
-**Edge Cases to Handle:**
-- Re-exports: `export { x } from './other'`
-- Export all: `export * from './other'`
-- Export with rename: `export { x as y }`
-- Default + named exports in same file
-- Destructured exports: `module.exports = { a: func1, b: func2 }`
-- Conditional exports (probably ignore)
-
-**Test Cases:**
-```typescript
-test('ES6 named export', () => {
-  const content = `export const func = () => {};`;
-  // Should detect export of 'func'
-});
-
-test('ES6 default export', () => {
-  const content = `export default function main() {}`;
-  // Should detect default export of 'main'
-});
-
-test('Export list', () => {
-  const content = `
-    const a = 1;
-    const b = 2;
-    export { a, b };
-  `;
-  // Should detect exports of 'a' and 'b'
-});
-
-test('Re-export', () => {
-  const content = `export { func } from './utils';`;
-  // Should detect re-export from './utils'
-});
-
-test('CommonJS module.exports', () => {
-  const content = `module.exports.helper = function() {};`;
-  // Should detect export of 'helper'
-});
-
-test('CommonJS object export', () => {
-  const content = `module.exports = { a: funcA, b: funcB };`;
-  // Should detect exports of 'a' and 'b'
-});
-```
-
-**Benefits for Your Call Graph:**
-1. **Validation**: Verify imports match actual exports
-2. **Dead Code Detection**: Find exported but never imported items
-3. **Complete Graph**: Show full provider/consumer relationships
-4. **API Surface**: Distinguish public (exported) vs internal functions
-5. **Refactoring Safety**: Know what's part of public API before changing
-
-**Integration with UI:**
-```typescript
-// In generateConnections():
-const exportedItems = new Set(mapping.exports.flatMap(exp => exp.items));
-const includedItems = new Set(mapping.includes.flatMap(incl => incl.items));
-
-// Now you can:
-// - Show if a function call is to an exported function (public API)
-// - Warn if importing something that's not exported
-// - Highlight dead exports (exported but never imported anywhere)
-```
-
-**Estimated Effort:** 4-6 hours
+Until those are decided, export detection stays out of scope for this document.
 
 ---
 
-## Future Enhancements (Beyond This Plan)
+## Already Supported
 
-### Nice to Have:
+These patterns are already covered and do not need special new work:
 
-2. **Type-aware call detection** - Use TypeScript type checker
-3. **React Hook detection** - Identify custom hooks
-4. **Dynamic import()** calls
-5. **Decorator invocations**
-6. **Generator/async iterator calls**
-7. **Call graph visualization** - Map caller → callee relationships
+1. Import aliases such as `import { a as b } from './m'`
+2. Namespace imports such as `import * as ns from './m'`
+
+---
+
+## Future Enhancements
+
+1. Type-aware call resolution using the TypeScript type checker
+2. Dynamic `import()` detection
+3. Decorator invocation tracking
+4. React hook-specific analysis
+5. Full caller-to-callee graph resolution beyond local syntax extraction
 
 ---
 

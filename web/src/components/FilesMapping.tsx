@@ -19,6 +19,10 @@ import {
   funcDeclSlugFromPieces,
 } from '../utils';
 import { CloseButton, FilenamePrettyView, StandoutBar } from '../atoms';
+import {
+  getFunctionCallKindClassName,
+  getFunctionCallTooltip,
+} from './functionCallMetadata';
 import ReactFlow, {
   // ArrowHeadType,
   // Background,
@@ -104,15 +108,17 @@ const FunctionCallView: React.FC<{
   children?: React.ReactNode;
 }> = ({ func, content, children }) => {
   const handleId = funcCallSlug(func);
+  const callKindClassName = getFunctionCallKindClassName(func);
+  const tooltip = getFunctionCallTooltip(func);
 
   const ref = useFuncCall(func);
 
   return (
     <>
-      <div ref={ref} className="handle-wrapper">
+      <div ref={ref} className="handle-wrapper" title={tooltip}>
         <Handle
           type="source"
-          className="func-call-handle"
+          className={`func-call-handle ${callKindClassName}`}
           position={Position.Right}
           id={handleId}
         />

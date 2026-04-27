@@ -74,6 +74,15 @@
   top: -0.5em;
   right: -1em;
 }
+.files-mapping-main .func-call-handle.func-call-kind-constructor {
+  background: #3f6fdb;
+}
+.files-mapping-main .func-call-handle.func-call-kind-jsx-component {
+  background: #d78d1f;
+}
+.files-mapping-main .func-call-handle.func-call-kind-tagged-template {
+  background: #14936e;
+}
 .files-mapping-main .handle-wrapper {
   height: 2px;
   width: 2px;
@@ -92,4 +101,15 @@
 }
 .files-mapping-main .func-call-2 {
   background: rgba(255, 0, 0, 0.05);
+  border-radius: 2px;
+  cursor: help;
+}
+.files-mapping-main .func-call-2.func-call-kind-constructor {
+  background: rgba(63, 111, 219, 0.18);
+}
+.files-mapping-main .func-call-2.func-call-kind-jsx-component {
+  background: rgba(215, 141, 31, 0.2);
+}
+.files-mapping-main .func-call-2.func-call-kind-tagged-template {
+  background: rgba(20, 147, 110, 0.18);
 }

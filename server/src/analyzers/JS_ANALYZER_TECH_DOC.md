@@ -2,7 +2,9 @@
 
 ## Overview
 
-The `js.ts` analyzer is a core module that performs static code analysis on JavaScript and TypeScript files using the TypeScript Compiler API. It extracts file dependencies, function declarations, and function calls to build a comprehensive code structure map.
+The `js.ts` analyzer is a core module that performs static code analysis on JavaScript and TypeScript files using the TypeScript Compiler API. It extracts file dependencies, function declarations, and call-like usages to build a comprehensive code structure map.
+
+Call extraction is compatibility-first: `FunctionCallInfo.name` remains the terminal callable token used by existing consumers, while richer context is provided through optional metadata fields.
 
 ## Primary Functions
 
@@ -80,11 +82,18 @@ The `js.ts` analyzer is a core module that performs static code analysis on Java
 #### `FunctionCallInfo`:
 ```typescript
 {
-  name: string,        // Called function name
+  name: string,        // Terminal callable name (compatibility field)
   filename: string,    // File path
   pos: number,         // Start position in source
   end: number,         // End position in source
-  args: string[]       // Arguments (literals or EXPR: placeholders)
+  args: string[],      // Arguments (literals or EXPR: placeholders)
+  calleeText?: string, // Printable callee form when stable (e.g. console.log)
+  callChain?: string[],
+  callKind?: 'call' | 'constructor' | 'jsx-component' | 'tagged-template',
+  receiverText?: string,
+  receiverKind?: 'identifier' | 'property' | 'element-access' | 'call-result' | 'unknown',
+  isOptional?: boolean,
+  isBuiltin?: boolean
 }
 ```
 
@@ -95,6 +104,14 @@ The `js.ts` analyzer is a core module that performs static code analysis on Java
 4. **Class methods**: `methodName() {}`
 5. **Class property functions**: `propFunc = () => {}`
 6. **Mixed declarations**: `const a = () => {}, b = () => {}`
+
+**Extracted Call-Like Types**:
+1. **Regular calls**: `fn()`, `obj.method()`
+2. **Constructor calls**: `new MyClass()`
+3. **JSX component usage**: `<Button />`, `<Layout.Header />` (component-like tags only)
+4. **Tagged templates**: `styled.button\`...\``, `sql\`...\``
+5. **Optional chaining calls**: `user?.getName?.()`
+6. **Advanced forms**: `obj['method']()`, `callbacks[0]()`, `(getCallback())()`
 
 **Special Handling**:
 - Detects sole vs. multiple variable declarations for arrow functions
@@ -117,7 +134,7 @@ Internal function that extracts both `import` and `require` statements from a pa
 Searches AST for function declarations, arrow functions, and class methods. Returns sorted array by position.
 
 ### `extractFunctionCalls(filename: string, sourceFile: ts.SourceFile): FunctionCallInfo[]`
-Searches AST for call expressions, excluding special cases like `super()`.
+Searches AST for call-like nodes including `CallExpression`, `NewExpression`, JSX opening/self-closing elements, and `TaggedTemplateExpression`, excluding special cases like `super()`.
 
 ### `resolveRelativeIncludePathInPlace(info: FileIncludeInfo): void`
 Converts relative paths (`.`, `..`) to absolute project paths. Mutates the `info.from` property in-place.
@@ -297,9 +314,19 @@ Set `process.env.DEBUG=1` to enable detailed logging in tests.
    class X { [computed]() {} } // May not extract correctly
    ```
 
-5. **Generators/Iterators**: Function detection works, but not specifically marked
+5. **Intrinsic JSX Tags**: Intentionally ignored for call extraction
+  ```jsx
+  <div><span>text</span></div> // No jsx-component entries
+  ```
 
-6. **Decorators**: Not extracted as separate entities
+6. **Call Result Identity**: Calls on call results do not get synthetic full callee text
+  ```javascript
+  str.trim().toLowerCase(); // toLowerCase has receiverKind: 'call-result'
+  ```
+
+7. **Generators/Iterators**: Function detection works, but not specifically marked
+
+8. **Decorators**: Not extracted as separate entities
 
 ---
 
@@ -376,4 +403,4 @@ export default JsAnalyzer;
 
 ---
 
-*Last Updated: November 11, 2025*
+*Last Updated: April 26, 2026*

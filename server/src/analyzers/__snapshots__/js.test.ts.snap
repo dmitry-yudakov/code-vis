@@ -165,22 +165,44 @@ exports[`File mapping async/await functions in class 1`] = `
 Object {
   "functionCalls": Array [
     Object {
+      "args": Array [],
+      "callKind": "constructor",
+      "end": 174,
+      "filename": "src/dir/a.js",
+      "name": "CL",
+      "pos": 166,
+    },
+    Object {
       "args": Array [
         "42",
       ],
+      "callChain": Array [
+        "cl",
+        "propFuncAsync",
+      ],
+      "calleeText": "cl.propFuncAsync",
       "end": 202,
       "filename": "src/dir/a.js",
       "name": "propFuncAsync",
       "pos": 182,
+      "receiverKind": "identifier",
+      "receiverText": "cl",
     },
     Object {
       "args": Array [
         "12",
       ],
+      "callChain": Array [
+        "cl",
+        "methodFuncAsync",
+      ],
+      "calleeText": "cl.methodFuncAsync",
       "end": 232,
       "filename": "src/dir/a.js",
       "name": "methodFuncAsync",
       "pos": 210,
+      "receiverKind": "identifier",
+      "receiverText": "cl",
     },
   ],
   "functionDeclarations": Array [
@@ -229,22 +251,44 @@ exports[`File mapping class functions 1`] = `
 Object {
   "functionCalls": Array [
     Object {
+      "args": Array [],
+      "callKind": "constructor",
+      "end": 132,
+      "filename": "src/dir/a.js",
+      "name": "CL",
+      "pos": 124,
+    },
+    Object {
       "args": Array [
         "42",
       ],
+      "callChain": Array [
+        "cl",
+        "propFunc",
+      ],
+      "calleeText": "cl.propFunc",
       "end": 149,
       "filename": "src/dir/a.js",
       "name": "propFunc",
       "pos": 134,
+      "receiverKind": "identifier",
+      "receiverText": "cl",
     },
     Object {
       "args": Array [
         "12",
       ],
+      "callChain": Array [
+        "cl",
+        "methodFunc",
+      ],
+      "calleeText": "cl.methodFunc",
       "end": 168,
       "filename": "src/dir/a.js",
       "name": "methodFunc",
       "pos": 151,
+      "receiverKind": "identifier",
+      "receiverText": "cl",
     },
   ],
   "functionDeclarations": Array [
@@ -285,19 +329,33 @@ Object {
     },
     Object {
       "args": Array [
-        "EXPR:undefined...",
+        "EXPR:([tm, s], idx) => ( <div key={s + idx}> ...",
       ],
+      "callChain": Array [
+        "history",
+        "map",
+      ],
+      "calleeText": "history.map",
       "end": 370,
       "filename": "src/dir/a.tsx",
       "name": "map",
       "pos": 194,
+      "receiverKind": "identifier",
+      "receiverText": "history",
     },
     Object {
       "args": Array [],
+      "callChain": Array [
+        "tm",
+        "toLocaleTimeString",
+      ],
+      "calleeText": "tm.toLocaleTimeString",
       "end": 288,
       "filename": "src/dir/a.tsx",
       "name": "toLocaleTimeString",
       "pos": 265,
+      "receiverKind": "identifier",
+      "receiverText": "tm",
     },
   ],
   "functionDeclarations": Array [

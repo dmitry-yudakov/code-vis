@@ -12,6 +12,18 @@ export interface FunctionCallInfo {
   pos: number;
   end: number;
   args: string[];
+  calleeText?: string;
+  callChain?: string[];
+  callKind?: 'call' | 'constructor' | 'jsx-component' | 'tagged-template';
+  receiverText?: string;
+  receiverKind?:
+    | 'identifier'
+    | 'property'
+    | 'element-access'
+    | 'call-result'
+    | 'unknown';
+  isOptional?: boolean;
+  isBuiltin?: boolean;
 }
 export interface FunctionDeclarationInfo {
   name: string;
