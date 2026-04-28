@@ -6,6 +6,31 @@ import { ProjectChangeEvent, ProjectConfig } from './types';
 import chokidar from 'chokidar';
 import ignore from 'ignore';
 
+// Builds a filter function that returns true if a project-relative path
+// should be ignored according to any .gitignore file in the tree.
+const buildGitignoreFilter = (absolutePath: string) => {
+  const gitignorePaths = glob.sync('**/.gitignore', {
+    cwd: absolutePath,
+    dot: true,
+    ignore: ['**/node_modules/**'],
+  });
+
+  const filters: Array<{ prefix: string; ig: ReturnType<typeof ignore> }> = [];
+  for (const gitignoreRelPath of gitignorePaths) {
+    const dir = path.dirname(gitignoreRelPath); // '.' for root
+    const prefix = dir === '.' ? '' : dir + '/';
+    const ig = ignore();
+    ig.add(readFileSync(path.join(absolutePath, gitignoreRelPath)).toString());
+    filters.push({ prefix, ig });
+  }
+
+  return (relPath: string) =>
+    filters.some(
+      ({ prefix, ig }) =>
+        relPath.startsWith(prefix) && ig.ignores(relPath.slice(prefix.length))
+    );
+};
+
 export const getProjectFiles = (
   projectPath: string,
   includeMask: string,
@@ -14,31 +39,12 @@ export const getProjectFiles = (
   const absolutePath = path.resolve(projectPath);
   const reAbsPath = new RegExp(`^${absolutePath}/`);
 
-  let files = glob
+  const isIgnored = buildGitignoreFilter(absolutePath);
+
+  return glob
     .sync(path.join(absolutePath, includeMask), { ignore: excludeMask })
-    .map((fullPath) => fullPath.replace(reAbsPath, ''));
-
-  // Find all .gitignore files in the project tree and apply each one
-  // relative to the directory it lives in (mirrors git behaviour).
-  const gitignorePaths = glob.sync('**/.gitignore', {
-    cwd: absolutePath,
-    dot: true,
-    ignore: ['**/node_modules/**'],
-  });
-
-  for (const gitignoreRelPath of gitignorePaths) {
-    const dir = path.dirname(gitignoreRelPath); // '.' for root
-    const prefix = dir === '.' ? '' : dir + '/';
-    const ig = ignore();
-    ig.add(readFileSync(path.join(absolutePath, gitignoreRelPath)).toString());
-
-    files = files.filter((f) => {
-      if (!f.startsWith(prefix)) return true; // outside this .gitignore's scope
-      return !ig.ignores(f.slice(prefix.length));
-    });
-  }
-
-  return files;
+    .map((fullPath) => fullPath.replace(reAbsPath, ''))
+    .filter((f) => !isIgnored(f));
 };
 
 export const openFile = async (filename: string, projectPath: string) => {
@@ -56,18 +62,29 @@ export const saveFile = async (
 };
 
 export const watchDirectory = (
-  path: string,
+  projectPath: string,
   onChange: (e: ProjectChangeEvent) => void
 ) => {
+  const absolutePath = path.resolve(projectPath);
+  const isIgnored = buildGitignoreFilter(absolutePath);
+
   const watcher = chokidar.watch('.', {
-    cwd: path,
+    cwd: absolutePath,
     ignoreInitial: true,
     persistent: true,
+    ignored: (filePath: string) => {
+      // chokidar passes absolute paths; convert to project-relative
+      const prefix = absolutePath + path.sep;
+      if (!filePath.startsWith(prefix)) return false;
+      const relPath = filePath.slice(prefix.length);
+      if (!relPath) return false;
+      return isIgnored(relPath);
+    },
   });
   watcher
-    .on('add', (path) => onChange({ type: 'add', path }))
-    .on('change', (path) => onChange({ type: 'change', path }))
-    .on('unlink', (path) => onChange({ type: 'remove', path }));
+    .on('add', (p) => onChange({ type: 'add', path: p }))
+    .on('change', (p) => onChange({ type: 'change', path: p }))
+    .on('unlink', (p) => onChange({ type: 'remove', path: p }));
 };
 
 const configsPath = path.join(homedir(), '/.code-ai');
