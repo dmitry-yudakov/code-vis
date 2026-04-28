@@ -171,6 +171,78 @@ export const funcDeclSlug = (fd: FunctionDeclarationInfo) =>
 
 export const uniq = (arr: string[]): string[] => Array.from(new Set(arr));
 
+const getDir = (filepath: string): string => {
+  const idx = filepath.lastIndexOf('/');
+  return idx >= 0 ? filepath.slice(0, idx) || '.' : '.';
+};
+
+/**
+ * Collapses file-level includes into directory-level edges.
+ * Self-edges (same source and target directory) are removed.
+ * Items list contains distinct source file basenames.
+ */
+export const groupIncludesByDirectory = (
+  includes: FileIncludeInfo[]
+): FileIncludeInfo[] => {
+  const edgeMap = new Map<string, FileIncludeInfo>();
+  for (const incl of includes) {
+    const fromDir = getDir(incl.from);
+    const toDir = getDir(incl.to);
+    if (fromDir === toDir) continue;
+    const key = `${fromDir}||${toDir}`;
+    if (!edgeMap.has(key)) {
+      edgeMap.set(key, { from: fromDir, to: toDir, items: [] });
+    }
+    const edge = edgeMap.get(key)!;
+    const basename = incl.from.split('/').pop() || incl.from;
+    if (!edge.items.includes(basename)) {
+      edge.items.push(basename);
+    }
+  }
+  return Array.from(edgeMap.values());
+};
+
+/**
+ * Filters includes to only those reachable within `depth` hops from entry-point
+ * files. Entry points are files that are never imported by any other file
+ * (zero in-degree in the dependency graph).
+ */
+export const filterIncludesToEntryPoints = (
+  includes: FileIncludeInfo[],
+  depth: number
+): FileIncludeInfo[] => {
+  const allFrom = new Set(includes.map((i) => i.from));
+  const allTo = new Set(includes.map((i) => i.to));
+
+  // Entry points: files that nothing imports (never appear as `from`)
+  const entryPoints = new Set<string>();
+  for (const to of allTo) {
+    if (!allFrom.has(to)) entryPoints.add(to);
+  }
+  // Also include orphan files (appear as `from` but not `to`) so isolated
+  // modules used only as leaves still show up at depth boundary.
+
+  // BFS: entry points import their `from` files; follow that direction
+  const visible = new Set<string>(entryPoints);
+  let frontier = new Set<string>(entryPoints);
+
+  for (let d = 0; d < depth; d++) {
+    const next = new Set<string>();
+    for (const incl of includes) {
+      if (frontier.has(incl.to) && !visible.has(incl.from)) {
+        visible.add(incl.from);
+        next.add(incl.from);
+      }
+    }
+    frontier = next;
+    if (frontier.size === 0) break;
+  }
+
+  return includes.filter(
+    (incl) => visible.has(incl.from) && visible.has(incl.to)
+  );
+};
+
 export const applyGraphLayout = (
   nodes: Node[] | (() => Node[]),
   edges: Edge[] | (() => Edge[]),

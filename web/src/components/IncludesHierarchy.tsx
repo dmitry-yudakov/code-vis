@@ -9,18 +9,18 @@ import ReactFlow, {
 } from 'react-flow-renderer';
 import { FilenamePrettyView } from '../atoms';
 import { Node, FileIncludeInfo, PositionedNode } from '../types';
-import { includeToGraphTypes, applyGraphLayout } from '../utils';
+import {
+  includeToGraphTypes,
+  applyGraphLayout,
+  groupIncludesByDirectory,
+  filterIncludesToEntryPoints,
+} from '../utils';
 import './IncludesHierarchy.css';
 
-// const calcEdgeWeightBySimilarity = (incl: Include) => {
-//   const {to, from} = incl;
-//   let i = 0;
-//   for(; i < Math.min(to.length, from.length); ++i) {
-//     if(to[i] !== from[i])
-//     break;
-//   }
-//   return i;
-// }
+type ViewMode = 'full' | 'entry' | 'directory';
+
+/** Auto-switch to a summary view when the graph has more nodes than this. */
+const AUTO_SWITCH_THRESHOLD = 30;
 
 const MAX_ITEMS_TO_SHOW = 3;
 const edgeLabel = (items: string[]) => {
@@ -28,6 +28,9 @@ const edgeLabel = (items: string[]) => {
   const extra = items.length - MAX_ITEMS_TO_SHOW;
   return `${items.slice(0, MAX_ITEMS_TO_SHOW).join(', ')}... ${extra} more`;
 };
+
+const countUniqueNodes = (includes: FileIncludeInfo[]): number =>
+  new Set(includes.flatMap((i) => [i.from, i.to])).size;
 
 export const IncludesHierarchy: React.FC<{
   includes: FileIncludeInfo[];
@@ -37,10 +40,29 @@ export const IncludesHierarchy: React.FC<{
     onClose: () => void
   ) => React.ReactElement;
 }> = React.memo(({ includes, renderNodeMenu }) => {
-  console.log('includes', includes);
+  const fileCount = useMemo(() => countUniqueNodes(includes), [includes]);
+
+  const [mode, setMode] = useState<ViewMode>(() =>
+    fileCount > AUTO_SWITCH_THRESHOLD ? 'entry' : 'full'
+  );
+  const [entryDepth, setEntryDepth] = useState(2);
+
+  // If a new (larger) project loads after mount, switch to summary mode
+  useEffect(() => {
+    if (fileCount > AUTO_SWITCH_THRESHOLD && mode === 'full') {
+      setMode('entry');
+    }
+  }, [fileCount]);
+
+  const activeIncludes = useMemo(() => {
+    if (mode === 'directory') return groupIncludesByDirectory(includes);
+    if (mode === 'entry')
+      return filterIncludesToEntryPoints(includes, entryDepth);
+    return includes;
+  }, [includes, mode, entryDepth]);
 
   const { initialNodes, edgesElements } = useMemo(() => {
-    const { nodes, edges } = includeToGraphTypes(includes);
+    const { nodes, edges } = includeToGraphTypes(activeIncludes);
 
     applyGraphLayout(
       nodes,
@@ -59,7 +81,12 @@ export const IncludesHierarchy: React.FC<{
       return {
         id,
         data: {
-          label: <FileView node={node} />,
+          label:
+            mode === 'directory' ? (
+              <DirView label={node.label} />
+            ) : (
+              <FileView node={node} />
+            ),
           node,
         },
         position: { x, y },
@@ -67,7 +94,7 @@ export const IncludesHierarchy: React.FC<{
     });
 
     const edgesElements = edges.map(({ source, target }, idx) => {
-      const items = includes[idx].items;
+      const items = activeIncludes[idx].items;
       const label = edgeLabel(items);
       return {
         id: `${source}-${target}-${idx}`,
@@ -79,7 +106,7 @@ export const IncludesHierarchy: React.FC<{
     });
 
     return { initialNodes, edgesElements };
-  }, [includes]);
+  }, [activeIncludes, mode]);
 
   const [showMenu, setShowMenu] = useState<{
     anchor: HTMLElement | null;
@@ -96,35 +123,84 @@ export const IncludesHierarchy: React.FC<{
     setNodesElements((nds) => applyNodeChanges(changes, nds));
   }, []);
 
-  console.log('generated elements', {
-    nodes: nodesElements,
-    edges: edgesElements,
-  });
+  const visibleCount = useMemo(
+    () => countUniqueNodes(activeIncludes),
+    [activeIncludes]
+  );
+
   return (
     <div className="mapper">
-      <ReactFlow
-        nodes={nodesElements}
-        edges={edgesElements}
-        onNodesChange={onNodesChange}
-        nodesConnectable={false}
-        nodesDraggable={true}
-        // panOnScroll
-        minZoom={0.01}
-        onNodeClick={(e: any, el: any) => {
-          if (el.data) {
-            setShowMenu({
-              anchor: e.currentTarget as HTMLElement,
-              node: el.data.node,
-            });
-          }
-        }}
-      >
-        <Controls />
-      </ReactFlow>
-      {!!showMenu &&
-        renderNodeMenu(showMenu.node.label, showMenu.anchor, () =>
-          setShowMenu(null)
+      <div className="view-mode-toolbar">
+        <span className="view-mode-label">View:</span>
+        <button
+          className={`view-mode-btn${mode === 'full' ? ' active' : ''}`}
+          onClick={() => setMode('full')}
+          title="Show every file"
+        >
+          All files ({fileCount})
+        </button>
+        <button
+          className={`view-mode-btn${mode === 'entry' ? ' active' : ''}`}
+          onClick={() => setMode('entry')}
+          title="Show entry-point files and their dependencies up to the selected depth"
+        >
+          Entry points
+        </button>
+        {mode === 'entry' && (
+          <span className="depth-control">
+            <span className="depth-label">Depth:</span>
+            <button
+              className="depth-btn"
+              onClick={() => setEntryDepth((d) => Math.max(1, d - 1))}
+            >
+              −
+            </button>
+            <span className="depth-value">{entryDepth}</span>
+            <button
+              className="depth-btn"
+              onClick={() => setEntryDepth((d) => d + 1)}
+            >
+              +
+            </button>
+          </span>
         )}
+        <button
+          className={`view-mode-btn${mode === 'directory' ? ' active' : ''}`}
+          onClick={() => setMode('directory')}
+          title="Collapse files into their parent directories"
+        >
+          Directories
+        </button>
+        {mode !== 'full' && (
+          <span className="view-mode-count">
+            showing {visibleCount} of {fileCount} nodes
+          </span>
+        )}
+      </div>
+      <div className="mapper-canvas">
+        <ReactFlow
+          nodes={nodesElements}
+          edges={edgesElements}
+          onNodesChange={onNodesChange}
+          nodesConnectable={false}
+          nodesDraggable={true}
+          minZoom={0.01}
+          onNodeClick={(e: any, el: any) => {
+            if (el.data && mode !== 'directory') {
+              setShowMenu({
+                anchor: e.currentTarget as HTMLElement,
+                node: el.data.node,
+              });
+            }
+          }}
+        >
+          <Controls />
+        </ReactFlow>
+        {!!showMenu &&
+          renderNodeMenu(showMenu.node.label, showMenu.anchor, () =>
+            setShowMenu(null)
+          )}
+      </div>
     </div>
   );
 });
@@ -132,3 +208,15 @@ export const IncludesHierarchy: React.FC<{
 const FileView: React.FC<{ node: Node }> = ({ node }) => (
   <FilenamePrettyView filename={node.label} />
 );
+
+const DirView: React.FC<{ label: string }> = ({ label }) => {
+  const parts = label.split('/');
+  const name = parts[parts.length - 1] || label;
+  const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') + '/' : '';
+  return (
+    <div className="node">
+      <div className="file-path">{parentPath}</div>
+      <div className="file-name">{name}/</div>
+    </div>
+  );
+};

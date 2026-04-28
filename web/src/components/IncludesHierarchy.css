@@ -11,3 +11,101 @@
 .file-ext {
   display: inline-block;
 }
+
+/* Make the mapper a flex column so the toolbar sits above the canvas */
+.mapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.mapper-canvas {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+/* Toolbar */
+.view-mode-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+  font-size: 0.85em;
+  z-index: 10;
+}
+
+.view-mode-label {
+  font-weight: 600;
+  margin-right: 4px;
+  color: #555;
+}
+
+.view-mode-btn {
+  padding: 3px 10px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: inherit;
+  color: #333;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.view-mode-btn:hover {
+  background: #e8e8e8;
+  border-color: #999;
+}
+
+.view-mode-btn.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #fff;
+}
+
+.depth-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.depth-label {
+  color: #555;
+}
+
+.depth-btn {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.depth-btn:hover {
+  background: #e8e8e8;
+}
+
+.depth-value {
+  min-width: 18px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.view-mode-count {
+  margin-left: 8px;
+  color: #888;
+  font-style: italic;
+}
+
