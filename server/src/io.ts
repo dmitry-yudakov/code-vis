@@ -12,7 +12,7 @@ const buildGitignoreFilter = (absolutePath: string) => {
   const gitignorePaths = glob.sync('**/.gitignore', {
     cwd: absolutePath,
     dot: true,
-    ignore: ['**/node_modules/**'],
+    ignore: ['**/node_modules/**', '.git/**'],
   });
 
   const filters: Array<{ prefix: string; ig: ReturnType<typeof ignore> }> = [];
@@ -25,6 +25,8 @@ const buildGitignoreFilter = (absolutePath: string) => {
   }
 
   return (relPath: string) =>
+    relPath === '.git' ||
+    relPath.startsWith('.git/') ||
     filters.some(
       ({ prefix, ig }) =>
         relPath.startsWith(prefix) && ig.ignores(relPath.slice(prefix.length))
