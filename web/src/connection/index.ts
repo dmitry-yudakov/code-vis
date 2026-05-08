@@ -1,4 +1,5 @@
 import { SocketConnection } from './connection';
+import { ChangeSourceRequest, FocusedReviewMap } from '../types';
 
 let connection: SocketConnection | null = null;
 
@@ -64,6 +65,25 @@ export const projectApi = {
       resultType: typeof result,
       isArray: Array.isArray(result),
       length: result ? result.length : 'null/undefined',
+    });
+    return result;
+  },
+
+  /**
+   * Get focused review map (diff or branch-vs-base)
+   */
+  async getFocusedReview(
+    source: ChangeSourceRequest
+  ): Promise<FocusedReviewMap> {
+    console.log('CLIENT: projectApi.getFocusedReview() called', { source });
+    const result = await getConnection().request<FocusedReviewMap>(
+      'mapFocusedReview',
+      { source }
+    );
+    console.log('CLIENT: projectApi.getFocusedReview() received', {
+      changedFiles: result?.changeSet?.files?.length ?? 0,
+      focusedFiles: result?.files?.length ?? 0,
+      includes: result?.includes?.length ?? 0,
     });
     return result;
   },

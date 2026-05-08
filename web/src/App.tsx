@@ -16,7 +16,7 @@ import {
 import lodash from 'lodash';
 import { initConnection, projectApi } from './connection';
 import { History } from './components/History';
-import { FileIncludeInfo, FileMapDetailed } from './types';
+import { ChangeSourceRequest, FileIncludeInfo, FileMapDetailed } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
 import Menu from './atoms/Menu';
@@ -152,6 +152,11 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
 const App: React.FC = () => {
   const navigate = useNavigate();
 
+  const requestFocusedReview = useCallback(
+    (source: ChangeSourceRequest) => projectApi.getFocusedReview(source),
+    []
+  );
+
   const [projectMap, setProjectMap] = useState<FileIncludeInfo[]>([]);
   const [filesMappings, setFilesMappings] = useState<
     Record<string, FileMapDetailed>
@@ -285,6 +290,7 @@ const App: React.FC = () => {
             element={
               <IncludesHierarchy
                 includes={projectMap}
+                requestFocusedReview={requestFocusedReview}
                 renderNodeMenu={(
                   filename: string,
                   anchor: HTMLElement | null,

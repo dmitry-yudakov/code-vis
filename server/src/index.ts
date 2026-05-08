@@ -2,6 +2,12 @@ import { defaultConfig, loadConfiguration } from './io';
 import Project from './project';
 import { broadcast, startServer } from './wsserver';
 
+const getArrayLength = (payload: unknown): number =>
+  Array.isArray(payload) ? payload.length : 0;
+
+const getPayload = (result: { payload: unknown } | void): unknown =>
+  result ? result.payload : undefined;
+
 const args = process.argv.slice(2);
 const projectPath = args[0];
 if (!projectPath) {
@@ -27,20 +33,20 @@ loadConfiguration(projectPath)
           hasPayload: !!(result && result.payload),
           payloadType:
             result && result.payload ? typeof result.payload : 'undefined',
-          payloadLength: result && result.payload ? result.payload.length : 0,
+          payloadLength: getArrayLength(getPayload(result)),
         });
 
         if (result && result.payload) {
           if (ack) {
             // Send via acknowledgment if callback provided
             console.log('Sending mapProject via acknowledgment', {
-              dataLength: result.payload.length,
+              dataLength: getArrayLength(result.payload),
             });
             ack({ success: true, data: result.payload });
           } else {
             // Send as event if no callback
             console.log('Sending mapProject via event', {
-              dataLength: result.payload.length,
+              dataLength: getArrayLength(result.payload),
             });
             socket.emit('projectMap', result.payload);
           }
@@ -61,7 +67,7 @@ loadConfiguration(projectPath)
         console.log('mapFile result', {
           hasResult: !!result,
           hasPayload: !!(result && result.payload),
-          payloadLength: result && result.payload ? result.payload.length : 0,
+          payloadLength: getArrayLength(getPayload(result)),
         });
 
         if (result && result.payload) {
@@ -71,6 +77,28 @@ loadConfiguration(projectPath)
           } else {
             console.log('Sending mapFile via event');
             socket.emit('fileMap', result.payload);
+          }
+        }
+      },
+
+      // Map focused review scope (diff or branch-vs-base)
+      mapFocusedReview: async (socket: any, payload: any, ack?: any) => {
+        console.log('mapFocusedReview handler called', {
+          payload,
+          hasAck: !!ack,
+        });
+
+        const result = await project.processCommand(
+          'mapFocusedReview',
+          payload
+        );
+        if (result && result.payload) {
+          if (ack) {
+            console.log('Sending mapFocusedReview via acknowledgment');
+            ack({ success: true, data: result.payload });
+          } else {
+            console.log('Sending mapFocusedReview via event');
+            socket.emit('focusedReviewMap', result.payload);
           }
         }
       },

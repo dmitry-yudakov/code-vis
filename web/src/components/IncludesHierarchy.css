@@ -109,3 +109,65 @@
   font-style: italic;
 }
 
+.focused-state-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 24px;
+  color: #444;
+  background: linear-gradient(
+    180deg,
+    rgba(248, 251, 255, 0.92) 0%,
+    rgba(244, 244, 244, 0.92) 100%
+  );
+  font-size: 1.05em;
+  pointer-events: none;
+}
+
+.focused-state-error {
+  color: #8f1a1a;
+  background: linear-gradient(180deg, #fff7f7 0%, #fdf0f0 100%);
+}
+
+.react-flow__node-default.focused-node {
+  min-width: 240px;
+}
+
+.react-flow__node-default.focused-node-changed {
+  border: 2px solid #1f7a4d;
+  background: #e9f8ee;
+  box-shadow: 0 3px 8px rgba(31, 122, 77, 0.2);
+}
+
+.react-flow__node-default.focused-node-context {
+  border: 1px solid #9bb6a8;
+  background: #f4f9f6;
+  opacity: 0.86;
+}
+
+.focused-file-node {
+  text-align: left;
+  min-width: 220px;
+}
+
+.focused-reasons {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.focused-reason-chip {
+  display: inline-block;
+  font-size: 0.74em;
+  line-height: 1.2;
+  border: 1px solid #b8c6bf;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #fefefe;
+  color: #2d4035;
+}
+

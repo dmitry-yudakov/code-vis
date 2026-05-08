@@ -36,6 +36,50 @@ export interface FileMapping {
   functionCalls: FunctionCallInfo[];
 }
 
+export type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
+
+export type ChangeSource =
+  | { mode: 'diff' }
+  | { mode: 'branch'; baseRef: string };
+
+export type ChangeSourceRequest =
+  | { mode: 'diff' }
+  | { mode: 'branch'; baseRef?: string };
+
+export interface ChangedFileInfo {
+  filename: string;
+  status: ChangedFileStatus;
+  addedLines?: Array<{ start: number; end: number }>;
+  removedLines?: Array<{ start: number; end: number }>;
+}
+
+export interface ChangeSet {
+  source: ChangeSource;
+  files: ChangedFileInfo[];
+}
+
+export interface RelatedReason {
+  type:
+    | 'changed'
+    | 'imports-changed'
+    | 'imported-by-changed'
+    | 'function-neighbor';
+  via?: string;
+}
+
+export interface FocusedFileInfo {
+  filename: string;
+  reasons: RelatedReason[];
+  isChanged: boolean;
+  changeStatus?: ChangedFileStatus;
+}
+
+export interface FocusedReviewMap {
+  changeSet: ChangeSet;
+  files: FocusedFileInfo[];
+  includes: FileIncludeInfo[];
+}
+
 export interface FileMapDetailed {
   content: string;
   mapping: FileMapping;
