@@ -31,7 +31,18 @@ class Project {
 **Commands**:
 - `mapProject` → `FileIncludeInfo[]`
 - `mapFile({ filename, includeRelated })` → `FileMapDetailed[]`
+- `mapFocusedReview({ source })` → `FocusedReviewMap`
 - `saveFile({ filename, content, pos?, end? })` → writes file
+
+### Focused Review Mapping
+
+`mapFocusedReview` builds a smaller graph for review workflows:
+
+- `source: { mode: 'diff' }` uses `git status --porcelain` and includes local uncommitted and untracked files.
+- `source: { mode: 'branch', baseRef?: string }` finds a merge base between `HEAD` and the base ref, then runs `git diff --name-status --find-renames <merge-base> HEAD`.
+- If `baseRef` is omitted, the server tries `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master`, then falls back to `master`.
+
+The response includes changed files, their statuses (`added`, `modified`, `deleted`, `renamed`), one-hop dependency neighbors, and only dependency edges where both endpoints are in the focused file set. Related files are marked with reasons such as `imports-changed` or `imported-by-changed`.
 
 ## WebSocket Server (`src/wsserver.ts`)
 

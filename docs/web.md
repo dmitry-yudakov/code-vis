@@ -32,6 +32,7 @@ Exposed via `ProjectDataContext`. `FileScreen` sub-component holds local state f
 ```typescript
 projectApi.getProjectMap(): Promise<FileIncludeInfo[]>
 projectApi.getFileMap(filename: string, includeRelated: boolean): Promise<FileMapDetailed[]>
+projectApi.getFocusedReview(source: ChangeSourceRequest): Promise<FocusedReviewMap>
 projectApi.saveFile(filename, content, pos?, end?): Promise<any>
 projectApi.onProjectChange(handler): () => void
 projectApi.onProjectMap(handler): () => void
@@ -42,17 +43,35 @@ projectApi.onFileMap(handler): () => void
 
 | Component | File | Notes |
 |-----------|------|-------|
-| `IncludesHierarchy` | `components/IncludesHierarchy.tsx` | react-flow graph of file deps |
+| `IncludesHierarchy` | `components/IncludesHierarchy.tsx` | React Flow graph of file deps, including change-focused review views |
 | `FilesMapping` | `components/FilesMapping.tsx` | File view with CodeMirror + React Flow |
 | `LogicMap` | `components/LogicMap.tsx` | Function-level React Flow graph |
 | `CodeMirror` | `components/CodeMirror.tsx` | Lightweight editor (codemirror@5) |
 | `MonacoEditor` | `components/MonacoEditor.tsx` | Full VS Code editor (for LogicMap) |
+
+## Project Graph Views
+
+`IncludesHierarchy` supports several top-level graph modes:
+
+| Mode | Purpose |
+|------|---------|
+| `All files` | Full project dependency graph |
+| `Diff` | Local uncommitted git changes from `git status --porcelain` |
+| `Branch / PR` | Files changed on the current branch compared with a base ref |
+| `Entry points` | Entry-point summary graph with configurable dependency depth |
+| `Directories` | Dependency graph collapsed to parent directories |
+
+`Diff` and `Branch / PR` are change-focused review modes. They call `projectApi.getFocusedReview()` and render changed files with reason chips. By default they show changed files only; the `+ Context` toggle adds one-hop dependency context: files imported by changed files and files that import changed files.
+
+`Branch / PR` is branch-diff based rather than GitHub API based. The server resolves the base ref, computes a merge base, and compares `merge-base..HEAD`.
 
 ## Data Flows
 
 **Init**: App mounts → Socket.IO connect → `getProjectMap()` → sets `projectMap` → `IncludesHierarchy` renders
 
 **File nav**: click file → `/f/{filename}` → `getFileMap(filename, true)` → sets local state → `FilesMapping` renders
+
+**Change-focused review**: click `Diff` or `Branch / PR` → `getFocusedReview({ mode })` → server returns `FocusedReviewMap` → `IncludesHierarchy` renders changed files and optional one-hop context
 
 **Save**: editor save → `saveFile()` → server writes → chokidar detects → `projectContentChange` broadcast → client increments `forceReloadDep` → reload
 

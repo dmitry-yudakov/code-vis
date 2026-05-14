@@ -11,6 +11,9 @@ socket.emit('mapProject', payload,
 socket.emit('mapFile', { filename: string; includeRelated: boolean },
   (res: { success: boolean; data: FileMapDetailed[] }) => {})
 
+socket.emit('mapFocusedReview', { source: ChangeSourceRequest },
+  (res: { success: boolean; data: FocusedReviewMap }) => {})
+
 socket.emit('saveFile', { filename: string; content: string; pos?: number; end?: number },
   (res: { success: boolean }) => {})
 ```
@@ -20,8 +23,12 @@ Via `projectApi` (high-level, preferred):
 ```typescript
 const map   = await projectApi.getProjectMap()
 const files = await projectApi.getFileMap(filename, true)
+const review = await projectApi.getFocusedReview({ mode: 'diff' })
+const branch = await projectApi.getFocusedReview({ mode: 'branch', baseRef: 'origin/main' })
 await projectApi.saveFile(filename, content, pos?, end?)
 ```
+
+`mapFocusedReview` accepts either `{ mode: 'diff' }` for local uncommitted changes or `{ mode: 'branch', baseRef?: string }` for branch-vs-base review scope. If `baseRef` is omitted, the server tries `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`, and finally falls back to `master`.
 
 ## Server → Client (broadcasts to all clients)
 
@@ -30,6 +37,7 @@ await projectApi.saveFile(filename, content, pos?, end?)
 | `projectContentChange` | `{ type: 'add'\|'change'\|'remove', path: string }` | File system change detected |
 | `projectMap` | `FileIncludeInfo[]` | Server sends updated project hierarchy |
 | `fileMap` | `FileMapDetailed[]` | Server sends file analysis results |
+| `focusedReviewMap` | `FocusedReviewMap` | Server sends change-focused review results when no ack callback is used |
 
 Via `projectApi` subscriptions (each returns an unsubscribe function):
 
@@ -51,9 +59,55 @@ interface ProjectChangeEvent {
   type: 'add' | 'change' | 'remove';
   path: string;
 }
+
+type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
+
+type ChangeSource =
+  | { mode: 'diff' }
+  | { mode: 'branch'; baseRef: string };
+
+type ChangeSourceRequest =
+  | { mode: 'diff' }
+  | { mode: 'branch'; baseRef?: string };
+
+interface ChangedFileInfo {
+  filename: string;
+  status: ChangedFileStatus;
+  addedLines?: Array<{ start: number; end: number }>;
+  removedLines?: Array<{ start: number; end: number }>;
+}
+
+interface ChangeSet {
+  source: ChangeSource;
+  files: ChangedFileInfo[];
+}
+
+interface RelatedReason {
+  type:
+    | 'changed'
+    | 'imports-changed'
+    | 'imported-by-changed'
+    | 'function-neighbor';
+  via?: string;
+}
+
+interface FocusedFileInfo {
+  filename: string;
+  reasons: RelatedReason[];
+  isChanged: boolean;
+  changeStatus?: ChangedFileStatus;
+}
+
+interface FocusedReviewMap {
+  changeSet: ChangeSet;
+  files: FocusedFileInfo[];
+  includes: FileIncludeInfo[];
+}
 ```
 
 See [analyzer.md](analyzer.md) for `FileMapping`, `FunctionCallInfo`, etc.
+
+`FocusedReviewMap.includes` contains only dependency edges where both endpoints are in the focused file set. The focused file set starts with changed files and adds one-hop import neighbors.
 
 ## SocketConnection (`web/src/connection/connection.ts`)
 

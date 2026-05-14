@@ -44,14 +44,23 @@ web/src/connection/          (SocketConnection, projectApi)
     ▼
 web/src/App.tsx              (state: projectMap, filesMappings)
     │
-    ├── IncludesHierarchy    (/ route — project dependency graph)
+    ├── IncludesHierarchy    (/ route — project dependency graph and review scopes)
     ├── FilesMapping         (/f/:filename — file-level view)
     └── LogicMap             (/fine/:filename — function-level view)
 ```
 
+## Review Scopes
+
+The root graph can switch from whole-project exploration to a change-focused review scope:
+
+- `Diff` uses local git status to show uncommitted and untracked changes.
+- `Branch / PR` compares the current branch to a base ref using a local git merge base. The UI name reflects the review workflow, but this path does not currently call a remote PR API.
+
+Both review scopes return a `FocusedReviewMap`: changed files, one-hop import neighbors, and dependency edges between the visible focused files.
+
 ## Shared Types
 
-`FileIncludeInfo`, `FunctionCallInfo`, `FunctionDeclarationInfo`, `FileMapping` are defined in both `server/src/types.d.ts` and `web/src/types.d.ts`. Both copies must be kept identical.
+`FileIncludeInfo`, `FunctionCallInfo`, `FunctionDeclarationInfo`, `FileMapping`, and focused review types (`ChangeSet`, `FocusedReviewMap`, etc.) are defined in both `server/src/types.d.ts` and `web/src/types.d.ts`. Both copies must be kept identical.
 
 ## Configuration
 
