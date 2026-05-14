@@ -38,5 +38,7 @@ cd web && yarn dev
 
 ## Stories
 
+- [Homepage Code Map Lenses](stories/STORY-20260514-homepage-code-map-lenses.md)
+- [Change-Focused Review View](stories/STORY-20260501-change-focused-review-view.md)
 - [JS Analyzer Improvement](stories/STORY-20251111-js-analyzer-improvement.md)
 - [Socket.IO Improvements](stories/STORY-20251111-socket-io-improvements.md)

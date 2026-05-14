@@ -9,7 +9,7 @@ React 19 SPA. Connects to server via Socket.IO, renders interactive graph views.
 
 | Route | Component | Purpose |
 |-------|-----------|---------|
-| `/` | `IncludesHierarchy` | Project-wide file dependency graph |
+| `/` | `IncludesHierarchy` | Lens-based code map workbench (overview/review) |
 | `/f/:filename` | `FilesMapping` | File-level code structure with CodeMirror editor |
 | `/fine/:filename` | `LogicMap` | Function-level graph with Monaco editor |
 
@@ -43,7 +43,7 @@ projectApi.onFileMap(handler): () => void
 
 | Component | File | Notes |
 |-----------|------|-------|
-| `IncludesHierarchy` | `components/IncludesHierarchy.tsx` | React Flow graph of file deps, including change-focused review views |
+| `IncludesHierarchy` | `components/IncludesHierarchy.tsx` | Homepage code map workbench with lens shell, summary, and details panels |
 | `FilesMapping` | `components/FilesMapping.tsx` | File view with CodeMirror + React Flow |
 | `LogicMap` | `components/LogicMap.tsx` | Function-level React Flow graph |
 | `CodeMirror` | `components/CodeMirror.tsx` | Lightweight editor (codemirror@5) |
@@ -51,17 +51,31 @@ projectApi.onFileMap(handler): () => void
 
 ## Project Graph Views
 
-`IncludesHierarchy` supports several top-level graph modes:
+`IncludesHierarchy` is organized around homepage lenses:
 
-| Mode | Purpose |
+| Lens | Purpose |
 |------|---------|
-| `All files` | Full project dependency graph |
+| `Overview` | Architecture-first graph, defaulting to module/directory dependencies with drill-down |
+| `Review current changes` | Changed files (Diff or Branch / PR) as seeds, with explainable context |
+| `Feature focus` | Placeholder for future seed-based exploration |
+| `Impact investigation` | Placeholder for future caller/importer impact tracing |
+
+Inside `Overview`, users can switch between:
+
+| Scope | Purpose |
+|-------|---------|
+| `Modules` | Dependency graph collapsed to parent directories |
+| `Entry points` | Entry-point summary graph with configurable dependency depth |
+| `All files` | Full project dependency graph (kept as alternate navigation view) |
+
+Inside `Review current changes`, users can switch between:
+
+| Scope | Purpose |
+|-------|---------|
 | `Diff` | Local uncommitted git changes from `git status --porcelain` |
 | `Branch / PR` | Files changed on the current branch compared with a base ref |
-| `Entry points` | Entry-point summary graph with configurable dependency depth |
-| `Directories` | Dependency graph collapsed to parent directories |
 
-`Diff` and `Branch / PR` are change-focused review modes. They call `projectApi.getFocusedReview()` and render changed files with reason chips. By default they show changed files only; the `+ Context` toggle adds one-hop dependency context: files imported by changed files and files that import changed files.
+`Review` scopes call `projectApi.getFocusedReview()` and render changed files with reason chips. By default they include one-hop dependency context; `Changed only` hides context for a tighter view.
 
 `Branch / PR` is branch-diff based rather than GitHub API based. The server resolves the base ref, computes a merge base, and compares `merge-base..HEAD`.
 
