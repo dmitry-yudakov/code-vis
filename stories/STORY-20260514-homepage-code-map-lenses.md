@@ -1,7 +1,7 @@
 # Homepage Code Map Lenses
 
 **Created:** May 14, 2026  
-**Status:** Implemented (Phases 1-3 baseline)  
+**Status:** Implemented (Phases 1-3 baseline; Phase 4 declaration focus)
 **Updated:** May 14, 2026
 
 ## Overview
@@ -21,7 +21,7 @@ The first high-value lens should be review-focused: changed code appears promine
 
 ## Implementation Snapshot (May 14, 2026)
 
-Implemented in the web client homepage workbench (`IncludesHierarchy`) with updated homepage styling and docs.
+Implemented in the web client homepage workbench (`IncludesHierarchy`) with updated homepage styling, focused review server projections, and docs.
 
 Delivered:
 
@@ -44,13 +44,18 @@ Delivered:
 5. Explainability is surfaced in UI:
    1. Changed/context styling remains distinct.
    2. Node details show explicit inclusion reasons.
+6. Initial declaration-level review focus is available:
+   1. Git diff hunks are parsed into changed line ranges.
+   2. Changed hunks are mapped to analyzer-visible function/method/arrow declaration ranges.
+   3. Review mode can switch between `Files` and `Declarations`.
+   4. Declaration context includes direct caller/callee relationships with heuristic reason labels.
+   5. Short directed bridge paths between changed declarations are included when the path is explainable.
 
 Not yet delivered in this story:
 
-1. Function/declaration-level changed-hunk focus.
-2. Bridge-path logic between changed declarations.
-3. Test-specific inclusion and styling controls.
-4. Passing focused scopes into edit/agent commands.
+1. Test-specific inclusion and styling controls.
+2. Passing focused scopes into edit/agent commands.
+3. Full declaration-level overview expansion outside the review lens.
 
 ## Problem
 
@@ -298,7 +303,7 @@ This homepage story describes how that view becomes part of the default product 
 1. Phase 1: Complete.
 2. Phase 2: Complete (file-level review lens behavior).
 3. Phase 3: Partial (module overview and module-to-file expansion delivered; declaration-level expansion pending).
-4. Phase 4: Not started.
+4. Phase 4: Complete (changed declaration mapping, direct caller/callee context, and bridge paths delivered).
 5. Phase 5: Not started.
 
 ### Phase 1: Homepage Lens Shell
@@ -400,7 +405,7 @@ Success criteria:
 1. Complete.
 2. Complete.
 3. Complete.
-4. Complete for file-level review nodes.
+4. Complete for file-level and declaration-level review nodes.
 5. Complete for currently visible review and overview nodes.
 6. Complete at module/folder scale.
 7. Complete for module-to-file expansion.
@@ -413,12 +418,13 @@ Success criteria:
 2. File hierarchy remains available as an alternate scope via `Overview -> All files`.
 3. The first overview grouping rule is folder/directory-based modules.
 4. Review mode defaults to showing changed files with one-hop context (`+ Context`).
+5. Review declaration bridge paths are included automatically when they are short directed call chains.
 
 ## Open Questions
 
 1. Should the default lens auto-switch to `Review current changes` when local changes exist?
 2. How many graph expansion depths should be available before the UI becomes noisy?
-3. Should bridge paths be automatic, or should the user enable them when needed?
+3. Should bridge paths get a user-facing off switch when the declaration graph becomes noisy?
 4. How should deleted declarations appear before function-level diff mapping exists?
 5. Should review mode include tests automatically, or expose that as a toggle?
 
@@ -427,7 +433,7 @@ Success criteria:
 Continue this story with the next value-focused sequence:
 
 1. Finish Phase 3 declaration-level expansion behaviors.
-2. Implement Phase 4 function-level review focus.
+2. Add test-specific inclusion and styling controls.
 3. Implement Phase 5 focused-scope handoff for editing and AI workflows.
 
 This moves the product from "browse every file" toward "understand the relevant part of the codebase."

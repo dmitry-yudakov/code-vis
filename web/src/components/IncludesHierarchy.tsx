@@ -18,6 +18,8 @@ import {
   FileIncludeInfo,
   PositionedNode,
   ChangeSourceRequest,
+  FocusedDeclarationInfo,
+  FocusedDeclarationReason,
   FocusedFileInfo,
   FocusedReviewMap,
   RelatedReason,
@@ -34,18 +36,29 @@ import './IncludesHierarchy.css';
 type LensId = 'overview' | 'review' | 'feature' | 'impact';
 type OverviewMode = 'full' | 'entry' | 'directory';
 type ReviewMode = 'diff' | 'branch';
+type ReviewGranularity = 'files' | 'declarations';
 
-type GraphNodeKind = 'file' | 'module';
+type GraphNodeKind = 'file' | 'module' | 'declaration';
 
 type GraphNodeMeta = {
   id: string;
   label: string;
   kind: GraphNodeKind;
+  filename?: string;
+  pos?: number;
+  end?: number;
+  startLine?: number;
+  endLine?: number;
   reasonLabels: string[];
   isChanged: boolean;
   changeStatus?: ChangedFileStatus;
   isDeleted: boolean;
   canOpenFile: boolean;
+};
+
+type GraphConnection = {
+  source: string;
+  target: string;
 };
 
 const LENSES: Array<{
@@ -123,6 +136,32 @@ const reasonLabel = (reason: RelatedReason, info: FocusedFileInfo): string => {
   }
 };
 
+const declarationReasonLabel = (
+  reason: FocusedDeclarationReason,
+  info: FocusedDeclarationInfo
+): string => {
+  switch (reason.type) {
+    case 'changed':
+      return info.changeStatus
+        ? `changed declaration: ${info.changeStatus}`
+        : 'changed declaration';
+    case 'calls-changed':
+      return reason.via
+        ? `calls changed declaration (${reason.via})`
+        : 'calls changed declaration';
+    case 'called-by-changed':
+      return reason.via
+        ? `called by changed declaration (${reason.via})`
+        : 'called by changed declaration';
+    case 'bridge-between-changes':
+      return reason.via
+        ? `bridge between changes (${reason.via})`
+        : 'bridge between changes';
+    default:
+      return reason.type;
+  }
+};
+
 const uniqueLabels = (items: string[]): string[] => Array.from(new Set(items));
 
 export const IncludesHierarchy: React.FC<{
@@ -149,6 +188,8 @@ export const IncludesHierarchy: React.FC<{
   const [activeLens, setActiveLens] = useState<LensId>('overview');
   const [overviewMode, setOverviewMode] = useState<OverviewMode>('directory');
   const [reviewMode, setReviewMode] = useState<ReviewMode>('diff');
+  const [reviewGranularity, setReviewGranularity] =
+    useState<ReviewGranularity>('files');
   const [entryDepth, setEntryDepth] = useState(2);
   const [expandedDirectory, setExpandedDirectory] = useState<string | null>(
     null
@@ -213,6 +254,17 @@ export const IncludesHierarchy: React.FC<{
     return new Map(visibleFiles.map((file) => [file.filename, file]));
   }, [focusedReview, showFocusedContext]);
 
+  const focusedDeclarations = useMemo(() => {
+    if (!focusedReview) return [];
+    if (showFocusedContext) return focusedReview.declarations || [];
+    return (focusedReview.declarations || []).filter((decl) => decl.isChanged);
+  }, [focusedReview, showFocusedContext]);
+
+  const focusedDeclarationIds = useMemo(
+    () => new Set(focusedDeclarations.map((decl) => decl.id)),
+    [focusedDeclarations]
+  );
+
   const activeIncludes = useMemo(() => {
     if (isReviewLens) {
       if (!focusedReview) return [];
@@ -252,7 +304,114 @@ export const IncludesHierarchy: React.FC<{
   const directoryOverview =
     !isReviewLens && overviewMode === 'directory' && !expandedDirectory;
 
-  const { initialNodes, edgesElements, nodeMetaById } = useMemo(() => {
+  const declarationReview =
+    isReviewLens && reviewGranularity === 'declarations';
+
+  const { initialNodes, edgesElements, nodeMetaById, connectionEdges } = useMemo(() => {
+    if (declarationReview && focusedReview) {
+      const nodes = focusedDeclarations.map((decl) => ({
+        id: decl.id,
+        label: decl.name,
+      })) as PositionedNode[];
+      const declarationEdges = (focusedReview.declarationCalls || []).filter(
+        (edge) =>
+          focusedDeclarationIds.has(edge.from) &&
+          focusedDeclarationIds.has(edge.to)
+      );
+      const layoutEdges = declarationEdges.map((edge) => ({
+        source: edge.from,
+        target: edge.to,
+      }));
+
+      if (nodes.length > 0) {
+        applyGraphLayout(
+          nodes,
+          layoutEdges,
+          (n, x, y) => {
+            const p = n as PositionedNode;
+            p.x = x;
+            p.y = y;
+          },
+          280,
+          140,
+          'LR'
+        );
+      }
+
+      const positionedById = new Map(nodes.map((node) => [node.id, node]));
+      const nodeMetaById = new Map<string, GraphNodeMeta>();
+      const initialNodes = focusedDeclarations.map((decl) => {
+        const positioned = positionedById.get(decl.id);
+        const isBridge = decl.reasons.some(
+          (reason) => reason.type === 'bridge-between-changes'
+        );
+        const reasonLabels = uniqueLabels(
+          decl.reasons.map((reason) => declarationReasonLabel(reason, decl))
+        );
+
+        nodeMetaById.set(decl.id, {
+          id: decl.id,
+          label: decl.name,
+          kind: 'declaration',
+          filename: decl.filename,
+          pos: decl.pos,
+          end: decl.end,
+          startLine: decl.startLine,
+          endLine: decl.endLine,
+          reasonLabels,
+          isChanged: decl.isChanged,
+          changeStatus: decl.changeStatus,
+          isDeleted: false,
+          canOpenFile: true,
+        });
+
+        return {
+          id: decl.id,
+          className: decl.isChanged
+            ? 'focused-declaration-node focused-declaration-changed'
+            : isBridge
+              ? 'focused-declaration-node focused-declaration-bridge'
+              : 'focused-declaration-node focused-declaration-context',
+          data: {
+            label: <FocusedDeclarationView info={decl} />,
+            node: { id: decl.id, label: decl.filename },
+            isDeleted: false,
+          },
+          position: {
+            x: positioned?.x || 0,
+            y: positioned?.y || 0,
+          },
+        };
+      });
+
+      const edgesElements = declarationEdges.map((edge, idx) => {
+        const isBridge = edge.reasons.some(
+          (reason) => reason.type === 'bridge-between-changes'
+        );
+
+        return {
+          id: edge.id || `${edge.from}-${edge.to}-${idx}`,
+          markerEnd: { type: MarkerType.Arrow },
+          source: edge.from,
+          target: edge.to,
+          label: edge.name,
+          animated: edge.reasons.some((reason) => reason.type === 'calls-changed'),
+          style: isBridge
+            ? { stroke: '#ad7028', strokeDasharray: '6 4', strokeWidth: 2 }
+            : edge.isHeuristic
+              ? { strokeDasharray: '5 4' }
+              : undefined,
+        };
+      });
+
+      const connectionEdges: GraphConnection[] = declarationEdges.map((edge) => ({
+        source: edge.from,
+        target: edge.to,
+      }));
+
+      return { initialNodes, edgesElements, nodeMetaById, connectionEdges };
+    }
+
     const { nodes, edges } = includeToGraphTypes(activeIncludes);
 
     if (isReviewLens && focusedReview) {
@@ -306,6 +465,7 @@ export const IncludesHierarchy: React.FC<{
         id,
         label: node.label,
         kind,
+        filename: kind === 'file' ? node.label : undefined,
         reasonLabels,
         isChanged: !!focusedInfo?.isChanged,
         changeStatus: focusedInfo?.changeStatus,
@@ -348,13 +508,21 @@ export const IncludesHierarchy: React.FC<{
         label,
       };
     });
+    const connectionEdges: GraphConnection[] = edges.map(({ source, target }) => ({
+      source,
+      target,
+    }));
 
-    return { initialNodes, edgesElements, nodeMetaById };
+    return { initialNodes, edgesElements, nodeMetaById, connectionEdges };
   }, [
     activeIncludes,
+    declarationReview,
+    focusedDeclarationIds,
+    focusedDeclarations,
     focusedFilesByName,
     focusedReview,
     isReviewLens,
+    reviewGranularity,
     directoryOverview,
     entryDepth,
     overviewMode,
@@ -363,7 +531,14 @@ export const IncludesHierarchy: React.FC<{
 
   useEffect(() => {
     setShowMenu(null);
-  }, [activeLens, overviewMode, reviewMode, showFocusedContext, expandedDirectory]);
+  }, [
+    activeLens,
+    overviewMode,
+    reviewMode,
+    reviewGranularity,
+    showFocusedContext,
+    expandedDirectory,
+  ]);
 
   useEffect(() => {
     if (initialNodes.length === 0) {
@@ -385,14 +560,14 @@ export const IncludesHierarchy: React.FC<{
     let outgoing = 0;
     const related = new Set<string>();
 
-    for (const edge of activeIncludes) {
-      if (edge.from === selectedNode.label) {
+    for (const edge of connectionEdges) {
+      if (edge.source === selectedNode.id) {
         outgoing++;
-        related.add(edge.to);
+        related.add(nodeMetaById.get(edge.target)?.label || edge.target);
       }
-      if (edge.to === selectedNode.label) {
+      if (edge.target === selectedNode.id) {
         incoming++;
-        related.add(edge.from);
+        related.add(nodeMetaById.get(edge.source)?.label || edge.source);
       }
     }
 
@@ -401,9 +576,9 @@ export const IncludesHierarchy: React.FC<{
       outgoing,
       relatedFiles: Array.from(related).sort((a, b) => a.localeCompare(b)),
     };
-  }, [activeIncludes, selectedNode]);
+  }, [connectionEdges, nodeMetaById, selectedNode]);
 
-  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${showFocusedContext ? 'context' : 'changed'}|${expandedDirectory || ''}`;
+  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${expandedDirectory || ''}`;
   const previousProjectionRef = useRef<string>(projectionKey);
 
   const [nodesElements, setNodesElements] = useState<FlowNode<any>[]>(
@@ -439,12 +614,32 @@ export const IncludesHierarchy: React.FC<{
   }, []);
 
   const visibleCount = useMemo(() => {
+    if (declarationReview) return focusedDeclarations.length;
     if (isReviewLens) return focusedFilesByName.size;
     return initialNodes.length;
-  }, [isReviewLens, focusedFilesByName, initialNodes]);
+  }, [
+    declarationReview,
+    focusedDeclarations,
+    isReviewLens,
+    focusedFilesByName,
+    initialNodes,
+  ]);
 
   const changedCount = focusedReview?.changeSet.files.length || 0;
   const focusedTotalCount = focusedReview?.files.length || 0;
+  const focusedDeclarationTotalCount = focusedReview?.declarations?.length || 0;
+  const changedDeclarationCount =
+    focusedReview?.declarations?.filter((decl) => decl.isChanged).length || 0;
+  const bridgeDeclarationCount =
+    focusedReview?.declarations?.filter(
+      (decl) =>
+        !decl.isChanged &&
+        decl.reasons.some((reason) => reason.type === 'bridge-between-changes')
+    ).length || 0;
+  const bridgeCallCount =
+    focusedReview?.declarationCalls?.filter((edge) =>
+      edge.reasons.some((reason) => reason.type === 'bridge-between-changes')
+    ).length || 0;
   const branchBaseRef =
     reviewMode === 'branch' && focusedReview?.changeSet.source.mode === 'branch'
       ? focusedReview.changeSet.source.baseRef
@@ -457,15 +652,31 @@ export const IncludesHierarchy: React.FC<{
     !!focusedReview &&
     changedCount === 0;
 
+  const showFocusedNoDeclarations =
+    declarationReview &&
+    !focusedLoading &&
+    !focusedError &&
+    !!focusedReview &&
+    changedCount > 0 &&
+    focusedDeclarationTotalCount === 0;
+
   const showFocusedState =
-    isReviewLens && (focusedLoading || !!focusedError || showFocusedNoChanges);
+    isReviewLens &&
+    (focusedLoading ||
+      !!focusedError ||
+      showFocusedNoChanges ||
+      showFocusedNoDeclarations);
 
   const activeLensMeta = LENSES.find((lens) => lens.id === activeLens) || LENSES[0];
+  const reviewScopeText =
+    reviewMode === 'diff'
+      ? 'Reviewing local working-tree changes'
+      : `Reviewing branch changes${branchBaseRef ? ` vs ${branchBaseRef}` : ''}`;
 
   const headerScopeText = isReviewLens
-    ? reviewMode === 'diff'
-      ? 'Reviewing local working-tree changes'
-      : `Reviewing branch changes${branchBaseRef ? ` vs ${branchBaseRef}` : ''}`
+    ? `${reviewScopeText} at ${
+        reviewGranularity === 'declarations' ? 'declaration' : 'file'
+      } level`
     : overviewMode === 'directory'
       ? expandedDirectory
         ? `Overview expanded for ${expandedDirectory}`
@@ -613,6 +824,23 @@ export const IncludesHierarchy: React.FC<{
 
               <div className="segmented-control">
                 <button
+                  className={`segment-btn${reviewGranularity === 'files' ? ' active' : ''}`}
+                  onClick={() => setReviewGranularity('files')}
+                  disabled={focusedLoading || !!focusedError}
+                >
+                  Files
+                </button>
+                <button
+                  className={`segment-btn${reviewGranularity === 'declarations' ? ' active' : ''}`}
+                  onClick={() => setReviewGranularity('declarations')}
+                  disabled={focusedLoading || !!focusedError}
+                >
+                  Declarations
+                </button>
+              </div>
+
+              <div className="segmented-control">
+                <button
                   className={`segment-btn${!showFocusedContext ? ' active' : ''}`}
                   onClick={() => setShowFocusedContext(false)}
                   disabled={focusedLoading || !!focusedError}
@@ -653,8 +881,16 @@ export const IncludesHierarchy: React.FC<{
               )}
               {isReviewLens && (
                 <span>
-                  changed {changedCount}, showing {visibleCount}
-                  {showFocusedContext ? ` of ${focusedTotalCount}` : ''} files
+                  changed {changedCount} files
+                  {declarationReview
+                    ? `, ${changedDeclarationCount} changed declarations, showing ${visibleCount}${
+                        showFocusedContext
+                          ? ` of ${focusedDeclarationTotalCount}`
+                          : ''
+                      } declarations`
+                    : `, showing ${visibleCount}${
+                        showFocusedContext ? ` of ${focusedTotalCount}` : ''
+                      } files`}
                   {branchBaseRef ? ` vs ${branchBaseRef}` : ''}
                 </span>
               )}
@@ -698,6 +934,8 @@ export const IncludesHierarchy: React.FC<{
                   (reviewMode === 'diff'
                     ? 'No local changes.'
                     : `No changes against ${branchBaseRef || 'the base branch'}.`)}
+                {showFocusedNoDeclarations &&
+                  'No changed declarations could be mapped for this change set.'}
               </div>
             )}
             {!!showMenu &&
@@ -732,10 +970,31 @@ export const IncludesHierarchy: React.FC<{
                     {omittedChanged > 0 && (
                       <div className="summary-note">+ {omittedChanged} more changed files</div>
                     )}
+                    <div className="summary-note">
+                      {changedDeclarationCount} changed declarations mapped
+                      {showFocusedContext
+                        ? `, ${focusedDeclarationTotalCount} declarations with direct call context`
+                        : ''}
+                      .
+                    </div>
+                    {declarationReview &&
+                      showFocusedContext &&
+                      bridgeDeclarationCount > 0 && (
+                        <div className="summary-note">
+                          {bridgeDeclarationCount} bridge declarations connect changed declarations
+                          across {bridgeCallCount} call edges.
+                        </div>
+                      )}
+                    {declarationReview && focusedDeclarationTotalCount === 0 && (
+                      <div className="summary-warning">
+                        Declaration focus needs changed hunks that overlap analyzer-visible
+                        functions, methods, or arrow declarations.
+                      </div>
+                    )}
                     {!showFocusedContext && (
                       <div className="summary-warning">
-                        Context is hidden. Enable <strong>+ Context</strong> to include one-hop
-                        import neighbors.
+                        Context is hidden. Enable <strong>+ Context</strong> to include direct
+                        {declarationReview ? ' declaration callers and callees.' : ' import neighbors.'}
                       </div>
                     )}
                   </>
@@ -774,6 +1033,13 @@ export const IncludesHierarchy: React.FC<{
               <div className="details-node-name">
                 {selectedNode.kind === 'module' ? (
                   <div className="module-name">{selectedNode.label}</div>
+                ) : selectedNode.kind === 'declaration' ? (
+                  <div className="declaration-name">
+                    <strong>{selectedNode.label}</strong>
+                    {selectedNode.filename && (
+                      <span>{selectedNode.filename}</span>
+                    )}
+                  </div>
                 ) : (
                   <FilenamePrettyView filename={selectedNode.label} />
                 )}
@@ -793,6 +1059,15 @@ export const IncludesHierarchy: React.FC<{
                   <>
                     <span>Change status</span>
                     <strong>{selectedNode.changeStatus}</strong>
+                  </>
+                )}
+
+                {selectedNode.startLine && selectedNode.endLine && (
+                  <>
+                    <span>Lines</span>
+                    <strong>
+                      {selectedNode.startLine}-{selectedNode.endLine}
+                    </strong>
                   </>
                 )}
               </div>
@@ -866,6 +1141,34 @@ const FocusedFileView: React.FC<{ info: FocusedFileInfo }> = ({ info }) => (
           title={reasonLabel(reason, info)}
         >
           {reasonLabel(reason, info)}
+        </span>
+      ))}
+    </div>
+  </div>
+);
+
+const FocusedDeclarationView: React.FC<{ info: FocusedDeclarationInfo }> = ({
+  info,
+}) => (
+  <div className="focused-declaration-view">
+    <div className="declaration-node-title">
+      <strong>{info.name}</strong>
+      <span>{info.args.length > 0 ? `(${info.args.join(', ')})` : '()'}</span>
+    </div>
+    <div className="declaration-node-file">
+      {info.filename}
+      {info.startLine && info.endLine
+        ? `:${info.startLine}-${info.endLine}`
+        : ''}
+    </div>
+    <div className="focused-reasons">
+      {info.reasons.map((reason, idx) => (
+        <span
+          key={`${reason.type}-${reason.via || idx}`}
+          className={`focused-reason-chip reason-${reason.type}`}
+          title={declarationReasonLabel(reason, info)}
+        >
+          {declarationReasonLabel(reason, info)}
         </span>
       ))}
     </div>

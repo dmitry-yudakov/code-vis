@@ -7,8 +7,13 @@ import {
   ChangedFileStatus,
   FileIncludeInfo,
   FileMapping,
+  FocusedDeclarationCallInfo,
+  FocusedDeclarationInfo,
+  FocusedDeclarationReason,
   FocusedFileInfo,
   FocusedReviewMap,
+  FunctionCallInfo,
+  FunctionDeclarationInfo,
   ProjectChangeEvent,
   ProjectConfig,
   RelatedReason,
@@ -18,6 +23,9 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
+
+const MAX_DECLARATION_BRIDGE_DEPTH = 3;
+const MAX_DECLARATION_BRIDGE_PATHS = 24;
 
 const changeStatusPriority: Record<ChangedFileStatus, number> = {
   modified: 1,
@@ -36,7 +44,7 @@ const mergeChangedFileStatus = (
     !prev ||
     changeStatusPriority[status] >= changeStatusPriority[prev.status]
   ) {
-    map.set(filename, { filename, status });
+    map.set(filename, { ...prev, filename, status });
   }
 };
 
@@ -106,6 +114,305 @@ const parseNameStatusOutput = (output: string): ChangedFileInfo[] => {
 
 const hasReason = (reasons: RelatedReason[], reason: RelatedReason): boolean =>
   reasons.some((item) => item.type === reason.type && item.via === reason.via);
+
+type LineRange = { start: number; end: number };
+
+type DiffLineRanges = {
+  addedLines: LineRange[];
+  removedLines: LineRange[];
+};
+
+const createEmptyDiffLineRanges = (): DiffLineRanges => ({
+  addedLines: [],
+  removedLines: [],
+});
+
+const hasLineRange = (ranges: LineRange[], range: LineRange): boolean =>
+  ranges.some((item) => item.start === range.start && item.end === range.end);
+
+const addLineRange = (ranges: LineRange[], range: LineRange) => {
+  if (range.start <= 0 || range.end < range.start) return;
+  if (!hasLineRange(ranges, range)) {
+    ranges.push(range);
+  }
+};
+
+const sortLineRanges = (ranges: LineRange[]) =>
+  ranges.sort((left, right) => left.start - right.start || left.end - right.end);
+
+const stripDiffFilename = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '/dev/null') return null;
+  return trimmed.replace(/^[ab]\//, '').replace(/^"|"$/g, '');
+};
+
+const parseUnifiedDiffLineRanges = (output: string): Map<string, DiffLineRanges> => {
+  const byFilename = new Map<string, DiffLineRanges>();
+  let oldFilename: string | null = null;
+  let newFilename: string | null = null;
+
+  const ensureRanges = (filename: string): DiffLineRanges => {
+    const existing = byFilename.get(filename);
+    if (existing) return existing;
+
+    const created = createEmptyDiffLineRanges();
+    byFilename.set(filename, created);
+    return created;
+  };
+
+  for (const line of output.split('\n')) {
+    const diffHeader = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+    if (diffHeader) {
+      oldFilename = stripDiffFilename(`a/${diffHeader[1]}`);
+      newFilename = stripDiffFilename(`b/${diffHeader[2]}`);
+      continue;
+    }
+
+    if (line.startsWith('--- ')) {
+      oldFilename = stripDiffFilename(line.slice(4));
+      continue;
+    }
+
+    if (line.startsWith('+++ ')) {
+      newFilename = stripDiffFilename(line.slice(4));
+      continue;
+    }
+
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!hunk) continue;
+
+    const filename = newFilename || oldFilename;
+    if (!filename) continue;
+
+    const oldStart = Number(hunk[1]);
+    const oldCount = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    const newStart = Number(hunk[3]);
+    const newCount = hunk[4] === undefined ? 1 : Number(hunk[4]);
+    const ranges = ensureRanges(filename);
+
+    // For declaration mapping, pure deletions need a new-file anchor too.
+    if (newStart > 0 && (newCount > 0 || oldCount > 0)) {
+      addLineRange(ranges.addedLines, {
+        start: newStart,
+        end: newStart + Math.max(newCount, 1) - 1,
+      });
+    }
+
+    if (oldStart > 0 && oldCount > 0) {
+      addLineRange(ranges.removedLines, {
+        start: oldStart,
+        end: oldStart + oldCount - 1,
+      });
+    }
+  }
+
+  byFilename.forEach((ranges) => {
+    sortLineRanges(ranges.addedLines);
+    sortLineRanges(ranges.removedLines);
+  });
+
+  return byFilename;
+};
+
+const mergeDiffLineRanges = (
+  changes: Map<string, ChangedFileInfo>,
+  rangesByFilename: Map<string, DiffLineRanges>
+) => {
+  rangesByFilename.forEach((ranges, filename) => {
+    const info = changes.get(filename) || {
+      filename,
+      status: 'modified' as ChangedFileStatus,
+    };
+
+    const addedLines = info.addedLines || [];
+    const removedLines = info.removedLines || [];
+
+    ranges.addedLines.forEach((range) => addLineRange(addedLines, range));
+    ranges.removedLines.forEach((range) => addLineRange(removedLines, range));
+
+    changes.set(filename, {
+      ...info,
+      addedLines: addedLines.length > 0 ? sortLineRanges(addedLines) : undefined,
+      removedLines:
+        removedLines.length > 0 ? sortLineRanges(removedLines) : undefined,
+    });
+  });
+};
+
+const countLines = (content: string): number => {
+  if (content.length === 0) return 0;
+  return content.split(/\r\n|\r|\n/).length;
+};
+
+const rangesOverlap = (left: LineRange, right: LineRange): boolean =>
+  left.start <= right.end && right.start <= left.end;
+
+const buildLineStarts = (content: string): number[] => {
+  const starts = [0];
+  for (let idx = 0; idx < content.length; idx++) {
+    if (content.charCodeAt(idx) === 10) {
+      starts.push(idx + 1);
+    }
+  }
+  return starts;
+};
+
+const getLineNumber = (lineStarts: number[], offset: number): number => {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  let best = 0;
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (lineStarts[middle] <= offset) {
+      best = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+
+  return best + 1;
+};
+
+const focusedDeclarationId = (decl: FunctionDeclarationInfo): string =>
+  `decl:${decl.filename}->${decl.name}:${decl.pos}`;
+
+const focusedDeclarationLabel = (
+  decl: Pick<FunctionDeclarationInfo, 'name' | 'filename'>
+): string => `${decl.name} (${decl.filename})`;
+
+const hasDeclarationReason = (
+  reasons: FocusedDeclarationReason[],
+  reason: FocusedDeclarationReason
+): boolean =>
+  reasons.some((item) => item.type === reason.type && item.via === reason.via);
+
+const findContainingDeclaration = (
+  declarations: FunctionDeclarationInfo[],
+  call: FunctionCallInfo
+): FunctionDeclarationInfo | null => {
+  let match: FunctionDeclarationInfo | null = null;
+
+  for (const decl of declarations) {
+    if (decl.pos <= call.pos && call.end <= decl.end) {
+      if (!match || decl.end - decl.pos < match.end - match.pos) {
+        match = decl;
+      }
+    }
+  }
+
+  return match;
+};
+
+type DeclarationCallEdge = {
+  source: FunctionDeclarationInfo;
+  target: FunctionDeclarationInfo;
+  call: FunctionCallInfo;
+  sourceId: string;
+  targetId: string;
+};
+
+const declarationCallKey = (edge: DeclarationCallEdge): string =>
+  `${edge.sourceId}->${edge.targetId}:${edge.call.pos}`;
+
+const buildDeclarationAdjacency = (
+  calls: DeclarationCallEdge[]
+): Map<string, DeclarationCallEdge[]> => {
+  const adjacency = new Map<string, DeclarationCallEdge[]>();
+
+  for (const edge of calls) {
+    const existing = adjacency.get(edge.sourceId) || [];
+    existing.push(edge);
+    adjacency.set(edge.sourceId, existing);
+  }
+
+  adjacency.forEach((edges) => {
+    edges.sort(
+      (a, b) =>
+        a.targetId.localeCompare(b.targetId) ||
+        a.call.filename.localeCompare(b.call.filename) ||
+        a.call.pos - b.call.pos
+    );
+  });
+
+  return adjacency;
+};
+
+const findShortestDeclarationPath = (
+  sourceId: string,
+  targetId: string,
+  adjacency: Map<string, DeclarationCallEdge[]>,
+  changedDeclarationIds: Set<string>,
+  maxDepth: number
+): DeclarationCallEdge[] | null => {
+  const queue: Array<{
+    id: string;
+    path: DeclarationCallEdge[];
+    seen: Set<string>;
+  }> = [{ id: sourceId, path: [], seen: new Set([sourceId]) }];
+
+  let index = 0;
+  while (index < queue.length) {
+    const current = queue[index++];
+    if (current.path.length >= maxDepth) continue;
+
+    const edges = adjacency.get(current.id) || [];
+    for (const edge of edges) {
+      if (current.seen.has(edge.targetId)) continue;
+      if (
+        edge.targetId !== targetId &&
+        changedDeclarationIds.has(edge.targetId)
+      ) {
+        continue;
+      }
+
+      const path = [...current.path, edge];
+      if (edge.targetId === targetId) return path;
+
+      const seen = new Set(current.seen);
+      seen.add(edge.targetId);
+      queue.push({ id: edge.targetId, path, seen });
+    }
+  }
+
+  return null;
+};
+
+const findDeclarationBridgePaths = (
+  calls: DeclarationCallEdge[],
+  changedDeclarationIds: Set<string>,
+  maxDepth: number,
+  maxPaths: number
+): DeclarationCallEdge[][] => {
+  if (changedDeclarationIds.size < 2) return [];
+
+  const adjacency = buildDeclarationAdjacency(calls);
+  const changedIds = Array.from(changedDeclarationIds).sort((a, b) =>
+    a.localeCompare(b)
+  );
+  const paths: DeclarationCallEdge[][] = [];
+
+  for (const sourceId of changedIds) {
+    for (const targetId of changedIds) {
+      if (sourceId === targetId) continue;
+
+      const path = findShortestDeclarationPath(
+        sourceId,
+        targetId,
+        adjacency,
+        changedDeclarationIds,
+        maxDepth
+      );
+      if (!path || path.length <= 1) continue;
+
+      paths.push(path);
+      if (paths.length >= maxPaths) return paths;
+    }
+  }
+
+  return paths;
+};
 
 export default class Project {
   public files: string[] = [];
@@ -270,9 +577,37 @@ export default class Project {
 
   private async getDiffChangeSet(): Promise<ChangeSet> {
     const output = await this.runGit(['status', '--porcelain']);
+    const filesByName = new Map(
+      parsePorcelainOutput(output).map((file) => [file.filename, file])
+    );
+
+    const unstagedDiff = await this.tryRunGit([
+      'diff',
+      '--unified=0',
+      '--no-ext-diff',
+    ]);
+    if (unstagedDiff) {
+      mergeDiffLineRanges(
+        filesByName,
+        parseUnifiedDiffLineRanges(unstagedDiff)
+      );
+    }
+
+    const stagedDiff = await this.tryRunGit([
+      'diff',
+      '--cached',
+      '--unified=0',
+      '--no-ext-diff',
+    ]);
+    if (stagedDiff) {
+      mergeDiffLineRanges(filesByName, parseUnifiedDiffLineRanges(stagedDiff));
+    }
+
+    await this.addFullFileRangesForAddedFiles(filesByName);
+
     return {
       source: { mode: 'diff' },
-      files: parsePorcelainOutput(output),
+      files: this.sortedChangedFiles(filesByName),
     };
   }
 
@@ -289,14 +624,56 @@ export default class Project {
       mergeBase,
       'HEAD',
     ]);
+    const filesByName = new Map(
+      parseNameStatusOutput(output).map((file) => [file.filename, file])
+    );
+
+    const diffOutput = await this.runGit([
+      'diff',
+      '--unified=0',
+      '--no-ext-diff',
+      mergeBase,
+      'HEAD',
+    ]);
+    mergeDiffLineRanges(filesByName, parseUnifiedDiffLineRanges(diffOutput));
 
     return {
       source: { mode: 'branch', baseRef: resolvedBaseRef },
-      files: parseNameStatusOutput(output),
+      files: this.sortedChangedFiles(filesByName),
     };
   }
 
-  private buildFocusedReviewMap(changeSet: ChangeSet): FocusedReviewMap {
+  private sortedChangedFiles(
+    filesByName: Map<string, ChangedFileInfo>
+  ): ChangedFileInfo[] {
+    return Array.from(filesByName.values()).sort((a, b) =>
+      a.filename.localeCompare(b.filename)
+    );
+  }
+
+  private async addFullFileRangesForAddedFiles(
+    filesByName: Map<string, ChangedFileInfo>
+  ) {
+    for (const info of Array.from(filesByName.values())) {
+      if (info.status !== 'added' || (info.addedLines?.length || 0) > 0) {
+        continue;
+      }
+
+      try {
+        const content = await openFile(info.filename, this.projectPath);
+        const lineCount = countLines(content);
+        if (lineCount > 0) {
+          info.addedLines = [{ start: 1, end: lineCount }];
+        }
+      } catch {
+        // Unreadable added files still appear at file level.
+      }
+    }
+  }
+
+  private async buildFocusedReviewMap(
+    changeSet: ChangeSet
+  ): Promise<FocusedReviewMap> {
     const focusedFiles = new Map<string, FocusedFileInfo>();
 
     const ensureFocusedFile = (filename: string): FocusedFileInfo => {
@@ -351,6 +728,10 @@ export default class Project {
     const focusedIncludes = this.projectMap.filter(
       (edge) => visibleFiles.has(edge.from) && visibleFiles.has(edge.to)
     );
+    const declarationGraph = await this.buildFocusedDeclarationGraph(
+      changeSet,
+      visibleFiles
+    );
 
     const files = Array.from(focusedFiles.values()).sort((a, b) => {
       if (a.isChanged !== b.isChanged) return a.isChanged ? -1 : 1;
@@ -361,6 +742,284 @@ export default class Project {
       changeSet,
       files,
       includes: focusedIncludes,
+      declarations: declarationGraph.declarations,
+      declarationCalls: declarationGraph.declarationCalls,
+    };
+  }
+
+  private async buildFocusedDeclarationGraph(
+    changeSet: ChangeSet,
+    visibleFiles: Set<string>
+  ): Promise<{
+    declarations: FocusedDeclarationInfo[];
+    declarationCalls: FocusedDeclarationCallInfo[];
+  }> {
+    const changedFiles = new Map(
+      changeSet.files.map((file) => [file.filename, file])
+    );
+    const analyzer = getAnalyzer('js');
+    const mappings = new Map<string, { content: string; mapping: FileMapping }>();
+
+    for (const filename of Array.from(visibleFiles.values())) {
+      const changeInfo = changedFiles.get(filename);
+      if (changeInfo?.status === 'deleted') continue;
+
+      try {
+        const content = await openFile(filename, this.projectPath);
+        mappings.set(filename, {
+          content,
+          mapping: analyzer.extractFileMapping(filename, content, this.files),
+        });
+      } catch {
+        // File-level review can still represent missing or unreadable files.
+      }
+    }
+
+    const allDeclarations = new Map<
+      string,
+      {
+        decl: FunctionDeclarationInfo;
+        startLine: number;
+        endLine: number;
+      }
+    >();
+    const declarationsByFileAndName = new Map<string, FunctionDeclarationInfo[]>();
+
+    mappings.forEach(({ content, mapping }) => {
+      const lineStarts = buildLineStarts(content);
+
+      for (const decl of mapping.functionDeclarations) {
+        const id = focusedDeclarationId(decl);
+        allDeclarations.set(id, {
+          decl,
+          startLine: getLineNumber(lineStarts, decl.pos),
+          endLine: getLineNumber(lineStarts, Math.max(decl.pos, decl.end - 1)),
+        });
+
+        const key = `${decl.filename}::${decl.name}`;
+        const existing = declarationsByFileAndName.get(key) || [];
+        existing.push(decl);
+        declarationsByFileAndName.set(key, existing);
+      }
+    });
+
+    const focusedDeclarations = new Map<string, FocusedDeclarationInfo>();
+    const changedDeclarationIds = new Set<string>();
+
+    const ensureFocusedDeclaration = (
+      decl: FunctionDeclarationInfo
+    ): FocusedDeclarationInfo => {
+      const id = focusedDeclarationId(decl);
+      const existing = focusedDeclarations.get(id);
+      if (existing) return existing;
+
+      const lineInfo = allDeclarations.get(id);
+      const changeInfo = changedFiles.get(decl.filename);
+      const created: FocusedDeclarationInfo = {
+        id,
+        name: decl.name,
+        filename: decl.filename,
+        pos: decl.pos,
+        end: decl.end,
+        args: decl.args,
+        reasons: [],
+        isChanged: false,
+        changeStatus: changeInfo?.status,
+        startLine: lineInfo?.startLine,
+        endLine: lineInfo?.endLine,
+      };
+      focusedDeclarations.set(id, created);
+      return created;
+    };
+
+    const addDeclarationReason = (
+      decl: FunctionDeclarationInfo,
+      reason: FocusedDeclarationReason
+    ) => {
+      const info = ensureFocusedDeclaration(decl);
+      if (!hasDeclarationReason(info.reasons, reason)) {
+        info.reasons.push(reason);
+      }
+      if (reason.type === 'changed') {
+        info.isChanged = true;
+        changedDeclarationIds.add(info.id);
+      }
+    };
+
+    allDeclarations.forEach(({ decl, startLine, endLine }) => {
+      const changeInfo = changedFiles.get(decl.filename);
+      if (!changeInfo || changeInfo.status === 'deleted') return;
+
+      const changedRanges =
+        changeInfo.status === 'added'
+          ? [{ start: startLine, end: endLine }]
+          : changeInfo.addedLines || [];
+      const declarationRange = { start: startLine, end: endLine };
+      const hasChangedRange = changedRanges.some((range) =>
+        rangesOverlap(range, declarationRange)
+      );
+
+      if (changeInfo.status === 'added' || hasChangedRange) {
+        addDeclarationReason(decl, { type: 'changed' });
+      }
+    });
+
+    const lookupDeclaration = (
+      filename: string,
+      name: string
+    ): FunctionDeclarationInfo | null => {
+      const matches = declarationsByFileAndName.get(`${filename}::${name}`);
+      return matches?.[0] || null;
+    };
+
+    const rawDeclarationCalls: DeclarationCallEdge[] = [];
+
+    mappings.forEach(({ mapping }) => {
+      for (const call of mapping.functionCalls) {
+        if (call.isBuiltin) continue;
+
+        const source = findContainingDeclaration(
+          mapping.functionDeclarations,
+          call
+        );
+        if (!source) continue;
+
+        const importedFrom = mapping.includes.find((incl) =>
+          incl.items.includes(call.name)
+        )?.from;
+        const targetFilename = importedFrom || call.filename;
+        const target = lookupDeclaration(targetFilename, call.name);
+        if (!target) continue;
+
+        const sourceId = focusedDeclarationId(source);
+        const targetId = focusedDeclarationId(target);
+        if (sourceId === targetId) continue;
+
+        rawDeclarationCalls.push({
+          source,
+          target,
+          call,
+          sourceId,
+          targetId,
+        });
+      }
+    });
+
+    const visibleCalls = new Map<
+      string,
+      { edge: DeclarationCallEdge; reasons: FocusedDeclarationReason[] }
+    >();
+
+    const addVisibleCallReason = (
+      edge: DeclarationCallEdge,
+      reason: FocusedDeclarationReason
+    ) => {
+      const key = declarationCallKey(edge);
+      const existing = visibleCalls.get(key) || { edge, reasons: [] };
+      if (!hasDeclarationReason(existing.reasons, reason)) {
+        existing.reasons.push(reason);
+      }
+      visibleCalls.set(key, existing);
+    };
+
+    rawDeclarationCalls.forEach((edge) => {
+      const { source, target } = edge;
+      const { sourceId, targetId } = edge;
+      const reasons: FocusedDeclarationReason[] = [];
+
+      if (changedDeclarationIds.has(sourceId)) {
+        const reason: FocusedDeclarationReason = {
+          type: 'called-by-changed',
+          via: focusedDeclarationLabel(source),
+        };
+        addDeclarationReason(target, reason);
+        reasons.push(reason);
+        addVisibleCallReason(edge, reason);
+      }
+
+      if (changedDeclarationIds.has(targetId)) {
+        const reason: FocusedDeclarationReason = {
+          type: 'calls-changed',
+          via: focusedDeclarationLabel(target),
+        };
+        addDeclarationReason(source, reason);
+        if (!hasDeclarationReason(reasons, reason)) {
+          reasons.push(reason);
+        }
+        addVisibleCallReason(edge, reason);
+      }
+    });
+
+    const bridgePaths = findDeclarationBridgePaths(
+      rawDeclarationCalls,
+      changedDeclarationIds,
+      MAX_DECLARATION_BRIDGE_DEPTH,
+      MAX_DECLARATION_BRIDGE_PATHS
+    );
+
+    for (const path of bridgePaths) {
+      const first = path[0];
+      const last = path[path.length - 1];
+      const reason: FocusedDeclarationReason = {
+        type: 'bridge-between-changes',
+        via: `${focusedDeclarationLabel(first.source)} -> ${focusedDeclarationLabel(
+          last.target
+        )}`,
+      };
+
+      path.forEach((edge, idx) => {
+        const sourceIsStart = idx === 0;
+        const targetIsEnd = idx === path.length - 1;
+
+        if (!sourceIsStart && !changedDeclarationIds.has(edge.sourceId)) {
+          addDeclarationReason(edge.source, reason);
+        }
+
+        if (!targetIsEnd && !changedDeclarationIds.has(edge.targetId)) {
+          addDeclarationReason(edge.target, reason);
+        }
+
+        addVisibleCallReason(edge, reason);
+      });
+    }
+
+    const declarationCalls: FocusedDeclarationCallInfo[] = [];
+
+    visibleCalls.forEach(({ edge, reasons }) => {
+      if (
+        reasons.length > 0 &&
+        focusedDeclarations.has(edge.sourceId) &&
+        focusedDeclarations.has(edge.targetId)
+      ) {
+        declarationCalls.push({
+          id: `call:${edge.sourceId}->${edge.targetId}:${edge.call.pos}`,
+          from: edge.sourceId,
+          to: edge.targetId,
+          name: edge.call.name,
+          filename: edge.call.filename,
+          pos: edge.call.pos,
+          end: edge.call.end,
+          reasons,
+          isHeuristic: true,
+        });
+      }
+    });
+
+    return {
+      declarations: Array.from(focusedDeclarations.values()).sort((a, b) => {
+        if (a.isChanged !== b.isChanged) return a.isChanged ? -1 : 1;
+        return (
+          a.filename.localeCompare(b.filename) ||
+          (a.startLine || 0) - (b.startLine || 0) ||
+          a.name.localeCompare(b.name)
+        );
+      }),
+      declarationCalls: declarationCalls.sort(
+        (a, b) =>
+          a.filename.localeCompare(b.filename) ||
+          a.pos - b.pos ||
+          a.name.localeCompare(b.name)
+      ),
     };
   }
 
@@ -374,7 +1033,7 @@ export default class Project {
         ? await this.getBranchChangeSet(requestedSource.baseRef)
         : await this.getDiffChangeSet();
 
-    const payload = this.buildFocusedReviewMap(changeSet);
+    const payload = await this.buildFocusedReviewMap(changeSet);
 
     return {
       type: 'focusedReviewMap',

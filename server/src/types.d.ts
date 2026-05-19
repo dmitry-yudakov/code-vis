@@ -76,10 +76,47 @@ export interface FocusedFileInfo {
   changeStatus?: ChangedFileStatus;
 }
 
+export interface FocusedDeclarationReason {
+  type:
+    | 'changed'
+    | 'calls-changed'
+    | 'called-by-changed'
+    | 'bridge-between-changes';
+  via?: string;
+}
+
+export interface FocusedDeclarationInfo {
+  id: string;
+  name: string;
+  filename: string;
+  pos: number;
+  end: number;
+  args: string[];
+  reasons: FocusedDeclarationReason[];
+  isChanged: boolean;
+  changeStatus?: ChangedFileStatus;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface FocusedDeclarationCallInfo {
+  id: string;
+  from: string;
+  to: string;
+  name: string;
+  filename: string;
+  pos: number;
+  end: number;
+  reasons: FocusedDeclarationReason[];
+  isHeuristic: boolean;
+}
+
 export interface FocusedReviewMap {
   changeSet: ChangeSet;
   files: FocusedFileInfo[];
   includes: FileIncludeInfo[];
+  declarations: FocusedDeclarationInfo[];
+  declarationCalls: FocusedDeclarationCallInfo[];
 }
 
 export interface ProjectConfig {

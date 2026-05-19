@@ -98,16 +98,55 @@ interface FocusedFileInfo {
   changeStatus?: ChangedFileStatus;
 }
 
+interface FocusedDeclarationReason {
+  type:
+    | 'changed'
+    | 'calls-changed'
+    | 'called-by-changed'
+    | 'bridge-between-changes';
+  via?: string;
+}
+
+interface FocusedDeclarationInfo {
+  id: string;
+  name: string;
+  filename: string;
+  pos: number;
+  end: number;
+  args: string[];
+  reasons: FocusedDeclarationReason[];
+  isChanged: boolean;
+  changeStatus?: ChangedFileStatus;
+  startLine?: number;
+  endLine?: number;
+}
+
+interface FocusedDeclarationCallInfo {
+  id: string;
+  from: string;
+  to: string;
+  name: string;
+  filename: string;
+  pos: number;
+  end: number;
+  reasons: FocusedDeclarationReason[];
+  isHeuristic: boolean;
+}
+
 interface FocusedReviewMap {
   changeSet: ChangeSet;
   files: FocusedFileInfo[];
   includes: FileIncludeInfo[];
+  declarations: FocusedDeclarationInfo[];
+  declarationCalls: FocusedDeclarationCallInfo[];
 }
 ```
 
 See [analyzer.md](analyzer.md) for `FileMapping`, `FunctionCallInfo`, etc.
 
 `FocusedReviewMap.includes` contains only dependency edges where both endpoints are in the focused file set. The focused file set starts with changed files and adds one-hop import neighbors.
+
+`FocusedReviewMap.declarations` contains changed declarations plus direct caller/callee declaration context when the analyzer can map changed diff hunks to declaration ranges. It also includes short bridge declarations when changed declarations are connected by an explainable directed call chain. `declarationCalls` are heuristic call edges between those visible declarations.
 
 ## SocketConnection (`web/src/connection/connection.ts`)
 

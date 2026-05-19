@@ -84,6 +84,8 @@ export const projectApi = {
       changedFiles: result?.changeSet?.files?.length ?? 0,
       focusedFiles: result?.files?.length ?? 0,
       includes: result?.includes?.length ?? 0,
+      declarations: result?.declarations?.length ?? 0,
+      declarationCalls: result?.declarationCalls?.length ?? 0,
     });
     return result;
   },

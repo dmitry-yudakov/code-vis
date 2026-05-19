@@ -75,7 +75,7 @@ Inside `Review current changes`, users can switch between:
 | `Diff` | Local uncommitted git changes from `git status --porcelain` |
 | `Branch / PR` | Files changed on the current branch compared with a base ref |
 
-`Review` scopes call `projectApi.getFocusedReview()` and render changed files with reason chips. By default they include one-hop dependency context; `Changed only` hides context for a tighter view.
+`Review` scopes call `projectApi.getFocusedReview()` and render changed files with reason chips. By default they include one-hop dependency context; `Changed only` hides context for a tighter view. The review lens can also switch from file nodes to declaration nodes when changed hunks map to analyzer-visible functions, methods, or arrow declarations. Declaration context includes direct callers/callees plus short bridge call paths between changed declarations.
 
 `Branch / PR` is branch-diff based rather than GitHub API based. The server resolves the base ref, computes a merge base, and compares `merge-base..HEAD`.
 
@@ -85,7 +85,7 @@ Inside `Review current changes`, users can switch between:
 
 **File nav**: click file → `/f/{filename}` → `getFileMap(filename, true)` → sets local state → `FilesMapping` renders
 
-**Change-focused review**: click `Diff` or `Branch / PR` → `getFocusedReview({ mode })` → server returns `FocusedReviewMap` → `IncludesHierarchy` renders changed files and optional one-hop context
+**Change-focused review**: click `Diff` or `Branch / PR` → `getFocusedReview({ mode })` → server returns `FocusedReviewMap` → `IncludesHierarchy` renders changed files or changed declarations with optional one-hop/direct-call/bridge context
 
 **Save**: editor save → `saveFile()` → server writes → chokidar detects → `projectContentChange` broadcast → client increments `forceReloadDep` → reload
 

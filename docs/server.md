@@ -42,7 +42,9 @@ class Project {
 - `source: { mode: 'branch', baseRef?: string }` finds a merge base between `HEAD` and the base ref, then runs `git diff --name-status --find-renames <merge-base> HEAD`.
 - If `baseRef` is omitted, the server tries `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master`, then falls back to `master`.
 
-The response includes changed files, their statuses (`added`, `modified`, `deleted`, `renamed`), one-hop dependency neighbors, and only dependency edges where both endpoints are in the focused file set. Related files are marked with reasons such as `imports-changed` or `imported-by-changed`.
+The response includes changed files, their statuses (`added`, `modified`, `deleted`, `renamed`), parsed diff line ranges when available, one-hop dependency neighbors, and only dependency edges where both endpoints are in the focused file set. Related files are marked with reasons such as `imports-changed` or `imported-by-changed`.
+
+When changed hunks overlap analyzer-visible declarations, the response also includes `declarations` and `declarationCalls`. Declaration nodes preserve file/range data, mark changed declarations, add direct caller/callee context with heuristic reasons such as `calls-changed` and `called-by-changed`, and include short bridge paths with `bridge-between-changes` when changed declarations are connected by a small directed call chain.
 
 ## WebSocket Server (`src/wsserver.ts`)
 
