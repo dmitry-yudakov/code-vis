@@ -162,6 +162,22 @@ const App: React.FC = () => {
     Record<string, FileMapDetailed>
   >({});
 
+  const requestFileMap = useCallback(
+    async (filename: string, includeRelated = false) => {
+      const data = await projectApi.getFileMap(filename, includeRelated);
+      const mappingsObj = lodash.keyBy(
+        data.filter((fileMap) => !!fileMap.filename),
+        'filename'
+      ) as Record<string, FileMapDetailed>;
+      setFilesMappings((filesMappings) => ({
+        ...filesMappings,
+        ...mappingsObj,
+      }));
+      return data;
+    },
+    []
+  );
+
   const [forceReloadDep, setForceReloadDep] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<
     'connecting' | 'connected' | 'disconnected'
@@ -290,6 +306,8 @@ const App: React.FC = () => {
             element={
               <IncludesHierarchy
                 includes={projectMap}
+                filesMappings={filesMappings}
+                requestFileMap={requestFileMap}
                 requestFocusedReview={requestFocusedReview}
                 renderNodeMenu={(
                   filename: string,

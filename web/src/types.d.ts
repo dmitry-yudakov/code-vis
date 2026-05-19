@@ -118,6 +118,7 @@ export interface FocusedReviewMap {
 }
 
 export interface FileMapDetailed {
+  filename?: string;
   content: string;
   mapping: FileMapping;
 }

@@ -38,6 +38,12 @@ export interface FileMapping {
   functionCalls: FunctionCallInfo[];
 }
 
+export interface FileMapDetailed {
+  filename?: string;
+  content: string;
+  mapping: FileMapping;
+}
+
 export type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
 export type ChangeSource =

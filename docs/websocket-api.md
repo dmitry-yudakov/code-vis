@@ -51,6 +51,7 @@ projectApi.onFileMap(handler)
 
 ```typescript
 interface FileMapDetailed {
+  filename?: string;
   content: string;
   mapping: FileMapping;  // { includes, functionDeclarations, functionCalls }
 }

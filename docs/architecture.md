@@ -49,6 +49,10 @@ web/src/App.tsx              (state: projectMap, filesMappings)
     └── LogicMap             (/fine/:filename — function-level view)
 ```
 
+## Overview Scopes
+
+The homepage opens in `Overview`, which starts at a module/directory dependency scale. Users can expand a module into files, then expand a selected file into analyzer-visible declarations. File-to-declaration expansion is loaded on demand with `mapFile` and reuses the cached `filesMappings` data in the web app.
+
 ## Review Scopes
 
 The root graph can switch from whole-project exploration to a change-focused review scope:

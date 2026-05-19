@@ -1,8 +1,8 @@
 # Homepage Code Map Lenses
 
 **Created:** May 14, 2026  
-**Status:** Implemented (Phases 1-3 baseline; Phase 4 declaration focus)
-**Updated:** May 14, 2026
+**Status:** Implemented (Phases 1-4 baseline)
+**Updated:** May 19, 2026
 
 ## Overview
 
@@ -37,6 +37,7 @@ Delivered:
 3. Default homepage no longer starts with full file hierarchy:
    1. `Overview` defaults to module/directory scale.
    2. Full file hierarchy remains available via `Overview -> All files`.
+   3. Overview can expand a selected file into analyzer-visible declarations.
 4. Review lens is integrated as first-class homepage mode:
    1. Uses `Diff` and `Branch / PR` scopes.
    2. Supports `Changed only` and `+ Context`.
@@ -55,7 +56,6 @@ Not yet delivered in this story:
 
 1. Test-specific inclusion and styling controls.
 2. Passing focused scopes into edit/agent commands.
-3. Full declaration-level overview expansion outside the review lens.
 
 ## Problem
 
@@ -302,7 +302,7 @@ This homepage story describes how that view becomes part of the default product 
 
 1. Phase 1: Complete.
 2. Phase 2: Complete (file-level review lens behavior).
-3. Phase 3: Partial (module overview and module-to-file expansion delivered; declaration-level expansion pending).
+3. Phase 3: Complete (module overview, module-to-file expansion, and file-to-declaration expansion delivered).
 4. Phase 4: Complete (changed declaration mapping, direct caller/callee context, and bridge paths delivered).
 5. Phase 5: Not started.
 
@@ -408,7 +408,7 @@ Success criteria:
 4. Complete for file-level and declaration-level review nodes.
 5. Complete for currently visible review and overview nodes.
 6. Complete at module/folder scale.
-7. Complete for module-to-file expansion.
+7. Complete for module-to-file and file-to-declaration expansion.
 8. Complete.
 9. Partial: file-level location/navigation is preserved; edit/agent scope handoff is future work.
 
@@ -432,8 +432,7 @@ Success criteria:
 
 Continue this story with the next value-focused sequence:
 
-1. Finish Phase 3 declaration-level expansion behaviors.
-2. Add test-specific inclusion and styling controls.
-3. Implement Phase 5 focused-scope handoff for editing and AI workflows.
+1. Add test-specific inclusion and styling controls.
+2. Implement Phase 5 focused-scope handoff for editing and AI workflows.
 
 This moves the product from "browse every file" toward "understand the relevant part of the codebase."

@@ -68,6 +68,8 @@ Inside `Overview`, users can switch between:
 | `Entry points` | Entry-point summary graph with configurable dependency depth |
 | `All files` | Full project dependency graph (kept as alternate navigation view) |
 
+Overview supports progressive expansion from module nodes to file nodes and from a selected file node to analyzer-visible declarations. File declaration expansion uses `getFileMap(filename, true)` on demand, then adds declaration nodes, containment edges, local declaration-call edges, and cached related-file call edges into the current Overview graph.
+
 Inside `Review current changes`, users can switch between:
 
 | Scope | Purpose |
@@ -82,6 +84,8 @@ Inside `Review current changes`, users can switch between:
 ## Data Flows
 
 **Init**: App mounts → Socket.IO connect → `getProjectMap()` → sets `projectMap` → `IncludesHierarchy` renders
+
+**Overview declaration expansion**: select an Overview file → click `Expand file into declarations` → `getFileMap(filename, true)` caches the file and related maps → `IncludesHierarchy` renders declaration nodes inside the current Overview scope
 
 **File nav**: click file → `/f/{filename}` → `getFileMap(filename, true)` → sets local state → `FilesMapping` renders
 

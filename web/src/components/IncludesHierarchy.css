@@ -451,6 +451,11 @@
   background: #f7fbf8;
 }
 
+.react-flow__node-default.overview-declaration-node {
+  border: 1px solid #8ca7bd;
+  background: #f2f7fb;
+}
+
 .react-flow__node-default.focused-declaration-changed {
   border: 2px solid #2c6f98;
   background: #e7f2f8;
@@ -475,6 +480,11 @@
 }
 
 .focused-declaration-view {
+  min-width: 220px;
+  text-align: left;
+}
+
+.overview-declaration-view {
   min-width: 220px;
   text-align: left;
 }

@@ -1,5 +1,9 @@
 import { SocketConnection } from './connection';
-import { ChangeSourceRequest, FocusedReviewMap } from '../types';
+import {
+  ChangeSourceRequest,
+  FileMapDetailed,
+  FocusedReviewMap,
+} from '../types';
 
 let connection: SocketConnection | null = null;
 
@@ -52,12 +56,15 @@ export const projectApi = {
   /**
    * Get detailed file mapping
    */
-  async getFileMap(filename: string, includeRelated = false) {
+  async getFileMap(
+    filename: string,
+    includeRelated = false
+  ): Promise<FileMapDetailed[]> {
     console.log('CLIENT: projectApi.getFileMap() called', {
       filename,
       includeRelated,
     });
-    const result = await getConnection().request<any[]>('mapFile', {
+    const result = await getConnection().request<FileMapDetailed[]>('mapFile', {
       filename,
       includeRelated,
     });

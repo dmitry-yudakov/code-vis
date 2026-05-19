@@ -16,6 +16,9 @@ import { FilenamePrettyView } from '../atoms';
 import {
   Node,
   FileIncludeInfo,
+  FileMapDetailed,
+  FunctionCallInfo,
+  FunctionDeclarationInfo,
   PositionedNode,
   ChangeSourceRequest,
   FocusedDeclarationInfo,
@@ -59,6 +62,19 @@ type GraphNodeMeta = {
 type GraphConnection = {
   source: string;
   target: string;
+};
+
+type OverviewDeclarationNode = FunctionDeclarationInfo & {
+  id: string;
+  startLine: number;
+  endLine: number;
+};
+
+type GraphEdgePresentation = GraphConnection & {
+  id: string;
+  label?: string;
+  animated?: boolean;
+  style?: React.CSSProperties;
 };
 
 const LENSES: Array<{
@@ -106,6 +122,52 @@ const countUniqueNodes = (includes: FileIncludeInfo[]): number =>
   new Set(includes.flatMap((i) => [i.from, i.to])).size;
 
 const toNodeId = (value: string) => value.replace(/-/g, '_');
+
+const overviewDeclarationId = (decl: FunctionDeclarationInfo): string =>
+  `decl:${decl.filename}->${decl.name}:${decl.pos}`;
+
+const buildLineStarts = (content: string): number[] => {
+  const starts = [0];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === '\n') starts.push(i + 1);
+  }
+  return starts;
+};
+
+const getLineNumber = (lineStarts: number[], offset: number): number => {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  let best = 0;
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (lineStarts[middle] <= offset) {
+      best = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+
+  return best + 1;
+};
+
+const findContainingDeclaration = (
+  declarations: FunctionDeclarationInfo[],
+  call: FunctionCallInfo
+): FunctionDeclarationInfo | null => {
+  let match: FunctionDeclarationInfo | null = null;
+
+  for (const decl of declarations) {
+    if (decl.pos <= call.pos && call.end <= decl.end) {
+      if (!match || decl.end - decl.pos < match.end - match.pos) {
+        match = decl;
+      }
+    }
+  }
+
+  return match;
+};
 
 const isWithinDirectory = (filename: string, directory: string): boolean => {
   if (directory === '.') return !filename.includes('/');
@@ -166,6 +228,11 @@ const uniqueLabels = (items: string[]): string[] => Array.from(new Set(items));
 
 export const IncludesHierarchy: React.FC<{
   includes: FileIncludeInfo[];
+  filesMappings: Record<string, FileMapDetailed>;
+  requestFileMap: (
+    filename: string,
+    includeRelated?: boolean
+  ) => Promise<FileMapDetailed[]>;
   requestFocusedReview: (
     source: ChangeSourceRequest
   ) => Promise<FocusedReviewMap>;
@@ -174,7 +241,14 @@ export const IncludesHierarchy: React.FC<{
     anchor: HTMLElement | null,
     onClose: () => void
   ) => React.ReactElement;
-}> = React.memo(({ includes, requestFocusedReview, renderNodeMenu }) => {
+}> = React.memo(
+  ({
+    includes,
+    filesMappings,
+    requestFileMap,
+    requestFocusedReview,
+    renderNodeMenu,
+  }) => {
   const fileCount = useMemo(() => countUniqueNodes(includes), [includes]);
   const moduleIncludes = useMemo(
     () => groupIncludesByDirectory(includes),
@@ -194,6 +268,14 @@ export const IncludesHierarchy: React.FC<{
   const [expandedDirectory, setExpandedDirectory] = useState<string | null>(
     null
   );
+  const [expandedOverviewFile, setExpandedOverviewFile] = useState<
+    string | null
+  >(null);
+  const [overviewDeclarationLoading, setOverviewDeclarationLoading] =
+    useState(false);
+  const [overviewDeclarationError, setOverviewDeclarationError] = useState<
+    string | null
+  >(null);
 
   const [focusedReview, setFocusedReview] = useState<FocusedReviewMap | null>(
     null
@@ -243,6 +325,50 @@ export const IncludesHierarchy: React.FC<{
       canceled = true;
     };
   }, [focusedSource, includes, requestFocusedReview]);
+
+  const expandedOverviewFileMapping = expandedOverviewFile
+    ? filesMappings[expandedOverviewFile]
+    : null;
+
+  useEffect(() => {
+    if (activeLens !== 'overview' || !expandedOverviewFile) {
+      setOverviewDeclarationLoading(false);
+      setOverviewDeclarationError(null);
+      return;
+    }
+
+    if (expandedOverviewFileMapping) {
+      setOverviewDeclarationLoading(false);
+      setOverviewDeclarationError(null);
+      return;
+    }
+
+    let canceled = false;
+    setOverviewDeclarationLoading(true);
+    setOverviewDeclarationError(null);
+
+    requestFileMap(expandedOverviewFile, true)
+      .catch((error: any) => {
+        if (canceled) return;
+        setOverviewDeclarationError(
+          error?.message || 'Failed to load declaration expansion'
+        );
+      })
+      .finally(() => {
+        if (!canceled) {
+          setOverviewDeclarationLoading(false);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    activeLens,
+    expandedOverviewFile,
+    expandedOverviewFileMapping,
+    requestFileMap,
+  ]);
 
   const focusedFilesByName = useMemo(() => {
     if (!focusedReview) return new Map<string, FocusedFileInfo>();
@@ -306,6 +432,35 @@ export const IncludesHierarchy: React.FC<{
 
   const declarationReview =
     isReviewLens && reviewGranularity === 'declarations';
+
+  const overviewDeclarationExpansion = useMemo(() => {
+    if (
+      isReviewLens ||
+      !expandedOverviewFile ||
+      !expandedOverviewFileMapping
+    ) {
+      return null;
+    }
+
+    const lineStarts = buildLineStarts(expandedOverviewFileMapping.content);
+    const declarations: OverviewDeclarationNode[] =
+      expandedOverviewFileMapping.mapping.functionDeclarations.map((decl) => ({
+        ...decl,
+        id: overviewDeclarationId(decl),
+        startLine: getLineNumber(lineStarts, decl.pos),
+        endLine: getLineNumber(lineStarts, Math.max(decl.pos, decl.end - 1)),
+      }));
+
+    return {
+      filename: expandedOverviewFile,
+      fileDetails: expandedOverviewFileMapping,
+      declarations,
+    };
+  }, [
+    expandedOverviewFile,
+    expandedOverviewFileMapping,
+    isReviewLens,
+  ]);
 
   const { initialNodes, edgesElements, nodeMetaById, connectionEdges } = useMemo(() => {
     if (declarationReview && focusedReview) {
@@ -413,6 +568,14 @@ export const IncludesHierarchy: React.FC<{
     }
 
     const { nodes, edges } = includeToGraphTypes(activeIncludes);
+    const graphEdges: GraphEdgePresentation[] = edges.map(
+      ({ source, target }, idx) => ({
+        id: `${source}-${target}-${idx}`,
+        source,
+        target,
+        label: edgeLabel(activeIncludes[idx].items),
+      })
+    );
 
     if (isReviewLens && focusedReview) {
       const presentLabels = new Set(nodes.map((node) => node.label));
@@ -424,10 +587,119 @@ export const IncludesHierarchy: React.FC<{
       }
     }
 
+    const overviewDeclarationsById = new Map<string, OverviewDeclarationNode>();
+
+    if (overviewDeclarationExpansion) {
+      const presentNodeIds = new Set(nodes.map((node) => node.id));
+      const expandedFileId = toNodeId(overviewDeclarationExpansion.filename);
+
+      if (!presentNodeIds.has(expandedFileId)) {
+        nodes.push({
+          id: expandedFileId,
+          label: overviewDeclarationExpansion.filename,
+        });
+        presentNodeIds.add(expandedFileId);
+      }
+
+      for (const decl of overviewDeclarationExpansion.declarations) {
+        overviewDeclarationsById.set(decl.id, decl);
+        if (!presentNodeIds.has(decl.id)) {
+          nodes.push({ id: decl.id, label: decl.name });
+          presentNodeIds.add(decl.id);
+        }
+
+        graphEdges.push({
+          id: `${expandedFileId}-${decl.id}-contains`,
+          source: expandedFileId,
+          target: decl.id,
+          label: 'declares',
+          style: { stroke: '#8ba796', strokeDasharray: '4 4' },
+        });
+      }
+
+      const declarationsByName = new Map(
+        overviewDeclarationExpansion.declarations.map((decl) => [
+          decl.name,
+          decl,
+        ])
+      );
+      const addedDeclarationEdges = new Set<string>();
+      const addDeclarationEdge = (
+        source: string,
+        target: string,
+        label: string,
+        style?: React.CSSProperties
+      ) => {
+        const key = `${source}->${target}:${label}`;
+        if (source === target || addedDeclarationEdges.has(key)) return;
+        addedDeclarationEdges.add(key);
+        graphEdges.push({
+          id: `${key}-${graphEdges.length}`,
+          source,
+          target,
+          label,
+          animated: true,
+          style,
+        });
+      };
+
+      const { mapping } = overviewDeclarationExpansion.fileDetails;
+      for (const call of mapping.functionCalls) {
+        if (call.isBuiltin) continue;
+
+        const sourceDecl = findContainingDeclaration(
+          mapping.functionDeclarations,
+          call
+        );
+        if (!sourceDecl) continue;
+
+        const sourceId = overviewDeclarationId(sourceDecl);
+        const localTarget = declarationsByName.get(call.name);
+        if (localTarget) {
+          addDeclarationEdge(sourceId, localTarget.id, call.name, {
+            stroke: '#52759b',
+          });
+          continue;
+        }
+
+        const importedFrom = mapping.includes.find((incl) =>
+          incl.items.includes(call.name)
+        )?.from;
+        const importedFileId = importedFrom ? toNodeId(importedFrom) : null;
+        if (importedFileId && presentNodeIds.has(importedFileId)) {
+          addDeclarationEdge(sourceId, importedFileId, call.name, {
+            stroke: '#6f8797',
+            strokeDasharray: '6 4',
+          });
+        }
+      }
+
+      for (const [filename, fileDetails] of Object.entries(filesMappings)) {
+        if (filename === overviewDeclarationExpansion.filename) continue;
+        if (!presentNodeIds.has(toNodeId(filename))) continue;
+
+        const importsExpandedFile = fileDetails.mapping.includes.some(
+          (incl) => incl.from === overviewDeclarationExpansion.filename
+        );
+        if (!importsExpandedFile) continue;
+
+        for (const call of fileDetails.mapping.functionCalls) {
+          if (call.isBuiltin) continue;
+          const targetDecl = declarationsByName.get(call.name);
+          if (!targetDecl) continue;
+
+          addDeclarationEdge(toNodeId(filename), targetDecl.id, call.name, {
+            stroke: '#6f8797',
+            strokeDasharray: '6 4',
+          });
+        }
+      }
+    }
+
     if (nodes.length > 0) {
       applyGraphLayout(
         nodes,
-        edges,
+        graphEdges,
         (n, x, y) => {
           const p = n as PositionedNode;
           p.x = x;
@@ -442,11 +714,46 @@ export const IncludesHierarchy: React.FC<{
 
     const initialNodes = (nodes as PositionedNode[]).map((node) => {
       const { id, x, y } = node;
+      const overviewDeclaration = overviewDeclarationsById.get(id);
+
+      if (overviewDeclaration) {
+        const reasonLabels = [
+          `declared in ${overviewDeclaration.filename}`,
+          'expanded from Overview file',
+        ];
+
+        nodeMetaById.set(id, {
+          id,
+          label: overviewDeclaration.name,
+          kind: 'declaration',
+          filename: overviewDeclaration.filename,
+          pos: overviewDeclaration.pos,
+          end: overviewDeclaration.end,
+          startLine: overviewDeclaration.startLine,
+          endLine: overviewDeclaration.endLine,
+          reasonLabels,
+          isChanged: false,
+          isDeleted: false,
+          canOpenFile: true,
+        });
+
+        return {
+          id,
+          className: 'overview-node overview-declaration-node',
+          data: {
+            label: <OverviewDeclarationView info={overviewDeclaration} />,
+            node: { id, label: overviewDeclaration.filename },
+            isDeleted: false,
+          },
+          position: { x: x || 0, y: y || 0 },
+        };
+      }
+
       const focusedInfo = isReviewLens
         ? focusedFilesByName.get(node.label)
         : null;
       const isDeleted = focusedInfo?.changeStatus === 'deleted';
-      const reasonLabels = focusedInfo
+      const baseReasonLabels = focusedInfo
         ? uniqueLabels(focusedInfo.reasons.map((r) => reasonLabel(r, focusedInfo)))
         : directoryOverview
           ? ['module dependency overview']
@@ -457,6 +764,10 @@ export const IncludesHierarchy: React.FC<{
                 ? [`inside module ${expandedDirectory}`]
                 : [`linked to module ${expandedDirectory}`]
               : ['full project navigation'];
+      const reasonLabels =
+        expandedOverviewFile === node.label
+          ? uniqueLabels([...baseReasonLabels, 'expanded into declarations'])
+          : baseReasonLabels;
 
       const kind: GraphNodeKind = directoryOverview ? 'module' : 'file';
       const canOpenFile = kind === 'file' && !isDeleted;
@@ -497,31 +808,36 @@ export const IncludesHierarchy: React.FC<{
       };
     });
 
-    const edgesElements = edges.map(({ source, target }, idx) => {
-      const items = activeIncludes[idx].items;
-      const label = edgeLabel(items);
-      return {
-        id: `${source}-${target}-${idx}`,
+    const edgesElements = graphEdges.map(
+      ({ id, source, target, label, animated, style }) => ({
+        id,
         markerEnd: { type: MarkerType.Arrow },
         source,
         target,
         label,
-      };
-    });
-    const connectionEdges: GraphConnection[] = edges.map(({ source, target }) => ({
-      source,
-      target,
-    }));
+        animated,
+        style,
+      })
+    );
+    const connectionEdges: GraphConnection[] = graphEdges.map(
+      ({ source, target }) => ({
+        source,
+        target,
+      })
+    );
 
     return { initialNodes, edgesElements, nodeMetaById, connectionEdges };
   }, [
     activeIncludes,
     declarationReview,
+    expandedOverviewFile,
     focusedDeclarationIds,
     focusedDeclarations,
     focusedFilesByName,
     focusedReview,
+    filesMappings,
     isReviewLens,
+    overviewDeclarationExpansion,
     reviewGranularity,
     directoryOverview,
     entryDepth,
@@ -538,6 +854,7 @@ export const IncludesHierarchy: React.FC<{
     reviewGranularity,
     showFocusedContext,
     expandedDirectory,
+    expandedOverviewFile,
   ]);
 
   useEffect(() => {
@@ -578,7 +895,7 @@ export const IncludesHierarchy: React.FC<{
     };
   }, [connectionEdges, nodeMetaById, selectedNode]);
 
-  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${expandedDirectory || ''}`;
+  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}`;
   const previousProjectionRef = useRef<string>(projectionKey);
 
   const [nodesElements, setNodesElements] = useState<FlowNode<any>[]>(
@@ -640,6 +957,8 @@ export const IncludesHierarchy: React.FC<{
     focusedReview?.declarationCalls?.filter((edge) =>
       edge.reasons.some((reason) => reason.type === 'bridge-between-changes')
     ).length || 0;
+  const overviewDeclarationCount =
+    overviewDeclarationExpansion?.declarations.length || 0;
   const branchBaseRef =
     reviewMode === 'branch' && focusedReview?.changeSet.source.mode === 'branch'
       ? focusedReview.changeSet.source.baseRef
@@ -677,6 +996,8 @@ export const IncludesHierarchy: React.FC<{
     ? `${reviewScopeText} at ${
         reviewGranularity === 'declarations' ? 'declaration' : 'file'
       } level`
+    : expandedOverviewFile
+      ? `Overview declarations for ${expandedOverviewFile}`
     : overviewMode === 'directory'
       ? expandedDirectory
         ? `Overview expanded for ${expandedDirectory}`
@@ -694,11 +1015,25 @@ export const IncludesHierarchy: React.FC<{
     !isReviewLens &&
     overviewMode === 'directory' &&
     !expandedDirectory;
+  const canExpandSelectedFile =
+    !!selectedNode &&
+    selectedNode.kind === 'file' &&
+    !isReviewLens &&
+    activeLens === 'overview' &&
+    selectedNode.canOpenFile &&
+    selectedNode.filename !== expandedOverviewFile;
+  const showOverviewDeclarationState =
+    activeLens === 'overview' &&
+    !!expandedOverviewFile &&
+    (overviewDeclarationLoading || !!overviewDeclarationError);
 
   const openLens = (lensId: LensId) => {
     const lens = LENSES.find((item) => item.id === lensId);
     if (!lens || !lens.implemented) return;
     setActiveLens(lensId);
+    if (lensId !== 'overview') {
+      setExpandedOverviewFile(null);
+    }
   };
 
   return (
@@ -745,6 +1080,7 @@ export const IncludesHierarchy: React.FC<{
                 <button
                   className={`segment-btn${overviewMode === 'directory' ? ' active' : ''}`}
                   onClick={() => {
+                    setExpandedOverviewFile(null);
                     setOverviewMode('directory');
                   }}
                 >
@@ -753,6 +1089,7 @@ export const IncludesHierarchy: React.FC<{
                 <button
                   className={`segment-btn${overviewMode === 'entry' ? ' active' : ''}`}
                   onClick={() => {
+                    setExpandedOverviewFile(null);
                     setExpandedDirectory(null);
                     setOverviewMode('entry');
                   }}
@@ -762,6 +1099,7 @@ export const IncludesHierarchy: React.FC<{
                 <button
                   className={`segment-btn${overviewMode === 'full' ? ' active' : ''}`}
                   onClick={() => {
+                    setExpandedOverviewFile(null);
                     setExpandedDirectory(null);
                     setOverviewMode('full');
                   }}
@@ -795,9 +1133,25 @@ export const IncludesHierarchy: React.FC<{
                   <div className="expansion-path">{expandedDirectory}</div>
                   <button
                     className="inline-btn"
-                    onClick={() => setExpandedDirectory(null)}
+                    onClick={() => {
+                      setExpandedOverviewFile(null);
+                      setExpandedDirectory(null);
+                    }}
                   >
                     Collapse back to modules
+                  </button>
+                </div>
+              )}
+
+              {expandedOverviewFile && (
+                <div className="expansion-banner">
+                  <div className="expansion-title">Expanded file</div>
+                  <div className="expansion-path">{expandedOverviewFile}</div>
+                  <button
+                    className="inline-btn"
+                    onClick={() => setExpandedOverviewFile(null)}
+                  >
+                    Collapse declarations
                   </button>
                 </div>
               )}
@@ -876,7 +1230,9 @@ export const IncludesHierarchy: React.FC<{
             <div className="workbench-main-meta">
               {!isReviewLens && (
                 <span>
-                  showing {visibleCount} of {fileCount} files
+                  {expandedOverviewFile
+                    ? `showing ${visibleCount} visible nodes across ${fileCount} files`
+                    : `showing ${visibleCount} of ${fileCount} files`}
                 </span>
               )}
               {isReviewLens && (
@@ -936,6 +1292,17 @@ export const IncludesHierarchy: React.FC<{
                     : `No changes against ${branchBaseRef || 'the base branch'}.`)}
                 {showFocusedNoDeclarations &&
                   'No changed declarations could be mapped for this change set.'}
+              </div>
+            )}
+            {showOverviewDeclarationState && (
+              <div
+                className={`focused-state-overlay${overviewDeclarationError ? ' focused-state-error' : ''}`}
+              >
+                {overviewDeclarationLoading &&
+                  `Loading declarations for ${expandedOverviewFile}...`}
+                {!overviewDeclarationLoading &&
+                  overviewDeclarationError &&
+                  `Unable to load declarations: ${overviewDeclarationError}`}
               </div>
             )}
             {!!showMenu &&
@@ -1004,11 +1371,32 @@ export const IncludesHierarchy: React.FC<{
               <>
                 <div className="summary-title">Overview summary</div>
                 <div className="summary-note">
-                  Start broad with modules, then expand into file-level scope only where needed.
+                  {expandedOverviewFile
+                    ? `Expanded ${expandedOverviewFile} into ${overviewDeclarationCount} analyzer-visible declarations.`
+                    : 'Start broad with modules, then expand into file-level scope only where needed.'}
                 </div>
+                {expandedOverviewFile &&
+                  !overviewDeclarationLoading &&
+                  !overviewDeclarationError &&
+                  overviewDeclarationCount === 0 && (
+                    <div className="summary-warning">
+                      No function, method, or arrow declarations were found in this file.
+                    </div>
+                  )}
+                {expandedOverviewFile && overviewDeclarationError && (
+                  <div className="summary-warning">
+                    Unable to load declaration expansion for this file.
+                  </div>
+                )}
                 {overviewMode === 'directory' && !expandedDirectory && (
                   <div className="summary-note">
                     Select a module node and use <strong>Expand module into files</strong> from
+                    the details panel.
+                  </div>
+                )}
+                {!expandedOverviewFile && (overviewMode !== 'directory' || expandedDirectory) && (
+                  <div className="summary-note">
+                    Select a file node and use <strong>Expand file into declarations</strong> from
                     the details panel.
                   </div>
                 )}
@@ -1084,9 +1472,23 @@ export const IncludesHierarchy: React.FC<{
               {canExpandSelectedModule && (
                 <button
                   className="inline-btn"
-                  onClick={() => setExpandedDirectory(selectedNode.label)}
+                  onClick={() => {
+                    setExpandedOverviewFile(null);
+                    setExpandedDirectory(selectedNode.label);
+                  }}
                 >
                   Expand module into files
+                </button>
+              )}
+
+              {canExpandSelectedFile && selectedNode.filename && (
+                <button
+                  className="inline-btn"
+                  onClick={() =>
+                    setExpandedOverviewFile(selectedNode.filename || null)
+                  }
+                >
+                  Expand file into declarations
                 </button>
               )}
 
@@ -1171,6 +1573,23 @@ const FocusedDeclarationView: React.FC<{ info: FocusedDeclarationInfo }> = ({
           {declarationReasonLabel(reason, info)}
         </span>
       ))}
+    </div>
+  </div>
+);
+
+const OverviewDeclarationView: React.FC<{ info: OverviewDeclarationNode }> = ({
+  info,
+}) => (
+  <div className="overview-declaration-view">
+    <div className="declaration-node-title">
+      <strong>{info.name}</strong>
+      <span>{info.args.length > 0 ? `(${info.args.join(', ')})` : '()'}</span>
+    </div>
+    <div className="declaration-node-file">
+      {info.filename}:{info.startLine}-{info.endLine}
+    </div>
+    <div className="focused-reasons">
+      <span className="focused-reason-chip">overview declaration</span>
     </div>
   </div>
 );
