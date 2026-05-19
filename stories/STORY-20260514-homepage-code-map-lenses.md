@@ -51,11 +51,15 @@ Delivered:
    3. Review mode can switch between `Files` and `Declarations`.
    4. Declaration context includes direct caller/callee relationships with heuristic reason labels.
    5. Short directed bridge paths between changed declarations are included when the path is explainable.
+7. Review test context is available:
+   1. Review requests accept an `includeTests` option, defaulting to enabled.
+   2. Related test files are detected from import edges and common test filename conventions.
+   3. Test files carry `isTest` metadata and explicit `related-test` reasons.
+   4. The review workbench exposes a `Related tests` control and styles test nodes/chips distinctly.
 
 Not yet delivered in this story:
 
-1. Test-specific inclusion and styling controls.
-2. Passing focused scopes into edit/agent commands.
+1. Passing focused scopes into edit/agent commands.
 
 ## Problem
 
@@ -304,7 +308,7 @@ This homepage story describes how that view becomes part of the default product 
 2. Phase 2: Complete (file-level review lens behavior).
 3. Phase 3: Complete (module overview, module-to-file expansion, and file-to-declaration expansion delivered).
 4. Phase 4: Complete (changed declaration mapping, direct caller/callee context, and bridge paths delivered).
-5. Phase 5: Not started.
+5. Phase 5: Not started. Test-specific review context controls are complete as a prerequisite.
 
 ### Phase 1: Homepage Lens Shell
 
@@ -426,13 +430,12 @@ Success criteria:
 2. How many graph expansion depths should be available before the UI becomes noisy?
 3. Should bridge paths get a user-facing off switch when the declaration graph becomes noisy?
 4. How should deleted declarations appear before function-level diff mapping exists?
-5. Should review mode include tests automatically, or expose that as a toggle?
+5. Decided May 19, 2026: review mode includes related tests by default and exposes a `Related tests` toggle to hide unchanged test context.
 
 ## Recommendation
 
 Continue this story with the next value-focused sequence:
 
-1. Add test-specific inclusion and styling controls.
-2. Implement Phase 5 focused-scope handoff for editing and AI workflows.
+1. Implement Phase 5 focused-scope handoff for editing and AI workflows.
 
 This moves the product from "browse every file" toward "understand the relevant part of the codebase."

@@ -74,4 +74,65 @@ describe('Focused review mapping', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('tags related tests and honors the includeTests option', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
+
+    try {
+      writeProjectFile(
+        root,
+        'subject.ts',
+        'export function subject() {\n  return 1;\n}\n'
+      );
+      writeProjectFile(
+        root,
+        'subject.test.ts',
+        "import { subject } from './subject';\n\ntest('subject', () => {\n  expect(subject()).toBe(1);\n});\n"
+      );
+
+      runGit(root, ['init']);
+      runGit(root, ['config', 'user.email', 'test@example.com']);
+      runGit(root, ['config', 'user.name', 'Test User']);
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'initial']);
+
+      writeProjectFile(
+        root,
+        'subject.ts',
+        'export function subject() {\n  return 2;\n}\n'
+      );
+
+      const project = new Project(root, { includeMask: '**/*.ts' });
+      const withTests = await project.handleCommandFocusedReview(
+        { mode: 'diff' },
+        { includeTests: true }
+      );
+      const relatedTest = withTests.payload.files.find(
+        (file) => file.filename === 'subject.test.ts'
+      );
+
+      expect(relatedTest).toMatchObject({
+        filename: 'subject.test.ts',
+        isChanged: false,
+        isTest: true,
+      });
+      expect(relatedTest?.reasons).toContainEqual({
+        type: 'related-test',
+        via: 'subject.ts',
+      });
+
+      const withoutTests = await project.handleCommandFocusedReview(
+        { mode: 'diff' },
+        { includeTests: false }
+      );
+
+      expect(
+        withoutTests.payload.files.some(
+          (file) => file.filename === 'subject.test.ts'
+        )
+      ).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

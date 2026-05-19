@@ -206,6 +206,34 @@
   cursor: default;
 }
 
+.check-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #c3d1c7;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  color: #274537;
+  background: #fff;
+  cursor: pointer;
+}
+
+.check-control.active {
+  border-color: #7d6aa8;
+  background: #f2eff9;
+  color: #3f315e;
+}
+
+.check-control input {
+  margin: 0;
+}
+
+.check-control:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .depth-control {
   display: flex;
   align-items: center;
@@ -441,6 +469,17 @@
   opacity: 0.88;
 }
 
+.react-flow__node-default.focused-node-test {
+  border: 1px solid #8d78b3;
+  background: #f5f1fb;
+  box-shadow: 0 3px 8px rgba(83, 62, 128, 0.12);
+}
+
+.react-flow__node-default.focused-node-changed.focused-node-is-test {
+  border-color: #6f5aa3;
+  background: #eee8fb;
+}
+
 .react-flow__node-default.overview-module-node {
   border: 1px solid #88a99b;
   background: #e9f3ed;
@@ -533,6 +572,12 @@
   border-color: #c28a45;
   background: #fff5e6;
   color: #6c4315;
+}
+
+.focused-reason-chip.reason-related-test {
+  border-color: #9581bc;
+  background: #f4effc;
+  color: #49336d;
 }
 
 .details-placeholder {

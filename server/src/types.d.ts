@@ -66,12 +66,17 @@ export interface ChangeSet {
   files: ChangedFileInfo[];
 }
 
+export interface FocusedReviewOptions {
+  includeTests?: boolean;
+}
+
 export interface RelatedReason {
   type:
     | 'changed'
     | 'imports-changed'
     | 'imported-by-changed'
-    | 'function-neighbor';
+    | 'function-neighbor'
+    | 'related-test';
   via?: string;
 }
 
@@ -79,6 +84,7 @@ export interface FocusedFileInfo {
   filename: string;
   reasons: RelatedReason[];
   isChanged: boolean;
+  isTest: boolean;
   changeStatus?: ChangedFileStatus;
 }
 

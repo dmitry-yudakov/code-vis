@@ -11,7 +11,7 @@ socket.emit('mapProject', payload,
 socket.emit('mapFile', { filename: string; includeRelated: boolean },
   (res: { success: boolean; data: FileMapDetailed[] }) => {})
 
-socket.emit('mapFocusedReview', { source: ChangeSourceRequest },
+socket.emit('mapFocusedReview', { source: ChangeSourceRequest, options?: FocusedReviewOptions },
   (res: { success: boolean; data: FocusedReviewMap }) => {})
 
 socket.emit('saveFile', { filename: string; content: string; pos?: number; end?: number },
@@ -25,10 +25,13 @@ const map   = await projectApi.getProjectMap()
 const files = await projectApi.getFileMap(filename, true)
 const review = await projectApi.getFocusedReview({ mode: 'diff' })
 const branch = await projectApi.getFocusedReview({ mode: 'branch', baseRef: 'origin/main' })
+const reviewWithoutTests = await projectApi.getFocusedReview({ mode: 'diff' }, { includeTests: false })
 await projectApi.saveFile(filename, content, pos?, end?)
 ```
 
 `mapFocusedReview` accepts either `{ mode: 'diff' }` for local uncommitted changes or `{ mode: 'branch', baseRef?: string }` for branch-vs-base review scope. If `baseRef` is omitted, the server tries `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`, and finally falls back to `master`.
+
+`options.includeTests` controls unchanged related test files. It defaults to `true`, marks detected test files with `isTest`, and adds a `related-test` reason when a test imports changed code or matches a changed source filename.
 
 ## Server → Client (broadcasts to all clients)
 
@@ -83,12 +86,17 @@ interface ChangeSet {
   files: ChangedFileInfo[];
 }
 
+interface FocusedReviewOptions {
+  includeTests?: boolean;
+}
+
 interface RelatedReason {
   type:
     | 'changed'
     | 'imports-changed'
     | 'imported-by-changed'
-    | 'function-neighbor';
+    | 'function-neighbor'
+    | 'related-test';
   via?: string;
 }
 
@@ -96,6 +104,7 @@ interface FocusedFileInfo {
   filename: string;
   reasons: RelatedReason[];
   isChanged: boolean;
+  isTest: boolean;
   changeStatus?: ChangedFileStatus;
 }
 
@@ -145,7 +154,7 @@ interface FocusedReviewMap {
 
 See [analyzer.md](analyzer.md) for `FileMapping`, `FunctionCallInfo`, etc.
 
-`FocusedReviewMap.includes` contains only dependency edges where both endpoints are in the focused file set. The focused file set starts with changed files and adds one-hop import neighbors.
+`FocusedReviewMap.includes` contains only dependency edges where both endpoints are in the focused file set. The focused file set starts with changed files and adds one-hop import neighbors. Related test files are included when `includeTests` is not `false`.
 
 `FocusedReviewMap.declarations` contains changed declarations plus direct caller/callee declaration context when the analyzer can map changed diff hunks to declaration ranges. It also includes short bridge declarations when changed declarations are connected by an explainable directed call chain. `declarationCalls` are heuristic call edges between those visible declarations.
 

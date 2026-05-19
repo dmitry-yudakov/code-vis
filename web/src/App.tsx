@@ -16,7 +16,12 @@ import {
 import lodash from 'lodash';
 import { initConnection, projectApi } from './connection';
 import { History } from './components/History';
-import { ChangeSourceRequest, FileIncludeInfo, FileMapDetailed } from './types';
+import {
+  ChangeSourceRequest,
+  FileIncludeInfo,
+  FileMapDetailed,
+  FocusedReviewOptions,
+} from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
 import Menu from './atoms/Menu';
@@ -153,7 +158,8 @@ const App: React.FC = () => {
   const navigate = useNavigate();
 
   const requestFocusedReview = useCallback(
-    (source: ChangeSourceRequest) => projectApi.getFocusedReview(source),
+    (source: ChangeSourceRequest, options?: FocusedReviewOptions) =>
+      projectApi.getFocusedReview(source, options),
     []
   );
 

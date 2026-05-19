@@ -11,6 +11,7 @@ import {
   FocusedDeclarationInfo,
   FocusedDeclarationReason,
   FocusedFileInfo,
+  FocusedReviewOptions,
   FocusedReviewMap,
   FunctionCallInfo,
   FunctionDeclarationInfo,
@@ -114,6 +115,51 @@ const parseNameStatusOutput = (output: string): ChangedFileInfo[] => {
 
 const hasReason = (reasons: RelatedReason[], reason: RelatedReason): boolean =>
   reasons.some((item) => item.type === reason.type && item.via === reason.via);
+
+const basename = (filename: string): string => {
+  const normalized = filename.replace(/\\/g, '/');
+  return normalized.slice(normalized.lastIndexOf('/') + 1);
+};
+
+const stripSourceExtension = (filename: string): string =>
+  filename.replace(/\.[jt]sx?$/i, '');
+
+const isTestFile = (filename: string): boolean => {
+  const normalized = filename.replace(/\\/g, '/');
+  const name = basename(normalized);
+
+  return (
+    /\.(test|spec)\.[jt]sx?$/i.test(name) ||
+    /(^|\/)(__tests__|tests?|spec)\//i.test(normalized)
+  );
+};
+
+const normalizeTestPartnerPath = (filename: string): string => {
+  let stem = stripSourceExtension(filename.replace(/\\/g, '/'));
+  stem = stem.replace(/(^|\/)__tests__\//gi, '$1');
+  stem = stem.replace(/\/(tests?|spec)\//gi, '/');
+  stem = stem.replace(/\.(test|spec)$/i, '');
+  return stem;
+};
+
+const areLikelyTestPartners = (
+  testFilename: string,
+  sourceFilename: string
+): boolean => {
+  if (!isTestFile(testFilename) || isTestFile(sourceFilename)) return false;
+
+  const testStem = normalizeTestPartnerPath(testFilename);
+  const sourceStem = normalizeTestPartnerPath(sourceFilename);
+  if (testStem === sourceStem) return true;
+
+  const testBase = basename(testStem);
+  const sourceBase = basename(sourceStem);
+  return (
+    sourceBase.length > 2 &&
+    sourceBase !== 'index' &&
+    testBase === sourceBase
+  );
+};
 
 type LineRange = { start: number; end: number };
 
@@ -446,7 +492,10 @@ export default class Project {
           payload.end
         );
       case 'mapFocusedReview':
-        return this.handleCommandFocusedReview(payload?.source);
+        return this.handleCommandFocusedReview(
+          payload?.source,
+          payload?.options
+        );
       default:
         throw new Error('Could not recognize command: "' + type + '"');
     }
@@ -672,8 +721,10 @@ export default class Project {
   }
 
   private async buildFocusedReviewMap(
-    changeSet: ChangeSet
+    changeSet: ChangeSet,
+    options: FocusedReviewOptions = {}
   ): Promise<FocusedReviewMap> {
+    const includeTests = options.includeTests !== false;
     const focusedFiles = new Map<string, FocusedFileInfo>();
 
     const ensureFocusedFile = (filename: string): FocusedFileInfo => {
@@ -684,6 +735,7 @@ export default class Project {
         filename,
         reasons: [],
         isChanged: false,
+        isTest: isTestFile(filename),
       };
       focusedFiles.set(filename, created);
       return created;
@@ -710,17 +762,61 @@ export default class Project {
 
     for (const edge of this.projectMap) {
       if (changedFiles.has(edge.from)) {
-        addReason(edge.to, {
-          type: 'imports-changed',
-          via: edge.from,
-        });
+        if (isTestFile(edge.to)) {
+          if (includeTests) {
+            addReason(edge.to, {
+              type: 'related-test',
+              via: edge.from,
+            });
+          }
+        } else {
+          addReason(edge.to, {
+            type: 'imports-changed',
+            via: edge.from,
+          });
+        }
       }
 
       if (changedFiles.has(edge.to)) {
-        addReason(edge.from, {
-          type: 'imported-by-changed',
-          via: edge.to,
-        });
+        if (isTestFile(edge.from)) {
+          if (includeTests) {
+            addReason(edge.from, {
+              type: 'related-test',
+              via: edge.to,
+            });
+          }
+        } else {
+          addReason(edge.from, {
+            type: 'imported-by-changed',
+            via: edge.to,
+          });
+        }
+      }
+    }
+
+    if (includeTests) {
+      const changedSourceFiles = changeSet.files.filter(
+        (file) => file.status !== 'deleted' && !isTestFile(file.filename)
+      );
+
+      for (const filename of this.files) {
+        if (
+          !isTestFile(filename) ||
+          changedFiles.has(filename) ||
+          focusedFiles.has(filename)
+        ) {
+          continue;
+        }
+
+        const relatedSource = changedSourceFiles.find((file) =>
+          areLikelyTestPartners(filename, file.filename)
+        );
+        if (relatedSource) {
+          addReason(filename, {
+            type: 'related-test',
+            via: relatedSource.filename,
+          });
+        }
       }
     }
 
@@ -1023,7 +1119,10 @@ export default class Project {
     };
   }
 
-  async handleCommandFocusedReview(source: ChangeSourceRequest | undefined) {
+  async handleCommandFocusedReview(
+    source: ChangeSourceRequest | undefined,
+    options?: FocusedReviewOptions
+  ) {
     this.reloadProject();
     await this.recreateProjectMap();
 
@@ -1033,7 +1132,7 @@ export default class Project {
         ? await this.getBranchChangeSet(requestedSource.baseRef)
         : await this.getDiffChangeSet();
 
-    const payload = await this.buildFocusedReviewMap(changeSet);
+    const payload = await this.buildFocusedReviewMap(changeSet, options);
 
     return {
       type: 'focusedReviewMap',

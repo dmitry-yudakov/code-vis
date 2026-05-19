@@ -24,6 +24,7 @@ import {
   FocusedDeclarationInfo,
   FocusedDeclarationReason,
   FocusedFileInfo,
+  FocusedReviewOptions,
   FocusedReviewMap,
   RelatedReason,
   ChangedFileStatus,
@@ -41,7 +42,7 @@ type OverviewMode = 'full' | 'entry' | 'directory';
 type ReviewMode = 'diff' | 'branch';
 type ReviewGranularity = 'files' | 'declarations';
 
-type GraphNodeKind = 'file' | 'module' | 'declaration';
+type GraphNodeKind = 'file' | 'module' | 'declaration' | 'test';
 
 type GraphNodeMeta = {
   id: string;
@@ -54,6 +55,7 @@ type GraphNodeMeta = {
   endLine?: number;
   reasonLabels: string[];
   isChanged: boolean;
+  isTest: boolean;
   changeStatus?: ChangedFileStatus;
   isDeleted: boolean;
   canOpenFile: boolean;
@@ -193,6 +195,10 @@ const reasonLabel = (reason: RelatedReason, info: FocusedFileInfo): string => {
       return reason.via
         ? `function neighbor (${reason.via})`
         : 'function neighbor';
+    case 'related-test':
+      return reason.via
+        ? `related test (${reason.via})`
+        : 'related test';
     default:
       return reason.type;
   }
@@ -234,7 +240,8 @@ export const IncludesHierarchy: React.FC<{
     includeRelated?: boolean
   ) => Promise<FileMapDetailed[]>;
   requestFocusedReview: (
-    source: ChangeSourceRequest
+    source: ChangeSourceRequest,
+    options?: FocusedReviewOptions
   ) => Promise<FocusedReviewMap>;
   renderNodeMenu: (
     filename: string,
@@ -283,6 +290,7 @@ export const IncludesHierarchy: React.FC<{
   const [focusedLoading, setFocusedLoading] = useState(false);
   const [focusedError, setFocusedError] = useState<string | null>(null);
   const [showFocusedContext, setShowFocusedContext] = useState(true);
+  const [includeFocusedTests, setIncludeFocusedTests] = useState(true);
 
   const [showMenu, setShowMenu] = useState<{
     anchor: HTMLElement | null;
@@ -305,7 +313,7 @@ export const IncludesHierarchy: React.FC<{
     setFocusedLoading(true);
     setFocusedError(null);
 
-    requestFocusedReview(focusedSource)
+    requestFocusedReview(focusedSource, { includeTests: includeFocusedTests })
       .then((result) => {
         if (canceled) return;
         setFocusedReview(result);
@@ -324,7 +332,7 @@ export const IncludesHierarchy: React.FC<{
     return () => {
       canceled = true;
     };
-  }, [focusedSource, includes, requestFocusedReview]);
+  }, [focusedSource, includeFocusedTests, includes, requestFocusedReview]);
 
   const expandedOverviewFileMapping = expandedOverviewFile
     ? filesMappings[expandedOverviewFile]
@@ -515,6 +523,7 @@ export const IncludesHierarchy: React.FC<{
           endLine: decl.endLine,
           reasonLabels,
           isChanged: decl.isChanged,
+          isTest: false,
           changeStatus: decl.changeStatus,
           isDeleted: false,
           canOpenFile: true,
@@ -733,6 +742,7 @@ export const IncludesHierarchy: React.FC<{
           endLine: overviewDeclaration.endLine,
           reasonLabels,
           isChanged: false,
+          isTest: false,
           isDeleted: false,
           canOpenFile: true,
         });
@@ -769,27 +779,44 @@ export const IncludesHierarchy: React.FC<{
           ? uniqueLabels([...baseReasonLabels, 'expanded into declarations'])
           : baseReasonLabels;
 
-      const kind: GraphNodeKind = directoryOverview ? 'module' : 'file';
-      const canOpenFile = kind === 'file' && !isDeleted;
+      const kind: GraphNodeKind = focusedInfo?.isTest
+        ? 'test'
+        : directoryOverview
+          ? 'module'
+          : 'file';
+      const canOpenFile = (kind === 'file' || kind === 'test') && !isDeleted;
 
       nodeMetaById.set(id, {
         id,
         label: node.label,
         kind,
-        filename: kind === 'file' ? node.label : undefined,
+        filename: kind === 'file' || kind === 'test' ? node.label : undefined,
         reasonLabels,
         isChanged: !!focusedInfo?.isChanged,
+        isTest: !!focusedInfo?.isTest,
         changeStatus: focusedInfo?.changeStatus,
         isDeleted,
         canOpenFile,
       });
 
+      const focusedClassName = focusedInfo
+        ? [
+            'focused-node',
+            focusedInfo.isChanged
+              ? 'focused-node-changed'
+              : focusedInfo.isTest
+                ? 'focused-node-test'
+                : 'focused-node-context',
+            focusedInfo.isTest ? 'focused-node-is-test' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')
+        : '';
+
       return {
         id,
         className: focusedInfo
-          ? focusedInfo.isChanged
-            ? 'focused-node focused-node-changed'
-            : 'focused-node focused-node-context'
+          ? focusedClassName
           : directoryOverview
             ? 'overview-node overview-module-node'
             : 'overview-node overview-file-node',
@@ -853,6 +880,7 @@ export const IncludesHierarchy: React.FC<{
     reviewMode,
     reviewGranularity,
     showFocusedContext,
+    includeFocusedTests,
     expandedDirectory,
     expandedOverviewFile,
   ]);
@@ -895,7 +923,7 @@ export const IncludesHierarchy: React.FC<{
     };
   }, [connectionEdges, nodeMetaById, selectedNode]);
 
-  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}`;
+  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${includeFocusedTests ? 'tests' : 'no-tests'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}`;
   const previousProjectionRef = useRef<string>(projectionKey);
 
   const [nodesElements, setNodesElements] = useState<FlowNode<any>[]>(
@@ -944,6 +972,15 @@ export const IncludesHierarchy: React.FC<{
 
   const changedCount = focusedReview?.changeSet.files.length || 0;
   const focusedTotalCount = focusedReview?.files.length || 0;
+  const focusedRelatedTestCount =
+    focusedReview?.files.filter(
+      (file) =>
+        file.isTest &&
+        file.reasons.some((reason) => reason.type === 'related-test')
+    ).length || 0;
+  const visibleTestCount = Array.from(focusedFilesByName.values()).filter(
+    (file) => file.isTest
+  ).length;
   const focusedDeclarationTotalCount = focusedReview?.declarations?.length || 0;
   const changedDeclarationCount =
     focusedReview?.declarations?.filter((decl) => decl.isChanged).length || 0;
@@ -1209,6 +1246,21 @@ export const IncludesHierarchy: React.FC<{
                   + Context
                 </button>
               </div>
+
+              <label
+                className={`check-control${includeFocusedTests ? ' active' : ''}`}
+                title="Include test files that import changed code or match changed filenames"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeFocusedTests}
+                  onChange={(event) =>
+                    setIncludeFocusedTests(event.currentTarget.checked)
+                  }
+                  disabled={focusedLoading}
+                />
+                <span>Related tests</span>
+              </label>
             </div>
           )}
 
@@ -1246,7 +1298,11 @@ export const IncludesHierarchy: React.FC<{
                       } declarations`
                     : `, showing ${visibleCount}${
                         showFocusedContext ? ` of ${focusedTotalCount}` : ''
-                      } files`}
+                      } files${
+                        showFocusedContext && visibleTestCount > 0
+                          ? `, ${visibleTestCount} tests`
+                          : ''
+                      }`}
                   {branchBaseRef ? ` vs ${branchBaseRef}` : ''}
                 </span>
               )}
@@ -1344,6 +1400,17 @@ export const IncludesHierarchy: React.FC<{
                         : ''}
                       .
                     </div>
+                    {showFocusedContext && focusedRelatedTestCount > 0 && (
+                      <div className="summary-note">
+                        {focusedRelatedTestCount} related test file
+                        {focusedRelatedTestCount === 1 ? '' : 's'} included in the review scope.
+                      </div>
+                    )}
+                    {showFocusedContext && !includeFocusedTests && (
+                      <div className="summary-note">
+                        Related tests are hidden for this review scope.
+                      </div>
+                    )}
                     {declarationReview &&
                       showFocusedContext &&
                       bridgeDeclarationCount > 0 && (
@@ -1443,6 +1510,13 @@ export const IncludesHierarchy: React.FC<{
                 <span>Outbound</span>
                 <strong>{selectedNodeConnections.outgoing}</strong>
 
+                {selectedNode.isTest && (
+                  <>
+                    <span>Test file</span>
+                    <strong>yes</strong>
+                  </>
+                )}
+
                 {selectedNode.changeStatus && (
                   <>
                     <span>Change status</span>
@@ -1539,7 +1613,7 @@ const FocusedFileView: React.FC<{ info: FocusedFileInfo }> = ({ info }) => (
       {info.reasons.map((reason, idx) => (
         <span
           key={`${reason.type}-${reason.via || idx}`}
-          className="focused-reason-chip"
+          className={`focused-reason-chip reason-${reason.type}`}
           title={reasonLabel(reason, info)}
         >
           {reasonLabel(reason, info)}

@@ -31,7 +31,7 @@ class Project {
 **Commands**:
 - `mapProject` → `FileIncludeInfo[]`
 - `mapFile({ filename, includeRelated })` → `FileMapDetailed[]`
-- `mapFocusedReview({ source })` → `FocusedReviewMap`
+- `mapFocusedReview({ source, options? })` → `FocusedReviewMap`
 - `saveFile({ filename, content, pos?, end? })` → writes file
 
 ### Focused Review Mapping
@@ -43,6 +43,8 @@ class Project {
 - If `baseRef` is omitted, the server tries `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master`, then falls back to `master`.
 
 The response includes changed files, their statuses (`added`, `modified`, `deleted`, `renamed`), parsed diff line ranges when available, one-hop dependency neighbors, and only dependency edges where both endpoints are in the focused file set. Related files are marked with reasons such as `imports-changed` or `imported-by-changed`.
+
+`options.includeTests` defaults to `true`. Related test files are detected by test-file naming conventions and import edges from changed source files, marked with `isTest`, and given a `related-test` reason. Passing `{ includeTests: false }` hides unchanged related test files while preserving changed test files as review seeds.
 
 When changed hunks overlap analyzer-visible declarations, the response also includes `declarations` and `declarationCalls`. Declaration nodes preserve file/range data, mark changed declarations, add direct caller/callee context with heuristic reasons such as `calls-changed` and `called-by-changed`, and include short bridge paths with `bridge-between-changes` when changed declarations are connected by a small directed call chain.
 
