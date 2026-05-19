@@ -12,12 +12,14 @@ import {
   Route,
   useParams,
   useNavigate,
+  useLocation,
 } from 'react-router-dom';
 import lodash from 'lodash';
 import { initConnection, projectApi } from './connection';
 import { History } from './components/History';
 import {
   ChangeSourceRequest,
+  CodeMapScope,
   FileIncludeInfo,
   FileMapDetailed,
   FocusedReviewOptions,
@@ -41,9 +43,25 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   const { filename: filenameEnc } = useParams<{ filename: string }>();
   const filename = decodeURIComponent(filenameEnc || '');
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { projectMap, filesMappings, forceReloadToken } =
     useContext(ProjectDataContext);
+  const codeMapScope = useMemo(() => {
+    const state = location.state as { codeMapScope?: CodeMapScope } | null;
+    return state?.codeMapScope || null;
+  }, [location.state]);
+  const scopedFiles = useMemo(
+    () => new Set(codeMapScope?.files || []),
+    [codeMapScope]
+  );
+  const scopedProjectMap = useMemo(() => {
+    if (!codeMapScope || scopedFiles.size === 0) return projectMap;
+    return projectMap.filter(
+      (incl) => scopedFiles.has(incl.from) && scopedFiles.has(incl.to)
+    );
+  }, [codeMapScope, projectMap, scopedFiles]);
+  const scopeKey = codeMapScope?.scopeId || 'full-project';
 
   const [localFileData, setLocalFileData] = useState<FileMapDetailed | null>(
     null
@@ -102,9 +120,14 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   // Use useCallback to ensure the function updates when relatedFiles changes
   const getRelatedFile = useCallback(
     (fn: string) => {
+      if (codeMapScope && scopedFiles.size > 0 && !scopedFiles.has(fn)) {
+        return null;
+      }
+
       const result = relatedFiles[fn] || filesMappings[fn] || null;
       console.log('getRelatedFile called', {
         requestedFile: fn,
+        scopeId: codeMapScope?.scopeId,
         foundInRelated: !!relatedFiles[fn],
         foundInContext: !!filesMappings[fn],
         hasResult: !!result,
@@ -112,7 +135,7 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
       });
       return result;
     },
-    [relatedFiles, filesMappings]
+    [codeMapScope, scopedFiles, relatedFiles, filesMappings]
   );
 
   const fileData = localFileData || filesMappings[filename];
@@ -120,9 +143,9 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
 
   return fineGrained ? (
     <LogicMap
-      key={`${filename}-${Object.keys(relatedFiles).length}`}
+      key={`${filename}-${scopeKey}-${Object.keys(relatedFiles).length}`}
       filename={filename}
-      projectMap={projectMap}
+      projectMap={scopedProjectMap}
       onClose={() => navigate('/')}
       onRequestRelatedFile={getRelatedFile}
       onSave={async (filename, content, pos, end) => {
@@ -136,10 +159,10 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
     />
   ) : (
     <FilesMapping
-      key={`${filename}-${Object.keys(relatedFiles).length}`}
+      key={`${filename}-${scopeKey}-${Object.keys(relatedFiles).length}`}
       data={fileData}
       filename={filename}
-      projectMap={projectMap}
+      projectMap={scopedProjectMap}
       onClose={() => navigate('/')}
       onRequestRelatedFile={getRelatedFile}
       onSave={async (filename, content) => {
@@ -318,18 +341,25 @@ const App: React.FC = () => {
                 renderNodeMenu={(
                   filename: string,
                   anchor: HTMLElement | null,
-                  onClose: () => void
+                  onClose: () => void,
+                  codeMapScope: CodeMapScope
                 ) => (
                   <Menu
                     positionAnchor={anchor}
                     options={[
                       [
                         'Logic Map',
-                        () => navigate(`/fine/${encodeURIComponent(filename)}`),
+                        () =>
+                          navigate(`/fine/${encodeURIComponent(filename)}`, {
+                            state: { codeMapScope },
+                          }),
                       ],
                       [
                         'File Map',
-                        () => navigate(`/f/${encodeURIComponent(filename)}`),
+                        () =>
+                          navigate(`/f/${encodeURIComponent(filename)}`, {
+                            state: { codeMapScope },
+                          }),
                       ],
                     ]}
                     onClose={onClose}

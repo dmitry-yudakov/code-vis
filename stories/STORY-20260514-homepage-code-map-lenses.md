@@ -1,7 +1,7 @@
 # Homepage Code Map Lenses
 
 **Created:** May 14, 2026  
-**Status:** Implemented (Phases 1-4 baseline)
+**Status:** Implemented (Phases 1-5 baseline)
 **Updated:** May 19, 2026
 
 ## Overview
@@ -57,9 +57,11 @@ Delivered:
    3. Test files carry `isTest` metadata and explicit `related-test` reasons.
    4. The review workbench exposes a `Related tests` control and styles test nodes/chips distinctly.
 
-Not yet delivered in this story:
+Phase 5 baseline added on May 19, 2026:
 
-1. Passing focused scopes into edit/agent commands.
+1. The visible graph is exported as a `CodeMapScope` with files, declaration ranges, selected node, edges, and inclusion reasons.
+2. The homepage exposes a `Copy scope JSON` handoff action for future edit or agent commands.
+3. File Map and Logic Map navigation carries the current scope through route state and filters related-file context to the scoped files.
 
 ## Problem
 
@@ -308,7 +310,7 @@ This homepage story describes how that view becomes part of the default product 
 2. Phase 2: Complete (file-level review lens behavior).
 3. Phase 3: Complete (module overview, module-to-file expansion, and file-to-declaration expansion delivered).
 4. Phase 4: Complete (changed declaration mapping, direct caller/callee context, and bridge paths delivered).
-5. Phase 5: Not started. Test-specific review context controls are complete as a prerequisite.
+5. Phase 5: Complete baseline. Test-specific review context controls are complete as a prerequisite, and visible graph scopes can now be handed to editor/agent surfaces.
 
 ### Phase 1: Homepage Lens Shell
 
@@ -414,7 +416,7 @@ Success criteria:
 6. Complete at module/folder scale.
 7. Complete for module-to-file and file-to-declaration expansion.
 8. Complete.
-9. Partial: file-level location/navigation is preserved; edit/agent scope handoff is future work.
+9. Complete baseline: file-level location/navigation is preserved, declaration ranges are included when available, and current scopes can be copied or passed into file/logic map navigation.
 
 ## Decisions In This Implementation
 
@@ -436,6 +438,7 @@ Success criteria:
 
 Continue this story with the next value-focused sequence:
 
-1. Implement Phase 5 focused-scope handoff for editing and AI workflows.
+1. Add a first real edit or agent command that consumes `CodeMapScope`.
+2. Persist recently used scopes so review, feature, and impact workflows can be resumed.
 
-This moves the product from "browse every file" toward "understand the relevant part of the codebase."
+This moves the product from "understand the relevant part of the codebase" toward "act on that scope safely."

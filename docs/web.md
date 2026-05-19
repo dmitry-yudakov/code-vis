@@ -81,6 +81,12 @@ Inside `Review current changes`, users can switch between:
 
 `Branch / PR` is branch-diff based rather than GitHub API based. The server resolves the base ref, computes a merge base, and compares `merge-base..HEAD`.
 
+## Working Scope Handoff
+
+`IncludesHierarchy` builds a `CodeMapScope` from the currently visible graph. The scope records the active lens, mode, selected node, files, declaration ranges, visible edges, and reason labels for every visible node.
+
+The homepage sidebar exposes `Copy scope JSON` for external edit or agent workflows. When opening `File Map` or `Logic Map` from a graph node, the same scope is passed through React Router state and those views filter their project map to files inside the scope.
+
 ## Data Flows
 
 **Init**: App mounts → Socket.IO connect → `getProjectMap()` → sets `projectMap` → `IncludesHierarchy` renders
@@ -90,6 +96,8 @@ Inside `Review current changes`, users can switch between:
 **File nav**: click file → `/f/{filename}` → `getFileMap(filename, true)` → sets local state → `FilesMapping` renders
 
 **Change-focused review**: click `Diff` or `Branch / PR` → `getFocusedReview({ mode })` → server returns `FocusedReviewMap` → `IncludesHierarchy` renders changed files or changed declarations with optional one-hop/direct-call/bridge context
+
+**Scoped file nav**: graph node menu → route state carries `CodeMapScope` → `FileScreen` filters related file edges to the scope → `FilesMapping` or `LogicMap` opens with the same working context
 
 **Save**: editor save → `saveFile()` → server writes → chokidar detects → `projectContentChange` broadcast → client increments `forceReloadDep` → reload
 

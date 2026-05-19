@@ -15,6 +15,8 @@ import ReactFlow, {
 import { FilenamePrettyView } from '../atoms';
 import {
   Node,
+  CodeMapScope,
+  CodeMapScopeNode,
   FileIncludeInfo,
   FileMapDetailed,
   FunctionCallInfo,
@@ -42,7 +44,7 @@ type OverviewMode = 'full' | 'entry' | 'directory';
 type ReviewMode = 'diff' | 'branch';
 type ReviewGranularity = 'files' | 'declarations';
 
-type GraphNodeKind = 'file' | 'module' | 'declaration' | 'test';
+type GraphNodeKind = CodeMapScopeNode['kind'];
 
 type GraphNodeMeta = {
   id: string;
@@ -232,6 +234,32 @@ const declarationReasonLabel = (
 
 const uniqueLabels = (items: string[]): string[] => Array.from(new Set(items));
 
+const writeTextToClipboard = async (text: string): Promise<void> => {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back to the older DOM copy path below.
+    }
+  }
+
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.setAttribute('readonly', 'true');
+  textArea.style.position = 'fixed';
+  textArea.style.left = '-9999px';
+  textArea.style.top = '0';
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textArea);
+
+  if (!copied) {
+    throw new Error('Clipboard copy failed');
+  }
+};
+
 export const IncludesHierarchy: React.FC<{
   includes: FileIncludeInfo[];
   filesMappings: Record<string, FileMapDetailed>;
@@ -246,7 +274,8 @@ export const IncludesHierarchy: React.FC<{
   renderNodeMenu: (
     filename: string,
     anchor: HTMLElement | null,
-    onClose: () => void
+    onClose: () => void,
+    codeMapScope: CodeMapScope
   ) => React.ReactElement;
 }> = React.memo(
   ({
@@ -291,6 +320,9 @@ export const IncludesHierarchy: React.FC<{
   const [focusedError, setFocusedError] = useState<string | null>(null);
   const [showFocusedContext, setShowFocusedContext] = useState(true);
   const [includeFocusedTests, setIncludeFocusedTests] = useState(true);
+  const [scopeCopyStatus, setScopeCopyStatus] = useState<
+    'idle' | 'copied' | 'error'
+  >('idle');
 
   const [showMenu, setShowMenu] = useState<{
     anchor: HTMLElement | null;
@@ -924,11 +956,101 @@ export const IncludesHierarchy: React.FC<{
   }, [connectionEdges, nodeMetaById, selectedNode]);
 
   const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${includeFocusedTests ? 'tests' : 'no-tests'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}`;
+  const currentScope = useMemo<CodeMapScope>(() => {
+    const nodes: CodeMapScopeNode[] = Array.from(nodeMetaById.values())
+      .map((meta) => ({
+        id: meta.id,
+        kind: meta.kind,
+        label: meta.label,
+        filename: meta.filename,
+        pos: meta.pos,
+        end: meta.end,
+        startLine: meta.startLine,
+        endLine: meta.endLine,
+        reasons: meta.reasonLabels,
+        isChanged: meta.isChanged,
+        isTest: meta.isTest,
+        isDeleted: meta.isDeleted,
+        changeStatus: meta.changeStatus,
+      }))
+      .sort(
+        (left, right) =>
+          left.kind.localeCompare(right.kind) ||
+          (left.filename || left.label).localeCompare(
+            right.filename || right.label
+          ) ||
+          (left.startLine || 0) - (right.startLine || 0)
+      );
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const edges = edgesElements
+      .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+      .map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: typeof edge.label === 'string' ? edge.label : undefined,
+      }));
+    const files = uniqueLabels(
+      nodes.flatMap((node) => (node.filename ? [node.filename] : []))
+    );
+    const declarations = nodes.filter((node) => node.kind === 'declaration');
+
+    return {
+      scopeId: `${projectionKey}|selected:${selectedNode?.id || ''}`,
+      lens: activeLens,
+      mode: isReviewLens ? reviewMode : overviewMode,
+      granularity:
+        declarationReview || !!expandedOverviewFile ? 'declarations' : 'files',
+      selectedNodeId: selectedNode?.id,
+      source: isReviewLens ? focusedReview?.changeSet.source : undefined,
+      includeContext: isReviewLens ? showFocusedContext : undefined,
+      includeTests: isReviewLens ? includeFocusedTests : undefined,
+      expandedDirectory: expandedDirectory || undefined,
+      expandedFile: expandedOverviewFile || undefined,
+      files,
+      declarations,
+      nodes,
+      edges,
+    };
+  }, [
+    activeLens,
+    declarationReview,
+    edgesElements,
+    expandedDirectory,
+    expandedOverviewFile,
+    focusedReview,
+    includeFocusedTests,
+    isReviewLens,
+    nodeMetaById,
+    overviewMode,
+    projectionKey,
+    reviewMode,
+    selectedNode,
+    showFocusedContext,
+  ]);
   const previousProjectionRef = useRef<string>(projectionKey);
 
   const [nodesElements, setNodesElements] = useState<FlowNode<any>[]>(
     initialNodes as FlowNode<any>[]
   );
+
+  useEffect(() => {
+    setScopeCopyStatus('idle');
+  }, [currentScope.scopeId]);
+
+  const copyCurrentScope = useCallback(async () => {
+    const handoffScope: CodeMapScope = {
+      ...currentScope,
+      generatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await writeTextToClipboard(JSON.stringify(handoffScope, null, 2));
+      setScopeCopyStatus('copied');
+    } catch {
+      setScopeCopyStatus('error');
+    }
+  }, [currentScope]);
 
   useEffect(() => {
     setNodesElements((previousNodes) => {
@@ -1265,6 +1387,30 @@ export const IncludesHierarchy: React.FC<{
           )}
 
           <div className="panel-group compact">
+            <div className="panel-group-title">Working scope</div>
+            <div className="scope-stats">
+              <span>{currentScope.files.length} files</span>
+              <span>{currentScope.declarations.length} declarations</span>
+              <span>{currentScope.nodes.length} nodes</span>
+            </div>
+            <button
+              className="inline-btn scope-copy-btn"
+              onClick={copyCurrentScope}
+              disabled={currentScope.nodes.length === 0}
+            >
+              Copy scope JSON
+            </button>
+            {scopeCopyStatus === 'copied' && (
+              <div className="scope-copy-status">Scope copied.</div>
+            )}
+            {scopeCopyStatus === 'error' && (
+              <div className="scope-copy-status error">
+                Clipboard copy failed.
+              </div>
+            )}
+          </div>
+
+          <div className="panel-group compact">
             <div className="panel-group-title">Notes</div>
             <div className="sidebar-note">
               File hierarchy is still available via <strong>Overview -&gt; All files</strong>,
@@ -1362,8 +1508,11 @@ export const IncludesHierarchy: React.FC<{
               </div>
             )}
             {!!showMenu &&
-              renderNodeMenu(showMenu.node.label, showMenu.anchor, () =>
-                setShowMenu(null)
+              renderNodeMenu(
+                showMenu.node.label,
+                showMenu.anchor,
+                () => setShowMenu(null),
+                currentScope
               )}
           </div>
 

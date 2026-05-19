@@ -123,6 +123,53 @@ export interface FocusedReviewMap {
   declarationCalls: FocusedDeclarationCallInfo[];
 }
 
+export type CodeMapLens = 'overview' | 'review' | 'feature' | 'impact';
+
+export type CodeMapScopeGranularity = 'files' | 'declarations';
+
+export type CodeMapScopeNodeKind = 'file' | 'module' | 'declaration' | 'test';
+
+export interface CodeMapScopeNode {
+  id: string;
+  kind: CodeMapScopeNodeKind;
+  label: string;
+  filename?: string;
+  pos?: number;
+  end?: number;
+  startLine?: number;
+  endLine?: number;
+  reasons: string[];
+  isChanged: boolean;
+  isTest: boolean;
+  isDeleted: boolean;
+  changeStatus?: ChangedFileStatus;
+}
+
+export interface CodeMapScopeEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+}
+
+export interface CodeMapScope {
+  scopeId: string;
+  lens: CodeMapLens;
+  mode: string;
+  granularity: CodeMapScopeGranularity;
+  selectedNodeId?: string;
+  source?: ChangeSource;
+  includeContext?: boolean;
+  includeTests?: boolean;
+  expandedDirectory?: string;
+  expandedFile?: string;
+  files: string[];
+  declarations: CodeMapScopeNode[];
+  nodes: CodeMapScopeNode[];
+  edges: CodeMapScopeEdge[];
+  generatedAt?: string;
+}
+
 export interface FileMapDetailed {
   filename?: string;
   content: string;

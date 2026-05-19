@@ -302,6 +302,41 @@
   color: var(--workbench-muted);
 }
 
+.scope-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.scope-stats span {
+  border: 1px solid #d3dfd7;
+  border-radius: 6px;
+  background: #f8fbf8;
+  color: #335241;
+  font-size: 0.74rem;
+  padding: 3px 6px;
+}
+
+.scope-copy-btn {
+  width: 100%;
+}
+
+.scope-copy-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.scope-copy-status {
+  margin-top: 6px;
+  color: var(--workbench-muted);
+  font-size: 0.76rem;
+}
+
+.scope-copy-status.error {
+  color: var(--workbench-danger);
+}
+
 .workbench-main {
   min-height: 0;
   display: flex;

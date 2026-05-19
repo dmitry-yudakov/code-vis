@@ -64,9 +64,13 @@ Both review scopes return a `FocusedReviewMap`: changed files, one-hop import ne
 
 The review request accepts `options.includeTests`, which defaults to `true`. Related test files are marked with `isTest` and a `related-test` reason so the web workbench can style them separately and let users hide unchanged tests when the scope is too noisy.
 
+## Scope Handoff
+
+The homepage workbench derives a `CodeMapScope` from the visible graph. This payload is client-side today: it can be copied as JSON from the sidebar, and it is passed through React Router state when opening the file-level or logic-map editors from a graph node. Editor views use the scope to keep related-file context limited to the current lens projection.
+
 ## Shared Types
 
-`FileIncludeInfo`, `FunctionCallInfo`, `FunctionDeclarationInfo`, `FileMapping`, and focused review types (`ChangeSet`, `FocusedReviewMap`, etc.) are defined in both `server/src/types.d.ts` and `web/src/types.d.ts`. Both copies must be kept identical.
+`FileIncludeInfo`, `FunctionCallInfo`, `FunctionDeclarationInfo`, `FileMapping`, focused review types (`ChangeSet`, `FocusedReviewMap`, etc.), and scope handoff types (`CodeMapScope`, etc.) are defined in both `server/src/types.d.ts` and `web/src/types.d.ts`. Both copies must be kept identical.
 
 ## Configuration
 
