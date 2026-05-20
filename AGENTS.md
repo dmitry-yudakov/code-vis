@@ -38,6 +38,7 @@ cd web && yarn dev
 
 ## Stories
 
+- [Code Map Layout Strategies](stories/STORY-20260520-code-map-layout-strategies.md)
 - [Homepage Code Map Lenses](stories/STORY-20260514-homepage-code-map-lenses.md)
 - [Change-Focused Review View](stories/STORY-20260501-change-focused-review-view.md)
 - [JS Analyzer Improvement](stories/STORY-20251111-js-analyzer-improvement.md)
