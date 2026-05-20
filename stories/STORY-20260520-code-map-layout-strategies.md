@@ -1,7 +1,7 @@
 # Code Map Layout Strategies
 
 **Created:** May 20, 2026  
-**Status:** Proposed
+**Status:** In Progress - first implementation slice complete
 
 ## Overview
 
@@ -10,6 +10,36 @@ This story proposes a dedicated layout system for code maps.
 The current graph views use a mix of generic Dagre layout and hand-placed columns. That is workable for simple dependency graphs, but code diagrams need placement to carry meaning: changed code should feel central in review, callers and callees should occupy predictable directions, modules should read as architectural regions, and declarations from the same file should stay visually related.
 
 The goal is not only prettier graphs. The goal is to make graph position encode code semantics so users can understand a codebase faster.
+
+## Implementation Update - May 20, 2026
+
+The first implementation slice is complete in the web app.
+
+Implemented:
+
+1. Added `web/src/graphLayout/` with shared layout types, stable sorting, Dagre fallback, and semantic strategies for overview, review files, review declarations, file maps, and logic maps.
+2. Migrated `IncludesHierarchy`, `FilesMapping`, and `LogicMap` to call `layoutCodeGraph()` instead of calling `applyGraphLayout()` or computing layout inline.
+3. Added `Reset layout` controls to the workbench, file map, and logic map.
+4. Preserved manual node movement across refreshes while resetting computed placement when the projection key changes or the user clicks `Reset layout`.
+5. Added initial review-file lanes: changed files in the center, importers on the left, imports on the right, and related tests below the central lane.
+6. Added initial review-declaration lanes: changed and bridge declarations in the center, callers on the left, and callees on the right.
+7. Moved file-map lane computation into `fileMapLayout.ts` and made it container-aware instead of based directly on `window.innerWidth`.
+8. Grouped logic-map declarations by file and source order, with call rank influencing horizontal placement.
+9. Added density-aware edge labels and selected-node edge emphasis in the workbench.
+10. Added unit tests for deterministic sorting, review-file lane direction, and logic-map grouping/ranking.
+11. Fixed the web test environment by adding `jsdom` and updating the jest-dom setup import.
+
+Verification:
+
+1. `cd web && yarn test --run` passes.
+2. `cd web && yarn lint` passes.
+3. `cd web && yarn build` passes.
+
+Known implementation limitation:
+
+1. The dev server was not left running because sandbox approval to bind the local Vite port was declined.
+2. `applyGraphLayout()` still exists in `web/src/utils.ts` for compatibility, but the migrated graph surfaces no longer call it.
+3. React Flow rendered node dimensions are still estimated; real measured dimensions remain future work.
 
 ## Problem
 
@@ -47,7 +77,7 @@ Current issues:
 
 ---
 
-## Current State
+## Original State Before This Story
 
 ### Shared Dagre Helper
 
@@ -155,9 +185,12 @@ web/src/graphLayout/
   declarationLayout.ts
   fileMapLayout.ts
   stableSort.ts
+  graphLayout.test.ts
 ```
 
 `IncludesHierarchy`, `FilesMapping`, and `LogicMap` should call the new layout layer instead of directly calling `applyGraphLayout()` or hand-computing positions.
+
+Current implementation also includes `overviewLayout.ts`.
 
 ### Core Types
 
@@ -453,6 +486,8 @@ Edge labels should be density-aware:
 
 ### Phase 1: Extract Layout Layer
 
+Status: Done.
+
 1. Create `web/src/graphLayout/`.
 2. Add shared layout input/output types.
 3. Move Dagre wrapping into `dagreLayout.ts`.
@@ -464,7 +499,16 @@ Acceptance:
 1. `IncludesHierarchy`, `FilesMapping`, and `LogicMap` can still render with unchanged behavior.
 2. Existing build and tests pass.
 
+Notes:
+
+1. The new layer is implemented behind `layoutCodeGraph()`.
+2. Dagre remains available as `fallback`.
+3. The migrated components now call the layout layer directly.
+4. Build, lint, and tests pass.
+
 ### Phase 2: Review File Semantic Layout
+
+Status: Mostly done, needs visual tuning against real projects.
 
 1. Map focused review file metadata to layout roles.
 2. Implement lane assignment for changed, importer, imported, test, deleted, and mixed-context nodes.
@@ -479,7 +523,15 @@ Acceptance:
 3. Related tests occupy a consistent secondary region.
 4. Re-rendering the same review scope does not reshuffle nodes.
 
+Remaining:
+
+1. Align context nodes more precisely to the strongest related changed seed.
+2. Tune vertical compaction for dense review scopes.
+3. Confirm deleted-file ghost nodes visually in a real deleted-file review.
+
 ### Phase 3: Review Declaration Semantic Layout
+
+Status: Partial.
 
 1. Map declaration reasons to caller, callee, changed, bridge, and context roles.
 2. Group declarations by file.
@@ -493,7 +545,15 @@ Acceptance:
 3. Bridge declarations are visibly between changed declarations or changed clusters.
 4. Declarations from the same file are not scattered randomly.
 
+Remaining:
+
+1. Improve bridge placement between changed clusters instead of simply keeping bridge declarations in the central lane.
+2. Preserve file grouping more strongly when call topology pulls declarations across lanes.
+3. Add a focused unit test for declaration caller/callee lane assignment.
+
 ### Phase 4: Overview And Expansion Layout
+
+Status: Partial.
 
 1. Use weighted module edges in overview.
 2. Keep expanded module files near their parent module.
@@ -506,7 +566,15 @@ Acceptance:
 2. Expanding a module or file creates a predictable local region.
 3. Collapsing returns to a stable module graph.
 
+Remaining:
+
+1. Use dependency counts as edge weights in overview layout input.
+2. Make expanded module files and expanded file declarations form a clearer local region near their parent.
+3. Consider subtle region/background bands for expanded areas.
+
 ### Phase 5: File Map And Logic Map Cleanup
+
+Status: Mostly done.
 
 1. Replace `window.innerWidth`-based file map columns with container-aware layout.
 2. Move file map lane computation into `fileMapLayout.ts`.
@@ -519,7 +587,15 @@ Acceptance:
 2. The selected file remains centered.
 3. Logic maps preserve source ownership better than the current generic Dagre layout.
 
+Remaining:
+
+1. Visually test file maps across narrow and wide desktop sizes.
+2. Add edge-label density behavior outside the workbench where useful.
+3. Tune logic-map spacing for expanded editor-backed declaration nodes.
+
 ### Phase 6: Evaluate `elkjs`
+
+Status: Not started.
 
 1. Add a small adapter behind the same layout interface.
 2. Test with real overview and declaration graphs.
@@ -535,15 +611,27 @@ Acceptance:
 
 ## Testing
 
+Current automated coverage:
+
+1. Deterministic sorting by file and source line.
+2. Review-file lane direction for importer/imported context.
+3. Logic-map grouping by file with call-rank horizontal movement.
+
+Current manual/build coverage:
+
+1. `yarn test --run`.
+2. `yarn lint`.
+3. `yarn build`.
+
 ### Unit Tests
 
 Add tests for:
 
-1. Lane assignment for review file graphs.
-2. Lane assignment for review declaration graphs.
-3. Deterministic sorting by role, directory, path, and source line.
-4. Filtering invalid edges from layout input.
-5. Preservation of previous positions when `preservePrevious` is enabled.
+1. Lane assignment for review file graphs. Done for basic importer/imported direction.
+2. Lane assignment for review declaration graphs. Remaining.
+3. Deterministic sorting by role, directory, path, and source line. Partial.
+4. Filtering invalid edges from layout input. Remaining.
+5. Preservation of previous positions when `preservePrevious` is enabled. Remaining.
 
 ### Visual/Interaction Checks
 
@@ -572,15 +660,15 @@ If large graph layout becomes expensive, defer layout execution with idle callba
 
 ## Acceptance Criteria
 
-1. Layout code is separated from graph rendering components.
-2. Review file mode places changed code centrally with context in predictable lanes.
-3. Review declaration mode preserves changed/context/bridge semantics spatially.
-4. File and declaration grouping reduces scattering.
-5. Re-rendering the same graph scope is stable.
-6. Users can reset computed layout after dragging nodes.
-7. Dense graphs show less edge-label noise than today.
-8. Existing graph functionality remains available.
-9. Docs mention the new layout layer after implementation.
+1. Layout code is separated from graph rendering components. Done.
+2. Review file mode places changed code centrally with context in predictable lanes. Done for initial lanes; tuning remains.
+3. Review declaration mode preserves changed/context/bridge semantics spatially. Partial.
+4. File and declaration grouping reduces scattering. Partial.
+5. Re-rendering the same graph scope is stable. Done for migrated graph surfaces.
+6. Users can reset computed layout after dragging nodes. Done.
+7. Dense graphs show less edge-label noise than today. Done in the workbench; other graph surfaces remain.
+8. Existing graph functionality remains available. Build and tests pass.
+9. Docs mention the new layout layer after implementation. This story is updated; broader docs remain.
 
 ## Risks
 
@@ -594,6 +682,7 @@ If large graph layout becomes expensive, defer layout execution with idle callba
 
 1. Should layout preferences be stored per project config?
 2. Should users be able to pin individual nodes across projection changes?
-3. Should selected-node neighborhood highlighting ship with layout changes or as a separate UI story?
-4. What graph size should trigger compact labels or label-on-hover behavior?
+3. Should selected-node neighborhood highlighting expand from edges to unrelated node dimming?
+4. What graph size should trigger compact labels or label-on-hover behavior beyond the initial workbench threshold?
 5. Should edge bundling be implemented before or after `elkjs` evaluation?
+6. Should the layout layer eventually measure rendered React Flow node dimensions, or should components continue to provide conservative estimates?

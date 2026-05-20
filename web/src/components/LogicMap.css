@@ -4,6 +4,12 @@
   overflow: hidden;
   position: relative;
 }
+.logic-layout-actions {
+  position: fixed;
+  top: 10px;
+  left: 56px;
+  z-index: 5;
+}
 .logic-map-main .react-flow__node {
   background: rgba(245, 249, 249, 0.48);
   padding: 0;

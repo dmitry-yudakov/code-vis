@@ -21,7 +21,6 @@ import {
   FileMapDetailed,
   FunctionCallInfo,
   FunctionDeclarationInfo,
-  PositionedNode,
   ChangeSourceRequest,
   FocusedDeclarationInfo,
   FocusedDeclarationReason,
@@ -33,10 +32,17 @@ import {
 } from '../types';
 import {
   includeToGraphTypes,
-  applyGraphLayout,
   groupIncludesByDirectory,
   filterIncludesToEntryPoints,
 } from '../utils';
+import {
+  layoutCodeGraph,
+  type CodeLayoutEdge,
+  type CodeLayoutNode,
+  type CodeLayoutNodeKind,
+  type CodeLayoutNodeRole,
+  type CodeLayoutStrategy,
+} from '../graphLayout';
 import './IncludesHierarchy.css';
 
 type LensId = 'overview' | 'review' | 'feature' | 'impact';
@@ -330,6 +336,7 @@ export const IncludesHierarchy: React.FC<{
   } | null>(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [layoutResetVersion, setLayoutResetVersion] = useState(0);
 
   const isReviewLens = activeLens === 'review';
   const focusedSource = useMemo<ChangeSourceRequest | null>(() => {
@@ -504,39 +511,53 @@ export const IncludesHierarchy: React.FC<{
 
   const { initialNodes, edgesElements, nodeMetaById, connectionEdges } = useMemo(() => {
     if (declarationReview && focusedReview) {
-      const nodes = focusedDeclarations.map((decl) => ({
-        id: decl.id,
-        label: decl.name,
-      })) as PositionedNode[];
       const declarationEdges = (focusedReview.declarationCalls || []).filter(
         (edge) =>
           focusedDeclarationIds.has(edge.from) &&
           focusedDeclarationIds.has(edge.to)
       );
-      const layoutEdges = declarationEdges.map((edge) => ({
+      const layoutNodes: CodeLayoutNode[] = focusedDeclarations.map((decl) => {
+        const isBridge = decl.reasons.some(
+          (reason) => reason.type === 'bridge-between-changes'
+        );
+        return {
+          id: decl.id,
+          label: decl.name,
+          kind: 'declaration',
+          role: decl.isChanged ? 'changed' : isBridge ? 'bridge' : 'context',
+          filename: decl.filename,
+          startLine: decl.startLine,
+          endLine: decl.endLine,
+          width: 300,
+          height: 140,
+          sortKey: `${decl.filename}:${String(decl.startLine || 0).padStart(
+            8,
+            '0'
+          )}:${decl.name}:${decl.id}`,
+        };
+      });
+      const layoutEdges: CodeLayoutEdge[] = declarationEdges.map((edge) => ({
+        id: edge.id,
         source: edge.from,
         target: edge.to,
+        kind: edge.reasons.some(
+          (reason) => reason.type === 'bridge-between-changes'
+        )
+          ? 'bridge'
+          : edge.isHeuristic
+            ? 'heuristic'
+            : 'calls',
+        label: edge.name,
+        isHeuristic: edge.isHeuristic,
       }));
-
-      if (nodes.length > 0) {
-        applyGraphLayout(
-          nodes,
-          layoutEdges,
-          (n, x, y) => {
-            const p = n as PositionedNode;
-            p.x = x;
-            p.y = y;
-          },
-          280,
-          140,
-          'LR'
-        );
-      }
-
-      const positionedById = new Map(nodes.map((node) => [node.id, node]));
+      const layoutResult = layoutCodeGraph({
+        strategy: 'review-declarations',
+        nodes: layoutNodes,
+        edges: layoutEdges,
+      });
       const nodeMetaById = new Map<string, GraphNodeMeta>();
       const initialNodes = focusedDeclarations.map((decl) => {
-        const positioned = positionedById.get(decl.id);
+        const positioned = layoutResult.positions[decl.id];
         const isBridge = decl.reasons.some(
           (reason) => reason.type === 'bridge-between-changes'
         );
@@ -737,24 +758,77 @@ export const IncludesHierarchy: React.FC<{
       }
     }
 
-    if (nodes.length > 0) {
-      applyGraphLayout(
-        nodes,
-        graphEdges,
-        (n, x, y) => {
-          const p = n as PositionedNode;
-          p.x = x;
-          p.y = y;
-        },
-        250,
-        200
-      );
-    }
+    const layoutStrategy: CodeLayoutStrategy = isReviewLens
+      ? 'review-files'
+      : 'overview';
+    const layoutNodes: CodeLayoutNode[] = nodes.map((node) => {
+      const focusedInfo = isReviewLens
+        ? focusedFilesByName.get(node.label)
+        : null;
+      const overviewDeclaration = overviewDeclarationsById.get(node.id);
+      const layoutKind: CodeLayoutNodeKind = overviewDeclaration
+        ? 'declaration'
+        : focusedInfo?.isTest
+          ? 'test'
+          : directoryOverview
+            ? 'module'
+            : 'file';
+      const layoutRole: CodeLayoutNodeRole = overviewDeclaration
+        ? 'expanded'
+        : focusedInfo?.isChanged
+          ? 'changed'
+          : focusedInfo?.isTest
+            ? 'test'
+            : isReviewLens
+              ? 'context'
+              : expandedDirectory || expandedOverviewFile === node.label
+                ? 'expanded'
+                : 'overview';
+      const filename =
+        layoutKind === 'file' || layoutKind === 'test'
+          ? node.label
+          : overviewDeclaration?.filename;
+
+      return {
+        id: node.id,
+        label: node.label,
+        kind: layoutKind,
+        role: layoutRole,
+        filename,
+        startLine: overviewDeclaration?.startLine,
+        endLine: overviewDeclaration?.endLine,
+        width: overviewDeclaration ? 300 : 250,
+        height: overviewDeclaration ? 140 : focusedInfo ? 150 : 180,
+        sortKey: overviewDeclaration
+          ? `${overviewDeclaration.filename}:${String(
+              overviewDeclaration.startLine
+            ).padStart(8, '0')}:${overviewDeclaration.name}:${node.id}`
+          : node.label,
+      };
+    });
+    const layoutEdges: CodeLayoutEdge[] = graphEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      kind:
+        edge.label === 'declares'
+          ? 'declares'
+          : edge.style?.strokeDasharray
+            ? 'heuristic'
+            : 'imports',
+      label: edge.label,
+    }));
+    const layoutResult = layoutCodeGraph({
+      strategy: layoutStrategy,
+      nodes: layoutNodes,
+      edges: layoutEdges,
+    });
 
     const nodeMetaById = new Map<string, GraphNodeMeta>();
 
-    const initialNodes = (nodes as PositionedNode[]).map((node) => {
-      const { id, x, y } = node;
+    const initialNodes = nodes.map((node) => {
+      const { id } = node;
+      const positioned = layoutResult.positions[id];
       const overviewDeclaration = overviewDeclarationsById.get(id);
 
       if (overviewDeclaration) {
@@ -787,7 +861,7 @@ export const IncludesHierarchy: React.FC<{
             node: { id, label: overviewDeclaration.filename },
             isDeleted: false,
           },
-          position: { x: x || 0, y: y || 0 },
+          position: { x: positioned?.x || 0, y: positioned?.y || 0 },
         };
       }
 
@@ -863,7 +937,7 @@ export const IncludesHierarchy: React.FC<{
           node,
           isDeleted,
         },
-        position: { x: x || 0, y: y || 0 },
+        position: { x: positioned?.x || 0, y: positioned?.y || 0 },
       };
     });
 
@@ -1029,6 +1103,7 @@ export const IncludesHierarchy: React.FC<{
     showFocusedContext,
   ]);
   const previousProjectionRef = useRef<string>(projectionKey);
+  const previousLayoutResetRef = useRef(layoutResetVersion);
 
   const [nodesElements, setNodesElements] = useState<FlowNode<any>[]>(
     initialNodes as FlowNode<any>[]
@@ -1057,8 +1132,12 @@ export const IncludesHierarchy: React.FC<{
       const nextNodes = initialNodes as FlowNode<any>[];
 
       // Reset layout when changing projection, preserve manual placement for refreshes.
-      if (previousProjectionRef.current !== projectionKey) {
+      if (
+        previousProjectionRef.current !== projectionKey ||
+        previousLayoutResetRef.current !== layoutResetVersion
+      ) {
         previousProjectionRef.current = projectionKey;
+        previousLayoutResetRef.current = layoutResetVersion;
         return nextNodes;
       }
 
@@ -1074,7 +1153,7 @@ export const IncludesHierarchy: React.FC<{
         };
       });
     });
-  }, [initialNodes, projectionKey]);
+  }, [initialNodes, layoutResetVersion, projectionKey]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodesElements((nds) => applyNodeChanges(changes, nds));
@@ -1091,6 +1170,32 @@ export const IncludesHierarchy: React.FC<{
     focusedFilesByName,
     initialNodes,
   ]);
+  const denseGraph = edgesElements.length > 24 || initialNodes.length > 18;
+  const renderedEdges = useMemo(
+    () =>
+      edgesElements.map((edge) => {
+        const isSelectedNeighbor =
+          !!selectedNodeId &&
+          (edge.source === selectedNodeId || edge.target === selectedNodeId);
+        const baseStyle = edge.style || {};
+
+        return {
+          ...edge,
+          label: denseGraph && !isSelectedNeighbor ? undefined : edge.label,
+          style: selectedNodeId
+            ? {
+                ...baseStyle,
+                opacity: isSelectedNeighbor ? 1 : 0.24,
+                strokeWidth: isSelectedNeighbor
+                  ? Math.max(Number(baseStyle.strokeWidth || 1), 2.5)
+                  : baseStyle.strokeWidth,
+              }
+            : baseStyle,
+          className: isSelectedNeighbor ? 'selected-neighborhood-edge' : '',
+        };
+      }),
+    [denseGraph, edgesElements, selectedNodeId]
+  );
 
   const changedCount = focusedReview?.changeSet.files.length || 0;
   const focusedTotalCount = focusedReview?.files.length || 0;
@@ -1456,9 +1561,18 @@ export const IncludesHierarchy: React.FC<{
           </div>
 
           <div className="mapper-canvas">
+            <div className="layout-actions">
+              <button
+                className="inline-btn"
+                onClick={() => setLayoutResetVersion((version) => version + 1)}
+                disabled={initialNodes.length === 0}
+              >
+                Reset layout
+              </button>
+            </div>
             <ReactFlow
               nodes={nodesElements}
-              edges={edgesElements}
+              edges={renderedEdges}
               onNodesChange={onNodesChange}
               nodesConnectable={false}
               nodesDraggable={true}

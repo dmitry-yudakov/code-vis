@@ -388,6 +388,19 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
 }
 
+.layout-actions {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+}
+
+.react-flow__edge.selected-neighborhood-edge .react-flow__edge-path {
+  stroke-width: 2.5;
+}
+
 .workbench-summary {
   padding: 10px 12px;
 }
