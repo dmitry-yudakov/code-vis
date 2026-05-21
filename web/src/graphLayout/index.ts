@@ -102,3 +102,23 @@ export function layoutCodeGraph(input: CodeLayoutInput): CodeLayoutResult {
   return mergePreviousPositions(result, nodes, input.previousPositions);
 }
 
+export async function layoutCodeGraphAsync(
+  input: CodeLayoutInput
+): Promise<CodeLayoutResult> {
+  if (input.engine !== 'elk') {
+    return layoutCodeGraph(input);
+  }
+
+  const nodes = normalizeNodes(input);
+  const edges = filterVisibleEdges(nodes, input.edges);
+  const { layoutWithElk } = await import('./elkLayout');
+  const result = await layoutWithElk(
+    input.strategy,
+    nodes,
+    edges,
+    input.viewport
+  );
+
+  if (!input.preservePrevious) return result;
+  return mergePreviousPositions(result, nodes, input.previousPositions);
+}

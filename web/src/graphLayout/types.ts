@@ -32,6 +32,8 @@ export type CodeLayoutStrategy =
   | 'logic-map'
   | 'fallback';
 
+export type CodeLayoutEngine = 'semantic' | 'elk';
+
 export interface CodeLayoutNode {
   id: string;
   label: string;
@@ -59,6 +61,13 @@ export interface CodeLayoutEdge {
 
 export interface CodeLayoutResult {
   positions: Record<string, { x: number; y: number }>;
+  edgeRoutes?: Record<
+    string,
+    Array<{
+      x: number;
+      y: number;
+    }>
+  >;
   bounds?: {
     width: number;
     height: number;
@@ -69,8 +78,8 @@ export interface CodeLayoutInput {
   strategy: CodeLayoutStrategy;
   nodes: CodeLayoutNode[];
   edges: CodeLayoutEdge[];
+  engine?: CodeLayoutEngine;
   previousPositions?: Record<string, { x: number; y: number }>;
   preservePrevious?: boolean;
   viewport?: { width: number; height: number };
 }
-

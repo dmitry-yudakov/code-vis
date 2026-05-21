@@ -597,12 +597,21 @@ Remaining:
 
 ### Phase 6: Evaluate `elkjs`
 
-Status: Not started.
+Status: Started - dependency and first adapter slice added.
 
 1. Add a small adapter behind the same layout interface.
 2. Test with real overview and declaration graphs.
 3. Compare readability, performance, bundle impact, and implementation complexity.
 4. Keep or remove based on results.
+
+Initial implementation notes - May 21, 2026:
+
+1. Added `elkjs@0.11.1` to the web app.
+2. Added `web/src/graphLayout/elkLayout.ts` as an async adapter from `CodeLayoutNode` / `CodeLayoutEdge` to ELK JSON.
+3. Added `layoutCodeGraphAsync()` with `engine: 'elk'` so ELK can be evaluated without disrupting the current synchronous React Flow layout path.
+4. Captured ELK orthogonal edge sections in optional `CodeLayoutResult.edgeRoutes` for future React Flow edge rendering experiments.
+5. Loaded the ELK adapter lazily so the evaluation path does not add ELK to the default graph bundle.
+6. Dagre and the semantic strategy functions remain the synchronous default.
 
 Acceptance:
 

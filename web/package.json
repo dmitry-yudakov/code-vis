@@ -13,6 +13,7 @@
     "clsx": "^2.1.1",
     "codemirror": "^5.65.2",
     "dagre": "^0.8.5",
+    "elkjs": "^0.11.1",
     "lodash": "^4.17.21",
     "react": "^19.0.0",
     "react-codemirror2": "^7.3.0",

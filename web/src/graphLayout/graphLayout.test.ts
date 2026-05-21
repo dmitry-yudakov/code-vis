@@ -1,5 +1,6 @@
 import {
   compareLayoutNodes,
+  layoutCodeGraphAsync,
   layoutCodeGraph,
   type CodeLayoutNode,
 } from '.';
@@ -546,5 +547,66 @@ describe('graphLayout', () => {
     expect(result.positions['after-large'].y).toBeGreaterThan(
       result.positions.large.y + 620
     );
+  });
+
+  test('can layout a graph with the elk engine through the async entry point', async () => {
+    const result = await layoutCodeGraphAsync({
+      engine: 'elk',
+      strategy: 'logic-map',
+      nodes: [
+        node({
+          id: 'source',
+          label: 'source',
+          kind: 'declaration',
+          filename: 'source.ts',
+        }),
+        node({
+          id: 'target',
+          label: 'target',
+          kind: 'declaration',
+          filename: 'target.ts',
+        }),
+      ],
+      edges: [
+        {
+          id: 'source-target',
+          source: 'source',
+          target: 'target',
+          kind: 'imports',
+        },
+      ],
+    });
+
+    expect(Object.keys(result.positions).sort()).toEqual(['source', 'target']);
+    expect(result.positions.target.x).toBeGreaterThan(result.positions.source.x);
+    expect(result.edgeRoutes?.['source-target']?.length).toBeGreaterThan(1);
+    expect(result.bounds?.width).toBeGreaterThan(0);
+  });
+
+  test('preserves previous positions when using the elk engine', async () => {
+    const previousPositions = {
+      source: { x: 1000, y: 1000 },
+    };
+    const result = await layoutCodeGraphAsync({
+      engine: 'elk',
+      strategy: 'fallback',
+      preservePrevious: true,
+      previousPositions,
+      nodes: [
+        node({ id: 'source', label: 'source.ts' }),
+        node({ id: 'target', label: 'target.ts' }),
+      ],
+      edges: [
+        {
+          id: 'source-target',
+          source: 'source',
+          target: 'target',
+          kind: 'imports',
+        },
+      ],
+    });
+
+    expect(result.positions.source).toEqual(previousPositions.source);
+    expect(result.positions.target).toBeDefined();
   });
 });
