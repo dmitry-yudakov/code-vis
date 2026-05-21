@@ -90,6 +90,13 @@
   max-width: 500px;
   z-index: 3;
 }
+.logic-map-main .logic-expanded-editor {
+  width: 500px;
+}
+.logic-map-main .logic-expanded-editor-body {
+  max-height: 560px;
+  overflow: auto;
+}
 .logic-map-main .func-decl .func-icon {
   height: 1em;
   width: 1em;

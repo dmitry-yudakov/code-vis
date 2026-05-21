@@ -56,6 +56,26 @@ export interface LogicNode {
   children: LogicNode[];
 }
 
+const LOGIC_DECLARATION_WIDTH = 650;
+const LOGIC_DECLARATION_MIN_HEIGHT = 170;
+const LOGIC_DECLARATION_MAX_HEIGHT = 700;
+const LOGIC_DECLARATION_LINE_HEIGHT = 20;
+
+const estimateDeclarationHeight = (
+  fileContent: string,
+  func: FunctionDeclarationInfo
+): number => {
+  const declarationContent = fileContent.slice(func.pos, func.end);
+  const lineCount = Math.max(1, declarationContent.split('\n').length);
+  return Math.min(
+    LOGIC_DECLARATION_MAX_HEIGHT,
+    Math.max(
+      LOGIC_DECLARATION_MIN_HEIGHT,
+      104 + lineCount * LOGIC_DECLARATION_LINE_HEIGHT
+    )
+  );
+};
+
 // const FuncDeclHandle: FC<{ func: FunctionDeclarationInfo }> = ({ func }) => {
 //   const handleId = funcDeclSlug(func);
 //   return (
@@ -204,6 +224,7 @@ export const generateConnections = (
         source,
         sourceHandle,
         target: targetHandle,
+        label: name,
       };
     });
 
@@ -277,15 +298,17 @@ const FunctionDeclarationView: React.FC<{
 
       {expand ? (
         <Grow in={expand}>
-          <div>
+          <div className="logic-expanded-editor">
             <div className="filename">{filename}</div>
-            <CodeViewProvider
-              content={newContent || content}
-              onChange={onContentChange}
-              onScroll={onScroll}
-            >
-              {renderChildren(content, innerNodes, func)}
-            </CodeViewProvider>
+            <div className="logic-expanded-editor-body">
+              <CodeViewProvider
+                content={newContent || content}
+                onChange={onContentChange}
+                onScroll={onScroll}
+              >
+                {renderChildren(content, innerNodes, func)}
+              </CodeViewProvider>
+            </div>
           </div>
         </Grow>
       ) : (
@@ -393,7 +416,7 @@ export const LogicMap: React.FC<{
             },
             style: {
               // width: mainWidth,
-              width: 'unset',
+              width: LOGIC_DECLARATION_WIDTH,
             },
             position: {
               x: 0,
@@ -412,8 +435,8 @@ export const LogicMap: React.FC<{
             filename: func.filename,
             startLine: func.pos,
             endLine: func.end,
-            width: 650,
-            height: 150,
+            width: LOGIC_DECLARATION_WIDTH,
+            height: estimateDeclarationHeight(content, func),
             sortKey: `${func.filename}:${String(func.pos).padStart(
               10,
               '0'
@@ -450,6 +473,7 @@ export const LogicMap: React.FC<{
 
   const [nodes, setNodes] = useState<any>(allNodes);
   const [edges, setEdges] = useState<any>(allEdges);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const projectionKey = `${startFilename}|${allNodes
     .map((node) => node.id)
     .sort()
@@ -491,6 +515,32 @@ export const LogicMap: React.FC<{
     setEdges((eds: any) => applyEdgeChanges(changes, eds));
   }, []);
 
+  const denseGraph = edges.length > 18 || nodes.length > 12;
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge: any) => {
+        const isSelectedNeighbor =
+          !!selectedNodeId &&
+          (edge.source === selectedNodeId || edge.target === selectedNodeId);
+        const baseStyle = edge.style || {};
+
+        return {
+          ...edge,
+          label: denseGraph && !isSelectedNeighbor ? undefined : edge.label,
+          style: selectedNodeId
+            ? {
+                ...baseStyle,
+                opacity: isSelectedNeighbor ? 1 : 0.22,
+                strokeWidth: isSelectedNeighbor
+                  ? Math.max(Number(baseStyle.strokeWidth || 1), 2.5)
+                  : baseStyle.strokeWidth,
+              }
+            : baseStyle,
+        };
+      }),
+    [denseGraph, edges, selectedNodeId]
+  );
+
   return (
     <div className="logic-map-main">
       <TopLeftCloseButton onClose={onClose} />
@@ -505,12 +555,14 @@ export const LogicMap: React.FC<{
       </div>
       <ReactFlow
         nodes={nodes}
-        edges={showConnections ? edges : []}
+        edges={showConnections ? renderedEdges : []}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodesConnectable={false}
         nodesDraggable={true}
         zoomOnScroll={true}
+        onNodeClick={(_event: any, node: any) => setSelectedNodeId(node.id)}
+        onPaneClick={() => setSelectedNodeId(null)}
         // panOnScroll={true}
         onlyRenderVisibleElements={false}
       >

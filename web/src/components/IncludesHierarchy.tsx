@@ -85,6 +85,57 @@ type GraphEdgePresentation = GraphConnection & {
   label?: string;
   animated?: boolean;
   style?: React.CSSProperties;
+  weight?: number;
+};
+
+const OVERVIEW_REGION_PADDING = 58;
+
+const estimateFlowNodeSize = (
+  node: FlowNode<any>
+): { width: number; height: number } => {
+  const className = String(node.className || '');
+  if (className.includes('overview-declaration-node')) {
+    return { width: 300, height: 140 };
+  }
+  return { width: 250, height: 180 };
+};
+
+const buildOverviewRegionNode = (
+  id: string,
+  nodes: FlowNode<any>[],
+  className: string
+): FlowNode<any> | null => {
+  if (nodes.length === 0) return null;
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const node of nodes) {
+    const size = estimateFlowNodeSize(node);
+    minX = Math.min(minX, node.position.x);
+    minY = Math.min(minY, node.position.y);
+    maxX = Math.max(maxX, node.position.x + size.width);
+    maxY = Math.max(maxY, node.position.y + size.height);
+  }
+
+  return {
+    id,
+    className: `overview-region-node ${className}`,
+    data: { label: '' },
+    position: {
+      x: minX - OVERVIEW_REGION_PADDING,
+      y: minY - OVERVIEW_REGION_PADDING,
+    },
+    draggable: false,
+    selectable: false,
+    connectable: false,
+    style: {
+      width: maxX - minX + OVERVIEW_REGION_PADDING * 2,
+      height: maxY - minY + OVERVIEW_REGION_PADDING * 2,
+    },
+  };
 };
 
 const LENSES: Array<{
@@ -636,6 +687,7 @@ export const IncludesHierarchy: React.FC<{
         source,
         target,
         label: edgeLabel(activeIncludes[idx].items),
+        weight: Math.max(1, activeIncludes[idx].items.length),
       })
     );
 
@@ -781,8 +833,12 @@ export const IncludesHierarchy: React.FC<{
             ? 'test'
             : isReviewLens
               ? 'context'
-              : expandedDirectory || expandedOverviewFile === node.label
+              : expandedOverviewFile === node.label ||
+                  (expandedDirectory &&
+                    isWithinDirectory(node.label, expandedDirectory))
                 ? 'expanded'
+                : expandedDirectory
+                  ? 'context'
                 : 'overview';
       const filename =
         layoutKind === 'file' || layoutKind === 'test'
@@ -817,6 +873,7 @@ export const IncludesHierarchy: React.FC<{
             ? 'heuristic'
             : 'imports',
       label: edge.label,
+      weight: edge.weight,
     }));
     const layoutResult = layoutCodeGraph({
       strategy: layoutStrategy,
@@ -1158,6 +1215,58 @@ export const IncludesHierarchy: React.FC<{
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodesElements((nds) => applyNodeChanges(changes, nds));
   }, []);
+
+  const overviewRegionNodes = useMemo<FlowNode<any>[]>(() => {
+    if (activeLens !== 'overview') return [];
+
+    const regions: FlowNode<any>[] = [];
+
+    if (expandedDirectory) {
+      const moduleNodes = nodesElements.filter((node) => {
+        const meta = nodeMetaById.get(node.id);
+        return (
+          meta?.kind === 'file' &&
+          !!meta.filename &&
+          isWithinDirectory(meta.filename, expandedDirectory)
+        );
+      });
+      const region = buildOverviewRegionNode(
+        'overview-region-expanded-module',
+        moduleNodes,
+        'overview-region-module'
+      );
+      if (region) regions.push(region);
+    }
+
+    if (expandedOverviewFile) {
+      const fileNodes = nodesElements.filter((node) => {
+        const meta = nodeMetaById.get(node.id);
+        return (
+          meta?.filename === expandedOverviewFile &&
+          (meta.kind === 'file' || meta.kind === 'declaration')
+        );
+      });
+      const region = buildOverviewRegionNode(
+        'overview-region-expanded-file',
+        fileNodes,
+        'overview-region-file'
+      );
+      if (region) regions.push(region);
+    }
+
+    return regions;
+  }, [
+    activeLens,
+    expandedDirectory,
+    expandedOverviewFile,
+    nodeMetaById,
+    nodesElements,
+  ]);
+
+  const renderedNodes = useMemo(
+    () => [...overviewRegionNodes, ...nodesElements],
+    [nodesElements, overviewRegionNodes]
+  );
 
   const visibleCount = useMemo(() => {
     if (declarationReview) return focusedDeclarations.length;
@@ -1571,7 +1680,7 @@ export const IncludesHierarchy: React.FC<{
               </button>
             </div>
             <ReactFlow
-              nodes={nodesElements}
+              nodes={renderedNodes}
               edges={renderedEdges}
               onNodesChange={onNodesChange}
               nodesConnectable={false}
@@ -1579,6 +1688,7 @@ export const IncludesHierarchy: React.FC<{
               minZoom={0.01}
               onNodeClick={(e: any, el: any) => {
                 const meta = nodeMetaById.get(el.id);
+                if (!meta) return;
                 setSelectedNodeId(el.id);
 
                 if (meta && meta.canOpenFile) {

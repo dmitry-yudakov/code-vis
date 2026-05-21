@@ -5,6 +5,11 @@ import {
 } from './types';
 import { groupLayoutNodesByFile } from './stableSort';
 
+const LOGIC_MAP_RANK_GAP = 760;
+const LOGIC_MAP_MIN_NODE_HEIGHT = 170;
+const LOGIC_MAP_ROW_GAP = 72;
+const LOGIC_MAP_FILE_GAP = 120;
+
 const computeCallRanks = (
   nodes: CodeLayoutNode[],
   edges: CodeLayoutEdge[]
@@ -58,12 +63,16 @@ export const layoutLogicMap = (
   for (const group of groups) {
     for (const node of group.nodes) {
       const rank = ranks.get(node.id) || 0;
-      const x = rank * 720;
+      const x = rank * LOGIC_MAP_RANK_GAP;
       positions[node.id] = { x, y };
       maxX = Math.max(maxX, x + (node.width ?? 650));
-      y += Math.max(node.height ?? 150, 150) + 40;
+      y +=
+        Math.max(
+          node.height ?? LOGIC_MAP_MIN_NODE_HEIGHT,
+          LOGIC_MAP_MIN_NODE_HEIGHT
+        ) + LOGIC_MAP_ROW_GAP;
     }
-    y += 90;
+    y += LOGIC_MAP_FILE_GAP;
   }
 
   return {
@@ -74,4 +83,3 @@ export const layoutLogicMap = (
     },
   };
 };
-

@@ -543,6 +543,21 @@
   background: #f2f7fb;
 }
 
+.react-flow__node-default.overview-region-node {
+  pointer-events: none;
+  border: 1px solid rgba(111, 135, 115, 0.22);
+  border-radius: 8px;
+  background: rgba(232, 242, 236, 0.42);
+  box-shadow: none;
+  color: transparent;
+  padding: 0;
+}
+
+.react-flow__node-default.overview-region-file {
+  border-color: rgba(82, 117, 155, 0.22);
+  background: rgba(232, 240, 247, 0.5);
+}
+
 .react-flow__node-default.focused-declaration-changed {
   border: 2px solid #2c6f98;
   background: #e7f2f8;

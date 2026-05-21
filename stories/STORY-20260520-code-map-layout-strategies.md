@@ -28,6 +28,14 @@ Implemented:
 9. Added density-aware edge labels and selected-node edge emphasis in the workbench.
 10. Added unit tests for deterministic sorting, review-file lane direction, and logic-map grouping/ranking.
 11. Fixed the web test environment by adding `jsdom` and updating the jest-dom setup import.
+12. Improved review-declaration layout so bridge declarations are ordered between the changed declarations they connect, with focused tests for caller/callee lanes and bridge placement.
+13. Anchored review-declaration side lanes to center-lane file bands so same-file callers and callees stay near their changed or bridge declaration group.
+14. Improved overview expansion layout so expanded module files form a central local region with context lanes, and expanded file declarations sit next to their parent file in source order.
+15. Passed overview dependency counts into layout edge weights and used those weights when placing mixed expanded-scope context.
+16. Added subtle non-interactive background bands for expanded overview modules and expanded file declaration regions.
+17. Added density-aware call edge labels and selected-neighborhood edge emphasis to file maps and logic maps.
+18. Tuned logic-map spacing for editor-backed declaration nodes by estimating declaration height from source lines and capping expanded editor height.
+19. Added layout-layer regression tests for invalid-edge filtering and preserving previous positions.
 
 Verification:
 
@@ -531,7 +539,7 @@ Remaining:
 
 ### Phase 3: Review Declaration Semantic Layout
 
-Status: Partial.
+Status: Partial - semantic lanes, bridge placement, and file-band anchoring improved.
 
 1. Map declaration reasons to caller, callee, changed, bridge, and context roles.
 2. Group declarations by file.
@@ -547,13 +555,11 @@ Acceptance:
 
 Remaining:
 
-1. Improve bridge placement between changed clusters instead of simply keeping bridge declarations in the central lane.
-2. Preserve file grouping more strongly when call topology pulls declarations across lanes.
-3. Add a focused unit test for declaration caller/callee lane assignment.
+1. Visually tune bridge and file-band placement against real multi-file review graphs.
 
 ### Phase 4: Overview And Expansion Layout
 
-Status: Partial.
+Status: Mostly done - expanded local regions, edge weights, and background bands improved.
 
 1. Use weighted module edges in overview.
 2. Keep expanded module files near their parent module.
@@ -568,13 +574,11 @@ Acceptance:
 
 Remaining:
 
-1. Use dependency counts as edge weights in overview layout input.
-2. Make expanded module files and expanded file declarations form a clearer local region near their parent.
-3. Consider subtle region/background bands for expanded areas.
+1. Visually tune expanded regions against real medium-size projects.
 
 ### Phase 5: File Map And Logic Map Cleanup
 
-Status: Mostly done.
+Status: Mostly done - edge label density and editor-backed spacing improved.
 
 1. Replace `window.innerWidth`-based file map columns with container-aware layout.
 2. Move file map lane computation into `fileMapLayout.ts`.
@@ -590,8 +594,6 @@ Acceptance:
 Remaining:
 
 1. Visually test file maps across narrow and wide desktop sizes.
-2. Add edge-label density behavior outside the workbench where useful.
-3. Tune logic-map spacing for expanded editor-backed declaration nodes.
 
 ### Phase 6: Evaluate `elkjs`
 
@@ -615,7 +617,8 @@ Current automated coverage:
 
 1. Deterministic sorting by file and source line.
 2. Review-file lane direction for importer/imported context.
-3. Logic-map grouping by file with call-rank horizontal movement.
+3. Overview expansion placement for module-file regions, file declarations, and weighted context direction.
+4. Logic-map grouping by file with call-rank horizontal movement.
 
 Current manual/build coverage:
 
@@ -628,10 +631,10 @@ Current manual/build coverage:
 Add tests for:
 
 1. Lane assignment for review file graphs. Done for basic importer/imported direction.
-2. Lane assignment for review declaration graphs. Remaining.
-3. Deterministic sorting by role, directory, path, and source line. Partial.
-4. Filtering invalid edges from layout input. Remaining.
-5. Preservation of previous positions when `preservePrevious` is enabled. Remaining.
+2. Lane assignment for review declaration graphs. Done for basic caller/callee direction.
+3. Deterministic sorting by role, directory, path, and source line. Partial, with review-declaration file-band anchoring covered.
+4. Filtering invalid edges from layout input. Done.
+5. Preservation of previous positions when `preservePrevious` is enabled. Done.
 
 ### Visual/Interaction Checks
 

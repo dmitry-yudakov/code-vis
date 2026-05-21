@@ -290,6 +290,7 @@ export const generateConnections = (
         id: `${sourceHandle}-${targetHandle}`,
         source: mainFilename,
         target: fdFilename,
+        label: name,
         sourceHandle,
         targetHandle,
       };
@@ -319,6 +320,7 @@ export const generateConnections = (
             id: `${sourceHandle}-${targetHandle}`,
             source: fc.filename,
             target: mainFilename,
+            label: name,
             sourceHandle,
             targetHandle,
           };
@@ -526,6 +528,7 @@ export const FilesMapping: React.FC<{
 
   const [nodes, setNodes] = useState<any>(() => elements.nodes);
   const [edges, setEdges] = useState<any>(() => elements.edges);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const projectionKey = `${filename}|${elements.nodes
     .map((node: any) => node.id)
     .sort()
@@ -567,6 +570,32 @@ export const FilesMapping: React.FC<{
     setEdges((eds: any) => applyEdgeChanges(changes, eds));
   }, []);
 
+  const denseGraph = edges.length > 14 || nodes.length > 8;
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge: any) => {
+        const isSelectedNeighbor =
+          !!selectedNodeId &&
+          (edge.source === selectedNodeId || edge.target === selectedNodeId);
+        const baseStyle = edge.style || {};
+
+        return {
+          ...edge,
+          label: denseGraph && !isSelectedNeighbor ? undefined : edge.label,
+          style: selectedNodeId
+            ? {
+                ...baseStyle,
+                opacity: isSelectedNeighbor ? 1 : 0.22,
+                strokeWidth: isSelectedNeighbor
+                  ? Math.max(Number(baseStyle.strokeWidth || 1), 2.5)
+                  : baseStyle.strokeWidth,
+              }
+            : baseStyle,
+        };
+      }),
+    [denseGraph, edges, selectedNodeId]
+  );
+
   console.log('Elements', elements);
   return (
     <div className="files-mapping-main" ref={containerRef}>
@@ -584,12 +613,14 @@ export const FilesMapping: React.FC<{
       </div>
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={renderedEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodesConnectable={false}
         nodesDraggable={true}
         zoomOnScroll={true}
+        onNodeClick={(_event: any, node: any) => setSelectedNodeId(node.id)}
+        onPaneClick={() => setSelectedNodeId(null)}
         // panOnScroll={true}
         onlyRenderVisibleElements={false}
       >

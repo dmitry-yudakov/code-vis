@@ -13,6 +13,93 @@ const node = (overrides: Partial<CodeLayoutNode>): CodeLayoutNode => ({
 });
 
 describe('graphLayout', () => {
+  test('filters edges that reference hidden nodes before layout', () => {
+    const visibleOnly = layoutCodeGraph({
+      strategy: 'fallback',
+      nodes: [
+        node({ id: 'visible-a', label: 'visibleA' }),
+        node({ id: 'visible-b', label: 'visibleB' }),
+      ],
+      edges: [
+        {
+          id: 'visible-edge',
+          source: 'visible-a',
+          target: 'visible-b',
+          kind: 'imports',
+        },
+      ],
+    });
+    const result = layoutCodeGraph({
+      strategy: 'fallback',
+      nodes: [
+        node({ id: 'visible-a', label: 'visibleA' }),
+        node({ id: 'visible-b', label: 'visibleB' }),
+      ],
+      edges: [
+        {
+          id: 'visible-edge',
+          source: 'visible-a',
+          target: 'visible-b',
+          kind: 'imports',
+        },
+        {
+          id: 'hidden-source',
+          source: 'hidden-source-node',
+          target: 'visible-a',
+          kind: 'imports',
+        },
+        {
+          id: 'hidden-target',
+          source: 'visible-b',
+          target: 'hidden-target-node',
+          kind: 'imports',
+        },
+      ],
+    });
+
+    expect(Object.keys(result.positions).sort()).toEqual([
+      'visible-a',
+      'visible-b',
+    ]);
+    expect(result.positions).toEqual(visibleOnly.positions);
+  });
+
+  test('preserves previous positions when requested', () => {
+    const previousPositions = {
+      changed: { x: 1234, y: 5678 },
+      importer: { x: -345, y: 90 },
+    };
+    const result = layoutCodeGraph({
+      strategy: 'review-files',
+      preservePrevious: true,
+      previousPositions,
+      nodes: [
+        node({ id: 'changed', label: 'src/changed.ts', role: 'changed' }),
+        node({ id: 'importer', label: 'src/importer.ts' }),
+        node({ id: 'dependency', label: 'src/dependency.ts' }),
+      ],
+      edges: [
+        {
+          id: 'changed-importer',
+          source: 'changed',
+          target: 'importer',
+          kind: 'imports',
+        },
+        {
+          id: 'dependency-changed',
+          source: 'dependency',
+          target: 'changed',
+          kind: 'imports',
+        },
+      ],
+    });
+
+    expect(result.positions.changed).toEqual(previousPositions.changed);
+    expect(result.positions.importer).toEqual(previousPositions.importer);
+    expect(result.positions.dependency).toBeDefined();
+    expect(result.positions.dependency).not.toEqual(previousPositions.changed);
+  });
+
   test('sorts declarations by file and source line deterministically', () => {
     const input = [
       node({
@@ -48,6 +135,157 @@ describe('graphLayout', () => {
     ]);
   });
 
+  test('keeps expanded overview module files central with neighbors on predictable sides', () => {
+    const result = layoutCodeGraph({
+      strategy: 'overview',
+      nodes: [
+        node({
+          id: 'core-a',
+          label: 'src/core/a.ts',
+          role: 'expanded',
+          filename: 'src/core/a.ts',
+        }),
+        node({
+          id: 'core-b',
+          label: 'src/core/b.ts',
+          role: 'expanded',
+          filename: 'src/core/b.ts',
+        }),
+        node({
+          id: 'importer',
+          label: 'src/app.ts',
+          role: 'context',
+          filename: 'src/app.ts',
+        }),
+        node({
+          id: 'dependency',
+          label: 'src/lib.ts',
+          role: 'context',
+          filename: 'src/lib.ts',
+        }),
+      ],
+      edges: [
+        {
+          id: 'core-a-importer',
+          source: 'core-a',
+          target: 'importer',
+          kind: 'imports',
+        },
+        {
+          id: 'dependency-core-a',
+          source: 'dependency',
+          target: 'core-a',
+          kind: 'imports',
+        },
+      ],
+    });
+
+    expect(result.positions.importer.x).toBeLessThan(
+      result.positions['core-a'].x
+    );
+    expect(result.positions.dependency.x).toBeGreaterThan(
+      result.positions['core-a'].x
+    );
+    expect(result.positions['core-b'].x).toBe(result.positions['core-a'].x);
+    expect(result.positions['core-b'].y).toBeGreaterThan(
+      result.positions['core-a'].y
+    );
+  });
+
+  test('uses overview edge weights when placing mixed expanded context', () => {
+    const result = layoutCodeGraph({
+      strategy: 'overview',
+      nodes: [
+        node({
+          id: 'core',
+          label: 'src/core.ts',
+          role: 'expanded',
+          filename: 'src/core.ts',
+        }),
+        node({
+          id: 'mixed',
+          label: 'src/mixed.ts',
+          role: 'context',
+          filename: 'src/mixed.ts',
+        }),
+      ],
+      edges: [
+        {
+          id: 'core-mixed-light',
+          source: 'core',
+          target: 'mixed',
+          kind: 'imports',
+          weight: 1,
+        },
+        {
+          id: 'mixed-core-heavy',
+          source: 'mixed',
+          target: 'core',
+          kind: 'imports',
+          weight: 4,
+        },
+      ],
+    });
+
+    expect(result.positions.mixed.x).toBeGreaterThan(
+      result.positions.core.x
+    );
+  });
+
+  test('keeps expanded overview declarations near their file sorted by source line', () => {
+    const result = layoutCodeGraph({
+      strategy: 'overview',
+      nodes: [
+        node({
+          id: 'file',
+          label: 'src/core/a.ts',
+          role: 'expanded',
+          filename: 'src/core/a.ts',
+        }),
+        node({
+          id: 'decl-l20',
+          label: 'later',
+          kind: 'declaration',
+          role: 'expanded',
+          filename: 'src/core/a.ts',
+          startLine: 20,
+        }),
+        node({
+          id: 'decl-l5',
+          label: 'earlier',
+          kind: 'declaration',
+          role: 'expanded',
+          filename: 'src/core/a.ts',
+          startLine: 5,
+        }),
+      ],
+      edges: [
+        {
+          id: 'file-decl-l20',
+          source: 'file',
+          target: 'decl-l20',
+          kind: 'declares',
+        },
+        {
+          id: 'file-decl-l5',
+          source: 'file',
+          target: 'decl-l5',
+          kind: 'declares',
+        },
+      ],
+    });
+
+    expect(result.positions['decl-l5'].x).toBeGreaterThan(
+      result.positions.file.x
+    );
+    expect(result.positions['decl-l20'].x).toBe(
+      result.positions['decl-l5'].x
+    );
+    expect(result.positions['decl-l5'].y).toBeLessThan(
+      result.positions['decl-l20'].y
+    );
+  });
+
   test('places review file importers left and imported files right', () => {
     const result = layoutCodeGraph({
       strategy: 'review-files',
@@ -78,6 +316,169 @@ describe('graphLayout', () => {
     expect(result.positions.dependency.x).toBeGreaterThan(
       result.positions.changed.x
     );
+  });
+
+  test('places review declaration callers left and callees right', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-declarations',
+      nodes: [
+        node({
+          id: 'changed',
+          label: 'changedDeclaration',
+          kind: 'declaration',
+          role: 'changed',
+        }),
+        node({
+          id: 'caller',
+          label: 'callerDeclaration',
+          kind: 'declaration',
+        }),
+        node({
+          id: 'callee',
+          label: 'calleeDeclaration',
+          kind: 'declaration',
+        }),
+      ],
+      edges: [
+        {
+          id: 'caller-changed',
+          source: 'caller',
+          target: 'changed',
+          kind: 'calls',
+        },
+        {
+          id: 'changed-callee',
+          source: 'changed',
+          target: 'callee',
+          kind: 'calls',
+        },
+      ],
+    });
+
+    expect(result.positions.caller.x).toBeLessThan(
+      result.positions.changed.x
+    );
+    expect(result.positions.callee.x).toBeGreaterThan(
+      result.positions.changed.x
+    );
+  });
+
+  test('places bridge declarations between changed declaration clusters', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-declarations',
+      nodes: [
+        node({
+          id: 'changed-a',
+          label: 'changedA',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/a.ts',
+          startLine: 10,
+        }),
+        node({
+          id: 'bridge',
+          label: 'bridgeDeclaration',
+          kind: 'declaration',
+          role: 'bridge',
+          filename: 'src/bridge.ts',
+          startLine: 20,
+        }),
+        node({
+          id: 'changed-b',
+          label: 'changedB',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/b.ts',
+          startLine: 30,
+        }),
+      ],
+      edges: [
+        {
+          id: 'changed-a-bridge',
+          source: 'changed-a',
+          target: 'bridge',
+          kind: 'bridge',
+        },
+        {
+          id: 'bridge-changed-b',
+          source: 'bridge',
+          target: 'changed-b',
+          kind: 'bridge',
+        },
+      ],
+    });
+
+    expect(result.positions.bridge.x).toBe(result.positions['changed-a'].x);
+    expect(result.positions.bridge.y).toBeGreaterThan(
+      result.positions['changed-a'].y
+    );
+    expect(result.positions.bridge.y).toBeLessThan(
+      result.positions['changed-b'].y
+    );
+  });
+
+  test('keeps review declaration side lanes near matching center file bands', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-declarations',
+      nodes: [
+        node({
+          id: 'changed-a',
+          label: 'changedA',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/a.ts',
+          startLine: 10,
+        }),
+        node({
+          id: 'changed-z',
+          label: 'changedZ',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/z.ts',
+          startLine: 10,
+        }),
+        node({
+          id: 'z-caller',
+          label: 'zCaller',
+          kind: 'declaration',
+          filename: 'src/z.ts',
+          startLine: 1,
+        }),
+        node({
+          id: 'm-caller',
+          label: 'mCaller',
+          kind: 'declaration',
+          filename: 'src/m.ts',
+          startLine: 1,
+        }),
+      ],
+      edges: [
+        {
+          id: 'z-caller-changed-z',
+          source: 'z-caller',
+          target: 'changed-z',
+          kind: 'calls',
+        },
+        {
+          id: 'm-caller-changed-z',
+          source: 'm-caller',
+          target: 'changed-z',
+          kind: 'calls',
+        },
+      ],
+    });
+
+    const matchingFileDistance = Math.abs(
+      result.positions['z-caller'].y - result.positions['changed-z'].y
+    );
+    const unrelatedFileDistance = Math.abs(
+      result.positions['m-caller'].y - result.positions['changed-z'].y
+    );
+
+    expect(result.positions['z-caller'].x).toBeLessThan(
+      result.positions['changed-z'].x
+    );
+    expect(matchingFileDistance).toBeLessThan(unrelatedFileDistance);
   });
 
   test('keeps logic map declarations grouped by file while call ranks move right', () => {
@@ -115,5 +516,35 @@ describe('graphLayout', () => {
     expect(result.positions.a2.y).toBeGreaterThan(result.positions.a1.y);
     expect(result.positions.b1.x).toBeGreaterThan(result.positions.a1.x);
   });
-});
 
+  test('spaces logic map rows by declaration node height', () => {
+    const result = layoutCodeGraph({
+      strategy: 'logic-map',
+      nodes: [
+        node({
+          id: 'large',
+          label: 'large',
+          kind: 'declaration',
+          role: 'context',
+          filename: 'src/a.ts',
+          startLine: 1,
+          height: 620,
+        }),
+        node({
+          id: 'after-large',
+          label: 'afterLarge',
+          kind: 'declaration',
+          role: 'context',
+          filename: 'src/a.ts',
+          startLine: 200,
+          height: 170,
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(result.positions['after-large'].y).toBeGreaterThan(
+      result.positions.large.y + 620
+    );
+  });
+});
