@@ -9,6 +9,8 @@ import ReactFlow, {
   Controls,
   MarkerType,
   Node as FlowNode,
+  Position,
+  type ReactFlowInstance,
   applyNodeChanges,
   NodeChange,
 } from 'react-flow-renderer';
@@ -21,7 +23,6 @@ import {
   FileMapDetailed,
   FunctionCallInfo,
   FunctionDeclarationInfo,
-  PositionedNode,
   ChangeSourceRequest,
   FocusedDeclarationInfo,
   FocusedDeclarationReason,
@@ -33,10 +34,20 @@ import {
 } from '../types';
 import {
   includeToGraphTypes,
-  applyGraphLayout,
   groupIncludesByDirectory,
   filterIncludesToEntryPoints,
 } from '../utils';
+import {
+  layoutCodeGraph,
+  layoutCodeGraphAsync,
+  type CodeLayoutEdge,
+  type CodeLayoutInput,
+  type CodeLayoutNode,
+  type CodeLayoutNodeKind,
+  type CodeLayoutNodeRole,
+  type CodeLayoutStrategy,
+} from '../graphLayout';
+import { useFullscreenEdgePan } from '../hooks/useFullscreenEdgePan';
 import './IncludesHierarchy.css';
 
 type LensId = 'overview' | 'review' | 'feature' | 'impact';
@@ -79,6 +90,156 @@ type GraphEdgePresentation = GraphConnection & {
   label?: string;
   animated?: boolean;
   style?: React.CSSProperties;
+  weight?: number;
+};
+
+type FlowConnectionPosition = {
+  sourcePosition?: Position;
+  targetPosition?: Position;
+};
+
+type WorkbenchGraphData = {
+  initialNodes: Array<FlowNode<any>>;
+  edgesElements: GraphEdgePresentation[];
+  nodeMetaById: Map<string, GraphNodeMeta>;
+  connectionEdges: GraphConnection[];
+  asyncLayoutInput: CodeLayoutInput | null;
+  asyncLayoutConnections: GraphConnection[];
+};
+
+const OVERVIEW_REGION_PADDING = 58;
+
+const estimateFlowNodeSize = (
+  node: FlowNode<any>
+): { width: number; height: number } => {
+  const className = String(node.className || '');
+  if (className.includes('overview-declaration-node')) {
+    return { width: 300, height: 140 };
+  }
+  return { width: 250, height: 180 };
+};
+
+const oppositePosition = (position: Position): Position => {
+  switch (position) {
+    case Position.Left:
+      return Position.Right;
+    case Position.Right:
+      return Position.Left;
+    case Position.Top:
+      return Position.Bottom;
+    case Position.Bottom:
+    default:
+      return Position.Top;
+  }
+};
+
+const getEdgeSourcePosition = (
+  source?: { x: number; y: number },
+  target?: { x: number; y: number }
+): Position => {
+  if (!source || !target) return Position.Right;
+
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? Position.Right : Position.Left;
+  }
+
+  return dy >= 0 ? Position.Bottom : Position.Top;
+};
+
+const getMostCommonPosition = (
+  votes: Position[] | undefined
+): Position | undefined => {
+  if (!votes || votes.length === 0) return undefined;
+
+  const counts = votes.reduce(
+    (acc, position) => ({
+      ...acc,
+      [position]: (acc[position] || 0) + 1,
+    }),
+    {} as Partial<Record<Position, number>>
+  );
+
+  return [...votes].sort((left, right) => {
+    const countDiff = (counts[right] || 0) - (counts[left] || 0);
+    if (countDiff !== 0) return countDiff;
+    return left.localeCompare(right);
+  })[0];
+};
+
+const buildConnectionPositions = (
+  positions: Record<string, { x: number; y: number }>,
+  edges: GraphConnection[]
+): Record<string, FlowConnectionPosition> => {
+  const sourceVotes = new Map<string, Position[]>();
+  const targetVotes = new Map<string, Position[]>();
+
+  for (const edge of edges) {
+    const sourcePosition = getEdgeSourcePosition(
+      positions[edge.source],
+      positions[edge.target]
+    );
+    sourceVotes.set(edge.source, [
+      ...(sourceVotes.get(edge.source) || []),
+      sourcePosition,
+    ]);
+    targetVotes.set(edge.target, [
+      ...(targetVotes.get(edge.target) || []),
+      oppositePosition(sourcePosition),
+    ]);
+  }
+
+  const nodeIds = new Set([...sourceVotes.keys(), ...targetVotes.keys()]);
+  const result: Record<string, FlowConnectionPosition> = {};
+
+  for (const nodeId of nodeIds) {
+    result[nodeId] = {
+      sourcePosition: getMostCommonPosition(sourceVotes.get(nodeId)),
+      targetPosition: getMostCommonPosition(targetVotes.get(nodeId)),
+    };
+  }
+
+  return result;
+};
+
+const buildOverviewRegionNode = (
+  id: string,
+  nodes: FlowNode<any>[],
+  className: string
+): FlowNode<any> | null => {
+  if (nodes.length === 0) return null;
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const node of nodes) {
+    const size = estimateFlowNodeSize(node);
+    minX = Math.min(minX, node.position.x);
+    minY = Math.min(minY, node.position.y);
+    maxX = Math.max(maxX, node.position.x + size.width);
+    maxY = Math.max(maxY, node.position.y + size.height);
+  }
+
+  return {
+    id,
+    className: `overview-region-node ${className}`,
+    data: { label: '' },
+    position: {
+      x: minX - OVERVIEW_REGION_PADDING,
+      y: minY - OVERVIEW_REGION_PADDING,
+    },
+    draggable: false,
+    selectable: false,
+    connectable: false,
+    style: {
+      width: maxX - minX + OVERVIEW_REGION_PADDING * 2,
+      height: maxY - minY + OVERVIEW_REGION_PADDING * 2,
+    },
+  };
 };
 
 const LENSES: Array<{
@@ -330,6 +491,16 @@ export const IncludesHierarchy: React.FC<{
   } | null>(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [layoutResetVersion, setLayoutResetVersion] = useState(0);
+  const {
+    containerRef: graphCanvasRef,
+    viewportControllerRef: flowInstanceRef,
+    isFullscreen: graphFullscreen,
+    toggleFullscreen: toggleGraphFullscreen,
+  } = useFullscreenEdgePan<HTMLDivElement, ReactFlowInstance<any, any>>({
+    ignoredTargetSelector: '.layout-actions',
+    onBeforeEnter: () => setShowMenu(null),
+  });
 
   const isReviewLens = activeLens === 'review';
   const focusedSource = useMemo<ChangeSourceRequest | null>(() => {
@@ -502,41 +673,67 @@ export const IncludesHierarchy: React.FC<{
     isReviewLens,
   ]);
 
-  const { initialNodes, edgesElements, nodeMetaById, connectionEdges } = useMemo(() => {
+  const {
+    initialNodes,
+    edgesElements,
+    nodeMetaById,
+    connectionEdges,
+    asyncLayoutInput,
+    asyncLayoutConnections,
+  } = useMemo<WorkbenchGraphData>(() => {
     if (declarationReview && focusedReview) {
-      const nodes = focusedDeclarations.map((decl) => ({
-        id: decl.id,
-        label: decl.name,
-      })) as PositionedNode[];
       const declarationEdges = (focusedReview.declarationCalls || []).filter(
         (edge) =>
           focusedDeclarationIds.has(edge.from) &&
           focusedDeclarationIds.has(edge.to)
       );
-      const layoutEdges = declarationEdges.map((edge) => ({
+      const layoutNodes: CodeLayoutNode[] = focusedDeclarations.map((decl) => {
+        const isBridge = decl.reasons.some(
+          (reason) => reason.type === 'bridge-between-changes'
+        );
+        return {
+          id: decl.id,
+          label: decl.name,
+          kind: 'declaration',
+          role: decl.isChanged ? 'changed' : isBridge ? 'bridge' : 'context',
+          filename: decl.filename,
+          startLine: decl.startLine,
+          endLine: decl.endLine,
+          width: 300,
+          height: 140,
+          sortKey: `${decl.filename}:${String(decl.startLine || 0).padStart(
+            8,
+            '0'
+          )}:${decl.name}:${decl.id}`,
+        };
+      });
+      const layoutEdges: CodeLayoutEdge[] = declarationEdges.map((edge) => ({
+        id: edge.id,
         source: edge.from,
         target: edge.to,
+        kind: edge.reasons.some(
+          (reason) => reason.type === 'bridge-between-changes'
+        )
+          ? 'bridge'
+          : 'calls',
+        label: edge.name,
+        isHeuristic: edge.isHeuristic,
       }));
-
-      if (nodes.length > 0) {
-        applyGraphLayout(
-          nodes,
-          layoutEdges,
-          (n, x, y) => {
-            const p = n as PositionedNode;
-            p.x = x;
-            p.y = y;
-          },
-          280,
-          140,
-          'LR'
-        );
-      }
-
-      const positionedById = new Map(nodes.map((node) => [node.id, node]));
+      const layoutResult = layoutCodeGraph({
+        strategy: 'review-declarations',
+        nodes: layoutNodes,
+        edges: layoutEdges,
+      });
+      const connectionPositions = buildConnectionPositions(
+        layoutResult.positions,
+        declarationEdges.map((edge) => ({
+          source: edge.from,
+          target: edge.to,
+        }))
+      );
       const nodeMetaById = new Map<string, GraphNodeMeta>();
       const initialNodes = focusedDeclarations.map((decl) => {
-        const positioned = positionedById.get(decl.id);
+        const positioned = layoutResult.positions[decl.id];
         const isBridge = decl.reasons.some(
           (reason) => reason.type === 'bridge-between-changes'
         );
@@ -577,6 +774,7 @@ export const IncludesHierarchy: React.FC<{
             x: positioned?.x || 0,
             y: positioned?.y || 0,
           },
+          ...connectionPositions[decl.id],
         };
       });
 
@@ -605,7 +803,14 @@ export const IncludesHierarchy: React.FC<{
         target: edge.to,
       }));
 
-      return { initialNodes, edgesElements, nodeMetaById, connectionEdges };
+      return {
+        initialNodes: initialNodes as Array<FlowNode<any>>,
+        edgesElements,
+        nodeMetaById,
+        connectionEdges,
+        asyncLayoutInput: null,
+        asyncLayoutConnections: [],
+      };
     }
 
     const { nodes, edges } = includeToGraphTypes(activeIncludes);
@@ -615,6 +820,7 @@ export const IncludesHierarchy: React.FC<{
         source,
         target,
         label: edgeLabel(activeIncludes[idx].items),
+        weight: Math.max(1, activeIncludes[idx].items.length),
       })
     );
 
@@ -737,24 +943,87 @@ export const IncludesHierarchy: React.FC<{
       }
     }
 
-    if (nodes.length > 0) {
-      applyGraphLayout(
-        nodes,
-        graphEdges,
-        (n, x, y) => {
-          const p = n as PositionedNode;
-          p.x = x;
-          p.y = y;
-        },
-        250,
-        200
-      );
-    }
+    const layoutStrategy: CodeLayoutStrategy = isReviewLens
+      ? 'review-files'
+      : 'overview';
+    const layoutNodes: CodeLayoutNode[] = nodes.map((node) => {
+      const focusedInfo = isReviewLens
+        ? focusedFilesByName.get(node.label)
+        : null;
+      const overviewDeclaration = overviewDeclarationsById.get(node.id);
+      const layoutKind: CodeLayoutNodeKind = overviewDeclaration
+        ? 'declaration'
+        : focusedInfo?.isTest
+          ? 'test'
+          : directoryOverview
+            ? 'module'
+            : 'file';
+      const layoutRole: CodeLayoutNodeRole = overviewDeclaration
+        ? 'expanded'
+        : focusedInfo?.isChanged
+          ? 'changed'
+          : focusedInfo?.isTest
+            ? 'test'
+            : isReviewLens
+              ? 'context'
+              : expandedOverviewFile === node.label ||
+                  (expandedDirectory &&
+                    isWithinDirectory(node.label, expandedDirectory))
+                ? 'expanded'
+                : expandedDirectory
+                  ? 'context'
+                : 'overview';
+      const filename =
+        layoutKind === 'file' || layoutKind === 'test'
+          ? node.label
+          : overviewDeclaration?.filename;
+
+      return {
+        id: node.id,
+        label: node.label,
+        kind: layoutKind,
+        role: layoutRole,
+        filename,
+        startLine: overviewDeclaration?.startLine,
+        endLine: overviewDeclaration?.endLine,
+        width: overviewDeclaration ? 300 : 250,
+        height: overviewDeclaration ? 140 : focusedInfo ? 150 : 180,
+        sortKey: overviewDeclaration
+          ? `${overviewDeclaration.filename}:${String(
+              overviewDeclaration.startLine
+            ).padStart(8, '0')}:${overviewDeclaration.name}:${node.id}`
+          : node.label,
+      };
+    });
+    const layoutEdges: CodeLayoutEdge[] = graphEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      kind:
+        edge.label === 'declares'
+          ? 'declares'
+          : edge.style?.strokeDasharray
+            ? 'heuristic'
+            : 'imports',
+      label: edge.label,
+      weight: edge.weight,
+    }));
+    const layoutInput: CodeLayoutInput = {
+      strategy: layoutStrategy,
+      nodes: layoutNodes,
+      edges: layoutEdges,
+    };
+    const layoutResult = layoutCodeGraph(layoutInput);
+    const connectionPositions = buildConnectionPositions(
+      layoutResult.positions,
+      graphEdges
+    );
 
     const nodeMetaById = new Map<string, GraphNodeMeta>();
 
-    const initialNodes = (nodes as PositionedNode[]).map((node) => {
-      const { id, x, y } = node;
+    const initialNodes = nodes.map((node) => {
+      const { id } = node;
+      const positioned = layoutResult.positions[id];
       const overviewDeclaration = overviewDeclarationsById.get(id);
 
       if (overviewDeclaration) {
@@ -787,7 +1056,8 @@ export const IncludesHierarchy: React.FC<{
             node: { id, label: overviewDeclaration.filename },
             isDeleted: false,
           },
-          position: { x: x || 0, y: y || 0 },
+          position: { x: positioned?.x || 0, y: positioned?.y || 0 },
+          ...connectionPositions[id],
         };
       }
 
@@ -863,7 +1133,8 @@ export const IncludesHierarchy: React.FC<{
           node,
           isDeleted,
         },
-        position: { x: x || 0, y: y || 0 },
+        position: { x: positioned?.x || 0, y: positioned?.y || 0 },
+        ...connectionPositions[id],
       };
     });
 
@@ -885,7 +1156,14 @@ export const IncludesHierarchy: React.FC<{
       })
     );
 
-    return { initialNodes, edgesElements, nodeMetaById, connectionEdges };
+    return {
+      initialNodes: initialNodes as Array<FlowNode<any>>,
+      edgesElements,
+      nodeMetaById,
+      connectionEdges,
+      asyncLayoutInput: isReviewLens ? layoutInput : null,
+      asyncLayoutConnections: connectionEdges,
+    };
   }, [
     activeIncludes,
     declarationReview,
@@ -1029,10 +1307,12 @@ export const IncludesHierarchy: React.FC<{
     showFocusedContext,
   ]);
   const previousProjectionRef = useRef<string>(projectionKey);
+  const previousLayoutResetRef = useRef(layoutResetVersion);
 
   const [nodesElements, setNodesElements] = useState<FlowNode<any>[]>(
     initialNodes as FlowNode<any>[]
   );
+  const [asyncLayoutLoading, setAsyncLayoutLoading] = useState(false);
 
   useEffect(() => {
     setScopeCopyStatus('idle');
@@ -1057,8 +1337,12 @@ export const IncludesHierarchy: React.FC<{
       const nextNodes = initialNodes as FlowNode<any>[];
 
       // Reset layout when changing projection, preserve manual placement for refreshes.
-      if (previousProjectionRef.current !== projectionKey) {
+      if (
+        previousProjectionRef.current !== projectionKey ||
+        previousLayoutResetRef.current !== layoutResetVersion
+      ) {
         previousProjectionRef.current = projectionKey;
+        previousLayoutResetRef.current = layoutResetVersion;
         return nextNodes;
       }
 
@@ -1074,11 +1358,117 @@ export const IncludesHierarchy: React.FC<{
         };
       });
     });
-  }, [initialNodes, projectionKey]);
+  }, [initialNodes, layoutResetVersion, projectionKey]);
+
+  useEffect(() => {
+    if (!asyncLayoutInput) {
+      setAsyncLayoutLoading(false);
+      return;
+    }
+
+    let canceled = false;
+    setAsyncLayoutLoading(true);
+
+    layoutCodeGraphAsync({
+      ...asyncLayoutInput,
+      engine: 'elk',
+    })
+      .then((layoutResult) => {
+        if (canceled) return;
+
+        const connectionPositions = buildConnectionPositions(
+          layoutResult.positions,
+          asyncLayoutConnections
+        );
+
+        setNodesElements(
+          initialNodes.map((node) => {
+            const positioned = layoutResult.positions[node.id];
+            return {
+              ...node,
+              position: positioned || node.position,
+              ...connectionPositions[node.id],
+            };
+          })
+        );
+      })
+      .catch((error) => {
+        if (!canceled) {
+          console.warn('ELK layout failed, keeping semantic layout', error);
+        }
+      })
+      .finally(() => {
+        if (!canceled) {
+          setAsyncLayoutLoading(false);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    asyncLayoutConnections,
+    asyncLayoutInput,
+    initialNodes,
+    layoutResetVersion,
+    projectionKey,
+  ]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodesElements((nds) => applyNodeChanges(changes, nds));
   }, []);
+
+  const overviewRegionNodes = useMemo<FlowNode<any>[]>(() => {
+    if (activeLens !== 'overview') return [];
+
+    const regions: FlowNode<any>[] = [];
+
+    if (expandedDirectory) {
+      const moduleNodes = nodesElements.filter((node) => {
+        const meta = nodeMetaById.get(node.id);
+        return (
+          meta?.kind === 'file' &&
+          !!meta.filename &&
+          isWithinDirectory(meta.filename, expandedDirectory)
+        );
+      });
+      const region = buildOverviewRegionNode(
+        'overview-region-expanded-module',
+        moduleNodes,
+        'overview-region-module'
+      );
+      if (region) regions.push(region);
+    }
+
+    if (expandedOverviewFile) {
+      const fileNodes = nodesElements.filter((node) => {
+        const meta = nodeMetaById.get(node.id);
+        return (
+          meta?.filename === expandedOverviewFile &&
+          (meta.kind === 'file' || meta.kind === 'declaration')
+        );
+      });
+      const region = buildOverviewRegionNode(
+        'overview-region-expanded-file',
+        fileNodes,
+        'overview-region-file'
+      );
+      if (region) regions.push(region);
+    }
+
+    return regions;
+  }, [
+    activeLens,
+    expandedDirectory,
+    expandedOverviewFile,
+    nodeMetaById,
+    nodesElements,
+  ]);
+
+  const renderedNodes = useMemo(
+    () => [...overviewRegionNodes, ...nodesElements],
+    [nodesElements, overviewRegionNodes]
+  );
 
   const visibleCount = useMemo(() => {
     if (declarationReview) return focusedDeclarations.length;
@@ -1091,6 +1481,32 @@ export const IncludesHierarchy: React.FC<{
     focusedFilesByName,
     initialNodes,
   ]);
+  const denseGraph = edgesElements.length > 24 || initialNodes.length > 18;
+  const renderedEdges = useMemo(
+    () =>
+      edgesElements.map((edge) => {
+        const isSelectedNeighbor =
+          !!selectedNodeId &&
+          (edge.source === selectedNodeId || edge.target === selectedNodeId);
+        const baseStyle = edge.style || {};
+
+        return {
+          ...edge,
+          label: denseGraph && !isSelectedNeighbor ? undefined : edge.label,
+          style: selectedNodeId
+            ? {
+                ...baseStyle,
+                opacity: isSelectedNeighbor ? 1 : 0.24,
+                strokeWidth: isSelectedNeighbor
+                  ? Math.max(Number(baseStyle.strokeWidth || 1), 2.5)
+                  : baseStyle.strokeWidth,
+              }
+            : baseStyle,
+          className: isSelectedNeighbor ? 'selected-neighborhood-edge' : '',
+        };
+      }),
+    [denseGraph, edgesElements, selectedNodeId]
+  );
 
   const changedCount = focusedReview?.changeSet.files.length || 0;
   const focusedTotalCount = focusedReview?.files.length || 0;
@@ -1455,16 +1871,44 @@ export const IncludesHierarchy: React.FC<{
             </div>
           </div>
 
-          <div className="mapper-canvas">
+          <div
+            ref={graphCanvasRef}
+            className={`mapper-canvas${graphFullscreen ? ' graph-fullscreen' : ''}`}
+          >
+            <div className="layout-actions">
+              <button
+                className="inline-btn"
+                onClick={() => setLayoutResetVersion((version) => version + 1)}
+                disabled={initialNodes.length === 0}
+              >
+                Reset layout
+              </button>
+              <button
+                className="inline-btn"
+                onClick={toggleGraphFullscreen}
+                disabled={initialNodes.length === 0}
+                title={
+                  graphFullscreen
+                    ? 'Exit fullscreen'
+                    : 'Open the graph fullscreen'
+                }
+              >
+                {graphFullscreen ? 'Exit full screen' : 'Full screen'}
+              </button>
+            </div>
             <ReactFlow
-              nodes={nodesElements}
-              edges={edgesElements}
+              nodes={renderedNodes}
+              edges={renderedEdges}
               onNodesChange={onNodesChange}
+              onInit={(instance) => {
+                flowInstanceRef.current = instance;
+              }}
               nodesConnectable={false}
               nodesDraggable={true}
               minZoom={0.01}
               onNodeClick={(e: any, el: any) => {
                 const meta = nodeMetaById.get(el.id);
+                if (!meta) return;
                 setSelectedNodeId(el.id);
 
                 if (meta && meta.canOpenFile) {
@@ -1480,6 +1924,9 @@ export const IncludesHierarchy: React.FC<{
             >
               <Controls />
             </ReactFlow>
+            {asyncLayoutLoading && (
+              <div className="layout-state-overlay">Building ELK layout...</div>
+            )}
             {showFocusedState && (
               <div
                 className={`focused-state-overlay${focusedError ? ' focused-state-error' : ''}`}

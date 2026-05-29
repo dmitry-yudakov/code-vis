@@ -4,6 +4,12 @@
   overflow: hidden;
   position: relative;
 }
+.logic-layout-actions {
+  position: fixed;
+  top: 10px;
+  left: 56px;
+  z-index: 5;
+}
 .logic-map-main .react-flow__node {
   background: rgba(245, 249, 249, 0.48);
   padding: 0;
@@ -83,6 +89,13 @@
 .logic-map-main .func-decl.expanded {
   max-width: 500px;
   z-index: 3;
+}
+.logic-map-main .logic-expanded-editor {
+  width: 500px;
+}
+.logic-map-main .logic-expanded-editor-body {
+  max-height: 560px;
+  overflow: auto;
 }
 .logic-map-main .func-decl .func-icon {
   height: 1em;

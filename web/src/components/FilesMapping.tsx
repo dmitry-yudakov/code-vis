@@ -46,6 +46,11 @@ import {
   useFuncDecl,
 } from './CodeMirror';
 import { ButtonGroup, Button } from '@mui/material';
+import {
+  layoutCodeGraph,
+  type CodeLayoutEdge,
+  type CodeLayoutNode,
+} from '../graphLayout';
 
 export enum LogicNodeType {
   file,
@@ -285,6 +290,7 @@ export const generateConnections = (
         id: `${sourceHandle}-${targetHandle}`,
         source: mainFilename,
         target: fdFilename,
+        label: name,
         sourceHandle,
         targetHandle,
       };
@@ -314,6 +320,7 @@ export const generateConnections = (
             id: `${sourceHandle}-${targetHandle}`,
             source: fc.filename,
             target: mainFilename,
+            label: name,
             sourceHandle,
             targetHandle,
           };
@@ -341,6 +348,28 @@ export const FilesMapping: React.FC<{
 }) => {
   const ref_onRequestRelatedFile = useRef(onRequestRelatedFile);
   const ref_onSave = useRef(onSave);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [layoutResetVersion, setLayoutResetVersion] = useState(0);
+  const [viewport, setViewport] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !window.ResizeObserver) return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setViewport({
+        width: Math.max(1, width),
+        height: Math.max(1, height),
+      });
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const elements = useMemo(() => {
     const includes = projectMap
@@ -361,12 +390,59 @@ export const FilesMapping: React.FC<{
     const edges = generateConnections(filename, mapping, referencesMappings);
     console.log('Connections', edges);
 
-    const colWidth = window.innerWidth / 3;
+    const colWidth = viewport.width / 3;
     const mainWidth = colWidth * 0.85; //* 1.85;
     const supplWidth = colWidth * 0.85;
-    const middleColOffet = colWidth;
-    const rightColOffet = colWidth * 2;
-    const initialOffsetY = 70;
+
+    const layoutNodes: CodeLayoutNode[] = [
+      {
+        id: filename,
+        label: filename,
+        kind: 'file',
+        role: 'seed',
+        filename,
+        width: mainWidth,
+        height: 320,
+      },
+      ...references.map((fn) => ({
+        id: fn,
+        label: fn,
+        kind: 'file' as const,
+        role: 'context' as const,
+        filename: fn,
+        width: supplWidth,
+        height: referencesMappings[fn] ? 300 : 90,
+      })),
+      ...includes.map((fn) => ({
+        id: fn,
+        label: fn,
+        kind: 'file' as const,
+        role: 'context' as const,
+        filename: fn,
+        width: supplWidth,
+        height: includesMappings[fn] ? 300 : 90,
+      })),
+    ];
+    const layoutEdges: CodeLayoutEdge[] = [
+      ...references.map((fn) => ({
+        id: `${fn}-${filename}-layout`,
+        source: fn,
+        target: filename,
+        kind: 'imported-by' as const,
+      })),
+      ...includes.map((fn) => ({
+        id: `${filename}-${fn}-layout`,
+        source: filename,
+        target: fn,
+        kind: 'imports' as const,
+      })),
+    ];
+    const layoutResult = layoutCodeGraph({
+      strategy: 'file-map',
+      nodes: layoutNodes,
+      edges: layoutEdges,
+      viewport,
+    });
 
     const nodes = [
       {
@@ -386,8 +462,8 @@ export const FilesMapping: React.FC<{
           // height: 1000,
         },
         position: {
-          x: middleColOffet,
-          y: initialOffsetY,
+          x: layoutResult.positions[filename]?.x || 0,
+          y: layoutResult.positions[filename]?.y || 0,
         },
       },
 
@@ -413,8 +489,8 @@ export const FilesMapping: React.FC<{
             width: supplWidth,
           },
           position: {
-            x: 10 + idx * 10,
-            y: initialOffsetY + idx * 300,
+            x: layoutResult.positions[id]?.x || 0,
+            y: layoutResult.positions[id]?.y || 0,
           },
         };
       }),
@@ -441,22 +517,50 @@ export const FilesMapping: React.FC<{
             width: supplWidth,
           },
           position: {
-            x: rightColOffet + idx * 10,
-            y: initialOffsetY + idx * 300,
+            x: layoutResult.positions[id]?.x || 0,
+            y: layoutResult.positions[id]?.y || 0,
           },
         };
       }),
     ];
     return { nodes, edges };
-  }, [data, filename, projectMap]);
+  }, [data, filename, projectMap, viewport]);
 
   const [nodes, setNodes] = useState<any>(() => elements.nodes);
   const [edges, setEdges] = useState<any>(() => elements.edges);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const projectionKey = `${filename}|${elements.nodes
+    .map((node: any) => node.id)
+    .sort()
+    .join('|')}|${Math.round(viewport.width)}`;
+  const previousProjectionRef = useRef(projectionKey);
+  const previousLayoutResetRef = useRef(layoutResetVersion);
 
   useEffect(() => {
-    setNodes(elements.nodes);
+    setNodes((previousNodes: any[]) => {
+      if (
+        previousProjectionRef.current !== projectionKey ||
+        previousLayoutResetRef.current !== layoutResetVersion
+      ) {
+        previousProjectionRef.current = projectionKey;
+        previousLayoutResetRef.current = layoutResetVersion;
+        return elements.nodes;
+      }
+
+      const previousById = new Map(
+        previousNodes.map((node: any) => [node.id, node])
+      );
+      return elements.nodes.map((node: any) => {
+        const previous = previousById.get(node.id);
+        if (!previous) return node;
+        return {
+          ...node,
+          position: previous.position,
+        };
+      });
+    });
     setEdges(elements.edges);
-  }, [elements]);
+  }, [elements, layoutResetVersion, projectionKey]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((nds: any) => applyNodeChanges(changes, nds));
@@ -466,20 +570,57 @@ export const FilesMapping: React.FC<{
     setEdges((eds: any) => applyEdgeChanges(changes, eds));
   }, []);
 
+  const denseGraph = edges.length > 14 || nodes.length > 8;
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge: any) => {
+        const isSelectedNeighbor =
+          !!selectedNodeId &&
+          (edge.source === selectedNodeId || edge.target === selectedNodeId);
+        const baseStyle = edge.style || {};
+
+        return {
+          ...edge,
+          label: denseGraph && !isSelectedNeighbor ? undefined : edge.label,
+          style: selectedNodeId
+            ? {
+                ...baseStyle,
+                opacity: isSelectedNeighbor ? 1 : 0.22,
+                strokeWidth: isSelectedNeighbor
+                  ? Math.max(Number(baseStyle.strokeWidth || 1), 2.5)
+                  : baseStyle.strokeWidth,
+              }
+            : baseStyle,
+        };
+      }),
+    [denseGraph, edges, selectedNodeId]
+  );
+
   console.log('Elements', elements);
   return (
-    <div className="files-mapping-main">
+    <div className="files-mapping-main" ref={containerRef}>
       <div style={{ position: 'fixed', top: 10, left: 10, zIndex: 5 }}>
         <CloseButton onClick={() => onClose()} />
       </div>
+      <div className="mapping-layout-actions">
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => setLayoutResetVersion((version) => version + 1)}
+        >
+          Reset layout
+        </Button>
+      </div>
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={renderedEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodesConnectable={false}
         nodesDraggable={true}
         zoomOnScroll={true}
+        onNodeClick={(_event: any, node: any) => setSelectedNodeId(node.id)}
+        onPaneClick={() => setSelectedNodeId(null)}
         // panOnScroll={true}
         onlyRenderVisibleElements={false}
       >

@@ -9,7 +9,6 @@ import {
   FunctionDeclarationInfo,
 } from '../types';
 import {
-  applyGraphLayout,
   buildNodesTree,
   findRelatedFiles,
   funcCallSlug,
@@ -18,7 +17,6 @@ import {
 } from '../utils';
 import { CloseButton, StandoutBar } from '../atoms';
 import ReactFlow, {
-  Edge as ReactFlowEdge,
   Controls,
   // Handle,
   Position,
@@ -33,6 +31,11 @@ import {
   MonacoEditorProvider as CodeViewProvider,
   useFuncCall,
 } from './MonacoEditor';
+import {
+  layoutCodeGraph,
+  type CodeLayoutEdge,
+  type CodeLayoutNode,
+} from '../graphLayout';
 // import {
 //   CodeMirrorProvider as CodeViewProvider,
 //   useFuncCall,
@@ -52,6 +55,26 @@ export interface LogicNode {
   end: number;
   children: LogicNode[];
 }
+
+const LOGIC_DECLARATION_WIDTH = 650;
+const LOGIC_DECLARATION_MIN_HEIGHT = 170;
+const LOGIC_DECLARATION_MAX_HEIGHT = 700;
+const LOGIC_DECLARATION_LINE_HEIGHT = 20;
+
+const estimateDeclarationHeight = (
+  fileContent: string,
+  func: FunctionDeclarationInfo
+): number => {
+  const declarationContent = fileContent.slice(func.pos, func.end);
+  const lineCount = Math.max(1, declarationContent.split('\n').length);
+  return Math.min(
+    LOGIC_DECLARATION_MAX_HEIGHT,
+    Math.max(
+      LOGIC_DECLARATION_MIN_HEIGHT,
+      104 + lineCount * LOGIC_DECLARATION_LINE_HEIGHT
+    )
+  );
+};
 
 // const FuncDeclHandle: FC<{ func: FunctionDeclarationInfo }> = ({ func }) => {
 //   const handleId = funcDeclSlug(func);
@@ -201,6 +224,7 @@ export const generateConnections = (
         source,
         sourceHandle,
         target: targetHandle,
+        label: name,
       };
     });
 
@@ -274,15 +298,17 @@ const FunctionDeclarationView: React.FC<{
 
       {expand ? (
         <Grow in={expand}>
-          <div>
+          <div className="logic-expanded-editor">
             <div className="filename">{filename}</div>
-            <CodeViewProvider
-              content={newContent || content}
-              onChange={onContentChange}
-              onScroll={onScroll}
-            >
-              {renderChildren(content, innerNodes, func)}
-            </CodeViewProvider>
+            <div className="logic-expanded-editor-body">
+              <CodeViewProvider
+                content={newContent || content}
+                onChange={onContentChange}
+                onScroll={onScroll}
+              >
+                {renderChildren(content, innerNodes, func)}
+              </CodeViewProvider>
+            </div>
           </div>
         </Grow>
       ) : (
@@ -335,10 +361,12 @@ export const LogicMap: React.FC<{
   // useEffect(() => {
   //   setTimeout(() => setShowConnections(true), 2000);
   // }, []);
+  const [layoutResetVersion, setLayoutResetVersion] = useState(0);
 
   const { allNodes, allEdges } = useMemo(() => {
     const allNodes: any[] = [];
     const allEdges: any[] = [];
+    const layoutNodes: CodeLayoutNode[] = [];
 
     allMappings.forEach((fileDetails, fileIdx) => {
       if (!fileDetails) return;
@@ -388,7 +416,7 @@ export const LogicMap: React.FC<{
             },
             style: {
               // width: mainWidth,
-              width: 'unset',
+              width: LOGIC_DECLARATION_WIDTH,
             },
             position: {
               x: 0,
@@ -399,36 +427,85 @@ export const LogicMap: React.FC<{
             targetPosition: Position.Left,
             sourcePosition: Position.Right,
           });
+          layoutNodes.push({
+            id: funcDeclSlug(func),
+            label: func.name,
+            kind: 'declaration',
+            role: 'context',
+            filename: func.filename,
+            startLine: func.pos,
+            endLine: func.end,
+            width: LOGIC_DECLARATION_WIDTH,
+            height: estimateDeclarationHeight(content, func),
+            sortKey: `${func.filename}:${String(func.pos).padStart(
+              10,
+              '0'
+            )}:${func.name}`,
+          });
 
           allEdges.push(...connections);
         });
     });
 
-    // Apply layout to nodes only
-    applyGraphLayout(
-      () => allNodes.map((e) => ({ id: e.id, label: e.id, __originalNode: e })),
-      () => allEdges,
-      (n: any, x, y) => {
-        n.__originalNode.position.x = x;
-        n.__originalNode.position.y = y;
-      },
-      650,
-      150,
-      'LR'
-    );
+    const layoutEdges: CodeLayoutEdge[] = allEdges.map((edge, idx) => ({
+      id: edge.id || `${edge.source}-${edge.target}-${idx}`,
+      source: edge.source,
+      target: edge.target,
+      kind: 'calls',
+    }));
+    const layoutResult = layoutCodeGraph({
+      strategy: 'logic-map',
+      nodes: layoutNodes,
+      edges: layoutEdges,
+    });
+
+    for (const node of allNodes) {
+      const position = layoutResult.positions[node.id];
+      if (!position) continue;
+      node.position.x = position.x;
+      node.position.y = position.y;
+    }
 
     return { allNodes, allEdges };
-  }, [allMappings]);
+  }, [allMappings, onSave]);
 
   console.log('Elements', { nodes: allNodes, edges: allEdges });
 
   const [nodes, setNodes] = useState<any>(allNodes);
   const [edges, setEdges] = useState<any>(allEdges);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const projectionKey = `${startFilename}|${allNodes
+    .map((node) => node.id)
+    .sort()
+    .join('|')}`;
+  const previousProjectionRef = React.useRef(projectionKey);
+  const previousLayoutResetRef = React.useRef(layoutResetVersion);
 
   useEffect(() => {
-    setNodes(allNodes);
+    setNodes((previousNodes: any[]) => {
+      if (
+        previousProjectionRef.current !== projectionKey ||
+        previousLayoutResetRef.current !== layoutResetVersion
+      ) {
+        previousProjectionRef.current = projectionKey;
+        previousLayoutResetRef.current = layoutResetVersion;
+        return allNodes;
+      }
+
+      const previousById = new Map(
+        previousNodes.map((node: any) => [node.id, node])
+      );
+      return allNodes.map((node) => {
+        const previous = previousById.get(node.id);
+        if (!previous) return node;
+        return {
+          ...node,
+          position: previous.position,
+        };
+      });
+    });
     setEdges(allEdges);
-  }, [allNodes, allEdges]);
+  }, [allNodes, allEdges, layoutResetVersion, projectionKey]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((nds: any) => applyNodeChanges(changes, nds));
@@ -438,17 +515,54 @@ export const LogicMap: React.FC<{
     setEdges((eds: any) => applyEdgeChanges(changes, eds));
   }, []);
 
+  const denseGraph = edges.length > 18 || nodes.length > 12;
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge: any) => {
+        const isSelectedNeighbor =
+          !!selectedNodeId &&
+          (edge.source === selectedNodeId || edge.target === selectedNodeId);
+        const baseStyle = edge.style || {};
+
+        return {
+          ...edge,
+          label: denseGraph && !isSelectedNeighbor ? undefined : edge.label,
+          style: selectedNodeId
+            ? {
+                ...baseStyle,
+                opacity: isSelectedNeighbor ? 1 : 0.22,
+                strokeWidth: isSelectedNeighbor
+                  ? Math.max(Number(baseStyle.strokeWidth || 1), 2.5)
+                  : baseStyle.strokeWidth,
+              }
+            : baseStyle,
+        };
+      }),
+    [denseGraph, edges, selectedNodeId]
+  );
+
   return (
     <div className="logic-map-main">
       <TopLeftCloseButton onClose={onClose} />
+      <div className="logic-layout-actions">
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => setLayoutResetVersion((version) => version + 1)}
+        >
+          Reset layout
+        </Button>
+      </div>
       <ReactFlow
         nodes={nodes}
-        edges={showConnections ? edges : []}
+        edges={showConnections ? renderedEdges : []}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodesConnectable={false}
         nodesDraggable={true}
         zoomOnScroll={true}
+        onNodeClick={(_event: any, node: any) => setSelectedNodeId(node.id)}
+        onPaneClick={() => setSelectedNodeId(null)}
         // panOnScroll={true}
         onlyRenderVisibleElements={false}
       >

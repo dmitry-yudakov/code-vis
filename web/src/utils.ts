@@ -22,9 +22,9 @@ export const includeToGraphTypes = (
   );
   const nodes = labels.map((label) => ({ label, id: normalizeString(label) }));
 
-  const edges = includes.map(({ from, to, items }, idx) => ({
-    source: normalizeString(from),
-    target: normalizeString(to),
+  const edges = includes.map(({ from, to }) => ({
+    source: normalizeString(to),
+    target: normalizeString(from),
   }));
   return { nodes, edges };
 };
