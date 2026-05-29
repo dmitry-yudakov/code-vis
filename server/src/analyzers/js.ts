@@ -377,6 +377,33 @@ const BUILTIN_CONSTRUCTOR_NAMES = new Set([
   'WeakSet',
 ]);
 
+const CALLBACK_METHOD_ARGUMENTS = new Map<string, Set<number>>([
+  ['catch', new Set([0])],
+  ['every', new Set([0])],
+  ['filter', new Set([0])],
+  ['find', new Set([0])],
+  ['findIndex', new Set([0])],
+  ['findLast', new Set([0])],
+  ['findLastIndex', new Set([0])],
+  ['finally', new Set([0])],
+  ['flatMap', new Set([0])],
+  ['forEach', new Set([0])],
+  ['map', new Set([0])],
+  ['reduce', new Set([0])],
+  ['reduceRight', new Set([0])],
+  ['some', new Set([0])],
+  ['sort', new Set([0])],
+  ['then', new Set([0, 1])],
+]);
+
+const CALLBACK_FUNCTION_ARGUMENTS = new Map<string, Set<number>>([
+  ['queueMicrotask', new Set([0])],
+  ['requestAnimationFrame', new Set([0])],
+  ['requestIdleCallback', new Set([0])],
+  ['setInterval', new Set([0])],
+  ['setTimeout', new Set([0])],
+]);
+
 const unwrapParenthesizedExpression = (expression: ts.Expression) => {
   let current: ts.Expression = expression;
   while (ts.isParenthesizedExpression(current)) {
@@ -622,6 +649,63 @@ const applyCalleeInfo = (
   }
 };
 
+const isCallbackReferenceExpression = (expression: ts.Expression): boolean => {
+  const expr = unwrapParenthesizedExpression(expression);
+  return ts.isIdentifier(expr) || ts.isPropertyAccessExpression(expr);
+};
+
+const getCallbackArgumentIndexes = (
+  callExpression: ts.CallExpression,
+  sourceFile: ts.SourceFile
+): Set<number> | null => {
+  const calleeInfo = resolveCallee(callExpression.expression, sourceFile);
+  if (calleeInfo.receiverKind) {
+    return CALLBACK_METHOD_ARGUMENTS.get(calleeInfo.name) || null;
+  }
+  return CALLBACK_FUNCTION_ARGUMENTS.get(calleeInfo.name) || null;
+};
+
+const extractCallbackReferenceCalls = (
+  filename: string,
+  callExpressions: ts.CallExpression[],
+  sourceFile: ts.SourceFile
+): FunctionCallInfo[] => {
+  return callExpressions.reduce<FunctionCallInfo[]>((calls, callExpression) => {
+    const callbackArgumentIndexes = getCallbackArgumentIndexes(
+      callExpression,
+      sourceFile
+    );
+    if (!callbackArgumentIndexes) {
+      return calls;
+    }
+
+    const callbackCalls = callExpression.arguments
+      .map((arg, index) => {
+        if (
+          !callbackArgumentIndexes.has(index) ||
+          !isCallbackReferenceExpression(arg)
+        ) {
+          return null;
+        }
+
+        const calleeInfo = resolveCallee(arg, sourceFile);
+        const leadingTriviaWidth = arg.getLeadingTriviaWidth?.() || 0;
+        const info: FunctionCallInfo = {
+          name: calleeInfo.name,
+          args: [],
+          pos: arg.pos + leadingTriviaWidth,
+          end: arg.end,
+          filename,
+          callKind: 'callback-reference',
+        };
+        applyCalleeInfo(info, calleeInfo);
+        return info;
+      })
+      .filter((call): call is FunctionCallInfo => !!call);
+    return calls.concat(callbackCalls);
+  }, []);
+};
+
 const extractFunctionCalls = (
   filename: string,
   sourceFile: ts.SourceFile
@@ -645,6 +729,12 @@ const extractFunctionCalls = (
       applyCalleeInfo(info, calleeInfo);
       return info;
     });
+
+  const callbackReferenceCalls = extractCallbackReferenceCalls(
+    filename,
+    callExpressions,
+    sourceFile
+  );
 
   const newExpressions = searchFor(
     sourceFile,
@@ -734,6 +824,7 @@ const extractFunctionCalls = (
     .filter((call): call is FunctionCallInfo => !!call);
 
   return callExpressionCalls
+    .concat(callbackReferenceCalls)
     .concat(constructorCalls)
     .concat(taggedTemplateCalls)
     .concat(jsxCalls)

@@ -729,6 +729,28 @@ describe('Function call improvements', () => {
     expect(call?.receiverKind).toBe('call-result');
   });
 
+  test('callback reference in known higher-order method call', () => {
+    const content = `
+const hasUsableToolArgsShape = (value) => Boolean(value);
+const choose = (jsonObjects) =>
+  [...jsonObjects].reverse().find(hasUsableToolArgsShape);
+`;
+    const res = jsAnalyzer.extractFileMapping('src/dir/a.ts', content);
+
+    const findCallInfo = findCall(res.functionCalls, 'find');
+    expect(findCallInfo).toBeDefined();
+
+    const callbackRef = findCall(
+      res.functionCalls,
+      'hasUsableToolArgsShape',
+      'callback-reference'
+    );
+    expect(callbackRef).toBeDefined();
+    expect(content.slice(callbackRef!.pos, callbackRef!.end)).toBe(
+      'hasUsableToolArgsShape'
+    );
+  });
+
   test('name stays terminal for compatibility', () => {
     const content = `console.log('hello');`;
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);

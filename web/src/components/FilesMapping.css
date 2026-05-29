@@ -89,6 +89,9 @@
 .files-mapping-main .func-call-handle.func-call-kind-tagged-template {
   background: #14936e;
 }
+.files-mapping-main .func-call-handle.func-call-kind-callback-reference {
+  background: #b94fb8;
+}
 .files-mapping-main .handle-wrapper {
   height: 2px;
   width: 2px;
@@ -118,4 +121,8 @@
 }
 .files-mapping-main .func-call-2.func-call-kind-tagged-template {
   background: rgba(20, 147, 110, 0.18);
+}
+.files-mapping-main .func-call-2.func-call-kind-callback-reference {
+  background: rgba(185, 79, 184, 0.16);
+  border-bottom: 1px dotted rgba(185, 79, 184, 0.8);
 }

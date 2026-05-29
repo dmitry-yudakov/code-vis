@@ -39,7 +39,7 @@ interface FunctionCallInfo {
   filename: string; pos: number; end: number; args: string[];
   calleeText?: string;        // printable callee, e.g. "console.log", "styled.button"
   callChain?: string[];       // e.g. ["console", "log"]
-  callKind?: 'call' | 'constructor' | 'jsx-component' | 'tagged-template';
+  callKind?: 'call' | 'constructor' | 'jsx-component' | 'tagged-template' | 'callback-reference';
   receiverText?: string;
   receiverKind?: 'identifier' | 'property' | 'element-access' | 'call-result' | 'unknown';
   isOptional?: boolean;
@@ -64,6 +64,7 @@ interface FileMapping {
 - `NewExpression` — constructor calls (`callKind: 'constructor'`, `isBuiltin` set for JS builtins)
 - `JsxOpeningElement` / `JsxSelfClosingElement` — uppercase-initial tags only (`callKind: 'jsx-component'`); lowercase intrinsics (`div`, `span`) are excluded
 - `TaggedTemplateExpression` — template tags (`callKind: 'tagged-template'`)
+- Bare callback references in known higher-order call positions — e.g. `items.find(hasValue)`, `promise.then(handleDone)`, `setTimeout(tick)` (`callKind: 'callback-reference'`)
 - `super()` calls are excluded
 
 ## Key Internal Functions
@@ -85,3 +86,4 @@ interface FileMapping {
 - No decorator extraction
 - `str.trim().toLowerCase()` — `toLowerCase` gets `receiverKind: 'call-result'`, no `calleeText`
 - Intrinsic JSX tags intentionally excluded
+- Callback-reference extraction is heuristic and limited to common array/promise/timer APIs; arbitrary higher-order functions are not inferred

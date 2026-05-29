@@ -12,7 +12,12 @@ export interface FunctionCallInfo {
   args: string[];
   calleeText?: string;
   callChain?: string[];
-  callKind?: 'call' | 'constructor' | 'jsx-component' | 'tagged-template';
+  callKind?:
+    | 'call'
+    | 'constructor'
+    | 'jsx-component'
+    | 'tagged-template'
+    | 'callback-reference';
   receiverText?: string;
   receiverKind?:
     | 'identifier'
