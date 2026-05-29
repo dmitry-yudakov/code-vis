@@ -388,6 +388,35 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
 }
 
+.mapper-canvas.graph-fullscreen,
+.mapper-canvas:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0;
+  background: #f7faf7;
+  box-shadow: none;
+}
+
+.mapper-canvas.graph-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.mapper-canvas.graph-fullscreen .react-flow,
+.mapper-canvas:fullscreen .react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+.mapper-canvas.graph-fullscreen .layout-actions,
+.mapper-canvas:fullscreen .layout-actions {
+  top: 14px;
+  left: 14px;
+}
+
 .layout-actions {
   position: absolute;
   top: 10px;

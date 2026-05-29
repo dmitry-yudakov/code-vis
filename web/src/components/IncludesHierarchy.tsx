@@ -10,6 +10,7 @@ import ReactFlow, {
   MarkerType,
   Node as FlowNode,
   Position,
+  type ReactFlowInstance,
   applyNodeChanges,
   NodeChange,
 } from 'react-flow-renderer';
@@ -46,6 +47,7 @@ import {
   type CodeLayoutNodeRole,
   type CodeLayoutStrategy,
 } from '../graphLayout';
+import { useFullscreenEdgePan } from '../hooks/useFullscreenEdgePan';
 import './IncludesHierarchy.css';
 
 type LensId = 'overview' | 'review' | 'feature' | 'impact';
@@ -490,6 +492,15 @@ export const IncludesHierarchy: React.FC<{
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [layoutResetVersion, setLayoutResetVersion] = useState(0);
+  const {
+    containerRef: graphCanvasRef,
+    viewportControllerRef: flowInstanceRef,
+    isFullscreen: graphFullscreen,
+    toggleFullscreen: toggleGraphFullscreen,
+  } = useFullscreenEdgePan<HTMLDivElement, ReactFlowInstance<any, any>>({
+    ignoredTargetSelector: '.layout-actions',
+    onBeforeEnter: () => setShowMenu(null),
+  });
 
   const isReviewLens = activeLens === 'review';
   const focusedSource = useMemo<ChangeSourceRequest | null>(() => {
@@ -1860,7 +1871,10 @@ export const IncludesHierarchy: React.FC<{
             </div>
           </div>
 
-          <div className="mapper-canvas">
+          <div
+            ref={graphCanvasRef}
+            className={`mapper-canvas${graphFullscreen ? ' graph-fullscreen' : ''}`}
+          >
             <div className="layout-actions">
               <button
                 className="inline-btn"
@@ -1869,11 +1883,26 @@ export const IncludesHierarchy: React.FC<{
               >
                 Reset layout
               </button>
+              <button
+                className="inline-btn"
+                onClick={toggleGraphFullscreen}
+                disabled={initialNodes.length === 0}
+                title={
+                  graphFullscreen
+                    ? 'Exit fullscreen'
+                    : 'Open the graph fullscreen'
+                }
+              >
+                {graphFullscreen ? 'Exit full screen' : 'Full screen'}
+              </button>
             </div>
             <ReactFlow
               nodes={renderedNodes}
               edges={renderedEdges}
               onNodesChange={onNodesChange}
+              onInit={(instance) => {
+                flowInstanceRef.current = instance;
+              }}
               nodesConnectable={false}
               nodesDraggable={true}
               minZoom={0.01}
