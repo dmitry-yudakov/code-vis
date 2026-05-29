@@ -12,22 +12,34 @@ import {
 type Lane = 'left' | 'center' | 'right' | 'test';
 type SeedDistance = { id: string; index: number; distance: number };
 type FileAnchor = { centerY: number; sortNode: CodeLayoutNode };
+type RankedFileNode = {
+  node: CodeLayoutNode;
+  rank: number;
+  order: number;
+  component: number;
+};
 
 const FILE_LANE_X: Record<Lane, number> = {
-  left: -460,
+  left: -620,
   center: 0,
-  right: 460,
+  right: 620,
   test: 0,
 };
 
 const DECLARATION_LANE_X: Record<Lane, number> = {
-  left: -520,
+  left: -760,
   center: 0,
-  right: 520,
+  right: 760,
   test: 0,
 };
 
-const fileRowGap = (node: CodeLayoutNode) => Math.max(node.height ?? 150, 150) + 48;
+const FILE_CENTER_COLUMN_GAP = 340;
+const FILE_CENTER_COMPONENT_GAP = 120;
+const DECLARATION_CENTER_COLUMN_GAP = 360;
+const DECLARATION_CENTER_FILE_GAP = 110;
+
+const fileRowGap = (node: CodeLayoutNode) =>
+  Math.max(node.height ?? 150, 150) + 48;
 const declarationRowGap = (node: CodeLayoutNode) =>
   Math.max(node.height ?? 140, 140) + 44;
 
@@ -41,6 +53,9 @@ const getMapValues = <T>(
 
 const getLayoutFilename = (node: CodeLayoutNode): string =>
   node.filename || node.label;
+
+const getFileNodeHeight = (node: CodeLayoutNode): number =>
+  Math.max(node.height ?? 150, 150);
 
 const getDeclarationNodeHeight = (node: CodeLayoutNode): number =>
   Math.max(node.height ?? 140, 140);
@@ -111,9 +126,9 @@ const buildSeedRelationCounts = (
 
     if (mode === 'imports') {
       if (sourceIsSeed) {
-        count.left++;
-      } else {
         count.right++;
+      } else {
+        count.left++;
       }
     } else {
       if (sourceIsSeed) {
@@ -125,6 +140,263 @@ const buildSeedRelationCounts = (
   }
 
   return counts;
+};
+
+const buildFileSeedAdjacency = (
+  seedNodes: CodeLayoutNode[],
+  edges: CodeLayoutEdge[]
+): Map<string, Set<string>> => {
+  const seedIds = new Set(seedNodes.map((node) => node.id));
+  const adjacency = new Map(seedNodes.map((node) => [node.id, new Set<string>()]));
+
+  for (const edge of edges) {
+    if (!seedIds.has(edge.source) || !seedIds.has(edge.target)) continue;
+    adjacency.get(edge.source)!.add(edge.target);
+    adjacency.get(edge.target)!.add(edge.source);
+  }
+
+  return adjacency;
+};
+
+const buildFileSeedRanks = (
+  seedNodes: CodeLayoutNode[],
+  edges: CodeLayoutEdge[]
+): RankedFileNode[] => {
+  const seedIds = new Set(seedNodes.map((node) => node.id));
+  const adjacency = buildFileSeedAdjacency(seedNodes, edges);
+  const sortedSeeds = sortLayoutNodes(seedNodes);
+  const visited = new Set<string>();
+  const ranked: RankedFileNode[] = [];
+  let component = 0;
+
+  for (const root of sortedSeeds) {
+    if (visited.has(root.id)) continue;
+
+    const componentIds = new Set<string>();
+    const queue = [root.id];
+    visited.add(root.id);
+
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      componentIds.add(id);
+      for (const nextId of adjacency.get(id) || []) {
+        if (visited.has(nextId)) continue;
+        visited.add(nextId);
+        queue.push(nextId);
+      }
+    }
+
+    const componentNodes = sortedSeeds.filter((node) =>
+      componentIds.has(node.id)
+    );
+    const outgoing = new Map(componentNodes.map((node) => [node.id, [] as string[]]));
+    const indegree = new Map(componentNodes.map((node) => [node.id, 0]));
+
+    for (const edge of edges) {
+      if (!componentIds.has(edge.source) || !componentIds.has(edge.target)) {
+        continue;
+      }
+      outgoing.get(edge.source)!.push(edge.target);
+      indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+    }
+
+    const ranks = new Map(componentNodes.map((node) => [node.id, 0]));
+    const rankQueue = componentNodes
+      .filter((node) => (indegree.get(node.id) || 0) === 0)
+      .map((node) => node.id);
+    const orderedQueue = rankQueue.length > 0 ? rankQueue : [componentNodes[0].id];
+    let cursor = 0;
+
+    while (cursor < orderedQueue.length) {
+      const id = orderedQueue[cursor++];
+      const rank = ranks.get(id) || 0;
+      for (const targetId of outgoing.get(id) || []) {
+        ranks.set(targetId, Math.max(ranks.get(targetId) || 0, rank + 1));
+        indegree.set(targetId, (indegree.get(targetId) || 0) - 1);
+        if ((indegree.get(targetId) || 0) === 0) {
+          orderedQueue.push(targetId);
+        }
+      }
+    }
+
+    for (const [order, node] of componentNodes.entries()) {
+      ranked.push({
+        node,
+        rank: ranks.get(node.id) || 0,
+        order,
+        component,
+      });
+    }
+
+    component += 1;
+  }
+
+  return ranked;
+};
+
+const buildFileSeedAnchors = (
+  seedNodes: CodeLayoutNode[],
+  positions: CodeLayoutResult['positions']
+): Map<string, FileAnchor> => {
+  const anchors = new Map<string, FileAnchor>();
+
+  for (const node of seedNodes) {
+    const position = positions[node.id];
+    if (!position) continue;
+    anchors.set(node.id, {
+      centerY: position.y + getFileNodeHeight(node) / 2,
+      sortNode: node,
+    });
+  }
+
+  return anchors;
+};
+
+const findStrongestRelatedFileSeed = (
+  node: CodeLayoutNode,
+  seedAnchors: Map<string, FileAnchor>,
+  edges: CodeLayoutEdge[]
+): FileAnchor | null => {
+  const counts = new Map<string, number>();
+
+  for (const edge of edges) {
+    if (edge.source === node.id && seedAnchors.has(edge.target)) {
+      counts.set(edge.target, (counts.get(edge.target) || 0) + (edge.weight ?? 1));
+    }
+    if (edge.target === node.id && seedAnchors.has(edge.source)) {
+      counts.set(edge.source, (counts.get(edge.source) || 0) + (edge.weight ?? 1));
+    }
+  }
+
+  const [seedId] =
+    Array.from(counts.entries()).sort((left, right) => {
+      if (left[1] !== right[1]) return right[1] - left[1];
+      const leftAnchor = seedAnchors.get(left[0])!;
+      const rightAnchor = seedAnchors.get(right[0])!;
+      return compareLayoutNodes(leftAnchor.sortNode, rightAnchor.sortNode);
+    })[0] || [];
+
+  return seedId ? seedAnchors.get(seedId) || null : null;
+};
+
+const placeAnchoredFileSideLane = (
+  nodes: CodeLayoutNode[],
+  x: number,
+  seedAnchors: Map<string, FileAnchor>,
+  edges: CodeLayoutEdge[],
+  positions: CodeLayoutResult['positions']
+): number => {
+  const sorted = sortLayoutNodes(nodes)
+    .map((node) => ({
+      node,
+      anchor: findStrongestRelatedFileSeed(node, seedAnchors, edges),
+    }))
+    .sort((left, right) => {
+      if (left.anchor && right.anchor) {
+        if (left.anchor.centerY !== right.anchor.centerY) {
+          return left.anchor.centerY - right.anchor.centerY;
+        }
+        return compareLayoutNodes(left.anchor.sortNode, right.anchor.sortNode);
+      }
+      if (left.anchor && !right.anchor) return -1;
+      if (!left.anchor && right.anchor) return 1;
+      return compareLayoutNodes(left.node, right.node);
+    });
+
+  let cursorY = 0;
+  let maxY = 0;
+
+  for (const item of sorted) {
+    const anchoredTop = item.anchor
+      ? item.anchor.centerY - getFileNodeHeight(item.node) / 2
+      : cursorY;
+    const y = Math.max(cursorY, Math.max(0, anchoredTop));
+    positions[item.node.id] = { x, y };
+    cursorY = y + fileRowGap(item.node);
+    maxY = Math.max(maxY, y + getFileNodeHeight(item.node));
+  }
+
+  return maxY;
+};
+
+const placeReviewFileLanes = (
+  lanes: Record<Lane, CodeLayoutNode[]>,
+  edges: CodeLayoutEdge[]
+): CodeLayoutResult => {
+  const positions: CodeLayoutResult['positions'] = {};
+  let maxX = 0;
+  let maxY = 0;
+
+  const rankedSeeds = buildFileSeedRanks(lanes.center, edges);
+  let componentTop = 0;
+
+  for (const component of Array.from(
+    new Set(rankedSeeds.map((item) => item.component))
+  )) {
+    const items = rankedSeeds.filter((item) => item.component === component);
+    const ranks = Array.from(new Set(items.map((item) => item.rank))).sort(
+      (left, right) => left - right
+    );
+    const rankOffset = (ranks.length - 1) / 2;
+    const rankIndex = new Map(ranks.map((rank, index) => [rank, index]));
+    const rowCursorByRank = new Map<number, number>();
+    let componentHeight = 0;
+
+    for (const item of items.sort((left, right) => {
+      if (left.rank !== right.rank) return left.rank - right.rank;
+      return compareCenterNodeStable(
+        left.node,
+        right.node,
+        left.order,
+        right.order
+      );
+    })) {
+      const index = rankIndex.get(item.rank) || 0;
+      const x = (index - rankOffset) * FILE_CENTER_COLUMN_GAP;
+      const localY = rowCursorByRank.get(item.rank) || 0;
+      const y = componentTop + localY;
+      positions[item.node.id] = { x, y };
+      rowCursorByRank.set(item.rank, localY + fileRowGap(item.node));
+      componentHeight = Math.max(componentHeight, localY + getFileNodeHeight(item.node));
+      maxX = Math.max(maxX, x + (item.node.width ?? 280));
+      maxY = Math.max(maxY, y + getFileNodeHeight(item.node));
+    }
+
+    componentTop += componentHeight + FILE_CENTER_COMPONENT_GAP;
+  }
+
+  const seedAnchors = buildFileSeedAnchors(lanes.center, positions);
+
+  for (const lane of ['left', 'right'] as Lane[]) {
+    const laneMaxY = placeAnchoredFileSideLane(
+      lanes[lane],
+      FILE_LANE_X[lane],
+      seedAnchors,
+      edges,
+      positions
+    );
+    maxY = Math.max(maxY, laneMaxY);
+    for (const node of lanes[lane]) {
+      maxX = Math.max(maxX, FILE_LANE_X[lane] + (node.width ?? 280));
+    }
+  }
+
+  const centerHeight = Math.max(componentTop, 0);
+  let testY = Math.max(centerHeight + 80, 260);
+  for (const node of sortLayoutNodes(lanes.test)) {
+    positions[node.id] = { x: FILE_LANE_X.test, y: testY };
+    maxX = Math.max(maxX, FILE_LANE_X.test + (node.width ?? 280));
+    maxY = Math.max(maxY, testY + getFileNodeHeight(node));
+    testY += fileRowGap(node);
+  }
+
+  return {
+    positions,
+    bounds: {
+      width: maxX,
+      height: maxY,
+    },
+  };
 };
 
 const buildBridgeAdjacency = (
@@ -406,6 +678,67 @@ const groupDeclarationNodesByFile = (
   }));
 };
 
+const groupOrderedDeclarationNodesByFile = (
+  nodes: CodeLayoutNode[]
+): Array<{ filename: string; nodes: CodeLayoutNode[] }> => {
+  const groups = new Map<string, CodeLayoutNode[]>();
+
+  for (const node of nodes) {
+    const filename = getLayoutFilename(node);
+    groups.set(filename, [...(groups.get(filename) || []), node]);
+  }
+
+  return Array.from(groups.entries()).map(([filename, groupedNodes]) => ({
+    filename,
+    nodes: groupedNodes,
+  }));
+};
+
+const computeDeclarationCallRanks = (
+  nodes: CodeLayoutNode[],
+  edges: CodeLayoutEdge[]
+): Map<string, number> => {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
+  const indegree = new Map(nodes.map((node) => [node.id, 0]));
+
+  for (const edge of edges) {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
+    if (
+      edge.kind !== 'calls' &&
+      edge.kind !== 'bridge' &&
+      edge.kind !== 'heuristic'
+    ) {
+      continue;
+    }
+
+    outgoing.get(edge.source)!.push(edge.target);
+    indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+  }
+
+  const ranks = new Map(nodes.map((node) => [node.id, 0]));
+  const queue = nodes
+    .filter((node) => (indegree.get(node.id) || 0) === 0)
+    .map((node) => node.id);
+  const orderedQueue = queue.length > 0 ? queue : [nodes[0]?.id].filter(Boolean);
+  let cursor = 0;
+
+  while (cursor < orderedQueue.length) {
+    const id = orderedQueue[cursor++];
+    const rank = ranks.get(id) || 0;
+
+    for (const targetId of outgoing.get(id) || []) {
+      ranks.set(targetId, Math.max(ranks.get(targetId) || 0, rank + 1));
+      indegree.set(targetId, (indegree.get(targetId) || 0) - 1);
+      if ((indegree.get(targetId) || 0) === 0) {
+        orderedQueue.push(targetId);
+      }
+    }
+  }
+
+  return ranks;
+};
+
 const getDeclarationGroupHeight = (nodes: CodeLayoutNode[]): number => {
   if (nodes.length === 0) return 0;
 
@@ -468,12 +801,35 @@ const placeReviewDeclarationLanes = (
   let maxY = 0;
 
   const centerNodes = orderDeclarationCenterLane(lanes.center, edges);
-  let centerY = 0;
-  for (const node of centerNodes) {
-    positions[node.id] = { x: DECLARATION_LANE_X.center, y: centerY };
-    maxX = Math.max(maxX, DECLARATION_LANE_X.center + (node.width ?? 300));
-    maxY = Math.max(maxY, centerY + (node.height ?? 140));
-    centerY += declarationRowGap(node);
+  let centerFileY = 0;
+
+  for (const group of groupOrderedDeclarationNodesByFile(centerNodes)) {
+    const ranks = computeDeclarationCallRanks(group.nodes, edges);
+    const uniqueRanks = Array.from(
+      new Set(group.nodes.map((node) => ranks.get(node.id) || 0))
+    ).sort((left, right) => left - right);
+    const rankIndex = new Map(uniqueRanks.map((rank, index) => [rank, index]));
+    const rankOffset = (uniqueRanks.length - 1) / 2;
+    const cursorByRank = new Map<number, number>();
+    let groupHeight = 0;
+
+    for (const node of group.nodes) {
+      const rank = ranks.get(node.id) || 0;
+      const index = rankIndex.get(rank) || 0;
+      const localY = cursorByRank.get(rank) || 0;
+      const x =
+        DECLARATION_LANE_X.center +
+        (index - rankOffset) * DECLARATION_CENTER_COLUMN_GAP;
+      const y = centerFileY + localY;
+
+      positions[node.id] = { x, y };
+      cursorByRank.set(rank, localY + declarationRowGap(node));
+      groupHeight = Math.max(groupHeight, localY + getDeclarationNodeHeight(node));
+      maxX = Math.max(maxX, x + (node.width ?? 300));
+      maxY = Math.max(maxY, y + getDeclarationNodeHeight(node));
+    }
+
+    centerFileY += groupHeight + DECLARATION_CENTER_FILE_GAP;
   }
 
   const fileAnchors = buildCenterFileAnchors(centerNodes, positions);
@@ -535,7 +891,7 @@ export const layoutReviewFiles = (
     lanes[relation.left >= relation.right ? 'left' : 'right'].push(node);
   }
 
-  return placeLanes(lanes, FILE_LANE_X, fileRowGap);
+  return placeReviewFileLanes(lanes, edges);
 };
 
 export const layoutReviewDeclarations = (

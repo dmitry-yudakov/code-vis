@@ -68,9 +68,9 @@ const buildExpandedRelationCounts = (
     const weight = edge.weight ?? 1;
 
     if (sourceExpanded) {
-      relation.left += weight;
-    } else {
       relation.right += weight;
+    } else {
+      relation.left += weight;
     }
   }
 

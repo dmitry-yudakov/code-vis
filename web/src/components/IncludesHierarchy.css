@@ -401,6 +401,21 @@
   stroke-width: 2.5;
 }
 
+.layout-state-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  border: 1px solid #b6c9bd;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #264536;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  box-shadow: 0 4px 12px rgba(31, 70, 48, 0.12);
+  pointer-events: none;
+}
+
 .workbench-summary {
   padding: 10px 12px;
 }

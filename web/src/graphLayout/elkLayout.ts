@@ -2,7 +2,7 @@ import ELK, {
   type ElkExtendedEdge,
   type ElkNode,
   type LayoutOptions,
-} from 'elkjs';
+} from 'elkjs/lib/elk.bundled.js';
 import {
   CodeLayoutEdge,
   CodeLayoutInput,

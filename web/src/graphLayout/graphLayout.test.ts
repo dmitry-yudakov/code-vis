@@ -81,15 +81,15 @@ describe('graphLayout', () => {
       ],
       edges: [
         {
-          id: 'changed-importer',
-          source: 'changed',
-          target: 'importer',
+          id: 'importer-changed',
+          source: 'importer',
+          target: 'changed',
           kind: 'imports',
         },
         {
-          id: 'dependency-changed',
-          source: 'dependency',
-          target: 'changed',
+          id: 'changed-dependency',
+          source: 'changed',
+          target: 'dependency',
           kind: 'imports',
         },
       ],
@@ -167,15 +167,15 @@ describe('graphLayout', () => {
       ],
       edges: [
         {
-          id: 'core-a-importer',
-          source: 'core-a',
-          target: 'importer',
+          id: 'importer-core-a',
+          source: 'importer',
+          target: 'core-a',
           kind: 'imports',
         },
         {
-          id: 'dependency-core-a',
-          source: 'dependency',
-          target: 'core-a',
+          id: 'core-a-dependency',
+          source: 'core-a',
+          target: 'dependency',
           kind: 'imports',
         },
       ],
@@ -212,16 +212,16 @@ describe('graphLayout', () => {
       ],
       edges: [
         {
-          id: 'core-mixed-light',
-          source: 'core',
-          target: 'mixed',
+          id: 'mixed-core-light',
+          source: 'mixed',
+          target: 'core',
           kind: 'imports',
           weight: 1,
         },
         {
-          id: 'mixed-core-heavy',
-          source: 'mixed',
-          target: 'core',
+          id: 'core-mixed-heavy',
+          source: 'core',
+          target: 'mixed',
           kind: 'imports',
           weight: 4,
         },
@@ -297,15 +297,15 @@ describe('graphLayout', () => {
       ],
       edges: [
         {
-          id: 'changed-importer',
-          source: 'changed',
-          target: 'importer',
+          id: 'importer-changed',
+          source: 'importer',
+          target: 'changed',
           kind: 'imports',
         },
         {
-          id: 'dependency-changed',
-          source: 'dependency',
-          target: 'changed',
+          id: 'changed-dependency',
+          source: 'changed',
+          target: 'dependency',
           kind: 'imports',
         },
       ],
@@ -317,6 +317,62 @@ describe('graphLayout', () => {
     expect(result.positions.dependency.x).toBeGreaterThan(
       result.positions.changed.x
     );
+  });
+
+  test('spreads related changed files into a central cluster', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-files',
+      nodes: [
+        node({ id: 'changed-a', label: 'src/changed-a.ts', role: 'changed' }),
+        node({ id: 'changed-b', label: 'src/changed-b.ts', role: 'changed' }),
+      ],
+      edges: [
+        {
+          id: 'changed-a-changed-b',
+          source: 'changed-a',
+          target: 'changed-b',
+          kind: 'imports',
+        },
+      ],
+    });
+
+    expect(result.positions['changed-b'].x).toBeGreaterThan(
+      result.positions['changed-a'].x
+    );
+    expect(result.positions['changed-b'].y).toBe(
+      result.positions['changed-a'].y
+    );
+  });
+
+  test('anchors review file context near the related changed file', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-files',
+      nodes: [
+        node({ id: 'changed-a', label: 'src/a.ts', role: 'changed' }),
+        node({ id: 'changed-z', label: 'src/z.ts', role: 'changed' }),
+        node({ id: 'z-importer', label: 'src/z-importer.ts' }),
+      ],
+      edges: [
+        {
+          id: 'z-importer-changed-z',
+          source: 'z-importer',
+          target: 'changed-z',
+          kind: 'imports',
+        },
+      ],
+    });
+
+    const matchingDistance = Math.abs(
+      result.positions['z-importer'].y - result.positions['changed-z'].y
+    );
+    const unrelatedDistance = Math.abs(
+      result.positions['z-importer'].y - result.positions['changed-a'].y
+    );
+
+    expect(result.positions['z-importer'].x).toBeLessThan(
+      result.positions['changed-z'].x
+    );
+    expect(matchingDistance).toBeLessThan(unrelatedDistance);
   });
 
   test('places review declaration callers left and callees right', () => {
@@ -361,6 +417,114 @@ describe('graphLayout', () => {
     );
     expect(result.positions.callee.x).toBeGreaterThan(
       result.positions.changed.x
+    );
+  });
+
+  test('spreads same-file changed declarations by call flow', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-declarations',
+      nodes: [
+        node({
+          id: 'changed-a',
+          label: 'changedA',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/changed.ts',
+          startLine: 10,
+        }),
+        node({
+          id: 'changed-b',
+          label: 'changedB',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/changed.ts',
+          startLine: 30,
+        }),
+      ],
+      edges: [
+        {
+          id: 'changed-a-changed-b',
+          source: 'changed-a',
+          target: 'changed-b',
+          kind: 'calls',
+        },
+      ],
+    });
+
+    expect(result.positions['changed-b'].x).toBeGreaterThan(
+      result.positions['changed-a'].x
+    );
+    expect(result.positions['changed-b'].y).toBe(
+      result.positions['changed-a'].y
+    );
+  });
+
+  test('uses heuristic declaration calls for same-file flow ranking', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-declarations',
+      nodes: [
+        node({
+          id: 'changed-a',
+          label: 'changedA',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/changed.ts',
+          startLine: 10,
+        }),
+        node({
+          id: 'changed-b',
+          label: 'changedB',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/changed.ts',
+          startLine: 30,
+        }),
+      ],
+      edges: [
+        {
+          id: 'changed-a-changed-b',
+          source: 'changed-a',
+          target: 'changed-b',
+          kind: 'heuristic',
+          isHeuristic: true,
+        },
+      ],
+    });
+
+    expect(result.positions['changed-b'].x).toBeGreaterThan(
+      result.positions['changed-a'].x
+    );
+  });
+
+  test('keeps same-rank same-file declarations in source order', () => {
+    const result = layoutCodeGraph({
+      strategy: 'review-declarations',
+      nodes: [
+        node({
+          id: 'changed-a',
+          label: 'changedA',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/changed.ts',
+          startLine: 10,
+        }),
+        node({
+          id: 'changed-b',
+          label: 'changedB',
+          kind: 'declaration',
+          role: 'changed',
+          filename: 'src/changed.ts',
+          startLine: 30,
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(result.positions['changed-b'].x).toBe(
+      result.positions['changed-a'].x
+    );
+    expect(result.positions['changed-b'].y).toBeGreaterThan(
+      result.positions['changed-a'].y
     );
   });
 

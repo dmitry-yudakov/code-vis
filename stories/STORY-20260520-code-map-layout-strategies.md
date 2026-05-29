@@ -533,13 +533,20 @@ Acceptance:
 
 Remaining:
 
-1. Align context nodes more precisely to the strongest related changed seed.
-2. Tune vertical compaction for dense review scopes.
+1. Tune vertical compaction for dense review scopes.
 3. Confirm deleted-file ghost nodes visually in a real deleted-file review.
+
+Update - May 21, 2026:
+
+1. Changed review files now form a compact central cluster instead of one vertical list.
+2. Changed-to-changed file edges influence horizontal rank inside that cluster.
+3. Importer/imported context nodes anchor vertically near the strongest related changed file.
+4. React Flow source/target sides are now chosen from computed node geometry, so lateral relationships attach left/right and vertical relationships attach top/bottom.
+5. File graph arrows now render in import direction, importer to imported file, while preserving the analyzer's `FileIncludeInfo.from` / `to` data contract.
 
 ### Phase 3: Review Declaration Semantic Layout
 
-Status: Partial - semantic lanes, bridge placement, and file-band anchoring improved.
+Status: Partial - semantic lanes, bridge placement, file-band anchoring, and same-file call clusters improved.
 
 1. Map declaration reasons to caller, callee, changed, bridge, and context roles.
 2. Group declarations by file.
@@ -556,6 +563,13 @@ Acceptance:
 Remaining:
 
 1. Visually tune bridge and file-band placement against real multi-file review graphs.
+
+Update - May 21, 2026:
+
+1. Center-lane declaration files now lay out as compact file bands.
+2. Same-file changed declarations spread left-to-right when call edges imply flow.
+3. Same-rank same-file declarations still stack in source order to preserve local code order.
+4. Heuristic declaration-call edges now still count as call-flow layout edges, while retaining heuristic styling in the graph.
 
 ### Phase 4: Overview And Expansion Layout
 
@@ -611,7 +625,8 @@ Initial implementation notes - May 21, 2026:
 3. Added `layoutCodeGraphAsync()` with `engine: 'elk'` so ELK can be evaluated without disrupting the current synchronous React Flow layout path.
 4. Captured ELK orthogonal edge sections in optional `CodeLayoutResult.edgeRoutes` for future React Flow edge rendering experiments.
 5. Loaded the ELK adapter lazily so the evaluation path does not add ELK to the default graph bundle.
-6. Dagre and the semantic strategy functions remain the synchronous default.
+6. The workbench review-file graph now paints the semantic layout immediately, then applies ELK positions asynchronously while showing a small layout status overlay.
+7. Dagre and the semantic strategy functions remain the synchronous default for other graph surfaces.
 
 Acceptance:
 
