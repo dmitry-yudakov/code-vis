@@ -103,6 +103,24 @@ loadConfiguration(projectPath)
         }
       },
 
+      listCommits: async (socket: any, payload: any, ack?: any) => {
+        console.log('listCommits handler called', {
+          payload,
+          hasAck: !!ack,
+        });
+
+        const result = await project.processCommand('listCommits', payload);
+        if (result && result.payload) {
+          if (ack) {
+            console.log('Sending listCommits via acknowledgment');
+            ack({ success: true, data: result.payload });
+          } else {
+            console.log('Sending listCommits via event');
+            socket.emit('commitList', result.payload);
+          }
+        }
+      },
+
       // Save file - writes content to disk
       saveFile: async (socket: any, payload: any, ack?: any) => {
         await project.processCommand('saveFile', payload);

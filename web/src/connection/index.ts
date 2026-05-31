@@ -1,6 +1,7 @@
 import { SocketConnection } from './connection';
 import {
   ChangeSourceRequest,
+  CommitSummary,
   FileMapDetailed,
   FocusedReviewOptions,
   FocusedReviewMap,
@@ -98,6 +99,23 @@ export const projectApi = {
       includes: result?.includes?.length ?? 0,
       declarations: result?.declarations?.length ?? 0,
       declarationCalls: result?.declarationCalls?.length ?? 0,
+    });
+    return result;
+  },
+
+  /**
+   * Get recent commits from the current branch.
+   */
+  async listCommits(
+    options: { limit?: number; skip?: number } = {}
+  ): Promise<CommitSummary[]> {
+    console.log('CLIENT: projectApi.listCommits() called', options);
+    const result = await getConnection().request<CommitSummary[]>(
+      'listCommits',
+      options
+    );
+    console.log('CLIENT: projectApi.listCommits() received', {
+      commits: result?.length ?? 0,
     });
     return result;
   },

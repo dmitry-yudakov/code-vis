@@ -31,6 +31,7 @@ import {
   FocusedReviewMap,
   RelatedReason,
   ChangedFileStatus,
+  CommitSummary,
 } from '../types';
 import {
   includeToGraphTypes,
@@ -52,7 +53,7 @@ import './IncludesHierarchy.css';
 
 type LensId = 'overview' | 'review' | 'feature' | 'impact';
 type OverviewMode = 'full' | 'entry' | 'directory';
-type ReviewMode = 'diff' | 'branch';
+type ReviewMode = 'diff' | 'branch' | 'commit';
 type ReviewGranularity = 'files' | 'declarations';
 
 type GraphNodeKind = CodeMapScopeNode['kind'];
@@ -256,8 +257,8 @@ const LENSES: Array<{
   },
   {
     id: 'review',
-    label: 'Review current changes',
-    shortDescription: 'Center the map on changed files and direct context.',
+    label: 'Review changes',
+    shortDescription: 'Center the map on a diff, branch, PR, or commit.',
     implemented: true,
   },
   {
@@ -276,6 +277,8 @@ const LENSES: Array<{
 
 const MAX_ITEMS_TO_SHOW = 3;
 const SUMMARY_FILE_LIMIT = 8;
+const INITIAL_COMMIT_LIMIT = 5;
+const MORE_COMMIT_LIMIT = 10;
 
 const edgeLabel = (items: string[]) => {
   if (items.length <= MAX_ITEMS_TO_SHOW) return items.join(', ');
@@ -432,6 +435,10 @@ export const IncludesHierarchy: React.FC<{
     source: ChangeSourceRequest,
     options?: FocusedReviewOptions
   ) => Promise<FocusedReviewMap>;
+  requestCommits: (options?: {
+    limit?: number;
+    skip?: number;
+  }) => Promise<CommitSummary[]>;
   renderNodeMenu: (
     filename: string,
     anchor: HTMLElement | null,
@@ -444,6 +451,7 @@ export const IncludesHierarchy: React.FC<{
     filesMappings,
     requestFileMap,
     requestFocusedReview,
+    requestCommits,
     renderNodeMenu,
   }) => {
   const fileCount = useMemo(() => countUniqueNodes(includes), [includes]);
@@ -481,6 +489,12 @@ export const IncludesHierarchy: React.FC<{
   const [focusedError, setFocusedError] = useState<string | null>(null);
   const [showFocusedContext, setShowFocusedContext] = useState(true);
   const [includeFocusedTests, setIncludeFocusedTests] = useState(true);
+  const [commitSearch, setCommitSearch] = useState('');
+  const [selectedCommitRef, setSelectedCommitRef] = useState('');
+  const [recentCommits, setRecentCommits] = useState<CommitSummary[]>([]);
+  const [commitLoading, setCommitLoading] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [commitHasMore, setCommitHasMore] = useState(false);
   const [scopeCopyStatus, setScopeCopyStatus] = useState<
     'idle' | 'copied' | 'error'
   >('idle');
@@ -503,14 +517,52 @@ export const IncludesHierarchy: React.FC<{
   });
 
   const isReviewLens = activeLens === 'review';
+  const loadCommits = useCallback(
+    async (reset = false) => {
+      const limit = reset ? INITIAL_COMMIT_LIMIT : MORE_COMMIT_LIMIT;
+      const skip = reset ? 0 : recentCommits.length;
+
+      setCommitLoading(true);
+      setCommitError(null);
+      try {
+        const commits = await requestCommits({ limit, skip });
+        setRecentCommits((current) => (reset ? commits : [...current, ...commits]));
+        setCommitHasMore(commits.length === limit);
+        if (reset && commits.length > 0 && !selectedCommitRef) {
+          setSelectedCommitRef(commits[0].hash);
+        }
+      } catch (error: any) {
+        setCommitError(error?.message || 'Failed to load commits');
+      } finally {
+        setCommitLoading(false);
+      }
+    },
+    [recentCommits.length, requestCommits, selectedCommitRef]
+  );
+
+  useEffect(() => {
+    if (!isReviewLens || reviewMode !== 'commit' || recentCommits.length > 0) {
+      return;
+    }
+
+    loadCommits(true);
+  }, [isReviewLens, loadCommits, recentCommits.length, reviewMode]);
+
   const focusedSource = useMemo<ChangeSourceRequest | null>(() => {
     if (!isReviewLens) return null;
     if (reviewMode === 'diff') return { mode: 'diff' };
+    if (reviewMode === 'commit') {
+      const ref = selectedCommitRef.trim();
+      return ref ? { mode: 'commit', ref } : null;
+    }
     return { mode: 'branch' };
-  }, [isReviewLens, reviewMode]);
+  }, [isReviewLens, reviewMode, selectedCommitRef]);
 
   useEffect(() => {
-    if (!focusedSource) return;
+    if (!focusedSource) {
+      if (isReviewLens) setFocusedReview(null);
+      return;
+    }
 
     let canceled = false;
     setFocusedLoading(true);
@@ -535,7 +587,13 @@ export const IncludesHierarchy: React.FC<{
     return () => {
       canceled = true;
     };
-  }, [focusedSource, includeFocusedTests, includes, requestFocusedReview]);
+  }, [
+    focusedSource,
+    includeFocusedTests,
+    includes,
+    isReviewLens,
+    requestFocusedReview,
+  ]);
 
   const expandedOverviewFileMapping = expandedOverviewFile
     ? filesMappings[expandedOverviewFile]
@@ -1233,7 +1291,10 @@ export const IncludesHierarchy: React.FC<{
     };
   }, [connectionEdges, nodeMetaById, selectedNode]);
 
-  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${includeFocusedTests ? 'tests' : 'no-tests'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}`;
+  const focusedSourceKey = focusedReview
+    ? JSON.stringify(focusedReview.changeSet.source)
+    : `${reviewMode}:${selectedCommitRef}`;
+  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${focusedSourceKey}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${includeFocusedTests ? 'tests' : 'no-tests'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}`;
   const currentScope = useMemo<CodeMapScope>(() => {
     const nodes: CodeMapScopeNode[] = Array.from(nodeMetaById.values())
       .map((meta) => ({
@@ -1538,7 +1599,25 @@ export const IncludesHierarchy: React.FC<{
     reviewMode === 'branch' && focusedReview?.changeSet.source.mode === 'branch'
       ? focusedReview.changeSet.source.baseRef
       : null;
-
+  const commitSource =
+    reviewMode === 'commit' && focusedReview?.changeSet.source.mode === 'commit'
+      ? focusedReview.changeSet.source
+      : null;
+  const selectedCommit = recentCommits.find(
+    (commit) =>
+      commit.hash === selectedCommitRef || commit.shortHash === selectedCommitRef
+  );
+  const commitSearchTerm = commitSearch.trim().toLowerCase();
+  const visibleCommits = commitSearchTerm
+    ? recentCommits.filter((commit) =>
+        [
+          commit.hash,
+          commit.shortHash,
+          commit.subject,
+          commit.authorName,
+        ].some((value) => value.toLowerCase().includes(commitSearchTerm))
+      )
+    : recentCommits;
   const showFocusedNoChanges =
     isReviewLens &&
     !focusedLoading &&
@@ -1564,8 +1643,15 @@ export const IncludesHierarchy: React.FC<{
   const activeLensMeta = LENSES.find((lens) => lens.id === activeLens) || LENSES[0];
   const reviewScopeText =
     reviewMode === 'diff'
-      ? 'Reviewing local working-tree changes'
-      : `Reviewing branch changes${branchBaseRef ? ` vs ${branchBaseRef}` : ''}`;
+      ? 'Reviewing working-tree changes'
+      : reviewMode === 'commit'
+        ? `Reviewing commit ${
+            commitSource?.ref.slice(0, 12) ||
+            selectedCommit?.shortHash ||
+            selectedCommitRef ||
+            'selection'
+          }`
+        : `Reviewing branch changes${branchBaseRef ? ` vs ${branchBaseRef}` : ''}`;
 
   const headerScopeText = isReviewLens
     ? `${reviewScopeText} at ${
@@ -1741,7 +1827,7 @@ export const IncludesHierarchy: React.FC<{
                   className={`segment-btn${reviewMode === 'diff' ? ' active' : ''}`}
                   onClick={() => setReviewMode('diff')}
                 >
-                  Diff
+                  Working tree
                 </button>
                 <button
                   className={`segment-btn${reviewMode === 'branch' ? ' active' : ''}`}
@@ -1749,7 +1835,82 @@ export const IncludesHierarchy: React.FC<{
                 >
                   Branch / PR
                 </button>
+                <button
+                  className={`segment-btn${reviewMode === 'commit' ? ' active' : ''}`}
+                  onClick={() => setReviewMode('commit')}
+                >
+                  Commit
+                </button>
               </div>
+
+              {reviewMode === 'commit' && (
+                <div className="commit-picker">
+                  <input
+                    className="commit-search-input"
+                    value={commitSearch}
+                    placeholder="Search hash, message, author"
+                    onChange={(event) => setCommitSearch(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      const ref = commitSearch.trim();
+                      if (!ref) return;
+                      setSelectedCommitRef(ref);
+                    }}
+                  />
+                  {selectedCommitRef && (
+                    <div className="commit-selected">
+                      Selected{' '}
+                      <span>
+                        {selectedCommit?.shortHash ||
+                          commitSource?.ref.slice(0, 12) ||
+                          selectedCommitRef}
+                      </span>
+                    </div>
+                  )}
+                  {commitError && (
+                    <div className="commit-picker-state error">{commitError}</div>
+                  )}
+                  {!commitError && commitLoading && recentCommits.length === 0 && (
+                    <div className="commit-picker-state">Loading commits...</div>
+                  )}
+                  {!commitError && visibleCommits.length > 0 && (
+                    <div className="commit-list">
+                      {visibleCommits.map((commit) => (
+                        <button
+                          key={commit.hash}
+                          className={`commit-option${
+                            selectedCommitRef === commit.hash ? ' active' : ''
+                          }`}
+                          onClick={() => setSelectedCommitRef(commit.hash)}
+                          title={`${commit.hash} ${commit.subject}`}
+                        >
+                          <span className="commit-hash">{commit.shortHash}</span>
+                          <span className="commit-subject">{commit.subject}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!commitError &&
+                    !commitLoading &&
+                    recentCommits.length > 0 &&
+                    visibleCommits.length === 0 && (
+                      <div className="commit-picker-state">
+                        No loaded commits match this search.
+                      </div>
+                    )}
+                  <button
+                    className="inline-btn commit-more-btn"
+                    onClick={() => loadCommits(false)}
+                    disabled={commitLoading || !commitHasMore}
+                  >
+                    {commitLoading && recentCommits.length > 0
+                      ? 'Loading...'
+                      : commitHasMore
+                        ? 'Show more'
+                        : 'No more commits'}
+                  </button>
+                </div>
+              )}
 
               <div className="segmented-control">
                 <button
@@ -1937,8 +2098,10 @@ export const IncludesHierarchy: React.FC<{
                   `Unable to load changes: ${focusedError}`}
                 {showFocusedNoChanges &&
                   (reviewMode === 'diff'
-                    ? 'No local changes.'
-                    : `No changes against ${branchBaseRef || 'the base branch'}.`)}
+                    ? 'No working-tree changes.'
+                    : reviewMode === 'commit'
+                      ? 'No changes detected for this commit.'
+                      : `No changes against ${branchBaseRef || 'the base branch'}.`)}
                 {showFocusedNoDeclarations &&
                   'No changed declarations could be mapped for this change set.'}
               </div>

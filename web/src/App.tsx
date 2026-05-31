@@ -20,6 +20,7 @@ import { History } from './components/History';
 import {
   ChangeSourceRequest,
   CodeMapScope,
+  CommitSummary,
   FileIncludeInfo,
   FileMapDetailed,
   FocusedReviewOptions,
@@ -186,6 +187,12 @@ const App: React.FC = () => {
     []
   );
 
+  const requestCommits = useCallback(
+    (options?: { limit?: number; skip?: number }): Promise<CommitSummary[]> =>
+      projectApi.listCommits(options),
+    []
+  );
+
   const [projectMap, setProjectMap] = useState<FileIncludeInfo[]>([]);
   const [filesMappings, setFilesMappings] = useState<
     Record<string, FileMapDetailed>
@@ -338,6 +345,7 @@ const App: React.FC = () => {
                 filesMappings={filesMappings}
                 requestFileMap={requestFileMap}
                 requestFocusedReview={requestFocusedReview}
+                requestCommits={requestCommits}
                 renderNodeMenu={(
                   filename: string,
                   anchor: HTMLElement | null,

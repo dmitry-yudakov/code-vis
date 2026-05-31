@@ -57,10 +57,11 @@ The homepage opens in `Overview`, which starts at a module/directory dependency 
 
 The root graph can switch from whole-project exploration to a change-focused review scope:
 
-- `Diff` uses local git status to show uncommitted and untracked changes.
+- `Working tree` uses local git status to show uncommitted and untracked changes.
 - `Branch / PR` compares the current branch to a base ref using a local git merge base. The UI name reflects the review workflow, but this path does not currently call a remote PR API.
+- `Commit` compares a selected commit to its first parent by default.
 
-Both review scopes return a `FocusedReviewMap`: changed files, one-hop import neighbors, optionally related test files, dependency edges between the visible focused files, and a declaration-level projection when changed hunks overlap analyzer-visible functions/methods. Declaration review includes changed declarations, direct caller/callee context, and short bridge call paths between changed declarations when they can be explained by analyzer-visible calls.
+All review scopes return a `FocusedReviewMap`: changed files, one-hop import neighbors, optionally related test files, dependency edges between the visible focused files, and a declaration-level projection when changed hunks overlap analyzer-visible functions/methods. Declaration review includes changed declarations, direct caller/callee context, and short bridge call paths between changed declarations when they can be explained by analyzer-visible calls.
 
 The review request accepts `options.includeTests`, which defaults to `true`. Related test files are marked with `isTest` and a `related-test` reason so the web workbench can style them separately and let users hide unchanged tests when the scope is too noisy.
 

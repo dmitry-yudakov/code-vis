@@ -5,6 +5,7 @@ import {
   ChangeSourceRequest,
   ChangedFileInfo,
   ChangedFileStatus,
+  CommitSummary,
   FileIncludeInfo,
   FileMapping,
   FocusedDeclarationCallInfo,
@@ -112,6 +113,23 @@ const parseNameStatusOutput = (output: string): ChangedFileInfo[] => {
     a.filename.localeCompare(b.filename)
   );
 };
+
+const parseCommitLogOutput = (output: string): CommitSummary[] =>
+  output
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      const [hash, shortHash, timestamp, authorName, ...subjectParts] =
+        line.split('\x1f');
+      return {
+        hash,
+        shortHash,
+        timestamp: Number(timestamp),
+        authorName,
+        subject: subjectParts.join('\x1f'),
+      };
+    })
+    .filter((commit) => !!commit.hash);
 
 const hasReason = (reasons: RelatedReason[], reason: RelatedReason): boolean =>
   reasons.some((item) => item.type === reason.type && item.via === reason.via);
@@ -496,6 +514,8 @@ export default class Project {
           payload?.source,
           payload?.options
         );
+      case 'listCommits':
+        return this.handleCommandListCommits(payload);
       default:
         throw new Error('Could not recognize command: "' + type + '"');
     }
@@ -688,6 +708,70 @@ export default class Project {
 
     return {
       source: { mode: 'branch', baseRef: resolvedBaseRef },
+      files: this.sortedChangedFiles(filesByName),
+    };
+  }
+
+  private async resolveCommitRef(ref: string): Promise<string> {
+    return (
+      await this.runGit(['rev-parse', '--verify', `${ref}^{commit}`])
+    ).trim();
+  }
+
+  private async resolveCommitParent(
+    commitRef: string,
+    parentRef?: string
+  ): Promise<string> {
+    if (parentRef) return this.resolveCommitRef(parentRef);
+
+    const parentLine = (
+      await this.runGit(['rev-list', '--parents', '-n', '1', commitRef])
+    ).trim();
+    const [, firstParent] = parentLine.split(/\s+/);
+
+    if (firstParent) return firstParent;
+
+    return (
+      await this.runGit(['hash-object', '-t', 'tree', '/dev/null'])
+    ).trim();
+  }
+
+  private async getCommitChangeSet(
+    ref: string,
+    parentRef?: string
+  ): Promise<ChangeSet> {
+    const resolvedRef = await this.resolveCommitRef(ref);
+    const resolvedParentRef = await this.resolveCommitParent(
+      resolvedRef,
+      parentRef
+    );
+
+    const output = await this.runGit([
+      'diff',
+      '--name-status',
+      '--find-renames',
+      resolvedParentRef,
+      resolvedRef,
+    ]);
+    const filesByName = new Map(
+      parseNameStatusOutput(output).map((file) => [file.filename, file])
+    );
+
+    const diffOutput = await this.runGit([
+      'diff',
+      '--unified=0',
+      '--no-ext-diff',
+      resolvedParentRef,
+      resolvedRef,
+    ]);
+    mergeDiffLineRanges(filesByName, parseUnifiedDiffLineRanges(diffOutput));
+
+    return {
+      source: {
+        mode: 'commit',
+        ref: resolvedRef,
+        parentRef: resolvedParentRef,
+      },
       files: this.sortedChangedFiles(filesByName),
     };
   }
@@ -1127,16 +1211,41 @@ export default class Project {
     await this.recreateProjectMap();
 
     const requestedSource: ChangeSourceRequest = source || { mode: 'diff' };
-    const changeSet: ChangeSet =
-      requestedSource.mode === 'branch'
-        ? await this.getBranchChangeSet(requestedSource.baseRef)
-        : await this.getDiffChangeSet();
+    let changeSet: ChangeSet;
+    if (requestedSource.mode === 'branch') {
+      changeSet = await this.getBranchChangeSet(requestedSource.baseRef);
+    } else if (requestedSource.mode === 'commit') {
+      changeSet = await this.getCommitChangeSet(
+        requestedSource.ref,
+        requestedSource.parentRef
+      );
+    } else {
+      changeSet = await this.getDiffChangeSet();
+    }
 
     const payload = await this.buildFocusedReviewMap(changeSet, options);
 
     return {
       type: 'focusedReviewMap',
       payload,
+    };
+  }
+
+  async handleCommandListCommits(
+    payload: { limit?: number; skip?: number } | undefined
+  ) {
+    const limit = Math.min(Math.max(Number(payload?.limit) || 5, 1), 50);
+    const skip = Math.max(Number(payload?.skip) || 0, 0);
+    const output = await this.runGit([
+      'log',
+      `--max-count=${limit}`,
+      `--skip=${skip}`,
+      '--format=%H%x1f%h%x1f%ct%x1f%an%x1f%s',
+    ]);
+
+    return {
+      type: 'commitList',
+      payload: parseCommitLogOutput(output),
     };
   }
 

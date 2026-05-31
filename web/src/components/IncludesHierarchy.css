@@ -234,6 +234,102 @@
   cursor: default;
 }
 
+.commit-picker {
+  border: 1px solid #d3dfd7;
+  border-radius: 8px;
+  background: #f8fbf8;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.commit-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #becdbf;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--workbench-text);
+  font-size: 0.78rem;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+}
+
+.commit-search-input:focus {
+  outline: 2px solid #b9dec7;
+  border-color: var(--workbench-accent);
+}
+
+.commit-selected,
+.commit-picker-state {
+  font-size: 0.74rem;
+  color: var(--workbench-muted);
+  margin-bottom: 6px;
+}
+
+.commit-selected span {
+  font-family: 'Fira Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: #274537;
+}
+
+.commit-picker-state.error {
+  color: var(--workbench-danger);
+}
+
+.commit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 190px;
+  overflow: auto;
+  margin-bottom: 7px;
+}
+
+.commit-option {
+  border: 1px solid #d1ddd4;
+  border-radius: 6px;
+  background: #fff;
+  color: #274537;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  padding: 6px 7px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commit-option:hover {
+  border-color: #9dbca9;
+  background: #f1f8f3;
+}
+
+.commit-option.active {
+  border-color: var(--workbench-accent);
+  background: var(--workbench-accent-soft);
+}
+
+.commit-hash {
+  font-family: 'Fira Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: #4a6556;
+}
+
+.commit-subject {
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-more-btn {
+  width: 100%;
+}
+
+.commit-more-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .depth-control {
   display: flex;
   align-items: center;

@@ -32,6 +32,7 @@ class Project {
 - `mapProject` → `FileIncludeInfo[]`
 - `mapFile({ filename, includeRelated })` → `FileMapDetailed[]`
 - `mapFocusedReview({ source, options? })` → `FocusedReviewMap`
+- `listCommits({ limit?, skip? })` → `CommitSummary[]`
 - `saveFile({ filename, content, pos?, end? })` → writes file
 
 ### Focused Review Mapping
@@ -40,6 +41,7 @@ class Project {
 
 - `source: { mode: 'diff' }` uses `git status --porcelain` and includes local uncommitted and untracked files.
 - `source: { mode: 'branch', baseRef?: string }` finds a merge base between `HEAD` and the base ref, then runs `git diff --name-status --find-renames <merge-base> HEAD`.
+- `source: { mode: 'commit', ref: string, parentRef?: string }` resolves a commit and compares it with `parentRef` or the commit's first parent.
 - If `baseRef` is omitted, the server tries `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master`, then falls back to `master`.
 
 The response includes changed files, their statuses (`added`, `modified`, `deleted`, `renamed`), parsed diff line ranges when available, one-hop dependency neighbors, and only dependency edges where both endpoints are in the focused file set. Related files are marked with reasons such as `imports-changed` or `imported-by-changed`.
@@ -47,6 +49,8 @@ The response includes changed files, their statuses (`added`, `modified`, `delet
 `options.includeTests` defaults to `true`. Related test files are detected by test-file naming conventions and import edges from changed source files, marked with `isTest`, and given a `related-test` reason. Passing `{ includeTests: false }` hides unchanged related test files while preserving changed test files as review seeds.
 
 When changed hunks overlap analyzer-visible declarations, the response also includes `declarations` and `declarationCalls`. Declaration nodes preserve file/range data, mark changed declarations, add direct caller/callee context with heuristic reasons such as `calls-changed` and `called-by-changed`, and include short bridge paths with `bridge-between-changes` when changed declarations are connected by a small directed call chain.
+
+`listCommits({ limit, skip })` returns recent commits from the current branch for the web commit picker. `limit` defaults to 5 and is clamped to 1-50; `skip` defaults to 0.
 
 ## WebSocket Server (`src/wsserver.ts`)
 

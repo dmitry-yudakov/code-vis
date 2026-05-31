@@ -32,7 +32,8 @@ Exposed via `ProjectDataContext`. `FileScreen` sub-component holds local state f
 ```typescript
 projectApi.getProjectMap(): Promise<FileIncludeInfo[]>
 projectApi.getFileMap(filename: string, includeRelated: boolean): Promise<FileMapDetailed[]>
-projectApi.getFocusedReview(source: ChangeSourceRequest): Promise<FocusedReviewMap>
+projectApi.getFocusedReview(source: ChangeSourceRequest, options?: FocusedReviewOptions): Promise<FocusedReviewMap>
+projectApi.listCommits(options?: { limit?: number; skip?: number }): Promise<CommitSummary[]>
 projectApi.saveFile(filename, content, pos?, end?): Promise<any>
 projectApi.onProjectChange(handler): () => void
 projectApi.onProjectMap(handler): () => void
@@ -56,7 +57,7 @@ projectApi.onFileMap(handler): () => void
 | Lens | Purpose |
 |------|---------|
 | `Overview` | Architecture-first graph, defaulting to module/directory dependencies with drill-down |
-| `Review current changes` | Changed files (Diff or Branch / PR) as seeds, with explainable context |
+| `Review changes` | Changed files from the working tree, Branch / PR, or a commit as seeds, with explainable context |
 | `Feature focus` | Placeholder for future seed-based exploration |
 | `Impact investigation` | Placeholder for future caller/importer impact tracing |
 
@@ -70,12 +71,13 @@ Inside `Overview`, users can switch between:
 
 Overview supports progressive expansion from module nodes to file nodes and from a selected file node to analyzer-visible declarations. File declaration expansion uses `getFileMap(filename, true)` on demand, then adds declaration nodes, containment edges, local declaration-call edges, and cached related-file call edges into the current Overview graph.
 
-Inside `Review current changes`, users can switch between:
+Inside `Review changes`, users can switch between:
 
 | Scope | Purpose |
 |-------|---------|
-| `Diff` | Local uncommitted git changes from `git status --porcelain` |
+| `Working tree` | Local uncommitted git changes from `git status --porcelain` |
 | `Branch / PR` | Files changed on the current branch compared with a base ref |
+| `Commit` | Files changed by a selected commit compared with its first parent |
 
 `Review` scopes call `projectApi.getFocusedReview()` and render changed files with reason chips. By default they include one-hop dependency context; `Changed only` hides context for a tighter view. The review lens can also switch from file nodes to declaration nodes when changed hunks map to analyzer-visible functions, methods, or arrow declarations. Declaration context includes direct callers/callees plus short bridge call paths between changed declarations.
 
@@ -95,7 +97,7 @@ The homepage sidebar exposes `Copy scope JSON` for external edit or agent workfl
 
 **File nav**: click file → `/f/{filename}` → `getFileMap(filename, true)` → sets local state → `FilesMapping` renders
 
-**Change-focused review**: click `Diff` or `Branch / PR` → `getFocusedReview({ mode })` → server returns `FocusedReviewMap` → `IncludesHierarchy` renders changed files or changed declarations with optional one-hop/direct-call/bridge context
+**Change-focused review**: pick `Working tree`, `Branch / PR`, or `Commit` → commit mode loads recent commits with `listCommits()` → `getFocusedReview({ mode })` returns `FocusedReviewMap` → `IncludesHierarchy` renders changed files or changed declarations with optional one-hop/direct-call/bridge context
 
 **Scoped file nav**: graph node menu → route state carries `CodeMapScope` → `FileScreen` filters related file edges to the scope → `FilesMapping` or `LogicMap` opens with the same working context
 

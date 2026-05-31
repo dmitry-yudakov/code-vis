@@ -14,6 +14,9 @@ socket.emit('mapFile', { filename: string; includeRelated: boolean },
 socket.emit('mapFocusedReview', { source: ChangeSourceRequest, options?: FocusedReviewOptions },
   (res: { success: boolean; data: FocusedReviewMap }) => {})
 
+socket.emit('listCommits', { limit?: number; skip?: number },
+  (res: { success: boolean; data: CommitSummary[] }) => {})
+
 socket.emit('saveFile', { filename: string; content: string; pos?: number; end?: number },
   (res: { success: boolean }) => {})
 ```
@@ -25,11 +28,15 @@ const map   = await projectApi.getProjectMap()
 const files = await projectApi.getFileMap(filename, true)
 const review = await projectApi.getFocusedReview({ mode: 'diff' })
 const branch = await projectApi.getFocusedReview({ mode: 'branch', baseRef: 'origin/main' })
+const commit = await projectApi.getFocusedReview({ mode: 'commit', ref: 'abc1234' })
+const recentCommits = await projectApi.listCommits({ limit: 5 })
 const reviewWithoutTests = await projectApi.getFocusedReview({ mode: 'diff' }, { includeTests: false })
 await projectApi.saveFile(filename, content, pos?, end?)
 ```
 
-`mapFocusedReview` accepts either `{ mode: 'diff' }` for local uncommitted changes or `{ mode: 'branch', baseRef?: string }` for branch-vs-base review scope. If `baseRef` is omitted, the server tries `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`, and finally falls back to `master`.
+`mapFocusedReview` accepts `{ mode: 'diff' }` for local uncommitted changes, `{ mode: 'branch', baseRef?: string }` for branch-vs-base review scope, or `{ mode: 'commit', ref: string, parentRef?: string }` for the patch introduced by a specific commit. If `baseRef` is omitted, the server tries `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`, and finally falls back to `master`. If `parentRef` is omitted for a commit, the server compares against the commit's first parent.
+
+`listCommits` reads recent commits from the current branch in newest-first order. `limit` defaults to 5 and is clamped to 1-50; `skip` defaults to 0. `timestamp` is the git commit time in Unix seconds.
 
 `options.includeTests` controls unchanged related test files. It defaults to `true`, marks detected test files with `isTest`, and adds a `related-test` reason when a test imports changed code or matches a changed source filename.
 
@@ -41,6 +48,7 @@ await projectApi.saveFile(filename, content, pos?, end?)
 | `projectMap` | `FileIncludeInfo[]` | Server sends updated project hierarchy |
 | `fileMap` | `FileMapDetailed[]` | Server sends file analysis results |
 | `focusedReviewMap` | `FocusedReviewMap` | Server sends change-focused review results when no ack callback is used |
+| `commitList` | `CommitSummary[]` | Server sends recent commits when no ack callback is used |
 
 Via `projectApi` subscriptions (each returns an unsubscribe function):
 
@@ -68,11 +76,21 @@ type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
 type ChangeSource =
   | { mode: 'diff' }
-  | { mode: 'branch'; baseRef: string };
+  | { mode: 'branch'; baseRef: string }
+  | { mode: 'commit'; ref: string; parentRef: string };
 
 type ChangeSourceRequest =
   | { mode: 'diff' }
-  | { mode: 'branch'; baseRef?: string };
+  | { mode: 'branch'; baseRef?: string }
+  | { mode: 'commit'; ref: string; parentRef?: string };
+
+interface CommitSummary {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  authorName: string;
+  timestamp: number;
+}
 
 interface ChangedFileInfo {
   filename: string;

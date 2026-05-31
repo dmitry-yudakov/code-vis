@@ -135,4 +135,87 @@ describe('Focused review mapping', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('maps the patch introduced by a selected commit', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
+
+    try {
+      writeProjectFile(
+        root,
+        'subject.ts',
+        'export function subject() {\n  return 1;\n}\n'
+      );
+
+      runGit(root, ['init']);
+      runGit(root, ['config', 'user.email', 'test@example.com']);
+      runGit(root, ['config', 'user.name', 'Test User']);
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'initial']);
+
+      writeProjectFile(
+        root,
+        'subject.ts',
+        'export function subject() {\n  return 2;\n}\n'
+      );
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'change subject']);
+
+      const project = new Project(root, { includeMask: '**/*.ts' });
+      const result = await project.handleCommandFocusedReview({
+        mode: 'commit',
+        ref: 'HEAD',
+      });
+
+      expect(result.payload.changeSet.source).toMatchObject({
+        mode: 'commit',
+      });
+      expect(result.payload.changeSet.files).toMatchObject([
+        {
+          filename: 'subject.ts',
+          status: 'modified',
+          addedLines: [{ start: 2, end: 2 }],
+        },
+      ]);
+      expect(
+        result.payload.declarations
+          .filter((decl) => decl.isChanged)
+          .map((decl) => decl.name)
+      ).toEqual(['subject']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('lists recent commits from the current branch', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
+
+    try {
+      writeProjectFile(root, 'subject.ts', 'export const value = 1;\n');
+
+      runGit(root, ['init']);
+      runGit(root, ['config', 'user.email', 'test@example.com']);
+      runGit(root, ['config', 'user.name', 'Test User']);
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'initial']);
+
+      writeProjectFile(root, 'subject.ts', 'export const value = 2;\n');
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'second']);
+
+      const project = new Project(root, { includeMask: '**/*.ts' });
+      const result = await project.handleCommandListCommits({
+        limit: 1,
+        skip: 0,
+      });
+
+      expect(result.payload).toHaveLength(1);
+      expect(result.payload[0]).toMatchObject({
+        subject: 'second',
+        authorName: 'Test User',
+      });
+      expect(result.payload[0].hash).toHaveLength(40);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

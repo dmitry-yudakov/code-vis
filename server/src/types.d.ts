@@ -53,11 +53,21 @@ export type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
 export type ChangeSource =
   | { mode: 'diff' }
-  | { mode: 'branch'; baseRef: string };
+  | { mode: 'branch'; baseRef: string }
+  | { mode: 'commit'; ref: string; parentRef: string };
 
 export type ChangeSourceRequest =
   | { mode: 'diff' }
-  | { mode: 'branch'; baseRef?: string };
+  | { mode: 'branch'; baseRef?: string }
+  | { mode: 'commit'; ref: string; parentRef?: string };
+
+export interface CommitSummary {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  authorName: string;
+  timestamp: number;
+}
 
 export interface ChangedFileInfo {
   filename: string;
