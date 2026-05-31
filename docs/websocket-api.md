@@ -226,4 +226,6 @@ class SocketConnection {
 }
 ```
 
-URL: `ws://localhost:3789`. Auto-reconnection and HTTP polling fallback built in.
+Default dev URL: current page origin via Vite's `/socket.io` proxy. Direct server
+URL: `http://localhost:3789` or a custom `VITE_SOCKET_URL`. Auto-reconnection
+and HTTP polling fallback built in.

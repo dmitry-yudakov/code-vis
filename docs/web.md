@@ -120,4 +120,7 @@ App (Router + ProjectDataContext.Provider)
 - `react-flow-renderer@^11`, `@monaco-editor/react@^4.6`, `codemirror@^5.65`
 - `dagre@^0.8.5` (graph layout), `socket.io-client@^4.8.1`, `react-router-dom@^6`
 - Tests: Vitest (`yarn test`). Build: `yarn build`. Dev: `yarn dev`
-- Vite proxies `/socket.io` to `http://localhost:3789` in dev
+- Vite proxies `/socket.io` to `http://localhost:3789` in dev. The web client
+  connects to the current page origin by default, so `yarn dev --host 0.0.0.0`
+  also works from remote browsers. Set `VITE_SOCKET_URL` to override the socket
+  endpoint.

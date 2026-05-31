@@ -34,8 +34,9 @@ import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
 import Menu from './atoms/Menu';
 import { FilesMapping } from './components/FilesMapping';
+import { getDefaultSocketUrl } from './connection/socketUrl';
 
-const url = `ws://localhost:3789`;
+const url = getDefaultSocketUrl();
 
 const ProjectDataContext = React.createContext<{
   projectMap: FileIncludeInfo[];
