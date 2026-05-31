@@ -5,6 +5,12 @@ Socket.IO server on port 3789. All communication uses named events — no generi
 ## Client → Server (request-response with acknowledgment)
 
 ```typescript
+socket.emit('listProjects', undefined,
+  (res: { success: boolean; data: ProjectListResponse }) => {})
+
+socket.emit('openProject', { projectId: string },
+  (res: { success: boolean; data: OpenProjectResponse }) => {})
+
 socket.emit('mapProject', payload,
   (res: { success: boolean; data: FileIncludeInfo[] }) => {})
 
@@ -24,6 +30,8 @@ socket.emit('saveFile', { filename: string; content: string; pos?: number; end?:
 Via `projectApi` (high-level, preferred):
 
 ```typescript
+const projects = await projectApi.listProjects()
+const opened = await projectApi.openProject(projectId)
 const map   = await projectApi.getProjectMap()
 const files = await projectApi.getFileMap(filename, true)
 const review = await projectApi.getFocusedReview({ mode: 'diff' })
@@ -44,7 +52,9 @@ await projectApi.saveFile(filename, content, pos?, end?)
 
 | Event | Payload | When |
 |-------|---------|------|
-| `projectContentChange` | `{ type: 'add'\|'change'\|'remove', path: string }` | File system change detected |
+| `projectsList` | `ProjectListResponse` | Server sends available projects |
+| `activeProjectChanged` | `OpenProjectResponse` | Active project changed |
+| `projectContentChange` | `{ type: 'add'\|'change'\|'remove', path: string, projectId?: string, projectName?: string, projectPath?: string }` | File system change detected in active project |
 | `projectMap` | `FileIncludeInfo[]` | Server sends updated project hierarchy |
 | `fileMap` | `FileMapDetailed[]` | Server sends file analysis results |
 | `focusedReviewMap` | `FocusedReviewMap` | Server sends change-focused review results when no ack callback is used |
@@ -53,6 +63,8 @@ await projectApi.saveFile(filename, content, pos?, end?)
 Via `projectApi` subscriptions (each returns an unsubscribe function):
 
 ```typescript
+projectApi.onProjectsList(handler)
+projectApi.onActiveProjectChanged(handler)
 projectApi.onProjectChange(handler)
 projectApi.onProjectMap(handler)
 projectApi.onFileMap(handler)
@@ -70,6 +82,32 @@ interface FileMapDetailed {
 interface ProjectChangeEvent {
   type: 'add' | 'change' | 'remove';
   path: string;
+  projectId?: string;
+  projectName?: string;
+  projectPath?: string;
+}
+
+interface ProjectInfo {
+  id: string;
+  name: string;
+  path: string;
+  relativePath: string;
+  rootPath: string;
+  mtimeMs: number;
+  mtime: string;
+  lastOpenedAt?: string;
+  isActive?: boolean;
+}
+
+interface ProjectListResponse {
+  rootPath: string;
+  projects: ProjectInfo[];
+  activeProjectId?: string;
+}
+
+interface OpenProjectResponse extends ProjectListResponse {
+  project: ProjectInfo;
+  projectMap: FileIncludeInfo[];
 }
 
 type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';

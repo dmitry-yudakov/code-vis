@@ -35,6 +35,207 @@ body,
   color: #843535;
 }
 
+.project-switcher {
+  position: fixed;
+  right: 12px;
+  top: 10px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #c4d4ca;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 18px rgba(18, 38, 27, 0.08);
+}
+
+.project-switcher span {
+  color: #52695b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.project-switcher select {
+  min-width: 170px;
+  max-width: min(340px, 40vw);
+  border: 1px solid #c8d8cd;
+  border-radius: 6px;
+  background: #fff;
+  color: #223128;
+  font-size: 0.82rem;
+  padding: 4px 8px;
+}
+
+.project-picker {
+  min-height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 64px 18px 36px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(243, 246, 242, 0)),
+    #f3f6f2;
+}
+
+.project-picker-shell {
+  width: min(920px, 100%);
+}
+
+.project-picker-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.project-picker-eyebrow,
+.project-section-title {
+  color: #5b7264;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.project-picker h1 {
+  margin: 3px 0 8px;
+  color: #1d2f24;
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.project-picker-root {
+  max-width: 700px;
+  color: #52695b;
+  font-family: 'Fira Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.project-picker-count {
+  border: 1px solid #c4d4ca;
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: #315540;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.project-section {
+  margin-top: 18px;
+}
+
+.project-recent-list,
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.project-recent-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.project-recent-button,
+.project-row {
+  border: 1px solid #d3dfd7;
+  border-radius: 8px;
+  background: #fff;
+  color: #223128;
+  cursor: pointer;
+  text-align: left;
+}
+
+.project-recent-button {
+  min-height: 82px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+}
+
+.project-recent-button span {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.project-recent-button small {
+  color: #5b7264;
+  font-size: 0.76rem;
+}
+
+.project-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 12px 14px;
+}
+
+.project-recent-button:hover:not(:disabled),
+.project-row:hover:not(:disabled) {
+  border-color: #9dbca9;
+  background: #f8fbf8;
+}
+
+.project-recent-button:disabled,
+.project-row:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.project-row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.project-row-name {
+  font-size: 0.96rem;
+  font-weight: 700;
+}
+
+.project-row-path {
+  color: #5b7264;
+  font-family: 'Fira Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-row-meta {
+  color: #52695b;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.project-error,
+.project-empty,
+.project-route-empty {
+  border: 1px solid #d9c6a5;
+  border-radius: 8px;
+  background: #fff8ea;
+  color: #6a4c15;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+}
+
+.project-route-empty {
+  margin: 80px auto;
+  width: min(520px, calc(100% - 32px));
+}
+
 .history-bar {
   position: fixed;
   right: 12px;
@@ -69,5 +270,42 @@ body,
   .connection-status {
     bottom: 6px;
     left: 6px;
+  }
+
+  .project-switcher {
+    left: 8px;
+    right: 8px;
+    top: 8px;
+  }
+
+  .project-switcher select {
+    min-width: 0;
+    max-width: none;
+    flex: 1;
+  }
+
+  .project-picker {
+    padding-top: 72px;
+  }
+
+  .project-picker-header,
+  .project-row {
+    grid-template-columns: 1fr;
+  }
+
+  .project-picker-header {
+    flex-direction: column;
+  }
+
+  .project-recent-list {
+    grid-template-columns: 1fr;
+  }
+
+  .project-row {
+    gap: 8px;
+  }
+
+  .project-row-path {
+    white-space: normal;
   }
 }

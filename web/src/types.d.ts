@@ -191,6 +191,37 @@ export interface FileMapDetailed {
   mapping: FileMapping;
 }
 
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  path: string;
+  relativePath: string;
+  rootPath: string;
+  mtimeMs: number;
+  mtime: string;
+  lastOpenedAt?: string;
+  isActive?: boolean;
+}
+
+export interface ProjectListResponse {
+  rootPath: string;
+  projects: ProjectInfo[];
+  activeProjectId?: string;
+}
+
+export interface OpenProjectResponse extends ProjectListResponse {
+  project: ProjectInfo;
+  projectMap: FileIncludeInfo[];
+}
+
+export interface ProjectChangeEvent {
+  type: 'add' | 'change' | 'remove';
+  path: string;
+  projectId?: string;
+  projectName?: string;
+  projectPath?: string;
+}
+
 export interface Edge {
   source: string;
   target: string;

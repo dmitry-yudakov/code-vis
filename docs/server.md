@@ -9,7 +9,8 @@ Node.js/TypeScript application. Analyzes project files, watches for changes, ser
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Bootstrap: parse CLI args, load config, init Project, start Socket.IO, file watching |
+| `src/index.ts` | Bootstrap: parse CLI args, init project registry, start Socket.IO |
+| `src/projectRegistry.ts` | Discovers projects, tracks active project, owns active project watcher |
 | `src/project.ts` | `Project` class: file discovery, analysis dispatch, file save |
 | `src/wsserver.ts` | Socket.IO server setup, named event routing |
 | `src/io.ts` | File system: glob, read, write, watch, config load/save |
@@ -29,11 +30,38 @@ class Project {
 ```
 
 **Commands**:
+- `listProjects` → `ProjectListResponse`
+- `openProject({ projectId })` → `OpenProjectResponse`
 - `mapProject` → `FileIncludeInfo[]`
 - `mapFile({ filename, includeRelated })` → `FileMapDetailed[]`
 - `mapFocusedReview({ source, options? })` → `FocusedReviewMap`
 - `listCommits({ limit?, skip? })` → `CommitSummary[]`
 - `saveFile({ filename, content, pos?, end? })` → writes file
+
+## Project Discovery
+
+Run with either a single project path or a directory containing projects:
+
+```sh
+yarn start path/to/project-or-projects
+yarn start --projects-dir path/to/projects
+yarn start --projects-dir --depth 2 path/to/projects
+```
+
+Without `--projects-dir`, the server treats the given path as one project when it
+contains a marker such as `package.json`, `tsconfig.json`, `jsconfig.json`,
+`yarn.lock`, `package-lock.json`, `pnpm-lock.yaml`, or `.git`. Otherwise it
+lists projects under the path. Discovery depth defaults to `1`, which means
+immediate child directories only. Pass `--depth N` or `--discovery-depth N` to
+scan deeper for nested projects. Marked directories are preferred; if none are
+marked within the configured depth, immediate non-hidden child directories are
+listed as a fallback.
+
+Single-project mode opens the project automatically for the existing workflow.
+Directory-of-projects mode starts with no active project; the web client calls
+`openProject` to activate one. Only the active project is watched and analyzed.
+Projects are sorted by in-session `lastOpenedAt`, then directory `mtime`, then
+name. Nested projects use a root-relative display name such as `packages/api`.
 
 ### Focused Review Mapping
 

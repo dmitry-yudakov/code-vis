@@ -5,6 +5,8 @@ import {
   FileMapDetailed,
   FocusedReviewOptions,
   FocusedReviewMap,
+  OpenProjectResponse,
+  ProjectListResponse,
 } from '../types';
 
 let connection: SocketConnection | null = null;
@@ -41,6 +43,37 @@ export const isConnected = (): boolean => {
  * Type-safe API for project operations
  */
 export const projectApi = {
+  /**
+   * List projects available from the server root.
+   */
+  async listProjects(): Promise<ProjectListResponse> {
+    console.log('CLIENT: projectApi.listProjects() called');
+    const result = await getConnection().request<ProjectListResponse>(
+      'listProjects'
+    );
+    console.log('CLIENT: projectApi.listProjects() received', {
+      projects: result?.projects?.length ?? 0,
+      activeProjectId: result?.activeProjectId,
+    });
+    return result;
+  },
+
+  /**
+   * Open a project and receive its initial project map.
+   */
+  async openProject(projectId: string): Promise<OpenProjectResponse> {
+    console.log('CLIENT: projectApi.openProject() called', { projectId });
+    const result = await getConnection().request<OpenProjectResponse>(
+      'openProject',
+      { projectId }
+    );
+    console.log('CLIENT: projectApi.openProject() received', {
+      project: result?.project?.name,
+      mapLength: result?.projectMap?.length ?? 0,
+    });
+    return result;
+  },
+
   /**
    * Get project map (file hierarchy)
    */
@@ -173,6 +206,34 @@ export const projectApi = {
         dataType: typeof data,
         isArray: Array.isArray(data),
         length: data ? data.length : 'null/undefined',
+      });
+      handler(data);
+    });
+  },
+
+  /**
+   * Subscribe to project list updates.
+   */
+  onProjectsList(handler: (data: ProjectListResponse) => void) {
+    console.log('CLIENT: projectApi.onProjectsList() subscribed');
+    return getConnection().on('projectsList', (data) => {
+      console.log('CLIENT: projectsList event received', {
+        projects: data?.projects?.length ?? 0,
+        activeProjectId: data?.activeProjectId,
+      });
+      handler(data);
+    });
+  },
+
+  /**
+   * Subscribe to active project changes.
+   */
+  onActiveProjectChanged(handler: (data: OpenProjectResponse) => void) {
+    console.log('CLIENT: projectApi.onActiveProjectChanged() subscribed');
+    return getConnection().on('activeProjectChanged', (data) => {
+      console.log('CLIENT: activeProjectChanged event received', {
+        project: data?.project?.name,
+        mapLength: data?.projectMap?.length ?? 0,
       });
       handler(data);
     });

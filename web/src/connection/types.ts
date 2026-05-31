@@ -44,6 +44,8 @@ export interface ServerToClientEvents {
   message: (data: BaseMessage) => void;
   response: (data: ResponseMessage) => void;
   projectContentChange: (data: any) => void;
+  projectsList: (data: any) => void;
+  activeProjectChanged: (data: any) => void;
   keywords: (data: any) => void;
   projectMap: (data: any) => void;
   info: (data: string) => void;
@@ -102,6 +104,10 @@ export interface AnalyzePayload {
 export interface ProjectInfoPayload {
   includeDependencies?: boolean;
   includeStats?: boolean;
+}
+
+export interface ProjectSelectionPayload {
+  projectId: string;
 }
 
 // Response data types

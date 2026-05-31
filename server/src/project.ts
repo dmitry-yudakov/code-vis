@@ -537,8 +537,8 @@ export default class Project {
     // }
   };
 
-  watch(callback: (e: ProjectChangeEvent) => void) {
-    watchDirectory(this.projectPath, async (e) => {
+  watch(callback: (e: ProjectChangeEvent) => void): () => void {
+    const watcher = watchDirectory(this.projectPath, async (e) => {
       console.log('Watcher:', e);
       // switch (e.type) {
       //   case 'add':
@@ -550,6 +550,10 @@ export default class Project {
       // }
       callback(e);
     });
+
+    return () => {
+      watcher.close();
+    };
   }
 
   reloadProject() {

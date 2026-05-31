@@ -87,6 +87,8 @@ export const watchDirectory = (
     .on('add', (p) => onChange({ type: 'add', path: p }))
     .on('change', (p) => onChange({ type: 'change', path: p }))
     .on('unlink', (p) => onChange({ type: 'remove', path: p }));
+
+  return watcher;
 };
 
 const configsPath = path.join(homedir(), '/.code-ai');

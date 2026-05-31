@@ -4,6 +4,7 @@ import React, {
   useContext,
   useMemo,
   useCallback,
+  useRef,
 } from 'react';
 import './App.css';
 import {
@@ -24,6 +25,10 @@ import {
   FileIncludeInfo,
   FileMapDetailed,
   FocusedReviewOptions,
+  OpenProjectResponse,
+  ProjectChangeEvent,
+  ProjectInfo,
+  ProjectListResponse,
 } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
@@ -36,7 +41,130 @@ const ProjectDataContext = React.createContext<{
   projectMap: FileIncludeInfo[];
   filesMappings: Record<string, FileMapDetailed>;
   forceReloadToken: number;
-}>({ projectMap: [], filesMappings: {}, forceReloadToken: 0 });
+  activeProject: ProjectInfo | null;
+}>({
+  projectMap: [],
+  filesMappings: {},
+  forceReloadToken: 0,
+  activeProject: null,
+});
+
+const formatProjectDate = (value?: string) => {
+  if (!value) return 'Not opened yet';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const ProjectPicker: React.FC<{
+  projects: ProjectInfo[];
+  rootPath: string;
+  openingProjectId: string | null;
+  error: string | null;
+  onOpenProject: (projectId: string) => void;
+}> = ({ projects, rootPath, openingProjectId, error, onOpenProject }) => {
+  const recentlyOpened = projects.filter((project) => !!project.lastOpenedAt);
+  const visibleProjects = projects.length > 0 ? projects : [];
+
+  return (
+    <main className="project-picker">
+      <section className="project-picker-shell">
+        <div className="project-picker-header">
+          <div>
+            <div className="project-picker-eyebrow">Projects</div>
+            <h1>Choose a codebase</h1>
+            <div className="project-picker-root">{rootPath}</div>
+          </div>
+          <div className="project-picker-count">
+            {projects.length} {projects.length === 1 ? 'project' : 'projects'}
+          </div>
+        </div>
+
+        {recentlyOpened.length > 0 && (
+          <div className="project-section">
+            <div className="project-section-title">Recently opened</div>
+            <div className="project-recent-list">
+              {recentlyOpened.slice(0, 3).map((project) => (
+                <button
+                  key={project.id}
+                  className="project-recent-button"
+                  onClick={() => onOpenProject(project.id)}
+                  disabled={openingProjectId === project.id}
+                >
+                  <span>{project.name}</span>
+                  <small>{formatProjectDate(project.lastOpenedAt)}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="project-section">
+          <div className="project-section-title">Last modified</div>
+          {error && <div className="project-error">{error}</div>}
+          {visibleProjects.length === 0 ? (
+            <div className="project-empty">
+              No project directories were found in this location.
+            </div>
+          ) : (
+            <div className="project-list">
+              {visibleProjects.map((project) => (
+                <button
+                  key={project.id}
+                  className="project-row"
+                  onClick={() => onOpenProject(project.id)}
+                  disabled={openingProjectId === project.id}
+                >
+                  <span className="project-row-main">
+                    <span className="project-row-name">{project.name}</span>
+                    <span className="project-row-path">{project.path}</span>
+                  </span>
+                  <span className="project-row-meta">
+                    {openingProjectId === project.id
+                      ? 'Opening...'
+                      : formatProjectDate(project.mtime)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+};
+
+const ProjectSwitcher: React.FC<{
+  projects: ProjectInfo[];
+  activeProject: ProjectInfo | null;
+  openingProjectId: string | null;
+  onOpenProject: (projectId: string) => void;
+}> = ({ projects, activeProject, openingProjectId, onOpenProject }) => {
+  if (projects.length <= 1 || !activeProject) return null;
+
+  return (
+    <label className="project-switcher">
+      <span>Project</span>
+      <select
+        value={activeProject.id}
+        onChange={(event) => onOpenProject(event.currentTarget.value)}
+        disabled={!!openingProjectId}
+      >
+        {projects.map((project) => (
+          <option key={project.id} value={project.id}>
+            {project.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+};
 
 const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   fineGrained = false,
@@ -46,7 +174,7 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { projectMap, filesMappings, forceReloadToken } =
+  const { projectMap, filesMappings, forceReloadToken, activeProject } =
     useContext(ProjectDataContext);
   const codeMapScope = useMemo(() => {
     const state = location.state as { codeMapScope?: CodeMapScope } | null;
@@ -139,6 +267,14 @@ const FileScreen: React.FC<{ fineGrained?: boolean }> = ({
     [codeMapScope, scopedFiles, relatedFiles, filesMappings]
   );
 
+  if (!activeProject) {
+    return (
+      <div className="project-route-empty">
+        Select a project to open file maps.
+      </div>
+    );
+  }
+
   const fileData = localFileData || filesMappings[filename];
   if (!fileData) return <div>Loading...</div>;
 
@@ -197,6 +333,12 @@ const App: React.FC = () => {
   const [filesMappings, setFilesMappings] = useState<
     Record<string, FileMapDetailed>
   >({});
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [projectsRootPath, setProjectsRootPath] = useState('');
+  const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null);
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
+  const activeProjectIdRef = useRef<string | null>(null);
 
   const requestFileMap = useCallback(
     async (filename: string, includeRelated = false) => {
@@ -219,14 +361,65 @@ const App: React.FC = () => {
     'connecting' | 'connected' | 'disconnected'
   >('connecting');
 
+  const applyProjectList = useCallback((projectList: ProjectListResponse) => {
+    const nextProjects = projectList.projects || [];
+    const nextActiveProject =
+      nextProjects.find((project) => project.id === projectList.activeProjectId) ||
+      null;
+
+    activeProjectIdRef.current = nextActiveProject?.id || null;
+    setProjects(nextProjects);
+    setProjectsRootPath(projectList.rootPath || '');
+    setActiveProject(nextActiveProject);
+  }, []);
+
+  const applyOpenedProject = useCallback(
+    (result: OpenProjectResponse) => {
+      applyProjectList(result);
+      setProjectMap(result.projectMap || []);
+      setFilesMappings({});
+      setForceReloadDep((i) => i + 1);
+    },
+    [applyProjectList]
+  );
+
   const contextVal = useMemo(
-    () => ({ projectMap, filesMappings, forceReloadToken: forceReloadDep }),
-    [projectMap, filesMappings, forceReloadDep]
+    () => ({
+      projectMap,
+      filesMappings,
+      forceReloadToken: forceReloadDep,
+      activeProject,
+    }),
+    [projectMap, filesMappings, forceReloadDep, activeProject]
   );
 
   const [history, setHistory] = useState<any[][]>([]);
-  const appendToHistory = (str: string) =>
+  const appendToHistory = useCallback((str: string) => {
     setHistory((hist) => [...hist, [new Date(), str]]);
+  }, []);
+
+  const openProject = useCallback(
+    async (projectId: string) => {
+      if (!projectId || openingProjectId === projectId) return;
+
+      setOpeningProjectId(projectId);
+      setProjectLoadError(null);
+
+      try {
+        const result = await projectApi.openProject(projectId);
+        applyOpenedProject(result);
+        navigate('/');
+        appendToHistory(`Project opened: ${result.project.name}`);
+      } catch (error: any) {
+        const message = error?.message || 'Failed to open project';
+        setProjectLoadError(message);
+        appendToHistory(`Project open failed: ${message}`);
+      } finally {
+        setOpeningProjectId(null);
+      }
+    },
+    [appendToHistory, applyOpenedProject, navigate, openingProjectId]
+  );
 
   useEffect(() => {
     // Initialize Socket.IO connection
@@ -238,24 +431,34 @@ const App: React.FC = () => {
       setConnectionStatus('connected');
       appendToHistory('Connected to server');
 
-      // Load initial project map
+      // Load available projects and, for single-project mode, the active map.
       try {
-        console.log('APP: Requesting initial project map...');
-        const map = await projectApi.getProjectMap();
-        console.log('APP: Received project map', {
-          mapType: typeof map,
-          isArray: Array.isArray(map),
-          length: map ? map.length : 'null/undefined',
-          firstItem: map && map[0] ? Object.keys(map[0]) : 'none',
-        });
-        setProjectMap(map);
-        console.log('APP: setProjectMap called with', {
-          length: map ? map.length : 0,
-        });
-        appendToHistory('Project map loaded');
+        console.log('APP: Requesting projects list...');
+        const projectList = await projectApi.listProjects();
+        applyProjectList(projectList);
+
+        if (projectList.activeProjectId) {
+          console.log('APP: Requesting initial project map...');
+          const map = await projectApi.getProjectMap();
+          console.log('APP: Received project map', {
+            mapType: typeof map,
+            isArray: Array.isArray(map),
+            length: map ? map.length : 'null/undefined',
+            firstItem: map && map[0] ? Object.keys(map[0]) : 'none',
+          });
+          setProjectMap(map);
+          console.log('APP: setProjectMap called with', {
+            length: map ? map.length : 0,
+          });
+          appendToHistory('Project map loaded');
+        } else {
+          setProjectMap([]);
+          setFilesMappings({});
+          appendToHistory('Projects loaded');
+        }
       } catch (error) {
-        console.error('❌ APP: Error loading project map:', error);
-        appendToHistory('Error loading project map: ' + error);
+        console.error('APP: Error loading projects:', error);
+        appendToHistory('Error loading projects: ' + error);
       }
     });
 
@@ -273,7 +476,15 @@ const App: React.FC = () => {
     // Subscribe to project changes
     const unsubscribeProjectChange = projectApi.onProjectChange(
       async (event) => {
-        const { type, path } = event;
+        const { type, path, projectId } = event as ProjectChangeEvent;
+        if (
+          projectId &&
+          activeProjectIdRef.current &&
+          projectId !== activeProjectIdRef.current
+        ) {
+          return;
+        }
+
         appendToHistory(`File ${type}: ${path}`);
 
         // Reload project map on any file change
@@ -294,6 +505,7 @@ const App: React.FC = () => {
         isArray: Array.isArray(data),
         length: data ? data.length : 'null/undefined',
       });
+      if (!activeProjectIdRef.current) return;
       appendToHistory('Project map updated');
       setProjectMap(data);
       console.log('APP: setProjectMap called from onProjectMap');
@@ -315,23 +527,43 @@ const App: React.FC = () => {
       }));
     });
 
+    const unsubscribeProjectsList = projectApi.onProjectsList((data) => {
+      applyProjectList(data);
+    });
+
+    const unsubscribeActiveProjectChanged = projectApi.onActiveProjectChanged(
+      (data) => {
+        applyOpenedProject(data);
+        appendToHistory(`Project opened: ${data.project.name}`);
+      }
+    );
+
     // Cleanup on unmount
     return () => {
       unsubscribeProjectChange();
       unsubscribeProjectMap();
       unsubscribeFileMap();
+      unsubscribeProjectsList();
+      unsubscribeActiveProjectChanged();
       conn.disconnect();
     };
-  }, []);
+  }, [appendToHistory, applyOpenedProject, applyProjectList]);
 
   return (
     <div className="App">
       {/* Connection status indicator */}
       <div className={`connection-status ${connectionStatus}`}>
-        {connectionStatus === 'connecting' && '🔄 Connecting...'}
-        {connectionStatus === 'connected' && '✅ Connected'}
-        {connectionStatus === 'disconnected' && '❌ Disconnected'}
+        {connectionStatus === 'connecting' && 'Connecting...'}
+        {connectionStatus === 'connected' && 'Connected'}
+        {connectionStatus === 'disconnected' && 'Disconnected'}
       </div>
+
+      <ProjectSwitcher
+        projects={projects}
+        activeProject={activeProject}
+        openingProjectId={openingProjectId}
+        onOpenProject={openProject}
+      />
 
       <ProjectDataContext.Provider value={contextVal}>
         <Routes>
@@ -340,40 +572,50 @@ const App: React.FC = () => {
           <Route
             path="/"
             element={
-              <IncludesHierarchy
-                includes={projectMap}
-                filesMappings={filesMappings}
-                requestFileMap={requestFileMap}
-                requestFocusedReview={requestFocusedReview}
-                requestCommits={requestCommits}
-                renderNodeMenu={(
-                  filename: string,
-                  anchor: HTMLElement | null,
-                  onClose: () => void,
-                  codeMapScope: CodeMapScope
-                ) => (
-                  <Menu
-                    positionAnchor={anchor}
-                    options={[
-                      [
-                        'Logic Map',
-                        () =>
-                          navigate(`/fine/${encodeURIComponent(filename)}`, {
-                            state: { codeMapScope },
-                          }),
-                      ],
-                      [
-                        'File Map',
-                        () =>
-                          navigate(`/f/${encodeURIComponent(filename)}`, {
-                            state: { codeMapScope },
-                          }),
-                      ],
-                    ]}
-                    onClose={onClose}
-                  />
-                )}
-              />
+              activeProject ? (
+                <IncludesHierarchy
+                  includes={projectMap}
+                  filesMappings={filesMappings}
+                  requestFileMap={requestFileMap}
+                  requestFocusedReview={requestFocusedReview}
+                  requestCommits={requestCommits}
+                  renderNodeMenu={(
+                    filename: string,
+                    anchor: HTMLElement | null,
+                    onClose: () => void,
+                    codeMapScope: CodeMapScope
+                  ) => (
+                    <Menu
+                      positionAnchor={anchor}
+                      options={[
+                        [
+                          'Logic Map',
+                          () =>
+                            navigate(`/fine/${encodeURIComponent(filename)}`, {
+                              state: { codeMapScope },
+                            }),
+                        ],
+                        [
+                          'File Map',
+                          () =>
+                            navigate(`/f/${encodeURIComponent(filename)}`, {
+                              state: { codeMapScope },
+                            }),
+                        ],
+                      ]}
+                      onClose={onClose}
+                    />
+                  )}
+                />
+              ) : (
+                <ProjectPicker
+                  projects={projects}
+                  rootPath={projectsRootPath}
+                  openingProjectId={openingProjectId}
+                  error={projectLoadError}
+                  onOpenProject={openProject}
+                />
+              )
             }
           />
         </Routes>

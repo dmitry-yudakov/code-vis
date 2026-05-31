@@ -28,16 +28,31 @@ yarn
 ```
 cd server/
 
-yarn start path/to/project
+yarn start path/to/project-or-projects
 ```
 
 In another console:
 
 ```
 cd web/
-yarn start
+yarn dev
 ```
 
-It opens http://localhost:3000 showing content for the project, opened in the server.
+It opens http://localhost:3000. If the server path points at a single project,
+the web app opens it automatically. If the path points at a directory of
+projects, the web app starts with a project list sorted by recent activity and
+last modified time.
 
-To open another one, stop the server and run it again with new path passed to it - the web will reconnect automatically.
+The server auto-detects a single project when the path contains markers such as
+`package.json`, `tsconfig.json`, or `.git`. To force directory-of-projects mode:
+
+```
+yarn start --projects-dir path/to/projects
+```
+
+Project discovery is shallow by default (`--depth 1`). To include nested
+projects, pass a larger depth:
+
+```
+yarn start --projects-dir --depth 2 path/to/projects
+```
