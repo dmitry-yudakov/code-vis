@@ -686,8 +686,9 @@ export default class Project {
 
   private async getBranchChangeSet(baseRef?: string): Promise<ChangeSet> {
     const resolvedBaseRef = baseRef || (await this.resolveDefaultBaseRef());
+    this.validateRef(resolvedBaseRef);
     const mergeBase = (
-      await this.runGit(['merge-base', 'HEAD', resolvedBaseRef])
+      await this.runGit(['merge-base', 'HEAD', '--', resolvedBaseRef])
     ).trim();
 
     const output = await this.runGit([
@@ -716,7 +717,14 @@ export default class Project {
     };
   }
 
+  private validateRef(ref: string): void {
+    if (/^-/.test(ref)) {
+      throw new Error(`Invalid git ref: "${ref}"`);
+    }
+  }
+
   private async resolveCommitRef(ref: string): Promise<string> {
+    this.validateRef(ref);
     return (
       await this.runGit(['rev-parse', '--verify', `${ref}^{commit}`])
     ).trim();
