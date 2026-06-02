@@ -67,9 +67,14 @@ export const layoutWithDagre = (
     const positioned = graph.node(node.id);
     if (!positioned) continue;
 
-    positions[node.id] = { x: positioned.x, y: positioned.y };
-    maxX = Math.max(maxX, positioned.x + (node.width ?? nodeWidth));
-    maxY = Math.max(maxY, positioned.y + (node.height ?? nodeHeight));
+    // dagre returns center coords; convert to top-left to match React Flow and other layout strategies
+    const w = node.width ?? nodeWidth;
+    const h = node.height ?? nodeHeight;
+    const left = positioned.x - w / 2;
+    const top = positioned.y - h / 2;
+    positions[node.id] = { x: left, y: top };
+    maxX = Math.max(maxX, left + w);
+    maxY = Math.max(maxY, top + h);
   }
 
   return {
