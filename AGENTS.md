@@ -30,16 +30,22 @@ cd web && yarn dev
 
 ## Docs
 
+- [Vision & North Star](docs/vision.md) — direction-setting (aspirational; where the product is going)
 - [Architecture](docs/architecture.md)
 - [Server](docs/server.md)
 - [Web](docs/web.md)
 - [JS/TS Analyzer](docs/analyzer.md)
 - [WebSocket API](docs/websocket-api.md)
 
-## Stories
+## Stories (spec-driven loop)
 
-- [Code Map Layout Strategies](stories/STORY-20260520-code-map-layout-strategies.md)
-- [Homepage Code Map Lenses](stories/STORY-20260514-homepage-code-map-lenses.md)
-- [Change-Focused Review View](stories/STORY-20260501-change-focused-review-view.md)
-- [JS Analyzer Improvement](stories/STORY-20251111-js-analyzer-improvement.md)
-- [Socket.IO Improvements](stories/STORY-20251111-socket-io-improvements.md)
+Implementation stories (specs/handoffs) live in `stories/`, named `STORY-<YYYYMMDD>-<title>.md`.
+
+Non-trivial changes are spec-driven:
+
+1. **Spec first.** Write or extend a story using [`stories/TEMPLATE.md`](stories/TEMPLATE.md) before implementing (`Status: Draft`). A story must carry **acceptance criteria as `- [ ]` checkboxes** and a **"where the code is"** section anchoring to `file:line` — these are what make a spec executable rather than just prose.
+2. **Implement against it.** Set `Status: In progress` and tick boxes `[x]` as each criterion is satisfied.
+3. **Done = every box `[x]` and "How to verify" passes.** Flip to `Status: Shipped` and update the story to match what actually shipped. (Set `Superseded` instead if a later story replaces it.)
+
+Stories sit under [docs/vision.md](docs/vision.md) (the north star); reference the relevant phase/MVP when scoping one.
+
