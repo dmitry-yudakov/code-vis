@@ -718,11 +718,28 @@
 
 .focused-file-node {
   text-align: left;
-  min-width: 220px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.focused-file-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.focused-file-header > .node {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.focused-file-header .change-status-badge {
+  margin-top: 2px;
 }
 
 .focused-declaration-view {
-  min-width: 220px;
+  width: 100%;
+  box-sizing: border-box;
   text-align: left;
 }
 
@@ -734,21 +751,98 @@
 .declaration-node-title {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
   font-size: 0.9rem;
 }
 
-.declaration-node-title span {
+.declaration-node-title strong {
+  word-break: break-word;
+}
+
+.declaration-node-title strong + span {
   color: #52665b;
   font-size: 0.78rem;
 }
 
+.change-status-badge {
+  margin-left: auto;
+  align-self: center;
+  flex-shrink: 0;
+  font-size: 0.64rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid #b8c6bf;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #fff;
+  color: #2d4035;
+}
+
+.change-status-badge.status-added {
+  border-color: #5a9e6a;
+  background: #ecf8ef;
+  color: #1f6b35;
+}
+
+.change-status-badge.status-modified {
+  border-color: #c28a45;
+  background: #fff5e6;
+  color: #6c4315;
+}
+
+.change-status-badge.status-deleted {
+  border-color: #c45a5a;
+  background: #fceeee;
+  color: #8a2727;
+}
+
+.change-status-badge.status-renamed {
+  border-color: #5a7fc4;
+  background: #eef2fc;
+  color: #2f4a8a;
+}
+
 .declaration-node-file {
+  display: flex;
+  align-items: baseline;
   margin-top: 2px;
   color: var(--workbench-muted);
   font-family: 'Fira Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 0.72rem;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.declaration-node-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.55;
+  font-size: 0.92em;
+}
+
+.declaration-node-base {
+  flex: 0 0 auto;
+  color: #314f3f;
+}
+
+.declaration-node-summary {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #243c30;
+}
+
+.declaration-node-cause {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--workbench-muted);
 }
 
 .focused-reasons,
@@ -762,6 +856,10 @@
 .focused-reason-chip,
 .reason-chip {
   display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.72em;
   line-height: 1.2;
   border: 1px solid #b8c6bf;

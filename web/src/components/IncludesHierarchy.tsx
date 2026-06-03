@@ -828,6 +828,7 @@ export const IncludesHierarchy: React.FC<{
             node: { id: decl.id, label: decl.filename },
             isDeleted: false,
           },
+          style: { width: 300 },
           position: {
             x: positioned?.x || 0,
             y: positioned?.y || 0,
@@ -1191,6 +1192,7 @@ export const IncludesHierarchy: React.FC<{
           node,
           isDeleted,
         },
+        ...(focusedInfo ? { style: { width: 250 } } : {}),
         position: { x: positioned?.x || 0, y: positioned?.y || 0 },
         ...connectionPositions[id],
       };
@@ -2365,50 +2367,101 @@ const FileView: React.FC<{ node: Node }> = ({ node }) => (
   <FilenamePrettyView filename={node.label} />
 );
 
-const FocusedFileView: React.FC<{ info: FocusedFileInfo }> = ({ info }) => (
-  <div className="focused-file-node">
-    <FilenamePrettyView filename={info.filename} />
-    <div className="focused-reasons">
-      {info.reasons.map((reason, idx) => (
-        <span
-          key={`${reason.type}-${reason.via || idx}`}
-          className={`focused-reason-chip reason-${reason.type}`}
-          title={reasonLabel(reason, info)}
-        >
-          {reasonLabel(reason, info)}
-        </span>
-      ))}
+const FocusedFileView: React.FC<{ info: FocusedFileInfo }> = ({ info }) => {
+  // `changed` is promoted to the status badge, and `imports-changed` /
+  // `imported-by-changed` just repeat a labeled import edge — drop them.
+  // Keep relationships that the graph doesn't otherwise spell out.
+  const visibleReasons = info.reasons.filter(
+    (reason) =>
+      reason.type === 'related-test' || reason.type === 'function-neighbor'
+  );
+
+  return (
+    <div className="focused-file-node">
+      <div className="focused-file-header">
+        <FilenamePrettyView filename={info.filename} />
+        {info.changeStatus && (
+          <span className={`change-status-badge status-${info.changeStatus}`}>
+            {info.changeStatus}
+          </span>
+        )}
+      </div>
+      {visibleReasons.length > 0 && (
+        <div className="focused-reasons">
+          {visibleReasons.map((reason, idx) => (
+            <span
+              key={`${reason.type}-${reason.via || idx}`}
+              className={`focused-reason-chip reason-${reason.type}`}
+              title={reasonLabel(reason, info)}
+            >
+              {reasonLabel(reason, info)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const FocusedDeclarationView: React.FC<{ info: FocusedDeclarationInfo }> = ({
   info,
-}) => (
-  <div className="focused-declaration-view">
-    <div className="declaration-node-title">
-      <strong>{info.name}</strong>
-      <span>{info.args.length > 0 ? `(${info.args.join(', ')})` : '()'}</span>
-    </div>
-    <div className="declaration-node-file">
-      {info.filename}
-      {info.startLine && info.endLine
-        ? `:${info.startLine}-${info.endLine}`
-        : ''}
-    </div>
-    <div className="focused-reasons">
-      {info.reasons.map((reason, idx) => (
-        <span
-          key={`${reason.type}-${reason.via || idx}`}
-          className={`focused-reason-chip reason-${reason.type}`}
-          title={declarationReasonLabel(reason, info)}
-        >
-          {declarationReasonLabel(reason, info)}
+}) => {
+  // Only reasons not already represented by a drawn edge survive as chips.
+  // `calls-changed` / `called-by-changed` duplicate a labeled arrow, and
+  // `changed` is promoted to the status badge below.
+  const visibleReasons = info.reasons.filter(
+    (reason) => reason.type === 'bridge-between-changes'
+  );
+  const lineRange =
+    info.startLine && info.endLine
+      ? `:${info.startLine}-${info.endLine}`
+      : '';
+  const slash = info.filename.lastIndexOf('/');
+  const dir = slash >= 0 ? info.filename.slice(0, slash + 1) : '';
+  const base = slash >= 0 ? info.filename.slice(slash + 1) : info.filename;
+
+  return (
+    <div className="focused-declaration-view">
+      <div className="declaration-node-title">
+        <strong>{info.name}</strong>
+        <span>{info.args.length > 0 ? `(${info.args.join(', ')})` : '()'}</span>
+        {info.changeStatus && (
+          <span
+            className={`change-status-badge status-${info.changeStatus}`}
+          >
+            {info.changeStatus}
+          </span>
+        )}
+      </div>
+      <div className="declaration-node-file" title={`${info.filename}${lineRange}`}>
+        {dir && <span className="declaration-node-dir">{dir}</span>}
+        <span className="declaration-node-base">
+          {base}
+          {lineRange}
         </span>
-      ))}
+      </div>
+      {info.summary && (
+        <div className="declaration-node-summary">{info.summary}</div>
+      )}
+      {info.causalReason && (
+        <div className="declaration-node-cause">{info.causalReason}</div>
+      )}
+      {visibleReasons.length > 0 && (
+        <div className="focused-reasons">
+          {visibleReasons.map((reason, idx) => (
+            <span
+              key={`${reason.type}-${reason.via || idx}`}
+              className={`focused-reason-chip reason-${reason.type}`}
+              title={declarationReasonLabel(reason, info)}
+            >
+              bridge
+            </span>
+          ))}
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const OverviewDeclarationView: React.FC<{ info: OverviewDeclarationNode }> = ({
   info,

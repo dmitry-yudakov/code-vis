@@ -116,6 +116,9 @@ export interface FocusedDeclarationInfo {
   changeStatus?: ChangedFileStatus;
   startLine?: number;
   endLine?: number;
+  summary?: string; // what changed & why it matters (≤ ~120 chars)
+  causalReason?: string; // this node's role in the change story (≤ ~80 chars)
+  narrativeRank?: number; // 0 = root cause; consumed by Story 2's layout, not this story
 }
 
 export interface FocusedDeclarationCallInfo {
