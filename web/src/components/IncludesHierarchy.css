@@ -716,6 +716,24 @@
   box-shadow: 0 3px 8px rgba(173, 112, 40, 0.14);
 }
 
+/* Per-kind left accent (layered over the role border) so the richer static
+   kinds read at a glance without bespoke per-kind geometry. */
+.react-flow__node-default.decl-kind-class {
+  border-left: 4px solid #6b4fa0;
+}
+
+.react-flow__node-default.decl-kind-method {
+  border-left: 4px solid #2c6f98;
+}
+
+.react-flow__node-default.decl-kind-variable {
+  border-left: 4px solid #b7792e;
+}
+
+.react-flow__node-default.decl-kind-constant {
+  border-left: 4px solid #2f8a6a;
+}
+
 .focused-file-node {
   text-align: left;
   width: 100%;
@@ -804,6 +822,45 @@
   border-color: #5a7fc4;
   background: #eef2fc;
   color: #2f4a8a;
+}
+
+.declaration-kind-badge {
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  padding: 1px 5px;
+  border: 1px solid #c8d4de;
+  background: #eef2f6;
+  color: #3a4a5a;
+}
+
+.declaration-kind-badge.kind-class {
+  border-color: #cfc1ec;
+  background: #efeafb;
+  color: #5a3fa0;
+}
+
+.declaration-kind-badge.kind-method {
+  border-color: #bcd6e6;
+  background: #e7f2f8;
+  color: #235a78;
+}
+
+.declaration-kind-badge.kind-variable {
+  border-color: #e6cfa8;
+  background: #fff4e4;
+  color: #8a5a16;
+}
+
+.declaration-kind-badge.kind-constant {
+  border-color: #bce0cc;
+  background: #e9f7ef;
+  color: #1f6b45;
 }
 
 .declaration-node-file {

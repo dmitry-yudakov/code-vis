@@ -24,6 +24,7 @@ import {
   FunctionCallInfo,
   FunctionDeclarationInfo,
   ChangeSourceRequest,
+  EntityKind,
   FocusedDeclarationInfo,
   FocusedDeclarationReason,
   FocusedFileInfo,
@@ -396,6 +397,58 @@ const declarationReasonLabel = (
   }
 };
 
+// Static entity kinds slot into the existing layout `kind` dimension (no
+// bespoke per-kind geometry); 'function' keeps the legacy 'declaration' kind.
+// The narrow return union is assignable to both CodeLayoutNodeKind and
+// CodeMapScopeNodeKind (which lack each other's extra members).
+type DeclarationNodeKind =
+  | 'declaration'
+  | 'class'
+  | 'method'
+  | 'variable'
+  | 'constant';
+const declarationLayoutKind = (kind?: EntityKind): DeclarationNodeKind => {
+  switch (kind) {
+    case 'class':
+      return 'class';
+    case 'method':
+      return 'method';
+    case 'variable':
+      return 'variable';
+    case 'constant':
+      return 'constant';
+    default:
+      return 'declaration';
+  }
+};
+
+// All entity kinds that render as a code declaration (vs. file/module/test).
+const DECLARATION_NODE_KINDS: ReadonlySet<string> = new Set([
+  'declaration',
+  'class',
+  'method',
+  'variable',
+  'constant',
+]);
+const isDeclarationNodeKind = (kind: string): boolean =>
+  DECLARATION_NODE_KINDS.has(kind);
+
+// Short badge shown on the card for non-function kinds.
+const declarationKindBadge = (kind?: EntityKind): string | null => {
+  switch (kind) {
+    case 'class':
+      return 'class';
+    case 'method':
+      return 'method';
+    case 'variable':
+      return 'let';
+    case 'constant':
+      return 'const';
+    default:
+      return null;
+  }
+};
+
 const uniqueLabels = (items: string[]): string[] => Array.from(new Set(items));
 
 const writeTextToClipboard = async (text: string): Promise<void> => {
@@ -745,6 +798,14 @@ export const IncludesHierarchy: React.FC<{
           focusedDeclarationIds.has(edge.from) &&
           focusedDeclarationIds.has(edge.to)
       );
+      // `declares` edges (class -> method) anchor methods to their class in the
+      // layout; only in-grammar relations between visible entities are drawn.
+      const declaresEdges = (focusedReview.relations || []).filter(
+        (relation) =>
+          relation.kind === 'declares' &&
+          focusedDeclarationIds.has(relation.source) &&
+          focusedDeclarationIds.has(relation.target)
+      );
       const layoutNodes: CodeLayoutNode[] = focusedDeclarations.map((decl) => {
         const isBridge = decl.reasons.some(
           (reason) => reason.type === 'bridge-between-changes'
@@ -752,7 +813,7 @@ export const IncludesHierarchy: React.FC<{
         return {
           id: decl.id,
           label: decl.name,
-          kind: 'declaration',
+          kind: declarationLayoutKind(decl.kind),
           role: decl.isChanged ? 'changed' : isBridge ? 'bridge' : 'context',
           filename: decl.filename,
           startLine: decl.startLine,
@@ -765,18 +826,37 @@ export const IncludesHierarchy: React.FC<{
           )}:${decl.name}:${decl.id}`,
         };
       });
-      const layoutEdges: CodeLayoutEdge[] = declarationEdges.map((edge) => ({
-        id: edge.id,
-        source: edge.from,
-        target: edge.to,
-        kind: edge.reasons.some(
-          (reason) => reason.type === 'bridge-between-changes'
-        )
-          ? 'bridge'
-          : 'calls',
-        label: edge.name,
-        isHeuristic: edge.isHeuristic,
-      }));
+      const layoutEdges: CodeLayoutEdge[] = [
+        ...declarationEdges.map((edge) => ({
+          id: edge.id,
+          source: edge.from,
+          target: edge.to,
+          kind: edge.reasons.some(
+            (reason) => reason.type === 'bridge-between-changes'
+          )
+            ? ('bridge' as const)
+            : ('calls' as const),
+          label: edge.name,
+          isHeuristic: edge.isHeuristic,
+        })),
+        ...declaresEdges.map((relation) => ({
+          id: relation.id,
+          source: relation.source,
+          target: relation.target,
+          kind: 'declares' as const,
+          label: 'declares',
+        })),
+      ];
+      const layoutConnections: GraphConnection[] = [
+        ...declarationEdges.map((edge) => ({
+          source: edge.from,
+          target: edge.to,
+        })),
+        ...declaresEdges.map((relation) => ({
+          source: relation.source,
+          target: relation.target,
+        })),
+      ];
       const layoutResult = layoutCodeGraph({
         strategy: 'review-declarations',
         nodes: layoutNodes,
@@ -784,10 +864,7 @@ export const IncludesHierarchy: React.FC<{
       });
       const connectionPositions = buildConnectionPositions(
         layoutResult.positions,
-        declarationEdges.map((edge) => ({
-          source: edge.from,
-          target: edge.to,
-        }))
+        layoutConnections
       );
       const nodeMetaById = new Map<string, GraphNodeMeta>();
       const initialNodes = focusedDeclarations.map((decl) => {
@@ -802,7 +879,7 @@ export const IncludesHierarchy: React.FC<{
         nodeMetaById.set(decl.id, {
           id: decl.id,
           label: decl.name,
-          kind: 'declaration',
+          kind: declarationLayoutKind(decl.kind),
           filename: decl.filename,
           pos: decl.pos,
           end: decl.end,
@@ -816,13 +893,17 @@ export const IncludesHierarchy: React.FC<{
           canOpenFile: true,
         });
 
+        const roleClass = decl.isChanged
+          ? 'focused-declaration-changed'
+          : isBridge
+            ? 'focused-declaration-bridge'
+            : 'focused-declaration-context';
+
         return {
           id: decl.id,
-          className: decl.isChanged
-            ? 'focused-declaration-node focused-declaration-changed'
-            : isBridge
-              ? 'focused-declaration-node focused-declaration-bridge'
-              : 'focused-declaration-node focused-declaration-context',
+          className: `focused-declaration-node ${roleClass} decl-kind-${declarationLayoutKind(
+            decl.kind
+          )}`,
           data: {
             label: <FocusedDeclarationView info={decl} />,
             node: { id: decl.id, label: decl.filename },
@@ -837,7 +918,7 @@ export const IncludesHierarchy: React.FC<{
         };
       });
 
-      const edgesElements = declarationEdges.map((edge, idx) => {
+      const callEdgeElements = declarationEdges.map((edge, idx) => {
         const isBridge = edge.reasons.some(
           (reason) => reason.type === 'bridge-between-changes'
         );
@@ -857,18 +938,28 @@ export const IncludesHierarchy: React.FC<{
         };
       });
 
-      const connectionEdges: GraphConnection[] = declarationEdges.map((edge) => ({
-        source: edge.from,
-        target: edge.to,
+      const declaresEdgeElements = declaresEdges.map((relation, idx) => ({
+        id: relation.id || `declares-${relation.source}-${relation.target}-${idx}`,
+        markerEnd: { type: MarkerType.Arrow },
+        source: relation.source,
+        target: relation.target,
+        label: 'declares',
+        style: { stroke: '#8ba796', strokeDasharray: '4 4' },
       }));
+
+      const edgesElements = [...callEdgeElements, ...declaresEdgeElements];
 
       return {
         initialNodes: initialNodes as Array<FlowNode<any>>,
         edgesElements,
         nodeMetaById,
-        connectionEdges,
-        asyncLayoutInput: null,
-        asyncLayoutConnections: [],
+        connectionEdges: layoutConnections,
+        asyncLayoutInput: {
+          strategy: 'review-declarations',
+          nodes: layoutNodes,
+          edges: layoutEdges,
+        },
+        asyncLayoutConnections: layoutConnections,
       };
     }
 
@@ -1334,7 +1425,9 @@ export const IncludesHierarchy: React.FC<{
     const files = uniqueLabels(
       nodes.flatMap((node) => (node.filename ? [node.filename] : []))
     );
-    const declarations = nodes.filter((node) => node.kind === 'declaration');
+    const declarations = nodes.filter((node) =>
+      isDeclarationNodeKind(node.kind)
+    );
 
     return {
       scopeId: `${projectionKey}|selected:${selectedNode?.id || ''}`,
@@ -2249,7 +2342,7 @@ export const IncludesHierarchy: React.FC<{
               <div className="details-node-name">
                 {selectedNode.kind === 'module' ? (
                   <div className="module-name">{selectedNode.label}</div>
-                ) : selectedNode.kind === 'declaration' ? (
+                ) : isDeclarationNodeKind(selectedNode.kind) ? (
                   <div className="declaration-name">
                     <strong>{selectedNode.label}</strong>
                     {selectedNode.filename && (
@@ -2420,9 +2513,16 @@ const FocusedDeclarationView: React.FC<{ info: FocusedDeclarationInfo }> = ({
   const dir = slash >= 0 ? info.filename.slice(0, slash + 1) : '';
   const base = slash >= 0 ? info.filename.slice(slash + 1) : info.filename;
 
+  const kindBadge = declarationKindBadge(info.kind);
+
   return (
     <div className="focused-declaration-view">
       <div className="declaration-node-title">
+        {kindBadge && (
+          <span className={`declaration-kind-badge kind-${info.kind}`}>
+            {kindBadge}
+          </span>
+        )}
         <strong>{info.name}</strong>
         <span>{info.args.length > 0 ? `(${info.args.join(', ')})` : '()'}</span>
         {info.changeStatus && (

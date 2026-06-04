@@ -21,6 +21,8 @@ import {
   RelatedReason,
 } from './types';
 import { getAnalyzer } from './analyzers';
+import { createOrdinalAssigner, entityId } from './model/entityId';
+import { buildReviewEntityModel } from './model/reviewModel';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -68,6 +70,9 @@ const parsePorcelainOutput = (output: string): ChangedFileInfo[] => {
 
     const payload = line.slice(3).trim();
     if (!payload) continue;
+
+    // Defensive: skip directory entries (a trailing slash) — never a real file.
+    if (payload.endsWith('/')) continue;
 
     if (payload.includes(' -> ')) {
       const parts = payload.split(' -> ');
@@ -338,9 +343,6 @@ const getLineNumber = (lineStarts: number[], offset: number): number => {
 
   return best + 1;
 };
-
-const focusedDeclarationId = (decl: FunctionDeclarationInfo): string =>
-  `decl:${decl.filename}->${decl.name}:${decl.pos}`;
 
 const focusedDeclarationLabel = (
   decl: Pick<FunctionDeclarationInfo, 'name' | 'filename'>
@@ -649,7 +651,15 @@ export default class Project {
   }
 
   private async getDiffChangeSet(): Promise<ChangeSet> {
-    const output = await this.runGit(['status', '--porcelain']);
+    // `--untracked-files=all` lists every new file individually; without it git
+    // collapses a new file inside a new directory into a single `dir/` entry,
+    // so the real added file never reaches the change set (it would only show
+    // up unmarked, as import context).
+    const output = await this.runGit([
+      'status',
+      '--porcelain',
+      '--untracked-files=all',
+    ]);
     const filesByName = new Map(
       parsePorcelainOutput(output).map((file) => [file.filename, file])
     );
@@ -930,12 +940,21 @@ export default class Project {
       return a.filename.localeCompare(b.filename);
     });
 
+    const { entities, relations } = buildReviewEntityModel({
+      declarations: declarationGraph.declarations,
+      declarationCalls: declarationGraph.declarationCalls,
+      includes: focusedIncludes,
+      files,
+    });
+
     return {
       changeSet,
       files,
       includes: focusedIncludes,
       declarations: declarationGraph.declarations,
       declarationCalls: declarationGraph.declarationCalls,
+      entities,
+      relations,
     };
   }
 
@@ -977,11 +996,33 @@ export default class Project {
     >();
     const declarationsByFileAndName = new Map<string, FunctionDeclarationInfo[]>();
 
+    // The stable entity id is the merge key — pos is NOT part of it (it lives in
+    // location and refreshes each extraction). Ordinals disambiguate genuine
+    // same-(kind,file,container,name) collisions by source order; the declaration
+    // list is already pos-sorted, so a single assigner keyed on those parts is
+    // deterministic across files.
+    const assignOrdinal = createOrdinalAssigner();
+    const idByDecl = new Map<FunctionDeclarationInfo, string>();
+    const declId = (decl: FunctionDeclarationInfo): string => {
+      const existing = idByDecl.get(decl);
+      if (existing) return existing;
+      const kind = decl.kind || 'function';
+      const parts = {
+        kind,
+        file: decl.filename,
+        container: decl.container,
+        name: decl.name,
+      };
+      const id = entityId({ ...parts, ordinal: assignOrdinal(parts) });
+      idByDecl.set(decl, id);
+      return id;
+    };
+
     mappings.forEach(({ content, mapping }) => {
       const lineStarts = buildLineStarts(content);
 
       for (const decl of mapping.functionDeclarations) {
-        const id = focusedDeclarationId(decl);
+        const id = declId(decl);
         allDeclarations.set(id, {
           decl,
           startLine: getLineNumber(lineStarts, decl.pos),
@@ -1001,7 +1042,7 @@ export default class Project {
     const ensureFocusedDeclaration = (
       decl: FunctionDeclarationInfo
     ): FocusedDeclarationInfo => {
-      const id = focusedDeclarationId(decl);
+      const id = declId(decl);
       const existing = focusedDeclarations.get(id);
       if (existing) return existing;
 
@@ -1019,6 +1060,8 @@ export default class Project {
         changeStatus: changeInfo?.status,
         startLine: lineInfo?.startLine,
         endLine: lineInfo?.endLine,
+        kind: decl.kind || 'function',
+        container: decl.container,
       };
       focusedDeclarations.set(id, created);
       return created;
@@ -1083,8 +1126,8 @@ export default class Project {
         const target = lookupDeclaration(targetFilename, call.name);
         if (!target) continue;
 
-        const sourceId = focusedDeclarationId(source);
-        const targetId = focusedDeclarationId(target);
+        const sourceId = declId(source);
+        const targetId = declId(target);
         if (sourceId === targetId) continue;
 
         rawDeclarationCalls.push({

@@ -3,7 +3,11 @@ export type CodeLayoutNodeKind =
   | 'directory'
   | 'file'
   | 'test'
-  | 'declaration';
+  | 'declaration'
+  | 'class'
+  | 'method'
+  | 'variable'
+  | 'constant';
 
 export type CodeLayoutNodeRole =
   | 'seed'

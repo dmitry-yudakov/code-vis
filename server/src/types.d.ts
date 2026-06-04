@@ -36,6 +36,10 @@ export interface FunctionDeclarationInfo {
   pos: number;
   end: number;
   args: string[];
+  /** Owning class/module for methods and class-field arrows (part of the id). */
+  container?: string;
+  /** Static entity kind; defaults to 'function' when absent. */
+  kind?: EntityKind;
 }
 export interface FileMapping {
   includes: FileIncludeInfo[];
@@ -47,6 +51,54 @@ export interface FileMapDetailed {
   filename?: string;
   content: string;
   mapping: FileMapping;
+}
+
+/**
+ * Shared Entity/Relation model — a minimal, forward-compatible subset of the
+ * vision's illustrative shape (docs/vision.md#L148). Only the fields M1 needs;
+ * deferred fields (`confidence`, `traitOrigins`, `changePhase`, `description`, …)
+ * are omitted now but the shape is a strict subset so they add cleanly later.
+ *
+ * Duplicated verbatim in web/src/types.d.ts — keep the two in sync (AGENTS.md).
+ */
+export type EntityKind =
+  | 'file'
+  | 'class'
+  | 'function'
+  | 'method'
+  | 'variable'
+  | 'constant';
+export type RelationKind = 'contains' | 'declares' | 'imports' | 'calls';
+export type Provenance = 'static'; // only value emitted in M1; widened later
+export type ChangeStatus = 'added' | 'modified' | 'deleted'; // diff-driven
+
+export interface SourceLocation {
+  filename: string;
+  pos?: number;
+  end?: number;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface Entity {
+  id: string; // entityId(...) — the merge key; pos NOT included
+  kind: EntityKind;
+  name: string;
+  container?: string; // owning class/module; part of the id
+  location?: SourceLocation; // pos lives here, refreshed each extraction
+  origin: Provenance;
+  traits?: Record<string, unknown>;
+  content?: string; // lazy code slice (reuses Story 1 card rendering)
+  changeStatus?: ChangeStatus;
+}
+
+export interface Relation {
+  id: string;
+  kind: RelationKind;
+  source: string; // entity id
+  target: string; // entity id
+  origin: Provenance;
+  changeStatus?: ChangeStatus;
 }
 
 export type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
@@ -124,6 +176,11 @@ export interface FocusedDeclarationInfo {
   changeStatus?: ChangedFileStatus;
   startLine?: number;
   endLine?: number;
+  kind?: EntityKind; // class/function/method/variable/constant (defaults to function)
+  container?: string; // owning class for methods/class-field arrows
+  summary?: string; // what changed & why it matters (≤ ~120 chars)
+  causalReason?: string; // this node's role in the change story (≤ ~80 chars)
+  narrativeRank?: number; // 0 = root cause; consumed by Story 2's layout, not this story
 }
 
 export interface FocusedDeclarationCallInfo {
@@ -144,13 +201,24 @@ export interface FocusedReviewMap {
   includes: FileIncludeInfo[];
   declarations: FocusedDeclarationInfo[];
   declarationCalls: FocusedDeclarationCallInfo[];
+  /** Richer static Entity/Relation model (M1); additive over the legacy fields. */
+  entities?: Entity[];
+  relations?: Relation[];
 }
 
 export type CodeMapLens = 'overview' | 'review' | 'feature' | 'impact';
 
 export type CodeMapScopeGranularity = 'files' | 'declarations';
 
-export type CodeMapScopeNodeKind = 'file' | 'module' | 'declaration' | 'test';
+export type CodeMapScopeNodeKind =
+  | 'file'
+  | 'module'
+  | 'declaration'
+  | 'test'
+  | 'class'
+  | 'method'
+  | 'variable'
+  | 'constant';
 
 export interface CodeMapScopeNode {
   id: string;

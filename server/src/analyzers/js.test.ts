@@ -272,6 +272,18 @@ describe('Includes using "require"', () => {
 });
 
 describe('File mapping', () => {
+  // Declarations are now a mixed, pos-sorted list of function/method/class/
+  // variable/constant entities, so look them up by name rather than by index.
+  const declBody = (
+    res: ReturnType<typeof jsAnalyzer.extractFileMapping>,
+    content: string,
+    name: string
+  ) => {
+    const decl = res.functionDeclarations.find((d) => d.name === name);
+    if (!decl) throw new Error(`expected declaration named ${name}`);
+    return content.slice(decl.pos, decl.end);
+  };
+
   test('regular functions', () => {
     const content = `
 const somevar = 42;
@@ -286,10 +298,7 @@ const c = 3 + gaga(12) + FEFE(gaga(33));
     const res = jsAnalyzer.extractFileMapping('src/dir/a.js', content);
     DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
-    const funcBody = content.slice(
-      res.functionDeclarations[0].pos,
-      res.functionDeclarations[0].end
-    );
+    const funcBody = declBody(res, content, 'gaga');
     DEBUG && console.log(`|${funcBody}|`);
     expect(funcBody).toContain('function gaga(a) {\n  return a + a;\n}');
   });
@@ -310,19 +319,13 @@ yaga(1,2);
     DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
-    const funcBody1 = content.slice(
-      res.functionDeclarations[0].pos,
-      res.functionDeclarations[0].end
-    );
+    const funcBody1 = declBody(res, content, 'maga');
     DEBUG && console.log(`|${funcBody1}|`);
     expect(funcBody1).toContain(
       'const maga = (a: string, b: string) => a + b;'
     );
     expect(funcBody1).not.toContain('yaga');
-    const funcBody2 = content.slice(
-      res.functionDeclarations[1].pos,
-      res.functionDeclarations[1].end
-    );
+    const funcBody2 = declBody(res, content, 'yaga');
     DEBUG && console.log(`|${funcBody2}|`);
     expect(funcBody2).toContain(
       'const yaga = (a: number, b: any) => {\n  const c = a + b;\n  return c * 2;\n}'
@@ -342,18 +345,12 @@ const maga = (a: string, b: string) => a + b,
     DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
-    const funcBody1 = content.slice(
-      res.functionDeclarations[0].pos,
-      res.functionDeclarations[0].end
-    );
+    const funcBody1 = declBody(res, content, 'maga');
     DEBUG && console.log(`|${funcBody1}|`);
     expect(funcBody1).toContain('maga = (a: string, b: string) => a + b');
     expect(funcBody1).not.toContain('yaga');
     expect(funcBody1).not.toContain('const');
-    const funcBody2 = content.slice(
-      res.functionDeclarations[1].pos,
-      res.functionDeclarations[1].end
-    );
+    const funcBody2 = declBody(res, content, 'yaga');
     DEBUG && console.log(`|${funcBody2}|`);
     expect(funcBody2).toContain(
       'yaga = (a: number, b: any) => {\n    let c = a + b;\n    return c * 2;\n  }'
@@ -368,7 +365,7 @@ class CL {
   constructor() {
     super();
   };
-  
+
   propFunc = (a) => a;
 
   methodFunc(a) {
@@ -383,18 +380,22 @@ cl.methodFunc(12);
     DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
-    const funcBody1 = content.slice(
-      res.functionDeclarations[0].pos,
-      res.functionDeclarations[0].end
-    );
+    const funcBody1 = declBody(res, content, 'propFunc');
     DEBUG && console.log(`|${funcBody1}|`);
     expect(funcBody1).toContain('propFunc = (a) => a;');
-    const funcBody2 = content.slice(
-      res.functionDeclarations[1].pos,
-      res.functionDeclarations[1].end
-    );
+    const funcBody2 = declBody(res, content, 'methodFunc');
     DEBUG && console.log(`|${funcBody2}|`);
     expect(funcBody2).toContain('methodFunc(a) {\n    return a;\n  }');
+
+    // The class itself is now a first-class entity and owns its methods.
+    const classEntity = res.functionDeclarations.find((d) => d.name === 'CL');
+    expect(classEntity?.kind).toBe('class');
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'propFunc')
+    ).toMatchObject({ kind: 'method', container: 'CL' });
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'methodFunc')
+    ).toMatchObject({ kind: 'method', container: 'CL' });
   });
 
   test('async/await functions', () => {
@@ -416,33 +417,18 @@ maga(1221);
     DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
-    const funcBody1 = content.slice(
-      res.functionDeclarations[0].pos,
-      res.functionDeclarations[0].end
+    expect(declBody(res, content, 'gaga')).toContain(
+      'function gaga(a) {\n  return 42;\n}'
     );
-    DEBUG && console.log(`|${funcBody1}|`);
-    expect(funcBody1).toContain('function gaga(a) {\n  return 42;\n}');
-
-    const funcBody2 = content.slice(
-      res.functionDeclarations[1].pos,
-      res.functionDeclarations[1].end
+    expect(declBody(res, content, 'agaga')).toContain(
+      'async function agaga(a) {\n  return 42;\n}'
     );
-    DEBUG && console.log(`|${funcBody2}|`);
-    expect(funcBody2).toContain('async function agaga(a) {\n  return 42;\n}');
-
-    const funcBody3 = content.slice(
-      res.functionDeclarations[2].pos,
-      res.functionDeclarations[2].end
+    expect(declBody(res, content, 'amaga')).toContain(
+      'const amaga = async (a) => 42;'
     );
-    DEBUG && console.log(`|${funcBody3}|`);
-    expect(funcBody3).toContain('const amaga = async (a) => 42;');
-
-    const funcBody4 = content.slice(
-      res.functionDeclarations[3].pos,
-      res.functionDeclarations[3].end
+    expect(declBody(res, content, 'maga')).toContain(
+      'const maga = (a) => 42;'
     );
-    DEBUG && console.log(`|${funcBody4}|`);
-    expect(funcBody4).toContain('const maga = (a) => 42;');
   });
 
   test('async/await functions in class', () => {
@@ -465,35 +451,16 @@ await cl.methodFuncAsync(12);
     DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
-    const funcBody1 = content.slice(
-      res.functionDeclarations[0].pos,
-      res.functionDeclarations[0].end
-    );
-    DEBUG && console.log(`|${funcBody1}|`);
-    expect(funcBody1).toContain('propFunc = (a) => a;');
-
-    const funcBody2 = content.slice(
-      res.functionDeclarations[1].pos,
-      res.functionDeclarations[1].end
-    );
-    DEBUG && console.log(`|${funcBody2}|`);
-    expect(funcBody2).toContain(
+    expect(declBody(res, content, 'propFunc')).toContain('propFunc = (a) => a;');
+    expect(declBody(res, content, 'methodFuncAsync')).toContain(
       'async methodFuncAsync(a) {\n    return a;\n  }'
     );
-
-    const funcBody3 = content.slice(
-      res.functionDeclarations[2].pos,
-      res.functionDeclarations[2].end
+    expect(declBody(res, content, 'propFuncAsync')).toContain(
+      'propFuncAsync = async (a) => a;'
     );
-    DEBUG && console.log(`|${funcBody3}|`);
-    expect(funcBody3).toContain('propFuncAsync = async (a) => a;');
-
-    const funcBody4 = content.slice(
-      res.functionDeclarations[3].pos,
-      res.functionDeclarations[3].end
+    expect(declBody(res, content, 'methodFunc')).toContain(
+      'methodFunc(a) {\n    return a;\n  }'
     );
-    DEBUG && console.log(`|${funcBody4}|`);
-    expect(funcBody4).toContain('methodFunc(a) {\n    return a;\n  }');
   });
 
   test('deep binary expressions do not overflow traversal', () => {
@@ -508,11 +475,13 @@ await cl.methodFuncAsync(12);
       res = jsAnalyzer.extractFileMapping('src/dir/a.tsx', content);
     }).not.toThrow();
 
-    expect(res).toEqual({
-      includes: [],
-      functionCalls: [],
-      functionDeclarations: [],
-    });
+    // The module-level const is now captured as a `constant` entity; the deep
+    // initializer still must not overflow traversal and yields no calls.
+    expect(res?.includes).toEqual([]);
+    expect(res?.functionCalls).toEqual([]);
+    expect(res?.functionDeclarations).toEqual([
+      expect.objectContaining({ name: 'value', kind: 'constant' }),
+    ]);
   });
 
   test('jsx', () => {
@@ -538,22 +507,105 @@ export const History = ({ history }: { history: any[][] }) => {
     DEBUG && console.log(content, JSON.stringify(res, null, 2));
     expect(res).toMatchSnapshot();
 
-    const funcBody1 = content.slice(
-      res.functionDeclarations[0].pos,
-      res.functionDeclarations[0].end
-    );
+    const funcBody1 = declBody(res, content, 'History');
     DEBUG && console.log(`|${funcBody1}|`);
     expect(funcBody1).toContain('export const History = ({ history }:');
     expect(funcBody1).toContain('<div');
     expect(funcBody1).toContain('</div>');
-    const funcBody2 = content.slice(
-      res.functionDeclarations[1].pos,
-      res.functionDeclarations[1].end
-    );
+    const funcBody2 = declBody(res, content, 'onClick');
     DEBUG && console.log(`|${funcBody2}|`);
     expect(funcBody2).toEqual(
       "const onClick = () => {\n    alert('CLICK');\n  }"
     );
+  });
+});
+
+describe('Static entity kinds (M1)', () => {
+  test('emits class, method (with container), and a declares-able pairing', () => {
+    const content = `
+export class Repo {
+  getUser(id) {
+    return id;
+  }
+  save = (row) => row;
+}
+`;
+    const res = jsAnalyzer.extractFileMapping('src/db.ts', content);
+
+    const repo = res.functionDeclarations.find((d) => d.name === 'Repo');
+    expect(repo).toMatchObject({ kind: 'class' });
+    expect(repo?.container).toBeUndefined();
+
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'getUser')
+    ).toMatchObject({ kind: 'method', container: 'Repo' });
+    // Class-field arrows are methods too, via one parent hop.
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'save')
+    ).toMatchObject({ kind: 'method', container: 'Repo' });
+  });
+
+  test('same-named method in two classes keeps its own container', () => {
+    const content = `
+class A {
+  run() {}
+}
+class B {
+  run() {}
+}
+`;
+    const res = jsAnalyzer.extractFileMapping('src/two.ts', content);
+    const runs = res.functionDeclarations.filter((d) => d.name === 'run');
+    expect(runs.map((d) => d.container).sort()).toEqual(['A', 'B']);
+  });
+
+  test('module-level const/let/var become constant/variable; locals are excluded', () => {
+    const content = `
+export const API_BASE = 'http://localhost';
+let counter = 0;
+var legacy = true;
+
+function compute() {
+  const localOnly = 1;
+  let alsoLocal = 2;
+  return localOnly + alsoLocal;
+}
+`;
+    const res = jsAnalyzer.extractFileMapping('src/config.ts', content);
+
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'API_BASE')
+    ).toMatchObject({ kind: 'constant' });
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'counter')
+    ).toMatchObject({ kind: 'variable' });
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'legacy')
+    ).toMatchObject({ kind: 'variable' });
+
+    // Locals inside the function body must not flood the graph.
+    expect(
+      res.functionDeclarations.some((d) => d.name === 'localOnly')
+    ).toBe(false);
+    expect(
+      res.functionDeclarations.some((d) => d.name === 'alsoLocal')
+    ).toBe(false);
+  });
+
+  test('module-level arrow/function consts stay functions, not variables', () => {
+    const content = `
+export const handler = () => 42;
+const namedFn = function () { return 1; };
+`;
+    const res = jsAnalyzer.extractFileMapping('src/h.ts', content);
+
+    expect(
+      res.functionDeclarations.find((d) => d.name === 'handler')
+    ).toMatchObject({ kind: 'function' });
+    // function-expression consts are neither variable nor (today) a function.
+    expect(
+      res.functionDeclarations.some((d) => d.name === 'namedFn')
+    ).toBe(false);
   });
 });
 

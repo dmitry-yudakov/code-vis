@@ -186,6 +186,127 @@ describe('Focused review mapping', () => {
     }
   });
 
+  test('marks a new file inside a new directory as added (not collapsed)', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
+
+    try {
+      writeProjectFile(
+        root,
+        'app.ts',
+        "import { child } from './newdir/child';\n\nexport function app() {\n  return child();\n}\n"
+      );
+
+      runGit(root, ['init']);
+      runGit(root, ['config', 'user.email', 'test@example.com']);
+      runGit(root, ['config', 'user.name', 'Test User']);
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'initial']);
+
+      // A brand-new file in a brand-new, still-untracked directory: git would
+      // otherwise collapse this to a single `newdir/` entry in `status`.
+      fs.mkdirSync(path.join(root, 'newdir'));
+      writeProjectFile(
+        root,
+        'newdir/child.ts',
+        'export function child() {\n  return 1;\n}\n'
+      );
+
+      const project = new Project(root, { includeMask: '**/*.ts' });
+      const result = await project.handleCommandFocusedReview({ mode: 'diff' });
+
+      const child = result.payload.changeSet.files.find(
+        (file) => file.filename === 'newdir/child.ts'
+      );
+      expect(child?.status).toBe('added');
+      // No phantom directory entry leaks into the change set.
+      expect(
+        result.payload.changeSet.files.some((file) =>
+          file.filename.endsWith('/')
+        )
+      ).toBe(false);
+      // The real file is marked changed/added at the focused-file level too.
+      expect(
+        result.payload.files.find(
+          (file) => file.filename === 'newdir/child.ts'
+        )
+      ).toMatchObject({ isChanged: true, changeStatus: 'added' });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('emits class/method/constant entities and a declares relation', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
+
+    try {
+      writeProjectFile(root, 'seed.ts', 'export const seed = 1;\n');
+
+      runGit(root, ['init']);
+      runGit(root, ['config', 'user.email', 'test@example.com']);
+      runGit(root, ['config', 'user.name', 'Test User']);
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'initial']);
+
+      writeProjectFile(
+        root,
+        'repo.ts',
+        "export const API_BASE = 'http://localhost';\n\nexport class Repo {\n  getUser(id) {\n    return id;\n  }\n}\n"
+      );
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'add repo']);
+
+      const project = new Project(root, { includeMask: '**/*.ts' });
+      const result = await project.handleCommandFocusedReview({
+        mode: 'commit',
+        ref: 'HEAD',
+      });
+
+      const entities = result.payload.entities || [];
+      const relations = result.payload.relations || [];
+
+      const repoClass = entities.find(
+        (entity) => entity.kind === 'class' && entity.name === 'Repo'
+      );
+      const getUser = entities.find(
+        (entity) => entity.kind === 'method' && entity.name === 'getUser'
+      );
+      const apiBase = entities.find(
+        (entity) => entity.kind === 'constant' && entity.name === 'API_BASE'
+      );
+
+      // Ids follow the settled scheme (kind:file#container.name, no pos).
+      expect(repoClass?.id).toBe('class:repo.ts#Repo');
+      expect(getUser?.id).toBe('method:repo.ts#Repo.getUser');
+      expect(getUser?.container).toBe('Repo');
+      expect(apiBase?.id).toBe('constant:repo.ts#API_BASE');
+
+      // A file entity anchors the new declarations.
+      expect(
+        entities.some(
+          (entity) =>
+            entity.kind === 'file' && entity.location?.filename === 'repo.ts'
+        )
+      ).toBe(true);
+
+      // Class declares its method; relation ids derive from endpoint ids.
+      expect(
+        relations.some(
+          (relation) =>
+            relation.kind === 'declares' &&
+            relation.source === repoClass?.id &&
+            relation.target === getUser?.id
+        )
+      ).toBe(true);
+
+      // Change status stays diff-driven (the file is added -> entities added).
+      expect(repoClass?.changeStatus).toBe('added');
+      expect(getUser?.changeStatus).toBe('added');
+      expect(apiBase?.changeStatus).toBe('added');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('lists recent commits from the current branch', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
 

@@ -444,12 +444,31 @@ while deferring its most expensive and uncertain part. It validates:
 2. *An LLM can make a map more comprehensible than a geometry engine alone* — the real bet,
    isolated by spending the LLM **only on arrangement**, not extraction.
 
-**Surface:** the **Review** lens (diff / commit). Lowest-risk, highest-reuse — the slice is
-already built server-side, the lens is the most developed, and shipped Story 1 already renders
-richer cards. **Prerequisite:** the arrangement pass needs an LLM client, so standing up
-`server/src/llm/` (Story 2's client) is the MVP's first build step — Story 2 is not optional
+These are **two independent bets**, and the MVP ships them as **two milestones**, each shippable on
+its own. M1 has no LLM at all, so it is unblocked by — and proves out the model under — the
+LLM work in M2.
+
+- **Milestone 1 — richer static model, rendered via elk** (proves bet #1; zero LLM). The
+  `Entity`/`Relation` model, the entity identity scheme, and the new static kinds, rendered in the
+  Review lens via elk. This is the "intermediate shippable" below, promoted to its own milestone.
+  Owned by [Story 3](../stories/STORY-20260603-static-entity-relation-model.md).
+- **Milestone 2 — LLM client + arrangement pass** (proves bet #2; the real bet). Stands up
+  `server/src/llm/` (Story 2's client, unchanged) and adds the LLM arrangement pass on top of M1's
+  model. A later story.
+
+**Surface (both milestones):** the **Review** lens (diff / commit). Lowest-risk, highest-reuse —
+the slice is already built server-side, the lens is the most developed, and shipped Story 1 already
+renders richer cards. **M2 prerequisite:** the arrangement pass needs an LLM client, so standing up
+`server/src/llm/` (Story 2's client) is M2's first build step — Story 2's client is not optional
 background, it is a dependency. The arrangement pass then sits beside the annotate pass Story 2
 describes.
+
+**Note on Story 2's fate:** Story 2 splits into three parts with three fates. Its **LLM client**
+(`server/src/llm/`) survives unchanged into M2. Its **annotation pass** (`summary`/`causalReason`)
+survives, generalized, as the M2 cards (step 6). Its **`narrativeRank` + horizontal-spine rerank**
+is **superseded** — the arrangement layer promotes it from one ordering axis to a full `Arrangement`
+spec (regions + visibility + order + emphasis), so the spine-rerank is not built as written, and
+`narrativeRank` itself becomes dead type drift to drop.
 
 **Scope:**
 
@@ -457,10 +476,14 @@ describes.
   representation. **In-memory only — no durable persistence store yet** (arrangements may still
   be cached in-memory per session; that is caching, not the persistence phase). Populated from
   static analysis only.
-- **New structures — static, pinned small** (resist scope creep): `class` + `method`,
-  module-level / exported `variable` + `constant`, and statically-detected `api-endpoint`
-  (route registrations) and `api-call` (`fetch` / axios) entities — **left unlinked** (the
-  cross-boundary `consumes` edge is the part that needs LLM/heuristics; defer it).
+- **New structures — static, pinned small** (resist scope creep). **M1:** `class` + `method`
+  (methods carry their owning `container`), module-level / exported `variable` + `constant`, with
+  in-grammar relations only (`contains` / `declares` / `imports` / `calls`). **M2 (deferred):**
+  statically-detected `api-endpoint` (route registrations) and `api-call` (`fetch` / axios)
+  entities. These were pulled out of M1 deliberately: rendered *unlinked* they are just two more
+  floating node kinds (the interesting part is matching a call to its endpoint, which no grammar
+  resolves — see below), and they are the largest net-new analyzer effort, so they land in M2 right
+  where the arrangement demo needs them.
 - **Arrangement — one LLM pass.** Input: the review slice (entity names / kinds / paths).
   Output: an `Arrangement` spec (regions, initial visibility, order, emphasis) that **elk
   realizes within constraints**. This is Story 2's `narrativeRank` generalized from one axis to
@@ -483,8 +506,10 @@ describes.
   server route it hits.
 - **Content + description — pure reuse** of Story 1/2 cards.
 
-**Intermediate shippable:** the richer static model renders (via elk) before the arrangement
-pass exists — a richer diagram is value on its own; arrangement layers on top.
+**Intermediate shippable = Milestone 1:** the richer static model renders (via elk) before the
+arrangement pass exists — a richer diagram is value on its own; arrangement layers on top. This is
+no longer just an "intermediate" — it is M1, owned by
+[Story 3](../stories/STORY-20260603-static-entity-relation-model.md).
 
 **Deferred:** LLM extraction / matching, the persistence store, the change loop, multi-modal,
 and the Feature / Impact lenses.
@@ -539,7 +564,8 @@ alternatives to it:
 | [homepage-code-map-lenses](../stories/STORY-20260514-homepage-code-map-lenses.md) | The lens shell and "editing/AI readiness" groundwork. Closest existing sketch of the model (`CodeMapNode`, reasons, `CodeMapScope`). |
 | [change-focused-review-view](../stories/STORY-20260501-change-focused-review-view.md) | The diff/PR/commit slice and the "reliability boundary" — direct ancestor of `origin`/provenance. |
 | [code-map-layout-strategies](../stories/STORY-20260520-code-map-layout-strategies.md) | The **algorithmic** arrangement source (geometry engines) and the built-in **user-defined** source (manual placement, `Reset layout`) — both under the arrangement layer. Keys off general `kind`/`role` so new kinds place automatically. |
-| [llm-review-annotation](../stories/STORY-20260602-llm-review-annotation.md) (Story 2) | **Specifies (not yet built)** the first LLM integration — the foundation the multi-source extractor will reuse. Its `narrativeRank` is also the first (planned) narrow **LLM-arrangement** signal, generalized by the arrangement layer. |
+| [static-entity-relation-model](../stories/STORY-20260603-static-entity-relation-model.md) (Story 3) | **MVP Milestone 1.** The `Entity`/`Relation` model, the entity identity / merge-key scheme, and the new static kinds (`class`/`method`/`variable`/`constant`), rendered via elk. Proves bet #1; zero LLM. The concrete first build step. |
+| [llm-review-annotation](../stories/STORY-20260602-llm-review-annotation.md) (Story 2) | **Splits three ways (see [MVP](#mvp)).** Its **LLM client** survives unchanged into M2; its **annotation pass** survives, generalized, as M2 cards; its **`narrativeRank`/spine-rerank is superseded** by the arrangement layer and not built as written. |
 | [review-card-declutter](../stories/STORY-20260602-review-card-declutter.md) (Story 1) | **Shipped.** Per-item content + description UI — the seed of step 6. |
 
 ---
@@ -562,3 +588,17 @@ alternatives to it:
    invalidation, and how much geometry the LLM specifies vs. delegates to the engine.
 8. **Merging arrangements** — how do user edits compose with algorithmic and LLM arrangements
    (precedence, partial overrides, what a reset reverts to)?
+9. **User-asserted & learned cross-boundary connections.** The hard edges — `consumes`
+   (client↔server), GraphQL operation→resolver, socket.io `emit`→listener — span frameworks,
+   languages, and dynamic values (templated URLs, base paths, event-name strings), so no single
+   grammar resolves them and even static heuristics become per-pairing whack-a-mole. Beyond the
+   `llm`-inferred edge (step 3), a strong answer is **`origin: 'user'`**: the user asserts the
+   non-obvious edge once (a trusted, no-confidence-discount link), and those assertions become
+   **generalization signal** — either a learned static pattern ("in *this* repo, `api.get(x)` from
+   `client/api.ts` maps to `server/routes/*`") or **LLM memory** (assertions as project-convention
+   few-shot the extractor consults). This turns "match any client to any server" (intractable) into
+   "the user resolves the few non-obvious ones, the system generalizes the rest," and it fits both
+   provenance honesty (user edges trusted, learned edges confidence-scored) and the change-loop's
+   `intent` concept. Not MVP; the long-term answer to the connection problem. Open: where assertions
+   are stored, how they generalize (static rule vs LLM memory), and how a learned edge's confidence
+   is surfaced.

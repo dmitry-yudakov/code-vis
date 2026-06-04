@@ -247,23 +247,28 @@ const extractFunctionDeclarations = (
   filename: string,
   sourceFile: ts.SourceFile
 ): FunctionDeclarationInfo[] => {
-  const funcs = searchFor(sourceFile, SyntaxKind.FunctionDeclaration).map(
-    (node) => {
-      const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
-      return {
-        name: node.name.escapedText,
-        filename,
-        pos: node.pos + leadingTriviaWidth,
-        end: node.end,
-        args: node.parameters.map((p: any) => {
-          // console.log('Func argument:', p);
-          return p.name.escapedText;
-        }),
-      };
-    }
-  );
+  const funcs: FunctionDeclarationInfo[] = searchFor(
+    sourceFile,
+    SyntaxKind.FunctionDeclaration
+  ).map((node) => {
+    const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
+    return {
+      name: node.name.escapedText,
+      filename,
+      pos: node.pos + leadingTriviaWidth,
+      end: node.end,
+      args: node.parameters.map((p: any) => {
+        // console.log('Func argument:', p);
+        return p.name.escapedText;
+      }),
+      kind: 'function' as const,
+    };
+  });
 
-  const arrowFuncs = searchFor(sourceFile, SyntaxKind.ArrowFunction)
+  const arrowFuncs: FunctionDeclarationInfo[] = searchFor(
+    sourceFile,
+    SyntaxKind.ArrowFunction
+  )
     .filter((node) => {
       // console.log('Arrow node', node);
       // console.log('Arrow node parent', node.parent);
@@ -285,6 +290,14 @@ const extractFunctionDeclarations = (
         : node.parent;
       const leadingTriviaWidth =
         furthestRelevantParentNode.getLeadingTriviaWidth?.() || 0;
+      // A class-field arrow (`foo = () => {}`) is a method of its owning class:
+      // node.parent is the PropertyDeclaration, node.parent.parent the class.
+      const isClassFieldArrow =
+        node.parent.kind === SyntaxKind.PropertyDeclaration &&
+        node.parent.parent?.kind === SyntaxKind.ClassDeclaration;
+      const container = isClassFieldArrow
+        ? node.parent.parent.name?.escapedText
+        : undefined;
       // console.log({
       //   isSoleDeclaration,
       //   leadingTriviaWidth,
@@ -299,13 +312,19 @@ const extractFunctionDeclarations = (
           // console.log('Func argument:', p);
           return p.name.escapedText;
         }),
+        kind: isClassFieldArrow ? ('method' as const) : ('function' as const),
+        ...(container ? { container } : {}),
       };
     });
 
-  const methods = searchFor(sourceFile, SyntaxKind.MethodDeclaration)
+  const methods: FunctionDeclarationInfo[] = searchFor(
+    sourceFile,
+    SyntaxKind.MethodDeclaration
+  )
     .filter((node) => {
       // console.log('Arrow node', node);
       // console.log('Arrow node parent', node.parent);
+      // node.parent is the owning class; its name is free at this point.
       if (node.parent?.name?.escapedText) return true;
       console.log('Unexpected method declaration:', node);
     })
@@ -320,10 +339,78 @@ const extractFunctionDeclarations = (
           // console.log('Func argument:', p);
           return p.name.escapedText;
         }),
+        kind: 'method' as const,
+        container: node.parent.name.escapedText,
       };
     });
 
-  return [...funcs, ...arrowFuncs, ...methods].sort((l, r) => l.pos - r.pos);
+  // Named class declarations only — unnamed class expressions stay out, matching
+  // today's coverage boundary (mirrors the `node.parent?.name` guard above).
+  const classes: FunctionDeclarationInfo[] = searchFor(
+    sourceFile,
+    SyntaxKind.ClassDeclaration
+  )
+    .filter((node) => {
+      if (node.name?.escapedText) return true;
+      console.log('Ignore unnamed class declaration');
+    })
+    .map((node) => {
+      const leadingTriviaWidth = node.getLeadingTriviaWidth?.() || 0;
+      return {
+        name: node.name.escapedText,
+        filename,
+        pos: node.pos + leadingTriviaWidth,
+        end: node.end,
+        args: [],
+        kind: 'class' as const,
+      };
+    });
+
+  const variables = extractModuleVariables(filename, sourceFile);
+
+  return [...funcs, ...arrowFuncs, ...methods, ...classes, ...variables].sort(
+    (l, r) => l.pos - r.pos
+  );
+};
+
+// Module-level `const`/`let`/`var` only — pinned to top-of-module scope to keep
+// locals out of the graph. Arrow/function initializers are skipped here because
+// they are already captured as `function`/`method` entities above.
+const extractModuleVariables = (
+  filename: string,
+  sourceFile: ts.SourceFile
+): FunctionDeclarationInfo[] => {
+  const variables: FunctionDeclarationInfo[] = [];
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+
+    const { declarationList } = statement;
+    const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0;
+    const kind = isConst ? ('constant' as const) : ('variable' as const);
+    const isSole = declarationList.declarations.length === 1;
+
+    for (const declaration of declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue; // skip destructuring patterns
+      const init = declaration.initializer;
+      if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+        continue; // captured as a function/method entity
+      }
+
+      const targetNode = isSole ? statement : declaration;
+      const leadingTriviaWidth = targetNode.getLeadingTriviaWidth?.() || 0;
+      variables.push({
+        name: declaration.name.escapedText as string,
+        filename,
+        pos: targetNode.pos + leadingTriviaWidth,
+        end: targetNode.end,
+        args: [],
+        kind,
+      });
+    }
+  }
+
+  return variables;
 };
 
 type ReceiverKind =

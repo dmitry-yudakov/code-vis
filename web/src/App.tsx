@@ -341,6 +341,13 @@ const App: React.FC = () => {
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
   const activeProjectIdRef = useRef<string | null>(null);
 
+  console.log('App rendered', {
+    activeProjectId: activeProject?.id,
+    projectMap,
+    filesMappings,
+    projects,
+  });
+
   const requestFileMap = useCallback(
     async (filename: string, includeRelated = false) => {
       const data = await projectApi.getFileMap(filename, includeRelated);
@@ -365,8 +372,9 @@ const App: React.FC = () => {
   const applyProjectList = useCallback((projectList: ProjectListResponse) => {
     const nextProjects = projectList.projects || [];
     const nextActiveProject =
-      nextProjects.find((project) => project.id === projectList.activeProjectId) ||
-      null;
+      nextProjects.find(
+        (project) => project.id === projectList.activeProjectId
+      ) || null;
 
     activeProjectIdRef.current = nextActiveProject?.id || null;
     setProjects(nextProjects);
