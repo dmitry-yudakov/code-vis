@@ -857,6 +857,11 @@ export default class Project {
     const changedFiles = new Set<string>();
 
     for (const changed of changeSet.files) {
+      // When tests are excluded, drop changed test files entirely: they don't
+      // become nodes and don't pull in test-only context. Otherwise the toggle
+      // would leave the changed test node visible (just stripped of its
+      // related-test chip), which reads as an empty, half-hidden node.
+      if (!includeTests && isTestFile(changed.filename)) continue;
       changedFiles.add(changed.filename);
       const info = ensureFocusedFile(changed.filename);
       info.isChanged = true;

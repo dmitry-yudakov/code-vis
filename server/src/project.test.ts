@@ -136,6 +136,76 @@ describe('Focused review mapping', () => {
     }
   });
 
+  test('hides changed test files when includeTests is off', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
+
+    try {
+      writeProjectFile(
+        root,
+        'subject.ts',
+        'export function subject() {\n  return 1;\n}\n'
+      );
+      writeProjectFile(
+        root,
+        'subject.test.ts',
+        "import { subject } from './subject';\n\ntest('subject', () => {\n  expect(subject()).toBe(1);\n});\n"
+      );
+
+      runGit(root, ['init']);
+      runGit(root, ['config', 'user.email', 'test@example.com']);
+      runGit(root, ['config', 'user.name', 'Test User']);
+      runGit(root, ['add', '.']);
+      runGit(root, ['commit', '-m', 'initial']);
+
+      // Change both the subject AND its test, so the test file is itself part
+      // of the changeset (not merely a related test).
+      writeProjectFile(
+        root,
+        'subject.ts',
+        'export function subject() {\n  return 2;\n}\n'
+      );
+      writeProjectFile(
+        root,
+        'subject.test.ts',
+        "import { subject } from './subject';\n\ntest('subject', () => {\n  expect(subject()).toBe(2);\n});\n"
+      );
+
+      const project = new Project(root, { includeMask: '**/*.ts' });
+
+      const withTests = await project.handleCommandFocusedReview(
+        { mode: 'diff' },
+        { includeTests: true }
+      );
+      const changedTest = withTests.payload.files.find(
+        (file) => file.filename === 'subject.test.ts'
+      );
+      expect(changedTest).toMatchObject({
+        filename: 'subject.test.ts',
+        isChanged: true,
+        isTest: true,
+      });
+
+      const withoutTests = await project.handleCommandFocusedReview(
+        { mode: 'diff' },
+        { includeTests: false }
+      );
+      // Even though it is a changed file, the test node must disappear entirely.
+      expect(
+        withoutTests.payload.files.some(
+          (file) => file.filename === 'subject.test.ts'
+        )
+      ).toBe(false);
+      // The changed source file still shows.
+      expect(
+        withoutTests.payload.files.some(
+          (file) => file.filename === 'subject.ts'
+        )
+      ).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('maps the patch introduced by a selected commit', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-ai-review-'));
 
