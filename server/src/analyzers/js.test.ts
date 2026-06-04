@@ -129,7 +129,7 @@ describe('Includes using "import"', () => {
       },
     ]));
 
-  test('ignore clauseless imports', () =>
+  test('capture clauseless side-effect imports', () =>
     expect(
       jsAnalyzer.extractFilesHierarchy(
         ['src/dir/a.js'],
@@ -137,7 +137,19 @@ describe('Includes using "import"', () => {
       import './b.js';
       `
       )
-    ).resolves.toEqual([]));
+    ).resolves.toEqual([
+      { from: 'src/dir/b.js', to: 'src/dir/a.js', items: [] },
+    ]));
+
+  test('capture css side-effect import', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/dir/a.tsx'],
+        async () => `import './a.css';`
+      )
+    ).resolves.toEqual([
+      { from: 'src/dir/a.css', to: 'src/dir/a.tsx', items: [] },
+    ]));
 });
 
 describe('Includes using "require"', () => {

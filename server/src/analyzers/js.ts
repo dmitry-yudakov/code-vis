@@ -30,10 +30,13 @@ const extractIncludes = (
   const imports = searchFor(sourceFile.statements, SyntaxKind.ImportDeclaration)
     .filter((node) => {
       // console.log('Import node', node);
-      if (!node.importClause) return false;
+      // Keep all local (relative) imports. Bare side-effect imports such as
+      // `import './styles.css'` have no import clause but are still real file
+      // dependencies, so we must not require an importClause here.
       if (node.moduleSpecifier?.text?.[0] === '.') return true;
       // console.log('Ignore non-local import', pp(node));
       console.log('Ignore non-local import from', node.moduleSpecifier?.text);
+      return false;
     })
     .map((node) => {
       const from = node.moduleSpecifier?.text as string;
@@ -69,10 +72,8 @@ const extractIncludes = (
         namedBindings.forEach((nb: any) => items.push(nb));
       }
 
-      if (!items.length) {
-        console.log('Unsupported import:', pp(node));
-        return null;
-      }
+      // A bare side-effect import (e.g. a CSS file) carries no named items;
+      // keep the edge anyway so the dependency is still visualized.
       return {
         items,
         from,
