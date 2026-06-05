@@ -2,11 +2,14 @@ import { SocketConnection } from './connection';
 import {
   ChangeSourceRequest,
   CommitSummary,
+  Entity,
   FileMapDetailed,
   FocusedReviewOptions,
   FocusedReviewMap,
   OpenProjectResponse,
   ProjectListResponse,
+  Relation,
+  ReviewArrangementResult,
 } from '../types';
 
 let connection: SocketConnection | null = null;
@@ -132,6 +135,35 @@ export const projectApi = {
       includes: result?.includes?.length ?? 0,
       declarations: result?.declarations?.length ?? 0,
       declarationCalls: result?.declarationCalls?.length ?? 0,
+    });
+    return result;
+  },
+
+  /**
+   * On-demand LLM arrangement over a review slice (M2). Sends the entities /
+   * relations the client already holds and gets back an editorial Arrangement
+   * to overlay (or null when no LLM is configured / the model produced nothing).
+   */
+  async arrangeReview(
+    entities: Entity[],
+    relations: Relation[]
+  ): Promise<ReviewArrangementResult> {
+    console.log('CLIENT: projectApi.arrangeReview() called', {
+      entities: entities.length,
+      relations: relations.length,
+    });
+    // Generous client timeout so the server's own LLM timeout always wins and
+    // returns { arrangement: null } rather than the client racing it to an error.
+    // Keep this comfortably ABOVE the server's CODEAI_LLM_TIMEOUT_MS (the real
+    // bound on the model call) — raise it too if you set that env higher.
+    const result = await getConnection().request<ReviewArrangementResult>(
+      'arrangeReview',
+      { entities, relations },
+      180000
+    );
+    console.log('CLIENT: projectApi.arrangeReview() received', {
+      available: result?.available,
+      hasArrangement: !!result?.arrangement,
     });
     return result;
   },

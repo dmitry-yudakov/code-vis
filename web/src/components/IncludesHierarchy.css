@@ -716,6 +716,47 @@
   box-shadow: 0 3px 8px rgba(173, 112, 40, 0.14);
 }
 
+/* Arrangement (M2): editorial overlays. A soft amber ring marks the entities
+   the LLM chose to lead with; collapsed entities recede. Deliberately distinct
+   from the role borders above — a suggestion, not verified structure. */
+.react-flow__node-default.arranged-emphasis {
+  box-shadow:
+    0 0 0 2px #d6a93a,
+    0 0 16px rgba(214, 169, 58, 0.45);
+}
+
+.react-flow__node-default.arranged-collapsed {
+  opacity: 0.45;
+}
+
+/* "Arrange with AI" controls in the Review toolbar. */
+.arrangement-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-btn.arrange-btn {
+  border-color: #c79a2e;
+  background: #fff8e8;
+  color: #7a5a12;
+  font-weight: 600;
+}
+
+.inline-btn.arrange-btn:hover:not(:disabled) {
+  background: #fdeec4;
+}
+
+.inline-btn.arrange-rerun-btn {
+  font-size: 0.85em;
+}
+
+.arrange-error {
+  color: #9a3b2f;
+  font-size: 0.85em;
+}
+
 /* Per-kind left accent (layered over the role border) so the richer static
    kinds read at a glance without bespoke per-kind geometry. */
 .react-flow__node-default.decl-kind-class {

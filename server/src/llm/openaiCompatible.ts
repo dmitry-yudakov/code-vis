@@ -56,6 +56,10 @@ export function createOpenAiCompatibleClient(
       if (jsonMode) body.response_format = { type: 'json_object' };
 
       try {
+        console.log(
+          `openai-compatible request to ${url} with model ${model} (timeout ${effectiveTimeout}ms)`
+        );
+        console.debug('request body', body);
         const response = await fetch(url, {
           method: 'POST',
           headers,
@@ -65,6 +69,9 @@ export function createOpenAiCompatibleClient(
 
         // Throw on non-2xx so the consumer's try/catch can fall back.
         if (!response.ok) {
+          console.error(
+            `openai-compatible request to ${url} failed: ${response.status} ${response.statusText}`
+          );
           const detail = await response.text().catch(() => '');
           throw new Error(
             `openai-compatible request to ${url} failed: ${response.status} ${response.statusText}` +
@@ -81,6 +88,7 @@ export function createOpenAiCompatibleClient(
             'openai-compatible response missing choices[0].message.content'
           );
         }
+        console.debug('response payload', payload);
         return content;
       } catch (err) {
         // Surface a timeout as a clear message rather than a bare AbortError.

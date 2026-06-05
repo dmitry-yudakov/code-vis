@@ -216,6 +216,19 @@ const start = async () => {
       sendProjectResult(socket, 'focusedReviewMap', result, ack);
     },
 
+    arrangeReview: async (socket: any, payload: any, ack?: any) => {
+      console.log('arrangeReview handler called', {
+        entities: getArrayLength(payload?.entities),
+        hasAck: !!ack,
+      });
+
+      const result = await registry.processActiveProjectCommand(
+        'arrangeReview',
+        payload
+      );
+      sendProjectResult(socket, 'reviewArrangement', result, ack);
+    },
+
     listCommits: async (socket: any, payload: any, ack?: any) => {
       console.log('listCommits handler called', {
         payload,

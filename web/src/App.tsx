@@ -22,6 +22,7 @@ import {
   ChangeSourceRequest,
   CodeMapScope,
   CommitSummary,
+  Entity,
   FileIncludeInfo,
   FileMapDetailed,
   FocusedReviewOptions,
@@ -29,6 +30,7 @@ import {
   ProjectChangeEvent,
   ProjectInfo,
   ProjectListResponse,
+  Relation,
 } from './types';
 import { IncludesHierarchy } from './components/IncludesHierarchy';
 import { LogicMap } from './components/LogicMap';
@@ -330,6 +332,12 @@ const App: React.FC = () => {
     []
   );
 
+  const requestReviewArrangement = useCallback(
+    (entities: Entity[], relations: Relation[]) =>
+      projectApi.arrangeReview(entities, relations),
+    []
+  );
+
   const [projectMap, setProjectMap] = useState<FileIncludeInfo[]>([]);
   const [filesMappings, setFilesMappings] = useState<
     Record<string, FileMapDetailed>
@@ -588,6 +596,7 @@ const App: React.FC = () => {
                   requestFileMap={requestFileMap}
                   requestFocusedReview={requestFocusedReview}
                   requestCommits={requestCommits}
+                  requestReviewArrangement={requestReviewArrangement}
                   renderNodeMenu={(
                     filename: string,
                     anchor: HTMLElement | null,

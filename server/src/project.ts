@@ -6,6 +6,7 @@ import {
   ChangedFileInfo,
   ChangedFileStatus,
   CommitSummary,
+  Entity,
   FileIncludeInfo,
   FileMapping,
   FocusedDeclarationCallInfo,
@@ -19,10 +20,13 @@ import {
   ProjectChangeEvent,
   ProjectConfig,
   RelatedReason,
+  Relation,
 } from './types';
 import { getAnalyzer } from './analyzers';
 import { createOrdinalAssigner, entityId } from './model/entityId';
 import { buildReviewEntityModel } from './model/reviewModel';
+import { arrangeReview } from './model/arrangeReview';
+import { getLlmClient } from './llm';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -516,6 +520,8 @@ export default class Project {
           payload?.source,
           payload?.options
         );
+      case 'arrangeReview':
+        return this.handleCommandArrangeReview(payload);
       case 'listCommits':
         return this.handleCommandListCommits(payload);
       default:
@@ -960,6 +966,36 @@ export default class Project {
       declarationCalls: declarationGraph.declarationCalls,
       entities,
       relations,
+      // Capability flag for the web's "Arrange with AI" button. The arrangement
+      // itself is computed on demand (handleCommandArrangeReview), never inline,
+      // so the structural review never blocks on the LLM.
+      llmAvailable: getLlmClient() !== null,
+    };
+  }
+
+  /**
+   * On-demand M2 arrangement pass. The web sends the (small) review slice it
+   * already has and gets back an editorial Arrangement to overlay. Decoupled
+   * from buildFocusedReviewMap on purpose: the structural view renders first via
+   * the geometry engine, then the user explicitly asks for the LLM pass and
+   * waits for it. Fail-safe — `arrangeReview` never throws; a missing client or
+   * a model error yields `arrangement: null`.
+   */
+  async handleCommandArrangeReview(payload: {
+    entities?: Entity[];
+    relations?: Relation[];
+  }) {
+    const client = getLlmClient();
+    const arrangement = client
+      ? (await arrangeReview(
+          { entities: payload?.entities || [], relations: payload?.relations || [] },
+          client
+        )) ?? null
+      : null;
+
+    return {
+      type: 'reviewArrangement',
+      payload: { available: client !== null, arrangement },
     };
   }
 

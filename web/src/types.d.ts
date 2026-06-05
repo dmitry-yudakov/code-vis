@@ -93,6 +93,39 @@ export interface Relation {
   changeStatus?: ChangeStatus;
 }
 
+/**
+ * Editorial arrangement of a code-map slice (docs/vision.md "Arrangement").
+ * Decides initial disclosure (what is shown vs. collapsed/hidden first), an
+ * editorial grouping into labeled regions, and reading order/emphasis — all
+ * separate from geometric layout, which a geometry engine still realizes.
+ *
+ * M2 first slice: LLM-produced and visibility-focused. `origin` is fixed to
+ * 'llm' for now and widens to 'algorithmic' | 'user' as those sources land.
+ * Regions are an editorial grouping (render as a soft band, never a relation
+ * edge) — provenance honesty: a suggested grouping must not read as structure.
+ *
+ * Duplicated verbatim in server/src/types.d.ts — keep the two in sync (AGENTS.md).
+ */
+export type Visibility = 'shown' | 'collapsed' | 'hidden';
+
+export interface ArrangementRegion {
+  id: string;
+  label?: string;
+  entityIds: string[]; // members; only ids present in the slice
+}
+
+export interface Arrangement {
+  origin: 'llm'; // only source emitted now; widened later
+  /** Initial disclosure per entity id. Absent id → treated as 'shown'. */
+  visibility?: Record<string, Visibility>;
+  /** Reading / narrative order of entity ids (generalizes narrativeRank). */
+  order?: string[];
+  /** Entity ids to lead with. */
+  emphasis?: string[];
+  /** Editorial groupings — rendered as soft bands, never as relation edges. */
+  regions?: ArrangementRegion[];
+}
+
 export type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
 export type ChangeSource =
@@ -196,6 +229,23 @@ export interface FocusedReviewMap {
   /** Richer static Entity/Relation model (M1); additive over the legacy fields. */
   entities?: Entity[];
   relations?: Relation[];
+  /**
+   * Whether the server has an LLM client configured — drives the web's
+   * "Arrange with AI" button. The arrangement itself is fetched on demand
+   * (the `arrangeReview` command), never shipped inline, so the structural
+   * review never blocks on the LLM.
+   */
+  llmAvailable?: boolean;
+}
+
+/**
+ * Response to the on-demand `arrangeReview` command (M2). `available` is false
+ * when no LLM client is configured; `arrangement` is null when unavailable or
+ * when the model produced nothing usable (the caller keeps the elk view).
+ */
+export interface ReviewArrangementResult {
+  available: boolean;
+  arrangement: Arrangement | null;
 }
 
 export type CodeMapLens = 'overview' | 'review' | 'feature' | 'impact';

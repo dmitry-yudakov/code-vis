@@ -20,6 +20,9 @@ socket.emit('mapFile', { filename: string; includeRelated: boolean },
 socket.emit('mapFocusedReview', { source: ChangeSourceRequest, options?: FocusedReviewOptions },
   (res: { success: boolean; data: FocusedReviewMap }) => {})
 
+socket.emit('arrangeReview', { entities: Entity[]; relations: Relation[] },
+  (res: { success: boolean; data: ReviewArrangementResult }) => {})
+
 socket.emit('listCommits', { limit?: number; skip?: number },
   (res: { success: boolean; data: CommitSummary[] }) => {})
 
@@ -39,10 +42,13 @@ const branch = await projectApi.getFocusedReview({ mode: 'branch', baseRef: 'ori
 const commit = await projectApi.getFocusedReview({ mode: 'commit', ref: 'abc1234' })
 const recentCommits = await projectApi.listCommits({ limit: 5 })
 const reviewWithoutTests = await projectApi.getFocusedReview({ mode: 'diff' }, { includeTests: false })
+const arrangement = await projectApi.arrangeReview(review.entities, review.relations)
 await projectApi.saveFile(filename, content, pos?, end?)
 ```
 
 `mapFocusedReview` accepts `{ mode: 'diff' }` for local uncommitted changes, `{ mode: 'branch', baseRef?: string }` for branch-vs-base review scope, or `{ mode: 'commit', ref: string, parentRef?: string }` for the patch introduced by a specific commit. If `baseRef` is omitted, the server tries `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`, and finally falls back to `master`. If `parentRef` is omitted for a commit, the server compares against the commit's first parent.
+
+`arrangeReview` (M2) is the on-demand LLM arrangement pass: the client sends the review slice it already holds (`entities` / `relations` from a prior `mapFocusedReview`) and gets back a `ReviewArrangementResult` (`{ available, arrangement }`) — an editorial overlay of initial visibility / emphasis to layer over the existing layout. It is decoupled from `mapFocusedReview` on purpose so the structural review never blocks on the LLM; `FocusedReviewMap.llmAvailable` tells the client whether to show the "Arrange with AI" button. Fail-safe: `available: false` when no LLM client is configured, `arrangement: null` when the model produced nothing usable — in both cases the client keeps the deterministic engine's view.
 
 `listCommits` reads recent commits from the current branch in newest-first order. `limit` defaults to 5 and is clamped to 1-50; `skip` defaults to 0. `timestamp` is the git commit time in Unix seconds.
 

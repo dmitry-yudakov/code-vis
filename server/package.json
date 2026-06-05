@@ -6,7 +6,8 @@
   "scripts": {
     "test": "jest",
     "start": "ts-node-dev --no-notify src/index.ts",
-    "llm:ping": "ts-node src/llm/ping.ts"
+    "llm:ping": "ts-node src/llm/ping.ts",
+    "arrange:smoke": "ts-node src/model/arrangeReview.smoke.ts"
   },
   "author": "",
   "license": "ISC",

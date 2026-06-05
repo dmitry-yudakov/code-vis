@@ -53,7 +53,13 @@ function buildInvocation(
 ): { args: string[]; stdin: string } {
   if (provider === 'codex') {
     // Codex has no separate system-prompt flag — prepend it to the prompt.
-    const args = ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only'];
+    const args = [
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+      '--sandbox',
+      'read-only',
+    ];
     if (model) args.push('--model', model);
     return { args, stdin: `${system}\n\n${user}` };
   }
@@ -147,7 +153,7 @@ function parseClaude(stdout: string): string {
     const detail =
       typeof envelope.result === 'string'
         ? envelope.result
-        : envelope.subtype ?? 'unknown';
+        : (envelope.subtype ?? 'unknown');
     throw new Error(`cli(claude) reported an error: ${detail}`);
   }
   const result = envelope.result;
@@ -194,7 +200,12 @@ export function createCliAgentClient(config: CliAgentConfig): LlmClient {
     async complete({ system, user, timeoutMs }) {
       const effectiveTimeout = timeoutMs ?? defaultTimeoutMs;
       const { args, stdin } = buildInvocation(provider, model, system, user);
+      console.log(
+        `invoking cli(${bin}) with args ${args.join(' ')} (timeout ${effectiveTimeout}ms)`
+      );
+      console.debug('cli stdin', stdin);
       const stdout = await runChild(bin, args, stdin, effectiveTimeout);
+      console.debug('cli stdout', stdout);
       return provider === 'codex' ? parseCodex(stdout) : parseClaude(stdout);
     },
   };

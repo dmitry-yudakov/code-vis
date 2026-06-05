@@ -25,12 +25,16 @@ import {
   FunctionDeclarationInfo,
   ChangeSourceRequest,
   EntityKind,
+  Arrangement,
+  Entity,
   FocusedDeclarationInfo,
   FocusedDeclarationReason,
   FocusedFileInfo,
   FocusedReviewOptions,
   FocusedReviewMap,
   RelatedReason,
+  Relation,
+  ReviewArrangementResult,
   ChangedFileStatus,
   CommitSummary,
 } from '../types';
@@ -292,6 +296,29 @@ const countUniqueNodes = (includes: FileIncludeInfo[]): number =>
 
 const toNodeId = (value: string) => value.replace(/-/g, '_');
 
+interface ArrangementProjection {
+  active: boolean;
+  hiddenDeclIds: Set<string>;
+  hiddenFilenames: Set<string>;
+  collapsedIds: Set<string>;
+  emphasisIds: Set<string>;
+}
+
+/** Emphasis / collapsed CSS classes for a node, in the web's own id space.
+ *  Empty when arrangement is off — leaves the node's class list untouched. */
+const arrangementClassFor = (
+  projection: ArrangementProjection,
+  webId: string
+): string => {
+  if (!projection.active) return '';
+  return [
+    projection.emphasisIds.has(webId) ? 'arranged-emphasis' : '',
+    projection.collapsedIds.has(webId) ? 'arranged-collapsed' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+};
+
 const overviewDeclarationId = (decl: FunctionDeclarationInfo): string =>
   `decl:${decl.filename}->${decl.name}:${decl.pos}`;
 
@@ -488,6 +515,10 @@ export const IncludesHierarchy: React.FC<{
     source: ChangeSourceRequest,
     options?: FocusedReviewOptions
   ) => Promise<FocusedReviewMap>;
+  requestReviewArrangement: (
+    entities: Entity[],
+    relations: Relation[]
+  ) => Promise<ReviewArrangementResult>;
   requestCommits: (options?: {
     limit?: number;
     skip?: number;
@@ -504,6 +535,7 @@ export const IncludesHierarchy: React.FC<{
     filesMappings,
     requestFileMap,
     requestFocusedReview,
+    requestReviewArrangement,
     requestCommits,
     renderNodeMenu,
   }) => {
@@ -542,6 +574,15 @@ export const IncludesHierarchy: React.FC<{
   const [focusedError, setFocusedError] = useState<string | null>(null);
   const [showFocusedContext, setShowFocusedContext] = useState(true);
   const [includeFocusedTests, setIncludeFocusedTests] = useState(true);
+  // M2 arrangement: the LLM editorial pass is fetched on demand (the "Arrange
+  // with AI" button) and held here, not shipped with the review. `useArrangement`
+  // toggles the fetched overlay on/off for A/B vs. the deterministic elk view;
+  // `revealHidden` brings back the entities the arrangement folded out.
+  const [arrangement, setArrangement] = useState<Arrangement | null>(null);
+  const [arrangeLoading, setArrangeLoading] = useState(false);
+  const [arrangeError, setArrangeError] = useState<string | null>(null);
+  const [useArrangement, setUseArrangement] = useState(true);
+  const [revealHidden, setRevealHidden] = useState(false);
   const [commitSearch, setCommitSearch] = useState('');
   const [selectedCommitRef, setSelectedCommitRef] = useState('');
   const [recentCommits, setRecentCommits] = useState<CommitSummary[]>([]);
@@ -692,6 +733,51 @@ export const IncludesHierarchy: React.FC<{
     requestFileMap,
   ]);
 
+  // Translate the server's editorial Arrangement (keyed by Entity id) into the
+  // web's own node-id space, gated by the `Arranged` toggle. Declaration nodes
+  // already use the entity id; file nodes use toNodeId(filename) — both derived
+  // from focusedReview.entities so no id logic is duplicated here. Fail-safe: no
+  // arrangement / toggle off → every set empty → the elk view is untouched.
+  const arrangementProjection = useMemo(() => {
+    const active = useArrangement && !!arrangement;
+    const hiddenDeclIds = new Set<string>();
+    const hiddenFilenames = new Set<string>();
+    const collapsedIds = new Set<string>();
+    const emphasisIds = new Set<string>();
+
+    if (active && arrangement) {
+      const entities = focusedReview?.entities || [];
+      const webIdOf = (entity: Entity): string =>
+        entity.kind === 'file'
+          ? toNodeId(entity.location?.filename || '')
+          : entity.id;
+      const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+
+      for (const entity of entities) {
+        const visibility = arrangement.visibility?.[entity.id];
+        // Guard: a changed entity is never hidden from its own review (the
+        // server enforces this too — belt and suspenders).
+        if (visibility === 'hidden' && !entity.changeStatus) {
+          if (entity.kind === 'file') {
+            if (entity.location?.filename) {
+              hiddenFilenames.add(entity.location.filename);
+            }
+          } else {
+            hiddenDeclIds.add(entity.id);
+          }
+        } else if (visibility === 'collapsed') {
+          collapsedIds.add(webIdOf(entity));
+        }
+      }
+      for (const id of arrangement.emphasis || []) {
+        const entity = entityById.get(id);
+        if (entity) emphasisIds.add(webIdOf(entity));
+      }
+    }
+
+    return { active, hiddenDeclIds, hiddenFilenames, collapsedIds, emphasisIds };
+  }, [arrangement, focusedReview, useArrangement]);
+
   const focusedFilesByName = useMemo(() => {
     if (!focusedReview) return new Map<string, FocusedFileInfo>();
 
@@ -699,14 +785,29 @@ export const IncludesHierarchy: React.FC<{
       ? focusedReview.files
       : focusedReview.files.filter((file) => file.isChanged);
 
-    return new Map(visibleFiles.map((file) => [file.filename, file]));
-  }, [focusedReview, showFocusedContext]);
+    const arranged =
+      arrangementProjection.active && !revealHidden
+        ? visibleFiles.filter(
+            (file) => !arrangementProjection.hiddenFilenames.has(file.filename)
+          )
+        : visibleFiles;
+
+    return new Map(arranged.map((file) => [file.filename, file]));
+  }, [focusedReview, showFocusedContext, arrangementProjection, revealHidden]);
 
   const focusedDeclarations = useMemo(() => {
     if (!focusedReview) return [];
-    if (showFocusedContext) return focusedReview.declarations || [];
-    return (focusedReview.declarations || []).filter((decl) => decl.isChanged);
-  }, [focusedReview, showFocusedContext]);
+    const base = showFocusedContext
+      ? focusedReview.declarations || []
+      : (focusedReview.declarations || []).filter((decl) => decl.isChanged);
+
+    if (arrangementProjection.active && !revealHidden) {
+      return base.filter(
+        (decl) => !arrangementProjection.hiddenDeclIds.has(decl.id)
+      );
+    }
+    return base;
+  }, [focusedReview, showFocusedContext, arrangementProjection, revealHidden]);
 
   const focusedDeclarationIds = useMemo(
     () => new Set(focusedDeclarations.map((decl) => decl.id)),
@@ -754,6 +855,50 @@ export const IncludesHierarchy: React.FC<{
 
   const declarationReview =
     isReviewLens && reviewGranularity === 'declarations';
+
+  // How many entities the arrangement folded out of the current granularity —
+  // drives the "Reveal N hidden" control.
+  const arrangementHiddenCount = declarationReview
+    ? arrangementProjection.hiddenDeclIds.size
+    : arrangementProjection.hiddenFilenames.size;
+
+  // A fetched arrangement is tied to one review slice; drop it when a new review
+  // payload arrives (commit / source / tests change) so a stale overlay never
+  // applies to a different change.
+  useEffect(() => {
+    setArrangement(null);
+    setArrangeError(null);
+    setRevealHidden(false);
+  }, [focusedReview]);
+
+  const handleArrangeReview = useCallback(async () => {
+    if (!focusedReview?.entities?.length) return;
+    setArrangeLoading(true);
+    setArrangeError(null);
+    try {
+      const result = await requestReviewArrangement(
+        focusedReview.entities,
+        focusedReview.relations || []
+      );
+      if (!result.available) {
+        setArrangeError('No LLM is configured on the server.');
+        return;
+      }
+      if (!result.arrangement) {
+        setArrangeError('The model returned no usable arrangement.');
+        return;
+      }
+      setArrangement(result.arrangement);
+      setUseArrangement(true);
+      setRevealHidden(false);
+    } catch (error) {
+      setArrangeError(
+        error instanceof Error ? error.message : 'Arrangement request failed.'
+      );
+    } finally {
+      setArrangeLoading(false);
+    }
+  }, [focusedReview, requestReviewArrangement]);
 
   const overviewDeclarationExpansion = useMemo(() => {
     if (
@@ -898,12 +1043,13 @@ export const IncludesHierarchy: React.FC<{
           : isBridge
             ? 'focused-declaration-bridge'
             : 'focused-declaration-context';
+        const arrangeClass = arrangementClassFor(arrangementProjection, decl.id);
 
         return {
           id: decl.id,
           className: `focused-declaration-node ${roleClass} decl-kind-${declarationLayoutKind(
             decl.kind
-          )}`,
+          )}${arrangeClass ? ` ${arrangeClass}` : ''}`,
           data: {
             label: <FocusedDeclarationView info={decl} />,
             node: { id: decl.id, label: decl.filename },
@@ -1251,6 +1397,7 @@ export const IncludesHierarchy: React.FC<{
         canOpenFile,
       });
 
+      const arrangeClass = arrangementClassFor(arrangementProjection, id);
       const focusedClassName = focusedInfo
         ? [
             'focused-node',
@@ -1260,6 +1407,7 @@ export const IncludesHierarchy: React.FC<{
                 ? 'focused-node-test'
                 : 'focused-node-context',
             focusedInfo.isTest ? 'focused-node-is-test' : '',
+            arrangeClass,
           ]
             .filter(Boolean)
             .join(' ')
@@ -1317,6 +1465,7 @@ export const IncludesHierarchy: React.FC<{
     };
   }, [
     activeIncludes,
+    arrangementProjection,
     declarationReview,
     expandedOverviewFile,
     focusedDeclarationIds,
@@ -1387,7 +1536,7 @@ export const IncludesHierarchy: React.FC<{
   const focusedSourceKey = focusedReview
     ? JSON.stringify(focusedReview.changeSet.source)
     : `${reviewMode}:${selectedCommitRef}`;
-  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${focusedSourceKey}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${includeFocusedTests ? 'tests' : 'no-tests'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}`;
+  const projectionKey = `${activeLens}|${overviewMode}|${reviewMode}|${focusedSourceKey}|${reviewGranularity}|${showFocusedContext ? 'context' : 'changed'}|${includeFocusedTests ? 'tests' : 'no-tests'}|${expandedDirectory || ''}|${expandedOverviewFile || ''}|${arrangementProjection.active ? 'arr' : 'noarr'}|${revealHidden ? 'reveal' : 'hide'}`;
   const currentScope = useMemo<CodeMapScope>(() => {
     const nodes: CodeMapScopeNode[] = Array.from(nodeMetaById.values())
       .map((meta) => ({
@@ -2055,6 +2204,81 @@ export const IncludesHierarchy: React.FC<{
                 />
                 <span>Related tests</span>
               </label>
+
+              {focusedReview?.llmAvailable && (
+                <div className="arrangement-controls">
+                  {!arrangement ? (
+                    <button
+                      className="inline-btn arrange-btn"
+                      onClick={handleArrangeReview}
+                      disabled={
+                        focusedLoading ||
+                        !!focusedError ||
+                        arrangeLoading ||
+                        !focusedReview?.entities?.length
+                      }
+                      title="Ask the configured LLM to group and prioritize this review — what to show first, fold, or hide. Takes a few seconds; the elk view stays available."
+                    >
+                      {arrangeLoading ? 'Arranging…' : '✨ Arrange with AI'}
+                    </button>
+                  ) : (
+                    <>
+                      <div
+                        className="segmented-control"
+                        title="Editorial arrangement suggested by the LLM. elk is the deterministic fallback — a grouping is a suggestion, not verified structure."
+                      >
+                        <button
+                          className={`segment-btn${useArrangement ? ' active' : ''}`}
+                          onClick={() => setUseArrangement(true)}
+                          disabled={focusedLoading || !!focusedError}
+                        >
+                          Arranged
+                        </button>
+                        <button
+                          className={`segment-btn${!useArrangement ? ' active' : ''}`}
+                          onClick={() => setUseArrangement(false)}
+                          disabled={focusedLoading || !!focusedError}
+                        >
+                          elk only
+                        </button>
+                      </div>
+
+                      {arrangementProjection.active &&
+                        arrangementHiddenCount > 0 && (
+                          <label
+                            className={`check-control${revealHidden ? ' active' : ''}`}
+                            title="Reveal the entities the arrangement folded out for initial focus"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={revealHidden}
+                              onChange={(event) =>
+                                setRevealHidden(event.currentTarget.checked)
+                              }
+                              disabled={focusedLoading}
+                            />
+                            <span>Reveal {arrangementHiddenCount} hidden</span>
+                          </label>
+                        )}
+
+                      <button
+                        className="inline-btn arrange-rerun-btn"
+                        onClick={handleArrangeReview}
+                        disabled={focusedLoading || arrangeLoading}
+                        title="Ask the model again (cached for an unchanged slice)"
+                      >
+                        {arrangeLoading ? 'Arranging…' : 'Re-arrange'}
+                      </button>
+                    </>
+                  )}
+
+                  {arrangeError && (
+                    <span className="arrange-error" role="status">
+                      {arrangeError}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
