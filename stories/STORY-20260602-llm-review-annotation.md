@@ -64,6 +64,11 @@ must never break when the LLM is unconfigured, slow, or returns garbage.
 
 ### 1. Provider-agnostic LLM client  (new `server/src/llm/`)
 
+> **Superseded — moved to [Story 4](STORY-20260604-provider-agnostic-llm-client.md).** The LLM client
+> is now its own foundation story (OpenAI-compatible transport + optional subscription subprocess).
+> Build Story 4 first; this section is kept for context only. The annotation pass (§2–§5 below) is the
+> consumer that depends on it.
+
 Rationale: OpenAI's Chat Completions shape is the de-facto lingua franca. **One**
 `fetch`-based client covers all three named targets by changing base URL + model:
 

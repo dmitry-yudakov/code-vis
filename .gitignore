@@ -3,3 +3,8 @@ out
 node_modules
 .vscode-test/
 .vsix
+
+# Local LLM provider config / secrets (CODEAI_LLM_* incl. API keys)
+.env
+.env.*
+!.env.example

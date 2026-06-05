@@ -1,4 +1,5 @@
 module.exports = {
   preset: 'ts-jest',
-  testEnvironment: 'node',
+  // Node 22 globals (fetch, AbortController) that jest 26's stock node env omits.
+  testEnvironment: './jest.env.js',
 };
