@@ -6,15 +6,21 @@
  * Selection by `CODEAI_LLM_PROVIDER` (optional; inferred when unset):
  *   unset + BASE_URL + MODEL set → openaiCompatible (the common case)
  *   'openai-compatible'          → openaiCompatible (explicit)
- *   'claude-code' / 'codex'      → cliAgent (Stage 2 — not built yet)
+ *   'claude-code' / 'codex'      → cliAgent (Stage 2 — subscription via the CLI)
  *   unset and nothing configured → null
  *
  * Env surface (all optional; absence = feature off):
- *   CODEAI_LLM_PROVIDER  CODEAI_LLM_BASE_URL  CODEAI_LLM_MODEL
+ *   CODEAI_LLM_PROVIDER  CODEAI_LLM_BASE_URL  CODEAI_LLM_MODEL (Stage 1)
  *   CODEAI_LLM_API_KEY   CODEAI_LLM_JSON_MODE  CODEAI_LLM_TIMEOUT_MS
+ *   CODEAI_LLM_CLI_BIN    (Stage 2: override the claude|codex binary path)
+ *   CODEAI_LLM_CLI_MODEL  (Stage 2: model passed to the CLI; the Stage-1
+ *                          CODEAI_LLM_MODEL is intentionally NOT forwarded, so
+ *                          a leftover local/openai model id can't reach — and
+ *                          be rejected by — claude|codex. Unset → CLI default.)
  */
 import { LlmClient } from './types';
 import { createOpenAiCompatibleClient } from './openaiCompatible';
+import { createCliAgentClient } from './cliAgent';
 
 export { LlmClient } from './types';
 
@@ -35,10 +41,20 @@ export function getLlmClient(): LlmClient | null {
   const env = process.env;
   const provider = env.CODEAI_LLM_PROVIDER?.trim() || undefined;
 
-  // Stage 2 (cliAgent) is not built in this stage. Selecting a subscription
-  // provider therefore no-ops cleanly (null) until cliAgent lands.
+  // Stage 2: subscription via the official CLI (auth is the CLI's concern;
+  // no tokens are stored or extracted here). Missing/logged-out CLI surfaces
+  // as a thrown error from complete(), which consumers catch and fall back on.
   if (provider === 'claude-code' || provider === 'codex') {
-    return null;
+    return createCliAgentClient({
+      provider,
+      bin: env.CODEAI_LLM_CLI_BIN?.trim() || undefined,
+      // NB: read CODEAI_LLM_CLI_MODEL, not the Stage-1 CODEAI_LLM_MODEL — a
+      // leftover local/openai model id (e.g. `gpt-oss:20b`) forwarded as the
+      // CLI's `--model` makes claude|codex exit 1 at startup. Unset → CLI's own
+      // configured default.
+      model: env.CODEAI_LLM_CLI_MODEL?.trim() || undefined,
+      timeoutMs: readTimeoutEnv(env.CODEAI_LLM_TIMEOUT_MS),
+    });
   }
 
   const baseUrl = env.CODEAI_LLM_BASE_URL?.trim() || undefined;

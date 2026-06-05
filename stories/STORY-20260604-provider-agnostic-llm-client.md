@@ -1,6 +1,6 @@
 # Story 4 — Provider-agnostic LLM client (`server/src/llm/`): OpenAI-compatible transport, optional subscription subprocess
 
-**Status:** Stage 1 complete & verified (2026-06-05) · Stage 2 pending · **Type:** Server-only · **Depends on:** nothing to build (foundation). Unblocks
+**Status:** Stage 1 & Stage 2 complete & verified (2026-06-05) · **Type:** Server-only · **Depends on:** nothing to build (foundation). Unblocks
 the M2 annotation + arrangement passes. **Supersedes** [Story 2](STORY-20260602-llm-review-annotation.md)
 §1 ("Provider-agnostic LLM client") — the client is carved out of Story 2 into this dedicated story;
 Story 2's annotation pass and `narrativeRank` are unaffected by this split (see
@@ -38,8 +38,38 @@ selection), `ping.ts` (`yarn llm:ping` smoke check), `llm.test.ts` (11 unit test
 - **Secrets:** `.env` / `.env.*` added to [.gitignore](../.gitignore) so a local `CODEAI_LLM_API_KEY`
   is never committed; env is sourced into the shell (no `dotenv` dep, as designed).
 
-**Stage 2 — not started.** `cliAgent.ts` (subprocess for `claude -p` / `codex exec` subscriptions)
-remains the optional, additive next increment.
+**Stage 2 — DONE & verified (2026-06-05).** [`cliAgent.ts`](../server/src/llm/cliAgent.ts) drives the
+official, already-authenticated CLI as a subprocess to ride a Claude Pro/Max or ChatGPT Plus/Pro
+subscription — same `LlmClient` contract, **no tokens stored or extracted** (the non-goal is honored).
+
+- **Flags verified against the installed CLIs** (`claude` 2.1.153, `codex-cli` 0.137.0), per the
+  implementer note:
+  - **claude** (`CODEAI_LLM_PROVIDER=claude-code`): `claude -p --output-format json
+    --append-system-prompt <system> --allowedTools ""` (+ `--model` when set); the **user prompt is
+    fed on stdin** (avoids arg-length/escaping); the assistant text is the `result` field of the JSON
+    envelope (`is_error` surfaces errors). **`--bare` is deliberately avoided** — in bare mode the CLI
+    reads neither OAuth nor keychain, which would defeat the whole subscription purpose.
+  - **codex** (`CODEAI_LLM_PROVIDER=codex`): `codex exec --json --skip-git-repo-check --sandbox
+    read-only` (+ `--model`); codex has no system-prompt flag, so `system` is prepended to the prompt
+    on stdin; the answer is the last `item.completed` event whose `item.type === 'agent_message'` in
+    the JSONL stream.
+- **Timeout** enforced by `SIGKILL`-ing the child; **throws** on spawn error (ENOENT → "failed to
+  start"), non-zero exit (with stderr detail), or unparseable output — the same fail-safe surface
+  consumers already catch from Stage 1.
+- **Wired into [`index.ts`](../server/src/llm/index.ts):** `claude-code`/`codex` now return a
+  `cliAgent` client (previously no-op `null`); added the `CODEAI_LLM_CLI_BIN` binary override and a
+  **Stage-2-only `CODEAI_LLM_CLI_MODEL`**. The Stage-1 `CODEAI_LLM_MODEL` is **deliberately not
+  forwarded** to the CLI: a leftover local/openai id (e.g. `gpt-oss:20b`) passed as the CLI's
+  `--model` makes `claude`/`codex` exit 1 at startup with no output — a cross-stage footgun hit during
+  live testing. Unset `CODEAI_LLM_CLI_MODEL` → the CLI uses its own configured model. The non-zero-exit
+  error now also surfaces stdout (codex reports failures there), so such cases are no longer silent.
+- **Verified live (subscription, no code change):** `CODEAI_LLM_PROVIDER=claude-code yarn llm:ping` and
+  `CODEAI_LLM_PROVIDER=codex yarn llm:ping` both return `{"ok":true}`; a bogus `CODEAI_LLM_CLI_BIN`
+  fails fast with a clear ENOENT message (never hangs, never leaks a credential).
+- **Tests:** 10 new `cliAgent` unit tests (spawn spied via `jest.spyOn` on the real `require()`'d
+  module — `jest.mock()` can't be used because its ts-jest 26 hoist transformer calls the
+  TS-5-removed `ts.getMutableClone`, the documented toolchain mismatch). `yarn test` green
+  (**87/87**); `tsc --noEmit` clean in **server** and **web**.
 
 ---
 
@@ -209,11 +239,12 @@ Env surface (all optional; absence = feature off):
 ```
 CODEAI_LLM_PROVIDER     # openai-compatible (default) | claude-code | codex
 CODEAI_LLM_BASE_URL     # Stage 1: provider /v1 base
-CODEAI_LLM_MODEL        # Stage 1: model id
+CODEAI_LLM_MODEL        # Stage 1 only: openai-compatible model id (NOT forwarded to the CLI)
 CODEAI_LLM_API_KEY      # Stage 1: omitted for local providers
 CODEAI_LLM_JSON_MODE    # Stage 1: on (default) | off  — send response_format or not
 CODEAI_LLM_TIMEOUT_MS   # both: default ~20000
 CODEAI_LLM_CLI_BIN      # Stage 2: override binary path (default: claude | codex per provider)
+CODEAI_LLM_CLI_MODEL    # Stage 2: model passed to the CLI (default: the CLI's own configured model)
 ```
 
 ### Verification surface (so the foundation is shippable on its own)
@@ -264,14 +295,17 @@ export function getLlmClient(): LlmClient | null; // server/src/llm/index.ts
 
 **Stage 2 (optional, additive):**
 
-- [ ] `cliAgent.ts` implements `LlmClient` by spawning `claude -p` (and `codex exec`) in headless,
+- [x] `cliAgent.ts` implements `LlmClient` by spawning `claude -p` (and `codex exec`) in headless,
       tools-disabled mode, parsing the machine-readable output; enforces timeout by killing the child;
       throws on non-zero exit / unparseable output.
-- [ ] `CODEAI_LLM_PROVIDER=claude-code` (with the `claude` CLI installed + logged in) makes
-      `yarn llm:ping` return text **using the subscription**, storing/extracting no tokens.
-- [ ] With the selected CLI absent or not logged in, `getLlmClient()` either returns `null` or the
-      client fails fast with a clear error — never a hang, never a leaked credential.
-- [ ] Unit test with a mocked child process: stdout JSON → parsed text; non-zero exit → throws.
+- [x] `CODEAI_LLM_PROVIDER=claude-code` (with the `claude` CLI installed + logged in) makes
+      `yarn llm:ping` return text **using the subscription**, storing/extracting no tokens. _(verified
+      live: claude + codex both return `{"ok":true}`.)_
+- [x] With the selected CLI absent or not logged in, `getLlmClient()` either returns `null` or the
+      client fails fast with a clear error — never a hang, never a leaked credential. _(bogus
+      `CODEAI_LLM_CLI_BIN` → clean ENOENT "failed to start", exit 1.)_
+- [x] Unit test with a mocked child process: stdout JSON → parsed text; non-zero exit → throws.
+      _(10 tests covering both CLIs, timeout-kill, spawn error, unparseable/`is_error` output.)_
 
 **Cross-cutting:**
 
