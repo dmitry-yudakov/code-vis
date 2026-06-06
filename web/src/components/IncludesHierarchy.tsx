@@ -52,6 +52,7 @@ import {
   type CodeLayoutNodeKind,
   type CodeLayoutNodeRole,
   type CodeLayoutStrategy,
+  type LayoutCluster,
 } from '../graphLayout';
 import { useFullscreenEdgePan } from '../hooks/useFullscreenEdgePan';
 import './IncludesHierarchy.css';
@@ -119,7 +120,10 @@ const estimateFlowNodeSize = (
   node: FlowNode<any>
 ): { width: number; height: number } => {
   const className = String(node.className || '');
-  if (className.includes('overview-declaration-node')) {
+  if (
+    className.includes('overview-declaration-node') ||
+    className.includes('focused-declaration-node')
+  ) {
     return { width: 300, height: 140 };
   }
   return { width: 250, height: 180 };
@@ -210,11 +214,16 @@ const buildConnectionPositions = (
   return result;
 };
 
-const buildOverviewRegionNode = (
-  id: string,
+// Padded bounding box around a set of positioned flow nodes — the geometry
+// shared by every soft-band region overlay (overview groupings and the LLM
+// arrangement's editorial regions). Returns null for an empty set.
+const regionBoundingBox = (
   nodes: FlowNode<any>[],
-  className: string
-): FlowNode<any> | null => {
+  padding: number
+): {
+  position: { x: number; y: number };
+  style: { width: number; height: number };
+} | null => {
   if (nodes.length === 0) return null;
 
   let minX = Number.POSITIVE_INFINITY;
@@ -231,20 +240,27 @@ const buildOverviewRegionNode = (
   }
 
   return {
+    position: { x: minX - padding, y: minY - padding },
+    style: { width: maxX - minX + padding * 2, height: maxY - minY + padding * 2 },
+  };
+};
+
+const buildOverviewRegionNode = (
+  id: string,
+  nodes: FlowNode<any>[],
+  className: string
+): FlowNode<any> | null => {
+  const box = regionBoundingBox(nodes, OVERVIEW_REGION_PADDING);
+  if (!box) return null;
+
+  return {
     id,
     className: `overview-region-node ${className}`,
     data: { label: '' },
-    position: {
-      x: minX - OVERVIEW_REGION_PADDING,
-      y: minY - OVERVIEW_REGION_PADDING,
-    },
     draggable: false,
     selectable: false,
     connectable: false,
-    style: {
-      width: maxX - minX + OVERVIEW_REGION_PADDING * 2,
-      height: maxY - minY + OVERVIEW_REGION_PADDING * 2,
-    },
+    ...box,
   };
 };
 
@@ -296,13 +312,75 @@ const countUniqueNodes = (includes: FileIncludeInfo[]): number =>
 
 const toNodeId = (value: string) => value.replace(/-/g, '_');
 
+// One editorial region translated into the web's node-id space. `webIds` holds
+// every member (visible or not); the band is drawn from whichever members are
+// actually on-canvas, so it composes with hide / collapse / reveal for free.
+interface ProjectedRegion {
+  id: string;
+  label?: string;
+  webIds: Set<string>;
+}
+
 interface ArrangementProjection {
   active: boolean;
   hiddenDeclIds: Set<string>;
   hiddenFilenames: Set<string>;
   collapsedIds: Set<string>;
   emphasisIds: Set<string>;
+  regions: ProjectedRegion[];
 }
+
+const ARRANGED_REGION_PADDING = 40;
+
+/** A soft, labeled band around the members of one editorial region. Drawn from
+ *  the members currently on-canvas; needs ≥2 to be a meaningful grouping.
+ *  Non-interactive and rendered behind the real nodes — a corner chip carries
+ *  the label so the grouping reads as a suggestion, never a relation edge. */
+const buildArrangementRegionNode = (
+  region: ProjectedRegion,
+  members: FlowNode<any>[]
+): FlowNode<any> | null => {
+  if (members.length < 2) return null;
+
+  const box = regionBoundingBox(members, ARRANGED_REGION_PADDING);
+  if (!box) return null;
+
+  return {
+    id: `arranged-region:${region.id}`,
+    className: 'arranged-region-node',
+    data: {
+      label: region.label ? (
+        <span className="arranged-region-label">{region.label}</span>
+      ) : (
+        ''
+      ),
+    },
+    draggable: false,
+    selectable: false,
+    connectable: false,
+    ...box,
+  };
+};
+
+/** Translate the active arrangement's regions into layout clusters for the elk
+ *  engine, scoped to the nodes actually present at this granularity (a region's
+ *  file members exist in the file graph, its declaration members in the
+ *  declaration graph). This is what makes elk place a region's members together
+ *  so the soft band wraps a tight area instead of sprawling. Clusters with <2
+ *  present members are dropped — a lone node needs no band. */
+const buildLayoutClusters = (
+  projection: ArrangementProjection,
+  presentIds: Set<string>
+): LayoutCluster[] => {
+  if (!projection.active) return [];
+  return projection.regions
+    .map((region) => ({
+      id: region.id,
+      label: region.label,
+      nodeIds: [...region.webIds].filter((id) => presentIds.has(id)),
+    }))
+    .filter((cluster) => cluster.nodeIds.length >= 2);
+};
 
 /** Emphasis / collapsed CSS classes for a node, in the web's own id space.
  *  Empty when arrangement is off — leaves the node's class list untouched. */
@@ -744,6 +822,7 @@ export const IncludesHierarchy: React.FC<{
     const hiddenFilenames = new Set<string>();
     const collapsedIds = new Set<string>();
     const emphasisIds = new Set<string>();
+    const regions: ProjectedRegion[] = [];
 
     if (active && arrangement) {
       const entities = focusedReview?.entities || [];
@@ -773,9 +852,28 @@ export const IncludesHierarchy: React.FC<{
         const entity = entityById.get(id);
         if (entity) emphasisIds.add(webIdOf(entity));
       }
+      for (const region of arrangement.regions || []) {
+        const webIds = new Set<string>();
+        for (const entityId of region.entityIds) {
+          const entity = entityById.get(entityId);
+          if (entity) webIds.add(webIdOf(entity));
+        }
+        // A 1-member band is just a ring around a single node — let emphasis
+        // cover that case; only group two or more.
+        if (webIds.size >= 2) {
+          regions.push({ id: region.id, label: region.label, webIds });
+        }
+      }
     }
 
-    return { active, hiddenDeclIds, hiddenFilenames, collapsedIds, emphasisIds };
+    return {
+      active,
+      hiddenDeclIds,
+      hiddenFilenames,
+      collapsedIds,
+      emphasisIds,
+      regions,
+    };
   }, [arrangement, focusedReview, useArrangement]);
 
   const focusedFilesByName = useMemo(() => {
@@ -1104,6 +1202,10 @@ export const IncludesHierarchy: React.FC<{
           strategy: 'review-declarations',
           nodes: layoutNodes,
           edges: layoutEdges,
+          clusters: buildLayoutClusters(
+            arrangementProjection,
+            new Set(layoutNodes.map((node) => node.id))
+          ),
         },
         asyncLayoutConnections: layoutConnections,
       };
@@ -1308,6 +1410,14 @@ export const IncludesHierarchy: React.FC<{
       strategy: layoutStrategy,
       nodes: layoutNodes,
       edges: layoutEdges,
+      // Region clustering only applies to the review lens (the elk path);
+      // ignored by the synchronous layout below and by the overview strategy.
+      clusters: isReviewLens
+        ? buildLayoutClusters(
+            arrangementProjection,
+            new Set(layoutNodes.map((node) => node.id))
+          )
+        : undefined,
     };
     const layoutResult = layoutCodeGraph(layoutInput);
     const connectionPositions = buildConnectionPositions(
@@ -1770,9 +1880,25 @@ export const IncludesHierarchy: React.FC<{
     nodesElements,
   ]);
 
+  // Review lens: a soft band per editorial region from the LLM arrangement,
+  // drawn from the members currently placed on-canvas (so it tracks hide /
+  // collapse / reveal and manual drags). Empty unless the Arranged overlay is on.
+  const reviewRegionNodes = useMemo<FlowNode<any>[]>(() => {
+    if (!isReviewLens || !arrangementProjection.active) return [];
+
+    return arrangementProjection.regions
+      .map((region) => {
+        const members = nodesElements.filter((node) =>
+          region.webIds.has(node.id)
+        );
+        return buildArrangementRegionNode(region, members);
+      })
+      .filter((node): node is FlowNode<any> => node !== null);
+  }, [isReviewLens, arrangementProjection, nodesElements]);
+
   const renderedNodes = useMemo(
-    () => [...overviewRegionNodes, ...nodesElements],
-    [nodesElements, overviewRegionNodes]
+    () => [...overviewRegionNodes, ...reviewRegionNodes, ...nodesElements],
+    [nodesElements, overviewRegionNodes, reviewRegionNodes]
   );
 
   const visibleCount = useMemo(() => {

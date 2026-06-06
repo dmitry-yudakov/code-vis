@@ -1,6 +1,6 @@
 # Story 5 — LLM arrangement pass: editorial visibility & emphasis over the Review slice (MVP Milestone 2)
 
-**Status:** In progress — core landed & green (on-demand visibility + emphasis); regions rendering and the empirical side-by-side signal still open. · **Type:** Full-stack · **Depends on:** [Story 4](STORY-20260604-provider-agnostic-llm-client.md) (the LLM client) and [Story 3](STORY-20260603-static-entity-relation-model.md) (the static `Entity`/`Relation` model). Realizes [vision.md](../docs/vision.md) step 5 (Arrangement) / MVP Milestone 2, and is the graduation of Story 2's superseded `narrativeRank` from one ordering axis to a full editorial spec.
+**Status:** In progress — core landed & green (on-demand visibility + emphasis + editorial region bands); the empirical side-by-side signal still open. · **Type:** Full-stack · **Depends on:** [Story 4](STORY-20260604-provider-agnostic-llm-client.md) (the LLM client) and [Story 3](STORY-20260603-static-entity-relation-model.md) (the static `Entity`/`Relation` model). Realizes [vision.md](../docs/vision.md) step 5 (Arrangement) / MVP Milestone 2, and is the graduation of Story 2's superseded `narrativeRank` from one ordering axis to a full editorial spec.
 
 ---
 
@@ -11,14 +11,16 @@
 - **Server pass** — [arrangeReview.ts](../server/src/model/arrangeReview.ts): prompt → tolerant JSON parse → validate against the slice (drop unknown ids, force changed entities `shown`, dedupe/clean regions) → per-(client, slice) in-memory cache. Never throws. Unit-tested with a fake client (no real LLM).
 - **On-demand wiring** — `arrangeReview` socket command ([project.ts `handleCommandArrangeReview`](../server/src/project.ts) + [index.ts handler](../server/src/index.ts)) returns `ReviewArrangementResult`; `buildFocusedReviewMap` only sets `llmAvailable` and never blocks on the LLM. Client method [`projectApi.arrangeReview`](../web/src/connection/index.ts) (180s request timeout) + [App.tsx](../web/src/App.tsx) wiring.
 - **Web realization** — [IncludesHierarchy.tsx](../web/src/components/IncludesHierarchy.tsx): **✨ Arrange with AI** button (only when `llmAvailable`) with `Arranging…` / inline-error states; arrangement held in local state, reset on a new slice; `hidden` filtered out (both granularities, edges cascade), `emphasis` → amber ring, `collapsed` → recessed; `Arranged`/`elk only` toggle, `Reveal N hidden`, `Re-arrange`. CSS in [IncludesHierarchy.css](../web/src/components/IncludesHierarchy.css).
+- **Region bands (Option A)** — `regions` render as soft indigo bands with a labeled corner chip, reusing the Overview lens's `regionBoundingBox` geometry. `arrangementProjection.regions` translates each region's `entityIds` into the web's id space; `reviewRegionNodes` draws a band per region from the members currently on-canvas (so it composes with hide / collapse / reveal and manual drags), needs ≥2 visible members, and is layered behind the real nodes in `renderedNodes`. Deliberately distinct from relation edges (no arrowheads, no stroke) and from the amber emphasis ring — a grouping, not verified structure. Suppressed when `elk only` is active.
+- **Region clustering (Option B)** — the bands stop overlapping because elk now physically groups each region. `LayoutCluster` ([types.ts](../web/src/graphLayout/types.ts)) flows through `CodeLayoutInput.clusters`; [elkLayout.ts](../web/src/graphLayout/elkLayout.ts) nests each cluster's members under a synthetic group node (`org.eclipse.elk.hierarchyHandling: INCLUDE_CHILDREN`, per-group padding ≥ the band padding), and the result walker flattens nested child coords back to absolute (group ids stay layout-only). Membership is a partition (a node in several regions joins the first by id); clusters with <2 present members dissolve. The component derives clusters from `arrangementProjection.regions` scoped to the present node set (`buildLayoutClusters`, both granularities) and attaches them to the elk `asyncLayoutInput`. Covered by two elk tests (non-overlapping cluster bboxes; thin-cluster dissolve).
 - **Dev tooling** — `yarn arrange:smoke` ([arrangeReview.smoke.ts](../server/src/model/arrangeReview.smoke.ts)) prints validated JSON on a fixture, no web needed.
 - **Timeout fix (post-impl)** — `arrangeReview` no longer forces a 30s timeout; it passes none so the client adapter's configured timeout governs and `CODEAI_LLM_TIMEOUT_MS` is honored (it was previously shadowed). The web request timeout (180s) is kept above the server's LLM timeout so the server's own fail-safe wins.
 
 **Still open**
 
-- Region soft-band rendering (`regions` flows end-to-end but isn't drawn) — and with it, the region-provenance acceptance criterion.
 - `order` realization (carried/validated, not yet driving lane/row order).
 - The objective side-by-side signal (success criterion #4) — pending a real model run.
+- Live verification of Option B against a real model (the elk grouping is unit-tested, but the look on a real, messy slice hasn't been eyeballed yet).
 
 ---
 
@@ -133,13 +135,18 @@ verified relation edge.
 - [x] With no LLM configured / before clicking / on error, the Review renders via elk **unchanged** (button absent or inert, zero behavior change).
 - [x] `server` and `web` typecheck against the new types; existing `server` (97) and `web` (25) test suites pass.
 - [ ] **Side-by-side signal** (success criterion #4): on a demo commit, capture at least one objective number — e.g. fewer expand/scroll actions to locate the changed endpoint, or N/M reviewer preference — comparing `Arranged` vs `elk only`. *(Pending a real model run.)*
-- [ ] Provenance: regions render as a visibly-editorial soft band distinct from relation edges. *(Deferred with regions — see Out of scope.)*
+- [x] Provenance: regions render as a visibly-editorial soft band (labeled indigo band, no arrowheads/stroke) distinct from relation edges and the amber emphasis ring. *(Option A — bounding box; non-overlapping placement needs Option B layout clustering.)*
 
 ## Out of scope
 
-- **Region rendering (soft bands).** The `regions` field is parsed, validated, and returned, but the
-  web does not yet draw grouped bands/labels (a React-Flow grouping lift). Visibility + emphasis is
-  the independently-valuable, testable first cut; regions are the next step in this story.
+- **React-Flow parent/group-node lift (Option C).** Both Option A (bounding-box bands) and Option B
+  (elk hierarchical clustering, so the bands wrap tight non-overlapping areas) have landed. Not done —
+  and deliberately deferred — is making regions *true* React-Flow container nodes (`parentNode` +
+  `extent: 'parent'`), which would fight manual drag, parent-relative coordinates, and the async elk
+  relayout. Only reach for it if soft bands + clustering prove insufficient.
+- **The synchronous first-paint isn't clustered.** Clustering lives in the elk (async) path only; the
+  transient semantic lane layout shown for the first beat is unclustered, then snaps to the grouped elk
+  result — the same semantic→elk reflow the review lens already has.
 - **`order` realization.** `order` is carried and validated but not yet used to drive lane/row
   ordering; emphasis covers the lead-with need for now.
 - **LLM extraction / `consumes` edges, `api-call`/`api-endpoint` kinds, persistence, the change

@@ -729,6 +729,36 @@
   opacity: 0.45;
 }
 
+/* Editorial region bands (M2): a soft, labeled band groups the entities the LLM
+   placed together. Deliberately not a relation edge — no arrowheads, no stroke —
+   and a distinct indigo hue from the amber emphasis ring and the green/blue
+   structural edges, so a suggested grouping never reads as verified structure. */
+.react-flow__node-default.arranged-region-node {
+  pointer-events: none;
+  border: 1px dashed rgba(116, 99, 178, 0.5);
+  border-radius: 12px;
+  background: rgba(124, 104, 196, 0.08);
+  box-shadow: none;
+  color: transparent;
+  padding: 0;
+}
+
+.arranged-region-label {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #4a3d82;
+  background: rgba(237, 233, 250, 0.95);
+  border: 1px solid rgba(116, 99, 178, 0.4);
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* "Arrange with AI" controls in the Review toolbar. */
 .arrangement-controls {
   display: flex;

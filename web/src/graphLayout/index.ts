@@ -116,7 +116,9 @@ export async function layoutCodeGraphAsync(
     input.strategy,
     nodes,
     edges,
-    input.viewport
+    input.viewport,
+    undefined,
+    input.clusters
   );
 
   if (!input.preservePrevious) return result;

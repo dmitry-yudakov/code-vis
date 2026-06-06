@@ -747,6 +747,71 @@ describe('graphLayout', () => {
     expect(result.bounds?.width).toBeGreaterThan(0);
   });
 
+  test('keeps clustered region members in non-overlapping areas (elk)', async () => {
+    const ids = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'];
+    const result = await layoutCodeGraphAsync({
+      engine: 'elk',
+      strategy: 'review-declarations',
+      nodes: ids.map((id) =>
+        node({ id, label: id, kind: 'declaration', width: 300, height: 140 })
+      ),
+      edges: [
+        { id: 'a1-a2', source: 'a1', target: 'a2', kind: 'calls' },
+        { id: 'a2-a3', source: 'a2', target: 'a3', kind: 'calls' },
+        { id: 'b1-b2', source: 'b1', target: 'b2', kind: 'calls' },
+        { id: 'b2-b3', source: 'b2', target: 'b3', kind: 'calls' },
+        // A cross-region edge must still route (INCLUDE_CHILDREN) without
+        // dragging the two regions into each other.
+        { id: 'a1-b1', source: 'a1', target: 'b1', kind: 'calls' },
+      ],
+      clusters: [
+        { id: 'region-a', nodeIds: ['a1', 'a2', 'a3'] },
+        { id: 'region-b', nodeIds: ['b1', 'b2', 'b3'] },
+      ],
+    });
+
+    // Every leaf is placed in absolute space; the synthetic group node ids
+    // are layout-only and must not leak into the result.
+    expect(Object.keys(result.positions).sort()).toEqual(ids);
+
+    const bboxOf = (members: string[]) => {
+      const xs = members.map((id) => result.positions[id].x);
+      const ys = members.map((id) => result.positions[id].y);
+      return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs) + 300,
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys) + 140,
+      };
+    };
+    const a = bboxOf(['a1', 'a2', 'a3']);
+    const b = bboxOf(['b1', 'b2', 'b3']);
+
+    const disjoint =
+      a.maxX <= b.minX ||
+      b.maxX <= a.minX ||
+      a.maxY <= b.minY ||
+      b.maxY <= a.minY;
+    expect(disjoint).toBe(true);
+  });
+
+  test('ignores clusters with fewer than two present members (elk)', async () => {
+    const result = await layoutCodeGraphAsync({
+      engine: 'elk',
+      strategy: 'review-declarations',
+      nodes: [
+        node({ id: 'lone', label: 'lone', kind: 'declaration' }),
+        node({ id: 'other', label: 'other', kind: 'declaration' }),
+      ],
+      edges: [{ id: 'lone-other', source: 'lone', target: 'other', kind: 'calls' }],
+      // 'missing' isn't in the node set, so the cluster has one present member
+      // and dissolves — every node still lays out as a flat sibling.
+      clusters: [{ id: 'thin', nodeIds: ['lone', 'missing'] }],
+    });
+
+    expect(Object.keys(result.positions).sort()).toEqual(['lone', 'other']);
+  });
+
   test('preserves previous positions when using the elk engine', async () => {
     const previousPositions = {
       source: { x: 1000, y: 1000 },

@@ -63,6 +63,20 @@ export interface CodeLayoutEdge {
   isHeuristic?: boolean;
 }
 
+/**
+ * An editorial grouping the layout should keep physically together (the LLM
+ * arrangement's regions). The elk path nests each cluster's members under a
+ * group node so they lay out as one cohesive block — what lets the soft band
+ * wrap a tight, non-overlapping area instead of a sprawl across the canvas.
+ * Membership is a partition: a node listed in several clusters lands in the
+ * first by id. Clusters with fewer than two present members are ignored.
+ */
+export interface LayoutCluster {
+  id: string;
+  label?: string;
+  nodeIds: string[];
+}
+
 export interface CodeLayoutResult {
   positions: Record<string, { x: number; y: number }>;
   edgeRoutes?: Record<
@@ -86,4 +100,6 @@ export interface CodeLayoutInput {
   previousPositions?: Record<string, { x: number; y: number }>;
   preservePrevious?: boolean;
   viewport?: { width: number; height: number };
+  /** Editorial groupings to keep together; honored by the elk engine only. */
+  clusters?: LayoutCluster[];
 }
