@@ -150,6 +150,34 @@ describe('Includes using "import"', () => {
     ).resolves.toEqual([
       { from: 'src/dir/a.css', to: 'src/dir/a.tsx', items: [] },
     ]));
+
+  test('resolve path-aliased (baseUrl) import against project files', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/components/HintEngine.tsx', 'src/selectors/hints.ts'],
+        async (filename) =>
+          filename.endsWith('HintEngine.tsx')
+            ? `import { selectActiveHint, buildHintContext } from 'selectors/hints';`
+            : ``
+      )
+    ).resolves.toEqual([
+      {
+        from: 'src/selectors/hints.ts',
+        to: 'src/components/HintEngine.tsx',
+        items: ['selectActiveHint', 'buildHintContext'],
+      },
+    ]));
+
+  test('ignore bare import that matches no project file (npm package)', () =>
+    expect(
+      jsAnalyzer.extractFilesHierarchy(
+        ['src/components/HintEngine.tsx'],
+        async () => `
+      import React from 'react';
+      import { render } from 'react-dom/client';
+      `
+      )
+    ).resolves.toEqual([]));
 });
 
 describe('Includes using "require"', () => {

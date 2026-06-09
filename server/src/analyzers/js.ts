@@ -25,19 +25,10 @@ function pp(obj: any) {
 const extractIncludes = (
   filename: string,
   content: string,
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
+  projectFilenames: string[] = []
 ) => {
   const imports = searchFor(sourceFile.statements, SyntaxKind.ImportDeclaration)
-    .filter((node) => {
-      // console.log('Import node', node);
-      // Keep all local (relative) imports. Bare side-effect imports such as
-      // `import './styles.css'` have no import clause but are still real file
-      // dependencies, so we must not require an importClause here.
-      if (node.moduleSpecifier?.text?.[0] === '.') return true;
-      // console.log('Ignore non-local import', pp(node));
-      console.log('Ignore non-local import from', node.moduleSpecifier?.text);
-      return false;
-    })
     .map((node) => {
       const from = node.moduleSpecifier?.text as string;
       if (!from) {
@@ -78,9 +69,27 @@ const extractIncludes = (
         items,
         from,
         to: filename,
-      };
+      } as FileIncludeInfo;
     })
-    .filter((incl) => !!incl) as FileIncludeInfo[];
+    .map((incl) => {
+      // Relative imports (`./x`, `../x`) resolve against the importing file's
+      // directory. A bare specifier (`selectors/hints`) is either an npm
+      // package or a path-aliased project import (tsconfig `baseUrl`/`paths`).
+      // We don't read tsconfig here, so we keep a bare import only when it
+      // matches a real project file and drop the rest as external packages.
+      if (incl.from[0] === '.') {
+        resolveRelativeIncludePathInPlace(incl);
+        return incl;
+      }
+      const resolved = resolveBareIncludePath(incl.from, projectFilenames);
+      if (!resolved) {
+        console.log('Ignore non-local import from', incl.from);
+        return null;
+      }
+      incl.from = resolved;
+      return incl;
+    })
+    .filter((incl): incl is FileIncludeInfo => !!incl);
 
   const requires = searchFor(sourceFile.statements, SyntaxKind.CallExpression)
     .filter((node) => {
@@ -127,9 +136,12 @@ const extractIncludes = (
       };
     });
 
-  const includes: FileIncludeInfo[] = imports.concat(requires);
+  // `requires` are filtered to relative specifiers above, so resolve them all
+  // as relative paths. Imports were already resolved per-item (relative paths
+  // against the importing file, bare specifiers against the project files).
+  requires.forEach(resolveRelativeIncludePathInPlace);
 
-  includes.forEach(resolveRelativeIncludePathInPlace);
+  const includes: FileIncludeInfo[] = imports.concat(requires);
 
   return includes;
 };
@@ -196,6 +208,29 @@ export const tryAutoResolveProjectModule = (
   return null;
 };
 
+// A non-relative specifier (e.g. `selectors/hints`) is either an npm package or
+// a path-aliased project import resolved via tsconfig `baseUrl`/`paths`. We
+// don't parse tsconfig, so we treat it as local only when some project file is
+// `<baseUrl>/<specifier>.<ext>` — i.e. equals, or ends at a path boundary with,
+// the specifier plus a known extension/index suffix. Returns the matched
+// project file, or null when it looks like an external package.
+export const resolveBareIncludePath = (
+  specifier: string,
+  projectFilenames: string[]
+): string | null => {
+  for (const suffix of ['', ..._commonCompletionSuffixes]) {
+    const tail = specifier + suffix;
+    const boundaryTail = '/' + tail;
+    for (const candidate of projectFilenames) {
+      if (candidate === tail || candidate.endsWith(boundaryTail)) {
+        console.log('Resolved aliased import', specifier, 'to', candidate);
+        return candidate;
+      }
+    }
+  }
+  return null;
+};
+
 const extractFilesHierarchy = async (
   filenames: string[],
   getFileContent: (filename: string) => Promise<string>
@@ -204,7 +239,7 @@ const extractFilesHierarchy = async (
     filenames.map(async (filename) => {
       const content = await getFileContent(filename);
       const sourceFile = parseFile(filename, content);
-      return extractIncludes(filename, content, sourceFile);
+      return extractIncludes(filename, content, sourceFile, filenames);
     })
   ).then((nestedIncludes) => nestedIncludes.flat());
 
@@ -926,7 +961,12 @@ const extractFileMapping = (
 ): FileMapping => {
   const sourceFile = parseFile(filename, content);
 
-  const includes = extractIncludes(filename, content, sourceFile);
+  const includes = extractIncludes(
+    filename,
+    content,
+    sourceFile,
+    projectFilenames
+  );
 
   includes.forEach((info) => {
     info.from =
