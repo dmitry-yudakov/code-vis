@@ -397,6 +397,30 @@ const arrangementClassFor = (
     .join(' ');
 };
 
+/** The sub-slice of the review model the LLM arrangement pass reasons over for
+ *  one granularity. The user views files OR declarations at a time, so sending
+ *  both halves makes the model split its attention across two unrelated editorial
+ *  questions and roughly doubles the prompt. We send only the current
+ *  granularity's nodes plus the relations whose endpoints both survive — which
+ *  keeps `imports` for files, `calls`/`declares` for declarations, and drops the
+ *  cross-granularity `contains` (file→decl) that neither single view shows. Each
+ *  entity still carries its own change status, so the diff signal stays intact. */
+const sliceForGranularity = (
+  entities: Entity[],
+  relations: Relation[],
+  granularity: ReviewGranularity
+): { entities: Entity[]; relations: Relation[] } => {
+  const wantFiles = granularity === 'files';
+  const scoped = entities.filter((entity) =>
+    wantFiles ? entity.kind === 'file' : entity.kind !== 'file'
+  );
+  const ids = new Set(scoped.map((entity) => entity.id));
+  const scopedRelations = relations.filter(
+    (relation) => ids.has(relation.source) && ids.has(relation.target)
+  );
+  return { entities: scoped, relations: scopedRelations };
+};
+
 const overviewDeclarationId = (decl: FunctionDeclarationInfo): string =>
   `decl:${decl.filename}->${decl.name}:${decl.pos}`;
 
@@ -656,7 +680,15 @@ export const IncludesHierarchy: React.FC<{
   // with AI" button) and held here, not shipped with the review. `useArrangement`
   // toggles the fetched overlay on/off for A/B vs. the deterministic elk view;
   // `revealHidden` brings back the entities the arrangement folded out.
-  const [arrangement, setArrangement] = useState<Arrangement | null>(null);
+  //
+  // Held per granularity: files vs declarations are two different editorial
+  // questions, each asked (and server-cached) on its own slice, so switching the
+  // granularity surfaces that granularity's own arrangement — or the elk view +
+  // "Arrange with AI" button if it hasn't been asked for yet.
+  const [arrangements, setArrangements] = useState<
+    Partial<Record<ReviewGranularity, Arrangement>>
+  >({});
+  const arrangement = arrangements[reviewGranularity] ?? null;
   const [arrangeLoading, setArrangeLoading] = useState(false);
   const [arrangeError, setArrangeError] = useState<string | null>(null);
   const [useArrangement, setUseArrangement] = useState(true);
@@ -960,23 +992,42 @@ export const IncludesHierarchy: React.FC<{
     ? arrangementProjection.hiddenDeclIds.size
     : arrangementProjection.hiddenFilenames.size;
 
-  // A fetched arrangement is tied to one review slice; drop it when a new review
-  // payload arrives (commit / source / tests change) so a stale overlay never
-  // applies to a different change.
+  // A fetched arrangement is tied to one review slice; drop both granularities'
+  // arrangements when a new review payload arrives (commit / source / tests
+  // change) so a stale overlay never applies to a different change.
   useEffect(() => {
-    setArrangement(null);
+    setArrangements({});
     setArrangeError(null);
     setRevealHidden(false);
   }, [focusedReview]);
 
+  // Switching granularity surfaces a different arrangement (or none); don't leak
+  // the other granularity's transient error / reveal state across the toggle.
+  useEffect(() => {
+    setArrangeError(null);
+    setRevealHidden(false);
+  }, [reviewGranularity]);
+
   const handleArrangeReview = useCallback(async () => {
     if (!focusedReview?.entities?.length) return;
+    // Only send the granularity the user is actually looking at — half the prompt
+    // and one focused editorial question instead of two interleaved ones.
+    const granularity = reviewGranularity;
+    const slice = sliceForGranularity(
+      focusedReview.entities,
+      focusedReview.relations || [],
+      granularity
+    );
+    if (!slice.entities.length) {
+      setArrangeError(`Nothing to arrange at the ${granularity} granularity.`);
+      return;
+    }
     setArrangeLoading(true);
     setArrangeError(null);
     try {
       const result = await requestReviewArrangement(
-        focusedReview.entities,
-        focusedReview.relations || []
+        slice.entities,
+        slice.relations
       );
       if (!result.available) {
         setArrangeError('No LLM is configured on the server.');
@@ -986,7 +1037,10 @@ export const IncludesHierarchy: React.FC<{
         setArrangeError('The model returned no usable arrangement.');
         return;
       }
-      setArrangement(result.arrangement);
+      // Store under the granularity that was active when the request started, so
+      // a toggle mid-flight can't file the result under the wrong view.
+      const next = result.arrangement;
+      setArrangements((prev) => ({ ...prev, [granularity]: next }));
       setUseArrangement(true);
       setRevealHidden(false);
     } catch (error) {
@@ -996,7 +1050,7 @@ export const IncludesHierarchy: React.FC<{
     } finally {
       setArrangeLoading(false);
     }
-  }, [focusedReview, requestReviewArrangement]);
+  }, [focusedReview, reviewGranularity, requestReviewArrangement]);
 
   const overviewDeclarationExpansion = useMemo(() => {
     if (

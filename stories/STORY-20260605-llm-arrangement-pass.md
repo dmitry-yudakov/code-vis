@@ -15,6 +15,7 @@
 - **Region clustering (Option B)** — the bands stop overlapping because elk now physically groups each region. `LayoutCluster` ([types.ts](../web/src/graphLayout/types.ts)) flows through `CodeLayoutInput.clusters`; [elkLayout.ts](../web/src/graphLayout/elkLayout.ts) nests each cluster's members under a synthetic group node (`org.eclipse.elk.hierarchyHandling: INCLUDE_CHILDREN`, per-group padding ≥ the band padding), and the result walker flattens nested child coords back to absolute (group ids stay layout-only). Membership is a partition (a node in several regions joins the first by id); clusters with <2 present members dissolve. The component derives clusters from `arrangementProjection.regions` scoped to the present node set (`buildLayoutClusters`, both granularities) and attaches them to the elk `asyncLayoutInput`. Covered by two elk tests (non-overlapping cluster bboxes; thin-cluster dissolve).
 - **Dev tooling** — `yarn arrange:smoke` ([arrangeReview.smoke.ts](../server/src/model/arrangeReview.smoke.ts)) prints validated JSON on a fixture, no web needed.
 - **Timeout fix (post-impl)** — `arrangeReview` no longer forces a 30s timeout; it passes none so the client adapter's configured timeout governs and `CODEAI_LLM_TIMEOUT_MS` is honored (it was previously shadowed). The web request timeout (180s) is kept above the server's LLM timeout so the server's own fail-safe wins.
+- **Granularity-scoped arrangement input (2026-06-09)** — the LLM previously got the whole slice (file *and* declaration entities + all relations) even though the user views only one granularity, so ~half the model's output was discarded and it split attention across two editorial questions. [IncludesHierarchy.tsx](../web/src/components/IncludesHierarchy.tsx) `sliceForGranularity` now sends only the active granularity's nodes plus the relations whose endpoints both survive — files → file entities + `imports`; declarations → declaration entities + `calls`/`declares`; the cross-granularity `contains` (file→decl) drops out by endpoint-membership filtering. The fetched arrangement is held **per granularity** (`arrangements: Partial<Record<ReviewGranularity, Arrangement>>`, surfaced for the active one), so toggling files↔declarations shows that view's own arrangement or the elk view + button if it hasn't been asked yet. Halves the prompt and makes each pass one focused question; faster and higher-signal. No server change — `sliceSignature` keys off the entity set, so the two granularities cache separately for free. `web` typechecks + tests green.
 
 **Still open**
 
@@ -167,4 +168,39 @@ verified relation edge.
    two without re-asking; `Re-arrange` re-runs.
 4. **Fallback:** with no provider configured the button is absent and the Review is identical to today;
    on a model error an inline message shows and the elk view stays intact.
+5. **Granularity scoping (2026-06-09):** open the Review lens with a provider configured, click **Arrange
+   with AI** in **Files** — only file entities + `imports` are sent. Toggle to **Declarations** → the button
+   reappears (its own slice not yet asked); arrange it → only declaration entities + `calls`/`declares` are
+   sent. Toggling back shows each granularity's own arrangement without re-asking.
+
+---
+
+## Future design — diff as a toggleable overlay (deferred 2026-06-09)
+
+Captured from the discussion that motivated the granularity-scoped slice above; not yet promoted to its
+own story.
+
+Today change status (`added` / `modified` / `deleted`; **absence = unchanged / no-info**, kept as-is) is
+**baked into each `Entity` at build time** by [reviewModel.ts](../server/src/model/reviewModel.ts) and exists
+**only in the Review lens**. The idea: model the diff as a **separate overlay layer keyed by entity id,
+attached only when a "Diff" toggle is on**, rather than a field on the entity. That one move buys:
+
+- **An on/off toggle** that cuts both the prompt and the model's reasoning load — "Diff off" sheds the
+  change fields entirely (the "reduce noise & speed up arrangement" goal), "Diff on" attaches them.
+- **Reuse beyond review** — overlay the same diff layer onto the Overview / logic graph: explore some
+  functionality, flip Diff on to see what changed and where, flip it off to study the structure clean.
+- **Two arrangement strategies** — Diff-on: *"what changed + the minimal context to understand it"* (the
+  current guard-rail force-shows changed entities). Diff-off: *"what is the core structure of this
+  functionality"* (no force-shown set; the guard-rail is inert). Argues for per-mode (and per-granularity)
+  system-prompt variants.
+- **Free cache separation** — `sliceSignature` already folds change status into its key, so diff-on vs
+  diff-off slices cache distinctly with no extra work.
+
+**Open decision — the diff baseline.** In review it's the change set under review; in a non-review lens
+"Diff on" needs a ref to diff against (working tree / last commit / vs `main` / a PR). The review path's
+`reviewMode: 'diff' | 'branch' | 'commit'` already has the machinery — this is mostly lifting it out of the
+review lens plus a baseline selector.
+
+**Also deferred:** per-granularity / per-mode system-prompt tailoring (the server prompt is still the
+generic multi-level one), and **background prefetch** of the other granularity so a toggle is instant.
 
