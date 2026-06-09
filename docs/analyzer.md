@@ -55,7 +55,7 @@ interface FileMapping {
 
 ## Extracted Constructs
 
-**Imports**: ES6 `import` (default, named, namespace, mixed) and CommonJS `require`. Local imports only (paths starting with `.`). Resolves relative paths; auto-completes missing extensions via `tryAutoResolveProjectModule`.
+**Imports**: ES6 `import` (default, named, namespace, mixed) and CommonJS `require`. Relative imports (paths starting with `.`) resolve against the importing file's directory. Bare ES `import` specifiers (e.g. `selectors/hints`) are treated as possible path aliases and kept **only when they suffix-match a real project file** via `resolveBareIncludePath`; otherwise they're dropped as external packages. Missing extensions are auto-completed via `tryAutoResolveProjectModule`. (CommonJS `require` still keeps relative specifiers only.)
 
 **Function declarations**: `function f()`, `const f = () =>`, class methods. Sole `const x = () => {}` declarations capture the full `VariableStatement` in `pos`/`end`. Sorted by position.
 
@@ -73,6 +73,7 @@ interface FileMapping {
 - `extractSimplePropertyChain(expression)` → `string[] | null` — walks property access chains; returns `null` if chain contains a call result or element access
 - `inferReceiverKind(expression)` → `ReceiverKind`
 - `tryAutoResolveProjectModule(incomplete, projectFiles)` — appends common suffixes (`.js`, `.ts`, `.jsx`, `.tsx`, `.d.ts`, `/index.*`) to resolve extensionless imports
+- `resolveBareIncludePath(specifier, projectFiles)` — resolves a non-relative specifier to a project file by path-suffix match (heuristic stand-in for tsconfig `baseUrl`/`paths`); returns `null` for external packages
 - `searchFor(tree, kind)` — recursive AST traversal via `ts.forEachChild`
 
 ## Compatibility Rule
@@ -87,3 +88,5 @@ interface FileMapping {
 - `str.trim().toLowerCase()` — `toLowerCase` gets `receiverKind: 'call-result'`, no `calleeText`
 - Intrinsic JSX tags intentionally excluded
 - Callback-reference extraction is heuristic and limited to common array/promise/timer APIs; arbitrary higher-order functions are not inferred
+- No real `baseUrl`/`paths` resolution. Path-aliased imports are matched heuristically by path suffix (`resolveBareIncludePath`), so a package subpath that coincidentally matches a project file (e.g. `lodash/fp` vs a local `lodash/fp.ts`) can be mis-linked. **Future:** read the analyzed project's `tsconfig.json`/`jsconfig.json` `baseUrl` + `paths` for exact alias resolution.
+- Unresolved imports are dropped silently (only a `console.log` server-side); the map gives no signal that an edge is missing. **Future:** surface unresolved / external imports (e.g. an "unresolved" marker or external-package node) so the graph can flag them instead of hiding them.
