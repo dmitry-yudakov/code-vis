@@ -4,7 +4,7 @@
 exists today. Reference docs ([architecture](architecture.md), [server](server.md),
 [web](web.md), [analyzer](analyzer.md)) describe current reality; this document describes the
 target and the transition toward it.
-**Updated:** July 5, 2026
+**Updated:** July 7, 2026
 
 ---
 
@@ -370,7 +370,12 @@ rendering** over the same model — only `changePhase` (`applied` vs `proposed`)
 review visualization we already have is reused for agent proposals.
 
 LLM can also run the other direction: generate a **diagram for a feature that does not exist
-yet**, which the user draws over to refine or to ask clarifying questions.
+yet**, which the user draws over to refine or to ask clarifying questions. The nearest concrete
+form: render an existing **spec / story / plan document** as a proposed overlay anchored to the
+current model — the plan verified on the map before any code is generated. Needs only the
+completion contract plus the rendering this section already defines, which is why it is
+sequenced early ([epic](../stories/EPIC-20260705-north-star-roadmap.md), Story 17) rather than
+waiting for the full change loop.
 
 ### User drawings as anchors
 

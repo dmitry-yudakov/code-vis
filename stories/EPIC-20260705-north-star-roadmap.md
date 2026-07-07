@@ -1,7 +1,7 @@
 # EPIC — From read-only visualizer to the north star
 
 **Status:** Active · **Owns:** the sequencing of all stories toward the
-[vision](../docs/vision.md) · **Updated:** July 5, 2026
+[vision](../docs/vision.md) · **Updated:** July 7, 2026
 
 This is the plan of record for reaching the [vision & north star](../docs/vision.md): which
 stories exist, which are still to be written, what depends on what, and in what order the work
@@ -48,9 +48,10 @@ here it carries just enough to sequence it.
 | 11 | Model-as-tools MCP server | agent-first | 3, (7 amortizes it) |
 | 12 | 3D surface bootstrap — react-three-fiber | VR track | 3 |
 | 13 | Immersive mode — WebXR on Quest | VR track | 12 |
-| 14 | Change loop v1 — intent → external agent → proposed overlay | 7 | 11, review lens |
-| 15 | Draw-over-diagram — sketch anchors | 8 | 14 (rendering), 12 (spatial input later) |
+| 14 | Change loop v1 — intent → external agent → proposed overlay | 7 | 11, 17 (overlay rendering) |
+| 15 | Draw-over-diagram — sketch anchors | 8 | 14 (loop), 17 (overlay rendering), 12 (spatial input later) |
 | 16 | Team surface v1 — shareable views | 10 | 10 |
+| 17 | Plan preview — spec/story/plan doc → proposed-change overlay | 7 (seed) · 8 | 3, 4, (5 for regions) |
 
 Dependency shape (arrows = "needs"):
 
@@ -59,13 +60,17 @@ graph LR
   S3[3 static model] --> S7[7 persistence]
   S3 --> S11[11 MCP tools]
   S3 --> S12[12 r3f 3D surface]
+  S3 --> S17[17 plan preview]
   S4[4 LLM client] --> S6[6 annotations]
   S4 --> S8[8 LLM extractor]
+  S4 --> S17
   S5[5 arrangement] --> S10[10 saved views]
+  S5 -.regions.-> S17
   S7 --> S8
   S7 -.durability.-> S10
   S8 --> S9[9 feature lens]
   S11 --> S14[14 change loop v1]
+  S17 -.overlay rendering.-> S14
   S12 --> S13[13 WebXR Quest]
   S14 --> S15[15 sketch anchors]
   S10 --> S16[16 team v1]
@@ -91,8 +96,8 @@ Close out both MVP milestones and the loose ends the vision already names.
 
 ### Phase B — The model becomes real (understanding deepens)
 
-The persistent model is the center of the vision; this phase builds it and proves multi-source
-extraction.
+The persistent model is the center of the vision; this phase builds it, proves multi-source
+extraction, and extends understanding from what *is* to what is *proposed*.
 
 - **Story 7 — Persist & cache the model** (arc 2): on-disk store per project (open question #2:
   `~/.code-ai/projects/{...}/`), invalidated by the existing chokidar watch, file-level
@@ -109,9 +114,27 @@ extraction.
 - **Story 9 — Feature focus lens + relation-kind filters** (arc 4): seed entities + semantic
   neighborhood; "show only the DB layer / only client↔server API" filters — the payoff of typed
   relations.
+- **Story 17 — Plan preview: spec/story/plan doc → proposed-change overlay** (arc 7 seed · 8):
+  render a written plan — a `stories/*.md`, a design spec, an agent's plan output — on the live
+  map *before anything is implemented*. One scoped completion pass (no delegation, no apply)
+  parses the doc into proposed entities/relations anchored to the current model: references to
+  real code resolve to existing entity ids (`changeStatus: 'modified'`), genuinely new parts
+  become proposed-new nodes with session-stable ids (open question #4 in its low-stakes form).
+  Rendering is pure reuse of the review visualization — this story adds the deferred
+  `changePhase: 'proposed'` field (both type files) and its visual treatment, making the
+  vision's "same rendering, different phase" insight real; impact comes free from the review
+  lens's existing neighborhood expansion, and arrangement regions (Story 5) group the plan into
+  its chapters. Discipline as always: pre-narrow deterministically ("send only relevant
+  changes"), validate anchors against the model, render as *suggested* — validation catches
+  nonexistent anchors, not wrong-but-existing ones, so provenance rendering does the safety work
+  (non-goal #3). **Why here, not Phase D:** its dependencies (3, 4) are already met; it moves
+  verification to the earliest point in the loop — the plan, before any code exists — and it
+  builds the proposed-overlay rendering with the simplest possible producer, so Story 14 later
+  adds only delegation. Dogfood: point it at this epic.
 
 **Exit:** a persisted, multi-source model; an agent can query it cheaply; one cross-cutting
-vertical demonstrably beyond files/functions/calls.
+vertical demonstrably beyond files/functions/calls; a written plan renders as a proposed overlay
+anchored to the live map.
 
 ### Phase C — Surfaces & memory (parallel track, can start during Phase B)
 
@@ -145,8 +168,9 @@ Understanding is proven; now the map drives change.
 
 - **Story 14 — Change loop v1** (arc 7, source ladder rung 1 — complementary): intent (text
   first) attached to a scope → delegate to an installed `claude`/`codex` via Story 11's MCP
-  hand-off → render the returned diff as a `changePhase: 'proposed'` overlay with the existing
-  review visualization → apply via `saveFile` or export. No autonomous apply (non-goal #2).
+  hand-off → render the returned diff as a `changePhase: 'proposed'` overlay — the rendering
+  path Story 17 already proved on the review visualization → apply via `saveFile` or export.
+  No autonomous apply (non-goal #2).
 - **Story 15 — Sketch anchors** (arc 8): draw boxes/arrows over the diagram → `origin: 'user'`
   proposed entities/relations → generation treats them as anchors
   ([vision](../docs/vision.md#user-drawings-as-anchors)). Touch-draw on tablet and — the
@@ -180,3 +204,8 @@ works end-to-end with an external agent.
    poison the cache and saved views. Open questions #4/#11 get answered here, at the latest.
 4. **MCP surface sprawl** (Story 11): a few sharp tools (slice, who-calls, exposes) beat a
    generic graph-query API nobody can prompt against.
+5. **Plan-preview anchoring is too noisy** (Story 17): mapping prose to real entities can
+   mis-resolve — validation rejects nonexistent anchors but not wrong-but-existing ones. Ship it
+   suggested-only (non-goal #3) and measure it like the arrangement bet; if precision stays low,
+   it degrades to unanchored proposed nodes grouped by region — still a useful shared sketch,
+   not a broken map.
