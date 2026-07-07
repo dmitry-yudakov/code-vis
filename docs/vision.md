@@ -4,7 +4,7 @@
 exists today. Reference docs ([architecture](architecture.md), [server](server.md),
 [web](web.md), [analyzer](analyzer.md)) describe current reality; this document describes the
 target and the transition toward it.
-**Updated:** June 3, 2026
+**Updated:** July 5, 2026
 
 ---
 
@@ -26,7 +26,10 @@ The core purpose:
 
 This can complement an editor + agent setup (VS Code + Claude Code), or eventually stand on its
 own. It should be reachable from web on desktop, phone/tablet, and — further out — VR/AR or
-voice. The *model and API are surface-agnostic*; surfaces are pluggable front-ends.
+voice. It is a personal instrument first, but the same map is a natural **team surface** — a
+shared thing to brainstorm over and hand to an agent to try (see
+[The team surface](#the-team-surface)). The *model and API are surface-agnostic*; surfaces are
+pluggable front-ends.
 
 ---
 
@@ -37,25 +40,31 @@ Honest snapshot, so the gap is explicit:
 - **Extraction** is static only, JS/TS only ([analyzer.md](analyzer.md)). The analyzer registry
   is a single analyzer (`getAnalyzer(ext)`) covering js/ts/jsx/tsx — one implementation, no
   per-language extensibility.
-- **Entities** are narrow: files, function declarations, function calls. No classes as
-  first-class items, no variables/globals, no DB tables, no config reads, no API endpoints, no
-  GraphQL.
-- **No persistent model.** Each lens recomputes a bespoke projection per request
-  (`buildFocusedReviewMap → FocusedReviewMap`, overview expansion client-side,
-  `CodeMapScope`). There is no single "model of the software" to query, cache, or enrich.
+- **Entities** now span the M1 static kinds — `file`, `class`, `function`, `method`, `variable`,
+  `constant` — as first-class items in a typed `Entity`/`Relation` model (relations: `contains` /
+  `declares` / `imports` / `calls`). Still missing the cross-cutting kinds: no DB tables, no config
+  reads, no API endpoints, no GraphQL.
+- **No persistent model.** A typed `Entity`/`Relation` model now exists, but **in-memory only** —
+  built per request from static analysis (`buildReviewEntityModel`) alongside the older bespoke
+  projections (`buildFocusedReviewMap → FocusedReviewMap`, overview expansion client-side,
+  `CodeMapScope`). There is still no single persisted "model of the software" to query, cache, or
+  enrich across requests.
 - **Lenses** exist but are partial: `Overview` and `Review changes` (working tree / branch /
   commit) are real; `Feature focus` and `Impact investigation` are placeholders.
-- **No LLM yet — specified, not built.**
-  [Story 2](../stories/STORY-20260602-llm-review-annotation.md) *proposes* the first integration
-  (a provider-agnostic, opt-in, fail-safe client to annotate ≤25 changed declarations in review),
-  but it is unimplemented: there is no `server/src/llm/`, its acceptance criteria are unchecked,
-  and no `CODEAI_LLM_*` wiring exists. The shipped
-  [Story 1](../stories/STORY-20260602-review-card-declutter.md) (card declutter +
-  `summary`/`causalReason` rendering) means the UI can already *display* descriptions it cannot
-  yet *produce*. The split is already visible as type drift: `web/src/types.d.ts` carries
-  `summary` / `causalReason` / `narrativeRank` while `server/src/types.d.ts` does not — and
-  `narrativeRank` is a declared-but-dead field nothing yet produces or consumes (step 1 closes
-  this).
+- **LLM is now built — arrangement, not extraction.** The provider-agnostic, opt-in, fail-safe
+  client is shipped ([Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md), Stage 1
+  HTTP + Stage 2 CLI subscription, *complete & verified*) under `server/src/llm/`, with the full
+  `CODEAI_LLM_*` env wiring. The **arrangement pass** that consumes it
+  ([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md)) is *in progress — core landed &
+  green* (on-demand visibility + emphasis + editorial region bands); only the empirical
+  side-by-side signal is still open. The LLM is spent **only on arrangement, not extraction** — the
+  model has no `origin: 'llm'` entities/relations yet (`Provenance` emits `'static'` only), and
+  Story 1's per-card `summary` / `causalReason` remain display-only (rendered, not yet produced).
+- **Type drift closed.** Step 1 did what it promised: `Entity` / `Relation` / `Arrangement` and the
+  `summary` / `causalReason` fields are now symmetric across `server/src/types.d.ts` and
+  `web/src/types.d.ts`. One loose end remains — `narrativeRank` is still declared on both sides and
+  still dead (nothing produces or consumes it); superseded by the `Arrangement` spec, pending
+  removal.
 - **Read-only.** Editing exists (`saveFile` + file watch), but the map does not yet drive
   change. `CodeMapScope` handoff is the seed of "act on this scope," nothing more.
 
@@ -309,11 +318,12 @@ is always the fast default; LLM arrangement is opt-in and fail-safe, exactly lik
 Arrangement provenance is itself visible: an LLM-suggested region renders as an editorial
 grouping (a soft band, say), distinct from a verified relation edge — **grouping ≠ link.**
 
-[Story 2](../stories/STORY-20260602-llm-review-annotation.md)'s `narrativeRank` is the **first,
-narrowest instance of LLM arrangement** — though still *planned*, not built: the model would emit
-one ordering signal that reorders one axis of one lens. This layer is where that idea graduates —
-from a single ordering number to full editorial composition (regions, visibility, emphasis),
-still with the algorithmic engine as the fallback.
+[Story 2](../stories/STORY-20260602-llm-review-annotation.md)'s `narrativeRank` was the **first,
+narrowest instance of LLM arrangement** — one ordering signal reordering one axis of one lens; it
+was never built, superseded before it shipped. This layer is where that idea graduated — from a
+single ordering number to full editorial composition (regions, visibility, emphasis), now realized
+([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md), core landed) with the algorithmic
+engine still the fallback.
 
 This is also where multi-modal arrangement lives: drawing to rearrange the diagram is *editing
 the arrangement* (`origin: 'user'`), and an LLM generating a diagram for a not-yet-built feature
@@ -362,10 +372,73 @@ review visualization we already have is reused for agent proposals.
 LLM can also run the other direction: generate a **diagram for a feature that does not exist
 yet**, which the user draws over to refine or to ask clarifying questions.
 
-> **Open strategic question (deliberately unresolved):** should the change loop be
-> *complementary* — hand structured scope/context to an external agent (Claude Code) and render
-> its diff back — or *self-sufficient* — own the intent→plan→diff→apply loop natively? Both stay
-> open until the model exists; see [open questions](#open-questions).
+### User drawings as anchors
+
+The inverse is stronger still: the user draws the target structure *first* — boxes and arrows of
+the system as they intend it — and generation treats those marks as **anchors**. This needs no
+new machinery: a sketched box is an `Entity` with `origin: 'user'` and
+`changePhase: 'proposed'`; a sketched arrow is a `Relation` with the same. Hand-asserted,
+trusted, unbuilt. When an agent then plans or generates, the user-drawn entities are fixed
+points: the plan attaches to them, keeps their names and boundaries, and fills the space
+*between* them with `origin: 'llm'` material — so the finished overlay shows, through ordinary
+provenance rendering, exactly which parts of the design were the user's and which the agent
+supplied. How hard an anchor binds is itself part of the intent — a rough sketch is inspiration,
+a precise one is a constraint, and ambiguity should surface as a clarifying question rather than
+a silent guess ([open](#open-questions)).
+
+> **Strategic fork — now reframed** (see [Plan and diff source](#plan-and-diff-source-a-pluggable-backend)
+> below). It looked binary: *complementary* — hand structured scope/context to an external agent
+> (Claude Code) and render its diff back — vs. *self-sufficient* — own the intent→plan→diff→apply
+> loop natively. It is not. The two are pluggable *sources* of the same proposed-change overlay
+> behind one agent interface, sequenced complementary-first per the [non-goals](#near-term-non-goals).
+
+### Plan and diff source: a pluggable backend
+
+The fork above is not a binary; it is a **pluggable plan/diff source**, mirroring the
+provenance-source pattern the model already uses for extraction (`static | llm | derived | user`)
+and arrangement (`algorithmic | llm | user`). "Complementary" and "self-sufficient" are two
+*sources* of the same `changePhase: 'proposed'` overlay, behind one agent interface — call it
+`CodeAgent` — not two products to choose between. The insight above makes this safe: **reviewing a
+diff and previewing a proposal are the same rendering**, so the render/verify surface (the actual
+value) is backend-agnostic. What produced the diff never touches what the user sees or how they
+verify it.
+
+**Two contracts, not one.** Driving a model splits in two:
+
+- **Completion** — one structured question, code-ai supplies the context (the provider-agnostic
+  `LlmClient` in `server/src/llm/`, run tools-*off*). This is what **extraction** (step 3) and
+  **arrangement** (step 5) need, and what they use today; the tools-off CLI adapter is correct
+  here, not a placeholder.
+- **Delegation** — hand a *task* to an agent that runs *in the repo* with its own tools, MCP
+  servers, and `AGENT.md`, gathering its own context. This is what the **change loop** (step 7)
+  needs — a new contract beside the completion one, never a replacement for it.
+
+**The source ladder** (the `CodeAgent` backends, best-available first):
+
+1. **External delegation (complementary).** Drive an installed, authenticated `claude` / `codex`
+   in agent mode; it explores and returns a diff. The hand-off mechanism is the one this doc
+   already seeds — **`CodeMapScope` as structured scope + code-ai exposed as an MCP server** (its
+   analyzer and scoped model as tools), so the external agent inherits code-ai's exact
+   dependency/call graph instead of re-deriving it by grep. Near-term primary, because it matches
+   the [non-goals](#near-term-non-goals): stay complementary to VS Code + an agent; no autonomous
+   apply.
+2. **Minimal native generator (the API-key-only floor).** No external agent present, only an API
+   key or local model: the analyzer pre-scopes, a single/few-shot `LlmClient` call emits a
+   plan/diff. No autonomous tool loop — weaker, but it keeps the loop working everywhere.
+3. **Full native agent loop (self-sufficient).** Own intent→plan→diff→apply with code-ai's own
+   tool loop — the "stand on its own" ambition. Deferred; kept open by the abstraction rather than
+   committed to now.
+
+**Carries the existing discipline.**
+
+- **Provenance is orthogonal to backend.** External or native, output is `changePhase: 'proposed'`
+  with `origin: 'llm'` (or `'user'` for asserted edges). The credibility anchor is untouched by the
+  backend choice — which is exactly why the choice can stay pluggable.
+- **Scoping is the edge.** Delegation is slow and costly; "send only relevant changes" + the
+  focused review map are the antidote — pre-narrow deterministically, delegate only the slice.
+- **Caching is where delegation diverges.** The arrangement cache keys on `sliceSignature` assuming
+  determinism; agent runs are non-deterministic, so plan/diff results do not cache the way
+  arrangements do. Decide this explicitly rather than inheriting the assumption.
 
 ---
 
@@ -377,9 +450,81 @@ The model and its API are the durable core; surfaces plug into them.
   the diagram (sketch nodes/edges + brief text → structured intent).
 - **Output:** the diagram (exists), LLM-generated diagrams (model → map for a not-yet-built
   feature), descriptions (Story 1/2 seed this).
-- **Surfaces:** web desktop (exists), phone/tablet (touch-draw is a natural fit), and — far out
-  — VR/AR or voice-first. None of these should require changing the model; protecting that
-  boundary now is what makes them possible later.
+- **Surfaces:** web desktop (exists), phone/tablet (touch-draw is a natural fit), an
+  **immersive 3D/VR surface** (react-three-fiber → WebXR on Quest-class headsets, in the
+  headset browser — no store app), and — further out — voice-first. The VR surface is
+  deliberately more than a curiosity: none of the adjacent tools (editor + agent CLIs, classic
+  diagram tools) have a credible spatial surface, so it is a **differentiator**, staged as its
+  own parallel track in the [roadmap epic](../stories/EPIC-20260705-north-star-roadmap.md).
+  None of these should require changing the model; protecting that boundary now is what makes
+  them possible later — and is exactly why the VR track can run in parallel: it consumes the
+  same model / lens / arrangement JSON as the 2D map.
+
+---
+
+## The agent as a first-class user
+
+The map must be as legible — and as *cheap* — for an agent as for a human. An agent that burns
+half its context re-deriving what code-ai already knows is the failure mode to design against.
+Three commitments:
+
+- **Agents read the model, not the repo.** For an external agent (Claude Code, codex),
+  rebuilding structure by grep is the slow, token-hungry path. Expose the model as tools — the
+  MCP-server idea from the [source ladder](#plan-and-diff-source-a-pluggable-backend), promoted
+  from a hand-off mechanism to a first-class goal: *who calls this*, *what does this file
+  expose*, *give me the slice around X*, answered in hundreds of tokens instead of thousands of
+  lines of file dumps. The persistent model is, among other things, a **token-efficient
+  compressed representation of the repo**, amortized across every agent session.
+- **Agents draw by spec, and read drawings as structure.** An agent never paints pixels: it
+  emits entities / relations / arrangement specs and the geometry engine renders — the
+  [division of labor](#arrangement-organizing-the-slice) already established, restated here as
+  *the drawing API for any agent*. Symmetrically, a user's sketch reaches the agent not as a
+  screenshot but as structured intent — typed proposed entities/relations plus a line of text —
+  so "reading a drawing" is cheap for every model, not a vision-model luxury.
+- **Agents enrich the model as a side effect.** Every delegated session *discovers* facts —
+  this handler serves that route, this config key gates that path — and today those discoveries
+  evaporate when the session ends. Captured back into the persisted model as `origin: 'llm'`
+  relations with confidence, each agent session leaves the map smarter than it found it, at zero
+  marginal cost.
+
+---
+
+## Workspace memory: saved views and notes
+
+Understanding is expensive to build and cheap to lose; the tool should hold it for you. Two
+small primitives, both falling out of machinery the vision already has:
+
+- A **saved view** = (lens + scope + arrangement + viewport + notes), serialized. Cheap
+  precisely because the arrangement layer made "how this slice is organized" a **spec rather
+  than pixels** — the same property that made it cacheable makes it bookmarkable. Name it, come
+  back Monday morning, reopen it: the plan is where you left it, arranged the way you left it.
+- A **note** = a user-origin annotation attached to an entity, relation, region, or view
+  ("this module is legacy — extend the new one instead", "refactor blocked on #142").
+  Rendered by provenance like everything else.
+
+Two consequences worth designing for from the start:
+
+- **A restored view is a context pack — for the human *and* the agent.** Notes are exactly the
+  user-asserted knowledge no extractor can derive, so when a scoped slice is handed to an agent
+  (`CodeMapScope`, the MCP tools), the view's notes ride along. Restoring your own context and
+  priming an agent's context become the same operation.
+- **Views reference entity ids while the code moves underneath.** Graceful degradation —
+  ghost the missing, re-resolve the moved — is the [identity problem](#open-questions)
+  surfacing again in the UI, one more reason the merge key is a Phase 1 design problem.
+
+---
+
+## The team surface
+
+The same model, more than one person. Near term this costs nothing but discipline: saved views
+and notes are already serializable artifacts, which makes them **shareable** artifacts — an
+annotated review view or a sketched design passed around asynchronously, a design review where
+the artifact is the live map rather than a stale whiteboard photo. Further out: shared
+brainstorming — the team sketches [anchors](#user-drawings-as-anchors) over the map together,
+hands them to an agent, and reviews the proposed overlay in place. Real-time multiplayer is
+explicitly deferred ([non-goals](#near-term-non-goals)); the near-term duty is only to keep
+views, notes, and assertions serializable and id-stable so that sharing composes later instead
+of requiring a rebuild.
 
 ---
 
@@ -402,36 +547,51 @@ The model and its API are the durable core; surfaces plug into them.
    what to reveal first — is separate from geometric layout and from extraction. It comes from
    algorithmic, user, or LLM sources that compose; the LLM constrains, the engine places, and a
    deterministic engine is always available.
+7. **The agent is a user too.** The model and its tools are designed for agent legibility and
+   token economy as deliberately as the map is designed for human legibility. Agents read the
+   model instead of re-deriving it, and draw via specs, never pixels.
+8. **User marks are durable.** Sketched anchors, notes, pins, asserted edges — hand-made
+   structure is the highest-precedence source and is never silently discarded or reorganized by
+   an algorithmic or LLM pass.
 
 ---
 
 ## Transition arc
 
 Durable phases, each shippable on its own. Read-only steps (1–6) make *understanding*
-excellent; 7–8 add *acting*. Status reflects June 3, 2026.
+excellent; 7–8 add *acting*. The concrete story-level sequencing lives in the
+[roadmap epic](../stories/EPIC-20260705-north-star-roadmap.md). Status reflects June 30, 2026.
 
 0. **Name the north star.** This document. Reframe existing stories/README as steps toward it.
-   *In progress.*
+   *Largely done.*
 1. **Unify the model (additive).** Shared `Entity` / `Relation` types — kind breadth, per-facet
    `origin`, `confidence`, `traits`, lazy `content`/`description` — **including the entity
    identity scheme** (the merge key everything downstream depends on). Existing
    analyzers/projections produce *into* it via adapters; nothing replaced yet. Fixes the
-   type-sync drift.
+   type-sync drift. *Partially done (MVP M1): unified types, kinds, and the identity scheme
+   landed; richer facets (per-facet `origin`, `traits`, lazy `content`) still ahead.*
 2. **Persist & cache the model** per project, invalidated by the existing file watch.
    Prerequisite for amortizing LLM cost and for relations that span files.
 3. **Multi-source extraction.** Turn the single analyzer into an extractor pipeline; add the LLM
-   extractor (Story 2's client). Prove it on **one vertical end-to-end: client ↔ server API.**
+   extractor (the [Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md) client). Prove
+   it on **one vertical end-to-end: client ↔ server API.**
 4. **Richer lenses** — relation-kind filters; implement the real **Feature focus** lens.
 5. **Arrangement layer.** Formalize arrangement as a pluggable layer. The algorithmic and
    user-defined sources largely exist; add the **LLM composition director** (generalizing
    Story 2's `narrativeRank`) that emits a validated, cached arrangement spec — grouping,
-   initial visibility, ordering — which a geometry engine realizes.
+   initial visibility, ordering — which a geometry engine realizes. *Core landed (MVP M2);
+   empirical side-by-side signal open ([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md)).*
 6. **Content + description everywhere** — generalize Story 1's card to all kinds; lazy-load
    content and descriptions.
 7. **The change loop (bidirectional).** Model proposed changes as `changePhase: 'proposed'`
    overlays rendered with the existing review visualization. Intent (text first) → plan/diff →
    verify on map → apply or export.
-8. **Multi-modal intent.** Voice, draw-over-diagram, and LLM→diagram generation.
+8. **Multi-modal intent.** Voice, draw-over-diagram (including
+   [drawings as anchors](#user-drawings-as-anchors)), and LLM→diagram generation.
+9. **Workspace memory.** Saved views + notes. Cheap once the arrangement spec exists (step 5 —
+   the spec *is* the serialization unit), so it can land opportunistically earlier than its
+   number suggests; it needs step 2's persistence to survive restarts.
+10. **The team surface.** Shared views/notes asynchronously first; live collaboration far out.
 
 ---
 
@@ -448,27 +608,33 @@ These are **two independent bets**, and the MVP ships them as **two milestones**
 its own. M1 has no LLM at all, so it is unblocked by — and proves out the model under — the
 LLM work in M2.
 
-- **Milestone 1 — richer static model, rendered via elk** (proves bet #1; zero LLM). The
-  `Entity`/`Relation` model, the entity identity scheme, and the new static kinds, rendered in the
-  Review lens via elk. This is the "intermediate shippable" below, promoted to its own milestone.
-  Owned by [Story 3](../stories/STORY-20260603-static-entity-relation-model.md).
-- **Milestone 2 — LLM client + arrangement pass** (proves bet #2; the real bet). Stands up
-  `server/src/llm/` (Story 2's client, unchanged) and adds the LLM arrangement pass on top of M1's
-  model. A later story.
+- **Milestone 1 — richer static model, rendered via elk** (proves bet #1; zero LLM). *Status: in
+  progress — core landed.* The `Entity`/`Relation` model, the entity identity scheme, and the new
+  static kinds (`class` / `method` / `variable` / `constant`) are built and rendered in the Review
+  lens via elk. This is the "intermediate shippable" below, promoted to its own milestone. Owned by
+  [Story 3](../stories/STORY-20260603-static-entity-relation-model.md).
+- **Milestone 2 — LLM client + arrangement pass** (proves bet #2; the real bet). *Status: client
+  complete & verified ([Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md));
+  arrangement pass in progress — core landed & green
+  ([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md)), empirical side-by-side signal
+  open.* Stands up `server/src/llm/` and adds the LLM arrangement pass on top of M1's model.
 
 **Surface (both milestones):** the **Review** lens (diff / commit). Lowest-risk, highest-reuse —
 the slice is already built server-side, the lens is the most developed, and shipped Story 1 already
-renders richer cards. **M2 prerequisite:** the arrangement pass needs an LLM client, so standing up
-`server/src/llm/` (Story 2's client) is M2's first build step — Story 2's client is not optional
-background, it is a dependency. The arrangement pass then sits beside the annotate pass Story 2
-describes.
+renders richer cards. **M2 prerequisite (now met):** the arrangement pass needs an LLM client —
+that client is built and verified as
+[Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md) (it grew from "Story 2's
+client" into its own story), so M2's first build step is done and the arrangement pass
+([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md)) now sits on top of it.
 
-**Note on Story 2's fate:** Story 2 splits into three parts with three fates. Its **LLM client**
-(`server/src/llm/`) survives unchanged into M2. Its **annotation pass** (`summary`/`causalReason`)
-survives, generalized, as the M2 cards (step 6). Its **`narrativeRank` + horizontal-spine rerank**
-is **superseded** — the arrangement layer promotes it from one ordering axis to a full `Arrangement`
-spec (regions + visibility + order + emphasis), so the spine-rerank is not built as written, and
-`narrativeRank` itself becomes dead type drift to drop.
+**Note on Story 2's fate:** Story 2 split into three parts with three fates, now mostly resolved.
+Its **LLM client** became [Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md)
+(*built & verified*). Its **annotation pass** (`summary`/`causalReason`) is still pending —
+generalized into the M2 cards (step 6) but not yet producing text (the fields render, the producer
+is unbuilt). Its **`narrativeRank` + horizontal-spine rerank** is **superseded** by the
+`Arrangement` spec (regions + visibility + order + emphasis) realized in
+[Story 5](../stories/STORY-20260605-llm-arrangement-pass.md); the spine-rerank was not built, and
+`narrativeRank` is now a dead field on both sides, pending removal.
 
 **Scope:**
 
@@ -550,6 +716,8 @@ The vision is broad; these keep the near-term roadmap honest and bounded:
 4. **JS/TS stays the first-class static path.** Other languages rely on the LLM extractor later;
    we do not commit to per-language static analyzers now.
 5. **No durable model persistence in the MVP.** In-memory only until the persistence phase.
+6. **No real-time collaboration yet.** The team surface starts as shareable serialized
+   views/notes; live multiplayer editing waits until the single-user loop is proven.
 
 ---
 
@@ -564,16 +732,20 @@ alternatives to it:
 | [homepage-code-map-lenses](../stories/STORY-20260514-homepage-code-map-lenses.md) | The lens shell and "editing/AI readiness" groundwork. Closest existing sketch of the model (`CodeMapNode`, reasons, `CodeMapScope`). |
 | [change-focused-review-view](../stories/STORY-20260501-change-focused-review-view.md) | The diff/PR/commit slice and the "reliability boundary" — direct ancestor of `origin`/provenance. |
 | [code-map-layout-strategies](../stories/STORY-20260520-code-map-layout-strategies.md) | The **algorithmic** arrangement source (geometry engines) and the built-in **user-defined** source (manual placement, `Reset layout`) — both under the arrangement layer. Keys off general `kind`/`role` so new kinds place automatically. |
-| [static-entity-relation-model](../stories/STORY-20260603-static-entity-relation-model.md) (Story 3) | **MVP Milestone 1.** The `Entity`/`Relation` model, the entity identity / merge-key scheme, and the new static kinds (`class`/`method`/`variable`/`constant`), rendered via elk. Proves bet #1; zero LLM. The concrete first build step. |
-| [llm-review-annotation](../stories/STORY-20260602-llm-review-annotation.md) (Story 2) | **Splits three ways (see [MVP](#mvp)).** Its **LLM client** survives unchanged into M2; its **annotation pass** survives, generalized, as M2 cards; its **`narrativeRank`/spine-rerank is superseded** by the arrangement layer and not built as written. |
+| [static-entity-relation-model](../stories/STORY-20260603-static-entity-relation-model.md) (Story 3) | **MVP Milestone 1 — in progress, core landed.** The `Entity`/`Relation` model, the entity identity / merge-key scheme, and the new static kinds (`class`/`method`/`variable`/`constant`), rendered via elk. Proves bet #1; zero LLM. The concrete first build step. |
+| [provider-agnostic-llm-client](../stories/STORY-20260604-provider-agnostic-llm-client.md) (Story 4) | **MVP Milestone 2 — the LLM client (built & verified).** Stage 1 OpenAI-compatible HTTP + Stage 2 `claude`/`codex` CLI-subscription adapters behind one `LlmClient`, `CODEAI_LLM_*`-configured, opt-in and fail-safe. The completion-contract foundation under both arrangement and (future) LLM extraction. |
+| [llm-arrangement-pass](../stories/STORY-20260605-llm-arrangement-pass.md) (Story 5) | **MVP Milestone 2 — the arrangement pass (in progress, core landed).** The LLM composition director (step 5): on-demand visibility + emphasis + editorial region bands over the review slice, validated and cached, elk as the always-on fallback. Graduates Story 2's `narrativeRank` to a full `Arrangement` spec; empirical side-by-side signal still open. |
+| [llm-review-annotation](../stories/STORY-20260602-llm-review-annotation.md) (Story 2) | **Split three ways (see [MVP](#mvp)).** Its **LLM client** became [Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md) (built & verified); its **annotation pass** is still pending (generalized into M2 cards, step 6); its **`narrativeRank`/spine-rerank is superseded** by the arrangement layer ([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md)) and not built as written. |
 | [review-card-declutter](../stories/STORY-20260602-review-card-declutter.md) (Story 1) | **Shipped.** Per-item content + description UI — the seed of step 6. |
 
 ---
 
 ## Open questions
 
-1. **Self-sufficient vs. complementary** change loop (see above) — the biggest strategic fork;
-   pick once the model exists.
+1. **Self-sufficient vs. complementary** change loop — **reframed, no longer a binary pick:** a
+   pluggable plan/diff source behind one agent interface, complementary-first (see
+   [Plan and diff source](#plan-and-diff-source-a-pluggable-backend)). Still open: *when* (if ever)
+   to build the self-sufficient backend, and the cache story for non-deterministic agent runs.
 2. **Model store** — in-memory first, then on-disk under `~/.code-ai/projects/{...}/`? What
    invalidation granularity (file, entity)?
 3. **Extraction trigger** — eager on project open, lazy per lens, or background? How much LLM
@@ -602,3 +774,11 @@ alternatives to it:
    `intent` concept. Not MVP; the long-term answer to the connection problem. Open: where assertions
    are stored, how they generalize (static rule vs LLM memory), and how a learned edge's confidence
    is surfaced.
+10. **Anchor strength.** When generation runs against
+    [user-drawn anchors](#user-drawings-as-anchors), what binds hard (names, boundaries,
+    presence) versus soft (placement, inspiration) — and how does the agent surface ambiguity
+    as a clarifying question instead of silently guessing?
+11. **Saved views against a moving model.** A view references entity ids while the code changes
+    underneath. What degrades gracefully (ghost the missing, re-resolve the moved, flag the
+    stale note) — and does a note follow its entity across a rename? Identity (#4) again, now
+    user-visible.
