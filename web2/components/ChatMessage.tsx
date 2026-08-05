@@ -1,0 +1,70 @@
+'use client';
+
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { ChatMessage as ChatMessageType } from '@/lib/shared/types';
+import { DiagramCard } from './DiagramCard';
+
+function safeHref(href?: string): string | undefined {
+  if (!href) return undefined;
+  return /^(https?:|mailto:|#)/i.test(href) ? href : undefined;
+}
+
+export function ChatMessage({ message, activeDiagramId, onSelectDiagram, onRetry }: {
+  message: ChatMessageType;
+  activeDiagramId?: string;
+  onSelectDiagram(id: string): void;
+  onRetry?(text: string): void;
+}) {
+  if (message.role === 'user') {
+    return (
+      <article className={`chat-message user ${message.status}`}>
+        <div className="message-meta"><span>You</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+        <p>{message.text}</p>
+        {message.diagramAttachments.length > 0 && <div className="message-attachments">{message.diagramAttachments.length} diagram snapshot{message.diagramAttachments.length === 1 ? '' : 's'} attached</div>}
+        {message.status !== 'sent' && (
+          <div className="message-state">
+            <span>{message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
+            {onRetry && <button type="button" onClick={() => onRetry(message.text)}>Retry</button>}
+          </div>
+        )}
+      </article>
+    );
+  }
+
+  return (
+    <article className={`chat-message assistant ${message.status}`}>
+      <div className="message-meta"><span>Cartograph</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+      <div className="assistant-blocks">
+        {message.blocks.map((block, index) => {
+          if (block.kind === 'diagram') return (
+            <DiagramCard
+              key={block.artifact.id}
+              artifact={block.artifact}
+              active={activeDiagramId === block.artifact.id}
+              onSelect={() => onSelectDiagram(block.artifact.id)}
+            />
+          );
+          if (block.kind === 'code') return (
+            <div key={index} className="code-block">
+              {block.warning && <div className="block-warning">{block.warning}</div>}
+              <pre><code>{block.source}</code></pre>
+            </div>
+          );
+          return (
+            <ReactMarkdown
+              key={index}
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ href, children }) => <a href={safeHref(href)} target="_blank" rel="noreferrer noopener">{children}</a>,
+                code: ({ children }) => <code>{children}</code>,
+              }}
+            >
+              {block.markdown}
+            </ReactMarkdown>
+          );
+        })}
+      </div>
+    </article>
+  );
+}

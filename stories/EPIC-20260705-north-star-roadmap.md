@@ -1,7 +1,7 @@
 # EPIC — From read-only visualizer to the north star
 
 **Status:** Active · **Owns:** the sequencing of all stories toward the
-[vision](../docs/vision.md) · **Updated:** July 7, 2026
+[vision](../docs/vision.md) · **Updated:** August 5, 2026
 
 This is the plan of record for reaching the [vision & north star](../docs/vision.md): which
 stories exist, which are still to be written, what depends on what, and in what order the work
@@ -33,6 +33,7 @@ here it carries just enough to sequence it.
 | 3 | [static-entity-relation-model](STORY-20260603-static-entity-relation-model.md) | 1 | **In progress** — core landed (MVP M1) |
 | 4 | [provider-agnostic-llm-client](STORY-20260604-provider-agnostic-llm-client.md) | — (foundation) | **Shipped** — built & verified |
 | 5 | [llm-arrangement-pass](STORY-20260605-llm-arrangement-pass.md) | 5 | **In progress** — core landed; empirical side-by-side signal open (MVP M2) |
+| 18 | [web2-conversational-agent-canvas](STORY-20260805-web2-agent-mermaid-canvas.md) | 7–8 experiment | **Draft** — canvas-first multi-turn agent workspace with optional Mermaid artifacts and drawing attachments; informs Stories 14–15 |
 | — | [js-analyzer-improvement](STORY-20251111-js-analyzer-improvement.md) · [socket-io-improvements](STORY-20251111-socket-io-improvements.md) | pre-vision | Legacy groundwork |
 | — | [change-focused-review-view](STORY-20260501-change-focused-review-view.md) · [homepage-code-map-lenses](STORY-20260514-homepage-code-map-lenses.md) · [code-map-layout-strategies](STORY-20260520-code-map-layout-strategies.md) | ancestors | Shipped groundwork (review slice, lens shell, layout/arrangement sources) |
 
