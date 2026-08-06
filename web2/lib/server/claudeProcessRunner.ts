@@ -20,6 +20,7 @@ interface RunnerOptions {
   model?: string;
   maxOutputBytes: number;
   killGraceMs?: number;
+  debug?: boolean;
 }
 
 function relativeWithin(root: string, target: string): string | undefined {
@@ -82,6 +83,10 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       policy: input.policy,
       model: this.options.model,
     });
+    const log = this.options.debug
+      ? (message: string) => console.error(`[agent ${input.runId.slice(0, 8)}] +${((Date.now() - startedAt) / 1000).toFixed(1)}s ${message}`)
+      : undefined;
+    log?.(`spawn ${path.basename(this.options.binary)} ${args.join(' ')} (prompt ${Buffer.byteLength(input.prompt)}B)`);
 
     return new Promise<AgentProcessResult>((resolve, reject) => {
       const child = spawn(this.options.binary, args, {
@@ -100,6 +105,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let fatalStreamError: unknown;
       let killTimer: ReturnType<typeof setTimeout> | undefined;
       const emittedToolUseIds = new Set<string>();
+      let textDeltaCount = 0;
+      let textDeltaBytes = 0;
 
       const finish = (operation: () => void) => {
         if (settled) return;
@@ -113,6 +120,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       const terminate = (reason: 'cancelled' | 'timeout') => {
         if (settled || termination) return;
         termination = reason;
+        log?.(`terminate (${reason})`);
         child.kill('SIGTERM');
         killTimer = setTimeout(() => child.kill('SIGKILL'), this.options.killGraceMs ?? 1_500);
       };
@@ -132,6 +140,9 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           throw new AgentRunError('malformed-stream', 'Claude emitted malformed stream data.');
         }
 
+        if (event.type !== 'stream_event' && event.type !== 'assistant') {
+          log?.(`recv ${String(event.type)}${typeof event.subtype === 'string' ? `/${event.subtype}` : ''}`);
+        }
         if (event.type === 'system' && event.subtype === 'init' && typeof event.session_id === 'string') {
           sessionId = event.session_id;
           input.emit({ type: 'session-started', sessionId });
@@ -141,9 +152,15 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           const stream = event.event as Record<string, unknown> | undefined;
           const delta = stream?.delta as Record<string, unknown> | undefined;
           if (stream?.type === 'content_block_delta' && delta?.type === 'text_delta' && typeof delta.text === 'string') {
+            if (textDeltaCount === 0) log?.('recv first text delta');
+            textDeltaCount += 1;
+            textDeltaBytes += Buffer.byteLength(delta.text);
             input.emit({ type: 'text-delta', text: delta.text });
           }
           const block = stream?.content_block as Record<string, unknown> | undefined;
+          if (stream?.type === 'content_block_start' && typeof block?.type === 'string') {
+            log?.(`recv ${block.type} block start`);
+          }
           if (stream?.type === 'content_block_start' && block?.type === 'thinking') {
             input.emit({ type: 'phase', phase: 'thinking' });
           }
@@ -162,7 +179,9 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             if (emittedToolUseIds.has(toolUseId)) continue;
             emittedToolUseIds.add(toolUseId);
             const toolInput = part.input && typeof part.input === 'object' ? part.input as Record<string, unknown> : undefined;
-            input.emit({ type: 'activity', ...describeToolUse(part.name, toolInput, input.project.realPath, input.attachmentDirectory) });
+            const activity = describeToolUse(part.name, toolInput, input.project.realPath, input.attachmentDirectory);
+            log?.(`recv tool_use ${activity.tool}${activity.detail ? ` (${activity.detail})` : ''}`);
+            input.emit({ type: 'activity', ...activity });
           }
           assistantFallback = parts
             .filter((part) => part.type === 'text' && typeof part.text === 'string')
@@ -211,6 +230,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       });
 
       child.once('close', (code) => {
+        log?.(`exit code=${code}${termination ? ` after ${termination}` : ''} (stdout ${outputBytes}B, ${textDeltaCount} text deltas ${textDeltaBytes}B${stderr.trim() ? `, stderr: ${stderr.trim().slice(0, 200).replaceAll(/\s+/g, ' ')}` : ''})`);
         if (settled) return;
         if (fatalStreamError) {
           finish(() => reject(fatalStreamError));

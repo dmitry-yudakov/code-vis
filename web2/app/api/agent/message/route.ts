@@ -64,6 +64,7 @@ export async function POST(request: Request): Promise<Response> {
         binary: config.claudeBin,
         model: config.claudeModel,
         maxOutputBytes: config.maxAssistantBytes,
+        debug: config.debugAgent,
       });
       void runConversation({
         runId,

@@ -15,6 +15,7 @@ export interface Web2Config {
   maxDiagramAttachments: number;
   maxAttachmentBytes: number;
   maxGitContextBytes: number;
+  debugAgent: boolean;
 }
 
 function boundedInteger(name: string, fallback: number, min: number, max: number): number {
@@ -47,5 +48,6 @@ export function getConfig(): Web2Config {
     maxDiagramAttachments: boundedInteger('CODEAI_WEB2_MAX_DIAGRAM_ATTACHMENTS', 4, 0, 12),
     maxAttachmentBytes: boundedInteger('CODEAI_WEB2_MAX_ATTACHMENT_BYTES', 4_194_304, 1_024, 20_971_520),
     maxGitContextBytes: boundedInteger('CODEAI_WEB2_MAX_GIT_CONTEXT_BYTES', 524_288, 4_096, 5_242_880),
+    debugAgent: /^(1|true|yes)$/i.test(process.env.CODEAI_WEB2_DEBUG_AGENT || ''),
   };
 }

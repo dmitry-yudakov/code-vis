@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ClaudeProcessRunner } from '@/lib/server/claudeProcessRunner';
 import { resolveAgentPolicy } from '@/lib/server/agentPolicy';
 import { getConfig } from '@/lib/server/config';
@@ -13,10 +13,10 @@ describe.sequential('ClaudeProcessRunner', () => {
   beforeAll(async () => chmod(binary, 0o755));
   afterEach(() => { delete process.env.CODEAI_FAKE_MODE; });
 
-  async function run(action: 'start' | 'resume' = 'start', timeoutMs = 2_000, signal = new AbortController().signal) {
+  async function run(action: 'start' | 'resume' = 'start', timeoutMs = 2_000, signal = new AbortController().signal, debug = false) {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'web2-fake-'));
     const id = crypto.randomUUID();
-    const runner = new ClaudeProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 50 });
+    const runner = new ClaudeProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 50, debug });
     const events: AgentProcessEvent[] = [];
     const result = await runner.run({
       runId: crypto.randomUUID(),
@@ -53,6 +53,24 @@ describe.sequential('ClaudeProcessRunner', () => {
     ]);
     expect(JSON.stringify(activity)).not.toContain(process.cwd());
     expect(events.filter((event) => event.type === 'phase').map((event) => event.phase)).toEqual(['thinking', 'responding']);
+  });
+
+  it('prints compact debug lines only when enabled', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await run('start');
+      expect(spy).not.toHaveBeenCalled();
+      await run('start', 2_000, new AbortController().signal, true);
+      const lines = spy.mock.calls.map((call) => String(call[0]));
+      expect(lines[0]).toMatch(/^\[agent [0-9a-f]{8}\] \+\d+\.\ds spawn fake-claude\.mjs .*--session-id/);
+      expect(lines.some((line) => line.includes('recv system/init'))).toBe(true);
+      expect(lines.some((line) => line.includes('recv tool_use Read (README.md)'))).toBe(true);
+      expect(lines.some((line) => line.includes('recv first text delta'))).toBe(true);
+      expect(lines.some((line) => line.includes('recv result/success'))).toBe(true);
+      expect(lines.some((line) => /exit code=0 \(stdout \d+B, 1 text deltas \d+B\)/.test(line))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('classifies malformed, non-zero, missing-session, timeout, and cancellation', async () => {

@@ -425,7 +425,14 @@ CODEAI_WEB2_MAX_DIAGRAMS_PER_MESSAGE=8
 CODEAI_WEB2_MAX_DIAGRAM_ATTACHMENTS=4
 CODEAI_WEB2_MAX_ATTACHMENT_BYTES=4194304
 CODEAI_WEB2_MAX_GIT_CONTEXT_BYTES=524288
+CODEAI_WEB2_DEBUG_AGENT=
 ~~~
+
+`CODEAI_WEB2_DEBUG_AGENT=1` enables compact server-console debug lines for each agent run: the
+spawned invocation with prompt byte size, each received stream event kind (tool calls with their
+sanitized detail, block starts, first text delta, result), termination reason, and an exit summary
+with delta counts and a bounded stderr snippet. It never logs the prompt, assistant text, file
+contents, or credentials, and it is off by default.
 
 Tildes in `CODEAI_WEB2_DATA_DIR` are expanded by configuration code, never by a shell.
 `.env.example` contains no secrets. Local `.env*` files, `.next`, coverage, and `node_modules` are
