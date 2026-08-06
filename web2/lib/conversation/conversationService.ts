@@ -60,7 +60,7 @@ export async function runConversation(input: {
         } else if (event.type === 'text-delta' && event.text) {
           emit({ type: 'assistant-delta', runId, delta: event.text });
         } else if (event.type === 'activity') {
-          emit({ type: 'status', runId, phase: 'exploring', label: event.label || 'Exploring repository' });
+          emit({ type: 'tool-activity', runId, tool: event.tool || 'tool', detail: event.detail });
         }
       },
     });

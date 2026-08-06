@@ -33,6 +33,7 @@ export default defineConfig({
       CODEAI_WEB2_PROJECTS_DEPTH: '2',
       CODEAI_WEB2_DATA_DIR: path.resolve('test-results/server-data'),
       CODEAI_WEB2_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'),
+      CODEAI_FAKE_TOOL_DELAY_MS: '600',
       CODEAI_WEB2_DIST_DIR: process.env.CODEAI_WEB2_DIST_DIR || '.next-e2e',
     },
   },

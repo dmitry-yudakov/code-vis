@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ClaudeProcessRunner } from '@/lib/server/claudeProcessRunner';
 import { resolveAgentPolicy } from '@/lib/server/agentPolicy';
 import { getConfig } from '@/lib/server/config';
+import type { AgentProcessEvent } from '@/lib/shared/types';
 
 const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
@@ -16,6 +17,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'web2-fake-'));
     const id = crypto.randomUUID();
     const runner = new ClaudeProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 50 });
+    const events: AgentProcessEvent[] = [];
     const result = await runner.run({
       runId: crypto.randomUUID(),
       project: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
@@ -24,9 +26,9 @@ describe.sequential('ClaudeProcessRunner', () => {
       attachmentDirectory: directory,
       policy: { ...resolveAgentPolicy(getConfig()), timeoutMs },
       signal,
-      emit() {},
+      emit(event) { events.push(event); },
     });
-    return { result, invocation: JSON.parse(await readFile(path.join(directory, 'fake-invocation.json'), 'utf8')) };
+    return { result, events, invocation: JSON.parse(await readFile(path.join(directory, 'fake-invocation.json'), 'utf8')) };
   }
 
   it('uses a session id first and resume later without transcript replay', async () => {
@@ -38,6 +40,18 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(second.result.finalText).toContain('prior turn');
     expect(second.invocation.args).toContain('Read,Glob,Grep');
     expect(second.invocation.args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it('emits sanitized per-tool activity without absolute paths', async () => {
+    const { events } = await run('start');
+    const activity = events.filter((event) => event.type === 'activity');
+    expect(activity).toEqual([
+      { type: 'activity', tool: 'Read', detail: 'README.md' },
+      { type: 'activity', tool: 'Grep', detail: 'architecture in src' },
+      { type: 'activity', tool: 'Read', detail: 'attached context: git-status.txt' },
+      { type: 'activity', tool: 'Read' },
+    ]);
+    expect(JSON.stringify(activity)).not.toContain(process.cwd());
   });
 
   it('classifies malformed, non-zero, missing-session, timeout, and cancellation', async () => {

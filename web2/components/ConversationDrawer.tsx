@@ -2,16 +2,18 @@
 
 import { useEffect, useRef } from 'react';
 import type { ChatThread, DiagramArtifact } from '@/lib/shared/types';
+import { toolActivityLabel, type ToolActivityEntry } from '@/lib/client/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer } from './InstructionComposer';
 
 export function ConversationDrawer({
-  open, thread, preview, running, status, composer, attached, markCounts,
+  open, thread, preview, toolActivity, running, status, composer, attached, markCounts,
   onClose, onSelectDiagram, onRetry, onComposer, onSend, onCancel, onRemoveAttachment,
 }: {
   open: boolean;
   thread?: ChatThread;
   preview: string;
+  toolActivity: ToolActivityEntry[];
   running: boolean;
   status: string;
   composer: string;
@@ -26,7 +28,7 @@ export function ConversationDrawer({
   onRemoveAttachment(id: string): void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'end' }); }, [open, preview, thread?.messages.length]);
+  useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'end' }); }, [open, preview, toolActivity.length, thread?.messages.length]);
   if (!open) return null;
   return (
     <aside className="conversation-drawer" aria-label="Conversation">
@@ -44,6 +46,19 @@ export function ConversationDrawer({
             onRetry={onRetry}
           />
         ))}
+        {running && toolActivity.length > 0 && (
+          <div className="tool-timeline" aria-label="Agent tool activity">
+            <span className="tool-timeline-title">Exploring the repository</span>
+            <ol>
+              {toolActivity.map((entry, index) => (
+                <li key={entry.key} className={index === toolActivity.length - 1 ? 'current' : ''}>
+                  <span className="tool-timeline-dot" />
+                  <span>{toolActivityLabel(entry)}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
         {preview && (
           <article className="chat-message assistant streaming">
             <div className="message-meta"><span>Cartograph</span><span>streaming</span></div>

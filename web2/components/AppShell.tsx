@@ -6,6 +6,7 @@ import type {
   ProjectSummary, UserMessage,
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
+import { MAX_TOOL_ACTIVITY_ENTRIES, toolActivityLabel, type ToolActivityEntry } from '@/lib/client/toolActivity';
 import { compositePng } from '@/lib/client/compositeExport';
 import { createUuid } from '@/lib/client/uuid';
 import {
@@ -64,6 +65,7 @@ export function AppShell() {
   const [status, setStatus] = useState('Ready for an instruction');
   const [composer, setComposer] = useState('');
   const [preview, setPreview] = useState('');
+  const [toolActivity, setToolActivity] = useState<ToolActivityEntry[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -268,6 +270,7 @@ export function AppShell() {
     }));
     setComposer('');
     setPreview('');
+    setToolActivity([]);
     setRunning(true);
     setStatus('Starting read-only agent');
     const controller = new AbortController();
@@ -288,6 +291,11 @@ export function AppShell() {
       }
       for await (const event of readNdjson<AgentEvent>(response)) {
         if (event.type === 'status') setStatus(event.label);
+        if (event.type === 'tool-activity') {
+          const entry = { tool: event.tool, detail: event.detail };
+          setStatus(toolActivityLabel(entry));
+          setToolActivity((current) => [...current, { ...entry, key: current.length }].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
+        }
         if (event.type === 'assistant-delta') setPreview((current) => current + event.delta);
         if (event.type === 'error') {
           streamError = event;
@@ -343,6 +351,7 @@ export function AppShell() {
       abortRef.current = undefined;
       setRunning(false);
       setPreview('');
+      setToolActivity([]);
       setStatus('Ready for an instruction');
     }
   }, [composer, mutateThread, pendingAttachmentIds, running, thread]);
@@ -402,6 +411,7 @@ export function AppShell() {
             open={chatOpen}
             thread={thread}
             preview={preview}
+            toolActivity={toolActivity}
             running={running}
             status={status}
             composer={composer}

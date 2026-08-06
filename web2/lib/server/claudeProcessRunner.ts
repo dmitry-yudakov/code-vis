@@ -22,6 +22,41 @@ interface RunnerOptions {
   killGraceMs?: number;
 }
 
+function relativeWithin(root: string, target: string): string | undefined {
+  const relative = path.relative(root, target);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return undefined;
+  return relative.split(path.sep).join('/');
+}
+
+function sanitizeDetail(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  const cleaned = value.replaceAll(/[\u0000-\u001f\u007f]+/g, " ").replaceAll(/\s+/g, " ").trim();
+  return cleaned.length > 120 ? `${cleaned.slice(0, 119)}…` : cleaned;
+}
+
+function describeToolUse(
+  name: string,
+  input: Record<string, unknown> | undefined,
+  projectRoot: string,
+  attachmentDirectory: string,
+): { tool: string; detail?: string } {
+  const searchScope = () => {
+    const scope = typeof input?.path === 'string' ? relativeWithin(projectRoot, input.path) : undefined;
+    return scope ? ` in ${scope}` : '';
+  };
+  if (name === 'Read' && typeof input?.file_path === 'string') {
+    const projectPath = relativeWithin(projectRoot, input.file_path);
+    if (projectPath) return { tool: name, detail: sanitizeDetail(projectPath) };
+    const contextPath = relativeWithin(attachmentDirectory, input.file_path);
+    if (contextPath) return { tool: name, detail: sanitizeDetail(`attached context: ${path.posix.basename(contextPath)}`) };
+    return { tool: name };
+  }
+  if ((name === 'Grep' || name === 'Glob') && typeof input?.pattern === 'string') {
+    return { tool: name, detail: sanitizeDetail(`${input.pattern.slice(0, 80)}${searchScope()}`) };
+  }
+  return { tool: name };
+}
+
 function classifyFailure(stderr: string, action: 'start' | 'resume'): AgentRunError {
   const normalized = stderr.toLowerCase();
   if (/not authenticated|authentication|please log in|login required/.test(normalized)) {
@@ -64,6 +99,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let termination: 'cancelled' | 'timeout' | undefined;
       let fatalStreamError: unknown;
       let killTimer: ReturnType<typeof setTimeout> | undefined;
+      const emittedToolUseIds = new Set<string>();
 
       const finish = (operation: () => void) => {
         if (settled) return;
@@ -107,17 +143,21 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           if (stream?.type === 'content_block_delta' && delta?.type === 'text_delta' && typeof delta.text === 'string') {
             input.emit({ type: 'text-delta', text: delta.text });
           }
-          const block = stream?.content_block as Record<string, unknown> | undefined;
-          if (stream?.type === 'content_block_start' && block?.type === 'tool_use') {
-            input.emit({ type: 'activity', label: block.name === 'Read' ? 'Reading repository context' : 'Exploring repository' });
-          }
           return;
         }
         if (event.type === 'assistant') {
           const message = event.message as Record<string, unknown> | undefined;
           const content = Array.isArray(message?.content) ? message.content : [];
-          assistantFallback = content
-            .filter((part): part is Record<string, unknown> => Boolean(part) && typeof part === 'object')
+          const parts = content.filter((part): part is Record<string, unknown> => Boolean(part) && typeof part === 'object');
+          for (const part of parts) {
+            if (part.type !== 'tool_use' || typeof part.name !== 'string') continue;
+            const toolUseId = typeof part.id === 'string' ? part.id : `${part.name}:${emittedToolUseIds.size}`;
+            if (emittedToolUseIds.has(toolUseId)) continue;
+            emittedToolUseIds.add(toolUseId);
+            const toolInput = part.input && typeof part.input === 'object' ? part.input as Record<string, unknown> : undefined;
+            input.emit({ type: 'activity', ...describeToolUse(part.name, toolInput, input.project.realPath, input.attachmentDirectory) });
+          }
+          assistantFallback = parts
             .filter((part) => part.type === 'text' && typeof part.text === 'string')
             .map((part) => part.text as string)
             .join('');

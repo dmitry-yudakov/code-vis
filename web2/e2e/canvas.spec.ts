@@ -23,7 +23,13 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   const composer = page.getByPlaceholder(/Ask anything about this project/);
   await composer.fill('Draw a simple architecture');
   await page.getByRole('button', { name: 'Send' }).click();
+  // Transient tool activity is visible while the run is in flight and gone afterwards.
+  const timeline = page.locator('.tool-timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Reading README.md');
+  await expect(timeline).toContainText('Searching architecture in src');
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
+  await expect(timeline).toHaveCount(0);
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
   await expect(page.locator('.canvas-context strong')).toContainText('Diagram 1 of 1');
 

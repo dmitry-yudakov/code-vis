@@ -153,6 +153,7 @@ export type AgentErrorCode =
 export type AgentEvent =
   | { type: 'run-started'; runId: string; threadId: string; messageId: string }
   | { type: 'status'; runId: string; phase: AgentPhase; label: string }
+  | { type: 'tool-activity'; runId: string; tool: string; detail?: string }
   | { type: 'assistant-delta'; runId: string; delta: string }
   | { type: 'assistant-message'; runId: string; message: AssistantMessage }
   | {
@@ -187,7 +188,8 @@ export interface AgentProcessEvent {
   type: 'session-started' | 'text-delta' | 'activity';
   sessionId?: string;
   text?: string;
-  label?: string;
+  tool?: string;
+  detail?: string;
 }
 
 export interface AgentProcessRun {

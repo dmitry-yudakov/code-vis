@@ -38,6 +38,15 @@ else if (mode === 'timeout') {
   setTimeout(() => process.exit(0), 30_000);
 } else {
   writeOut(`${JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId })}\n`);
+  const toolUses = [
+    { type: 'tool_use', id: 'toolu-1', name: 'Read', input: { file_path: path.join(process.cwd(), 'README.md') } },
+    { type: 'tool_use', id: 'toolu-2', name: 'Grep', input: { pattern: 'architecture', path: path.join(process.cwd(), 'src') } },
+    { type: 'tool_use', id: 'toolu-3', name: 'Read', input: { file_path: attachmentDirectory ? path.join(attachmentDirectory, 'git-status.txt') : '/outside/git-status.txt' } },
+    { type: 'tool_use', id: 'toolu-4', name: 'Read', input: { file_path: '/etc/hostname' } },
+  ];
+  writeOut(`${JSON.stringify({ type: 'assistant', message: { content: toolUses } })}\n`);
+  const toolDelay = Number(process.env.CODEAI_FAKE_TOOL_DELAY_MS || 0);
+  if (toolDelay > 0) await new Promise((resolve) => setTimeout(resolve, toolDelay));
   const text = prompt.includes('[User message]\nDraw a simple architecture')
     ? 'Here is one architecture map.\n\n```mermaid\nflowchart LR\n  UI["`.claude/settings.local.json`<br/>M · +3 / −0"] --> API[Agent API]\n  API --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'
     : prompt.includes('[User message]\nRevise it with a context step')

@@ -203,7 +203,8 @@ available when the user wants them.
 1. The user writes a free-form message and selects **Send**.
 2. The user message is immediately appended with a sending state.
 3. The route starts or resumes the thread's native Claude Code session in the selected project.
-4. The UI shows safe activity and streamed assistant text. It does not show chain-of-thought or raw
+4. The UI shows safe activity and streamed assistant text, including a transient per-tool activity
+   timeline (for example “Reading `lib/server/config.ts`”). It does not show chain-of-thought or raw
    tool payloads.
 5. The completed assistant message is parsed into ordered text/code/diagram blocks.
 6. If there are no Mermaid blocks, the prose answer is complete and successful.
@@ -602,10 +603,14 @@ process/filesystem sandbox.
 - One in-flight turn per thread.
 - Generate a server run UUID distinct from thread/message ids.
 - Parse `stream-json` incrementally by line.
-- Forward safe text deltas and coarse activity, never raw stream envelopes.
+- Forward safe text deltas and per-tool activity, never raw stream envelopes.
 - Do not forward thinking/reasoning blocks, file contents, raw tool inputs/outputs, environment
   values, credentials, or hidden prompts.
-- Safe tool activity may show “Reading `relative/path.ts`” but no content or absolute path.
+- Tool activity is derived from completed `tool_use` blocks in `assistant` stream events and carries
+  only the tool name plus a server-sanitized detail: a project-relative path for Read, a truncated
+  search pattern (with optional project-relative scope) for Grep/Glob, and the file basename for
+  reads inside the per-run attachment directory. Paths that resolve outside both roots produce no
+  detail. Never an absolute path, file content, or raw input object.
 - Enforce timeout and byte bounds on stdout, stderr, text deltas, final text, and NDJSON events.
 - Request abort/cancel sends SIGTERM, waits a short bounded grace period, then SIGKILL.
 - Always remove the run from the registry and delete its temp directory in `finally`.
@@ -872,6 +877,7 @@ The NDJSON response:
 type AgentEvent =
   | { type: 'run-started'; runId: string; threadId: string; messageId: string }
   | { type: 'status'; runId: string; phase: AgentPhase; label: string }
+  | { type: 'tool-activity'; runId: string; tool: string; detail?: string }
   | { type: 'assistant-delta'; runId: string; delta: string }
   | { type: 'assistant-message'; runId: string; message: AssistantMessage }
   | {
@@ -1017,6 +1023,11 @@ Required conversation behavior:
 - render ordered Markdown, ordinary code, and multiple diagram cards;
 - stream a temporary assistant preview;
 - expose safe activity and elapsed time;
+- while a turn runs, show a transient tool-activity timeline in the conversation (tool verb plus
+  sanitized detail, latest entry highlighted); the same label feeds the single-line agent status so
+  the floating canvas control stays informative with the drawer closed. The timeline is
+  per-run UI state only: it disappears when the run ends and is never persisted to the transcript,
+  local storage, or thread export;
 - cancel and retry;
 - conversation drawer opens/closes without changing or recreating the active diagram;
 - unread prose/error/result indicators work while the drawer is hidden;
@@ -1240,6 +1251,10 @@ workspace.
 - [x] Bash/Edit/Write/web/subagent/MCP tools and dangerous permission bypass are unavailable.
 - [x] Safe assistant deltas/activity stream before completion without chain-of-thought, file
   contents, raw tool payloads, prompts, environment, credentials, or absolute paths.
+- [x] Each agent tool call streams a `tool-activity` event whose detail is sanitized server-side
+  (project-relative Read path, truncated Grep/Glob pattern, attachment basename; no detail for
+  paths outside the project and attachment roots), and the conversation shows it as a transient
+  per-run timeline that is never persisted to the transcript, local storage, or export.
 - [x] Abort, navigation, cancellation, timeout, and route failure terminate the child and clean run
   registry/temp files.
 - [x] All process/event/output/attachment sizes and time are bounded.
