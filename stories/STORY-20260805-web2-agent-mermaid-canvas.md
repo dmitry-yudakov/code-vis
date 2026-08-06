@@ -707,11 +707,17 @@ accepted if the installed Mermaid public parser/renderer accepts them.
 - source and response byte limits;
 - reject YAML frontmatter and `%%{...}%%` init/config directives;
 - reject `click` callbacks, JavaScript URLs, hyperlink callbacks, raw HTML tags, and external
-  image/icon references;
+  image/icon references; a tag-like token counts as raw HTML when it has attributes, a self-closing
+  slash, or a known HTML/SVG/MathML element name (including `fe*` filter primitives), while bare
+  angle-bracket placeholders such as `<id>` or `<token>` remain ordinary label text;
 - reject null bytes and known active-content patterns;
 - remove Markdown inline-code backtick delimiters inside quoted Mermaid labels before persistence
   and rendering, preserving the visible label text; this narrow compatibility normalization handles
   agent output such as ``F["`path`<br/>M"]`` without attempting general syntax repair;
+- in `sequenceDiagram` sources, escape semicolons appearing after the first colon of a statement
+  line as Mermaid's documented `#59;` entity (skipping `%%` comment lines), because the sequence
+  grammar treats `;` in message/note text as a statement separator and quoting does not protect
+  it; the entity renders as a visible semicolon, so the text is preserved;
 - do not reject benign Mermaid styling merely to enforce a house diagram format.
 
 The client initializes Mermaid once with:
@@ -1298,6 +1304,9 @@ workspace.
 - [x] Quoted Mermaid labels containing Markdown inline-code backticks plus `<br/>` are normalized to
   plain visible label text, render successfully, and persisted parse/render-error artifacts retry
   under the current compatibility rules.
+- [x] Sequence-diagram message/note text containing semicolons is normalized with `#59;` entities,
+  verified against the installed Mermaid parser, while non-sequence diagrams and `%%` comment lines
+  are left byte-identical.
 - [x] Mermaid uses public parse/render APIs with strict security and fixed application config.
 - [x] One malformed/policy/parse/render-failed diagram preserves prose, sibling diagrams, history,
   and drawings.
