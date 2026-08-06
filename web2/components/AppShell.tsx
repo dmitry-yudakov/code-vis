@@ -7,6 +7,7 @@ import type {
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
 import { compositePng } from '@/lib/client/compositeExport';
+import { createUuid } from '@/lib/client/uuid';
 import {
   exportThread, getArtifacts, loadProjectThreads, loadSelectedProjectId, saveProjectThreads, saveSelectedProjectId,
 } from '@/lib/client/conversationStore';
@@ -235,7 +236,7 @@ export function AppShell() {
     }
     if (compositeWarning) setNotice('Composite image export was unavailable; Mermaid source and vector marks are still attached.');
 
-    const userId = crypto.randomUUID();
+    const userId = createUuid();
     const createdAt = new Date().toISOString();
     const userMessage: UserMessage = {
       id: userId,

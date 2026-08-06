@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { DiagramArtifact, DrawingMark, DrawingTool, Point } from '@/lib/shared/types';
 import { drawingReducer } from '@/lib/client/drawingReducer';
+import { createUuid } from '@/lib/client/uuid';
 import { renderMermaid } from '@/lib/diagram/mermaidRenderer';
 import { DrawingToolbar } from './DrawingToolbar';
 
@@ -133,17 +134,17 @@ export function DiagramCanvas({
     }
     gesture.current = { mode: tool, start, panStart: { x: event.clientX - pan.x, y: event.clientY - pan.y } };
     if (tool === 'pen') {
-      const mark: DrawingMark = { id: crypto.randomUUID(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'pen', points: [start] };
+      const mark: DrawingMark = { id: createUuid(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'pen', points: [start] };
       gesture.current.markId = mark.id;
       dispatch({ type: 'add', mark });
     }
     if (tool === 'rectangle') {
-      const mark: DrawingMark = { id: crypto.randomUUID(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'rectangle', x: start.x, y: start.y, width: 0, height: 0 };
+      const mark: DrawingMark = { id: createUuid(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'rectangle', x: start.x, y: start.y, width: 0, height: 0 };
       gesture.current.markId = mark.id;
       dispatch({ type: 'add', mark });
     }
     if (tool === 'arrow') {
-      const mark: DrawingMark = { id: crypto.randomUUID(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'arrow', start, end: start };
+      const mark: DrawingMark = { id: createUuid(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'arrow', start, end: start };
       gesture.current.markId = mark.id;
       dispatch({ type: 'add', mark });
     }
@@ -172,7 +173,7 @@ export function DiagramCanvas({
     if (current?.mode === 'text' && snapshot) {
       const value = window.prompt('Label text');
       if (value?.trim()) dispatch({ type: 'add', mark: {
-        id: crypto.randomUUID(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'text',
+        id: createUuid(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'text',
         x: current.start.x, y: current.start.y, text: value.trim().slice(0, 500),
       } });
     }
