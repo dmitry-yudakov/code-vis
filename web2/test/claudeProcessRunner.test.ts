@@ -52,6 +52,7 @@ describe.sequential('ClaudeProcessRunner', () => {
       { type: 'activity', tool: 'Read' },
     ]);
     expect(JSON.stringify(activity)).not.toContain(process.cwd());
+    expect(events.filter((event) => event.type === 'phase').map((event) => event.phase)).toEqual(['thinking', 'responding']);
   });
 
   it('classifies malformed, non-zero, missing-session, timeout, and cancellation', async () => {

@@ -61,6 +61,13 @@ export async function runConversation(input: {
           emit({ type: 'assistant-delta', runId, delta: event.text });
         } else if (event.type === 'activity') {
           emit({ type: 'tool-activity', runId, tool: event.tool || 'tool', detail: event.detail });
+        } else if (event.type === 'phase' && event.phase) {
+          emit({
+            type: 'status',
+            runId,
+            phase: event.phase,
+            label: event.phase === 'thinking' ? 'Thinking…' : 'Writing response…',
+          });
         }
       },
     });

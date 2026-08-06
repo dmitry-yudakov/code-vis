@@ -611,6 +611,13 @@ process/filesystem sandbox.
   search pattern (with optional project-relative scope) for Grep/Glob, and the file basename for
   reads inside the per-run attachment directory. Paths that resolve outside both roots produce no
   detail. Never an absolute path, file content, or raw input object.
+- Thinking blocks emit only a content-free `thinking` phase status (“Thinking…”), and the start of a
+  text block emits `responding` (“Writing response…”), so the status line does not keep showing the
+  last tool label during a long reasoning gap. Thinking deltas themselves are never forwarded.
+- Known upstream limitation, verified against Claude Code 2.1.222: in a turn that follows tool use,
+  the CLI may deliver the entire final text block in one terminal burst even with
+  `--include-partial-messages`, while tool-free turns stream text deltas incrementally. `web2`
+  forwards deltas as they arrive and does not attempt to repair upstream pacing.
 - Enforce timeout and byte bounds on stdout, stderr, text deltas, final text, and NDJSON events.
 - Request abort/cancel sends SIGTERM, waits a short bounded grace period, then SIGKILL.
 - Always remove the run from the registry and delete its temp directory in `finally`.
@@ -895,6 +902,7 @@ type AgentPhase =
   | 'resuming'
   | 'exploring'
   | 'reading-context'
+  | 'thinking'
   | 'responding'
   | 'validating-artifacts'
   | 'completed';

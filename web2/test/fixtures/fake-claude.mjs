@@ -47,6 +47,8 @@ else if (mode === 'timeout') {
   writeOut(`${JSON.stringify({ type: 'assistant', message: { content: toolUses } })}\n`);
   const toolDelay = Number(process.env.CODEAI_FAKE_TOOL_DELAY_MS || 0);
   if (toolDelay > 0) await new Promise((resolve) => setTimeout(resolve, toolDelay));
+  writeOut(`${JSON.stringify({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'thinking' } } })}\n`);
+  writeOut(`${JSON.stringify({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text' } } })}\n`);
   const text = prompt.includes('[User message]\nDraw a simple architecture')
     ? 'Here is one architecture map.\n\n```mermaid\nflowchart LR\n  UI["`.claude/settings.local.json`<br/>M · +3 / −0"] --> API[Agent API]\n  API --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'
     : prompt.includes('[User message]\nRevise it with a context step')

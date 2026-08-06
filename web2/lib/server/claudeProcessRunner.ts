@@ -143,6 +143,13 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           if (stream?.type === 'content_block_delta' && delta?.type === 'text_delta' && typeof delta.text === 'string') {
             input.emit({ type: 'text-delta', text: delta.text });
           }
+          const block = stream?.content_block as Record<string, unknown> | undefined;
+          if (stream?.type === 'content_block_start' && block?.type === 'thinking') {
+            input.emit({ type: 'phase', phase: 'thinking' });
+          }
+          if (stream?.type === 'content_block_start' && block?.type === 'text') {
+            input.emit({ type: 'phase', phase: 'responding' });
+          }
           return;
         }
         if (event.type === 'assistant') {

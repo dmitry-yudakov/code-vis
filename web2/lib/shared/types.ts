@@ -131,6 +131,7 @@ export type AgentPhase =
   | 'resuming'
   | 'exploring'
   | 'reading-context'
+  | 'thinking'
   | 'responding'
   | 'validating-artifacts'
   | 'completed';
@@ -185,11 +186,12 @@ export interface ResolvedAgentPolicy {
 }
 
 export interface AgentProcessEvent {
-  type: 'session-started' | 'text-delta' | 'activity';
+  type: 'session-started' | 'text-delta' | 'activity' | 'phase';
   sessionId?: string;
   text?: string;
   tool?: string;
   detail?: string;
+  phase?: 'thinking' | 'responding';
 }
 
 export interface AgentProcessRun {
