@@ -15,8 +15,10 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await projectResults.getByRole('option', { name: /packages\/deep-app/ }).click();
   await expect(page.locator('.project-search-trigger')).toContainText('packages/deep-app');
   await page.getByRole('button', { name: /New conversation/ }).click();
-  await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close conversation' }).click();
+
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(conversation).toBeVisible();
+  const openConversation = page.getByRole('button', { name: 'Open conversation' });
 
   const composer = page.getByPlaceholder(/Ask anything about this project/);
   await composer.fill('Draw a simple architecture');
@@ -24,6 +26,10 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
   await expect(page.locator('.canvas-context strong')).toContainText('Diagram 1 of 1');
+
+  // The canvas keeps every pixel for the diagram; the composer lives in the drawer.
+  await page.getByRole('button', { name: 'Close conversation' }).click();
+  await expect(page.locator('.instruction-composer')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Pen (P)' }).click();
   const ink = page.locator('svg.ink-layer');
@@ -33,10 +39,15 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width * .55, box!.y + box!.height * .55, { steps: 8 });
   await page.mouse.up();
+  await expect(page.locator('.canvas-ask-chip')).toContainText('1 marks');
+
+  await openConversation.click();
   await expect(page.locator('.attachment-chip')).toContainText('1 marks');
+  await page.getByRole('button', { name: 'Close conversation' }).click();
 
   await page.getByRole('button', { name: 'Focus' }).click();
   await expect(page.locator('.canvas-workspace')).toHaveClass(/focus-mode/);
+  await openConversation.click();
   const revisionComposer = page.getByPlaceholder(/Ask about or revise/);
   await revisionComposer.fill('Revise it with a context step');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -48,7 +59,6 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.canvas-context strong')).toContainText('Diagram 2 of 4');
   await expect(page.locator('.notice-banner')).toContainText('2 diagram results');
-  await page.getByRole('button', { name: 'Chat' }).click();
   await expect(page.locator('.diagram-card')).toHaveCount(4);
   await expect(page.locator('.diagram-card-svg svg')).toHaveCount(4);
   await page.getByRole('button', { name: 'Close conversation' }).click();

@@ -78,6 +78,14 @@ export function AppShell() {
   chatOpenRef.current = chatOpen;
 
   const thread = useMemo(() => threads.find((item) => item.id === threadId), [threads, threadId]);
+  const attachedArtifacts = useMemo(() => {
+    if (!thread) return [];
+    const artifacts = getArtifacts(thread);
+    return pendingAttachmentIds.flatMap((id) => {
+      const artifact = artifacts.find((item) => item.id === id);
+      return artifact ? [artifact] : [];
+    });
+  }, [thread, pendingAttachmentIds]);
 
   useEffect(() => {
     let current = true;
@@ -381,15 +389,11 @@ export function AppShell() {
             running={running}
             status={status}
             unread={unread}
-            composer={composer}
-            pendingAttachmentIds={pendingAttachmentIds}
+            markCount={thread.activeDiagramId ? thread.annotations[thread.activeDiagramId]?.marks.length || 0 : 0}
             onComposer={setComposer}
-            onSend={() => void send()}
-            onCancel={() => abortRef.current?.abort()}
             onOpenChat={() => { setChatOpen(true); setHistoryOpen(false); setUnread(0); }}
             onOpenHistory={() => { setHistoryOpen(true); setChatOpen(false); }}
             onSelectDiagram={selectDiagram}
-            onRemoveAttachment={removeAttachment}
             onMarksChange={handleMarksChange}
             onSnapshot={handleSnapshot}
             onArtifactError={handleArtifactError}
@@ -398,9 +402,18 @@ export function AppShell() {
             open={chatOpen}
             thread={thread}
             preview={preview}
+            running={running}
+            status={status}
+            composer={composer}
+            attached={attachedArtifacts}
+            markCounts={Object.fromEntries(attachedArtifacts.map((artifact) => [artifact.id, thread.annotations[artifact.id]?.marks.length || 0]))}
             onClose={() => setChatOpen(false)}
-            onSelectDiagram={(id) => { selectDiagram(id); setChatOpen(false); }}
-            onRetry={(text) => { setComposer(text); setChatOpen(false); }}
+            onSelectDiagram={(id) => selectDiagram(id)}
+            onRetry={(text) => setComposer(text)}
+            onComposer={setComposer}
+            onSend={() => void send()}
+            onCancel={() => abortRef.current?.abort()}
+            onRemoveAttachment={removeAttachment}
           />
           <DiagramNavigator
             open={historyOpen}

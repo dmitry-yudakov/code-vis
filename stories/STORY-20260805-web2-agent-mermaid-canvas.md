@@ -133,7 +133,8 @@ The primary screen is a project-scoped diagram canvas backed by a conversation:
 - Claude can explore the selected repository with read-only tools;
 - the active diagram occupies the main viewport and can enter a distraction-free full-screen mode;
 - conversation and history live in a collapsible drawer and may remain hidden;
-- a compact instruction composer remains reachable from the canvas;
+- the instruction composer lives inside the conversation drawer so it never consumes canvas area; a
+  compact canvas control opens the drawer with the composer focused;
 - assistant Markdown is retained in the conversation even while it is hidden;
 - zero or more Mermaid fences become diagram artifacts after the turn completes;
 - any diagram can become active and be annotated;
@@ -159,8 +160,10 @@ available when the user wants them.
   per-run temporary attachment directory so Claude can inspect diffs without receiving Bash.
 - **Response:** normal Markdown containing zero or more fenced `mermaid` blocks; prose is always
   valid and diagrams are optional.
-- **Canvas priority:** once a diagram exists, it is the dominant surface. Conversation, diagram
-  history, and secondary controls can collapse without removing the instruction composer.
+- **Canvas priority:** once a diagram exists, it is the dominant surface. The canvas is chrome-free
+  apart from floating overlays: no docked composer row competes with the diagram for vertical space.
+  Conversation, diagram history, and the composer collapse together into the drawer, which is always
+  one click away from the canvas.
 - **Diagram types:** any Mermaid type that passes the application safety policy and public
   `parse()`/`render()` APIs; there is no `flowchart LR`-only product rule.
 - **Rendering:** Mermaid in strict security mode; Markdown rendered without raw HTML.
@@ -240,11 +243,12 @@ changes**, and **Visualize last commit**. These are conveniences, not special ge
 4. The user adds pen strokes, rectangles, arrows, and text in an SVG overlay.
 5. Drawings are stored by diagram artifact id, so changing the active diagram restores that
    diagram's own marks.
-6. A compact instruction composer remains overlaid/docked at the bottom in full-screen mode.
-7. The canvas composer shows a visible **Active diagram included** chip by default. Sending
-   snapshots its Mermaid source, structured marks, and composite PNG; the user can remove the chip
-   for a text-only question. Current/unsent marks are visibly counted, so attachment is convenient
-   but never hidden.
+6. A compact floating **Ask Claude…** control stays overlaid on the canvas in full-screen mode; it
+   opens the conversation drawer with the composer focused.
+7. The composer shows a visible **Active diagram included** chip by default. Sending snapshots its
+   Mermaid source, structured marks, and composite PNG; the user can remove the chip for a
+   text-only question. Current/unsent marks are visibly counted on the canvas control and in the
+   composer chip, so attachment is convenient but never hidden.
 8. The user may explicitly attach additional diagrams, up to operational bounds, but this is an
    optional comparison/merging workflow.
 9. The next response may contain prose, one revised diagram, several alternatives, or no new
@@ -264,10 +268,11 @@ of the agent's semantic claims.
 ### Work with conversation hidden
 
 1. The user collapses the conversation drawer or enters full-screen canvas mode.
-2. The active diagram, drawing toolbar, zoom controls, agent status, and compact instruction
-   composer remain available.
-3. Sending an instruction behaves exactly like sending from the expanded conversation and visibly
-   indicates whether the active diagram/drawings will be included.
+2. The active diagram, drawing toolbar, zoom controls, and a floating status/**Ask Claude…** control
+   remain available; that control reports agent status and the pending attachment/mark count without
+   opening the drawer.
+3. Selecting it reopens the drawer over the canvas with the composer focused, so an instruction can
+   be sent without leaving full-screen mode and without permanently surrendering canvas area.
 4. While Claude works, status appears without opening the transcript.
 5. A prose-only response produces an unread-message indicator. A single derived diagram follows the
    active-version behavior above. Multiple/error results produce a non-blocking result indicator.
@@ -980,22 +985,24 @@ Once a diagram exists, the page uses the canvas as its dominant surface. Convers
 not a permanently competing column:
 
 ~~~text
-┌ Project ▾ · Thread ▾ · Diagram history ▾ · Chat ◀ · Agent status ┐
+┌ Project ▾ · Thread ▾ · Diagram history ▾ · Chat ◀ · Focus ────────┐
 ├───────────────────────────────────────────────────────────────────┤
 │ tools                                                             │
 │                                                                   │
 │                         ACTIVE DIAGRAM                            │
 │                      Mermaid SVG + ink                            │
 │                                                                   │
-│                                              zoom / fit / fullscreen│
-├───────────────────────────────────────────────────────────────────┤
-│ [active diagram attached ✓]  Ask Claude…             Send/Cancel │
+│ (● Ask Claude… · diagram attached · N marks) zoom / fit / reset    │
 └───────────────────────────────────────────────────────────────────┘
 
-Optional overlay/drawer:
+Overlay drawer (holds the composer; opens over the canvas, takes no layout space):
 ┌ Conversation ──────────────────────────────┐
 │ messages, prose, code, diagram results     │
 │ artifact/version history                   │
+├────────────────────────────────────────────┤
+│ agent status                               │
+│ [active diagram attached ✓]                │
+│ Ask Claude…                    Send/Cancel │
 └────────────────────────────────────────────┘
 ~~~
 
@@ -1017,16 +1024,19 @@ Required conversation behavior:
 - diagram navigator shows every artifact/version in thread order and lineage;
 - pin/unpin diagrams for quick access;
 - clicking a diagram card/navigator item selects it without changing its source;
+- the composer lives in the conversation drawer, and opening the drawer focuses it;
 - visible attachment chips can be added/removed before send;
-- while a diagram is active, the canvas composer includes it through a visible removable chip and
-  shows the count of marks that will be sent;
+- while a diagram is active, the composer includes it through a visible removable chip and shows the
+  count of marks that will be sent;
 - a prose-only assistant response looks complete, not like a missing artifact.
 
 Required canvas behavior:
 
-- active diagram consumes the main available application viewport;
+- active diagram consumes the main available application viewport, with no docked composer row
+  claiming vertical space; only floating overlays sit above the diagram;
 - in-app full-screen/distraction-free mode hides conversation and secondary chrome while retaining
-  drawing tools, agent status, exit control, and instruction composer;
+  drawing tools, exit control, and the floating agent-status/**Ask Claude…** control that reopens the
+  drawer with the composer focused;
 - Mermaid SVG background and SVG ink overlay share one viewBox/camera transform;
 - fit, pan, zoom, and reset view;
 - pointer/pan, pen, rectangle, arrow, text, eraser;
@@ -1281,16 +1291,17 @@ workspace.
 ### Drawing and follow-up context
 
 - [x] Every diagram has independent vector annotation state keyed by artifact id.
-- [x] Active diagram fills the main viewport; conversation/history can hide completely without
-  removing drawing tools, agent status, or the instruction composer.
-- [x] In-app full-screen mode supports drawing, pan/zoom, sending an active-diagram instruction, and
-  receiving a result without forcing the conversation drawer open.
+- [x] Active diagram fills the main viewport with no docked composer row; conversation/history hide
+  completely while drawing tools, agent status, and a one-click path to the composer remain.
+- [x] In-app full-screen mode supports drawing, pan/zoom, and sending an active-diagram instruction
+  through the overlay drawer without leaving full-screen or losing canvas area.
 - [x] Mermaid and ink share coordinates and stay aligned through fit/pan/zoom/resize/reset.
 - [x] Pointer/pan, pen, rectangle, arrow, text, eraser, clear confirmation, and bounded undo/redo
   work accessibly.
 - [x] Invalid/non-finite/excessive mark data is rejected or bounded.
-- [x] The canvas composer visibly includes the active diagram by default, shows the mark count, and
-  lets the user remove it or attach additional diagrams; no attachment is hidden.
+- [x] The composer visibly includes the active diagram by default, shows the mark count, and lets the
+  user remove it or attach additional diagrams; the canvas control mirrors the pending
+  attachment/mark count so no attachment is hidden while the drawer is closed.
 - [x] Snapshot includes immutable Mermaid source, structured marks, viewport, and composite PNG when
   export succeeds; the user message persists the exact vector snapshot it sent without persisting
   the PNG.
@@ -1374,8 +1385,8 @@ Open `http://localhost:3023` and verify:
 2. ask a follow-up using “that subsystem” without restating its name;
 3. request one comprehensive architecture diagram and confirm it becomes the dominant active canvas;
 4. hide conversation, enter in-app full-screen, and explore the diagram by pan/zoom/fit;
-5. annotate it with pen, box, arrow, and text, then send a revision instruction without reopening
-   conversation;
+5. annotate it with pen, box, arrow, and text, confirm the floating canvas control reports the mark
+   count, then open the drawer from it and send a revision instruction without leaving full-screen;
 6. confirm the single derived result becomes active, the prior version remains one action away, and
    repeat until the lineage has at least four versions;
 7. ask a normal prose-only question and confirm the active canvas does not disappear;

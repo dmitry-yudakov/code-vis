@@ -1,10 +1,9 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import type { ChatThread, DiagramArtifact, DrawingMark } from '@/lib/shared/types';
+import type { ChatThread, DrawingMark } from '@/lib/shared/types';
 import { getArtifacts } from '@/lib/client/conversationStore';
 import { DiagramCanvas } from './DiagramCanvas';
-import { InstructionComposer } from './InstructionComposer';
 
 export interface CanvasSnapshot {
   svg: string;
@@ -16,15 +15,11 @@ export function CanvasWorkspace({
   running,
   status,
   unread,
-  composer,
-  pendingAttachmentIds,
+  markCount,
   onComposer,
-  onSend,
-  onCancel,
   onOpenChat,
   onOpenHistory,
   onSelectDiagram,
-  onRemoveAttachment,
   onMarksChange,
   onSnapshot,
   onArtifactError,
@@ -33,15 +28,11 @@ export function CanvasWorkspace({
   running: boolean;
   status: string;
   unread: number;
-  composer: string;
-  pendingAttachmentIds: string[];
+  markCount: number;
   onComposer(value: string): void;
-  onSend(): void;
-  onCancel(): void;
   onOpenChat(): void;
   onOpenHistory(): void;
   onSelectDiagram(id: string): void;
-  onRemoveAttachment(id: string): void;
   onMarksChange(diagramId: string, marks: DrawingMark[]): void;
   onSnapshot(snapshot?: CanvasSnapshot): void;
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
@@ -49,10 +40,6 @@ export function CanvasWorkspace({
   const [focusMode, setFocusMode] = useState(false);
   const artifacts = useMemo(() => getArtifacts(thread), [thread]);
   const active = artifacts.find((artifact) => artifact.id === thread.activeDiagramId);
-  const attached = pendingAttachmentIds.flatMap((id) => {
-    const artifact = artifacts.find((item) => item.id === id);
-    return artifact ? [artifact] : [];
-  });
   const marks = active ? thread.annotations[active.id]?.marks || [] : [];
   const handleMarks = useCallback((next: DrawingMark[]) => {
     if (active) onMarksChange(active.id, next);
@@ -106,26 +93,25 @@ export function CanvasWorkspace({
                 'Visualize working changes',
                 'Visualize staged changes',
                 'Visualize the last commit',
-              ].map((prompt) => <button type="button" key={prompt} onClick={() => onComposer(prompt)}>{prompt}<span>↗</span></button>)}
+              ].map((prompt) => (
+                <button type="button" key={prompt} onClick={() => { onComposer(prompt); onOpenChat(); }}>{prompt}<span>↗</span></button>
+              ))}
             </div>
           </div>
         )}
       </div>
 
-      <div className="canvas-bottom">
-        <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{status || 'Ready for an instruction'}</div>
-        <InstructionComposer
-          value={composer}
-          running={running}
-          attached={attached}
-          activeDiagramId={thread.activeDiagramId}
-          markCounts={Object.fromEntries(attached.map((artifact) => [artifact.id, thread.annotations[artifact.id]?.marks.length || 0]))}
-          onChange={onComposer}
-          onSend={onSend}
-          onCancel={onCancel}
-          onRemoveAttachment={onRemoveAttachment}
-        />
-      </div>
+      <button
+        type="button"
+        className={`canvas-ask ${running ? 'working' : ''}`}
+        aria-label={running ? `Agent working: ${status}. Open conversation` : 'Open conversation'}
+        onClick={onOpenChat}
+      >
+        <span className="canvas-ask-dot" aria-hidden="true" />
+        <span className="canvas-ask-label">{running ? status || 'Working…' : 'Ask Claude…'}</span>
+        {!running && active && <span className="canvas-ask-chip">diagram attached · {markCount} marks</span>}
+        {unread > 0 && <span className="unread-badge">{unread}</span>}
+      </button>
     </main>
   );
 }
