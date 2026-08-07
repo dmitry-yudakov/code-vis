@@ -79,6 +79,8 @@ export function AppShell() {
   const [pendingAttachmentIds, setPendingAttachmentIds] = useState<string[]>([]);
   const [notice, setNotice] = useState<string>();
   const [missingSession, setMissingSession] = useState(false);
+  /** Set when a turn stopped on its turn budget: the session survives, so it can be resumed. */
+  const [continueMode, setContinueMode] = useState<AgentMode>();
   const abortRef = useRef<AbortController | undefined>(undefined);
   const runIdRef = useRef<string | undefined>(undefined);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
@@ -263,6 +265,7 @@ export function AppShell() {
     const turnMode: AgentMode = override?.mode ?? mode;
     setNotice(undefined);
     setMissingSession(false);
+    setContinueMode(undefined);
     const artifacts = getArtifacts(thread);
     const selected = pendingAttachmentIds.flatMap((id) => {
       const artifact = artifacts.find((item) => item.id === id);
@@ -355,6 +358,7 @@ export function AppShell() {
           streamError = event;
           setNotice(event.message);
           if (event.code === 'missing-session') setMissingSession(true);
+          if (event.code === 'max-turns') setContinueMode(turnMode);
           mutateThread(thread.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
             ? { ...message, status: event.code === 'cancelled' ? 'cancelled' : 'failed', delivery: event.delivery }
             : message) }));
@@ -441,6 +445,7 @@ export function AppShell() {
         <div className="notice-banner" role="status">
           <span>{notice}</span>
           {missingSession && <button type="button" onClick={() => { void createThread(); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {continueMode && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button>
         </div>
       )}

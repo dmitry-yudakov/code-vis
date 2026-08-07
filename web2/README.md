@@ -54,6 +54,7 @@ then an Agent turn over `--resume`.
 | Permission mode | `plan` | `plan` | `default` |
 | Side effects | never | never | only after you approve each one |
 | Prompts you | never | never | permission cards in the chat |
+| Budget per message | 20 turns / 5 min | 20 turns / 5 min | 200 turns / 30 min |
 
 **Ask** is the read-only conversation plus the git allowlist below. **Plan** has identical
 capability and differs by contract: the turn ends with a delimited plan and the message gains an
@@ -70,6 +71,11 @@ denied before terminating the child.
 Agent mode edits **the real working tree** of the selected project, exactly like terminal Claude
 Code. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
 deliberately out of scope for now.
+
+Building spends turns on research long before the first edit, so Agent gets its own budget
+(`CODEAI_WEB2_BUILD_MAX_TURNS`, `CODEAI_WEB2_BUILD_TIMEOUT_MS`) rather than the conversation's. If a
+message still runs out, the turn ends with an explicit notice and a **Continue** action — the
+session is intact, so the agent picks up where it stopped.
 
 ### Git read allowlist (all modes)
 
@@ -168,7 +174,9 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_WEB2_CLAUDE_BIN` / `CODEAI_WEB2_CLAUDE_MODEL` — local agent executable and optional model;
 - `CODEAI_WEB2_DATA_DIR` — minimal server registry (tilde expansion is handled in Node);
 - `CODEAI_WEB2_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
-- timeout/turn, response, Mermaid, attachment, and Git-context bounds.
+- `CODEAI_WEB2_AGENT_*` / `CODEAI_WEB2_BUILD_*` — per-message turn and time budgets for Ask/Plan
+  and for Agent respectively;
+- response, Mermaid, attachment, and Git-context bounds.
 
 The health endpoint checks the projects root, data directory, executable, and the CLI flags each
 shipped mode needs through `claude --help`; it never invokes a model. An outdated CLI is reported

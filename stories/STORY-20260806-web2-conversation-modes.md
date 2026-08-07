@@ -76,6 +76,13 @@ Three bugs that unit tests could not have caught on their own; each now has a re
 3. **A grid track sized `auto` grows to max-content.** The drawer's implicit column let the wider
    composer row push the send button outside the panel. `grid-template-columns: minmax(0, 1fr)`
    clamps it, which also protects the panel from long paths and code spans.
+4. **Building needs its own budget.** Agent mode inherited the read-only conversation's 20 turns
+   and 5 minutes, and a real run spent all of it on research without reaching an edit. Agent now
+   uses `CODEAI_WEB2_BUILD_MAX_TURNS` (200) and `CODEAI_WEB2_BUILD_TIMEOUT_MS` (30 min).
+5. **`result` frames carry deliberate stops.** `error_max_turns` arrives as a result subtype with
+   a zero exit, and the old handler flattened it to "exited before returning a complete response".
+   It now has its own `max-turns` error code, a message naming the setting, and a **Continue**
+   action in the notice banner — the session survives, so the agent resumes where it stopped.
 
 ---
 

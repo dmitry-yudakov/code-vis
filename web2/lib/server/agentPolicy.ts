@@ -27,8 +27,6 @@ export function resolveAgentPolicy(config: Web2Config, mode: AgentMode = 'ask'):
     allowedTools: GIT_READ_ALLOWLIST,
     safeMode: true as const,
     sessionPersistence: true as const,
-    maxTurns: config.agentMaxTurns,
-    timeoutMs: config.agentTimeoutMs,
   };
   if (mode === 'agent') {
     return Object.freeze({
@@ -37,6 +35,10 @@ export function resolveAgentPolicy(config: Web2Config, mode: AgentMode = 'ask'):
       tools: undefined,
       permissionMode: 'default' as const,
       interactivePermissions: true,
+      // Building spends turns on research long before the first edit, so it gets its own budget
+      // rather than the read-only conversation's.
+      maxTurns: config.buildMaxTurns,
+      timeoutMs: config.buildTimeoutMs,
       approvalTimeoutMs: config.approvalTimeoutMs,
     });
   }
@@ -46,5 +48,7 @@ export function resolveAgentPolicy(config: Web2Config, mode: AgentMode = 'ask'):
     tools: READONLY_TOOLS,
     permissionMode: 'plan' as const,
     interactivePermissions: false,
+    maxTurns: config.agentMaxTurns,
+    timeoutMs: config.agentTimeoutMs,
   });
 }

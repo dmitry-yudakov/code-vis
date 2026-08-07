@@ -151,6 +151,7 @@ export type AgentErrorCode =
   | 'unsupported-flags'
   | 'missing-session'
   | 'process-failed'
+  | 'max-turns'
   | 'timeout'
   | 'cancelled'
   | 'malformed-stream'

@@ -54,6 +54,18 @@ describe('agent modes', () => {
     expect(agent.approvalTimeoutMs).toBe(config.approvalTimeoutMs);
   });
 
+  it('budgets agent runs for building, not for answering', () => {
+    // Research alone can exhaust the conversation allowance before the first edit is proposed.
+    const ask = resolveAgentPolicy(config, 'ask');
+    const agent = resolveAgentPolicy(config, 'agent');
+    expect(ask.maxTurns).toBe(config.agentMaxTurns);
+    expect(ask.timeoutMs).toBe(config.agentTimeoutMs);
+    expect(agent.maxTurns).toBe(config.buildMaxTurns);
+    expect(agent.timeoutMs).toBe(config.buildTimeoutMs);
+    expect(agent.maxTurns).toBeGreaterThan(ask.maxTurns);
+    expect(agent.timeoutMs).toBeGreaterThan(ask.timeoutMs);
+  });
+
   it('never allows a write-capable or network-capable git command', () => {
     for (const rule of GIT_READ_ALLOWLIST) {
       expect(rule).toMatch(/^Bash\((git|gh pr) [a-z]+:\*\)$/);

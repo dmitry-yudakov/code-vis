@@ -143,6 +143,22 @@ describe.sequential('ClaudeProcessRunner', () => {
     await expect(run({ action: 'start', signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' });
   });
 
+  it('explains an exhausted turn budget instead of reporting a generic failure', async () => {
+    process.env.CODEAI_FAKE_MODE = 'max-turns';
+    // Naming the setting and the fact that the session survives is the whole point of the message.
+    await expect(run({ mode: 'ask' })).rejects.toMatchObject({
+      code: 'max-turns',
+      message: expect.stringContaining('CODEAI_WEB2_AGENT_MAX_TURNS'),
+      delivery: 'possibly-sent',
+    });
+    await expect(run({ mode: 'agent' })).rejects.toMatchObject({
+      code: 'max-turns',
+      message: expect.stringContaining('CODEAI_WEB2_BUILD_MAX_TURNS'),
+    });
+    const failure = await run({ mode: 'agent' }).catch((error: Error) => error);
+    expect(failure).toMatchObject({ message: expect.stringContaining('send "continue"') });
+  });
+
   it('reports per-mode flag support with an actionable message', async () => {
     await expect(checkClaude(binary)).resolves.toEqual({ binaryReady: true, flagsReady: true, unsupportedModes: [] });
 

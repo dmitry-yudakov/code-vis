@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type {
   AgentErrorCode, AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
+  ResolvedAgentPolicy,
 } from '@/lib/shared/types';
 import { buildClaudeArgs } from './claudeInvocation';
 
@@ -90,6 +91,27 @@ function classifyFailure(stderr: string, action: 'start' | 'resume'): AgentRunEr
     return new AgentRunError('unsupported-flags', 'The installed Claude Code version does not support the required safe conversation flags.', 'not-sent', false);
   }
   return new AgentRunError('process-failed', 'Claude Code exited before returning a complete response.');
+}
+
+/**
+ * A `result` frame whose subtype starts with `error_` means the CLI stopped deliberately. These
+ * deserve their own message: the generic process failure hides the one thing the user can act on.
+ */
+function classifyResultError(
+  subtype: string,
+  detail: string,
+  policy: ResolvedAgentPolicy,
+  action: 'start' | 'resume',
+): AgentRunError {
+  if (subtype === 'error_max_turns') {
+    const setting = policy.mode === 'agent' ? 'CODEAI_WEB2_BUILD_MAX_TURNS' : 'CODEAI_WEB2_AGENT_MAX_TURNS';
+    return new AgentRunError(
+      'max-turns',
+      `The agent used all ${policy.maxTurns} tool turns allowed for one message before it finished. `
+      + `Its session is intact — send "continue" to pick up where it stopped, or raise ${setting}.`,
+    );
+  }
+  return classifyFailure(detail, action);
 }
 
 export class ClaudeProcessRunner implements AgentProcessRunner {
@@ -293,8 +315,9 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           return;
         }
         if (event.type === 'result') {
-          if (event.is_error === true || event.subtype === 'error') {
-            throw classifyFailure(String(event.result || event.error || ''), input.session.action);
+          const subtype = typeof event.subtype === 'string' ? event.subtype : '';
+          if (event.is_error === true || subtype.startsWith('error')) {
+            throw classifyResultError(subtype, String(event.result || event.error || ''), input.policy, input.session.action);
           }
           if (typeof event.result === 'string') finalText = event.result;
           if (typeof event.session_id === 'string') sessionId = event.session_id;

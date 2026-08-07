@@ -8,6 +8,8 @@ export interface Web2Config {
   claudeModel?: string;
   agentTimeoutMs: number;
   agentMaxTurns: number;
+  buildTimeoutMs: number;
+  buildMaxTurns: number;
   approvalTimeoutMs: number;
   dataDir: string;
   maxAssistantBytes: number;
@@ -42,6 +44,10 @@ export function getConfig(): Web2Config {
     claudeModel: process.env.CODEAI_WEB2_CLAUDE_MODEL || undefined,
     agentTimeoutMs: boundedInteger('CODEAI_WEB2_AGENT_TIMEOUT_MS', 300_000, 1_000, 1_800_000),
     agentMaxTurns: boundedInteger('CODEAI_WEB2_AGENT_MAX_TURNS', 20, 1, 100),
+    // Building needs a far larger budget than answering: research alone can spend the read-only
+    // allowance before the first edit. Approval time never counts against the timeout.
+    buildTimeoutMs: boundedInteger('CODEAI_WEB2_BUILD_TIMEOUT_MS', 1_800_000, 1_000, 7_200_000),
+    buildMaxTurns: boundedInteger('CODEAI_WEB2_BUILD_MAX_TURNS', 200, 1, 1_000),
     approvalTimeoutMs: boundedInteger('CODEAI_WEB2_APPROVAL_TIMEOUT_MS', 600_000, 5_000, 3_600_000),
     dataDir: path.resolve(expandHome(process.env.CODEAI_WEB2_DATA_DIR || '~/.code-ai/web2')),
     maxAssistantBytes: boundedInteger('CODEAI_WEB2_MAX_ASSISTANT_BYTES', 1_048_576, 1_024, 10_485_760),

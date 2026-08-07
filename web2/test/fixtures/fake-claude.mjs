@@ -95,6 +95,11 @@ else if (mode === 'malformed') {
 else if (mode === 'timeout') {
   setTimeout(() => process.exit(0), 30_000);
 }
+else if (mode === 'max-turns') {
+  // The CLI stops deliberately and reports it through the result frame, not a non-zero exit.
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  emit({ type: 'result', subtype: 'error_max_turns', is_error: true, result: 'Reached max turns', session_id: sessionId });
+}
 else if (mode === 'denied') {
   // A Bash call that matched no allowlist rule: auto-denied, turn continues.
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
