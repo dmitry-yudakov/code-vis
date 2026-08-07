@@ -32,8 +32,27 @@ export type DrawingMark =
   | (DrawingMarkBase & { kind: 'arrow'; start: Point; end: Point })
   | (DrawingMarkBase & { kind: 'text'; x: number; y: number; text: string });
 
+/** Diagrams come from the agent; sketches are blank surfaces the user opens and draws on. */
+export type CanvasKind = 'diagram' | 'sketch';
+
+/**
+ * A blank drawing surface the user creates directly, with no Mermaid source behind it.
+ * Sketches live on the thread rather than inside an assistant message, but they share the
+ * annotation store and the id space with diagrams, so selection, marks, and attachment all
+ * behave the same way for both.
+ */
+export interface SketchCanvas {
+  id: string;
+  threadId: string;
+  ordinal: number;
+  createdAt: string;
+  viewBox: [number, number, number, number];
+}
+
 export interface DiagramMessageAttachment {
   diagramId: string;
+  /** Omitted means `diagram`. A sketch attaches its marks and PNG with an empty source. */
+  kind?: CanvasKind;
   source: string;
   marks: DrawingMark[];
   viewport: { viewBox: [number, number, number, number] };
@@ -42,6 +61,7 @@ export interface DiagramMessageAttachment {
 
 export interface DiagramAttachmentRecord {
   diagramId: string;
+  kind?: CanvasKind;
   marksSnapshot: DrawingMark[];
   viewport: { viewBox: [number, number, number, number] };
   compositeIncluded: boolean;
@@ -77,6 +97,11 @@ export interface DiagramArtifact {
   derivedFromDiagramIds: string[];
   evidence: EvidenceResult[];
 }
+
+/** Whatever the canvas is showing and drawing on: an agent diagram or a user sketch. */
+export type CanvasTarget =
+  | { kind: 'diagram'; artifact: DiagramArtifact }
+  | { kind: 'sketch'; sketch: SketchCanvas };
 
 export type AssistantBlock =
   | { kind: 'markdown'; markdown: string }
@@ -125,10 +150,13 @@ export interface ChatThread {
   createdAt: string;
   updatedAt: string;
   messages: ChatMessage[];
+  /** Points at a diagram artifact or a sketch — both share one canvas id space. */
   activeDiagramId?: string;
   previousDiagramId?: string;
   pinnedDiagramIds: string[];
   annotations: Record<string, DiagramAnnotation>;
+  /** Blank canvases the user opened. Absent on threads saved before sketches existed. */
+  sketches?: SketchCanvas[];
   /** Mode pre-selected for the next message. Threads themselves stay mode-agnostic. */
   defaultMode?: AgentMode;
 }

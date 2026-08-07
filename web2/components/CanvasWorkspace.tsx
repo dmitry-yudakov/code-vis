@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import type { ChatThread, DrawingMark } from '@/lib/shared/types';
-import { getArtifacts } from '@/lib/client/conversationStore';
+import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/lib/client/conversationStore';
 import { DiagramCanvas } from './DiagramCanvas';
 
 export interface CanvasSnapshot {
@@ -21,6 +21,7 @@ export function CanvasWorkspace({
   onOpenChat,
   onOpenHistory,
   onSelectDiagram,
+  onNewSketch,
   onMarksChange,
   onSnapshot,
   onArtifactError,
@@ -35,39 +36,49 @@ export function CanvasWorkspace({
   onOpenChat(): void;
   onOpenHistory(): void;
   onSelectDiagram(id: string): void;
+  onNewSketch(): void;
   onMarksChange(diagramId: string, marks: DrawingMark[]): void;
   onSnapshot(snapshot?: CanvasSnapshot): void;
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
 }) {
   const [focusMode, setFocusMode] = useState(false);
   const artifacts = useMemo(() => getArtifacts(thread), [thread]);
-  const active = artifacts.find((artifact) => artifact.id === thread.activeDiagramId);
-  const marks = active ? thread.annotations[active.id]?.marks || [] : [];
+  const sketches = useMemo(() => getSketches(thread), [thread]);
+  const target = useMemo(() => findCanvasTarget(thread, thread.activeDiagramId), [thread]);
+  const activeId = target && canvasTargetId(target);
+  const marks = activeId ? thread.annotations[activeId]?.marks || [] : [];
   const handleMarks = useCallback((next: DrawingMark[]) => {
-    if (active) onMarksChange(active.id, next);
-  }, [active?.id, onMarksChange]);
+    if (activeId) onMarksChange(activeId, next);
+  }, [activeId, onMarksChange]);
   const handleSnapshot = useCallback((next?: CanvasSnapshot) => onSnapshot(next), [onSnapshot]);
   const handleError = useCallback((statusValue: 'parse-error' | 'render-error', error: string) => {
-    if (active) onArtifactError(active.id, statusValue, error);
-  }, [active?.id, onArtifactError]);
+    if (activeId) onArtifactError(activeId, statusValue, error);
+  }, [activeId, onArtifactError]);
 
   return (
-    <main className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${active ? 'has-diagram' : 'empty-canvas'}`}>
+    <main className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
         <div className="canvas-context">
-          {active ? (
+          {target?.kind === 'diagram' ? (
             <>
               <span className="canvas-kicker">Active canvas</span>
-              <strong>Diagram {artifacts.indexOf(active) + 1} of {artifacts.length}</strong>
-              {active.derivedFromDiagramIds.length > 0 && <span className="lineage-pill">derived revision</span>}
+              <strong>Diagram {artifacts.indexOf(target.artifact) + 1} of {artifacts.length}</strong>
+              {target.artifact.derivedFromDiagramIds.length > 0 && <span className="lineage-pill">derived revision</span>}
             </>
-          ) : <><span className="canvas-kicker">Project canvas</span><strong>No diagram yet</strong></>}
+          ) : target?.kind === 'sketch' ? (
+            <>
+              <span className="canvas-kicker">Active canvas</span>
+              <strong>Sketch {target.sketch.ordinal}</strong>
+              <span className="lineage-pill">your drawing</span>
+            </>
+          ) : <><span className="canvas-kicker">Project canvas</span><strong>No canvas yet</strong></>}
         </div>
         <div className="canvas-top-actions">
-          {thread.previousDiagramId && active && (
+          {thread.previousDiagramId && target && (
             <button type="button" onClick={() => onSelectDiagram(thread.previousDiagramId!)}>← Previous version</button>
           )}
-          <button type="button" onClick={onOpenHistory}>History <span className="button-count">{artifacts.length}</span></button>
+          {target && <button type="button" onClick={onNewSketch}>New sketch</button>}
+          <button type="button" onClick={onOpenHistory}>History <span className="button-count">{artifacts.length + sketches.length}</span></button>
           <button type="button" onClick={onOpenChat}>
             Chat
             {pendingApprovals > 0 && <span className="approval-badge">{pendingApprovals}</span>}
@@ -78,10 +89,10 @@ export function CanvasWorkspace({
       </div>
 
       <div className="canvas-stage">
-        {active ? (
+        {target ? (
           <DiagramCanvas
-            key={active.id}
-            artifact={active}
+            key={activeId}
+            target={target}
             initialMarks={marks}
             onMarksChange={handleMarks}
             onSnapshot={handleSnapshot}
@@ -91,8 +102,9 @@ export function CanvasWorkspace({
           <div className="empty-canvas-content">
             <div className="empty-mark">C</div>
             <p className="eyebrow">Conversational code canvas</p>
-            <h1>Start with a question.<br />Let the map emerge.</h1>
-            <p>Claude can read and search this repository, explain it in prose, or create a Mermaid diagram when a visual would help.</p>
+            <h1>Start with a question.<br />Or draw what you mean.</h1>
+            <p>Claude can read and search this repository, explain it in prose, or create a Mermaid diagram when a visual would help. You can also sketch first and send the drawing as the instruction.</p>
+            <button type="button" className="primary-cta sketch-cta" onClick={onNewSketch}>Start a sketch <span>✎</span></button>
             <div className="quick-prompts">
               {[
                 'Map the architecture of this project',
@@ -121,7 +133,7 @@ export function CanvasWorkspace({
             ? `${pendingApprovals} approval${pendingApprovals === 1 ? '' : 's'} pending`
             : running ? status || 'Working…' : 'Ask Claude…'}
         </span>
-        {!running && active && <span className="canvas-ask-chip">diagram attached · {markCount} marks</span>}
+        {!running && target && <span className="canvas-ask-chip">{target.kind} attached · {markCount} marks</span>}
         {pendingApprovals > 0 && <span className="approval-badge">{pendingApprovals}</span>}
         {unread > 0 && <span className="unread-badge">{unread}</span>}
       </button>

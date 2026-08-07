@@ -159,14 +159,21 @@ blocks become immutable diagram artifacts; one invalid diagram does not hide pro
 The first valid diagram opens on the canvas.
 
 The canvas supports pan, wheel/buttons zoom, fit/reset, pen, rectangle, arrow, text, eraser,
-50-step undo/redo, confirmed clear, Mermaid source export, and diagram/marks JSON export. Chat and
-diagram history are drawers. Focus mode fills the application viewport while retaining tools,
-status, and the instruction composer.
+50-step undo/redo, confirmed clear, Mermaid source export (diagrams only), and canvas/marks JSON
+export. Chat and canvas history are drawers. Focus mode fills the application viewport while
+retaining tools, status, and the instruction composer.
 
-The active diagram is visibly attached to the next instruction by default. The attachment contains
-its immutable Mermaid source, the exact vector-mark snapshot, viewport, and a local composite PNG
-when browser export succeeds. Remove its chip for a text-only turn, or use History to attach up to
-four diagrams. Composite failure is non-fatal.
+**Start a sketch** opens a blank sheet with the same drawing tools — available before any diagram
+exists, so a drawing can be the very first thing in a conversation. A sketch has no Mermaid source:
+its marks and composite PNG are the whole attachment, and the agent is told to read them as your
+own drawing rather than infer structure you did not draw. Because the drawing is itself the
+instruction, a sketch turn sends with an empty composer. Sketches share the canvas id space with
+diagrams, so selection, ink, pinning, attachment, and history work identically for both.
+
+The active canvas is visibly attached to the next instruction by default. A diagram attachment
+contains its immutable Mermaid source, the exact vector-mark snapshot, viewport, and a local
+composite PNG when browser export succeeds. Remove its chip for a text-only turn, or use History to
+attach up to four canvases. Composite failure is non-fatal.
 
 A single valid result derived from the still-active attachment becomes active automatically and
 leaves **Previous version** one action away. Navigation during a run suppresses auto-activation.
@@ -193,6 +200,8 @@ with the modes and flags that are missing.
 
 - Mermaid diagrams are immutable outputs. Revisions create new artifacts rather than editing source.
 - Ink does not snap to Mermaid elements and is not geometrically transferred to a revised diagram.
+- A sketch is a fixed-size sheet the agent can read but not draw on; it never becomes a diagram
+  artifact, and the agent answers with prose or a new Mermaid diagram instead.
 - Mermaid subgraphs cannot be generically collapsed; large diagrams use pan/zoom/fit and agent revision.
 - Agent mode works directly in the checked-out tree: no worktree isolation, no apply/discard
   checkpoints, and no policy on pre-existing uncommitted changes. Review with `git`.

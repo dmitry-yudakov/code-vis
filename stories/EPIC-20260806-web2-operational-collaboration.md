@@ -45,6 +45,7 @@ imports the current `web/`/`server/` runtime.
 | 19 | [web2-conversation-modes](STORY-20260806-web2-conversation-modes.md) | Ask/Plan/Agent modes, git read allowlist, interactive permissions, env passthrough | **In progress** — implemented, real-agent smoke pending | 18 |
 | 20 | [web2-multi-agent-roles](STORY-20260806-web2-multi-agent-roles.md) | participants, provider adapter (Codex), roles, shared artifacts, peer review | **Draft** (sequencing) | 19 |
 | 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, server transcripts, auth, billing shift, sandboxing | **Draft** (sequencing) | 20 |
+| 22 | [web2-sketch-canvas](STORY-20260807-web2-sketch-canvas.md) | blank sketch canvas, drawing as the first instruction | **Shipped** | 18 |
 
 ```mermaid
 graph LR

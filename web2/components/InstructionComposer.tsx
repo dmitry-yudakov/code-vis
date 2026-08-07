@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { AgentMode, DiagramArtifact } from '@/lib/shared/types';
+import type { AgentMode, CanvasTarget } from '@/lib/shared/types';
+import { canvasTargetId } from '@/lib/client/conversationStore';
 import { AGENT_MODE_HINTS, AGENT_MODE_LABELS, AGENT_MODE_TOOLTIPS } from '@/lib/client/toolActivity';
 
 const MODES: AgentMode[] = ['ask', 'plan', 'agent'];
@@ -13,7 +14,7 @@ export function InstructionComposer({
   value: string;
   running: boolean;
   autoFocus?: boolean;
-  attached: DiagramArtifact[];
+  attached: CanvasTarget[];
   activeDiagramId?: string;
   markCounts: Record<string, number>;
   mode: AgentMode;
@@ -25,6 +26,8 @@ export function InstructionComposer({
   onRemoveAttachment(id: string): void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  // A drawing is an instruction in itself, so a sketch turn does not need typed text.
+  const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch');
   useEffect(() => { if (autoFocus) ref.current?.focus(); }, [autoFocus]);
   useEffect(() => {
     const field = ref.current;
@@ -35,13 +38,19 @@ export function InstructionComposer({
   return (
     <div className="instruction-composer">
       {attached.length > 0 && (
-        <div className="attachment-chips" aria-label="Diagram attachments">
-          {attached.map((artifact) => (
-            <span className="attachment-chip" key={artifact.id}>
-              <span>{artifact.id === activeDiagramId ? 'Active diagram' : 'Additional diagram'} included · {markCounts[artifact.id] || 0} marks</span>
-              <button type="button" aria-label="Remove diagram attachment" onClick={() => onRemoveAttachment(artifact.id)}>×</button>
-            </span>
-          ))}
+        <div className="attachment-chips" aria-label="Canvas attachments">
+          {attached.map((canvas) => {
+            const id = canvasTargetId(canvas);
+            const label = canvas.kind === 'sketch'
+              ? 'Your sketch'
+              : id === activeDiagramId ? 'Active diagram' : 'Additional diagram';
+            return (
+              <span className={`attachment-chip ${canvas.kind}`} key={id}>
+                <span>{label} included · {markCounts[id] || 0} marks</span>
+                <button type="button" aria-label={`Remove ${canvas.kind} attachment`} onClick={() => onRemoveAttachment(id)}>×</button>
+              </span>
+            );
+          })}
         </div>
       )}
       <textarea
@@ -50,12 +59,14 @@ export function InstructionComposer({
         disabled={running}
         rows={1}
         maxLength={8_000}
-        placeholder={attached.length ? 'Ask about or revise the attached diagram…' : 'Ask anything about this project…'}
+        placeholder={attached.some((canvas) => canvas.kind === 'sketch')
+          ? 'Describe what you drew, or just send the sketch…'
+          : attached.length ? 'Ask about or revise the attached diagram…' : 'Ask anything about this project…'}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            if (value.trim() && !running) onSend();
+            if (canSend && !running) onSend();
           }
         }}
       />
@@ -85,7 +96,7 @@ export function InstructionComposer({
           className={running ? 'cancel-button' : 'send-button'}
           aria-label={running ? 'Cancel' : 'Send'}
           title={running ? 'Cancel the running turn' : 'Send'}
-          disabled={!running && !value.trim()}
+          disabled={!running && !canSend}
           onClick={running ? onCancel : onSend}
         >
           <span aria-hidden="true">{running ? '■' : '↑'}</span>

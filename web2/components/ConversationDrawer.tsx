@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { AgentMode, ChatThread, DiagramArtifact } from '@/lib/shared/types';
+import type { AgentMode, CanvasTarget, ChatThread } from '@/lib/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/lib/client/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer } from './InstructionComposer';
@@ -22,7 +22,7 @@ export function ConversationDrawer({
   composer: string;
   mode: AgentMode;
   unsupportedModes: AgentMode[];
-  attached: DiagramArtifact[];
+  attached: CanvasTarget[];
   markCounts: Record<string, number>;
   onClose(): void;
   onSelectDiagram(id: string): void;

@@ -141,12 +141,12 @@ describe('agent modes', () => {
 
   it('states the mode contract and git allowlist in the prompt', () => {
     for (const mode of AGENT_MODES) {
-      const prompt = buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedDiagramNames: [], mode });
+      const prompt = buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [], mode });
       expect(prompt).toContain(`Mode: ${mode.toUpperCase()}`);
       expect(prompt).toContain('gh pr view/diff/list');
     }
-    expect(buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedDiagramNames: [] })).toContain('Mode: ASK');
-    expect(buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedDiagramNames: [], mode: 'plan' })).toContain(PLAN_START_MARKER);
+    expect(buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [] })).toContain('Mode: ASK');
+    expect(buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [], mode: 'plan' })).toContain(PLAN_START_MARKER);
   });
 
   it('detects and strips plan delimiters', () => {

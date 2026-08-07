@@ -71,7 +71,7 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
 
   await page.getByRole('button', { name: /History/ }).click();
   await expect(page.locator('.navigator-item')).toHaveCount(4);
-  await page.getByRole('complementary', { name: 'Diagram history' }).locator('header button').click();
+  await page.getByRole('complementary', { name: 'Canvas history' }).locator('header button').click();
 
   await page.reload();
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
@@ -83,4 +83,39 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   expect(download.suggestedFilename()).toMatch(/^cartograph-.*\.json$/);
 
   await page.screenshot({ path: 'test-results/cartograph-canvas.png', fullPage: true });
+});
+
+test('sketches a blank canvas and sends the drawing as the instruction', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /New conversation/ }).click();
+  await page.getByRole('button', { name: 'Close conversation' }).click();
+
+  // A sketch is reachable before any diagram exists — that is the point of it.
+  await page.getByRole('button', { name: /Start a sketch/ }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await expect(page.locator('.canvas-context strong')).toContainText('Sketch 1');
+
+  await page.getByRole('button', { name: 'Pen (P)' }).click();
+  const ink = page.locator('svg.ink-layer');
+  const box = await ink.boundingBox();
+  expect(box).toBeTruthy();
+  await page.mouse.move(box!.x + box!.width * .3, box!.y + box!.height * .3);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width * .6, box!.y + box!.height * .5, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('.canvas-ask-chip')).toContainText('sketch attached · 1 marks');
+
+  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await expect(page.locator('.attachment-chip')).toContainText('Your sketch included · 1 marks');
+  // The drawing is the instruction: sending needs no typed text.
+  await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.chat-message.user')).toContainText('1 sketch attached');
+  await expect(page.locator('.chat-message.assistant')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Close conversation' }).click();
+  await page.reload();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await page.getByRole('button', { name: /History/ }).click();
+  await expect(page.locator('.navigator-item')).toContainText('Sketch 1');
 });

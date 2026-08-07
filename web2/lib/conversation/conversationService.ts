@@ -51,7 +51,8 @@ export async function runConversation(input: {
     const prompt = buildConversationPrompt({
       userText: request.text,
       attachmentDirectory: directory,
-      attachedDiagramNames: manifest.map((item, index) => `Diagram ${index + 1} (${item.diagramId})`),
+      attachedCanvasNames: manifest.map((item, index) => `${item.kind === 'sketch' ? 'Sketch' : 'Diagram'} ${index + 1} (${item.diagramId})`),
+      hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
       mode,
     });
     const result = await runner.run({

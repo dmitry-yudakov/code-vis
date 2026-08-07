@@ -1,4 +1,4 @@
-import type { AgentMode, ChatThread, DiagramArtifact } from '@/lib/shared/types';
+import type { AgentMode, CanvasTarget, ChatThread, DiagramArtifact, SketchCanvas } from '@/lib/shared/types';
 import { normalizeMermaidSource, validateMermaidSource } from '@/lib/diagram/mermaidPolicy';
 
 const PREFIX = 'code-ai:web2:v1:';
@@ -29,6 +29,8 @@ function isThread(value: unknown, projectId: string): value is ChatThread {
     && typeof item.title === 'string'
     && Array.isArray(item.messages)
     && Array.isArray(item.pinnedDiagramIds)
+    // Threads saved before sketches existed have no `sketches` key at all.
+    && (item.sketches === undefined || Array.isArray(item.sketches))
     && Boolean(item.annotations && typeof item.annotations === 'object');
 }
 
@@ -36,6 +38,23 @@ export function getArtifacts(thread: ChatThread): DiagramArtifact[] {
   return thread.messages.flatMap((message) => message.role === 'assistant'
     ? message.blocks.flatMap((block) => block.kind === 'diagram' ? [block.artifact] : [])
     : []);
+}
+
+export function getSketches(thread: ChatThread): SketchCanvas[] {
+  return thread.sketches || [];
+}
+
+/** Resolves a canvas id against both id spaces; diagrams win if an id somehow collides. */
+export function findCanvasTarget(thread: ChatThread, id?: string): CanvasTarget | undefined {
+  if (!id) return undefined;
+  const artifact = getArtifacts(thread).find((item) => item.id === id);
+  if (artifact) return { kind: 'diagram', artifact };
+  const sketch = getSketches(thread).find((item) => item.id === id);
+  return sketch ? { kind: 'sketch', sketch } : undefined;
+}
+
+export function canvasTargetId(target: CanvasTarget): string {
+  return target.kind === 'diagram' ? target.artifact.id : target.sketch.id;
 }
 
 const AGENT_MODES: readonly AgentMode[] = ['ask', 'plan', 'agent'];
@@ -93,8 +112,8 @@ export function saveProjectThreads(projectId: string, input: ChatThread[], stora
     throw new Error('Storage limit reached. Export or delete older annotated conversations before creating more.');
   }
   const threads = sorted.slice(0, MAX_THREADS).map((thread) => {
-    if (thread.messages.length > MAX_MESSAGES || getArtifacts(thread).length > MAX_ARTIFACTS) {
-      throw new Error('Conversation limit reached. Export this thread before removing messages or annotated diagrams.');
+    if (thread.messages.length > MAX_MESSAGES || getArtifacts(thread).length + getSketches(thread).length > MAX_ARTIFACTS) {
+      throw new Error('Conversation limit reached. Export this thread before removing messages or annotated canvases.');
     }
     return thread;
   });

@@ -34,13 +34,17 @@ Every side effect (Edit, Write, non-allowlisted Bash, …) raises an approval ca
 export function buildConversationPrompt(input: {
   userText: string;
   attachmentDirectory: string;
-  attachedDiagramNames: string[];
+  attachedCanvasNames: string[];
+  hasSketchAttachment?: boolean;
   mode?: AgentMode;
 }): string {
   const mode = input.mode || 'ask';
   const directory = input.attachmentDirectory;
-  const attachmentNote = input.attachedDiagramNames.length
-    ? `The user attached diagram context: ${input.attachedDiagramNames.join(', ')}. Its immutable Mermaid source, vector marks, and optional composite PNG are in ${path.join(directory, 'diagram-attachments.json')}. Treat the marks as user-authored, higher-precedence context. If a mark is ambiguous, say so.`
+  const sketchNote = input.hasSketchAttachment
+    ? ` A sketch is a blank canvas the user drew on: it has no Mermaid source, so its marks and PNG are the entire content — read them as the user's own drawing, and ask before inventing structure they did not draw.`
+    : '';
+  const attachmentNote = input.attachedCanvasNames.length
+    ? `The user attached canvas context: ${input.attachedCanvasNames.join(', ')}. Each entry's files — Mermaid source for a diagram, vector marks, and an optional composite PNG — are listed in ${path.join(directory, 'diagram-attachments.json')}. Treat the marks as user-authored, higher-precedence context. If a mark is ambiguous, say so.${sketchNote}`
     : 'No diagrams are attached to this turn.';
 
   return `[Cartograph conversation contract v${PROMPT_CONTRACT_VERSION}]

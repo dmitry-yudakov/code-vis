@@ -103,6 +103,10 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .attachment-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
 .attachment-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border: 1px solid #c7d3ae; border-radius: 999px; color: #56613f; background: var(--sage-soft); font-size: 10px; font-weight: 600; }
 .attachment-chip button { width: 17px; height: 17px; border: 0; border-radius: 50%; color: #56613f; background: rgba(115,128,91,.15); line-height: 1; }
+.attachment-chip.sketch { border-color: #dfb597; color: #8c491a; background: #fff0e6; }
+.attachment-chip.sketch button { color: #8c491a; background: rgba(166,83,34,.13); }
+.sketch-cta { margin-top: 22px; background: var(--sage); box-shadow: 0 8px 20px rgba(115,128,91,.22); }
+.sketch-cta:hover { background: #5f6b4a; }
 .composer-actions { display: flex; align-items: center; gap: 10px; padding-left: 4px; }
 .composer-hint { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 9px/1.2 var(--mono); }
 .mode-selector { flex: none; display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 999px; background: #f1e6d4; }
@@ -130,7 +134,9 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .diagram-canvas-shell { position: absolute; inset: 0; }
 .diagram-viewport { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
 .diagram-scene { position: absolute; left: 50%; top: 50%; transform-origin: center; will-change: transform; }
-.mermaid-layer, .mermaid-layer > svg, .ink-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mermaid-layer, .mermaid-layer > svg, .ink-layer, .sketch-sheet { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* A sketch has nothing to render, so the sheet itself has to read as a drawable surface. */
+.sketch-sheet { border: 1px solid var(--line); border-radius: 4px; background-color: #fffdf8; background-image: linear-gradient(rgba(140,120,92,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(140,120,92,.07) 1px, transparent 1px); background-size: 40px 40px; box-shadow: 0 10px 40px rgba(76,57,34,.09); }
 .mermaid-layer > svg { max-width: none !important; }
 .ink-layer { z-index: 2; touch-action: none; overflow: visible; }
 .canvas-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 12px; }

@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { DiagramArtifact, DrawingMark, DrawingTool, Point } from '@/lib/shared/types';
+import type { CanvasTarget, DrawingMark, DrawingTool, Point } from '@/lib/shared/types';
 import { drawingReducer } from '@/lib/client/drawingReducer';
 import { createUuid } from '@/lib/client/uuid';
+import { canvasTargetId } from '@/lib/client/conversationStore';
 import { renderMermaid } from '@/lib/diagram/mermaidRenderer';
 import { DrawingToolbar } from './DrawingToolbar';
 
@@ -11,6 +12,12 @@ interface Snapshot {
   svg: string;
   viewBox: [number, number, number, number];
 }
+
+/**
+ * A sketch has nothing to render, so it starts from an empty SVG of the sheet's size. The same
+ * markup is what the composite exporter draws the marks onto, so a sketch exports like a diagram.
+ */
+export const EMPTY_CANVAS_SVG = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
 
 function download(name: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -40,18 +47,21 @@ function markElement(mark: DrawingMark) {
 }
 
 export function DiagramCanvas({
-  artifact,
+  target,
   initialMarks,
   onMarksChange,
   onSnapshot,
   onArtifactError,
 }: {
-  artifact: DiagramArtifact;
+  target: CanvasTarget;
   initialMarks: DrawingMark[];
   onMarksChange(marks: DrawingMark[]): void;
   onSnapshot(snapshot?: Snapshot): void;
   onArtifactError(status: 'parse-error' | 'render-error', error: string): void;
 }) {
+  const canvasId = canvasTargetId(target);
+  const artifact = target.kind === 'diagram' ? target.artifact : undefined;
+  const sketch = target.kind === 'sketch' ? target.sketch : undefined;
   const viewportRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
   const [snapshot, setSnapshot] = useState<Snapshot>();
@@ -67,16 +77,27 @@ export function DiagramCanvas({
     dispatch({ type: 'reset', marks: initialMarks });
     setZoom(1);
     setPan({ x: 0, y: 0 });
-  }, [artifact.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canvasId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => onMarksChange(state.marks), [state.marks, onMarksChange]);
 
+  const sketchSheet = sketch?.viewBox.join(' ');
   useEffect(() => {
     let current = true;
     setRenderError(undefined);
     setSnapshot(undefined);
     onSnapshot(undefined);
-    if (artifact.status !== 'ready') return;
+    if (sketchSheet) {
+      // Nothing to render: the sheet is ready the moment it exists.
+      const sheet: Snapshot = {
+        svg: EMPTY_CANVAS_SVG,
+        viewBox: sketchSheet.split(' ').map(Number) as [number, number, number, number],
+      };
+      setSnapshot(sheet);
+      onSnapshot(sheet);
+      return;
+    }
+    if (!artifact || artifact.status !== 'ready') return;
     void renderMermaid(`cartograph-${artifact.id.replaceAll('-', '')}`, artifact.source).then((result) => {
       if (!current) return;
       setSnapshot(result);
@@ -88,7 +109,7 @@ export function DiagramCanvas({
       onArtifactError('parse-error', message);
     });
     return () => { current = false; };
-  }, [artifact.id, artifact.source, artifact.status, onArtifactError, onSnapshot]);
+  }, [artifact?.id, artifact?.source, artifact?.status, sketchSheet, onArtifactError, onSnapshot]);
 
   const fit = useCallback(() => {
     if (!snapshot || !viewportRef.current) return;
@@ -187,7 +208,7 @@ export function DiagramCanvas({
   } : undefined;
   const cursor = useMemo(() => tool === 'pan' || tool === 'pointer' ? 'grab' : 'crosshair', [tool]);
 
-  if (artifact.status !== 'ready' || renderError) {
+  if (artifact && (artifact.status !== 'ready' || renderError)) {
     return (
       <div className="diagram-error-state">
         <div><strong>Diagram unavailable</strong><p>{artifact.error || renderError}</p></div>
@@ -206,7 +227,7 @@ export function DiagramCanvas({
         canRedo={state.future.length > 0}
         onUndo={() => dispatch({ type: 'undo' })}
         onRedo={() => dispatch({ type: 'redo' })}
-        onClear={() => state.marks.length && window.confirm('Clear all ink from this diagram?') && dispatch({ type: 'clear' })}
+        onClear={() => state.marks.length && window.confirm(`Clear all ink from this ${target.kind}?`) && dispatch({ type: 'clear' })}
       />
       <div
         ref={viewportRef}
@@ -216,7 +237,9 @@ export function DiagramCanvas({
         {!snapshot && <div className="canvas-loading"><span className="pulse-dot" /> Rendering diagram…</div>}
         {snapshot && (
           <div className="diagram-scene" style={sceneStyle}>
-            <div className="mermaid-layer" dangerouslySetInnerHTML={{ __html: snapshot.svg }} />
+            {sketch
+              ? <div className="sketch-sheet" aria-label="Blank sketch sheet" />
+              : <div className="mermaid-layer" dangerouslySetInnerHTML={{ __html: snapshot.svg }} />}
             <svg
               ref={overlayRef}
               className="ink-layer"
@@ -239,8 +262,15 @@ export function DiagramCanvas({
         <button type="button" onClick={() => setZoom((value) => Math.min(8, value * 1.2))} aria-label="Zoom in">+</button>
         <button type="button" onClick={fit}>Fit</button>
         <button type="button" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
-        <button type="button" onClick={() => download(`diagram-${artifact.ordinal}.mmd`, artifact.source, 'text/plain')}>.mmd</button>
-        <button type="button" onClick={() => download(`diagram-${artifact.ordinal}-marks.json`, JSON.stringify({ version: 1, artifact, marks: state.marks, viewBox: snapshot?.viewBox }, null, 2), 'application/json')}>JSON</button>
+        {artifact && <button type="button" onClick={() => download(`diagram-${artifact.ordinal}.mmd`, artifact.source, 'text/plain')}>.mmd</button>}
+        <button
+          type="button"
+          onClick={() => download(
+            `${target.kind}-${artifact?.ordinal ?? sketch?.ordinal}-marks.json`,
+            JSON.stringify({ version: 1, ...target, marks: state.marks, viewBox: snapshot?.viewBox }, null, 2),
+            'application/json',
+          )}
+        >JSON</button>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentEvent, AgentMode, AssistantMessage, ChatThread, DiagramArtifact, DiagramMessageAttachment, DrawingMark,
-  ProjectSummary, UserMessage,
+  ProjectSummary, SketchCanvas, UserMessage,
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
 import {
@@ -14,13 +14,15 @@ import { EXECUTE_PLAN_INSTRUCTION } from '@/lib/shared/plan';
 import { compositePng } from '@/lib/client/compositeExport';
 import { createUuid } from '@/lib/client/uuid';
 import {
-  exportThread, getArtifacts, loadProjectThreads, loadSelectedProjectId, saveProjectThreads, saveSelectedProjectId,
+  canvasTargetId, exportThread, findCanvasTarget, getArtifacts, getSketches, loadProjectThreads,
+  loadSelectedProjectId, saveProjectThreads, saveSelectedProjectId,
 } from '@/lib/client/conversationStore';
 import { ProjectPicker } from './ProjectPicker';
 import { ThreadPicker } from './ThreadPicker';
 import { ConversationDrawer } from './ConversationDrawer';
 import { DiagramNavigator } from './DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from './CanvasWorkspace';
+import { EMPTY_CANVAS_SVG } from './DiagramCanvas';
 
 interface Health {
   ok: boolean;
@@ -31,6 +33,9 @@ interface Health {
   unsupportedModes?: AgentMode[];
   message?: string;
 }
+
+/** Sent when the user draws and hits send without typing anything. */
+const SKETCH_ONLY_INSTRUCTION = 'I drew the attached sketch. Read it as my instruction: say what you understand it to mean, then answer it against this repository.';
 
 function newLocalThread(server: { id: string; projectId: string; createdAt: string }, index: number): ChatThread {
   return {
@@ -96,12 +101,11 @@ export function AppShell() {
   // A mode the installed CLI cannot run falls back to Ask rather than failing at send time.
   const storedMode = thread?.defaultMode || 'ask';
   const mode: AgentMode = unsupportedModes.includes(storedMode) ? 'ask' : storedMode;
-  const attachedArtifacts = useMemo(() => {
+  const attachedCanvases = useMemo(() => {
     if (!thread) return [];
-    const artifacts = getArtifacts(thread);
     return pendingAttachmentIds.flatMap((id) => {
-      const artifact = artifacts.find((item) => item.id === id);
-      return artifact ? [artifact] : [];
+      const target = findCanvasTarget(thread, id);
+      return target ? [target] : [];
     });
   }, [thread, pendingAttachmentIds]);
 
@@ -207,6 +211,29 @@ export function AppShell() {
     mutateThread(threadId, (current) => ({ ...current, activeDiagramId: id }));
     setPendingAttachmentIds([id]);
   }, [mutateThread, threadId]);
+
+  /** A blank sheet the user can draw on before any diagram exists. */
+  const createSketch = useCallback(() => {
+    if (!threadId || running) return;
+    const sketch: SketchCanvas = {
+      id: createUuid(),
+      threadId,
+      ordinal: 0,
+      createdAt: new Date().toISOString(),
+      viewBox: [0, 0, 1_600, 1_000],
+    };
+    navigationRevision.current += 1;
+    mutateThread(threadId, (current) => {
+      const sketches = getSketches(current);
+      return {
+        ...current,
+        sketches: [...sketches, { ...sketch, ordinal: sketches.length + 1 }],
+        activeDiagramId: sketch.id,
+      };
+    });
+    setPendingAttachmentIds([sketch.id]);
+    snapshotRef.current = undefined;
+  }, [mutateThread, running, threadId]);
 
   const removeAttachment = (id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id));
   const toggleAttachment = (id: string) => setPendingAttachmentIds((current) => current.includes(id)
@@ -345,35 +372,47 @@ export function AppShell() {
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode }) => {
     if (!thread || running) return;
-    const text = (override?.text ?? composer).trim();
+    const selected = pendingAttachmentIds.flatMap((id) => {
+      const canvas = findCanvasTarget(thread, id);
+      return canvas ? [canvas] : [];
+    });
+    // A sketch is itself the instruction, so an empty composer still makes a valid turn.
+    const typed = (override?.text ?? composer).trim();
+    const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
     setNotice(undefined);
     setMissingSession(false);
     setContinueMode(undefined);
-    const artifacts = getArtifacts(thread);
-    const selected = pendingAttachmentIds.flatMap((id) => {
-      const artifact = artifacts.find((item) => item.id === id);
-      return artifact ? [artifact] : [];
-    });
     const attachmentPayload: DiagramMessageAttachment[] = [];
     let compositeWarning = false;
-    for (const artifact of selected) {
-      const marks = thread.annotations[artifact.id]?.marks || [];
-      const snapshot = artifact.id === thread.activeDiagramId ? snapshotRef.current : undefined;
+    for (const canvas of selected) {
+      const id = canvasTargetId(canvas);
+      const marks = thread.annotations[id]?.marks || [];
+      const snapshot = id === thread.activeDiagramId ? snapshotRef.current : undefined;
+      // A sketch has no rendered source, so its own sheet is the fallback frame for the marks.
+      const fallbackViewBox = canvas.kind === 'sketch' ? canvas.sketch.viewBox : [0, 0, 1, 1] as const;
+      const viewBox = snapshot?.viewBox || fallbackViewBox;
       let png: string | undefined;
-      if (snapshot) {
-        try { png = await compositePng(snapshot.svg, marks, snapshot.viewBox); } catch { compositeWarning = true; }
+      if (snapshot || canvas.kind === 'sketch') {
+        try {
+          png = await compositePng(snapshot?.svg || EMPTY_CANVAS_SVG, marks, viewBox as [number, number, number, number]);
+        } catch { compositeWarning = true; }
       }
       attachmentPayload.push({
-        diagramId: artifact.id,
-        source: artifact.source,
+        diagramId: id,
+        kind: canvas.kind,
+        source: canvas.kind === 'diagram' ? canvas.artifact.source : '',
         marks,
-        viewport: { viewBox: snapshot?.viewBox || [0, 0, 1, 1] },
+        viewport: { viewBox: viewBox as [number, number, number, number] },
         compositePngDataUrl: png,
       });
     }
-    if (compositeWarning) setNotice('Composite image export was unavailable; Mermaid source and vector marks are still attached.');
+    if (compositeWarning) {
+      setNotice(selected.every((canvas) => canvas.kind === 'sketch')
+        ? 'Composite image export was unavailable; the vector marks are still attached.'
+        : 'Composite image export was unavailable; Mermaid source and vector marks are still attached.');
+    }
 
     const userId = createUuid();
     const createdAt = new Date().toISOString();
@@ -385,6 +424,7 @@ export function AppShell() {
       status: 'sending',
       diagramAttachments: attachmentPayload.map((item) => ({
         diagramId: item.diagramId,
+        kind: item.kind,
         marksSnapshot: structuredClone(item.marks),
         viewport: item.viewport,
         compositeIncluded: Boolean(item.compositePngDataUrl),
@@ -395,7 +435,8 @@ export function AppShell() {
     const navigationAtSend = navigationRevision.current;
     mutateThread(thread.id, (current) => ({
       ...current,
-      title: current.messages.length === 0 ? text.slice(0, 56) : current.title,
+      // A sketch-only turn would otherwise title the thread with the whole synthesized instruction.
+      title: current.messages.length === 0 ? (typed ? typed.slice(0, 56) : 'Sketch conversation') : current.title,
       messages: [...current.messages, userMessage],
     }));
     if (!override) setComposer('');
@@ -558,6 +599,7 @@ export function AppShell() {
             onOpenChat={() => { setChatOpen(true); setHistoryOpen(false); setUnread(0); }}
             onOpenHistory={() => { setHistoryOpen(true); setChatOpen(false); }}
             onSelectDiagram={selectDiagram}
+            onNewSketch={createSketch}
             onMarksChange={handleMarksChange}
             onSnapshot={handleSnapshot}
             onArtifactError={handleArtifactError}
@@ -574,8 +616,8 @@ export function AppShell() {
             composer={composer}
             mode={mode}
             unsupportedModes={unsupportedModes}
-            attached={attachedArtifacts}
-            markCounts={Object.fromEntries(attachedArtifacts.map((artifact) => [artifact.id, thread.annotations[artifact.id]?.marks.length || 0]))}
+            attached={attachedCanvases}
+            markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), thread.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
             onClose={() => setChatOpen(false)}
             onSelectDiagram={(id) => selectDiagram(id)}
             onRetry={(text) => setComposer(text)}

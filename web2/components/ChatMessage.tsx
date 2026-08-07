@@ -2,13 +2,23 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatMessage as ChatMessageType } from '@/lib/shared/types';
+import type { ChatMessage as ChatMessageType, DiagramAttachmentRecord } from '@/lib/shared/types';
 import { AGENT_MODE_LABELS } from '@/lib/client/toolActivity';
 import { DiagramCard } from './DiagramCard';
 
 function safeHref(href?: string): string | undefined {
   if (!href) return undefined;
   return /^(https?:|mailto:|#)/i.test(href) ? href : undefined;
+}
+
+function attachmentSummary(records: DiagramAttachmentRecord[]): string {
+  const sketches = records.filter((record) => record.kind === 'sketch').length;
+  const diagrams = records.length - sketches;
+  const parts = [
+    diagrams && `${diagrams} diagram snapshot${diagrams === 1 ? '' : 's'}`,
+    sketches && `${sketches} sketch${sketches === 1 ? '' : 'es'}`,
+  ].filter(Boolean);
+  return `${parts.join(' and ')} attached`;
 }
 
 export function ChatMessage({ message, activeDiagramId, running, onSelectDiagram, onRetry, onExecutePlan }: {
@@ -27,7 +37,7 @@ export function ChatMessage({ message, activeDiagramId, running, onSelectDiagram
           <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
         </div>
         <p>{message.text}</p>
-        {message.diagramAttachments.length > 0 && <div className="message-attachments">{message.diagramAttachments.length} diagram snapshot{message.diagramAttachments.length === 1 ? '' : 's'} attached</div>}
+        {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
         {message.status !== 'sent' && (
           <div className="message-state">
             <span>{message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
