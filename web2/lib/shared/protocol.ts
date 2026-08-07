@@ -41,6 +41,8 @@ export const permissionDecisionRequestSchema = z.object({
   decision: z.enum(['allow', 'deny']),
 }).strict();
 
+export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
+
 export const createThreadRequestSchema = z.object({ projectId: z.string().min(1).max(128) }).strict();
 
 export function safeJsonResponse(data: unknown, init?: ResponseInit): Response {

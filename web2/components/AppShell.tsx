@@ -88,6 +88,8 @@ export function AppShell() {
   const hydratedProject = useRef<string | undefined>(undefined);
   const chatOpenRef = useRef(chatOpen);
   chatOpenRef.current = chatOpen;
+  const runningRef = useRef(running);
+  runningRef.current = running;
 
   const thread = useMemo(() => threads.find((item) => item.id === threadId), [threads, threadId]);
   const unsupportedModes = useMemo(() => health?.unsupportedModes || [], [health]);
@@ -258,6 +260,89 @@ export function AppShell() {
     }
   }, []);
 
+  /**
+   * Drives the UI from one run's event stream. Shared by sending a message and by reattaching to a
+   * run already in flight, so a reloaded page recovers the live turn instead of losing it.
+   */
+  const consumeStream = useCallback(async (response: Response, turn: {
+    threadId: string;
+    mode: AgentMode;
+    userMessageId?: string;
+    activeAtSend?: string;
+    navigationAtSend?: number;
+    attachmentIds?: string[];
+  }) => {
+    let receivedFinal = false;
+    let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
+    let userMessageId = turn.userMessageId;
+    for await (const event of readNdjson<AgentEvent>(response)) {
+      if (event.type === 'run-started') {
+        runIdRef.current = event.runId;
+        userMessageId ||= event.messageId;
+      }
+      if (event.type === 'status') setStatus(event.label);
+      if (event.type === 'tool-activity') {
+        const entry = { tool: event.tool, detail: event.detail, denied: event.denied };
+        setStatus(toolActivityLabel(entry));
+        setToolActivity((current) => [...current, { ...entry, key: current.length }].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
+      }
+      if (event.type === 'permission-request') {
+        const request: PendingPermission = { requestId: event.requestId, tool: event.tool, detail: event.detail };
+        setPermissions((current) => current.some((item) => item.requestId === request.requestId) ? current : [...current, request]);
+        setStatus(`Waiting for your approval — ${permissionLabel(request)}`);
+        if (!chatOpenRef.current) setUnread((value) => value + 1);
+      }
+      if (event.type === 'permission-resolved') {
+        setPermissions((current) => current.filter((item) => item.requestId !== event.requestId));
+        if (event.decision === 'timeout') setNotice('An approval request expired and was denied automatically.');
+      }
+      if (event.type === 'assistant-delta') setPreview((current) => current + event.delta);
+      if (event.type === 'error') {
+        streamError = event;
+        setNotice(event.message);
+        if (event.code === 'missing-session') setMissingSession(true);
+        if (event.code === 'max-turns') setContinueMode(turn.mode);
+        mutateThread(turn.threadId, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userMessageId && message.role === 'user'
+          ? { ...message, status: event.code === 'cancelled' ? 'cancelled' : 'failed', delivery: event.delivery }
+          : message) }));
+      }
+      if (event.type === 'assistant-message') {
+        receivedFinal = true;
+        const assistant = event.message as AssistantMessage;
+        const ready = assistant.blocks.flatMap((block) => block.kind === 'diagram' && block.artifact.status === 'ready' ? [block.artifact] : []);
+        mutateThread(turn.threadId, (current) => {
+          if (current.messages.some((message) => message.id === assistant.id)) return current;
+          let activeDiagramId = current.activeDiagramId;
+          let previousDiagramId = current.previousDiagramId;
+          if (!activeDiagramId && ready[0]) activeDiagramId = ready[0].id;
+          else if (
+            ready.length === 1
+            && turn.activeAtSend
+            && turn.attachmentIds?.includes(turn.activeAtSend)
+            && current.activeDiagramId === turn.activeAtSend
+            && navigationRevision.current === turn.navigationAtSend
+          ) {
+            previousDiagramId = turn.activeAtSend;
+            activeDiagramId = ready[0].id;
+          }
+          return {
+            ...current,
+            activeDiagramId,
+            previousDiagramId,
+            messages: [
+              ...current.messages.map((message) => message.id === userMessageId && message.role === 'user' ? { ...message, status: 'sent' as const } : message),
+              assistant,
+            ],
+          };
+        });
+        if (!chatOpenRef.current) setUnread((value) => value + 1);
+        if (ready.length > 1) setNotice(`${ready.length} diagram results are ready in history. The active canvas was preserved.`);
+        setPreview('');
+      }
+    }
+    return { receivedFinal, streamError, userMessageId };
+  }, [mutateThread]);
+
   const send = useCallback(async (override?: { text: string; mode: AgentMode }) => {
     if (!thread || running) return;
     const text = (override?.text ?? composer).trim();
@@ -321,7 +406,6 @@ export function AppShell() {
     setStatus(turnMode === 'agent' ? 'Starting agent' : 'Starting read-only agent');
     const controller = new AbortController();
     abortRef.current = controller;
-    let receivedFinal = false;
     let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
 
     try {
@@ -335,68 +419,16 @@ export function AppShell() {
         const data = await response.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error || `Agent request failed (${response.status}).`);
       }
-      for await (const event of readNdjson<AgentEvent>(response)) {
-        if (event.type === 'run-started') runIdRef.current = event.runId;
-        if (event.type === 'status') setStatus(event.label);
-        if (event.type === 'tool-activity') {
-          const entry = { tool: event.tool, detail: event.detail, denied: event.denied };
-          setStatus(toolActivityLabel(entry));
-          setToolActivity((current) => [...current, { ...entry, key: current.length }].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
-        }
-        if (event.type === 'permission-request') {
-          const request: PendingPermission = { requestId: event.requestId, tool: event.tool, detail: event.detail };
-          setPermissions((current) => [...current, request]);
-          setStatus(`Waiting for your approval — ${permissionLabel(request)}`);
-          if (!chatOpenRef.current) setUnread((value) => value + 1);
-        }
-        if (event.type === 'permission-resolved') {
-          setPermissions((current) => current.filter((item) => item.requestId !== event.requestId));
-          if (event.decision === 'timeout') setNotice('An approval request expired and was denied automatically.');
-        }
-        if (event.type === 'assistant-delta') setPreview((current) => current + event.delta);
-        if (event.type === 'error') {
-          streamError = event;
-          setNotice(event.message);
-          if (event.code === 'missing-session') setMissingSession(true);
-          if (event.code === 'max-turns') setContinueMode(turnMode);
-          mutateThread(thread.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
-            ? { ...message, status: event.code === 'cancelled' ? 'cancelled' : 'failed', delivery: event.delivery }
-            : message) }));
-        }
-        if (event.type === 'assistant-message') {
-          receivedFinal = true;
-          const assistant = event.message as AssistantMessage;
-          const ready = assistant.blocks.flatMap((block) => block.kind === 'diagram' && block.artifact.status === 'ready' ? [block.artifact] : []);
-          mutateThread(thread.id, (current) => {
-            let activeDiagramId = current.activeDiagramId;
-            let previousDiagramId = current.previousDiagramId;
-            if (!activeDiagramId && ready[0]) activeDiagramId = ready[0].id;
-            else if (
-              ready.length === 1
-              && activeAtSend
-              && pendingAttachmentIds.includes(activeAtSend)
-              && current.activeDiagramId === activeAtSend
-              && navigationRevision.current === navigationAtSend
-            ) {
-              previousDiagramId = activeAtSend;
-              activeDiagramId = ready[0].id;
-            }
-            return {
-              ...current,
-              activeDiagramId,
-              previousDiagramId,
-              messages: [
-                ...current.messages.map((message) => message.id === userId && message.role === 'user' ? { ...message, status: 'sent' as const } : message),
-                assistant,
-              ],
-            };
-          });
-          if (!chatOpenRef.current) setUnread((value) => value + 1);
-          if (ready.length > 1) setNotice(`${ready.length} diagram results are ready in history. The active canvas was preserved.`);
-          setPreview('');
-        }
-      }
-      if (!receivedFinal && !streamError) throw new Error('Agent stream ended without a final response.');
+      const outcome = await consumeStream(response, {
+        threadId: thread.id,
+        mode: turnMode,
+        userMessageId: userId,
+        activeAtSend,
+        navigationAtSend,
+        attachmentIds: pendingAttachmentIds,
+      });
+      streamError = outcome.streamError;
+      if (!outcome.receivedFinal && !streamError) throw new Error('Agent stream ended without a final response.');
     } catch (error) {
       const cancelled = controller.signal.aborted;
       if (!streamError) {
@@ -415,7 +447,59 @@ export function AppShell() {
       setDecidingPermission(undefined);
       setStatus('Ready for an instruction');
     }
-  }, [composer, mode, mutateThread, pendingAttachmentIds, running, thread]);
+  }, [composer, consumeStream, mode, mutateThread, pendingAttachmentIds, running, thread]);
+
+  /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
+  const cancelRun = useCallback(async () => {
+    const runId = runIdRef.current;
+    if (!runId) {
+      abortRef.current?.abort();
+      return;
+    }
+    try {
+      const response = await fetch('/api/agent/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }),
+      });
+      // The server answers with a cancelled error and `done`; falling back keeps the UI unstuck.
+      if (!response.ok) abortRef.current?.abort();
+    } catch {
+      abortRef.current?.abort();
+    }
+  }, []);
+
+  // Recover a turn that outlived the page: a reload, a crash, or a dev-server refresh mid-run.
+  useEffect(() => {
+    if (!threadId || runningRef.current) return;
+    const controller = new AbortController();
+    let owned = false;
+    void (async () => {
+      let response: Response;
+      try {
+        response = await fetch(`/api/agent/stream?threadId=${encodeURIComponent(threadId)}`, { signal: controller.signal });
+      } catch {
+        return;
+      }
+      if (!response.ok || controller.signal.aborted || runningRef.current) return;
+      owned = true;
+      setRunning(true);
+      setNotice('Reconnected to the turn that was still running.');
+      try {
+        await consumeStream(response, { threadId, mode: 'agent' });
+      } catch {
+        if (!controller.signal.aborted) setNotice('Lost the connection to the running turn.');
+      } finally {
+        if (!controller.signal.aborted) {
+          runIdRef.current = undefined;
+          setRunning(false);
+          setPreview('');
+          setToolActivity([]);
+          setPermissions([]);
+          setStatus('Ready for an instruction');
+        }
+      }
+    })();
+    return () => { controller.abort(); if (owned) setRunning(false); };
+  }, [consumeStream, threadId]);
 
   const executePlan = useCallback(() => {
     if (unsupportedModes.includes('agent')) {
@@ -498,7 +582,7 @@ export function AppShell() {
             onComposer={setComposer}
             onModeChange={setMode}
             onSend={() => void send()}
-            onCancel={() => abortRef.current?.abort()}
+            onCancel={() => void cancelRun()}
             onRemoveAttachment={removeAttachment}
             onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
             onExecutePlan={executePlan}

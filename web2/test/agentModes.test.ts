@@ -9,7 +9,7 @@ import { RunRegistry } from '@/lib/server/runRegistry';
 import { agentMessageRequestSchema, permissionDecisionRequestSchema } from '@/lib/shared/protocol';
 import { hasProposedPlan, PLAN_END_MARKER, PLAN_START_MARKER, stripPlanMarkers } from '@/lib/shared/plan';
 import { buildConversationPrompt } from '@/lib/conversation/prompt';
-import type { AgentMode } from '@/lib/shared/types';
+import type { AgentEvent, AgentMode } from '@/lib/shared/types';
 
 const config = getConfig();
 
@@ -194,14 +194,66 @@ describe('permission broker', () => {
     const runId = crypto.randomUUID();
     const broker = new PermissionBroker(5_000);
     expect(registry.decide(runId, 'req', 'allow')).toBe('unknown-run');
-    registry.acquire(runId, 'thread');
+    registry.start({ runId, threadId: 'thread', cancel: () => undefined });
     registry.attachPermissions(runId, broker);
     broker.request('req', () => undefined);
     expect(registry.decide(crypto.randomUUID(), 'req', 'allow')).toBe('unknown-run');
     expect(registry.decide(runId, 'other', 'allow')).toBe('unknown-request');
     expect(registry.decide(runId, 'req', 'allow')).toBe('accepted');
-    registry.release(runId);
+    registry.finish(runId);
     expect(registry.decide(runId, 'req', 'allow')).toBe('unknown-run');
+  });
+
+  it('runs one turn at a time and frees the slot when it finishes', () => {
+    const registry = new RunRegistry();
+    const first = crypto.randomUUID();
+    expect(registry.start({ runId: first, threadId: 't1', cancel: () => undefined })).toBe(true);
+    expect(registry.start({ runId: crypto.randomUUID(), threadId: 't2', cancel: () => undefined })).toBe(false);
+    registry.finish(first);
+    expect(registry.start({ runId: crypto.randomUUID(), threadId: 't2', cancel: () => undefined })).toBe(true);
+  });
+
+  it('keeps a run alive when its browser detaches, and replays what the next one missed', () => {
+    // A reload must not kill work the user already approved, so cancellation is explicit only.
+    const registry = new RunRegistry();
+    const runId = crypto.randomUUID();
+    let cancelled = false;
+    registry.start({ runId, threadId: 'thread', cancel: () => { cancelled = true; } });
+
+    const firstStream: AgentEvent[] = [];
+    registry.subscribe('thread', (event) => firstStream.push(event));
+    registry.record(runId, { type: 'status', runId, phase: 'thinking', label: 'Thinking…' });
+    registry.record(runId, { type: 'assistant-delta', runId, delta: 'partial ' });
+    registry.unsubscribe(runId);
+
+    // Work continues with nobody listening.
+    registry.record(runId, { type: 'permission-request', runId, requestId: 'r1', tool: 'Edit', detail: 'a.ts' });
+    registry.record(runId, { type: 'assistant-delta', runId, delta: 'answer' });
+    expect(cancelled).toBe(false);
+
+    const reattached = registry.subscribe('thread', () => undefined);
+    expect(reattached?.runId).toBe(runId);
+    expect(reattached?.finished).toBe(false);
+    expect(reattached?.replay).toEqual([
+      { type: 'status', runId, phase: 'thinking', label: 'Thinking…' },
+      { type: 'permission-request', runId, requestId: 'r1', tool: 'Edit', detail: 'a.ts' },
+      // Deltas are coalesced so a reattaching page rebuilds the whole preview in one event.
+      { type: 'assistant-delta', runId, delta: 'partial answer' },
+    ]);
+    expect(registry.cancel(runId)).toBe(true);
+    expect(cancelled).toBe(true);
+  });
+
+  it('stays reattachable after finishing so a reloaded page still collects the result', () => {
+    const registry = new RunRegistry();
+    const runId = crypto.randomUUID();
+    registry.start({ runId, threadId: 'thread', cancel: () => undefined });
+    registry.record(runId, { type: 'done', runId, durationMs: 10, cancelled: false });
+    registry.finish(runId);
+    const attachment = registry.subscribe('thread', () => undefined);
+    expect(attachment).toMatchObject({ runId, finished: true });
+    expect(attachment?.replay).toHaveLength(1);
+    expect(registry.cancel(runId)).toBe(false);
   });
 
   it('shares one registry across separately loaded route bundles', async () => {

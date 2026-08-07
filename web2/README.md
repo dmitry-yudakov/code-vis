@@ -72,6 +72,13 @@ Agent mode edits **the real working tree** of the selected project, exactly like
 Code. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
 deliberately out of scope for now.
 
+**A run outlives the page that started it.** Closing the tab, reloading, or a dev-server refresh
+only detaches the browser — the agent keeps working, and reopening the conversation reattaches to
+the live turn, replaying the activity, any pending approval, and the answer. This matters most
+right after you approve something: killing the run there would leave a half-applied change. Ending
+a turn early is therefore an explicit act — the **Cancel** button — which resolves pending
+approvals as denied and stops the child. A finished run stays reattachable for five minutes.
+
 Building spends turns on research long before the first edit, so Agent gets its own budget
 (`CODEAI_WEB2_BUILD_MAX_TURNS`, `CODEAI_WEB2_BUILD_TIMEOUT_MS`) rather than the conversation's. If a
 message still runs out, the turn ends with an explicit notice and a **Continue** action — the

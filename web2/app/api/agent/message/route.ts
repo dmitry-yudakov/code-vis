@@ -7,6 +7,7 @@ import { getThreadRegistry } from '@/lib/server/threadRegistry';
 import { runRegistry } from '@/lib/server/runRegistry';
 import { AgentRunError, ClaudeProcessRunner } from '@/lib/server/claudeProcessRunner';
 import { runConversation } from '@/lib/conversation/conversationService';
+import { agentEventStream } from '../eventStream';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,35 +39,27 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const runId = randomUUID();
-  if (!runRegistry.acquire(runId, thread.id)) {
+  const abortController = new AbortController();
+  if (!runRegistry.start({ runId, threadId: thread.id, cancel: () => abortController.abort() })) {
     return safeJsonResponse({ error: 'Another agent turn is already running.' }, { status: 409 });
   }
 
-  const encoder = new TextEncoder();
-  const abortController = new AbortController();
-  const requestAbort = () => abortController.abort();
-  request.signal.addEventListener('abort', requestAbort, { once: true });
-  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
-  let closed = false;
-  const emit = (event: AgentEvent) => {
-    if (closed) return;
-    try {
-      streamController?.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-    } catch {
-      abortController.abort();
-    }
-  };
+  // Every event goes through the registry so it is buffered for replay, then out to this stream.
+  const emit = (event: AgentEvent) => runRegistry.record(runId, event);
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      streamController = controller;
+  return agentEventStream({
+    runId,
+    // A closed browser tab must not kill work the user already approved: detach, never cancel.
+    onDetach: () => runRegistry.unsubscribe(runId),
+    start(write) {
+      runRegistry.subscribe(thread.id, write);
       const runner = new ClaudeProcessRunner({
         binary: config.claudeBin,
         model: config.claudeModel,
         maxOutputBytes: config.maxAssistantBytes,
         debug: config.debugAgent,
       });
-      void runConversation({
+      return runConversation({
         runId,
         request: parsed.data,
         project,
@@ -88,24 +81,7 @@ export async function POST(request: Request): Promise<Response> {
           delivery: known?.delivery || (thread.claudeSessionStarted ? 'possibly-sent' : 'not-sent'),
         });
         emit({ type: 'done', runId, durationMs: 0, cancelled: known?.code === 'cancelled' || abortController.signal.aborted });
-      }).finally(() => {
-        runRegistry.release(runId);
-        request.signal.removeEventListener('abort', requestAbort);
-        closed = true;
-        try { controller.close(); } catch { /* client disconnected */ }
-      });
-    },
-    cancel() {
-      closed = true;
-      abortController.abort();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'application/x-ndjson; charset=utf-8',
-      'Cache-Control': 'no-store, no-transform',
-      'X-Content-Type-Options': 'nosniff',
+      }).finally(() => runRegistry.finish(runId));
     },
   });
 }

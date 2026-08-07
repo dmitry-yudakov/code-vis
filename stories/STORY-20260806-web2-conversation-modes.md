@@ -79,7 +79,14 @@ Three bugs that unit tests could not have caught on their own; each now has a re
 4. **Building needs its own budget.** Agent mode inherited the read-only conversation's 20 turns
    and 5 minutes, and a real run spent all of it on research without reaching an edit. Agent now
    uses `CODEAI_WEB2_BUILD_MAX_TURNS` (200) and `CODEAI_WEB2_BUILD_TIMEOUT_MS` (30 min).
-5. **`result` frames carry deliberate stops.** `error_max_turns` arrives as a result subtype with
+5. **A run must not depend on the browser that started it.** The turn was tied to its HTTP
+   request, so any reload killed the child — measurably losing an edit the user had *already
+   approved* (`POST /api/agent/permission 200` → reload → `terminate (cancelled)` → file never
+   written). Story 18's read-only turns were short and side-effect-free, so this was invisible;
+   agent mode makes it destructive. Runs now live in `runRegistry`, a disconnect only detaches,
+   `GET /api/agent/stream?threadId=` reattaches and replays (including a pending approval card),
+   and cancelling is an explicit `POST /api/agent/cancel`.
+6. **`result` frames carry deliberate stops.** `error_max_turns` arrives as a result subtype with
    a zero exit, and the old handler flattened it to "exited before returning a complete response".
    It now has its own `max-turns` error code, a message naming the setting, and a **Continue**
    action in the notice banner — the session survives, so the agent resumes where it stopped.
