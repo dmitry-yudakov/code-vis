@@ -76,6 +76,7 @@ export async function POST(request: Request): Promise<Response> {
         threadRegistry: getThreadRegistry(config.dataDir),
         signal: abortController.signal,
         emit,
+        onPermissionBroker: (broker) => runRegistry.attachPermissions(runId, broker),
       }).catch((error: unknown) => {
         const known = error instanceof AgentRunError ? error : undefined;
         emit({

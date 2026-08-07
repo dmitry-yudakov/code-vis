@@ -42,7 +42,7 @@ imports the current `web/`/`server/` runtime.
 | # | Story | Theme | Status | Depends on |
 |---|---|---|---|---|
 | 18 | [web2-agent-mermaid-canvas](STORY-20260805-web2-agent-mermaid-canvas.md) | canvas-first read-only conversation | **In progress** — core shipped, experiment log open | — |
-| 19 | [web2-conversation-modes](STORY-20260806-web2-conversation-modes.md) | Ask/Plan/Agent modes, git read allowlist, interactive permissions, env allowlist | **Draft** (full spec) | 18 |
+| 19 | [web2-conversation-modes](STORY-20260806-web2-conversation-modes.md) | Ask/Plan/Agent modes, git read allowlist, interactive permissions, env passthrough | **In progress** — implemented, real-agent smoke pending | 18 |
 | 20 | [web2-multi-agent-roles](STORY-20260806-web2-multi-agent-roles.md) | participants, provider adapter (Codex), roles, shared artifacts, peer review | **Draft** (sequencing) | 19 |
 | 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, server transcripts, auth, billing shift, sandboxing | **Draft** (sequencing) | 20 |
 

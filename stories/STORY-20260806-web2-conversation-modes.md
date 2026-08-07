@@ -1,6 +1,7 @@
 # Story 19 — Operational conversation modes: Ask, Plan, and a building Agent
 
-**Status:** Draft · **Type:** Full-stack · **Depends on:** [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) ·
+**Status:** In progress — implemented, awaiting the real-agent smoke run · **Type:** Full-stack ·
+**Depends on:** [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) ·
 **Epic:** [web2 operational collaboration](EPIC-20260806-web2-operational-collaboration.md)
 
 ---
@@ -25,21 +26,56 @@ Two gaps today:
 
 ---
 
-## Current behavior (where the code is)
+## Where the code is (as shipped)
 
-- Single frozen policy: [web2/lib/server/agentPolicy.ts](../web2/lib/server/agentPolicy.ts#L4)
-  (~line 4) — `conversation-readonly`, tools `Read,Glob,Grep`, permission mode `plan`.
-- CLI argument builder: [web2/lib/server/claudeInvocation.ts](../web2/lib/server/claudeInvocation.ts#L9)
-  (~line 9) — one-way `-p` invocation, prompt on stdin, no `--allowedTools`, no
-  `--input-format`.
-- Policy type: [web2/lib/shared/types.ts](../web2/lib/shared/types.ts#L178) (~line 178) —
-  literal single-profile `ResolvedAgentPolicy`.
-- Request type: [web2/lib/shared/types.ts](../web2/lib/shared/types.ts#L170) (~line 170) —
-  `AgentMessageRequest` has no mode field.
-- Flag preflight: [web2/lib/server/claudePreflight.ts](../web2/lib/server/claudePreflight.ts#L26)
-  (~line 26) — checks one global `REQUIRED_CLAUDE_FLAGS` list.
+Before this story: a single frozen `conversation-readonly` policy, a one-way `-p` invocation with
+the prompt on stdin, no `--allowedTools`, no mode on the request, and one global
+`REQUIRED_CLAUDE_FLAGS` list. Now:
+
+- Mode → policy: [web2/lib/server/agentPolicy.ts](../web2/lib/server/agentPolicy.ts#L10) —
+  `GIT_READ_ALLOWLIST` plus the three profiles.
+- CLI arguments and per-mode flags: [web2/lib/server/claudeInvocation.ts](../web2/lib/server/claudeInvocation.ts#L3).
+- Control protocol, paused timeout clock, denial activity:
+  [web2/lib/server/claudeProcessRunner.ts](../web2/lib/server/claudeProcessRunner.ts#L186).
+- Pending approvals: [web2/lib/server/permissionBroker.ts](../web2/lib/server/permissionBroker.ts#L13),
+  routed by [runRegistry](../web2/lib/server/runRegistry.ts#L16) and answered at
+  [POST /api/agent/permission](../web2/app/api/agent/permission/route.ts#L8).
+- Mode contracts and plan markers: [web2/lib/conversation/prompt.ts](../web2/lib/conversation/prompt.ts#L12)
+  and [web2/lib/shared/plan.ts](../web2/lib/shared/plan.ts#L2).
+- Per-mode preflight: [web2/lib/server/claudePreflight.ts](../web2/lib/server/claudePreflight.ts#L13).
+- UI: [InstructionComposer](../web2/components/InstructionComposer.tsx#L60) (mode selector),
+  [PermissionCard](../web2/components/PermissionCard.tsx#L5),
+  [ChatMessage](../web2/components/ChatMessage.tsx#L72) (Execute plan),
+  [CanvasWorkspace](../web2/components/CanvasWorkspace.tsx#L112) (pending badge).
 - Git snapshots: [web2/lib/server/repositoryContext.ts](../web2/lib/server/repositoryContext.ts#L1)
-  — fixed read-only git invocations; stays, but no longer the only history access.
+  — unchanged; still the bounded default context, no longer the only history access.
+
+Three decisions the spec did not pin down:
+
+1. **`--permission-prompt-tool stdio` is required** alongside `--input-format stream-json`; it is
+   what makes the CLI route `ask` decisions into `can_use_tool` control requests. The flag is
+   hidden from `claude --help`, so preflight deliberately does not probe for it (probing would
+   misreport a healthy install as outdated).
+2. **Plan delimiters are HTML comments** (`<!-- cartograph:plan:start -->` / `…:end`), stripped
+   before the message is stored so readers see the plan, not the scaffolding.
+3. **Request ids shown to the browser are server-generated UUIDs** mapped to the CLI's own
+   `request_id`; the CLI's ids never leave the server.
+
+### Traps found while verifying in a real browser
+
+Three bugs that unit tests could not have caught on their own; each now has a regression test.
+
+1. **Never probe a flag `claude --help` hides.** 2.1.222 documents neither `--max-turns` (which
+   Story 18 already probed) nor `--permission-prompt-tool`, though it supports both. Preflight
+   therefore declared every mode unsupported and the UI offered only Ask. `UNPROBED_CLAUDE_FLAGS`
+   now records the exemptions, and a test asserts every flag `buildClaudeArgs` emits is either
+   probed or deliberately exempt. The fake CLI's `--help` mirrors the real one, omissions included.
+2. **Route handlers do not share module singletons.** Next.js compiles each route into its own
+   bundle, so `/api/agent/message` and `/api/agent/permission` held different `runRegistry`
+   instances and every approval answered 404. The registry now hangs off `globalThis`.
+3. **A grid track sized `auto` grows to max-content.** The drawer's implicit column let the wider
+   composer row push the send button outside the panel. `grid-template-columns: minmax(0, 1fr)`
+   clamps it, which also protects the panel from long paths and code spans.
 
 ---
 
@@ -179,33 +215,40 @@ per-mode additions, and preflight verifies the union of flags every shipped mode
 
 ## Acceptance criteria
 
-- [ ] The browser can send only a `mode` enum; tools, flags, allowlists, permission modes,
+- [x] The browser can send only a `mode` enum; tools, flags, allowlists, permission modes,
   environment, and executable path remain server-owned. Invalid modes are rejected with 400.
-- [ ] Ask remains byte-for-byte as safe as Story 18 for non-Bash tools; its only new
+  *(`agentMessageRequestSchema` is `.strict()` with `mode: z.enum([...])`; covered in
+  `test/agentModes.test.ts`, which also asserts `tools`/`allowedTools`/`permissionMode` in the
+  body are rejected.)*
+- [x] Ask remains byte-for-byte as safe as Story 18 for non-Bash tools; its only new
   capability is the fixed git/gh read allowlist.
-- [ ] "Show the last 4 commits" succeeds in Ask mode via allowlisted `git log`/`git show`
+- [x] "Show the last 4 commits" succeeds in Ask mode via allowlisted `git log`/`git show`
   without full Bash; a non-allowlisted command (e.g. `rm`, `git push`) is auto-denied and the
-  turn still completes.
-- [ ] Plan mode produces a delimited plan message; **Execute plan** starts an agent-mode turn
+  turn still completes. *(The auto-deny half is covered offline — `system/permission_denied`
+  surfaces as a visible denial and the turn completes. The success half needs the real-agent
+  smoke run below.)*
+- [x] Plan mode produces a delimited plan message; **Execute plan** starts an agent-mode turn
   that resumes the same session (verified via fake CLI: second invocation uses `--resume` with
   the same UUID and agent-mode flags).
-- [ ] Agent mode spawns with no `--tools` restriction, `--permission-mode default`, and
+- [x] Agent mode spawns with no `--tools` restriction, `--permission-mode default`, and
   `--input-format stream-json`; an Edit produces a permission card; Allow lets the run proceed
   and Deny lets it continue without the edit.
-- [ ] Pending permission pauses the run-timeout clock; approval timeout auto-denies; cancel
+- [x] Pending permission pauses the run-timeout clock; approval timeout auto-denies; cancel
   resolves pending requests as denied and terminates the child cleanly.
-- [ ] The spawned child inherits the parent environment unchanged; web2 sets no provider
+- [x] The spawned child inherits the parent environment unchanged; web2 sets no provider
   credential or endpoint variables of its own, so subscription logins and
   `ANTHROPIC_BASE_URL`-style setups (z.ai, Kimi, …) behave exactly as in the terminal.
-- [ ] Preflight verifies per-mode flag support and reports an actionable error for an outdated
-  CLI.
-- [ ] Fake-CLI tests cover: allowlist deny, control-protocol permission round-trip (allow,
+- [x] Preflight verifies per-mode flag support and reports an actionable error for an outdated
+  CLI. *(Unsupported modes are also disabled in the composer, and a stored unsupported mode
+  falls back to Ask.)*
+- [x] Fake-CLI tests cover: allowlist deny, control-protocol permission round-trip (allow,
   deny, timeout, cancel), and plan→agent resume — no network, model, or authentication.
-- [ ] README documents the three modes, the git allowlist and its `--output`-style caveat,
+- [x] README documents the three modes, the git allowlist and its `--output`-style caveat,
   that billing follows the user's own Claude Code login/environment, and that agent mode
   edits the real working tree.
-- [ ] `cd web2 && yarn test`, `yarn lint`, `yarn build` pass; existing Story 18 acceptance
-  behavior is unbroken for Ask-mode-only usage.
+- [x] `cd web2 && yarn test`, `yarn lint`, `yarn build` pass; existing Story 18 acceptance
+  behavior is unbroken for Ask-mode-only usage. *(70 tests green.)*
+- [ ] The real-agent smoke run below is recorded in `web2/docs/experiment-log.md`.
 
 ## Out of scope
 
@@ -222,7 +265,12 @@ per-mode additions, and preflight verifies the union of flags every shipped mode
 ## How to verify
 
 Automated: `cd web2 && yarn test && yarn lint && yarn build` (fake CLI covers the new
-control-protocol and env cases).
+control-protocol and env cases). **Passing:** 72 tests, clean typecheck, clean build.
+
+Browser pass (done, with the fake CLI wired in via `CODEAI_WEB2_CLAUDE_BIN`): an Agent turn raises
+a permission card, the status line and the floating canvas badge both announce it, **Allow** lets
+the edit through, **Deny** lets the same session continue, and no panel overflows at 1440px or
+420px. Worth repeating after any composer or drawer change.
 
 Real smoke, in a disposable project:
 

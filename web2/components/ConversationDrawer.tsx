@@ -1,35 +1,46 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { ChatThread, DiagramArtifact } from '@/lib/shared/types';
-import { toolActivityLabel, type ToolActivityEntry } from '@/lib/client/toolActivity';
+import type { AgentMode, ChatThread, DiagramArtifact } from '@/lib/shared/types';
+import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/lib/client/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer } from './InstructionComposer';
+import { PermissionCard } from './PermissionCard';
 
 export function ConversationDrawer({
-  open, thread, preview, toolActivity, running, status, composer, attached, markCounts,
-  onClose, onSelectDiagram, onRetry, onComposer, onSend, onCancel, onRemoveAttachment,
+  open, thread, preview, toolActivity, permissions, decidingPermission, running, status, composer, mode, unsupportedModes, attached, markCounts,
+  onClose, onSelectDiagram, onRetry, onComposer, onModeChange, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
 }: {
   open: boolean;
   thread?: ChatThread;
   preview: string;
   toolActivity: ToolActivityEntry[];
+  permissions: PendingPermission[];
+  decidingPermission?: string;
   running: boolean;
   status: string;
   composer: string;
+  mode: AgentMode;
+  unsupportedModes: AgentMode[];
   attached: DiagramArtifact[];
   markCounts: Record<string, number>;
   onClose(): void;
   onSelectDiagram(id: string): void;
   onRetry(text: string): void;
   onComposer(value: string): void;
+  onModeChange(mode: AgentMode): void;
   onSend(): void;
   onCancel(): void;
   onRemoveAttachment(id: string): void;
+  onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
+  onExecutePlan(): void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'end' }); }, [open, preview, toolActivity.length, thread?.messages.length]);
+  useEffect(() => {
+    if (open) endRef.current?.scrollIntoView({ block: 'end' });
+  }, [open, preview, toolActivity.length, permissions.length, thread?.messages.length]);
   if (!open) return null;
+  const lastMessage = thread?.messages[thread.messages.length - 1];
   return (
     <aside className="conversation-drawer" aria-label="Conversation">
       <header>
@@ -42,16 +53,18 @@ export function ConversationDrawer({
             key={message.id}
             message={message}
             activeDiagramId={thread.activeDiagramId}
+            running={running}
             onSelectDiagram={onSelectDiagram}
             onRetry={onRetry}
+            onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined}
           />
         ))}
         {running && toolActivity.length > 0 && (
           <div className="tool-timeline" aria-label="Agent tool activity">
-            <span className="tool-timeline-title">Exploring the repository</span>
+            <span className="tool-timeline-title">Working in the repository</span>
             <ol>
               {toolActivity.map((entry, index) => (
-                <li key={entry.key} className={index === toolActivity.length - 1 ? 'current' : ''}>
+                <li key={entry.key} className={`${index === toolActivity.length - 1 ? 'current' : ''} ${entry.denied ? 'denied' : ''}`.trim()}>
                   <span className="tool-timeline-dot" />
                   <span>{toolActivityLabel(entry)}</span>
                 </li>
@@ -59,6 +72,14 @@ export function ConversationDrawer({
             </ol>
           </div>
         )}
+        {permissions.map((request) => (
+          <PermissionCard
+            key={request.requestId}
+            request={request}
+            busy={decidingPermission === request.requestId}
+            onDecide={onDecidePermission}
+          />
+        ))}
         {preview && (
           <article className="chat-message assistant streaming">
             <div className="message-meta"><span>Cartograph</span><span>streaming</span></div>
@@ -77,7 +98,10 @@ export function ConversationDrawer({
           attached={attached}
           activeDiagramId={thread?.activeDiagramId}
           markCounts={markCounts}
+          mode={mode}
+          unsupportedModes={unsupportedModes}
           onChange={onComposer}
+          onModeChange={onModeChange}
           onSend={onSend}
           onCancel={onCancel}
           onRemoveAttachment={onRemoveAttachment}

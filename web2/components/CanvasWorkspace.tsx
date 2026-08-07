@@ -15,6 +15,7 @@ export function CanvasWorkspace({
   running,
   status,
   unread,
+  pendingApprovals,
   markCount,
   onComposer,
   onOpenChat,
@@ -28,6 +29,7 @@ export function CanvasWorkspace({
   running: boolean;
   status: string;
   unread: number;
+  pendingApprovals: number;
   markCount: number;
   onComposer(value: string): void;
   onOpenChat(): void;
@@ -66,7 +68,11 @@ export function CanvasWorkspace({
             <button type="button" onClick={() => onSelectDiagram(thread.previousDiagramId!)}>← Previous version</button>
           )}
           <button type="button" onClick={onOpenHistory}>History <span className="button-count">{artifacts.length}</span></button>
-          <button type="button" onClick={onOpenChat}>Chat {unread > 0 && <span className="unread-badge">{unread}</span>}</button>
+          <button type="button" onClick={onOpenChat}>
+            Chat
+            {pendingApprovals > 0 && <span className="approval-badge">{pendingApprovals}</span>}
+            {unread > 0 && <span className="unread-badge">{unread}</span>}
+          </button>
           <button type="button" onClick={() => setFocusMode((value) => !value)}>{focusMode ? 'Exit focus' : 'Focus'}</button>
         </div>
       </div>
@@ -103,13 +109,20 @@ export function CanvasWorkspace({
 
       <button
         type="button"
-        className={`canvas-ask ${running ? 'working' : ''}`}
-        aria-label={running ? `Agent working: ${status}. Open conversation` : 'Open conversation'}
+        className={`canvas-ask ${running ? 'working' : ''} ${pendingApprovals > 0 ? 'awaiting-approval' : ''}`}
+        aria-label={pendingApprovals > 0
+          ? `${pendingApprovals} action${pendingApprovals === 1 ? '' : 's'} waiting for your approval. Open conversation`
+          : running ? `Agent working: ${status}. Open conversation` : 'Open conversation'}
         onClick={onOpenChat}
       >
         <span className="canvas-ask-dot" aria-hidden="true" />
-        <span className="canvas-ask-label">{running ? status || 'Working…' : 'Ask Claude…'}</span>
+        <span className="canvas-ask-label">
+          {pendingApprovals > 0
+            ? `${pendingApprovals} approval${pendingApprovals === 1 ? '' : 's'} pending`
+            : running ? status || 'Working…' : 'Ask Claude…'}
+        </span>
         {!running && active && <span className="canvas-ask-chip">diagram attached · {markCount} marks</span>}
+        {pendingApprovals > 0 && <span className="approval-badge">{pendingApprovals}</span>}
         {unread > 0 && <span className="unread-badge">{unread}</span>}
       </button>
     </main>

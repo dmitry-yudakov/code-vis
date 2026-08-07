@@ -83,6 +83,8 @@ export type AssistantBlock =
   | { kind: 'code'; language?: string; source: string; warning?: string }
   | { kind: 'diagram'; artifact: DiagramArtifact };
 
+export type AgentMode = 'ask' | 'plan' | 'agent';
+
 export interface UserMessage {
   id: string;
   role: 'user';
@@ -91,6 +93,7 @@ export interface UserMessage {
   status: 'sending' | 'sent' | 'cancelled' | 'failed';
   delivery?: 'not-sent' | 'possibly-sent';
   diagramAttachments: DiagramAttachmentRecord[];
+  mode?: AgentMode;
 }
 
 export interface AssistantMessage {
@@ -101,6 +104,8 @@ export interface AssistantMessage {
   rawMarkdown: string;
   blocks: AssistantBlock[];
   metrics?: { durationMs: number; outputBytes: number };
+  mode?: AgentMode;
+  planProposed?: boolean;
 }
 
 export type ChatMessage = UserMessage | AssistantMessage;
@@ -124,6 +129,8 @@ export interface ChatThread {
   previousDiagramId?: string;
   pinnedDiagramIds: string[];
   annotations: Record<string, DiagramAnnotation>;
+  /** Mode pre-selected for the next message. Threads themselves stay mode-agnostic. */
+  defaultMode?: AgentMode;
 }
 
 export type AgentPhase =
@@ -151,12 +158,17 @@ export type AgentErrorCode =
   | 'absent-result'
   | 'internal';
 
+/** How a pending permission request ended. Only `allow` lets the tool call proceed. */
+export type PermissionResolution = 'allow' | 'deny' | 'timeout' | 'cancelled';
+
 export type AgentEvent =
   | { type: 'run-started'; runId: string; threadId: string; messageId: string }
   | { type: 'status'; runId: string; phase: AgentPhase; label: string }
-  | { type: 'tool-activity'; runId: string; tool: string; detail?: string }
+  | { type: 'tool-activity'; runId: string; tool: string; detail?: string; denied?: boolean }
   | { type: 'assistant-delta'; runId: string; delta: string }
   | { type: 'assistant-message'; runId: string; message: AssistantMessage }
+  | { type: 'permission-request'; runId: string; requestId: string; tool: string; detail: string }
+  | { type: 'permission-resolved'; runId: string; requestId: string; decision: PermissionResolution }
   | {
       type: 'error';
       runId: string;
@@ -173,25 +185,51 @@ export interface AgentMessageRequest {
   messageId: string;
   text: string;
   diagramAttachments: DiagramMessageAttachment[];
+  /** Omitted means `ask`; anything outside the enum is rejected with 400. */
+  mode?: AgentMode;
+}
+
+export interface PermissionDecisionRequest {
+  runId: string;
+  requestId: string;
+  decision: 'allow' | 'deny';
 }
 
 export interface ResolvedAgentPolicy {
-  profile: 'conversation-readonly';
-  tools: readonly ['Read', 'Glob', 'Grep'];
-  permissionMode: 'plan';
+  profile: 'ask-readonly' | 'plan-readonly' | 'agent-full';
+  mode: AgentMode;
+  /** Undefined means the CLI default toolset (agent mode). */
+  tools?: readonly string[];
+  /** Server-owned permission rules, e.g. `Bash(git log:*)`. Never browser-configurable. */
+  allowedTools: readonly string[];
+  permissionMode: 'plan' | 'default';
+  interactivePermissions: boolean;
   safeMode: true;
   sessionPersistence: true;
   maxTurns: number;
   timeoutMs: number;
+  approvalTimeoutMs?: number;
+}
+
+/**
+ * Answers the CLI's `can_use_tool` control requests. `settle` is invoked exactly once per
+ * request and synchronously enough that cancellation can flush denials before SIGTERM.
+ */
+export interface PermissionGate {
+  request(requestId: string, settle: (resolution: PermissionResolution) => void): void;
+  cancelAll(): void;
 }
 
 export interface AgentProcessEvent {
-  type: 'session-started' | 'text-delta' | 'activity' | 'phase';
+  type: 'session-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved';
   sessionId?: string;
   text?: string;
   tool?: string;
   detail?: string;
+  denied?: boolean;
   phase?: 'thinking' | 'responding';
+  requestId?: string;
+  decision?: PermissionResolution;
 }
 
 export interface AgentProcessRun {
@@ -201,6 +239,7 @@ export interface AgentProcessRun {
   prompt: string;
   attachmentDirectory: string;
   policy: ResolvedAgentPolicy;
+  permissions?: PermissionGate;
   signal: AbortSignal;
   emit(event: AgentProcessEvent): void;
 }

@@ -5,8 +5,10 @@ import type {
 import type { Web2Config } from '@/lib/server/config';
 import type { ThreadRegistry } from '@/lib/server/threadRegistry';
 import { resolveAgentPolicy } from '@/lib/server/agentPolicy';
+import { PermissionBroker } from '@/lib/server/permissionBroker';
 import { createRunDirectory, removeRunDirectory, writeDiagramAttachments } from '@/lib/server/tempAttachments';
 import { writeRepositoryContext } from '@/lib/server/repositoryContext';
+import { hasProposedPlan, stripPlanMarkers } from '@/lib/shared/plan';
 import { buildConversationPrompt } from './prompt';
 import { parseAssistantResponse } from './responseParser';
 
@@ -20,14 +22,22 @@ export async function runConversation(input: {
   threadRegistry: ThreadRegistry;
   signal: AbortSignal;
   emit(event: AgentEvent): void;
+  onPermissionBroker?(broker: PermissionBroker): void;
 }): Promise<void> {
   const { runId, request, project, thread, config, runner, threadRegistry, signal, emit } = input;
   const startedAt = Date.now();
+  const mode = request.mode || 'ask';
   let directory: string | undefined;
   let sessionMark = Promise.resolve();
   let sessionMarkError: unknown;
   emit({ type: 'run-started', runId, threadId: thread.id, messageId: request.messageId });
   emit({ type: 'status', runId, phase: thread.claudeSessionStarted ? 'resuming' : 'starting', label: thread.claudeSessionStarted ? 'Resuming conversation' : 'Starting conversation' });
+
+  const policy = resolveAgentPolicy(config, mode);
+  const permissions = policy.interactivePermissions
+    ? new PermissionBroker(policy.approvalTimeoutMs ?? config.approvalTimeoutMs)
+    : undefined;
+  if (permissions) input.onPermissionBroker?.(permissions);
 
   try {
     directory = await createRunDirectory();
@@ -42,8 +52,8 @@ export async function runConversation(input: {
       userText: request.text,
       attachmentDirectory: directory,
       attachedDiagramNames: manifest.map((item, index) => `Diagram ${index + 1} (${item.diagramId})`),
+      mode,
     });
-    const policy = resolveAgentPolicy(config);
     const result = await runner.run({
       runId,
       project,
@@ -51,6 +61,7 @@ export async function runConversation(input: {
       prompt,
       attachmentDirectory: directory,
       policy,
+      permissions,
       signal,
       emit(event) {
         if (event.type === 'session-started' && event.sessionId) {
@@ -60,7 +71,11 @@ export async function runConversation(input: {
         } else if (event.type === 'text-delta' && event.text) {
           emit({ type: 'assistant-delta', runId, delta: event.text });
         } else if (event.type === 'activity') {
-          emit({ type: 'tool-activity', runId, tool: event.tool || 'tool', detail: event.detail });
+          emit({ type: 'tool-activity', runId, tool: event.tool || 'tool', detail: event.detail, denied: event.denied });
+        } else if (event.type === 'permission-request' && event.requestId) {
+          emit({ type: 'permission-request', runId, requestId: event.requestId, tool: event.tool || 'tool', detail: event.detail || '' });
+        } else if (event.type === 'permission-resolved' && event.requestId && event.decision) {
+          emit({ type: 'permission-resolved', runId, requestId: event.requestId, decision: event.decision });
         } else if (event.type === 'phase' && event.phase) {
           emit({
             type: 'status',
@@ -75,7 +90,9 @@ export async function runConversation(input: {
     if (sessionMarkError) throw sessionMarkError;
     emit({ type: 'status', runId, phase: 'validating-artifacts', label: 'Validating response artifacts' });
     const assistantId = randomUUID();
-    const blocks = await parseAssistantResponse(result.finalText, {
+    const planProposed = mode === 'plan' && hasProposedPlan(result.finalText);
+    const markdown = stripPlanMarkers(result.finalText);
+    const blocks = await parseAssistantResponse(markdown, {
       threadId: thread.id,
       messageId: assistantId,
       projectRoot: project.realPath,
@@ -88,14 +105,17 @@ export async function runConversation(input: {
       role: 'assistant',
       createdAt: new Date().toISOString(),
       status: 'complete',
-      rawMarkdown: result.finalText,
+      rawMarkdown: markdown,
       blocks,
       metrics: { durationMs: result.durationMs, outputBytes: result.outputBytes },
+      mode,
+      planProposed: planProposed || undefined,
     };
     emit({ type: 'assistant-message', runId, message });
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
   } finally {
+    permissions?.cancelAll();
     if (directory) await removeRunDirectory(directory).catch(() => undefined);
   }
 }

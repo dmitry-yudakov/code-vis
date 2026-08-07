@@ -34,6 +34,7 @@ export async function GET(): Promise<Response> {
     dataDirectoryReady,
     claudeBinaryReady: claude.binaryReady,
     claudeFlagsReady: claude.flagsReady,
+    unsupportedModes: claude.unsupportedModes,
     message: readinessMessage || claude.message,
   });
 }

@@ -3,6 +3,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage as ChatMessageType } from '@/lib/shared/types';
+import { AGENT_MODE_LABELS } from '@/lib/client/toolActivity';
 import { DiagramCard } from './DiagramCard';
 
 function safeHref(href?: string): string | undefined {
@@ -10,16 +11,21 @@ function safeHref(href?: string): string | undefined {
   return /^(https?:|mailto:|#)/i.test(href) ? href : undefined;
 }
 
-export function ChatMessage({ message, activeDiagramId, onSelectDiagram, onRetry }: {
+export function ChatMessage({ message, activeDiagramId, running, onSelectDiagram, onRetry, onExecutePlan }: {
   message: ChatMessageType;
   activeDiagramId?: string;
+  running?: boolean;
   onSelectDiagram(id: string): void;
   onRetry?(text: string): void;
+  onExecutePlan?(): void;
 }) {
   if (message.role === 'user') {
     return (
       <article className={`chat-message user ${message.status}`}>
-        <div className="message-meta"><span>You</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+        <div className="message-meta">
+          <span>You{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+          <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+        </div>
         <p>{message.text}</p>
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{message.diagramAttachments.length} diagram snapshot{message.diagramAttachments.length === 1 ? '' : 's'} attached</div>}
         {message.status !== 'sent' && (
@@ -34,7 +40,10 @@ export function ChatMessage({ message, activeDiagramId, onSelectDiagram, onRetry
 
   return (
     <article className={`chat-message assistant ${message.status}`}>
-      <div className="message-meta"><span>Cartograph</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+      <div className="message-meta">
+        <span>Cartograph{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+        <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+      </div>
       <div className="assistant-blocks">
         {message.blocks.map((block, index) => {
           if (block.kind === 'diagram') return (
@@ -65,6 +74,12 @@ export function ChatMessage({ message, activeDiagramId, onSelectDiagram, onRetry
           );
         })}
       </div>
+      {message.planProposed && onExecutePlan && (
+        <div className="plan-approval">
+          <span>Nothing runs until you approve. Executing resumes this same session in Agent mode.</span>
+          <button type="button" disabled={running} onClick={onExecutePlan}>Execute plan</button>
+        </div>
+      )}
     </article>
   );
 }

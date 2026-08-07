@@ -103,8 +103,16 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .attachment-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
 .attachment-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border: 1px solid #c7d3ae; border-radius: 999px; color: #56613f; background: var(--sage-soft); font-size: 10px; font-weight: 600; }
 .attachment-chip button { width: 17px; height: 17px; border: 0; border-radius: 50%; color: #56613f; background: rgba(115,128,91,.15); line-height: 1; }
-.composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-left: 4px; }
-.composer-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 9px/1.2 var(--mono); }
+.composer-actions { display: flex; align-items: center; gap: 10px; padding-left: 4px; }
+.composer-hint { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 9px/1.2 var(--mono); }
+.mode-selector { flex: none; display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 999px; background: #f1e6d4; }
+.mode-selector button { padding: 4px 10px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+.mode-selector button:hover:not(:disabled) { color: var(--ink); }
+.mode-selector button.active { color: #fff8ec; background: var(--rust); }
+.mode-selector.mode-plan button.active { background: var(--sage); }
+.mode-selector.mode-agent button.active { background: #8c491a; }
+.mode-tag { margin-left: 7px; padding: 2px 6px; border-radius: 999px; color: #fff8ec; background: var(--sage); font: 600 8px/1.3 var(--mono); font-style: normal; letter-spacing: .06em; }
+.mode-tag.mode-agent { background: #8c491a; }
 .send-button, .cancel-button { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 50%; color: #fff8ec; background: var(--rust); font-size: 13px; line-height: 1; }
 .send-button:hover:not(:disabled) { background: #8f4318; }
 .send-button:disabled { opacity: .35; }
@@ -142,7 +150,9 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .diagram-error-state pre { width: min(720px, 75vw); max-height: 40vh; overflow: auto; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font: 11px/1.5 var(--mono); white-space: pre-wrap; }
 .diagram-error-state button { justify-self: start; border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; background: var(--card); }
 
-.conversation-drawer, .diagram-navigator { position: fixed; z-index: 60; top: 74px; bottom: 10px; right: 10px; width: min(460px, calc(100vw - 20px)); display: grid; grid-template-rows: 64px minmax(0,1fr); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--paper); box-shadow: 0 22px 70px rgba(50,37,22,.22); animation: drawer-in .2s ease-out; }
+/* The explicit minmax(0, 1fr) column matters: an auto column sizes to max-content, so one wide
+   row (composer, long path, code span) would silently push the rest of the panel out of view. */
+.conversation-drawer, .diagram-navigator { position: fixed; z-index: 60; top: 74px; bottom: 10px; right: 10px; width: min(460px, calc(100vw - 20px)); display: grid; grid-template-rows: 64px minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--paper); box-shadow: 0 22px 70px rgba(50,37,22,.22); animation: drawer-in .2s ease-out; }
 .conversation-drawer { grid-template-rows: 64px minmax(0,1fr) auto; }
 .drawer-composer { display: grid; gap: 5px; padding: 8px 10px 10px; border-top: 1px solid var(--line); background: var(--paper-deep); }
 .conversation-drawer > header, .diagram-navigator > header { display: flex; align-items: center; justify-content: space-between; padding: 0 15px 0 18px; border-bottom: 1px solid var(--line); background: var(--paper-deep); }
@@ -163,6 +173,12 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .assistant-blocks { overflow-wrap: anywhere; font-size: 13px; line-height: 1.58; }
 .assistant-blocks > :first-child { margin-top: 0; }
 .assistant-blocks > :last-child { margin-bottom: 0; }
+/* Plan answers are heading-heavy; browser defaults dwarf the 13px body text. */
+.assistant-blocks h1, .assistant-blocks h2, .assistant-blocks h3, .assistant-blocks h4 { margin: 16px 0 7px; font-family: var(--sans); font-weight: 700; line-height: 1.3; letter-spacing: -.01em; }
+.assistant-blocks h1, .assistant-blocks h2 { font-size: 15px; }
+.assistant-blocks h3, .assistant-blocks h4 { font-size: 13px; color: var(--muted); }
+.assistant-blocks ol, .assistant-blocks ul { margin: 7px 0; padding-left: 20px; }
+.assistant-blocks li + li { margin-top: 3px; }
 .assistant-blocks a { color: var(--rust); }
 .assistant-blocks code { padding: 1px 4px; border-radius: 4px; background: #eee2d0; font: 11px/1.4 var(--mono); }
 .code-block pre, .assistant-blocks pre { overflow: auto; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: #2d2925; color: #f8ead5; }
@@ -175,6 +191,27 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .tool-timeline-dot { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--sage); transform: translateY(-1px); }
 .tool-timeline li.current { color: var(--ink, #3c3630); }
 .tool-timeline li.current .tool-timeline-dot { background: var(--rust-bright); animation: pulse 1.3s infinite; }
+.tool-timeline li.denied { color: #8c491a; }
+.tool-timeline li.denied .tool-timeline-dot { background: #c0663a; animation: none; }
+
+.permission-card { margin: 0 18px 14px 0; padding: 13px 14px; border: 1px solid #dca37e; border-radius: 15px; background: #fff2eb; box-shadow: 0 6px 18px rgba(140,73,26,.12); }
+.permission-meta { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: #8c491a; font: 500 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.permission-card p { margin: 0; color: #56341c; font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+.permission-actions { margin-top: 11px; display: flex; justify-content: flex-end; gap: 7px; }
+.permission-actions button { padding: 7px 14px; border: 1px solid transparent; border-radius: 9px; font-size: 11px; font-weight: 700; }
+.permission-deny { border-color: #e0b79c; color: #8c491a; background: rgba(255,255,255,.6); }
+.permission-deny:hover:not(:disabled) { background: #fff; }
+.permission-allow { color: #fff8ec; background: var(--rust); }
+.permission-allow:hover:not(:disabled) { background: #8f4318; }
+
+.plan-approval { margin-top: 12px; padding-top: 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px dashed var(--line); }
+.plan-approval span { min-width: 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.plan-approval button { flex: none; padding: 7px 13px; border: 0; border-radius: 9px; color: #fff8ec; background: var(--sage); font-size: 11px; font-weight: 700; }
+.plan-approval button:hover:not(:disabled) { background: #5f6b4a; }
+
+.approval-badge { min-width: 18px; height: 18px; margin-left: 5px; display: inline-grid; place-items: center; border-radius: 50%; color: #fff8ec; background: #8c491a; font: 700 9px/1 var(--mono); }
+.canvas-ask.awaiting-approval { border-color: #dca37e; background: rgba(255,242,235,.96); }
+.canvas-ask.awaiting-approval .canvas-ask-dot { background: #8c491a; animation: pulse 1.3s infinite; }
 .stream-preview { margin: 0; white-space: pre-wrap; color: var(--muted); }
 .typing-cursor { display: inline-block; width: 6px; height: 1em; margin-left: 3px; vertical-align: -.15em; background: var(--rust); animation: blink .8s steps(1) infinite; }
 
@@ -254,6 +291,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
   .canvas-controls { right: 10px; bottom: 10px; max-width: calc(100% - 20px); overflow-x: auto; }
   .canvas-ask { left: 10px; bottom: 58px; max-width: calc(100% - 20px); }
   .canvas-ask-chip { display: none; }
+  .composer-hint { display: none; }
+  .composer-actions { justify-content: space-between; }
   .conversation-drawer, .diagram-navigator { top: 68px; }
 }
 

@@ -1,10 +1,14 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { DiagramArtifact } from '@/lib/shared/types';
+import type { AgentMode, DiagramArtifact } from '@/lib/shared/types';
+import { AGENT_MODE_HINTS, AGENT_MODE_LABELS, AGENT_MODE_TOOLTIPS } from '@/lib/client/toolActivity';
+
+const MODES: AgentMode[] = ['ask', 'plan', 'agent'];
 
 export function InstructionComposer({
-  value, running, autoFocus, attached, activeDiagramId, markCounts, onChange, onSend, onCancel, onRemoveAttachment,
+  value, running, autoFocus, attached, activeDiagramId, markCounts, mode, unsupportedModes,
+  onChange, onModeChange, onSend, onCancel, onRemoveAttachment,
 }: {
   value: string;
   running: boolean;
@@ -12,7 +16,10 @@ export function InstructionComposer({
   attached: DiagramArtifact[];
   activeDiagramId?: string;
   markCounts: Record<string, number>;
+  mode: AgentMode;
+  unsupportedModes: AgentMode[];
   onChange(value: string): void;
+  onModeChange(mode: AgentMode): void;
   onSend(): void;
   onCancel(): void;
   onRemoveAttachment(id: string): void;
@@ -53,7 +60,26 @@ export function InstructionComposer({
         }}
       />
       <div className="composer-actions">
-        <span className="composer-hint">Enter to send · read-only agent</span>
+        <div className={`mode-selector mode-${mode}`} role="radiogroup" aria-label="Agent mode">
+          {MODES.map((item) => {
+            const unsupported = unsupportedModes.includes(item);
+            return (
+              <button
+                key={item}
+                type="button"
+                role="radio"
+                aria-checked={mode === item}
+                className={mode === item ? 'active' : ''}
+                disabled={running || unsupported}
+                title={unsupported ? `${AGENT_MODE_LABELS[item]} needs a newer Claude Code. Run \`claude update\`.` : AGENT_MODE_TOOLTIPS[item]}
+                onClick={() => onModeChange(item)}
+              >
+                {AGENT_MODE_LABELS[item]}
+              </button>
+            );
+          })}
+        </div>
+        <span className="composer-hint">{AGENT_MODE_HINTS[mode]}</span>
         <button
           type="button"
           className={running ? 'cancel-button' : 'send-button'}

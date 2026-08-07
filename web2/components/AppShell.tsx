@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  AgentEvent, AssistantMessage, ChatThread, DiagramArtifact, DiagramMessageAttachment, DrawingMark,
+  AgentEvent, AgentMode, AssistantMessage, ChatThread, DiagramArtifact, DiagramMessageAttachment, DrawingMark,
   ProjectSummary, UserMessage,
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
-import { MAX_TOOL_ACTIVITY_ENTRIES, toolActivityLabel, type ToolActivityEntry } from '@/lib/client/toolActivity';
+import {
+  MAX_TOOL_ACTIVITY_ENTRIES, permissionLabel, toolActivityLabel,
+  type PendingPermission, type ToolActivityEntry,
+} from '@/lib/client/toolActivity';
+import { EXECUTE_PLAN_INSTRUCTION } from '@/lib/shared/plan';
 import { compositePng } from '@/lib/client/compositeExport';
 import { createUuid } from '@/lib/client/uuid';
 import {
@@ -24,6 +28,7 @@ interface Health {
   dataDirectoryReady: boolean;
   claudeBinaryReady: boolean;
   claudeFlagsReady: boolean;
+  unsupportedModes?: AgentMode[];
   message?: string;
 }
 
@@ -66,6 +71,8 @@ export function AppShell() {
   const [composer, setComposer] = useState('');
   const [preview, setPreview] = useState('');
   const [toolActivity, setToolActivity] = useState<ToolActivityEntry[]>([]);
+  const [permissions, setPermissions] = useState<PendingPermission[]>([]);
+  const [decidingPermission, setDecidingPermission] = useState<string>();
   const [chatOpen, setChatOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -73,6 +80,7 @@ export function AppShell() {
   const [notice, setNotice] = useState<string>();
   const [missingSession, setMissingSession] = useState(false);
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const runIdRef = useRef<string | undefined>(undefined);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
   const navigationRevision = useRef(0);
   const hydratedProject = useRef<string | undefined>(undefined);
@@ -80,6 +88,10 @@ export function AppShell() {
   chatOpenRef.current = chatOpen;
 
   const thread = useMemo(() => threads.find((item) => item.id === threadId), [threads, threadId]);
+  const unsupportedModes = useMemo(() => health?.unsupportedModes || [], [health]);
+  // A mode the installed CLI cannot run falls back to Ask rather than failing at send time.
+  const storedMode = thread?.defaultMode || 'ask';
+  const mode: AgentMode = unsupportedModes.includes(storedMode) ? 'ask' : storedMode;
   const attachedArtifacts = useMemo(() => {
     if (!thread) return [];
     const artifacts = getArtifacts(thread);
@@ -217,11 +229,40 @@ export function AppShell() {
     snapshotRef.current = value;
   }, []);
 
-  const send = useCallback(async () => {
-    if (!thread || !composer.trim() || running) return;
+  const setMode = useCallback((next: AgentMode) => {
+    if (!threadId) return;
+    mutateThread(threadId, (current) => ({ ...current, defaultMode: next }));
+  }, [mutateThread, threadId]);
+
+  const decidePermission = useCallback(async (requestId: string, decision: 'allow' | 'deny') => {
+    const runId = runIdRef.current;
+    if (!runId) return;
+    setDecidingPermission(requestId);
+    try {
+      const response = await fetch('/api/agent/permission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId, requestId, decision }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        setPermissions((current) => current.filter((item) => item.requestId !== requestId));
+        setNotice(data.error || 'That approval could not be delivered.');
+      }
+    } catch {
+      setNotice('That approval could not be delivered.');
+    } finally {
+      setDecidingPermission(undefined);
+    }
+  }, []);
+
+  const send = useCallback(async (override?: { text: string; mode: AgentMode }) => {
+    if (!thread || running) return;
+    const text = (override?.text ?? composer).trim();
+    if (!text) return;
+    const turnMode: AgentMode = override?.mode ?? mode;
     setNotice(undefined);
     setMissingSession(false);
-    const text = composer.trim();
     const artifacts = getArtifacts(thread);
     const selected = pendingAttachmentIds.flatMap((id) => {
       const artifact = artifacts.find((item) => item.id === id);
@@ -260,6 +301,7 @@ export function AppShell() {
         viewport: item.viewport,
         compositeIncluded: Boolean(item.compositePngDataUrl),
       })),
+      mode: turnMode,
     };
     const activeAtSend = thread.activeDiagramId;
     const navigationAtSend = navigationRevision.current;
@@ -268,11 +310,12 @@ export function AppShell() {
       title: current.messages.length === 0 ? text.slice(0, 56) : current.title,
       messages: [...current.messages, userMessage],
     }));
-    setComposer('');
+    if (!override) setComposer('');
     setPreview('');
     setToolActivity([]);
+    setPermissions([]);
     setRunning(true);
-    setStatus('Starting read-only agent');
+    setStatus(turnMode === 'agent' ? 'Starting agent' : 'Starting read-only agent');
     const controller = new AbortController();
     abortRef.current = controller;
     let receivedFinal = false;
@@ -282,7 +325,7 @@ export function AppShell() {
       const response = await fetch('/api/agent/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: thread.projectId, threadId: thread.id, messageId: userId, text, diagramAttachments: attachmentPayload }),
+        body: JSON.stringify({ projectId: thread.projectId, threadId: thread.id, messageId: userId, text, diagramAttachments: attachmentPayload, mode: turnMode }),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -290,11 +333,22 @@ export function AppShell() {
         throw new Error(data.error || `Agent request failed (${response.status}).`);
       }
       for await (const event of readNdjson<AgentEvent>(response)) {
+        if (event.type === 'run-started') runIdRef.current = event.runId;
         if (event.type === 'status') setStatus(event.label);
         if (event.type === 'tool-activity') {
-          const entry = { tool: event.tool, detail: event.detail };
+          const entry = { tool: event.tool, detail: event.detail, denied: event.denied };
           setStatus(toolActivityLabel(entry));
           setToolActivity((current) => [...current, { ...entry, key: current.length }].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
+        }
+        if (event.type === 'permission-request') {
+          const request: PendingPermission = { requestId: event.requestId, tool: event.tool, detail: event.detail };
+          setPermissions((current) => [...current, request]);
+          setStatus(`Waiting for your approval — ${permissionLabel(request)}`);
+          if (!chatOpenRef.current) setUnread((value) => value + 1);
+        }
+        if (event.type === 'permission-resolved') {
+          setPermissions((current) => current.filter((item) => item.requestId !== event.requestId));
+          if (event.decision === 'timeout') setNotice('An approval request expired and was denied automatically.');
         }
         if (event.type === 'assistant-delta') setPreview((current) => current + event.delta);
         if (event.type === 'error') {
@@ -349,12 +403,23 @@ export function AppShell() {
       }
     } finally {
       abortRef.current = undefined;
+      runIdRef.current = undefined;
       setRunning(false);
       setPreview('');
       setToolActivity([]);
+      setPermissions([]);
+      setDecidingPermission(undefined);
       setStatus('Ready for an instruction');
     }
-  }, [composer, mutateThread, pendingAttachmentIds, running, thread]);
+  }, [composer, mode, mutateThread, pendingAttachmentIds, running, thread]);
+
+  const executePlan = useCallback(() => {
+    if (unsupportedModes.includes('agent')) {
+      setNotice('Agent mode needs a newer Claude Code. Run `claude update`, then execute the plan.');
+      return;
+    }
+    void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent' });
+  }, [send, unsupportedModes]);
 
   if (loading) return <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>;
 
@@ -385,11 +450,11 @@ export function AppShell() {
       ) : !thread ? (
         <div className="welcome-screen">
           <div className="welcome-orbit"><span /><span /><span /><div className="brand-mark">C</div></div>
-          <span className="eyebrow">Read-only local exploration</span>
+          <span className="eyebrow">Local exploration, planning, and building</span>
           <h1>Your repository,<br />as a living map.</h1>
-          <p>Start a persistent conversation. Ask questions, build a diagram, draw directly on it, and use those marks in your next instruction.</p>
+          <p>Start a persistent conversation. Ask questions, build a diagram, draw directly on it, and use those marks in your next instruction. Switch to Plan for an approvable plan, or Agent to build behind explicit approvals.</p>
           <button type="button" className="primary-cta" onClick={() => void createThread()}>New conversation <span>→</span></button>
-          <small>Claude Code runs locally with Read, Glob, and Grep only.</small>
+          <small>Claude Code runs locally on your own login. Ask and Plan stay read-only; Agent asks before every change.</small>
         </div>
       ) : (
         <>
@@ -398,6 +463,7 @@ export function AppShell() {
             running={running}
             status={status}
             unread={unread}
+            pendingApprovals={permissions.length}
             markCount={thread.activeDiagramId ? thread.annotations[thread.activeDiagramId]?.marks.length || 0 : 0}
             onComposer={setComposer}
             onOpenChat={() => { setChatOpen(true); setHistoryOpen(false); setUnread(0); }}
@@ -412,18 +478,25 @@ export function AppShell() {
             thread={thread}
             preview={preview}
             toolActivity={toolActivity}
+            permissions={permissions}
+            decidingPermission={decidingPermission}
             running={running}
             status={status}
             composer={composer}
+            mode={mode}
+            unsupportedModes={unsupportedModes}
             attached={attachedArtifacts}
             markCounts={Object.fromEntries(attachedArtifacts.map((artifact) => [artifact.id, thread.annotations[artifact.id]?.marks.length || 0]))}
             onClose={() => setChatOpen(false)}
             onSelectDiagram={(id) => selectDiagram(id)}
             onRetry={(text) => setComposer(text)}
             onComposer={setComposer}
+            onModeChange={setMode}
             onSend={() => void send()}
             onCancel={() => abortRef.current?.abort()}
             onRemoveAttachment={removeAttachment}
+            onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
+            onExecutePlan={executePlan}
           />
           <DiagramNavigator
             open={historyOpen}

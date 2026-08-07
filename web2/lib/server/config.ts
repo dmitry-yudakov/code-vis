@@ -8,6 +8,7 @@ export interface Web2Config {
   claudeModel?: string;
   agentTimeoutMs: number;
   agentMaxTurns: number;
+  approvalTimeoutMs: number;
   dataDir: string;
   maxAssistantBytes: number;
   maxMermaidBytes: number;
@@ -41,6 +42,7 @@ export function getConfig(): Web2Config {
     claudeModel: process.env.CODEAI_WEB2_CLAUDE_MODEL || undefined,
     agentTimeoutMs: boundedInteger('CODEAI_WEB2_AGENT_TIMEOUT_MS', 300_000, 1_000, 1_800_000),
     agentMaxTurns: boundedInteger('CODEAI_WEB2_AGENT_MAX_TURNS', 20, 1, 100),
+    approvalTimeoutMs: boundedInteger('CODEAI_WEB2_APPROVAL_TIMEOUT_MS', 600_000, 5_000, 3_600_000),
     dataDir: path.resolve(expandHome(process.env.CODEAI_WEB2_DATA_DIR || '~/.code-ai/web2')),
     maxAssistantBytes: boundedInteger('CODEAI_WEB2_MAX_ASSISTANT_BYTES', 1_048_576, 1_024, 10_485_760),
     maxMermaidBytes: boundedInteger('CODEAI_WEB2_MAX_MERMAID_BYTES', 100_000, 128, 1_048_576),

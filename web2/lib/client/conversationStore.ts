@@ -1,4 +1,4 @@
-import type { ChatThread, DiagramArtifact } from '@/lib/shared/types';
+import type { AgentMode, ChatThread, DiagramArtifact } from '@/lib/shared/types';
 import { normalizeMermaidSource, validateMermaidSource } from '@/lib/diagram/mermaidPolicy';
 
 const PREFIX = 'code-ai:web2:v1:';
@@ -38,6 +38,13 @@ export function getArtifacts(thread: ChatThread): DiagramArtifact[] {
     : []);
 }
 
+const AGENT_MODES: readonly AgentMode[] = ['ask', 'plan', 'agent'];
+
+/** An unrecognised stored mode falls back to the safest one rather than invalidating the thread. */
+function knownMode(value: unknown): AgentMode | undefined {
+  return AGENT_MODES.includes(value as AgentMode) ? value as AgentMode : undefined;
+}
+
 export function loadProjectThreads(projectId: string, storage: Storage = localStorage): ChatThread[] {
   const raw = storage.getItem(`${PREFIX}${projectId}`);
   if (!raw) return [];
@@ -47,8 +54,10 @@ export function loadProjectThreads(projectId: string, storage: Storage = localSt
   }
   return parsed.threads.map((thread) => ({
     ...thread,
+    defaultMode: knownMode(thread.defaultMode),
     messages: thread.messages.map((message) => message.role === 'assistant' ? {
       ...message,
+      mode: knownMode(message.mode),
       blocks: message.blocks.map((block) => {
         if (block.kind !== 'diagram') return block;
         const source = normalizeMermaidSource(block.artifact.source);

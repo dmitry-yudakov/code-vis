@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { AgentErrorCode, AgentProcessResult, AgentProcessRun, AgentProcessRunner } from '@/lib/shared/types';
+import type {
+  AgentErrorCode, AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
+} from '@/lib/shared/types';
 import { buildClaudeArgs } from './claudeInvocation';
 
 export class AgentRunError extends Error {
@@ -23,6 +26,12 @@ interface RunnerOptions {
   debug?: boolean;
 }
 
+const DENIAL_MESSAGE: Record<Exclude<PermissionResolution, 'allow'>, string> = {
+  deny: 'The user denied this action in Cartograph. Do not retry it; continue with what is allowed, or explain what you would need.',
+  timeout: 'The approval request expired without an answer. Treat this action as denied and continue without it.',
+  cancelled: 'The conversation turn was cancelled, so this action was denied. Stop here.',
+};
+
 function relativeWithin(root: string, target: string): string | undefined {
   const relative = path.relative(root, target);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return undefined;
@@ -34,6 +43,8 @@ function sanitizeDetail(value: string): string {
   const cleaned = value.replaceAll(/[\u0000-\u001f\u007f]+/g, " ").replaceAll(/\s+/g, " ").trim();
   return cleaned.length > 120 ? `${cleaned.slice(0, 119)}…` : cleaned;
 }
+
+const PATH_INPUT_KEYS = ['file_path', 'notebook_path', 'path'] as const;
 
 function describeToolUse(
   name: string,
@@ -54,6 +65,15 @@ function describeToolUse(
   }
   if ((name === 'Grep' || name === 'Glob') && typeof input?.pattern === 'string') {
     return { tool: name, detail: sanitizeDetail(`${input.pattern.slice(0, 80)}${searchScope()}`) };
+  }
+  if (name === 'Bash' && typeof input?.command === 'string') {
+    return { tool: name, detail: sanitizeDetail(input.command.slice(0, 200)) };
+  }
+  for (const key of PATH_INPUT_KEYS) {
+    const value = input?.[key];
+    if (typeof value !== 'string') continue;
+    const projectPath = relativeWithin(projectRoot, value);
+    if (projectPath) return { tool: name, detail: sanitizeDetail(projectPath) };
   }
   return { tool: name };
 }
@@ -89,6 +109,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
     log?.(`spawn ${path.basename(this.options.binary)} ${args.join(' ')} (prompt ${Buffer.byteLength(input.prompt)}B)`);
 
     return new Promise<AgentProcessResult>((resolve, reject) => {
+      // The environment is inherited untouched: whatever login, base URL, or token the user's own
+      // Claude Code uses applies here too. web2 adds no provider variables of its own.
       const child = spawn(this.options.binary, args, {
         cwd: input.project.realPath,
         shell: false,
@@ -107,27 +129,96 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       const emittedToolUseIds = new Set<string>();
       let textDeltaCount = 0;
       let textDeltaBytes = 0;
+      let pendingPermissions = 0;
+      let stdinOpen = input.policy.interactivePermissions;
+
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+      let clockStartedAt = Date.now();
+      let remainingTimeoutMs = input.policy.timeoutMs;
+      const startTimeoutClock = () => {
+        clockStartedAt = Date.now();
+        timeoutTimer = setTimeout(() => terminate('timeout'), remainingTimeoutMs);
+      };
+      const pauseTimeoutClock = () => {
+        if (!timeoutTimer) return;
+        clearTimeout(timeoutTimer);
+        timeoutTimer = undefined;
+        remainingTimeoutMs = Math.max(0, remainingTimeoutMs - (Date.now() - clockStartedAt));
+      };
 
       const finish = (operation: () => void) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timeoutTimer);
+        if (timeoutTimer) clearTimeout(timeoutTimer);
         if (killTimer) clearTimeout(killTimer);
         input.signal.removeEventListener('abort', abort);
         operation();
+      };
+
+      const writeToChild = (payload: unknown) => {
+        if (!stdinOpen || child.stdin.destroyed) return;
+        child.stdin.write(`${JSON.stringify(payload)}\n`);
+      };
+
+      const closeChildInput = () => {
+        if (!stdinOpen) return;
+        stdinOpen = false;
+        child.stdin.end();
       };
 
       const terminate = (reason: 'cancelled' | 'timeout') => {
         if (settled || termination) return;
         termination = reason;
         log?.(`terminate (${reason})`);
+        // Answer everything the child is still waiting on before killing it, so the model is never
+        // left blocked on a request that can no longer be answered.
+        input.permissions?.cancelAll();
+        closeChildInput();
         child.kill('SIGTERM');
         killTimer = setTimeout(() => child.kill('SIGKILL'), this.options.killGraceMs ?? 1_500);
       };
 
       const abort = () => terminate('cancelled');
       input.signal.addEventListener('abort', abort, { once: true });
-      const timeoutTimer = setTimeout(() => terminate('timeout'), input.policy.timeoutMs);
+      startTimeoutClock();
+
+      const handlePermissionRequest = (event: Record<string, unknown>) => {
+        const request = event.request as Record<string, unknown> | undefined;
+        const cliRequestId = typeof event.request_id === 'string' ? event.request_id : undefined;
+        if (!cliRequestId || request?.subtype !== 'can_use_tool') return;
+        const tool = typeof request.tool_name === 'string' ? request.tool_name : 'tool';
+        const toolInput = request.input && typeof request.input === 'object' ? request.input as Record<string, unknown> : undefined;
+        const described = describeToolUse(tool, toolInput, input.project.realPath, input.attachmentDirectory);
+        const requestId = randomUUID();
+        log?.(`recv permission request ${tool}${described.detail ? ` (${described.detail})` : ''}`);
+
+        const settle = (resolution: PermissionResolution) => {
+          pendingPermissions = Math.max(0, pendingPermissions - 1);
+          writeToChild({
+            type: 'control_response',
+            response: {
+              subtype: 'success',
+              request_id: cliRequestId,
+              response: resolution === 'allow'
+                ? { behavior: 'allow', updatedInput: toolInput || {} }
+                : { behavior: 'deny', message: DENIAL_MESSAGE[resolution] },
+            },
+          });
+          log?.(`permission ${resolution} for ${tool}`);
+          input.emit({ type: 'permission-resolved', requestId, decision: resolution });
+          // Approval time never counts against the run's own budget.
+          if (pendingPermissions === 0 && !settled && !termination) startTimeoutClock();
+        };
+
+        pendingPermissions += 1;
+        pauseTimeoutClock();
+        input.emit({ type: 'permission-request', requestId, tool: described.tool, detail: described.detail || '' });
+        if (!input.permissions) {
+          settle('deny');
+          return;
+        }
+        input.permissions.request(requestId, settle);
+      };
 
       const processLine = (raw: string) => {
         const line = raw.trim();
@@ -143,9 +234,21 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         if (event.type !== 'stream_event' && event.type !== 'assistant') {
           log?.(`recv ${String(event.type)}${typeof event.subtype === 'string' ? `/${event.subtype}` : ''}`);
         }
+        if (event.type === 'control_request') {
+          handlePermissionRequest(event);
+          return;
+        }
         if (event.type === 'system' && event.subtype === 'init' && typeof event.session_id === 'string') {
           sessionId = event.session_id;
           input.emit({ type: 'session-started', sessionId });
+          return;
+        }
+        if (event.type === 'system' && event.subtype === 'permission_denied') {
+          // Auto-denials (no allowlist match, headless with no prompt) are visible rather than silent.
+          const tool = typeof event.tool_name === 'string' ? event.tool_name : 'tool';
+          const toolInput = event.tool_input && typeof event.tool_input === 'object' ? event.tool_input as Record<string, unknown> : undefined;
+          const described = describeToolUse(tool, toolInput, input.project.realPath, input.attachmentDirectory);
+          input.emit({ type: 'activity', ...described, denied: true });
           return;
         }
         if (event.type === 'stream_event') {
@@ -195,6 +298,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           }
           if (typeof event.result === 'string') finalText = event.result;
           if (typeof event.session_id === 'string') sessionId = event.session_id;
+          // Streaming input keeps stdin open for control responses; the turn is over, so release it.
+          closeChildInput();
         }
       };
 
@@ -231,6 +336,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
 
       child.once('close', (code) => {
         log?.(`exit code=${code}${termination ? ` after ${termination}` : ''} (stdout ${outputBytes}B, ${textDeltaCount} text deltas ${textDeltaBytes}B${stderr.trim() ? `, stderr: ${stderr.trim().slice(0, 200).replaceAll(/\s+/g, ' ')}` : ''})`);
+        input.permissions?.cancelAll();
         if (settled) return;
         if (fatalStreamError) {
           finish(() => reject(fatalStreamError));
@@ -272,7 +378,17 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       });
 
       child.stdin.once('error', () => undefined);
-      child.stdin.end(input.prompt, 'utf8');
+      if (input.policy.interactivePermissions) {
+        // Streaming input: one user message now, stdin held open for permission responses.
+        child.stdin.write(`${JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content: [{ type: 'text', text: input.prompt }] },
+          parent_tool_use_id: null,
+          session_id: input.session.id,
+        })}\n`);
+      } else {
+        child.stdin.end(input.prompt, 'utf8');
+      }
       if (input.signal.aborted) abort();
     });
   }

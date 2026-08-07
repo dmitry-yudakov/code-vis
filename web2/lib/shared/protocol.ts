@@ -24,12 +24,21 @@ export const diagramAttachmentSchema = z.object({
   compositePngDataUrl: z.string().startsWith('data:image/png;base64,').optional(),
 });
 
+export const agentModeSchema = z.enum(['ask', 'plan', 'agent']);
+
 export const agentMessageRequestSchema = z.object({
   projectId: z.string().min(1).max(128),
   threadId: z.string().uuid(),
   messageId: z.string().uuid(),
   text: z.string().trim().min(1).max(8_000),
   diagramAttachments: z.array(diagramAttachmentSchema),
+  mode: agentModeSchema.optional(),
+}).strict();
+
+export const permissionDecisionRequestSchema = z.object({
+  runId: z.string().uuid(),
+  requestId: z.string().uuid(),
+  decision: z.enum(['allow', 'deny']),
 }).strict();
 
 export const createThreadRequestSchema = z.object({ projectId: z.string().min(1).max(128) }).strict();
