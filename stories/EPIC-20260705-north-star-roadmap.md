@@ -37,6 +37,11 @@ here it carries just enough to sequence it.
 | — | [js-analyzer-improvement](STORY-20251111-js-analyzer-improvement.md) · [socket-io-improvements](STORY-20251111-socket-io-improvements.md) | pre-vision | Legacy groundwork |
 | — | [change-focused-review-view](STORY-20260501-change-focused-review-view.md) · [homepage-code-map-lenses](STORY-20260514-homepage-code-map-lenses.md) · [code-map-layout-strategies](STORY-20260520-code-map-layout-strategies.md) | ancestors | Shipped groundwork (review slice, lens shell, layout/arrangement sources) |
 
+The continuation of the `web2` track (Stories 19–21: operational modes, multi-agent roles,
+team environment) is sequenced by its own
+[web2 operational collaboration epic](EPIC-20260806-web2-operational-collaboration.md); it
+feeds Stories 14–16 here.
+
 ### Proposed stories (to be written)
 
 | # | Story (working title) | Arc step | Depends on |
