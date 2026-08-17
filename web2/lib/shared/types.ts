@@ -8,6 +8,38 @@ export interface ServerProject extends ProjectSummary {
   realPath: string;
 }
 
+export type GitFileStatus =
+  | 'modified'
+  | 'added'
+  | 'deleted'
+  | 'renamed'
+  | 'copied'
+  | 'conflicted'
+  | 'untracked';
+
+/** A project-relative working-tree entry. Paths never expose the configured projects root. */
+export interface GitChangedFile {
+  path: string;
+  previousPath?: string;
+  status: GitFileStatus;
+  staged: boolean;
+  unstaged: boolean;
+}
+
+export interface GitWorkingTree {
+  isRepository: boolean;
+  branch?: string;
+  ahead?: number;
+  behind?: number;
+  files: GitChangedFile[];
+}
+
+export interface GitFileDiff {
+  path: string;
+  staged?: string;
+  unstaged?: string;
+}
+
 export interface ServerThread {
   id: string;
   projectId: string;

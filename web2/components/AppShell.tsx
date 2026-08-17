@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentEvent, AgentMode, AssistantMessage, ChatThread, DiagramArtifact, DiagramMessageAttachment, DrawingMark,
-  ProjectSummary, SketchCanvas, UserMessage,
+  GitWorkingTree, ProjectSummary, SketchCanvas, UserMessage,
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
 import {
@@ -23,6 +23,7 @@ import { ConversationDrawer } from './ConversationDrawer';
 import { DiagramNavigator } from './DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from './CanvasWorkspace';
 import { EMPTY_CANVAS_SVG } from './DiagramCanvas';
+import { RepositoryPanel } from './RepositoryPanel';
 
 interface Health {
   ok: boolean;
@@ -80,6 +81,8 @@ export function AppShell() {
   const [decidingPermission, setDecidingPermission] = useState<string>();
   const [chatOpen, setChatOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [repositoryOpen, setRepositoryOpen] = useState(true);
+  const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
   const [unread, setUnread] = useState(0);
   const [pendingAttachmentIds, setPendingAttachmentIds] = useState<string[]>([]);
   const [notice, setNotice] = useState<string>();
@@ -97,6 +100,7 @@ export function AppShell() {
   runningRef.current = running;
 
   const thread = useMemo(() => threads.find((item) => item.id === threadId), [threads, threadId]);
+  const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const unsupportedModes = useMemo(() => health?.unsupportedModes || [], [health]);
   // A mode the installed CLI cannot run falls back to Ask rather than failing at send time.
   const storedMode = thread?.defaultMode || 'ask';
@@ -203,6 +207,8 @@ export function AppShell() {
     setUnread(0);
     setChatOpen(false);
     setHistoryOpen(false);
+    setRepositoryTree(undefined);
+    setRepositoryOpen(true);
   };
 
   const selectDiagram = useCallback((id: string) => {
@@ -553,7 +559,7 @@ export function AppShell() {
   if (loading) return <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${repositoryOpen && projectId ? 'repository-open' : ''}`}>
       <header className="app-header">
         <div className="brand"><span className="brand-mark">C</span><span><strong>Cartograph</strong><small>conversational code canvas</small></span></div>
         <div className="header-pickers">
@@ -561,10 +567,30 @@ export function AppShell() {
           <ThreadPicker threads={threads} value={threadId} disabled={running || !projectId} onChange={setThreadId} onNew={() => void createThread()} />
         </div>
         <div className="header-actions">
+          {projectId && (
+            <button
+              type="button"
+              className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
+              aria-pressed={repositoryOpen}
+              onClick={() => setRepositoryOpen((current) => !current)}
+            >
+              Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
+            </button>
+          )}
           <span className={`health-pill ${health?.ok ? 'ready' : 'warning'}`} title={health?.message || 'Local readiness'}><span />{health?.ok ? 'Agent ready' : 'Setup needed'}</span>
           {thread && <button type="button" onClick={() => exportThread(thread)}>Export</button>}
         </div>
       </header>
+
+      {projectId && selectedProject && (
+        <RepositoryPanel
+          projectId={projectId}
+          projectName={selectedProject.name}
+          open={repositoryOpen}
+          onClose={() => setRepositoryOpen(false)}
+          onTreeChange={setRepositoryTree}
+        />
+      )}
 
       {notice && (
         <div className="notice-banner" role="status">
