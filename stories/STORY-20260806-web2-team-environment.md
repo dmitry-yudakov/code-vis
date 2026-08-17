@@ -1,7 +1,7 @@
 # Story 21 — Team environment: multiple humans in the conversation
 
 **Status:** Draft (sequencing-level — refine to a full spec when picked up) · **Type:** Full-stack ·
-**Depends on:** [Story 20](STORY-20260806-web2-multi-agent-roles.md) ·
+**Depends on:** [Story 23](STORY-20260817-web2-multi-agent-roles.md) ·
 **Epic:** [web2 operational collaboration](EPIC-20260806-web2-operational-collaboration.md)
 
 ---
@@ -11,11 +11,12 @@
 Once a conversation can hold several agents with roles, the remaining participant type is
 other people: a colleague joins the thread, sees the spec and diagrams evolve, addresses the
 reviewer agent themselves, or approves an agent's permission request while the thread owner is
-away. Story 20's participant model already treats humans as participants without sessions —
+away. Story 23's participant model already treats humans as participants without sessions —
 this story makes that real beyond the single desktop user.
 
 This is deliberately last: it is the point where almost every local-first simplification
-expires at once, and none of it should leak complexity into Stories 19–20 earlier than needed.
+expires at once, and none of it should leak complexity into Stories 19–20 or 23 earlier than
+needed.
 
 ## What changes at this boundary
 
@@ -48,7 +49,7 @@ expires at once, and none of it should leak complexity into Stories 19–20 earl
 ## Out of scope
 
 - Public/multi-tenant SaaS hosting; the target is a small trusted team.
-- Anything already owned by Stories 19–20 (modes, permissions, providers, roles).
+- Anything already owned by Stories 19, 20, and 23 (modes, permissions, providers, roles).
 - Real-time co-editing of drawings (single-annotator-at-a-time is acceptable first).
 
 ## How to verify (target scenario)

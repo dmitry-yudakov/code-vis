@@ -266,7 +266,10 @@ per-mode additions, and preflight verifies the union of flags every shipped mode
 
 ## Out of scope
 
-- Codex or any second provider, participants, roles — [Story 20](STORY-20260806-web2-multi-agent-roles.md).
+- Codex as a second single-agent provider —
+  [Story 20](STORY-20260817-web2-codex-provider.md).
+- Multiple agents, participants, and roles —
+  [Story 23](STORY-20260817-web2-multi-agent-roles.md).
 - Multiple humans, server-side transcripts, auth — [Story 21](STORY-20260806-web2-team-environment.md).
 - Worktree isolation, apply/discard checkpoints, uncommitted-changes policy — future hardening
   of agent mode; v1 works in the real working tree behind explicit approvals.
