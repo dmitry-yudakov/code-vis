@@ -2,22 +2,13 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type {
-  AgentErrorCode, AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
+  AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
   ResolvedAgentPolicy,
 } from '@/lib/shared/types';
 import { buildClaudeArgs } from './claudeInvocation';
+import { AgentRunError } from './agentRunError';
 
-export class AgentRunError extends Error {
-  constructor(
-    public readonly code: AgentErrorCode,
-    message: string,
-    public readonly delivery: 'not-sent' | 'possibly-sent' = 'possibly-sent',
-    public readonly retryable = true,
-  ) {
-    super(message);
-    this.name = 'AgentRunError';
-  }
-}
+export { AgentRunError } from './agentRunError';
 
 interface RunnerOptions {
   binary: string;
@@ -119,8 +110,12 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
 
   async run(input: AgentProcessRun): Promise<AgentProcessResult> {
     const startedAt = Date.now();
+    const providerSessionId = input.session.id;
+    if (!providerSessionId) {
+      throw new AgentRunError('missing-session', 'The native Claude session id is missing. Continue in a new agent session.', 'not-sent');
+    }
     const args = buildClaudeArgs({
-      session: input.session,
+      session: { ...input.session, id: providerSessionId },
       attachmentDirectory: input.attachmentDirectory,
       policy: input.policy,
       model: this.options.model,
@@ -143,7 +138,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let outputBytes = 0;
       let finalText = '';
       let assistantFallback = '';
-      let sessionId = input.session.id;
+      let sessionId = providerSessionId;
       let settled = false;
       let termination: 'cancelled' | 'timeout' | undefined;
       let fatalStreamError: unknown;
@@ -407,7 +402,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           type: 'user',
           message: { role: 'user', content: [{ type: 'text', text: input.prompt }] },
           parent_tool_use_id: null,
-          session_id: input.session.id,
+          session_id: providerSessionId,
         })}\n`);
       } else {
         child.stdin.end(input.prompt, 'utf8');

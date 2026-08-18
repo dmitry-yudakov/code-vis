@@ -38,6 +38,7 @@ export const diagramAttachmentSchema = z.object({
 });
 
 export const agentModeSchema = z.enum(['ask', 'plan', 'agent']);
+export const agentProviderSchema = z.enum(['claude', 'codex']);
 
 export const agentMessageRequestSchema = z.object({
   projectId: z.string().min(1).max(128),
@@ -56,7 +57,10 @@ export const permissionDecisionRequestSchema = z.object({
 
 export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 
-export const createThreadRequestSchema = z.object({ projectId: z.string().min(1).max(128) }).strict();
+export const createThreadRequestSchema = z.object({
+  projectId: z.string().min(1).max(128),
+  provider: agentProviderSchema,
+}).strict();
 
 export function safeJsonResponse(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, {

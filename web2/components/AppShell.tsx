@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  AgentEvent, AgentMode, AssistantMessage, ChatThread, DiagramArtifact, DiagramMessageAttachment, DrawingMark,
-  GitWorkingTree, ProjectSummary, SketchCanvas, UserMessage,
+  AgentEvent, AgentMode, AgentProvider, AssistantMessage, ChatThread, DiagramArtifact, DiagramMessageAttachment, DrawingMark,
+  GitWorkingTree, ProjectSummary, ProviderHealth, SketchCanvas, UserMessage,
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
 import {
@@ -29,16 +29,18 @@ interface Health {
   ok: boolean;
   projectsRootReady: boolean;
   dataDirectoryReady: boolean;
-  claudeBinaryReady: boolean;
-  claudeFlagsReady: boolean;
-  unsupportedModes?: AgentMode[];
+  providers: Record<AgentProvider, ProviderHealth>;
   message?: string;
 }
+
+const AGENT_MODES: readonly AgentMode[] = ['ask', 'plan', 'agent'];
+const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
+const PROVIDER_LABELS: Record<AgentProvider, string> = { claude: 'Claude', codex: 'Codex' };
 
 /** Sent when the user draws and hits send without typing anything. */
 const SKETCH_ONLY_INSTRUCTION = 'I drew the attached sketch. Read it as my instruction: say what you understand it to mean, then answer it against this repository.';
 
-function newLocalThread(server: { id: string; projectId: string; createdAt: string }, index: number): ChatThread {
+function newLocalThread(server: { id: string; projectId: string; createdAt: string; provider: AgentProvider }, index: number): ChatThread {
   return {
     version: 1,
     id: server.id,
@@ -46,6 +48,7 @@ function newLocalThread(server: { id: string; projectId: string; createdAt: stri
     title: `Conversation ${index + 1}`,
     createdAt: server.createdAt,
     updatedAt: server.createdAt,
+    provider: server.provider,
     messages: [],
     pinnedDiagramIds: [],
     annotations: {},
@@ -71,6 +74,7 @@ export function AppShell() {
   const [projectId, setProjectId] = useState('');
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [threadId, setThreadId] = useState<string>();
+  const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState('Ready for an instruction');
@@ -101,10 +105,17 @@ export function AppShell() {
 
   const thread = useMemo(() => threads.find((item) => item.id === threadId), [threads, threadId]);
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
-  const unsupportedModes = useMemo(() => health?.unsupportedModes || [], [health]);
+  const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => health?.providers[provider]?.available), [health]);
+  const activeProvider = thread?.provider || newProvider;
+  const providerHealth = health?.providers[activeProvider];
+  const unsupportedModes = useMemo(() => health
+    ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
+    : [], [health, providerHealth]);
   // A mode the installed CLI cannot run falls back to Ask rather than failing at send time.
   const storedMode = thread?.defaultMode || 'ask';
-  const mode: AgentMode = unsupportedModes.includes(storedMode) ? 'ask' : storedMode;
+  const mode: AgentMode = unsupportedModes.includes(storedMode)
+    ? providerHealth?.supportedModes[0] || 'ask'
+    : storedMode;
   const attachedCanvases = useMemo(() => {
     if (!thread) return [];
     return pendingAttachmentIds.flatMap((id) => {
@@ -127,6 +138,8 @@ export function AppShell() {
       setHealth(healthResult);
       setProjects(projectResult.projects);
       setProjectDiscoveryDepth(projectResult.discoveryDepth);
+      const healthy = AGENT_PROVIDERS.filter((provider) => healthResult.providers[provider]?.available);
+      setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
       if (projectResult.projects.length) {
         let savedProjectId: string | undefined;
         try { savedProjectId = loadSelectedProjectId(); } catch { /* Fall back to the first available project. */ }
@@ -178,14 +191,19 @@ export function AppShell() {
       : item));
   }, []);
 
-  const createThread = useCallback(async () => {
+  const createThread = useCallback(async (requestedProvider: AgentProvider = newProvider) => {
     if (!projectId || running) return;
     setNotice(undefined);
     try {
       const response = await fetch('/api/threads', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, provider: requestedProvider }),
       });
-      const data = await response.json() as { thread?: { id: string; projectId: string; createdAt: string }; error?: string };
+      const data = await response.json() as {
+        thread?: { id: string; projectId: string; createdAt: string; provider: AgentProvider };
+        error?: string;
+      };
       if (!response.ok || !data.thread) throw new Error(data.error || 'Could not create a conversation.');
       const created = newLocalThread(data.thread, threads.length);
       setThreads((current) => [created, ...current]);
@@ -195,7 +213,7 @@ export function AppShell() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a conversation.');
     }
-  }, [projectId, running, threads.length]);
+  }, [newProvider, projectId, running, threads.length]);
 
   const switchProject = (next: string) => {
     if (next === projectId) return;
@@ -387,6 +405,10 @@ export function AppShell() {
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
+    if (!providerHealth?.available || !providerHealth.supportedModes.includes(turnMode)) {
+      setNotice(providerHealth?.message || `${PROVIDER_LABELS[activeProvider]} is not available for ${turnMode} mode.`);
+      return;
+    }
     setNotice(undefined);
     setMissingSession(false);
     setContinueMode(undefined);
@@ -450,7 +472,9 @@ export function AppShell() {
     setToolActivity([]);
     setPermissions([]);
     setRunning(true);
-    setStatus(turnMode === 'agent' ? 'Starting agent' : 'Starting read-only agent');
+    setStatus(turnMode === 'agent'
+      ? `Starting ${PROVIDER_LABELS[activeProvider]} agent`
+      : `Starting read-only ${PROVIDER_LABELS[activeProvider]} agent`);
     const controller = new AbortController();
     abortRef.current = controller;
     let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
@@ -494,7 +518,7 @@ export function AppShell() {
       setDecidingPermission(undefined);
       setStatus('Ready for an instruction');
     }
-  }, [composer, consumeStream, mode, mutateThread, pendingAttachmentIds, running, thread]);
+  }, [activeProvider, composer, consumeStream, mode, mutateThread, pendingAttachmentIds, providerHealth, running, thread]);
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
   const cancelRun = useCallback(async () => {
@@ -550,11 +574,11 @@ export function AppShell() {
 
   const executePlan = useCallback(() => {
     if (unsupportedModes.includes('agent')) {
-      setNotice('Agent mode needs a newer Claude Code. Run `claude update`, then execute the plan.');
+      setNotice(providerHealth?.message || `${PROVIDER_LABELS[activeProvider]} Agent mode is unavailable.`);
       return;
     }
     void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent' });
-  }, [send, unsupportedModes]);
+  }, [activeProvider, providerHealth, send, unsupportedModes]);
 
   if (loading) return <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>;
 
@@ -564,7 +588,16 @@ export function AppShell() {
         <div className="brand"><span className="brand-mark">C</span><span><strong>Cartograph</strong><small>conversational code canvas</small></span></div>
         <div className="header-pickers">
           <ProjectPicker projects={projects} value={projectId} discoveryDepth={projectDiscoveryDepth} disabled={running} onChange={switchProject} />
-          <ThreadPicker threads={threads} value={threadId} disabled={running || !projectId} onChange={setThreadId} onNew={() => void createThread()} />
+          <ThreadPicker
+            threads={threads}
+            value={threadId}
+            disabled={running || !projectId}
+            providers={selectableProviders}
+            newProvider={newProvider}
+            onChange={setThreadId}
+            onNewProvider={setNewProvider}
+            onNew={(provider) => void createThread(provider)}
+          />
         </div>
         <div className="header-actions">
           {projectId && (
@@ -577,7 +610,12 @@ export function AppShell() {
               Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
             </button>
           )}
-          <span className={`health-pill ${health?.ok ? 'ready' : 'warning'}`} title={health?.message || 'Local readiness'}><span />{health?.ok ? 'Agent ready' : 'Setup needed'}</span>
+          <span
+            className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
+            title={providerHealth?.message || health?.message || 'Local readiness'}
+          >
+            <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
+          </span>
           {thread && <button type="button" onClick={() => exportThread(thread)}>Export</button>}
         </div>
       </header>
@@ -595,7 +633,7 @@ export function AppShell() {
       {notice && (
         <div className="notice-banner" role="status">
           <span>{notice}</span>
-          {missingSession && <button type="button" onClick={() => { void createThread(); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {missingSession && <button type="button" onClick={() => { void createThread(thread?.provider || 'claude'); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {continueMode && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button>
         </div>
@@ -609,8 +647,10 @@ export function AppShell() {
           <span className="eyebrow">Local exploration, planning, and building</span>
           <h1>Your repository,<br />as a living map.</h1>
           <p>Start a persistent conversation. Ask questions, build a diagram, draw directly on it, and use those marks in your next instruction. Switch to Plan for an approvable plan, or Agent to build behind explicit approvals.</p>
-          <button type="button" className="primary-cta" onClick={() => void createThread()}>New conversation <span>→</span></button>
-          <small>Claude Code runs locally on your own login. Ask and Plan stay read-only; Agent asks before every change.</small>
+          <button type="button" className="primary-cta" disabled={!selectableProviders.length} onClick={() => void createThread(newProvider)}>New conversation <span>→</span></button>
+          <small>{selectableProviders.length
+            ? `${selectableProviders.map((provider) => PROVIDER_LABELS[provider]).join(' and ')} run locally on your own login. Ask and Plan stay read-only; Agent appears only where its approval contract is verified.`
+            : 'Install and authenticate Claude Code or Codex to start a local conversation.'}</small>
         </div>
       ) : (
         <>

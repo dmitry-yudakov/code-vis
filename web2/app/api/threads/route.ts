@@ -12,9 +12,14 @@ export async function POST(request: Request): Promise<Response> {
     const config = getConfig();
     const projects = getProjectRegistry(config.projectsRoot, config.projectDiscoveryDepth);
     await projects.resolve(parsed.data.projectId);
-    const thread = await getThreadRegistry(config.dataDir).create(parsed.data.projectId);
+    const thread = await getThreadRegistry(config.dataDir).create(parsed.data.projectId, parsed.data.provider);
     return safeJsonResponse({
-      thread: { id: thread.id, projectId: thread.projectId, createdAt: thread.createdAt },
+      thread: {
+        id: thread.id,
+        projectId: thread.projectId,
+        createdAt: thread.createdAt,
+        provider: thread.agent.provider,
+      },
     }, { status: 201 });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 400 });

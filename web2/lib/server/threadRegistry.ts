@@ -1,14 +1,40 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ServerThread } from '@/lib/shared/types';
+import type { AgentProvider, ServerThread } from '@/lib/shared/types';
 
 interface RegistryFile {
-  version: 1;
+  version: 2;
   threads: ServerThread[];
 }
 
+interface LegacyServerThread extends Omit<ServerThread, 'agent'> {
+  claudeSessionStarted: boolean;
+}
+
+interface LegacyRegistryFile {
+  version: 1;
+  threads: LegacyServerThread[];
+}
+
 function validThread(value: unknown): value is ServerThread {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.id === 'string'
+    && /^[0-9a-f-]{36}$/i.test(item.id)
+    && typeof item.projectId === 'string'
+    && typeof item.createdAt === 'string'
+    && typeof item.updatedAt === 'string'
+    && Boolean(item.agent && typeof item.agent === 'object')
+    && ['claude', 'codex'].includes(String((item.agent as Record<string, unknown>).provider))
+    && typeof (item.agent as Record<string, unknown>).started === 'boolean'
+    && ((item.agent as Record<string, unknown>).sessionId === undefined
+      || typeof (item.agent as Record<string, unknown>).sessionId === 'string')
+    && ((item.agent as Record<string, unknown>).started !== true
+      || typeof (item.agent as Record<string, unknown>).sessionId === 'string');
+}
+
+function validLegacyThread(value: unknown): value is LegacyServerThread {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
   return typeof item.id === 'string'
@@ -31,13 +57,24 @@ export class ThreadRegistry {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
     await chmod(this.dataDir, 0o700).catch(() => undefined);
     try {
-      const parsed = JSON.parse(await readFile(this.filePath, 'utf8')) as RegistryFile;
-      if (parsed.version !== 1 || !Array.isArray(parsed.threads) || !parsed.threads.every(validThread)) {
-        throw new Error('Thread registry has an unsupported or invalid format');
+      const parsed = JSON.parse(await readFile(this.filePath, 'utf8')) as RegistryFile | LegacyRegistryFile;
+      if (parsed.version === 2 && Array.isArray(parsed.threads) && parsed.threads.every(validThread)) return parsed;
+      if (parsed.version === 1 && Array.isArray(parsed.threads) && parsed.threads.every(validLegacyThread)) {
+        return {
+          version: 2,
+          threads: parsed.threads.map(({ claudeSessionStarted, ...thread }) => ({
+            ...thread,
+            agent: {
+              provider: 'claude',
+              started: claudeSessionStarted,
+              sessionId: claudeSessionStarted ? thread.id : undefined,
+            },
+          })),
+        };
       }
-      return parsed;
+      throw new Error('Thread registry has an unsupported or invalid format');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, threads: [] };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 2, threads: [] };
       throw error;
     }
   }
@@ -60,11 +97,12 @@ export class ThreadRegistry {
     return result;
   }
 
-  async create(projectId: string): Promise<ServerThread> {
+  async create(projectId: string, provider: AgentProvider): Promise<ServerThread> {
     return this.mutate((data) => {
       const now = new Date().toISOString();
       const thread: ServerThread = {
-        id: randomUUID(), projectId, createdAt: now, updatedAt: now, claudeSessionStarted: false,
+        id: randomUUID(), projectId, createdAt: now, updatedAt: now,
+        agent: { provider, started: false },
       };
       data.threads.push(thread);
       return thread;
@@ -77,12 +115,16 @@ export class ThreadRegistry {
     return thread;
   }
 
-  async markSessionStarted(id: string, sessionId: string): Promise<void> {
-    if (id !== sessionId) throw new Error('Agent initialized an unexpected session');
+  async markSessionStarted(id: string, provider: AgentProvider, sessionId: string): Promise<void> {
+    if (!sessionId.trim()) throw new Error('Agent initialized an invalid session');
     await this.mutate((data) => {
       const thread = data.threads.find((item) => item.id === id);
       if (!thread) throw new Error('Unknown thread');
-      thread.claudeSessionStarted = true;
+      if (thread.agent.provider !== provider) throw new Error('Agent initialized the wrong provider session');
+      if (thread.agent.sessionId && thread.agent.sessionId !== sessionId) {
+        throw new Error('Agent initialized an unexpected session');
+      }
+      thread.agent = { provider, sessionId, started: true };
       thread.updatedAt = new Date().toISOString();
     });
   }

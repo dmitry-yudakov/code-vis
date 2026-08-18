@@ -1,7 +1,7 @@
 import { access, chmod, mkdir, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { getConfig } from '@/lib/server/config';
-import { checkClaude } from '@/lib/server/claudePreflight';
+import { getProviderAdapters } from '@/lib/server/providerRegistry';
 import { safeJsonResponse } from '@/lib/shared/protocol';
 
 export const runtime = 'nodejs';
@@ -27,14 +27,17 @@ export async function GET(): Promise<Response> {
   } catch {
     readinessMessage ||= 'Data directory is unavailable.';
   }
-  const claude = await checkClaude(config.claudeBin);
+  const adapters = getProviderAdapters(config);
+  const [claude, codex] = await Promise.all([
+    adapters.claude.checkHealth(),
+    adapters.codex.checkHealth(),
+  ]);
+  const providerReady = claude.available || codex.available;
   return safeJsonResponse({
-    ok: projectsRootReady && dataDirectoryReady && claude.binaryReady && claude.flagsReady,
+    ok: projectsRootReady && dataDirectoryReady && providerReady,
     projectsRootReady,
     dataDirectoryReady,
-    claudeBinaryReady: claude.binaryReady,
-    claudeFlagsReady: claude.flagsReady,
-    unsupportedModes: claude.unsupportedModes,
-    message: readinessMessage || claude.message,
+    providers: { claude, codex },
+    message: readinessMessage || (!providerReady ? claude.message || codex.message : undefined),
   });
 }

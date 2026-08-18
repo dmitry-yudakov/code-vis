@@ -5,7 +5,8 @@ import { getConfig } from '@/lib/server/config';
 import { getProjectRegistry } from '@/lib/server/projectRegistry';
 import { getThreadRegistry } from '@/lib/server/threadRegistry';
 import { runRegistry } from '@/lib/server/runRegistry';
-import { AgentRunError, ClaudeProcessRunner } from '@/lib/server/claudeProcessRunner';
+import { AgentRunError } from '@/lib/server/agentRunError';
+import { getProviderAdapters } from '@/lib/server/providerRegistry';
 import { runConversation } from '@/lib/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 
@@ -37,6 +38,13 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 404 });
   }
+  const mode = parsed.data.mode || 'ask';
+  const adapter = getProviderAdapters(config)[thread.agent.provider];
+  if (!adapter.supportedModes.includes(mode)) {
+    return safeJsonResponse({
+      error: `${thread.agent.provider === 'codex' ? 'Codex' : 'Claude'} does not support ${mode} mode in this Cartograph configuration.`,
+    }, { status: 409 });
+  }
 
   const runId = randomUUID();
   const abortController = new AbortController();
@@ -53,12 +61,7 @@ export async function POST(request: Request): Promise<Response> {
     onDetach: () => runRegistry.unsubscribe(runId),
     start(write) {
       runRegistry.subscribe(thread.id, write);
-      const runner = new ClaudeProcessRunner({
-        binary: config.claudeBin,
-        model: config.claudeModel,
-        maxOutputBytes: config.maxAssistantBytes,
-        debug: config.debugAgent,
-      });
+      const runner = adapter.createRunner();
       return runConversation({
         runId,
         request: parsed.data,
@@ -78,7 +81,7 @@ export async function POST(request: Request): Promise<Response> {
           code: known?.code || (abortController.signal.aborted ? 'cancelled' : 'internal'),
           message: known?.message || (abortController.signal.aborted ? 'The request was cancelled.' : publicError(error)),
           retryable: known?.retryable ?? true,
-          delivery: known?.delivery || (thread.claudeSessionStarted ? 'possibly-sent' : 'not-sent'),
+          delivery: known?.delivery || (thread.agent.started ? 'possibly-sent' : 'not-sent'),
         });
         emit({ type: 'done', runId, durationMs: 0, cancelled: known?.code === 'cancelled' || abortController.signal.aborted });
       }).finally(() => runRegistry.finish(runId));

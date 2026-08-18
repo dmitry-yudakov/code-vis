@@ -1,4 +1,4 @@
-import type { AgentMode, CanvasTarget, ChatThread, DiagramArtifact, SketchCanvas } from '@/lib/shared/types';
+import type { AgentMode, AgentProvider, CanvasTarget, ChatThread, DiagramArtifact, SketchCanvas } from '@/lib/shared/types';
 import { normalizeMermaidSource, validateMermaidSource } from '@/lib/diagram/mermaidPolicy';
 
 const PREFIX = 'code-ai:web2:v1:';
@@ -27,6 +27,7 @@ function isThread(value: unknown, projectId: string): value is ChatThread {
     && typeof item.id === 'string'
     && item.projectId === projectId
     && typeof item.title === 'string'
+    && (item.provider === undefined || item.provider === 'claude' || item.provider === 'codex')
     && Array.isArray(item.messages)
     && Array.isArray(item.pinnedDiagramIds)
     // Threads saved before sketches existed have no `sketches` key at all.
@@ -73,6 +74,8 @@ export function loadProjectThreads(projectId: string, storage: Storage = localSt
   }
   return parsed.threads.map((thread) => ({
     ...thread,
+    // v1 localStorage predates provider selection; all such conversations were Claude sessions.
+    provider: (thread.provider || 'claude') as AgentProvider,
     defaultMode: knownMode(thread.defaultMode),
     messages: thread.messages.map((message) => message.role === 'assistant' ? {
       ...message,

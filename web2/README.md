@@ -1,18 +1,20 @@
 # Cartograph `web2`
 
-An isolated, local-first prototype for working on a repository through a persistent Claude Code
-conversation and a large Mermaid canvas. Conversation is the command/history channel; once a
-diagram exists, the canvas becomes the primary workspace. Each message runs in one of three
-modes — **Ask**, **Plan**, or **Agent**.
+An isolated, local-first prototype for working on a repository through a persistent local-agent
+conversation and a large Mermaid canvas. Choose Claude Code or Codex when creating a conversation;
+that provider stays attached to the thread. Conversation is the command/history channel, and once
+a diagram exists the canvas becomes the primary workspace. Each message runs in one of three modes
+— **Ask**, **Plan**, or **Agent**, subject to the selected provider's supported modes.
 
 ## Requirements
 
 - Node.js 20 or newer and Yarn 1
-- a locally installed, current `claude` binary
-- Claude Code authenticated as the desktop user (`claude` once in a terminal if needed)
+- at least one current local agent CLI: `claude` and/or `codex`
+- the chosen CLI authenticated as the desktop user (`claude` or `codex login` if needed)
 - one trusted local project, or a directory whose immediate children are trusted projects
 
-Claude credentials remain owned by Claude Code. `web2` does not read, copy, or persist them.
+Provider credentials remain owned by the installed CLI. `web2` inherits the launch environment but
+does not read, copy, or persist login material.
 
 ## Start
 
@@ -35,7 +37,7 @@ Useful commands:
 ```sh
 yarn dev       # Next.js development server on 3023
 yarn start     # production server on 3023, after yarn build
-yarn test      # offline test suite with a fake Claude executable
+yarn test      # offline suite with fake Claude and Codex executables
 yarn lint      # strict TypeScript check
 yarn build     # production build
 yarn test:e2e  # production build + Playwright/installed Chrome canvas workflow
@@ -44,14 +46,13 @@ yarn test:e2e  # production build + Playwright/installed Chrome canvas workflow
 ## Conversation modes
 
 Every message carries a mode. The browser sends only the mode name; the server resolves it to a
-fixed profile. Threads stay mode-agnostic — the same native Claude session serves an Ask turn and
-then an Agent turn over `--resume`.
+fixed provider policy. A thread can change modes but cannot change providers; later turns resume
+the provider-owned session recorded for that Cartograph thread.
 
 | | Ask (default) | Plan | Agent |
 |---|---|---|---|
 | Purpose | Q&A, review, diagrams | An approvable implementation plan | Building in the working tree |
-| Tools | `Read,Glob,Grep,Bash` | same as Ask | CLI default toolset |
-| Permission mode | `plan` | `plan` | `default` |
+| Provider policy | server-owned read-only profile | server-owned read-only profile | provider approval profile |
 | Side effects | never | never | only after you approve each one |
 | Prompts you | never | never | permission cards in the chat |
 | Budget per message | 20 turns / 5 min | 20 turns / 5 min | 200 turns / 30 min |
@@ -61,16 +62,22 @@ capability and differs by contract: the turn ends with a delimited plan and the 
 **Execute plan** button. Executing sends an ordinary follow-up turn in Agent mode that resumes the
 same session, so the executing agent keeps all of the research context. Nothing auto-executes.
 
-**Agent** runs with the CLI's default toolset. Every side effect raises a permission card in the
+**Agent** runs with the provider's server-owned approval policy. Every side effect raises a permission card in the
 conversation with **Allow** / **Deny**; the floating canvas control shows a pending badge so
 full-screen users notice. Deny does not kill the run — the model is told and continues. An
 unanswered card is auto-denied after `CODEAI_WEB2_APPROVAL_TIMEOUT_MS` (default 10 minutes), and
 the run's own timeout clock is paused while a card is pending. Cancelling resolves pending cards as
 denied before terminating the child.
 
-Agent mode edits **the real working tree** of the selected project, exactly like terminal Claude
-Code. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
+Agent mode edits **the real working tree** of the selected project, exactly like the corresponding
+terminal agent. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
 deliberately out of scope for now.
+
+Claude currently supports all three modes. Codex supports Ask and Plan by default. Codex Agent is
+a release gate: set `CODEAI_WEB2_CODEX_AGENT=1` only after the installed App Server has passed the
+real write, command, network-escalation, denial, and cancellation approval matrix documented in
+`docs/experiment-log.md`. Without that opt-in, the UI reports Codex Agent as unsupported rather
+than silently granting workspace writes.
 
 **A run outlives the page that started it.** Closing the tab, reloading, or a dev-server refresh
 only detaches the browser — the agent keeps working, and reopening the conversation reattaches to
@@ -84,9 +91,9 @@ Building spends turns on research long before the first edit, so Agent gets its 
 message still runs out, the turn ends with an explicit notice and a **Continue** action — the
 session is intact, so the agent picks up where it stopped.
 
-### Git read allowlist (all modes)
+### Claude Git read allowlist
 
-All three modes add `Bash`, gated by a fixed server-owned rule set:
+Claude modes add `Bash`, gated by a fixed server-owned rule set:
 
 ```text
 Bash(git log:*)    Bash(git show:*)    Bash(git diff:*)    Bash(git status:*)
@@ -105,9 +112,10 @@ looking read-only, they are arbitrary command execution.
 
 ## Safety model
 
-Every run uses a server-owned profile — `ask-readonly`, `plan-readonly`, or `agent-full`. The
-browser can name a mode and nothing else: executable, tool list, allowlist, permission mode, model
-flags, environment variables, and settings all stay server-owned, and an unknown mode is a 400.
+Every run uses a server-owned provider profile. The browser can name a supported mode and nothing
+else: provider, executable, tool list, allowlist, permission mode, model flags, environment
+variables, sandbox, and settings all stay server-owned. An unknown or unsupported mode is a 400.
+
 Claude is spawned without a shell in the selected project's directory with:
 
 - safe mode (project hooks, skills, MCP, and custom commands stay disabled), strict empty MCP
@@ -117,37 +125,47 @@ Claude is spawned without a shell in the selected project's directory with:
 - a bounded turn count, timeout, output size, and one global active process;
 - native session persistence (`--session-id` first, `--resume` later).
 
+Codex is spawned as a local [`codex app-server`](https://learn.chatgpt.com/docs/app-server) stdio
+child for each active turn. Cartograph performs the App Server handshake, starts or resumes the
+stored Codex thread, and streams the turn without opening a listener port. Ask and Plan use a
+read-only sandbox with network disabled. Server-owned overrides disable MCP servers, apps,
+plugins, hooks, web search, subagents, custom commands, and non-system skills; preflight also
+queries the effective integration inventory and fails closed if an ambient executable capability
+remains enabled. App Server approval requests are correlated to the active turn, sanitized, and
+resolved as one-shot allow/deny decisions through the same permission cards.
+
 Status and diff context are generated by fixed, read-only, no-shell Git invocations and placed with
 diagram snapshots in a per-run temporary directory outside the project. It is always removed after
 the turn.
 
-This is a capability restriction, **not an operating-system sandbox**. Claude Code still runs as
-your desktop user, and in Agent mode it changes real files once you approve. Use this prototype
+This is a capability restriction, **not a separate operating-system or container boundary**. The
+selected CLI still runs as your desktop user, and in Agent mode it changes real files once you
+approve. Use this prototype
 only with repositories you trust. It is not designed for remote hosting, multi-user use, or
 untrusted projects.
 
 ## Authentication and billing (bring your own)
 
-The spawned process inherits the environment of whatever started `web2`, unchanged. Whatever your
-Claude Code already uses — a claude.ai subscription login, an Anthropic-compatible endpoint set
-through `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` (z.ai, Kimi, …), or your own API key — applies
-to `web2` runs exactly as it does in your terminal. `web2` adds no provider credentials or endpoint
-variables of its own and never persists any. **Billing follows the login and environment of
-whoever starts `web2`.**
+The spawned process inherits the environment of whatever started `web2`, unchanged. Whatever the
+selected local CLI already uses — a subscription login, compatible endpoint environment, or API
+key — applies to `web2` runs exactly as it does in the terminal. `web2` adds no provider
+credentials or endpoint variables and never persists any. **Billing follows the login and
+environment of whoever starts `web2`.**
 
 ## How conversations and data work
 
-- A browser-generated thread UUID is registered server-side and also becomes the native Claude
-  session ID. A thread is permanently bound to one opaque project ID.
-- The minimal server registry stores only UUID, project ID, timestamps, and whether the native
-  session started. It uses atomic writes and user-only permissions.
+- A browser-generated Cartograph thread UUID is registered server-side. A thread is permanently
+  bound to one opaque project ID and one provider; its provider session ID is stored separately.
+- The minimal server registry stores only Cartograph UUID, project ID, timestamps, provider, and
+  provider-session continuity. It uses atomic writes and user-only permissions. Older registries
+  and browser threads migrate to Claude without changing their IDs or content.
 - Transcript, Mermaid artifacts, evidence references, pins, active selection, and vector marks are
   stored in versioned browser `localStorage`. Composite PNGs, repository files, and diffs are not.
-- Reloading restores browser state; later turns resume the native Claude session without replaying
+- Reloading restores browser state; later turns resume the native provider session without replaying
   the full transcript.
-- If Claude's native session is missing, visible history is retained and the UI offers an explicit
+- If the provider's native session is missing, visible history is retained and the UI offers an explicit
   new-session continuation with a visible bounded recap.
-- Export produces conversation/diagram/mark JSON without Claude credentials or server paths.
+- Export includes the conversation provider and diagram/mark state without credentials or server paths.
 
 Local `.env*`, `.next`, `node_modules`, coverage, and TypeScript build state are ignored. The
 tracked `.env.example` contains no secrets.
@@ -186,15 +204,18 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_WEB2_PROJECTS_ROOT` — required project or projects directory;
 - `CODEAI_WEB2_PROJECTS_DEPTH` — nested discovery depth, from 1–10 (default `1`);
 - `CODEAI_WEB2_CLAUDE_BIN` / `CODEAI_WEB2_CLAUDE_MODEL` — local agent executable and optional model;
+- `CODEAI_WEB2_CODEX_BIN` / `CODEAI_WEB2_CODEX_MODEL` — local Codex executable and optional model;
+- `CODEAI_WEB2_CODEX_AGENT` — explicit Codex Agent release gate; unset means Ask/Plan only;
 - `CODEAI_WEB2_DATA_DIR` — minimal server registry (tilde expansion is handled in Node);
 - `CODEAI_WEB2_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
 - `CODEAI_WEB2_AGENT_*` / `CODEAI_WEB2_BUILD_*` — per-message turn and time budgets for Ask/Plan
   and for Agent respectively;
 - response, Mermaid, attachment, and Git-context bounds.
 
-The health endpoint checks the projects root, data directory, executable, and the CLI flags each
-shipped mode needs through `claude --help`; it never invokes a model. An outdated CLI is reported
-with the modes and flags that are missing.
+The health endpoint checks infrastructure and each provider independently, without invoking a
+model. Claude flags are checked through `claude --help`; Codex performs a bounded App Server
+handshake plus account and effective-capability inventory. A missing, logged-out, incompatible, or
+over-capable provider is reported without making a healthy provider unusable.
 
 ## Known limitations
 
@@ -205,8 +226,8 @@ with the modes and flags that are missing.
 - Mermaid subgraphs cannot be generically collapsed; large diagrams use pan/zoom/fit and agent revision.
 - Agent mode works directly in the checked-out tree: no worktree isolation, no apply/discard
   checkpoints, and no policy on pre-existing uncommitted changes. Review with `git`.
-- Every side effect prompts; there is no "always allow" or `acceptEdits` tier yet.
+- Every shipped Agent side effect prompts; there is no "always allow" or `acceptEdits` tier yet.
 - Source excerpts and editor deep links are still outside the experiment.
-- Native Claude session history remains owned by Claude Code; deleting local browser data does not
+- Native provider session history remains owned by its CLI; deleting local browser data does not
   delete that history.
 - The real-agent experiment matrix is manual and is tracked in `docs/experiment-log.md`.

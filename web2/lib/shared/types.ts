@@ -40,12 +40,27 @@ export interface GitFileDiff {
   unstaged?: string;
 }
 
+export type AgentProvider = 'claude' | 'codex';
+
+export interface ProviderSessionRef {
+  provider: AgentProvider;
+  sessionId?: string;
+  started: boolean;
+}
+
 export interface ServerThread {
   id: string;
   projectId: string;
   createdAt: string;
   updatedAt: string;
-  claudeSessionStarted: boolean;
+  agent: ProviderSessionRef;
+}
+
+export interface ProviderHealth {
+  available: boolean;
+  authenticated: boolean | 'unknown';
+  supportedModes: AgentMode[];
+  message?: string;
 }
 
 export type DrawingTool = 'pointer' | 'pan' | 'pen' | 'rectangle' | 'arrow' | 'text' | 'eraser';
@@ -181,6 +196,8 @@ export interface ChatThread {
   title: string;
   createdAt: string;
   updatedAt: string;
+  /** Absent in localStorage written before provider support means Claude. */
+  provider?: AgentProvider;
   messages: ChatMessage[];
   /** Points at a diagram artifact or a sketch — both share one canvas id space. */
   activeDiagramId?: string;
@@ -296,7 +313,7 @@ export interface AgentProcessEvent {
 export interface AgentProcessRun {
   runId: string;
   project: ServerProject;
-  session: { id: string; action: 'start' | 'resume' };
+  session: { id?: string; action: 'start' | 'resume' };
   prompt: string;
   attachmentDirectory: string;
   policy: ResolvedAgentPolicy;
@@ -315,4 +332,11 @@ export interface AgentProcessResult {
 
 export interface AgentProcessRunner {
   run(input: AgentProcessRun): Promise<AgentProcessResult>;
+}
+
+export interface AgentProviderAdapter {
+  readonly id: AgentProvider;
+  readonly supportedModes: readonly AgentMode[];
+  checkHealth(): Promise<ProviderHealth>;
+  createRunner(): AgentProcessRunner;
 }

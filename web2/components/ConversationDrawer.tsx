@@ -7,6 +7,8 @@ import { ChatMessage } from './ChatMessage';
 import { InstructionComposer } from './InstructionComposer';
 import { PermissionCard } from './PermissionCard';
 
+const PROVIDER_LABELS = { claude: 'Claude', codex: 'Codex' } as const;
+
 export function ConversationDrawer({
   open, thread, preview, toolActivity, permissions, decidingPermission, running, status, composer, mode, unsupportedModes, attached, markCounts,
   onClose, onSelectDiagram, onRetry, onComposer, onModeChange, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
@@ -44,7 +46,11 @@ export function ConversationDrawer({
   return (
     <aside className="conversation-drawer" aria-label="Conversation">
       <header>
-        <div><span className="eyebrow">Conversation</span><strong>{thread?.title || 'New conversation'}</strong></div>
+        <div>
+          <span className="eyebrow">Conversation</span>
+          <strong>{thread?.title || 'New conversation'}</strong>
+          {thread && <span className={`provider-badge provider-${thread.provider || 'claude'}`}>{PROVIDER_LABELS[thread.provider || 'claude']}</span>}
+        </div>
         <button type="button" onClick={onClose} aria-label="Close conversation">×</button>
       </header>
       <div className="conversation-scroll">

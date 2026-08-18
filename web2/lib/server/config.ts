@@ -6,6 +6,9 @@ export interface Web2Config {
   projectDiscoveryDepth: number;
   claudeBin: string;
   claudeModel?: string;
+  codexBin: string;
+  codexModel?: string;
+  codexAgentEnabled: boolean;
   agentTimeoutMs: number;
   agentMaxTurns: number;
   buildTimeoutMs: number;
@@ -42,6 +45,11 @@ export function getConfig(): Web2Config {
     projectDiscoveryDepth: boundedInteger('CODEAI_WEB2_PROJECTS_DEPTH', 1, 1, 10),
     claudeBin: process.env.CODEAI_WEB2_CLAUDE_BIN || 'claude',
     claudeModel: process.env.CODEAI_WEB2_CLAUDE_MODEL || undefined,
+    codexBin: process.env.CODEAI_WEB2_CODEX_BIN || 'codex',
+    codexModel: process.env.CODEAI_WEB2_CODEX_MODEL || undefined,
+    // The adapter implements approvals, but advertising build mode remains an explicit release
+    // gate until the real installed CLI passes the write/command/network parity matrix.
+    codexAgentEnabled: /^(1|true|yes)$/i.test(process.env.CODEAI_WEB2_CODEX_AGENT || ''),
     agentTimeoutMs: boundedInteger('CODEAI_WEB2_AGENT_TIMEOUT_MS', 300_000, 1_000, 1_800_000),
     agentMaxTurns: boundedInteger('CODEAI_WEB2_AGENT_MAX_TURNS', 20, 1, 100),
     // Building needs a far larger budget than answering: research alone can spend the read-only

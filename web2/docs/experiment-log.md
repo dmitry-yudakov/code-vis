@@ -1,5 +1,32 @@
 # Cartograph experiment log
 
+## Story 20 — Codex provider smoke (2026-08-18)
+
+**Outcome:** Passed for the shipped Ask/Plan surface. Ask, Plan, post-Plan cross-restart resume, and
+the canvas local-image/Mermaid path passed. Codex Agent was not advertised and was not tested
+because its separate approval-parity release gate has not passed.
+
+- Environment: Linux, Codex CLI upgraded from `0.137.0` to `0.147.0`, trusted Cartograph
+  repository, production Next.js build.
+- Model-free readiness: passed. Existing authentication was reused; Ask/Plan were exposed; Agent
+  was withheld. An inherited `context_7` MCP entry was discovered, disabled by name in the
+  ephemeral/thread config, and verified thread-scoped with no server info, tools, resources, or
+  templates before any prompt was sent.
+- Compatibility finding: CLI `0.137.0` reached a native thread but could not decode the current
+  `gpt-5.6-sol` model metadata. An explicit `gpt-5.5` Ask resumed that thread and completed with
+  `CODEX_ASK_OK` in 17.1 seconds. After upgrading, CLI `0.147.0` used the default model successfully.
+- Plan: CLI `0.147.0` resumed the native thread created by `0.137.0`, streamed reasoning and text,
+  produced both Cartograph plan delimiters, and completed with `planProposed: true` in 22.7 seconds.
+- Post-Plan resume: after a full production-server restart, Ask resumed the same native thread,
+  streamed five text deltas, and completed with exactly `CODEX_RESUME_OK` in 16.6 seconds.
+- Canvas path: a bounded composite PNG plus Mermaid/vector manifest reached Codex as one local-image
+  turn. Codex acknowledged the canvas, returned a valid `A --> B` Mermaid flowchart, and Cartograph
+  emitted a `ready` diagram artifact whose `derivedFromDiagramIds` contained the attached canvas.
+- Repository safety: every real turn used the `readOnly` sandbox with network disabled and was
+  explicitly told not to use tools. No Agent turn or write approval was attempted.
+- Remaining optional evidence: Codex Agent's real approval matrix. Until it passes,
+  `CODEAI_WEB2_CODEX_AGENT` remains unset and the product exposes only Ask and Plan.
+
 **Status:** Not yet run with a real authenticated Claude Code session.
 
 Automated tests use `test/fixtures/fake-claude.mjs`; they are implementation verification and do not

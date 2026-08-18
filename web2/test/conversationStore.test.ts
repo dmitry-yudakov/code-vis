@@ -27,12 +27,23 @@ describe('conversationStore', () => {
     const now = new Date().toISOString();
     const thread: ChatThread = {
       version: 1, id: crypto.randomUUID(), projectId: 'p1', title: 'Test', createdAt: now, updatedAt: now,
-      messages: [], pinnedDiagramIds: [], annotations: {},
+      provider: 'codex', messages: [], pinnedDiagramIds: [], annotations: {},
     };
     saveProjectThreads('p1', [thread], storage);
     expect(loadProjectThreads('p1', storage)).toEqual([thread]);
     storage.setItem('code-ai:web2:v1:p2', JSON.stringify({ version: 1, threads: [thread] }));
     expect(() => loadProjectThreads('p2', storage)).toThrow('corrupt');
+  });
+
+  it('migrates local conversations saved before provider selection to Claude', () => {
+    const storage = new MemoryStorage();
+    const now = new Date().toISOString();
+    const legacy = {
+      version: 1, id: crypto.randomUUID(), projectId: 'p1', title: 'Legacy', createdAt: now, updatedAt: now,
+      messages: [], pinnedDiagramIds: [], annotations: {},
+    };
+    storage.setItem('code-ai:web2:v1:p1', JSON.stringify({ version: 1, threads: [legacy] }));
+    expect(loadProjectThreads('p1', storage)[0]).toMatchObject({ id: legacy.id, provider: 'claude' });
   });
 
   it('revives persisted diagrams that pass the current policy without reviving unsafe HTML', () => {

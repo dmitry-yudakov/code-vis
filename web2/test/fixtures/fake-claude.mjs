@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, readSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
@@ -29,40 +29,24 @@ if (args.includes('--help')) {
   process.exit(0);
 }
 
-/** Reads NDJSON lines from stdin without blocking on EOF, so stdin can stay open. */
-function readLines(onLine) {
-  let buffer = '';
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (chunk) => {
-    buffer += chunk;
-    let newline = buffer.indexOf('\n');
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) onLine(JSON.parse(line));
-      newline = buffer.indexOf('\n');
-    }
-  });
+// Synchronous line reads keep the fixture portable to sandboxes where libuv cannot register a
+// child-pipe stream fd. The real CLI remains asynchronous; this fixture needs only one prompt and
+// one approval response at a time.
+function readJsonLine() {
+  const bytes = [];
+  const byte = Buffer.alloc(1);
+  while (readSync(0, byte, 0, 1, null) === 1) {
+    if (byte[0] === 10) break;
+    bytes.push(byte[0]);
+  }
+  return JSON.parse(Buffer.from(bytes).toString('utf8'));
 }
 
-function nextPrompt() {
-  if (!streamingInput) return Promise.resolve(readFileSync(0, 'utf8'));
-  return new Promise((resolve) => {
-    readLines((message) => {
-      if (message.type === 'user' && !resolvedPrompt) {
-        resolvedPrompt = true;
-        const content = message.message?.content;
-        resolve(Array.isArray(content) ? content.map((part) => part.text || '').join('') : String(content ?? ''));
-      } else if (message.type === 'control_response') {
-        pendingControl?.(message);
-      }
-    });
-  });
-}
-let resolvedPrompt = false;
-let pendingControl;
-
-const prompt = await nextPrompt();
+const firstMessage = streamingInput ? readJsonLine() : undefined;
+const content = firstMessage?.message?.content;
+const prompt = streamingInput
+  ? (Array.isArray(content) ? content.map((part) => part.text || '').join('') : String(content ?? ''))
+  : readFileSync(0, 'utf8');
 const record = (extra) => {
   if (attachmentDirectory) {
     writeFileSync(path.join(attachmentDirectory, 'fake-invocation.json'), JSON.stringify({
@@ -112,16 +96,15 @@ else if (streamingInput) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
   const filePath = path.join(process.cwd(), 'README.md');
   emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu-edit', name: 'Edit', input: { file_path: filePath } }] } });
-  const decision = await new Promise((resolve) => {
-    pendingControl = (message) => {
-      if (message.response?.request_id === 'req-permission-1') resolve(message.response.response);
-    };
-    emit({
-      type: 'control_request',
-      request_id: 'req-permission-1',
-      request: { subtype: 'can_use_tool', tool_name: 'Edit', input: { file_path: filePath, old_string: 'a', new_string: 'b' } },
-    });
+  emit({
+    type: 'control_request',
+    request_id: 'req-permission-1',
+    request: { subtype: 'can_use_tool', tool_name: 'Edit', input: { file_path: filePath, old_string: 'a', new_string: 'b' } },
   });
+  const control = readJsonLine();
+  const decision = control.response?.request_id === 'req-permission-1'
+    ? control.response.response
+    : { behavior: 'deny', message: 'Unexpected control response' };
   record({ decision });
   const text = decision.behavior === 'allow'
     ? 'Edit approved — I applied it.'

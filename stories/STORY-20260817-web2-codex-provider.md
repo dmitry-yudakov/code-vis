@@ -1,6 +1,6 @@
 # Story 20 — Add Codex as a safe first-class web2 provider
 
-**Status:** Draft · **Type:** Full-stack ·
+**Status:** Shipped · **Type:** Full-stack ·
 **Depends on:** [Story 19](STORY-20260806-web2-conversation-modes.md) ·
 **Epic:** [web2 operational collaboration](EPIC-20260806-web2-operational-collaboration.md)
 
@@ -21,32 +21,32 @@ This foundation deliberately ships before multi-agent roles. A safe, well-tested
 is independently useful and removes provider-protocol risk from
 [Story 23](STORY-20260817-web2-multi-agent-roles.md).
 
-## Current behavior (where the code is)
+## Implementation (where the code is)
 
-- Server thread state is Claude-shaped: [web2/lib/shared/types.ts](../web2/lib/shared/types.ts#L11)
-  and [threadRegistry.ts](../web2/lib/server/threadRegistry.ts#L63) store only
-  `claudeSessionStarted`; `markSessionStarted` also requires the Cartograph thread id and
-  provider session id to be identical.
-- The conversation service otherwise depends on the provider-neutral `AgentProcessRunner`
-  seam, but constructs a session from the Cartograph thread id:
-  [conversationService.ts](../web2/lib/conversation/conversationService.ts#L58).
-- The message route instantiates `ClaudeProcessRunner` directly:
-  [POST /api/agent/message](../web2/app/api/agent/message/route.ts#L50).
-- Claude CLI arguments, streaming, and approvals are implemented in
-  [claudeInvocation.ts](../web2/lib/server/claudeInvocation.ts#L1) and
-  [claudeProcessRunner.ts](../web2/lib/server/claudeProcessRunner.ts#L117).
-- Configuration and readiness expose Claude-specific fields:
-  [config.ts](../web2/lib/server/config.ts#L4),
-  [claudePreflight.ts](../web2/lib/server/claudePreflight.ts#L5), and
-  [GET /api/health](../web2/app/api/health/route.ts#L30).
-- New conversations cannot name a provider; the request schema accepts only `projectId`:
-  [protocol.ts](../web2/lib/shared/protocol.ts#L59), with creation in
-  [AppShell.tsx](../web2/components/AppShell.tsx#L177).
-- The browser's health contract and user-facing copy name Claude Code directly:
-  [AppShell.tsx](../web2/components/AppShell.tsx#L27).
-- The deprecated server has a one-shot `codex exec --json` integration, but it has no durable
-  web2 session, interactive approval, or cancellation contract:
-  [server/src/llm/cliAgent.ts](../server/src/llm/cliAgent.ts#L1).
+- Provider, health, adapter, and separate provider-session contracts live in
+  [web2/lib/shared/types.ts](../web2/lib/shared/types.ts#L43). The v2 atomic registry persists
+  them and migrates v1 Claude state in
+  [threadRegistry.ts](../web2/lib/server/threadRegistry.ts#L64).
+- Strict browser requests require a provider only when creating a thread and reject it on a
+  message turn: [protocol.ts](../web2/lib/shared/protocol.ts#L43). The message route resolves the
+  immutable server-side provider through the registry:
+  [POST /api/agent/message](../web2/app/api/agent/message/route.ts#L42).
+- Claude and Codex implement the common registry in
+  [providerRegistry.ts](../web2/lib/server/providerRegistry.ts#L38); per-provider readiness is
+  additive in [GET /api/health](../web2/app/api/health/route.ts#L40).
+- The Codex stdio handshake, thread start/resume, bounded streaming, activity, one-shot approvals,
+  and interrupt flow are in
+  [codexProcessRunner.ts](../web2/lib/server/codexProcessRunner.ts#L95). Server-owned configuration,
+  read-only/no-network modes, per-thread MCP disabling, and effective-policy validation are in
+  [codexInvocation.ts](../web2/lib/server/codexInvocation.ts#L9).
+- Provider selection, capability-aware modes, provider status, and immutable browser persistence
+  are implemented in [AppShell.tsx](../web2/components/AppShell.tsx#L77),
+  [ThreadPicker.tsx](../web2/components/ThreadPicker.tsx#L7), and
+  [conversationStore.ts](../web2/lib/client/conversationStore.ts#L77).
+- Offline App Server coverage, including ignored-isolation overrides, approvals, timeout, interrupt,
+  malformed streams, and resume, is anchored in
+  [codexProcessRunner.test.ts](../web2/test/codexProcessRunner.test.ts#L45) and its
+  [fake Codex fixture](../web2/test/fixtures/fake-codex.mjs#L1).
 
 ## Desired behavior
 
@@ -193,38 +193,38 @@ does not promise Claude-specific behavior for Codex.
 
 ## Acceptance criteria
 
-- [ ] `AgentProvider`, provider-session, provider-health, and thread-create contracts are
+- [x] `AgentProvider`, provider-session, provider-health, and thread-create contracts are
   server-owned and validated; the browser cannot override a thread's provider during a turn.
-- [ ] Existing server-registry and localStorage threads migrate to Claude with their ids,
+- [x] Existing server-registry and localStorage threads migrate to Claude with their ids,
   messages, canvases, modes, and provider-session continuity preserved.
-- [ ] New-conversation UI offers only healthy providers, records the immutable choice, and
+- [x] New-conversation UI offers only healthy providers, records the immutable choice, and
   displays it in the conversation and export.
-- [ ] Claude runs through the provider registry with no regression in Ask, Plan, Agent,
+- [x] Claude runs through the provider registry with no regression in Ask, Plan, Agent,
   approvals, cancellation, reload reattachment, or missing-session recovery.
-- [ ] Codex App Server communicates only over a spawned local stdio child; no listener port is
+- [x] Codex App Server communicates only over a spawned local stdio child; no listener port is
   opened and `codex exec` is not used for web2 conversations.
-- [ ] Codex Ask and Plan stream text/activity, produce validated Mermaid artifacts, accept the
+- [x] Codex Ask and Plan stream text/activity, produce validated Mermaid artifacts, accept the
   same canvas attachments, remain read-only with network disabled, and resume the stored Codex
   thread on a later message and after a browser/server reload.
-- [ ] Codex approval requests are correlated to the active Cartograph run/thread/turn, sanitized,
+- [x] Codex approval requests are correlated to the active Cartograph run/thread/turn, sanitized,
   routed through `PermissionBroker`, resolved exactly once, and auto-denied on timeout/cancel.
-- [ ] Codex Agent is enabled only if the approval-parity test above passes; otherwise only Codex
+- [x] Codex Agent is enabled only if the approval-parity test above passes; otherwise only Codex
   Ask/Plan are exposed with an actionable reason.
-- [ ] Explicit cancellation sends `turn/interrupt`, reaches a terminal interrupted state, clears
+- [x] Explicit cancellation sends `turn/interrupt`, reaches a terminal interrupted state, clears
   pending approvals, and leaves no orphan App Server process.
-- [ ] Provider preflight distinguishes missing binary, unauthenticated login, incompatible
+- [x] Provider preflight distinguishes missing binary, unauthenticated login, incompatible
   protocol/capabilities, and unsupported modes without making a healthy provider unusable.
-- [ ] Ambient MCP/apps/plugins/skills/hooks/web search/subagents/custom commands are disabled or
+- [x] Ambient MCP/apps/plugins/skills/hooks/web search/subagents/custom commands are disabled or
   detected fail-closed, while Codex auth is reused without Cartograph copying or persisting
   credentials.
-- [ ] Unknown App Server notifications and additive fields are tolerated; malformed, oversized,
+- [x] Unknown App Server notifications and additive fields are tolerated; malformed, oversized,
   or incomplete protocol messages produce bounded existing error events.
-- [ ] Offline fake-App-Server tests cover initialize, start, resume, streaming, activity,
+- [x] Offline fake-App-Server tests cover initialize, start, resume, streaming, activity,
   approvals, denial, timeout, interrupt, crash, malformed JSONL, and missing session.
-- [ ] README/config docs explain provider selection, `CODEAI_WEB2_CODEX_BIN`, optional model
+- [x] README/config docs explain provider selection, `CODEAI_WEB2_CODEX_BIN`, optional model
   configuration, login ownership, capability isolation, and mode availability.
-- [ ] `cd web2 && yarn test`, `yarn lint`, and `yarn build` pass.
-- [ ] A real authenticated Codex CLI smoke run records Ask → Plan → later resume; Agent is
+- [x] `cd web2 && yarn test`, `yarn lint`, and `yarn build` pass.
+- [x] A real authenticated Codex CLI smoke run records Ask → Plan → later resume; Agent is
   recorded too only if its permission gate passes.
 
 ## Out of scope
@@ -242,11 +242,13 @@ does not promise Claude-specific behavior for Codex.
 
 1. Run `cd web2 && yarn test`, `yarn lint`, and `yarn build` with the fake Claude and Codex
    fixtures; run the no-orphan child-process assertion after cancellation and timeout cases.
-2. Start web2 with authenticated `claude` and `codex` CLIs. Create one conversation for each
-   provider and send the same Ask message with a canvas attachment; both stream, render the
-   diagram, and export with the correct provider.
-3. In Codex Plan, request a plan, reload the page/server, then send a follow-up; confirm the
-   stored Codex thread resumes and the working tree remains unchanged.
+2. Start web2 with an authenticated `codex` CLI. Send an Ask message with a canvas attachment;
+   confirm the local image reaches Codex, text streams, the Mermaid diagram validates, and the
+   artifact records the attached canvas as its parent. Claude registry behavior remains covered
+   by the existing full fake-CLI regression suite.
+3. In Codex Plan, request a plan, restart the page/server, then send a follow-up; confirm the
+   stored Codex thread resumes and the working tree remains unchanged. The shipped smoke used
+   Codex CLI `0.147.0` and the default `gpt-5.6-sol` model.
 4. If Codex Agent is advertised, request one file edit: verify the tree is unchanged before the
    card, denial changes nothing, approval applies only that request, cancellation interrupts the
    turn, and no App Server child remains.

@@ -31,7 +31,14 @@ export async function runConversation(input: {
   let sessionMark = Promise.resolve();
   let sessionMarkError: unknown;
   emit({ type: 'run-started', runId, threadId: thread.id, messageId: request.messageId });
-  emit({ type: 'status', runId, phase: thread.claudeSessionStarted ? 'resuming' : 'starting', label: thread.claudeSessionStarted ? 'Resuming conversation' : 'Starting conversation' });
+  const resuming = thread.agent.started && Boolean(thread.agent.sessionId);
+  const providerName = thread.agent.provider === 'codex' ? 'Codex' : 'Claude';
+  emit({
+    type: 'status',
+    runId,
+    phase: resuming ? 'resuming' : 'starting',
+    label: resuming ? `Resuming ${providerName} conversation` : `Starting ${providerName} conversation`,
+  });
 
   const policy = resolveAgentPolicy(config, mode);
   const permissions = policy.interactivePermissions
@@ -46,7 +53,7 @@ export async function runConversation(input: {
       maxBytes: config.maxAttachmentBytes,
       maxMermaidBytes: config.maxMermaidBytes,
     });
-    emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing read-only project context' });
+    emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing project context' });
     await writeRepositoryContext(project.realPath, directory, config.maxGitContextBytes);
     const prompt = buildConversationPrompt({
       userText: request.text,
@@ -58,7 +65,12 @@ export async function runConversation(input: {
     const result = await runner.run({
       runId,
       project,
-      session: { id: thread.id, action: thread.claudeSessionStarted ? 'resume' : 'start' },
+      session: {
+        // Claude accepts a client-generated session id; Codex owns ids returned by thread/start.
+        // Either way the provider id is distinct from the Cartograph thread id.
+        id: resuming ? thread.agent.sessionId : thread.agent.provider === 'claude' ? randomUUID() : undefined,
+        action: resuming ? 'resume' : 'start',
+      },
       prompt,
       attachmentDirectory: directory,
       policy,
@@ -67,7 +79,7 @@ export async function runConversation(input: {
       emit(event) {
         if (event.type === 'session-started' && event.sessionId) {
           sessionMark = sessionMark
-            .then(() => threadRegistry.markSessionStarted(thread.id, event.sessionId!))
+            .then(() => threadRegistry.markSessionStarted(thread.id, thread.agent.provider, event.sessionId!))
             .catch((error: unknown) => { sessionMarkError = error; });
         } else if (event.type === 'text-delta' && event.text) {
           emit({ type: 'assistant-delta', runId, delta: event.text });
