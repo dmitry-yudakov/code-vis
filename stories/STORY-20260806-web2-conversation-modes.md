@@ -1,6 +1,7 @@
 # Story 19 — Operational conversation modes: Ask, Plan, and a building Agent
 
-**Status:** In progress — implemented, awaiting the real-agent smoke run · **Type:** Full-stack ·
+**Status:** In progress — implemented, one open defect (termination reason), awaiting the
+real-agent smoke run · **Type:** Full-stack ·
 **Depends on:** [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) ·
 **Epic:** [web2 operational collaboration](EPIC-20260806-web2-operational-collaboration.md)
 
@@ -63,7 +64,7 @@ Three decisions the spec did not pin down:
 
 ### Traps found while verifying in a real browser
 
-Three bugs that unit tests could not have caught on their own; each now has a regression test.
+Six bugs that unit tests could not have caught on their own; each now has a regression test.
 
 1. **Never probe a flag `claude --help` hides.** 2.1.222 documents neither `--max-turns` (which
    Story 18 already probed) nor `--permission-prompt-tool`, though it supports both. Preflight
@@ -78,7 +79,13 @@ Three bugs that unit tests could not have caught on their own; each now has a re
    clamps it, which also protects the panel from long paths and code spans.
 4. **Building needs its own budget.** Agent mode inherited the read-only conversation's 20 turns
    and 5 minutes, and a real run spent all of it on research without reaching an edit. Agent now
-   uses `CODEAI_WEB2_BUILD_MAX_TURNS` (200) and `CODEAI_WEB2_BUILD_TIMEOUT_MS` (30 min).
+   uses `CODEAI_WEB2_BUILD_MAX_TURNS` (200) and `CODEAI_WEB2_BUILD_TIMEOUT_MS`. Raised again on
+   2026-08-19: answering turned out to have the same shape as building, just smaller — a real Ask
+   run was still opening files at +295s when the 5-minute cap killed it, having emitted 729 KB of
+   thinking and tool traffic but only 223 bytes of visible answer. Ask/Plan now default to 15
+   minutes and Agent to 60 (`web2/lib/server/config.ts`). Note that `.env.local`/`.env.example`
+   pin both values explicitly, so raising the code default alone changes nothing for a running
+   instance.
 5. **A run must not depend on the browser that started it.** The turn was tied to its HTTP
    request, so any reload killed the child — measurably losing an edit the user had *already
    approved* (`POST /api/agent/permission 200` → reload → `terminate (cancelled)` → file never
@@ -90,6 +97,49 @@ Three bugs that unit tests could not have caught on their own; each now has a re
    a zero exit, and the old handler flattened it to "exited before returning a complete response".
    It now has its own `max-turns` error code, a message naming the setting, and a **Continue**
    action in the notice banner — the session survives, so the agent resumes where it stopped.
+
+### Open defect — a late `result` frame overwrites the termination reason
+
+Found 2026-08-19 while reading a debug log of a timed-out Ask run; **not yet fixed**, and it
+survives the budget raise above because cancellation triggers it just as reliably as a timeout.
+
+When [`terminate()`](../web2/lib/server/claudeProcessRunner.ts#L186) fires it answers pending
+approvals, closes stdin, and sends SIGTERM. The real CLI does not exit silently: it flushes the
+aborted turn as a `user` frame and then a `result` frame with subtype `error_during_execution`,
+which is exactly what trap 6 taught us to classify. `processLine` duly throws
+([L315](../web2/lib/server/claudeProcessRunner.ts#L315)) — `error_during_execution` is not
+`error_max_turns`, so `classifyResultError` falls through to `classifyFailure` and produces the
+generic `process-failed`, "Claude Code exited before returning a complete response." The stdout
+handler stores it in `fatalStreamError`
+([L345-L348](../web2/lib/server/claudeProcessRunner.ts#L345-L348)); its own `terminate('cancelled')`
+is a no-op because `termination` is already set.
+
+The bug is the check order in the `close` handler:
+[`fatalStreamError` is tested at L359](../web2/lib/server/claudeProcessRunner.ts#L359-L362),
+*before* the `cancelled` and `timeout` branches at
+[L369-L376](../web2/lib/server/claudeProcessRunner.ts#L369-L376). The deliberate termination
+reason — the one thing the server actually knows — always loses to the child's parting error.
+
+Two visible consequences:
+
+1. A timeout reports the generic process failure instead of "Claude Code exceeded the configured
+   time limit", so the user is never told which budget they hit or which setting raises it — the
+   precise regression trap 6 fixed for `max-turns`.
+2. **A user-cancelled turn is recorded as `failed`, not `cancelled`.**
+   [AppShell.tsx](../web2/components/AppShell.tsx#L458) branches on `event.code === 'cancelled'`
+   to choose the message status, so pressing **Cancel** leaves a failed message in the transcript.
+   That status is not cosmetic: Story 23 finding 8 wants `cancelled` and `failed` treated
+   differently when a handoff delta is assembled for another agent.
+
+Fix: let a deliberate `termination` win. Either check `termination` before `fatalStreamError` in
+the `close` handler, or skip `processLine` throws entirely once `termination` is set — the child
+is already dying and its diagnosis adds nothing the server does not know.
+
+Why the unit tests are green: `fake-claude.mjs` in `timeout` mode simply hangs and emits nothing
+on SIGTERM, so
+[the timeout test](../web2/test/claudeProcessRunner.test.ts#L140) takes the clean path the real
+CLI never takes. The regression test needs a fixture that emits a `result`
+`error_during_execution` frame after receiving SIGTERM.
 
 ---
 
@@ -249,6 +299,11 @@ per-mode additions, and preflight verifies the union of flags every shipped mode
   and Deny lets it continue without the edit.
 - [x] Pending permission pauses the run-timeout clock; approval timeout auto-denies; cancel
   resolves pending requests as denied and terminates the child cleanly.
+- [ ] A run ended by the timeout or by **Cancel** reports *that* reason rather than a generic
+  process failure: the timeout notice names the budget it exceeded, and a cancelled turn is stored
+  with status `cancelled`, not `failed`. Requires a fake CLI that emits a `result`
+  `error_during_execution` frame after SIGTERM, like the real one.
+  *(Open — see "a late `result` frame overwrites the termination reason" above.)*
 - [x] The spawned child inherits the parent environment unchanged; web2 sets no provider
   credential or endpoint variables of its own, so subscription logins and
   `ANTHROPIC_BASE_URL`-style setups (z.ai, Kimi, …) behave exactly as in the terminal.
@@ -298,6 +353,9 @@ Real smoke, in a disposable project:
 4. Execute → agent mode resumes the session; first Edit raises a permission card; Deny it,
    watch the agent adapt; Allow the next; verify the resulting diff with `git diff`.
 5. Cancel an agent run mid-approval → child terminates, pending card resolves as cancelled,
-   transcript intact.
+   transcript intact. Check the stored message status is `cancelled` rather than `failed`, and
+   with `CODEAI_WEB2_AGENT_TIMEOUT_MS` temporarily set low, that a timed-out Ask turn says so
+   instead of "exited before returning a complete response" — both currently fail (see the open
+   defect above).
 
 ---
