@@ -50,11 +50,14 @@ export function getConfig(): Web2Config {
     // The adapter implements approvals, but advertising build mode remains an explicit release
     // gate until the real installed CLI passes the write/command/network parity matrix.
     codexAgentEnabled: /^(1|true|yes)$/i.test(process.env.CODEAI_WEB2_CODEX_AGENT || ''),
-    agentTimeoutMs: boundedInteger('CODEAI_WEB2_AGENT_TIMEOUT_MS', 300_000, 1_000, 1_800_000),
+    // Answering is read-only, but a real question still spends several thinking-and-tool cycles on
+    // repository research before the first word of the reply; five minutes cut those turns off
+    // mid-investigation with nothing to show for them.
+    agentTimeoutMs: boundedInteger('CODEAI_WEB2_AGENT_TIMEOUT_MS', 900_000, 1_000, 3_600_000),
     agentMaxTurns: boundedInteger('CODEAI_WEB2_AGENT_MAX_TURNS', 20, 1, 100),
     // Building needs a far larger budget than answering: research alone can spend the read-only
     // allowance before the first edit. Approval time never counts against the timeout.
-    buildTimeoutMs: boundedInteger('CODEAI_WEB2_BUILD_TIMEOUT_MS', 1_800_000, 1_000, 7_200_000),
+    buildTimeoutMs: boundedInteger('CODEAI_WEB2_BUILD_TIMEOUT_MS', 3_600_000, 1_000, 7_200_000),
     buildMaxTurns: boundedInteger('CODEAI_WEB2_BUILD_MAX_TURNS', 200, 1, 1_000),
     approvalTimeoutMs: boundedInteger('CODEAI_WEB2_APPROVAL_TIMEOUT_MS', 600_000, 5_000, 3_600_000),
     dataDir: path.resolve(expandHome(process.env.CODEAI_WEB2_DATA_DIR || '~/.code-ai/web2')),
