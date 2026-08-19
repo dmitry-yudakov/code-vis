@@ -2,9 +2,10 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatMessage as ChatMessageType, DiagramAttachmentRecord } from '@/lib/shared/types';
+import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord, Participant } from '@/lib/shared/types';
 import { AGENT_MODE_LABELS } from '@/lib/client/toolActivity';
 import { DiagramCard } from './DiagramCard';
+import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/lib/shared/participants';
 
 function safeHref(href?: string): string | undefined {
   if (!href) return undefined;
@@ -21,19 +22,22 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, activeDiagramId, running, onSelectDiagram, onRetry, onExecutePlan }: {
+export function ChatMessage({ message, participants, activeDiagramId, running, onSelectDiagram, onRetry, onExecutePlan }: {
   message: ChatMessageType;
+  participants: Participant[];
   activeDiagramId?: string;
   running?: boolean;
   onSelectDiagram(id: string): void;
-  onRetry?(text: string): void;
-  onExecutePlan?(): void;
+  onRetry?(text: string, participantId: string, mode: AgentMode): void;
+  onExecutePlan?(participantId: string): void;
 }) {
+  const author = participants.find((participant) => participant.id === message.authorId);
   if (message.role === 'user') {
+    const addressee = participants.find((participant) => participant.id === message.addressedParticipantId);
     return (
       <article className={`chat-message user ${message.status}`}>
         <div className="message-meta">
-          <span>You{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+          <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
           <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
         </div>
         <p>{message.text}</p>
@@ -41,7 +45,7 @@ export function ChatMessage({ message, activeDiagramId, running, onSelectDiagram
         {message.status !== 'sent' && (
           <div className="message-state">
             <span>{message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
-            {onRetry && <button type="button" onClick={() => onRetry(message.text)}>Retry</button>}
+            {onRetry && <button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask')}>Retry</button>}
           </div>
         )}
       </article>
@@ -51,7 +55,7 @@ export function ChatMessage({ message, activeDiagramId, running, onSelectDiagram
   return (
     <article className={`chat-message assistant ${message.status}`}>
       <div className="message-meta">
-        <span>Cartograph{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+        <span>{author?.displayName || 'Agent'}{author?.kind === 'agent' ? ` · ${PROVIDER_LABELS[author.provider]}/${AGENT_ROLE_LABELS[author.role]}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
         <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       </div>
       <div className="assistant-blocks">
@@ -87,7 +91,7 @@ export function ChatMessage({ message, activeDiagramId, running, onSelectDiagram
       {message.planProposed && onExecutePlan && (
         <div className="plan-approval">
           <span>Nothing runs until you approve. Executing resumes this same session in Agent mode.</span>
-          <button type="button" disabled={running} onClick={onExecutePlan}>Execute plan</button>
+          <button type="button" disabled={running} onClick={() => onExecutePlan(message.authorId)}>Execute plan</button>
         </div>
       )}
     </article>

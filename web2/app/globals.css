@@ -161,14 +161,32 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
    row (composer, long path, code span) would silently push the rest of the panel out of view. */
 .conversation-drawer, .diagram-navigator { position: fixed; z-index: 60; top: 74px; bottom: 10px; right: 10px; width: min(460px, calc(100vw - 20px)); display: grid; grid-template-rows: 64px minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--paper); box-shadow: 0 22px 70px rgba(50,37,22,.22); animation: drawer-in .2s ease-out; }
 .conversation-drawer { grid-template-rows: 64px minmax(0,1fr) auto; }
-.drawer-composer { display: grid; gap: 5px; padding: 8px 10px 10px; border-top: 1px solid var(--line); background: var(--paper-deep); }
+.drawer-composer { position: relative; z-index: 3; display: grid; gap: 5px; padding: 8px 10px 10px; overflow: visible; border-top: 1px solid var(--line); background: var(--paper-deep); }
+.participant-controls { position: relative; min-width: 0; display: grid; gap: 6px; }
+.participant-row { min-width: 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: 5px; overflow: visible; padding-bottom: 1px; }
+.participant-chip { flex: none; min-width: 92px; max-width: 145px; display: grid; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); text-align: left; background: rgba(255,255,255,.45); }
+.participant-chip span { overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: 600 10px/1.2 var(--mono); white-space: nowrap; }
+.participant-chip small { overflow: hidden; text-overflow: ellipsis; font-size: 8px; white-space: nowrap; }
+.participant-chip.active { border-color: var(--rust-bright); background: var(--rust-soft); box-shadow: inset 0 0 0 1px rgba(198,105,52,.12); }
+.add-agent-menu { position: static; flex: none; }
+.add-agent-menu summary { height: 100%; min-height: 43px; display: grid; place-items: center; padding: 0 10px; border: 1px dashed var(--line); border-radius: 9px; color: var(--rust); background: rgba(255,255,255,.35); cursor: pointer; font: 600 9px/1 var(--mono); list-style: none; }
+.add-agent-menu summary::-webkit-details-marker { display: none; }
+.add-agent-menu > div { position: absolute; z-index: 5; left: 0; right: 0; bottom: calc(100% + 7px); width: auto; box-sizing: border-box; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); box-shadow: var(--shadow); }
+.add-agent-menu label { display: grid; gap: 4px; color: var(--muted); font: 600 8px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.add-agent-menu select { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--paper); font-size: 11px; }
+.add-agent-menu button, .make-main-action { padding: 7px 9px; border: 0; border-radius: 8px; color: #fff8ec; background: var(--sage); font-size: 10px; font-weight: 700; }
+.add-agent-menu > div > button { grid-column: 1 / -1; }
+.make-main-action { justify-self: start; color: var(--sage); background: var(--sage-soft); }
+.handoff-actions { min-width: 0; display: flex; gap: 5px; overflow-x: auto; }
+.handoff-actions button { flex: none; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; color: #6f4d35; background: rgba(255,255,255,.5); font-size: 9px; }
+.handoff-actions button:hover:not(:disabled) { border-color: #c49b7c; background: var(--card); }
 .conversation-drawer > header, .diagram-navigator > header { display: flex; align-items: center; justify-content: space-between; padding: 0 15px 0 18px; border-bottom: 1px solid var(--line); background: var(--paper-deep); }
 .conversation-drawer header > div, .diagram-navigator header > div { min-width: 0; display: grid; gap: 5px; }
 .conversation-drawer header strong, .diagram-navigator header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .provider-badge { justify-self: start; padding: 2px 7px; border-radius: 999px; color: #56613f; background: var(--sage-soft); font: 600 8px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .provider-badge.provider-codex { color: #71431f; background: var(--rust-soft); }
 .conversation-drawer header > button, .diagram-navigator header > button { width: 32px; height: 32px; border: 0; border-radius: 50%; background: rgba(255,255,255,.35); font-size: 20px; }
-.conversation-scroll, .navigator-list { min-height: 0; overflow-y: auto; padding: 14px; }
+.conversation-scroll, .navigator-list { position: relative; z-index: 1; min-height: 0; overflow-y: auto; padding: 14px; }
 .drawer-empty { margin: 80px 30px; color: var(--muted); text-align: center; line-height: 1.6; }
 .chat-message { margin-bottom: 14px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 15px; background: var(--card); }
 .chat-message.user { margin-left: 42px; border-color: #dfb597; background: #fff0e6; }

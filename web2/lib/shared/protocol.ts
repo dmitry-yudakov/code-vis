@@ -39,12 +39,23 @@ export const diagramAttachmentSchema = z.object({
 
 export const agentModeSchema = z.enum(['ask', 'plan', 'agent']);
 export const agentProviderSchema = z.enum(['claude', 'codex']);
+export const agentRoleSchema = z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']);
+
+const participantIdSchema = z.string().trim().min(1).max(160);
+const transcriptContextMessageSchema = z.object({
+  id: z.string().uuid(),
+  authorId: participantIdSchema,
+  createdAt: z.string().datetime(),
+  text: z.string().max(8_000),
+}).strict();
 
 export const agentMessageRequestSchema = z.object({
   projectId: z.string().min(1).max(128),
   threadId: z.string().uuid(),
   messageId: z.string().uuid(),
+  participantId: participantIdSchema,
   text: z.string().trim().min(1).max(8_000),
+  transcript: z.array(transcriptContextMessageSchema).max(200),
   diagramAttachments: z.array(diagramAttachmentSchema),
   mode: agentModeSchema.optional(),
 }).strict();
@@ -60,6 +71,18 @@ export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).str
 export const createThreadRequestSchema = z.object({
   projectId: z.string().min(1).max(128),
   provider: agentProviderSchema,
+  role: agentRoleSchema.optional(),
+}).strict();
+
+export const addParticipantRequestSchema = z.object({
+  projectId: z.string().min(1).max(128),
+  provider: agentProviderSchema,
+  role: agentRoleSchema,
+}).strict();
+
+export const setPrimaryAgentRequestSchema = z.object({
+  projectId: z.string().min(1).max(128),
+  primaryAgentId: participantIdSchema,
 }).strict();
 
 export function safeJsonResponse(data: unknown, init?: ResponseInit): Response {

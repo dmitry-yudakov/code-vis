@@ -1,10 +1,11 @@
 # Cartograph `web2`
 
 An isolated, local-first prototype for working on a repository through a persistent local-agent
-conversation and a large Mermaid canvas. Choose Claude Code or Codex when creating a conversation;
-that provider stays attached to the thread. Conversation is the command/history channel, and once
-a diagram exists the canvas becomes the primary workspace. Each message runs in one of three modes
-— **Ask**, **Plan**, or **Agent**, subject to the selected provider's supported modes.
+conversation and a large Mermaid canvas. Choose Claude Code or Codex as the first main agent, then
+add more provider/role participants to the same conversation. Conversation is the command/history
+channel, and once a diagram exists the canvas becomes the primary workspace. Each message runs in
+one of three modes — **Ask**, **Plan**, or **Agent** — subject to the selected provider's supported
+modes.
 
 ## Requirements
 
@@ -43,13 +44,28 @@ yarn build     # production build
 yarn test:e2e  # production build + Playwright/installed Chrome canvas workflow
 ```
 
+## Participants, roles, and manual handoffs
+
+A new conversation starts with one main `coder`. The main designation is only the default
+recipient: select any `@participant` for the next message or make that participant main without
+moving its provider session. Add Claude or Codex participants with one of five transparent prompt
+presets: `orchestrator`, `coder`, `reviewer`, `tester`, or `custom`. Provider and role are
+independent, so Claude can review Codex work, two Codex participants can keep separate contexts,
+or an orchestrator can be main while a coder and reviewer handle focused turns.
+
+Every send addresses exactly one participant and every message names its author. Each agent owns a
+private native provider session. On handoff, the server gives the addressed agent a bounded,
+author-labeled delta of the shared browser transcript it has missed. Quick handoff chips prefill an
+editable recipient, prompt, and role-default mode; they never send automatically. Autonomous
+agent-to-agent relay, parallel turns, and autopilot are intentionally not implemented yet.
+
 ## Conversation modes
 
 Every message carries a mode. The browser sends only the mode name; the server resolves it to a
-fixed provider policy. A thread can change modes but cannot change providers; later turns resume
-the provider-owned session recorded for that Cartograph thread.
+fixed provider policy. A thread can change modes and recipients; later turns resume only the
+addressed participant's private provider-owned session.
 
-| | Ask (default) | Plan | Agent |
+| | Ask (wire fallback; reviewer/tester/custom default) | Plan (orchestrator/coder default) | Agent |
 |---|---|---|---|
 | Purpose | Q&A, review, diagrams | An approvable implementation plan | Building in the working tree |
 | Provider policy | server-owned read-only profile | server-owned read-only profile | provider approval profile |
@@ -154,18 +170,21 @@ environment of whoever starts `web2`.**
 
 ## How conversations and data work
 
-- A browser-generated Cartograph thread UUID is registered server-side. A thread is permanently
-  bound to one opaque project ID and one provider; its provider session ID is stored separately.
-- The minimal server registry stores only Cartograph UUID, project ID, timestamps, provider, and
-  provider-session continuity. It uses atomic writes and user-only permissions. Older registries
-  and browser threads migrate to Claude without changing their IDs or content.
+- A Cartograph thread UUID is registered server-side and permanently bound to one opaque project
+  ID. Its roster contains one local human identity and one or more agent identities; each agent
+  stores its provider-session continuity privately.
+- The minimal server registry stores thread identity, timestamps, roster, main-agent pointer,
+  private provider sessions, and transcript cursors. It uses atomic writes and user-only
+  permissions. Older single-provider registries and browser threads migrate without changing
+  their IDs, content, canvases, or provider session.
 - Transcript, Mermaid artifacts, evidence references, pins, active selection, and vector marks are
   stored in versioned browser `localStorage`. Composite PNGs, repository files, and diffs are not.
-- Reloading restores browser state; later turns resume the native provider session without replaying
-  the full transcript.
+- Reloading restores browser state; later turns resume the addressed participant's native provider
+  session and receive only the bounded shared transcript delta missed since its last complete turn.
 - If the provider's native session is missing, visible history is retained and the UI offers an explicit
   new-session continuation with a visible bounded recap.
-- Export includes the conversation provider and diagram/mark state without credentials or server paths.
+- Export includes the roster and expanded author/provider/role metadata for every entry, plus
+  diagram/mark state, without provider session ids, credentials, or server paths.
 
 Local `.env*`, `.next`, `node_modules`, coverage, and TypeScript build state are ignored. The
 tracked `.env.example` contains no secrets.
@@ -230,4 +249,6 @@ over-capable provider is reported without making a healthy provider unusable.
 - Source excerpts and editor deep links are still outside the experiment.
 - Native provider session history remains owned by its CLI; deleting local browser data does not
   delete that history.
+- Participant removal, session transfer, editable custom-role instructions, parallel turns, and
+  autonomous multi-agent relay are not implemented.
 - The real-agent experiment matrix is manual and is tracked in `docs/experiment-log.md`.

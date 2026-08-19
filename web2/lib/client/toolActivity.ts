@@ -9,6 +9,7 @@ export interface ToolActivityEntry {
 
 export interface PendingPermission {
   requestId: string;
+  participantId: string;
   tool: string;
   detail: string;
 }

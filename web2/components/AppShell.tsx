@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  AgentEvent, AgentMode, AgentProvider, AssistantMessage, ChatThread, DiagramArtifact, DiagramMessageAttachment, DrawingMark,
-  GitWorkingTree, ProjectSummary, ProviderHealth, SketchCanvas, UserMessage,
+  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, ChatThread, DiagramArtifact,
+  DiagramMessageAttachment, DrawingMark, GitWorkingTree, Participant, ProjectSummary, ProviderHealth, SketchCanvas,
+  TranscriptContextMessage, UserMessage,
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
 import {
@@ -24,6 +25,7 @@ import { DiagramNavigator } from './DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from './CanvasWorkspace';
 import { EMPTY_CANVAS_SVG } from './DiagramCanvas';
 import { RepositoryPanel } from './RepositoryPanel';
+import { findAgentParticipant, PROVIDER_LABELS } from '@/lib/shared/participants';
 
 interface Health {
   ok: boolean;
@@ -35,24 +37,41 @@ interface Health {
 
 const AGENT_MODES: readonly AgentMode[] = ['ask', 'plan', 'agent'];
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
-const PROVIDER_LABELS: Record<AgentProvider, string> = { claude: 'Claude', codex: 'Codex' };
 
 /** Sent when the user draws and hits send without typing anything. */
 const SKETCH_ONLY_INSTRUCTION = 'I drew the attached sketch. Read it as my instruction: say what you understand it to mean, then answer it against this repository.';
 
-function newLocalThread(server: { id: string; projectId: string; createdAt: string; provider: AgentProvider }, index: number): ChatThread {
+function newLocalThread(server: {
+  id: string;
+  projectId: string;
+  createdAt: string;
+  participants: Participant[];
+  primaryAgentId: string;
+}, index: number): ChatThread {
   return {
-    version: 1,
+    version: 2,
     id: server.id,
     projectId: server.projectId,
     title: `Conversation ${index + 1}`,
     createdAt: server.createdAt,
     updatedAt: server.createdAt,
-    provider: server.provider,
+    participants: server.participants,
+    primaryAgentId: server.primaryAgentId,
+    addressedAgentId: server.primaryAgentId,
+    defaultMode: findAgentParticipant(server.participants, server.primaryAgentId)?.defaultMode || 'ask',
     messages: [],
     pinnedDiagramIds: [],
     annotations: {},
   };
+}
+
+function transcriptContext(thread: ChatThread): TranscriptContextMessage[] {
+  return thread.messages.map((message) => ({
+    id: message.id,
+    authorId: message.authorId,
+    createdAt: message.createdAt,
+    text: (message.role === 'user' ? message.text : message.rawMarkdown).slice(-8_000),
+  }));
 }
 
 function updateArtifact(thread: ChatThread, id: string, update: (artifact: DiagramArtifact) => DiagramArtifact): ChatThread {
@@ -93,6 +112,7 @@ export function AppShell() {
   const [missingSession, setMissingSession] = useState(false);
   /** Set when a turn stopped on its turn budget: the session survives, so it can be resumed. */
   const [continueMode, setContinueMode] = useState<AgentMode>();
+  const [participantBusy, setParticipantBusy] = useState(false);
   const abortRef = useRef<AbortController | undefined>(undefined);
   const runIdRef = useRef<string | undefined>(undefined);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
@@ -106,7 +126,10 @@ export function AppShell() {
   const thread = useMemo(() => threads.find((item) => item.id === threadId), [threads, threadId]);
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => health?.providers[provider]?.available), [health]);
-  const activeProvider = thread?.provider || newProvider;
+  const agents = useMemo(() => thread?.participants.filter((participant): participant is AgentParticipant => participant.kind === 'agent') || [], [thread]);
+  const activeAgent = findAgentParticipant(agents, thread?.addressedAgentId)
+    || findAgentParticipant(agents, thread?.primaryAgentId);
+  const activeProvider = activeAgent?.provider || newProvider;
   const providerHealth = health?.providers[activeProvider];
   const unsupportedModes = useMemo(() => health
     ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
@@ -201,7 +224,13 @@ export function AppShell() {
         body: JSON.stringify({ projectId, provider: requestedProvider }),
       });
       const data = await response.json() as {
-        thread?: { id: string; projectId: string; createdAt: string; provider: AgentProvider };
+        thread?: {
+          id: string;
+          projectId: string;
+          createdAt: string;
+          participants: Participant[];
+          primaryAgentId: string;
+        };
         error?: string;
       };
       if (!response.ok || !data.thread) throw new Error(data.error || 'Could not create a conversation.');
@@ -289,6 +318,72 @@ export function AppShell() {
     mutateThread(threadId, (current) => ({ ...current, defaultMode: next }));
   }, [mutateThread, threadId]);
 
+  const selectAgent = useCallback((participantId: string) => {
+    if (!threadId || running) return;
+    mutateThread(threadId, (current) => {
+      const participant = findAgentParticipant(current.participants, participantId);
+      return participant ? { ...current, addressedAgentId: participantId, defaultMode: participant.defaultMode } : current;
+    });
+  }, [mutateThread, running, threadId]);
+
+  const addAgent = useCallback(async (provider: AgentProvider, role: AgentRole) => {
+    if (!thread || running || participantBusy) return;
+    setParticipantBusy(true);
+    setNotice(undefined);
+    try {
+      const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/participants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: thread.projectId, provider, role }),
+      });
+      const data = await response.json() as { participants?: Participant[]; primaryAgentId?: string; error?: string };
+      if (!response.ok || !data.participants || !data.primaryAgentId) throw new Error(data.error || 'Could not add that agent.');
+      const added = data.participants.find((participant) => !thread.participants.some((current) => current.id === participant.id));
+      mutateThread(thread.id, (current) => ({
+        ...current,
+        participants: data.participants!,
+        primaryAgentId: data.primaryAgentId!,
+        addressedAgentId: added?.kind === 'agent' ? added.id : current.addressedAgentId,
+        defaultMode: added?.kind === 'agent' ? added.defaultMode : current.defaultMode,
+      }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not add that agent.');
+    } finally {
+      setParticipantBusy(false);
+    }
+  }, [mutateThread, participantBusy, running, thread]);
+
+  const setPrimaryAgent = useCallback(async (participantId: string) => {
+    if (!thread || running || participantBusy) return;
+    setParticipantBusy(true);
+    setNotice(undefined);
+    try {
+      const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/participants`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: thread.projectId, primaryAgentId: participantId }),
+      });
+      const data = await response.json() as { participants?: Participant[]; primaryAgentId?: string; error?: string };
+      if (!response.ok || !data.participants || !data.primaryAgentId) throw new Error(data.error || 'Could not change the main agent.');
+      mutateThread(thread.id, (current) => ({
+        ...current,
+        participants: data.participants!,
+        primaryAgentId: data.primaryAgentId!,
+        addressedAgentId: participantId,
+      }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not change the main agent.');
+    } finally {
+      setParticipantBusy(false);
+    }
+  }, [mutateThread, participantBusy, running, thread]);
+
+  const prefillHandoff = useCallback((participantId: string, text: string, handoffMode?: AgentMode) => {
+    selectAgent(participantId);
+    setComposer(text);
+    if (handoffMode && threadId) mutateThread(threadId, (current) => ({ ...current, defaultMode: handoffMode }));
+  }, [mutateThread, selectAgent, threadId]);
+
   const decidePermission = useCallback(async (requestId: string, decision: 'allow' | 'deny') => {
     const runId = runIdRef.current;
     if (!runId) return;
@@ -330,6 +425,7 @@ export function AppShell() {
       if (event.type === 'run-started') {
         runIdRef.current = event.runId;
         userMessageId ||= event.messageId;
+        mutateThread(turn.threadId, (current) => ({ ...current, addressedAgentId: event.participantId }));
       }
       if (event.type === 'status') setStatus(event.label);
       if (event.type === 'tool-activity') {
@@ -338,7 +434,12 @@ export function AppShell() {
         setToolActivity((current) => [...current, { ...entry, key: current.length }].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
       }
       if (event.type === 'permission-request') {
-        const request: PendingPermission = { requestId: event.requestId, tool: event.tool, detail: event.detail };
+        const request: PendingPermission = {
+          requestId: event.requestId,
+          participantId: event.participantId,
+          tool: event.tool,
+          detail: event.detail,
+        };
         setPermissions((current) => current.some((item) => item.requestId === request.requestId) ? current : [...current, request]);
         setStatus(`Waiting for your approval — ${permissionLabel(request)}`);
         if (!chatOpenRef.current) setUnread((value) => value + 1);
@@ -394,8 +495,10 @@ export function AppShell() {
     return { receivedFinal, streamError, userMessageId };
   }, [mutateThread]);
 
-  const send = useCallback(async (override?: { text: string; mode: AgentMode }) => {
+  const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
     if (!thread || running) return;
+    const turnAgent = findAgentParticipant(thread.participants, override?.participantId) || activeAgent;
+    if (!turnAgent) return;
     const selected = pendingAttachmentIds.flatMap((id) => {
       const canvas = findCanvasTarget(thread, id);
       return canvas ? [canvas] : [];
@@ -405,8 +508,9 @@ export function AppShell() {
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
-    if (!providerHealth?.available || !providerHealth.supportedModes.includes(turnMode)) {
-      setNotice(providerHealth?.message || `${PROVIDER_LABELS[activeProvider]} is not available for ${turnMode} mode.`);
+    const turnProviderHealth = health?.providers[turnAgent.provider];
+    if (!turnProviderHealth?.available || !turnProviderHealth.supportedModes.includes(turnMode)) {
+      setNotice(turnProviderHealth?.message || `${PROVIDER_LABELS[turnAgent.provider]} is not available for ${turnMode} mode.`);
       return;
     }
     setNotice(undefined);
@@ -444,9 +548,16 @@ export function AppShell() {
 
     const userId = createUuid();
     const createdAt = new Date().toISOString();
+    const human = thread.participants.find((participant) => participant.kind === 'human');
+    if (!human) {
+      setNotice('This conversation has no local user identity.');
+      return;
+    }
     const userMessage: UserMessage = {
       id: userId,
       role: 'user',
+      authorId: human.id,
+      addressedParticipantId: turnAgent.id,
       text,
       createdAt,
       status: 'sending',
@@ -473,8 +584,8 @@ export function AppShell() {
     setPermissions([]);
     setRunning(true);
     setStatus(turnMode === 'agent'
-      ? `Starting ${PROVIDER_LABELS[activeProvider]} agent`
-      : `Starting read-only ${PROVIDER_LABELS[activeProvider]} agent`);
+      ? `Starting ${turnAgent.displayName}`
+      : `Starting read-only ${turnAgent.displayName}`);
     const controller = new AbortController();
     abortRef.current = controller;
     let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
@@ -483,7 +594,16 @@ export function AppShell() {
       const response = await fetch('/api/agent/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: thread.projectId, threadId: thread.id, messageId: userId, text, diagramAttachments: attachmentPayload, mode: turnMode }),
+        body: JSON.stringify({
+          projectId: thread.projectId,
+          threadId: thread.id,
+          messageId: userId,
+          participantId: turnAgent.id,
+          text,
+          transcript: transcriptContext(thread),
+          diagramAttachments: attachmentPayload,
+          mode: turnMode,
+        }),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -518,7 +638,7 @@ export function AppShell() {
       setDecidingPermission(undefined);
       setStatus('Ready for an instruction');
     }
-  }, [activeProvider, composer, consumeStream, mode, mutateThread, pendingAttachmentIds, providerHealth, running, thread]);
+  }, [activeAgent, composer, consumeStream, health, mode, mutateThread, pendingAttachmentIds, running, thread]);
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
   const cancelRun = useCallback(async () => {
@@ -572,13 +692,15 @@ export function AppShell() {
     return () => { controller.abort(); if (owned) setRunning(false); };
   }, [consumeStream, threadId]);
 
-  const executePlan = useCallback(() => {
-    if (unsupportedModes.includes('agent')) {
-      setNotice(providerHealth?.message || `${PROVIDER_LABELS[activeProvider]} Agent mode is unavailable.`);
+  const executePlan = useCallback((participantId: string) => {
+    const planAgent = findAgentParticipant(thread?.participants || [], participantId);
+    const planHealth = planAgent && health?.providers[planAgent.provider];
+    if (!planAgent || !planHealth?.supportedModes.includes('agent')) {
+      setNotice(planHealth?.message || 'That agent cannot execute in Agent mode.');
       return;
     }
-    void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent' });
-  }, [activeProvider, providerHealth, send, unsupportedModes]);
+    void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent', participantId });
+  }, [health, send, thread?.participants]);
 
   if (loading) return <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>;
 
@@ -633,7 +755,7 @@ export function AppShell() {
       {notice && (
         <div className="notice-banner" role="status">
           <span>{notice}</span>
-          {missingSession && <button type="button" onClick={() => { void createThread(thread?.provider || 'claude'); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {missingSession && <button type="button" onClick={() => { void createThread(activeProvider); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${thread.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {continueMode && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button>
         </div>
@@ -673,6 +795,10 @@ export function AppShell() {
           <ConversationDrawer
             open={chatOpen}
             thread={thread}
+            agents={agents}
+            activeAgent={activeAgent}
+            healthyProviders={selectableProviders}
+            participantBusy={participantBusy}
             preview={preview}
             toolActivity={toolActivity}
             permissions={permissions}
@@ -686,9 +812,13 @@ export function AppShell() {
             markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), thread.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
             onClose={() => setChatOpen(false)}
             onSelectDiagram={(id) => selectDiagram(id)}
-            onRetry={(text) => setComposer(text)}
+            onRetry={(text, participantId, retryMode) => prefillHandoff(participantId, text, retryMode)}
             onComposer={setComposer}
             onModeChange={setMode}
+            onSelectAgent={selectAgent}
+            onMakePrimary={(participantId) => void setPrimaryAgent(participantId)}
+            onAddAgent={(provider, role) => void addAgent(provider, role)}
+            onHandoff={prefillHandoff}
             onSend={() => void send()}
             onCancel={() => void cancelRun()}
             onRemoveAttachment={removeAttachment}

@@ -11,13 +11,15 @@ describe('ThreadRegistry', () => {
     const thread = await registry.create('project-a', 'codex');
     await expect(registry.get(thread.id, 'project-b')).rejects.toThrow('project-bound');
     const providerSessionId = 'codex-thread-123';
-    await registry.markSessionStarted(thread.id, 'codex', providerSessionId);
-    expect((await registry.get(thread.id)).agent).toEqual({
-      provider: 'codex', sessionId: providerSessionId, started: true,
+    await registry.markSessionStarted(thread.id, thread.primaryAgentId, 'codex', providerSessionId);
+    const persisted = await registry.get(thread.id);
+    const agent = persisted.participants.find((participant) => participant.id === thread.primaryAgentId);
+    expect(agent).toMatchObject({
+      kind: 'agent', provider: 'codex', session: { provider: 'codex', sessionId: providerSessionId, started: true },
     });
     const file = JSON.parse(await readFile(path.join(directory, 'threads.json'), 'utf8'));
-    expect(file.version).toBe(2);
-    expect(Object.keys(file.threads[0]).sort()).toEqual(['agent', 'createdAt', 'id', 'projectId', 'updatedAt']);
+    expect(file.version).toBe(3);
+    expect(Object.keys(file.threads[0]).sort()).toEqual(['createdAt', 'id', 'participants', 'primaryAgentId', 'projectId', 'updatedAt']);
     expect((await stat(path.join(directory, 'threads.json'))).mode & 0o777).toBe(0o600);
   });
 
@@ -31,6 +33,10 @@ describe('ThreadRegistry', () => {
     }));
     const migrated = await new ThreadRegistry(directory).get(id);
     expect(migrated.id).toBe(id);
-    expect(migrated.agent).toEqual({ provider: 'claude', sessionId: id, started: true });
+    const agent = migrated.participants.find((participant) => participant.id === migrated.primaryAgentId);
+    expect(agent).toMatchObject({
+      kind: 'agent', provider: 'claude', role: 'coder', defaultMode: 'ask',
+      session: { provider: 'claude', sessionId: id, started: true },
+    });
   });
 });

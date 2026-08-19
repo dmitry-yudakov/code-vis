@@ -123,7 +123,9 @@ describe('agent modes', () => {
       projectId: 'p',
       threadId: crypto.randomUUID(),
       messageId: crypto.randomUUID(),
+      participantId: 'agent-1',
       text: 'hello',
+      transcript: [],
       diagramAttachments: [],
     };
     expect(agentMessageRequestSchema.safeParse(base).success).toBe(true);
@@ -227,7 +229,7 @@ describe('permission broker', () => {
     registry.unsubscribe(runId);
 
     // Work continues with nobody listening.
-    registry.record(runId, { type: 'permission-request', runId, requestId: 'r1', tool: 'Edit', detail: 'a.ts' });
+    registry.record(runId, { type: 'permission-request', runId, requestId: 'r1', participantId: 'agent-1', tool: 'Edit', detail: 'a.ts' });
     registry.record(runId, { type: 'assistant-delta', runId, delta: 'answer' });
     expect(cancelled).toBe(false);
 
@@ -236,7 +238,7 @@ describe('permission broker', () => {
     expect(reattached?.finished).toBe(false);
     expect(reattached?.replay).toEqual([
       { type: 'status', runId, phase: 'thinking', label: 'Thinking…' },
-      { type: 'permission-request', runId, requestId: 'r1', tool: 'Edit', detail: 'a.ts' },
+      { type: 'permission-request', runId, requestId: 'r1', participantId: 'agent-1', tool: 'Edit', detail: 'a.ts' },
       // Deltas are coalesced so a reattaching page rebuilds the whole preview in one event.
       { type: 'assistant-delta', runId, delta: 'partial answer' },
     ]);

@@ -34,7 +34,12 @@ function sketch(overrides: Partial<SketchCanvas> = {}): SketchCanvas {
 
 function thread(overrides: Partial<ChatThread> = {}): ChatThread {
   return {
-    version: 1, id: 't1', projectId: 'p1', title: 'Test', createdAt: now, updatedAt: now,
+    version: 2, id: 't1', projectId: 'p1', title: 'Test', createdAt: now, updatedAt: now,
+    participants: [
+      { id: 'human-1', kind: 'human', displayName: 'You' },
+      { id: 'agent-1', kind: 'agent', displayName: 'Claude', provider: 'claude', role: 'coder', defaultMode: 'ask' },
+    ],
+    primaryAgentId: 'agent-1', addressedAgentId: 'agent-1',
     messages: [], pinnedDiagramIds: [], annotations: {}, ...overrides,
   };
 }

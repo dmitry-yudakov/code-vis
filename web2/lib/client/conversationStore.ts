@@ -1,5 +1,6 @@
-import type { AgentMode, AgentProvider, CanvasTarget, ChatThread, DiagramArtifact, SketchCanvas } from '@/lib/shared/types';
+import type { AgentMode, AgentProvider, CanvasTarget, ChatMessage, ChatThread, DiagramArtifact, Participant, SketchCanvas } from '@/lib/shared/types';
 import { normalizeMermaidSource, validateMermaidSource } from '@/lib/diagram/mermaidPolicy';
+import { legacyParticipants } from '@/lib/shared/participants';
 
 const PREFIX = 'code-ai:web2:v1:';
 const ACTIVE_PROJECT_KEY = `${PREFIX}active-project`;
@@ -8,8 +9,8 @@ const MAX_MESSAGES = 200;
 const MAX_ARTIFACTS = 100;
 
 interface StoredProject {
-  version: 1;
-  threads: ChatThread[];
+  version: 1 | 2;
+  threads: unknown[];
 }
 
 export function loadSelectedProjectId(storage: Storage = localStorage): string | undefined {
@@ -20,10 +21,10 @@ export function saveSelectedProjectId(projectId: string, storage: Storage = loca
   storage.setItem(ACTIVE_PROJECT_KEY, projectId);
 }
 
-function isThread(value: unknown, projectId: string): value is ChatThread {
+function isStoredThread(value: unknown, projectId: string): boolean {
   if (!value || typeof value !== 'object') return false;
-  const item = value as Partial<ChatThread>;
-  return item.version === 1
+  const item = value as Record<string, unknown>;
+  return (item.version === 1 || item.version === 2)
     && typeof item.id === 'string'
     && item.projectId === projectId
     && typeof item.title === 'string'
@@ -33,6 +34,24 @@ function isThread(value: unknown, projectId: string): value is ChatThread {
     // Threads saved before sketches existed have no `sketches` key at all.
     && (item.sketches === undefined || Array.isArray(item.sketches))
     && Boolean(item.annotations && typeof item.annotations === 'object');
+}
+
+function isParticipant(value: unknown): value is Participant {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<Participant>;
+  if (typeof item.id !== 'string' || typeof item.displayName !== 'string') return false;
+  return item.kind === 'human' || (item.kind === 'agent'
+    && (item.provider === 'claude' || item.provider === 'codex')
+    && ['orchestrator', 'coder', 'reviewer', 'tester', 'custom'].includes(String(item.role))
+    && ['ask', 'plan', 'agent'].includes(String(item.defaultMode)));
+}
+
+function validRoster(participants: unknown, primaryAgentId: unknown): participants is Participant[] {
+  if (!Array.isArray(participants) || !participants.every(isParticipant)) return false;
+  const ids = participants.map((participant) => participant.id);
+  return new Set(ids).size === ids.length
+    && participants.filter((participant) => participant.kind === 'human').length === 1
+    && participants.some((participant) => participant.kind === 'agent' && participant.id === primaryAgentId);
 }
 
 export function getArtifacts(thread: ChatThread): DiagramArtifact[] {
@@ -69,16 +88,34 @@ export function loadProjectThreads(projectId: string, storage: Storage = localSt
   const raw = storage.getItem(`${PREFIX}${projectId}`);
   if (!raw) return [];
   const parsed = JSON.parse(raw) as StoredProject;
-  if (parsed.version !== 1 || !Array.isArray(parsed.threads) || !parsed.threads.every((thread) => isThread(thread, projectId))) {
+  if ((parsed.version !== 1 && parsed.version !== 2) || !Array.isArray(parsed.threads)
+    || !parsed.threads.every((thread) => isStoredThread(thread, projectId))) {
     throw new Error('Saved conversations are corrupt or from an unsupported version. The in-memory workspace is unchanged.');
   }
-  return parsed.threads.map((thread) => ({
+  return parsed.threads.map((stored) => {
+    const thread = stored as ChatThread & { version: 1 | 2; provider?: AgentProvider; participants?: Participant[]; primaryAgentId?: string };
+    const provider = (thread.provider || 'claude') as AgentProvider;
+    const participants = validRoster(thread.participants, thread.primaryAgentId)
+      ? thread.participants
+      : legacyParticipants(thread.id, provider);
+    const human = participants.find((participant) => participant.kind === 'human')!;
+    const primaryAgentId = participants.some((participant) => participant.kind === 'agent' && participant.id === thread.primaryAgentId)
+      ? thread.primaryAgentId!
+      : participants.find((participant) => participant.kind === 'agent')!.id;
+    return {
     ...thread,
-    // v1 localStorage predates provider selection; all such conversations were Claude sessions.
-    provider: (thread.provider || 'claude') as AgentProvider,
+    version: 2 as const,
+    participants,
+    primaryAgentId,
+    addressedAgentId: participants.some((participant) => participant.kind === 'agent' && participant.id === thread.addressedAgentId)
+      ? thread.addressedAgentId
+      : primaryAgentId,
     defaultMode: knownMode(thread.defaultMode),
-    messages: thread.messages.map((message) => message.role === 'assistant' ? {
+    messages: thread.messages.map((storedMessage) => {
+      const message = storedMessage as ChatMessage & { authorId?: string; addressedParticipantId?: string };
+      return message.role === 'assistant' ? {
       ...message,
+      authorId: message.authorId || primaryAgentId,
       mode: knownMode(message.mode),
       blocks: message.blocks.map((block) => {
         if (block.kind !== 'diagram') return block;
@@ -100,8 +137,15 @@ export function loadProjectThreads(projectId: string, storage: Storage = localSt
           },
         };
       }),
-    } : message),
-  }));
+    } : {
+      ...message,
+      authorId: message.authorId || human.id,
+      addressedParticipantId: message.addressedParticipantId || primaryAgentId,
+      mode: knownMode(message.mode),
+    };
+    }),
+  };
+  });
 }
 
 function hasDrawings(thread: ChatThread): boolean {
@@ -109,7 +153,14 @@ function hasDrawings(thread: ChatThread): boolean {
 }
 
 export function saveProjectThreads(projectId: string, input: ChatThread[], storage: Storage = localStorage): void {
-  if (!input.every((thread) => isThread(thread, projectId))) throw new Error('Refusing to save invalid conversation data.');
+  if (!input.every((thread) => thread.version === 2
+    && isStoredThread(thread, projectId)
+    && validRoster(thread.participants, thread.primaryAgentId)
+    && thread.messages.every((message) => thread.participants.some((participant) => participant.id === message.authorId)
+      && (message.role === 'assistant'
+        || thread.participants.some((participant) => participant.kind === 'agent' && participant.id === message.addressedParticipantId))))) {
+    throw new Error('Refusing to save invalid conversation data.');
+  }
   const sorted = [...input].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   if (sorted.length > MAX_THREADS && sorted.slice(MAX_THREADS).some(hasDrawings)) {
     throw new Error('Storage limit reached. Export or delete older annotated conversations before creating more.');
@@ -120,15 +171,32 @@ export function saveProjectThreads(projectId: string, input: ChatThread[], stora
     }
     return thread;
   });
-  storage.setItem(`${PREFIX}${projectId}`, JSON.stringify({ version: 1, threads } satisfies StoredProject));
+  storage.setItem(`${PREFIX}${projectId}`, JSON.stringify({ version: 2, threads } satisfies StoredProject));
+}
+
+export function serializeThreadExport(thread: ChatThread, exportedAt = new Date().toISOString()) {
+  const participantById = new Map(thread.participants.map((participant) => [participant.id, participant]));
+  return {
+    version: 2,
+    exportedAt,
+    thread,
+    entries: thread.messages.map((message) => {
+      const author = participantById.get(message.authorId);
+      return {
+        message,
+        author: author && {
+          id: author.id,
+          displayName: author.displayName,
+          kind: author.kind,
+          ...(author.kind === 'agent' ? { provider: author.provider, role: author.role } : {}),
+        },
+      };
+    }),
+  };
 }
 
 export function exportThread(thread: ChatThread): void {
-  const safe = JSON.stringify({
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    thread,
-  }, null, 2);
+  const safe = JSON.stringify(serializeThreadExport(thread), null, 2);
   const url = URL.createObjectURL(new Blob([safe], { type: 'application/json' }));
   const link = document.createElement('a');
   link.href = url;

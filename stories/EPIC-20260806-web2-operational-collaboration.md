@@ -1,7 +1,7 @@
 # EPIC — web2 operational collaboration: one builder → second provider → agent roles → team
 
 **Status:** Active · **Owns:** the sequencing of the `web2` conversation track from read-only
-explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 17, 2026
+explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 18, 2026
 
 [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) proved the surface: a canvas-first,
 session-persistent conversation over a local repository with a read-only agent. This epic owns
@@ -42,8 +42,8 @@ of roadmap Story 16 (team surface). Nothing here imports the current `web/`/`ser
 |---|---|---|---|---|
 | 18 | [web2-agent-mermaid-canvas](STORY-20260805-web2-agent-mermaid-canvas.md) | canvas-first read-only conversation | **In progress** — core shipped, experiment log open | — |
 | 19 | [web2-conversation-modes](STORY-20260806-web2-conversation-modes.md) | Ask/Plan/Agent modes, git read allowlist, interactive permissions, env passthrough | **In progress** — implemented, real-agent smoke pending | 18 |
-| 20 | [web2-codex-provider](STORY-20260817-web2-codex-provider.md) | provider/session separation, Codex App Server adapter, safe mode parity | **Draft** | 19 |
-| 23 | [web2-multi-agent-roles](STORY-20260817-web2-multi-agent-roles.md) | participants, authored deltas, roles, cross-vendor peer review | **Draft** | 20 |
+| 20 | [web2-codex-provider](STORY-20260817-web2-codex-provider.md) | provider/session separation, Codex App Server adapter, safe mode parity | **Shipped** | 19 |
+| 23 | [web2-multi-agent-roles](STORY-20260817-web2-multi-agent-roles.md) | participants, authored deltas, manual handoffs, roles, cross-vendor peer review | **In progress** | 20 |
 | 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, server transcripts, auth, billing shift, sandboxing | **Draft** (sequencing) | 23 |
 | 22 | [web2-sketch-canvas](STORY-20260807-web2-sketch-canvas.md) | blank sketch canvas, drawing as the first instruction | **Shipped** | 18 |
 
@@ -88,8 +88,10 @@ safety gate.
 ### Phase 3 — Multi-agent roles (Story 23)
 
 Messages gain authors and threads gain participants. Each agent owns a private provider
-session; roles (editor/reviewer/custom) are prompt presets with default modes. The user drives
-the cross-vendor peer-review loop by addressing one agent per sequential turn.
+session; orchestrator/coder/reviewer/tester/custom roles are prompt presets with default modes,
+and a separate mutable main-agent pointer chooses the default recipient. The user drives the
+cross-vendor peer-review loop by addressing one agent per sequential turn or prefilling a
+roster-aware quick handoff; nothing relays autonomously.
 
 **Exit:** the spec → review → implement → review scenario completes with Claude and Codex in
 one thread, attribution correct in transcript and export.

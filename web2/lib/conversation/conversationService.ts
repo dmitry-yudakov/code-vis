@@ -11,6 +11,8 @@ import { writeRepositoryContext } from '@/lib/server/repositoryContext';
 import { hasProposedPlan, stripPlanMarkers } from '@/lib/shared/plan';
 import { buildConversationPrompt } from './prompt';
 import { parseAssistantResponse } from './responseParser';
+import { serverAgent } from '@/lib/server/threadRegistry';
+import { roleContract } from '@/lib/server/agentRoles';
 
 export async function runConversation(input: {
   runId: string;
@@ -20,19 +22,22 @@ export async function runConversation(input: {
   config: Web2Config;
   runner: AgentProcessRunner;
   threadRegistry: ThreadRegistry;
+  transcriptDelta: string;
   signal: AbortSignal;
   emit(event: AgentEvent): void;
   onPermissionBroker?(broker: PermissionBroker): void;
 }): Promise<void> {
-  const { runId, request, project, thread, config, runner, threadRegistry, signal, emit } = input;
+  const { runId, request, project, thread, config, runner, threadRegistry, transcriptDelta, signal, emit } = input;
   const startedAt = Date.now();
   const mode = request.mode || 'ask';
   let directory: string | undefined;
   let sessionMark = Promise.resolve();
   let sessionMarkError: unknown;
-  emit({ type: 'run-started', runId, threadId: thread.id, messageId: request.messageId });
-  const resuming = thread.agent.started && Boolean(thread.agent.sessionId);
-  const providerName = thread.agent.provider === 'codex' ? 'Codex' : 'Claude';
+  const participant = serverAgent(thread, request.participantId);
+  if (!participant) throw new Error('Unknown addressed agent participant');
+  emit({ type: 'run-started', runId, threadId: thread.id, messageId: request.messageId, participantId: participant.id });
+  const resuming = participant.session.started && Boolean(participant.session.sessionId);
+  const providerName = participant.provider === 'codex' ? 'Codex' : 'Claude';
   emit({
     type: 'status',
     runId,
@@ -61,6 +66,9 @@ export async function runConversation(input: {
       attachedCanvasNames: manifest.map((item, index) => `${item.kind === 'sketch' ? 'Sketch' : 'Diagram'} ${index + 1} (${item.diagramId})`),
       hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
       mode,
+      participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this Cartograph conversation. Your stable participant id is ${participant.id}.`,
+      roleContract: roleContract(participant.role),
+      transcriptDelta,
     });
     const result = await runner.run({
       runId,
@@ -68,7 +76,7 @@ export async function runConversation(input: {
       session: {
         // Claude accepts a client-generated session id; Codex owns ids returned by thread/start.
         // Either way the provider id is distinct from the Cartograph thread id.
-        id: resuming ? thread.agent.sessionId : thread.agent.provider === 'claude' ? randomUUID() : undefined,
+        id: resuming ? participant.session.sessionId : participant.provider === 'claude' ? randomUUID() : undefined,
         action: resuming ? 'resume' : 'start',
       },
       prompt,
@@ -79,14 +87,14 @@ export async function runConversation(input: {
       emit(event) {
         if (event.type === 'session-started' && event.sessionId) {
           sessionMark = sessionMark
-            .then(() => threadRegistry.markSessionStarted(thread.id, thread.agent.provider, event.sessionId!))
+            .then(() => threadRegistry.markSessionStarted(thread.id, participant.id, participant.provider, event.sessionId!))
             .catch((error: unknown) => { sessionMarkError = error; });
         } else if (event.type === 'text-delta' && event.text) {
           emit({ type: 'assistant-delta', runId, delta: event.text });
         } else if (event.type === 'activity') {
           emit({ type: 'tool-activity', runId, tool: event.tool || 'tool', detail: event.detail, denied: event.denied });
         } else if (event.type === 'permission-request' && event.requestId) {
-          emit({ type: 'permission-request', runId, requestId: event.requestId, tool: event.tool || 'tool', detail: event.detail || '' });
+          emit({ type: 'permission-request', runId, requestId: event.requestId, participantId: participant.id, tool: event.tool || 'tool', detail: event.detail || '' });
         } else if (event.type === 'permission-resolved' && event.requestId && event.decision) {
           emit({ type: 'permission-resolved', runId, requestId: event.requestId, decision: event.decision });
         } else if (event.type === 'phase' && event.phase) {
@@ -116,6 +124,7 @@ export async function runConversation(input: {
     const message: AssistantMessage = {
       id: assistantId,
       role: 'assistant',
+      authorId: participant.id,
       createdAt: new Date().toISOString(),
       status: 'complete',
       rawMarkdown: markdown,
@@ -124,6 +133,7 @@ export async function runConversation(input: {
       mode,
       planProposed: planProposed || undefined,
     };
+    await threadRegistry.markObserved(thread.id, participant.id, assistantId);
     emit({ type: 'assistant-message', runId, message });
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });

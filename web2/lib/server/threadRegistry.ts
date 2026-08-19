@@ -1,23 +1,76 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentProvider, ServerThread } from '@/lib/shared/types';
+import type {
+  AgentProvider, AgentRole, Participant, ProviderSessionRef, ServerAgentParticipant, ServerThread,
+} from '@/lib/shared/types';
+import {
+  AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId, legacyAgentParticipantId,
+} from '@/lib/shared/participants';
 
 interface RegistryFile {
-  version: 2;
+  version: 3;
   threads: ServerThread[];
 }
 
-interface LegacyServerThread extends Omit<ServerThread, 'agent'> {
+interface V2ServerThread extends Omit<ServerThread, 'participants' | 'primaryAgentId'> {
+  agent: ProviderSessionRef;
+}
+
+interface V2RegistryFile {
+  version: 2;
+  threads: V2ServerThread[];
+}
+
+interface V1ServerThread extends Omit<V2ServerThread, 'agent'> {
   claudeSessionStarted: boolean;
 }
 
-interface LegacyRegistryFile {
+interface V1RegistryFile {
   version: 1;
-  threads: LegacyServerThread[];
+  threads: V1ServerThread[];
+}
+
+function validSession(value: unknown): value is ProviderSessionRef {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Record<string, unknown>;
+  return ['claude', 'codex'].includes(String(session.provider))
+    && typeof session.started === 'boolean'
+    && (session.sessionId === undefined || typeof session.sessionId === 'string')
+    && (session.started !== true || typeof session.sessionId === 'string');
+}
+
+function validParticipant(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Record<string, unknown>;
+  if (typeof item.id !== 'string' || typeof item.displayName !== 'string') return false;
+  if (item.kind === 'human') return true;
+  return item.kind === 'agent'
+    && ['claude', 'codex'].includes(String(item.provider))
+    && ['orchestrator', 'coder', 'reviewer', 'tester', 'custom'].includes(String(item.role))
+    && ['ask', 'plan', 'agent'].includes(String(item.defaultMode))
+    && validSession(item.session)
+    && item.session.provider === item.provider
+    && (item.lastObservedMessageId === undefined || typeof item.lastObservedMessageId === 'string');
 }
 
 function validThread(value: unknown): value is ServerThread {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Record<string, unknown>;
+  if (typeof item.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(item.id)
+    || typeof item.projectId !== 'string' || typeof item.createdAt !== 'string'
+    || typeof item.updatedAt !== 'string' || !Array.isArray(item.participants)
+    || !item.participants.every(validParticipant) || typeof item.primaryAgentId !== 'string') return false;
+  const participants = item.participants as Array<Record<string, unknown>>;
+  const ids = participants.map((participant) => participant.id);
+  const names = participants.map((participant) => participant.displayName);
+  return new Set(ids).size === ids.length
+    && new Set(names).size === names.length
+    && participants.filter((participant) => participant.kind === 'human').length === 1
+    && participants.some((participant) => participant.kind === 'agent' && participant.id === item.primaryAgentId);
+}
+
+function validV2Thread(value: unknown): value is V2ServerThread {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
   return typeof item.id === 'string'
@@ -25,16 +78,10 @@ function validThread(value: unknown): value is ServerThread {
     && typeof item.projectId === 'string'
     && typeof item.createdAt === 'string'
     && typeof item.updatedAt === 'string'
-    && Boolean(item.agent && typeof item.agent === 'object')
-    && ['claude', 'codex'].includes(String((item.agent as Record<string, unknown>).provider))
-    && typeof (item.agent as Record<string, unknown>).started === 'boolean'
-    && ((item.agent as Record<string, unknown>).sessionId === undefined
-      || typeof (item.agent as Record<string, unknown>).sessionId === 'string')
-    && ((item.agent as Record<string, unknown>).started !== true
-      || typeof (item.agent as Record<string, unknown>).sessionId === 'string');
+    && validSession(item.agent);
 }
 
-function validLegacyThread(value: unknown): value is LegacyServerThread {
+function validV1Thread(value: unknown): value is V1ServerThread {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
   return typeof item.id === 'string'
@@ -43,6 +90,45 @@ function validLegacyThread(value: unknown): value is LegacyServerThread {
     && typeof item.createdAt === 'string'
     && typeof item.updatedAt === 'string'
     && typeof item.claudeSessionStarted === 'boolean';
+}
+
+function migrateV2Thread(thread: V2ServerThread): ServerThread {
+  const agentId = legacyAgentParticipantId(thread.id);
+  const agent: ServerAgentParticipant = {
+    id: agentId,
+    kind: 'agent',
+    displayName: PROVIDER_LABELS[thread.agent.provider],
+    provider: thread.agent.provider,
+    role: 'coder',
+    defaultMode: 'ask',
+    session: thread.agent,
+  };
+  const { agent: _legacyAgent, ...base } = thread;
+  return {
+    ...base,
+    participants: [{ id: humanParticipantId(thread.id), kind: 'human', displayName: 'You' }, agent],
+    primaryAgentId: agentId,
+  };
+}
+
+export function publicParticipants(thread: ServerThread): Participant[] {
+  return thread.participants.map((participant) => participant.kind === 'human' ? {
+    id: participant.id,
+    kind: participant.kind,
+    displayName: participant.displayName,
+  } : {
+    id: participant.id,
+    kind: participant.kind,
+    displayName: participant.displayName,
+    provider: participant.provider,
+    role: participant.role,
+    defaultMode: participant.defaultMode,
+  });
+}
+
+export function serverAgent(thread: ServerThread, participantId: string): ServerAgentParticipant | undefined {
+  const participant = thread.participants.find((item) => item.id === participantId);
+  return participant?.kind === 'agent' ? participant : undefined;
 }
 
 export class ThreadRegistry {
@@ -57,12 +143,15 @@ export class ThreadRegistry {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
     await chmod(this.dataDir, 0o700).catch(() => undefined);
     try {
-      const parsed = JSON.parse(await readFile(this.filePath, 'utf8')) as RegistryFile | LegacyRegistryFile;
-      if (parsed.version === 2 && Array.isArray(parsed.threads) && parsed.threads.every(validThread)) return parsed;
-      if (parsed.version === 1 && Array.isArray(parsed.threads) && parsed.threads.every(validLegacyThread)) {
+      const parsed = JSON.parse(await readFile(this.filePath, 'utf8')) as RegistryFile | V2RegistryFile | V1RegistryFile;
+      if (parsed.version === 3 && Array.isArray(parsed.threads) && parsed.threads.every(validThread)) return parsed;
+      if (parsed.version === 2 && Array.isArray(parsed.threads) && parsed.threads.every(validV2Thread)) {
+        return { version: 3, threads: parsed.threads.map(migrateV2Thread) };
+      }
+      if (parsed.version === 1 && Array.isArray(parsed.threads) && parsed.threads.every(validV1Thread)) {
         return {
-          version: 2,
-          threads: parsed.threads.map(({ claudeSessionStarted, ...thread }) => ({
+          version: 3,
+          threads: parsed.threads.map(({ claudeSessionStarted, ...thread }) => migrateV2Thread({
             ...thread,
             agent: {
               provider: 'claude',
@@ -74,7 +163,7 @@ export class ThreadRegistry {
       }
       throw new Error('Thread registry has an unsupported or invalid format');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 2, threads: [] };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 3, threads: [] };
       throw error;
     }
   }
@@ -97,12 +186,29 @@ export class ThreadRegistry {
     return result;
   }
 
-  async create(projectId: string, provider: AgentProvider): Promise<ServerThread> {
+  async create(projectId: string, provider: AgentProvider, role: AgentRole = 'coder'): Promise<ServerThread> {
     return this.mutate((data) => {
       const now = new Date().toISOString();
+      const id = randomUUID();
+      const agentId = randomUUID();
       const thread: ServerThread = {
-        id: randomUUID(), projectId, createdAt: now, updatedAt: now,
-        agent: { provider, started: false },
+        id,
+        projectId,
+        createdAt: now,
+        updatedAt: now,
+        primaryAgentId: agentId,
+        participants: [
+          { id: humanParticipantId(id), kind: 'human', displayName: 'You' },
+          {
+            id: agentId,
+            kind: 'agent',
+            displayName: PROVIDER_LABELS[provider],
+            provider,
+            role,
+            defaultMode: AGENT_ROLE_DEFAULT_MODES[role],
+            session: { provider, started: false },
+          },
+        ],
       };
       data.threads.push(thread);
       return thread;
@@ -115,16 +221,67 @@ export class ThreadRegistry {
     return thread;
   }
 
-  async markSessionStarted(id: string, provider: AgentProvider, sessionId: string): Promise<void> {
+  async addAgent(id: string, projectId: string, provider: AgentProvider, role: AgentRole): Promise<ServerAgentParticipant> {
+    return this.mutate((data) => {
+      const thread = data.threads.find((item) => item.id === id && item.projectId === projectId);
+      if (!thread) throw new Error('Unknown project-bound thread');
+      if (thread.participants.filter((item) => item.kind === 'agent').length >= 8) {
+        throw new Error('A conversation can contain at most 8 agents');
+      }
+      const rootName = thread.participants.some((item) => item.displayName === PROVIDER_LABELS[provider])
+        ? `${PROVIDER_LABELS[provider]} ${AGENT_ROLE_LABELS[role]}`
+        : PROVIDER_LABELS[provider];
+      let displayName = rootName;
+      let suffix = 2;
+      while (thread.participants.some((item) => item.displayName === displayName)) displayName = `${rootName} ${suffix++}`;
+      const participant: ServerAgentParticipant = {
+        id: randomUUID(),
+        kind: 'agent',
+        displayName,
+        provider,
+        role,
+        defaultMode: AGENT_ROLE_DEFAULT_MODES[role],
+        session: { provider, started: false },
+      };
+      thread.participants.push(participant);
+      thread.updatedAt = new Date().toISOString();
+      return participant;
+    });
+  }
+
+  async setPrimaryAgent(id: string, projectId: string, participantId: string): Promise<void> {
+    await this.mutate((data) => {
+      const thread = data.threads.find((item) => item.id === id && item.projectId === projectId);
+      if (!thread) throw new Error('Unknown project-bound thread');
+      if (!serverAgent(thread, participantId)) throw new Error('The main participant must be an agent in this thread');
+      thread.primaryAgentId = participantId;
+      thread.updatedAt = new Date().toISOString();
+    });
+  }
+
+  async markSessionStarted(id: string, participantId: string, provider: AgentProvider, sessionId: string): Promise<void> {
     if (!sessionId.trim()) throw new Error('Agent initialized an invalid session');
     await this.mutate((data) => {
       const thread = data.threads.find((item) => item.id === id);
       if (!thread) throw new Error('Unknown thread');
-      if (thread.agent.provider !== provider) throw new Error('Agent initialized the wrong provider session');
-      if (thread.agent.sessionId && thread.agent.sessionId !== sessionId) {
+      const participant = serverAgent(thread, participantId);
+      if (!participant) throw new Error('Unknown agent participant');
+      if (participant.provider !== provider) throw new Error('Agent initialized the wrong provider session');
+      if (participant.session.sessionId && participant.session.sessionId !== sessionId) {
         throw new Error('Agent initialized an unexpected session');
       }
-      thread.agent = { provider, sessionId, started: true };
+      participant.session = { provider, sessionId, started: true };
+      thread.updatedAt = new Date().toISOString();
+    });
+  }
+
+  async markObserved(id: string, participantId: string, messageId: string): Promise<void> {
+    await this.mutate((data) => {
+      const thread = data.threads.find((item) => item.id === id);
+      if (!thread) throw new Error('Unknown thread');
+      const participant = serverAgent(thread, participantId);
+      if (!participant) throw new Error('Unknown agent participant');
+      participant.lastObservedMessageId = messageId;
       thread.updatedAt = new Date().toISOString();
     });
   }

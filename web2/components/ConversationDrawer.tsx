@@ -1,20 +1,25 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { AgentMode, CanvasTarget, ChatThread } from '@/lib/shared/types';
+import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, ChatThread } from '@/lib/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/lib/client/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer } from './InstructionComposer';
 import { PermissionCard } from './PermissionCard';
-
-const PROVIDER_LABELS = { claude: 'Claude', codex: 'Codex' } as const;
+import { ParticipantControls } from './ParticipantControls';
+import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/lib/shared/participants';
 
 export function ConversationDrawer({
-  open, thread, preview, toolActivity, permissions, decidingPermission, running, status, composer, mode, unsupportedModes, attached, markCounts,
-  onClose, onSelectDiagram, onRetry, onComposer, onModeChange, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
+  open, thread, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running,
+  status, composer, mode, unsupportedModes, attached, markCounts, onClose, onSelectDiagram, onRetry, onComposer, onModeChange,
+  onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
 }: {
   open: boolean;
   thread?: ChatThread;
+  agents: AgentParticipant[];
+  activeAgent?: AgentParticipant;
+  healthyProviders: AgentProvider[];
+  participantBusy: boolean;
   preview: string;
   toolActivity: ToolActivityEntry[];
   permissions: PendingPermission[];
@@ -28,14 +33,18 @@ export function ConversationDrawer({
   markCounts: Record<string, number>;
   onClose(): void;
   onSelectDiagram(id: string): void;
-  onRetry(text: string): void;
+  onRetry(text: string, participantId: string, mode: AgentMode): void;
   onComposer(value: string): void;
   onModeChange(mode: AgentMode): void;
+  onSelectAgent(participantId: string): void;
+  onMakePrimary(participantId: string): void;
+  onAddAgent(provider: AgentProvider, role: AgentRole): void;
+  onHandoff(participantId: string, text: string, mode: AgentMode): void;
   onSend(): void;
   onCancel(): void;
   onRemoveAttachment(id: string): void;
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
-  onExecutePlan(): void;
+  onExecutePlan(participantId: string): void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -49,7 +58,7 @@ export function ConversationDrawer({
         <div>
           <span className="eyebrow">Conversation</span>
           <strong>{thread?.title || 'New conversation'}</strong>
-          {thread && <span className={`provider-badge provider-${thread.provider || 'claude'}`}>{PROVIDER_LABELS[thread.provider || 'claude']}</span>}
+          {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
         </div>
         <button type="button" onClick={onClose} aria-label="Close conversation">×</button>
       </header>
@@ -58,6 +67,7 @@ export function ConversationDrawer({
           <ChatMessage
             key={message.id}
             message={message}
+            participants={thread.participants}
             activeDiagramId={thread.activeDiagramId}
             running={running}
             onSelectDiagram={onSelectDiagram}
@@ -82,13 +92,14 @@ export function ConversationDrawer({
           <PermissionCard
             key={request.requestId}
             request={request}
+            participant={agents.find((agent) => agent.id === request.participantId)}
             busy={decidingPermission === request.requestId}
             onDecide={onDecidePermission}
           />
         ))}
         {preview && (
           <article className="chat-message assistant streaming">
-            <div className="message-meta"><span>Cartograph</span><span>streaming</span></div>
+            <div className="message-meta"><span>{activeAgent?.displayName || 'Agent'}</span><span>streaming</span></div>
             <p className="stream-preview">{preview}<span className="typing-cursor" /></p>
           </article>
         )}
@@ -96,6 +107,18 @@ export function ConversationDrawer({
         <div ref={endRef} />
       </div>
       <div className="drawer-composer">
+        <ParticipantControls
+          agents={agents}
+          activeAgentId={activeAgent?.id}
+          primaryAgentId={thread?.primaryAgentId}
+          providers={healthyProviders}
+          disabled={running}
+          busy={participantBusy}
+          onSelect={onSelectAgent}
+          onMakePrimary={onMakePrimary}
+          onAdd={onAddAgent}
+          onHandoff={onHandoff}
+        />
         <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{status || 'Ready for an instruction'}</div>
         <InstructionComposer
           value={composer}

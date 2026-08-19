@@ -1,8 +1,7 @@
 'use client';
 
 import type { AgentProvider, ChatThread } from '@/lib/shared/types';
-
-const PROVIDER_LABELS: Record<AgentProvider, string> = { claude: 'Claude', codex: 'Codex' };
+import { findAgentParticipant, PROVIDER_LABELS } from '@/lib/shared/participants';
 
 export function ThreadPicker({ threads, value, disabled, providers, newProvider, onChange, onNewProvider, onNew }: {
   threads: ChatThread[];
@@ -22,7 +21,7 @@ export function ThreadPicker({ threads, value, disabled, providers, newProvider,
           {!threads.length && <option value="">None yet</option>}
           {threads.map((thread) => (
             <option value={thread.id} key={thread.id}>
-              {PROVIDER_LABELS[thread.provider || 'claude']} · {thread.title}
+              {findAgentParticipant(thread.participants, thread.primaryAgentId)?.displayName || 'Agent'} · {thread.title}
             </option>
           ))}
         </select>

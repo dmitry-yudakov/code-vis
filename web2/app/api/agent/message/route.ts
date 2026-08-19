@@ -3,12 +3,13 @@ import type { AgentEvent } from '@/lib/shared/types';
 import { agentMessageRequestSchema, publicError, safeJsonResponse } from '@/lib/shared/protocol';
 import { getConfig } from '@/lib/server/config';
 import { getProjectRegistry } from '@/lib/server/projectRegistry';
-import { getThreadRegistry } from '@/lib/server/threadRegistry';
+import { getThreadRegistry, serverAgent } from '@/lib/server/threadRegistry';
 import { runRegistry } from '@/lib/server/runRegistry';
 import { AgentRunError } from '@/lib/server/agentRunError';
 import { getProviderAdapters } from '@/lib/server/providerRegistry';
 import { runConversation } from '@/lib/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
+import { buildTranscriptDelta } from '@/lib/conversation/transcript';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,10 +40,22 @@ export async function POST(request: Request): Promise<Response> {
     return safeJsonResponse({ error: publicError(error) }, { status: 404 });
   }
   const mode = parsed.data.mode || 'ask';
-  const adapter = getProviderAdapters(config)[thread.agent.provider];
-  if (!adapter.supportedModes.includes(mode)) {
+  const participant = serverAgent(thread, parsed.data.participantId);
+  if (!participant) {
+    return safeJsonResponse({ error: 'The addressed participant is not an agent in this conversation.' }, { status: 400 });
+  }
+  let transcriptDelta: string;
+  try {
+    transcriptDelta = buildTranscriptDelta(thread, participant, parsed.data.transcript).text;
+  } catch (error) {
+    return safeJsonResponse({ error: publicError(error) }, { status: 400 });
+  }
+  const adapter = getProviderAdapters(config)[participant.provider];
+  const providerHealth = await adapter.checkHealth();
+  if (!providerHealth.available || !providerHealth.supportedModes.includes(mode)) {
     return safeJsonResponse({
-      error: `${thread.agent.provider === 'codex' ? 'Codex' : 'Claude'} does not support ${mode} mode in this Cartograph configuration.`,
+      error: providerHealth.message
+        || `${participant.provider === 'codex' ? 'Codex' : 'Claude'} is not healthy for ${mode} mode in this Cartograph configuration.`,
     }, { status: 409 });
   }
 
@@ -70,6 +83,7 @@ export async function POST(request: Request): Promise<Response> {
         config,
         runner,
         threadRegistry: getThreadRegistry(config.dataDir),
+        transcriptDelta,
         signal: abortController.signal,
         emit,
         onPermissionBroker: (broker) => runRegistry.attachPermissions(runId, broker),
@@ -81,7 +95,7 @@ export async function POST(request: Request): Promise<Response> {
           code: known?.code || (abortController.signal.aborted ? 'cancelled' : 'internal'),
           message: known?.message || (abortController.signal.aborted ? 'The request was cancelled.' : publicError(error)),
           retryable: known?.retryable ?? true,
-          delivery: known?.delivery || (thread.agent.started ? 'possibly-sent' : 'not-sent'),
+          delivery: known?.delivery || (participant.session.started ? 'possibly-sent' : 'not-sent'),
         });
         emit({ type: 'done', runId, durationMs: 0, cancelled: known?.code === 'cancelled' || abortController.signal.aborted });
       }).finally(() => runRegistry.finish(runId));

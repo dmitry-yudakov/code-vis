@@ -119,3 +119,48 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await page.getByRole('button', { name: /History/ }).click();
   await expect(page.locator('.navigator-item')).toContainText('Sketch 1');
 });
+
+test('adds a role participant and performs an explicit quick handoff', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /New conversation/ }).click();
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const composer = conversation.locator('textarea');
+
+  await composer.fill('Summarize the current architecture in one paragraph.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(conversation.locator('.chat-message.assistant')).toBeVisible();
+
+  await conversation.locator('.add-agent-menu summary').click();
+  const addAgentPanel = conversation.locator('.add-agent-menu > div');
+  await expect(addAgentPanel).toBeVisible();
+  const [drawerBox, addAgentPanelBox] = await Promise.all([
+    conversation.boundingBox(),
+    addAgentPanel.boundingBox(),
+  ]);
+  expect(drawerBox).not.toBeNull();
+  expect(addAgentPanelBox).not.toBeNull();
+  expect(addAgentPanelBox!.x).toBeGreaterThanOrEqual(drawerBox!.x);
+  expect(addAgentPanelBox!.x + addAgentPanelBox!.width).toBeLessThanOrEqual(
+    drawerBox!.x + drawerBox!.width,
+  );
+  await conversation.getByLabel('Role').selectOption('reviewer');
+  await conversation.getByRole('button', { name: 'Add participant' }).click();
+  await expect(addAgentPanel).toBeHidden();
+  await expect(conversation.locator('.participant-chip')).toHaveCount(2);
+  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+
+  // Select the main coder, then use the reviewer handoff chip. It prefills but does not send.
+  await conversation.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
+  await conversation.getByRole('button', { name: /@Claude Reviewer · Review this/ }).click();
+  await expect(composer).toHaveValue(/Review the latest proposal or changes above/);
+  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+  await expect(conversation.locator('.chat-message.user')).toHaveCount(1);
+
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(conversation.locator('.chat-message.user')).toHaveCount(2);
+  await expect(conversation.locator('.chat-message.user').last()).toContainText('→ @Claude Reviewer');
+  await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Claude Reviewer');
+
+  await conversation.getByRole('button', { name: 'Make @Claude Reviewer the main agent' }).click();
+  await expect(conversation.locator('.participant-chip.active')).toContainText('Main');
+});

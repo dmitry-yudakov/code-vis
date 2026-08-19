@@ -41,6 +41,7 @@ export interface GitFileDiff {
 }
 
 export type AgentProvider = 'claude' | 'codex';
+export type AgentRole = 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom';
 
 export interface ProviderSessionRef {
   provider: AgentProvider;
@@ -48,12 +49,38 @@ export interface ProviderSessionRef {
   started: boolean;
 }
 
+export interface HumanParticipant {
+  id: string;
+  kind: 'human';
+  displayName: string;
+}
+
+/** Public agent identity. Provider session ids never leave the server registry. */
+export interface AgentParticipant {
+  id: string;
+  kind: 'agent';
+  displayName: string;
+  provider: AgentProvider;
+  role: AgentRole;
+  defaultMode: AgentMode;
+}
+
+export type Participant = HumanParticipant | AgentParticipant;
+
+export interface ServerAgentParticipant extends AgentParticipant {
+  session: ProviderSessionRef;
+  lastObservedMessageId?: string;
+}
+
+export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
+
 export interface ServerThread {
   id: string;
   projectId: string;
   createdAt: string;
   updatedAt: string;
-  agent: ProviderSessionRef;
+  participants: ServerParticipant[];
+  primaryAgentId: string;
 }
 
 export interface ProviderHealth {
@@ -160,6 +187,8 @@ export type AgentMode = 'ask' | 'plan' | 'agent';
 export interface UserMessage {
   id: string;
   role: 'user';
+  authorId: string;
+  addressedParticipantId: string;
   text: string;
   createdAt: string;
   status: 'sending' | 'sent' | 'cancelled' | 'failed';
@@ -171,6 +200,7 @@ export interface UserMessage {
 export interface AssistantMessage {
   id: string;
   role: 'assistant';
+  authorId: string;
   createdAt: string;
   status: 'complete' | 'cancelled' | 'failed';
   rawMarkdown: string;
@@ -190,14 +220,16 @@ export interface DiagramAnnotation {
 }
 
 export interface ChatThread {
-  version: 1;
+  version: 2;
   id: string;
   projectId: string;
   title: string;
   createdAt: string;
   updatedAt: string;
-  /** Absent in localStorage written before provider support means Claude. */
-  provider?: AgentProvider;
+  participants: Participant[];
+  primaryAgentId: string;
+  /** Recipient selected for the next turn. Falls back to `primaryAgentId`. */
+  addressedAgentId?: string;
   messages: ChatMessage[];
   /** Points at a diagram artifact or a sketch — both share one canvas id space. */
   activeDiagramId?: string;
@@ -240,12 +272,12 @@ export type AgentErrorCode =
 export type PermissionResolution = 'allow' | 'deny' | 'timeout' | 'cancelled';
 
 export type AgentEvent =
-  | { type: 'run-started'; runId: string; threadId: string; messageId: string }
+  | { type: 'run-started'; runId: string; threadId: string; messageId: string; participantId: string }
   | { type: 'status'; runId: string; phase: AgentPhase; label: string }
   | { type: 'tool-activity'; runId: string; tool: string; detail?: string; denied?: boolean }
   | { type: 'assistant-delta'; runId: string; delta: string }
   | { type: 'assistant-message'; runId: string; message: AssistantMessage }
-  | { type: 'permission-request'; runId: string; requestId: string; tool: string; detail: string }
+  | { type: 'permission-request'; runId: string; requestId: string; participantId: string; tool: string; detail: string }
   | { type: 'permission-resolved'; runId: string; requestId: string; decision: PermissionResolution }
   | {
       type: 'error';
@@ -261,10 +293,20 @@ export interface AgentMessageRequest {
   projectId: string;
   threadId: string;
   messageId: string;
+  participantId: string;
   text: string;
+  transcript: TranscriptContextMessage[];
   diagramAttachments: DiagramMessageAttachment[];
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;
+}
+
+/** Browser-held transcript input. Author metadata is resolved from the server-owned roster. */
+export interface TranscriptContextMessage {
+  id: string;
+  authorId: string;
+  createdAt: string;
+  text: string;
 }
 
 export interface PermissionDecisionRequest {

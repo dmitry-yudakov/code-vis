@@ -1,6 +1,6 @@
 import { getConfig } from '@/lib/server/config';
 import { getProjectRegistry } from '@/lib/server/projectRegistry';
-import { getThreadRegistry } from '@/lib/server/threadRegistry';
+import { getThreadRegistry, publicParticipants } from '@/lib/server/threadRegistry';
 import { createThreadRequestSchema, publicError, safeJsonResponse } from '@/lib/shared/protocol';
 
 export const runtime = 'nodejs';
@@ -12,13 +12,14 @@ export async function POST(request: Request): Promise<Response> {
     const config = getConfig();
     const projects = getProjectRegistry(config.projectsRoot, config.projectDiscoveryDepth);
     await projects.resolve(parsed.data.projectId);
-    const thread = await getThreadRegistry(config.dataDir).create(parsed.data.projectId, parsed.data.provider);
+    const thread = await getThreadRegistry(config.dataDir).create(parsed.data.projectId, parsed.data.provider, parsed.data.role);
     return safeJsonResponse({
       thread: {
         id: thread.id,
         projectId: thread.projectId,
         createdAt: thread.createdAt,
-        provider: thread.agent.provider,
+        participants: publicParticipants(thread),
+        primaryAgentId: thread.primaryAgentId,
       },
     }, { status: 201 });
   } catch (error) {
