@@ -14,6 +14,20 @@ import { parseAssistantResponse } from './responseParser';
 import { serverAgent } from '@/lib/server/threadRegistry';
 import { roleContract } from '@/lib/server/agentRoles';
 
+export async function publishCompletedAssistant(input: {
+  runId: string;
+  threadId: string;
+  participantId: string;
+  message: AssistantMessage;
+  emit(event: AgentEvent): void;
+  markObserved(threadId: string, participantId: string, messageId: string): Promise<void>;
+}): Promise<void> {
+  input.emit({ type: 'assistant-message', runId: input.runId, message: input.message });
+  // Delivery is the primary invariant. If registry persistence fails, replaying context next turn
+  // is safer than turning an already completed answer into an error and hiding it from the user.
+  await input.markObserved(input.threadId, input.participantId, input.message.id).catch(() => undefined);
+}
+
 export async function runConversation(input: {
   runId: string;
   request: AgentMessageRequest;
@@ -133,8 +147,16 @@ export async function runConversation(input: {
       mode,
       planProposed: planProposed || undefined,
     };
-    await threadRegistry.markObserved(thread.id, participant.id, assistantId);
-    emit({ type: 'assistant-message', runId, message });
+    await publishCompletedAssistant({
+      runId,
+      threadId: thread.id,
+      participantId: participant.id,
+      message,
+      emit,
+      markObserved: (threadId, participantId, messageId) => (
+        threadRegistry.markObserved(threadId, participantId, messageId)
+      ),
+    });
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
   } finally {

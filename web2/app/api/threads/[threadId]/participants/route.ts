@@ -11,6 +11,22 @@ export const runtime = 'nodejs';
 
 type RouteContext = { params: Promise<{ threadId: string }> };
 
+export async function GET(request: Request, context: RouteContext): Promise<Response> {
+  const projectId = new URL(request.url).searchParams.get('projectId') || '';
+  if (!projectId || projectId.length > 128) {
+    return safeJsonResponse({ error: 'A valid project id is required.' }, { status: 400 });
+  }
+  try {
+    const { threadId } = await context.params;
+    const config = getConfig();
+    await getProjectRegistry(config.projectsRoot, config.projectDiscoveryDepth).resolve(projectId);
+    const thread = await getThreadRegistry(config.dataDir).get(threadId, projectId);
+    return safeJsonResponse({ participants: publicParticipants(thread), primaryAgentId: thread.primaryAgentId });
+  } catch (error) {
+    return safeJsonResponse({ error: publicError(error) }, { status: 404 });
+  }
+}
+
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
     const parsed = addParticipantRequestSchema.safeParse(await request.json());
@@ -23,11 +39,18 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       return safeJsonResponse({ error: health.message || 'That provider is not healthy for this role.' }, { status: 409 });
     }
     const registry = getThreadRegistry(config.dataDir);
-    await registry.addAgent(threadId, parsed.data.projectId, parsed.data.provider, parsed.data.role);
+    await registry.addAgent(
+      threadId,
+      parsed.data.projectId,
+      parsed.data.provider,
+      parsed.data.role,
+      parsed.data.requestId,
+    );
     const thread = await registry.get(threadId, parsed.data.projectId);
     return safeJsonResponse({ participants: publicParticipants(thread), primaryAgentId: thread.primaryAgentId }, { status: 201 });
   } catch (error) {
-    return safeJsonResponse({ error: publicError(error) }, { status: 400 });
+    const message = publicError(error);
+    return safeJsonResponse({ error: message }, { status: message.includes('Unknown project-bound thread') ? 404 : 400 });
   }
 }
 

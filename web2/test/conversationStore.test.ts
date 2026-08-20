@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatThread } from '@/lib/shared/types';
 import {
-  loadProjectThreads, loadSelectedProjectId, saveProjectThreads, saveSelectedProjectId, serializeThreadExport,
+  commitProjectThreads, loadProjectSnapshot, loadProjectThreads, loadSelectedProjectId, mergeProjectThreads,
+  projectConversationLockName, projectConversationStorageKey, saveProjectThreads, saveSelectedProjectId,
+  serializeThreadExport,
 } from '@/lib/client/conversationStore';
 
 class MemoryStorage implements Storage {
@@ -14,7 +16,25 @@ class MemoryStorage implements Storage {
   setItem(key: string, value: string) { this.values.set(key, value); }
 }
 
+function threadFixture(projectId = 'p1', title = 'Test'): ChatThread {
+  const now = new Date().toISOString();
+  const humanId = crypto.randomUUID();
+  const agentId = crypto.randomUUID();
+  return {
+    version: 2, id: crypto.randomUUID(), projectId, title, createdAt: now, updatedAt: now,
+    participants: [
+      { id: humanId, kind: 'human', displayName: 'You' },
+      { id: agentId, kind: 'agent', displayName: 'Codex', provider: 'codex', role: 'coder', defaultMode: 'plan' },
+    ],
+    primaryAgentId: agentId, addressedAgentId: agentId, messages: [], pinnedDiagramIds: [], annotations: {},
+  };
+}
+
 describe('conversationStore', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('persists the selected project separately from project-scoped conversations', () => {
     const storage = new MemoryStorage();
     expect(loadSelectedProjectId(storage)).toBeUndefined();
@@ -131,5 +151,126 @@ describe('conversationStore', () => {
       id: agentId, displayName: 'Codex Reviewer', kind: 'agent', provider: 'codex', role: 'reviewer',
     });
     expect(JSON.stringify(exported)).not.toContain('sessionId');
+  });
+
+  it('recovers a same-revision interleaving by merging content instead of gating on the counter', () => {
+    const storage = new MemoryStorage();
+    const base = threadFixture();
+    saveProjectThreads('p1', [base], storage);
+    const sharedRead = storage.getItem(projectConversationStorageKey('p1'))!;
+    const tabA = loadProjectThreads('p1', storage)[0];
+    const tabB = structuredClone(tabA);
+    const humanId = base.participants.find((participant) => participant.kind === 'human')!.id;
+    const agentA = { id: crypto.randomUUID(), kind: 'agent' as const, displayName: 'Claude', provider: 'claude' as const, role: 'reviewer' as const, defaultMode: 'ask' as const };
+    const agentB = { id: crypto.randomUUID(), kind: 'agent' as const, displayName: 'Codex Tester', provider: 'codex' as const, role: 'tester' as const, defaultMode: 'ask' as const };
+    tabA.participants.push(agentA);
+    tabA.messages.push({
+      id: crypto.randomUUID(), role: 'user', authorId: humanId, addressedParticipantId: agentA.id,
+      text: 'review', createdAt: new Date().toISOString(), status: 'sent', diagramAttachments: [],
+    });
+    tabA.updatedAt = '2026-01-01T00:00:01.000Z';
+    const savedA = saveProjectThreads('p1', [tabA], storage);
+
+    tabB.participants.push(agentB);
+    tabB.messages.push({
+      id: crypto.randomUUID(), role: 'user', authorId: humanId, addressedParticipantId: agentB.id,
+      text: 'test', createdAt: new Date().toISOString(), status: 'sent', diagramAttachments: [],
+    });
+    tabB.updatedAt = '2026-01-01T00:00:02.000Z';
+    // Reproduce both tabs reading revision 1 before either writes. The second write
+    // overwrites the first with the same revision, proving revision is not a conflict token.
+    storage.setItem(projectConversationStorageKey('p1'), sharedRead);
+    const savedB = saveProjectThreads('p1', [tabB], storage);
+    expect(savedA.revision).toBe(savedB.revision);
+    expect(loadProjectThreads('p1', storage)[0].messages.some((message) => message.role === 'user' && message.text === 'review')).toBe(false);
+
+    // A live storage-event recipient merges by content even at the same revision,
+    // then its next save restores the durable union.
+    const recoveredA = mergeProjectThreads([tabA], savedB.threads);
+    const recovered = saveProjectThreads('p1', recoveredA, storage);
+    const converged = recovered.threads[0];
+    expect(converged.participants.map((participant) => participant.id)).toEqual(expect.arrayContaining([agentA.id, agentB.id]));
+    expect(converged.messages.map((message) => message.role === 'user' ? message.text : '')).toEqual(expect.arrayContaining(['review', 'test']));
+    expect(loadProjectThreads('p1', storage)[0].messages).toHaveLength(2);
+  });
+
+  it('serializes commits through a project-scoped Web Lock', async () => {
+    const storage = new MemoryStorage();
+    let queue = Promise.resolve();
+    const request = vi.fn(<T>(_name: string, callback: () => Promise<T> | T): Promise<T> => {
+      const result = queue.then(callback);
+      queue = result.then(() => undefined, () => undefined);
+      return result;
+    });
+    vi.stubGlobal('navigator', { locks: { request } });
+
+    const first = threadFixture('p1', 'First');
+    const second = threadFixture('p1', 'Second');
+    const [savedFirst, savedSecond] = await Promise.all([
+      commitProjectThreads('p1', [first], storage),
+      commitProjectThreads('p1', [second], storage),
+    ]);
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls.map(([name]) => name)).toEqual([
+      'code-ai:web2:v1:p1:commit',
+      'code-ai:web2:v1:p1:commit',
+    ]);
+    expect(projectConversationLockName('p1')).not.toBe(projectConversationLockName('p2'));
+    expect([savedFirst.revision, savedSecond.revision]).toEqual([1, 2]);
+    expect(loadProjectThreads('p1', storage)).toHaveLength(2);
+  });
+
+  it('commits without Web Locks when the platform does not expose them', async () => {
+    const storage = new MemoryStorage();
+    vi.stubGlobal('navigator', {});
+    const thread = threadFixture();
+    const result = await commitProjectThreads('p1', [thread], storage);
+    expect(result.revision).toBe(1);
+    expect(loadProjectThreads('p1', storage)).toEqual([thread]);
+  });
+
+  it('isolates an invalid thread, preserves its last valid copy, and saves unaffected threads', () => {
+    const storage = new MemoryStorage();
+    const affected = threadFixture('p1', 'Affected');
+    const healthy = threadFixture('p1', 'Healthy');
+    saveProjectThreads('p1', [affected, healthy], storage);
+    const malformed = structuredClone(affected);
+    malformed.messages.push({
+      id: crypto.randomUUID(), role: 'assistant', authorId: 'dangling-agent', createdAt: new Date().toISOString(),
+      status: 'complete', rawMarkdown: 'bad', blocks: [],
+    });
+    const updatedHealthy = { ...healthy, title: 'Healthy updated', updatedAt: '2099-01-01T00:00:00.000Z' };
+    const result = saveProjectThreads('p1', [malformed, updatedHealthy], storage);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatchObject({ threadId: affected.id, lastValid: { title: 'Affected' } });
+    expect(result.failures[0].message).toContain(affected.id);
+    const stored = loadProjectThreads('p1', storage);
+    expect(stored.find((thread) => thread.id === affected.id)?.messages).toHaveLength(0);
+    expect(stored.find((thread) => thread.id === healthy.id)?.title).toBe('Healthy updated');
+  });
+
+  it('stores conversations beyond the old 200-message wall and names the raised boundary', () => {
+    const storage = new MemoryStorage();
+    const thread = threadFixture();
+    const humanId = thread.participants.find((participant) => participant.kind === 'human')!.id;
+    thread.messages = Array.from({ length: 201 }, (_, index) => ({
+      id: crypto.randomUUID(), role: 'user' as const, authorId: humanId,
+      addressedParticipantId: thread.primaryAgentId, text: `message ${index}`,
+      createdAt: new Date().toISOString(), status: 'sent' as const, diagramAttachments: [],
+    }));
+    expect(saveProjectThreads('p1', [thread], storage).failures).toEqual([]);
+    expect(loadProjectThreads('p1', storage)[0].messages).toHaveLength(201);
+
+    const lastValid = structuredClone(thread);
+    saveProjectThreads('p1', [lastValid], storage);
+    thread.messages = Array.from({ length: 2_001 }, (_, index) => ({
+      id: crypto.randomUUID(), role: 'user' as const, authorId: humanId,
+      addressedParticipantId: thread.primaryAgentId, text: `message ${index}`,
+      createdAt: new Date().toISOString(), status: 'sent' as const, diagramAttachments: [],
+    }));
+    const result = saveProjectThreads('p1', [thread], storage);
+    expect(result.failures[0].message).toContain('2000-message');
+    expect(result.failures[0].lastValid?.messages).toHaveLength(201);
   });
 });

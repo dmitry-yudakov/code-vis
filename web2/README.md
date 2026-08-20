@@ -55,9 +55,15 @@ or an orchestrator can be main while a coder and reviewer handle focused turns.
 
 Every send addresses exactly one participant and every message names its author. Each agent owns a
 private native provider session. On handoff, the server gives the addressed agent a bounded,
-author-labeled delta of the shared browser transcript it has missed. Quick handoff chips prefill an
+author-labeled JSON delta of the shared browser transcript it has missed. Failed, definitely
+undelivered instructions are excluded; ambiguous/cancelled delivery remains visibly labelled.
+Quick handoff chips prefill an
 editable recipient, prompt, and role-default mode; they never send automatically. Autonomous
 agent-to-agent relay, parallel turns, and autopilot are intentionally not implemented yet.
+
+New conversations intentionally open in **Plan** because their initial participant is the `coder`
+preset. Browser conversations migrated from the older single-agent format keep **Ask**, preserving
+their previous behavior.
 
 ## Conversation modes
 
@@ -178,9 +184,15 @@ environment of whoever starts `web2`.**
   permissions. Older single-provider registries and browser threads migrate without changing
   their IDs, content, canvases, or provider session.
 - Transcript, Mermaid artifacts, evidence references, pins, active selection, and vector marks are
-  stored in versioned browser `localStorage`. Composite PNGs, repository files, and diffs are not.
+  stored in revisioned browser `localStorage`. Tabs merge immutable participant/message ids through
+  `storage` events instead of replacing one another's project blob. One invalid thread retains its
+  last valid copy and does not block unrelated conversations. Composite PNGs, repository files, and
+  diffs are not.
 - Reloading restores browser state; later turns resume the addressed participant's native provider
   session and receive only the bounded shared transcript delta missed since its last complete turn.
+  The browser sends at most 80 history entries and the server defaults to 40 entries / 24 KB. Local
+  conversations retain up to 2,000 messages; at that explicit boundary the UI names the affected
+  thread and offers recovery/export rather than making subsequent requests fail opaquely.
 - If the provider's native session is missing, visible history is retained and the UI offers an explicit
   new-session continuation with a visible bounded recap.
 - Export includes the roster and expanded author/provider/role metadata for every entry, plus
@@ -229,6 +241,8 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_WEB2_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
 - `CODEAI_WEB2_AGENT_*` / `CODEAI_WEB2_BUILD_*` — per-message turn and time budgets for Ask/Plan
   and for Agent respectively;
+- `CODEAI_WEB2_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_WEB2_MAX_TRANSCRIPT_BYTES` — server-side prompt
+  bounds applied after the fixed 80-entry browser wire window;
 - response, Mermaid, attachment, and Git-context bounds.
 
 The health endpoint checks infrastructure and each provider independently, without invoking a

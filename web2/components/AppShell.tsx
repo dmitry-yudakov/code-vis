@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, ChatThread, DiagramArtifact,
   DiagramMessageAttachment, DrawingMark, GitWorkingTree, Participant, ProjectSummary, ProviderHealth, SketchCanvas,
-  TranscriptContextMessage, UserMessage,
+  UserMessage,
 } from '@/lib/shared/types';
 import { readNdjson } from '@/lib/client/ndjson';
 import {
@@ -15,8 +15,9 @@ import { EXECUTE_PLAN_INSTRUCTION } from '@/lib/shared/plan';
 import { compositePng } from '@/lib/client/compositeExport';
 import { createUuid } from '@/lib/client/uuid';
 import {
-  canvasTargetId, exportThread, findCanvasTarget, getArtifacts, getSketches, loadProjectThreads,
-  loadSelectedProjectId, saveProjectThreads, saveSelectedProjectId,
+  canvasTargetId, commitProjectThreads, exportThread, findCanvasTarget, getArtifacts, getSketches,
+  loadProjectSnapshot, loadSelectedProjectId, mergeProjectThreads, projectConversationStorageKey,
+  saveSelectedProjectId, type ConversationPersistenceFailure,
 } from '@/lib/client/conversationStore';
 import { ProjectPicker } from './ProjectPicker';
 import { ThreadPicker } from './ThreadPicker';
@@ -26,6 +27,7 @@ import { CanvasWorkspace, type CanvasSnapshot } from './CanvasWorkspace';
 import { EMPTY_CANVAS_SVG } from './DiagramCanvas';
 import { RepositoryPanel } from './RepositoryPanel';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/lib/shared/participants';
+import { transcriptContext } from '@/lib/client/transcriptContext';
 
 interface Health {
   ok: boolean;
@@ -65,13 +67,14 @@ function newLocalThread(server: {
   };
 }
 
-function transcriptContext(thread: ChatThread): TranscriptContextMessage[] {
-  return thread.messages.map((message) => ({
-    id: message.id,
-    authorId: message.authorId,
-    createdAt: message.createdAt,
-    text: (message.role === 'user' ? message.text : message.rawMarkdown).slice(-8_000),
-  }));
+function reconcilePublicRoster(
+  thread: ChatThread,
+  participants: Participant[],
+  primaryAgentId: string,
+): ChatThread {
+  const addressedAgentId = findAgentParticipant(participants, thread.addressedAgentId)?.id
+    || findAgentParticipant(participants, primaryAgentId)?.id;
+  return { ...thread, participants, primaryAgentId, addressedAgentId };
 }
 
 function updateArtifact(thread: ChatThread, id: string, update: (artifact: DiagramArtifact) => DiagramArtifact): ChatThread {
@@ -113,11 +116,13 @@ export function AppShell() {
   /** Set when a turn stopped on its turn budget: the session survives, so it can be resumed. */
   const [continueMode, setContinueMode] = useState<AgentMode>();
   const [participantBusy, setParticipantBusy] = useState(false);
+  const [persistenceFailure, setPersistenceFailure] = useState<ConversationPersistenceFailure>();
   const abortRef = useRef<AbortController | undefined>(undefined);
   const runIdRef = useRef<string | undefined>(undefined);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
   const navigationRevision = useRef(0);
   const hydratedProject = useRef<string | undefined>(undefined);
+  const participantRequestIds = useRef(new Map<string, string>());
   const chatOpenRef = useRef(chatOpen);
   chatOpenRef.current = chatOpen;
   const runningRef = useRef(running);
@@ -146,6 +151,23 @@ export function AppShell() {
       return target ? [target] : [];
     });
   }, [thread, pendingAttachmentIds]);
+
+  const reconcileRoster = useCallback(async (targetThreadId: string, targetProjectId: string): Promise<boolean> => {
+    try {
+      const response = await fetch(
+        `/api/threads/${encodeURIComponent(targetThreadId)}/participants?projectId=${encodeURIComponent(targetProjectId)}`,
+        { cache: 'no-store' },
+      );
+      const data = await response.json() as { participants?: Participant[]; primaryAgentId?: string };
+      if (!response.ok || !data.participants || !data.primaryAgentId) return false;
+      setThreads((current) => current.map((item) => item.id === targetThreadId
+        ? reconcilePublicRoster(item, data.participants!, data.primaryAgentId!)
+        : item));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -180,27 +202,51 @@ export function AppShell() {
   useEffect(() => {
     if (!projectId) return;
     try {
-      const saved = loadProjectThreads(projectId);
-      setThreads(saved);
-      setThreadId(saved[0]?.id);
+      const snapshot = loadProjectSnapshot(projectId);
+      setThreads(snapshot.threads);
+      setThreadId(snapshot.threads[0]?.id);
       hydratedProject.current = projectId;
       setNotice(undefined);
+      for (const savedThread of snapshot.threads) {
+        void reconcileRoster(savedThread.id, projectId);
+      }
     } catch (error) {
       setThreads([]);
       setThreadId(undefined);
       hydratedProject.current = projectId;
       setNotice(error instanceof Error ? error.message : 'Saved conversations could not be restored.');
     }
-  }, [projectId]);
+  }, [projectId, reconcileRoster]);
 
   useEffect(() => {
     if (!projectId || hydratedProject.current !== projectId) return;
-    try {
-      saveProjectThreads(projectId, threads);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Conversation persistence failed.');
-    }
+    let current = true;
+    void commitProjectThreads(projectId, threads).then((result) => {
+      if (!current) return;
+      setThreads((current) => mergeProjectThreads(current, result.threads));
+      const failure = result.failures[0];
+      setPersistenceFailure(failure);
+      if (failure) setNotice(failure.message);
+    }).catch((error: unknown) => {
+      if (current) setNotice(error instanceof Error ? error.message : 'Conversation persistence failed.');
+    });
+    return () => { current = false; };
   }, [projectId, threads]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.storageArea !== localStorage || event.key !== projectConversationStorageKey(projectId) || !event.newValue) return;
+      try {
+        const snapshot = loadProjectSnapshot(projectId);
+        setThreads((current) => mergeProjectThreads(current, snapshot.threads));
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : 'Another tab wrote invalid conversation data.');
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [projectId]);
 
   useEffect(() => {
     const active = thread?.activeDiagramId;
@@ -322,7 +368,7 @@ export function AppShell() {
     if (!threadId || running) return;
     mutateThread(threadId, (current) => {
       const participant = findAgentParticipant(current.participants, participantId);
-      return participant ? { ...current, addressedAgentId: participantId, defaultMode: participant.defaultMode } : current;
+      return participant ? { ...current, addressedAgentId: participantId } : current;
     });
   }, [mutateThread, running, threadId]);
 
@@ -330,21 +376,24 @@ export function AppShell() {
     if (!thread || running || participantBusy) return;
     setParticipantBusy(true);
     setNotice(undefined);
+    const requestKey = `${thread.id}:${provider}:${role}`;
+    const requestId = participantRequestIds.current.get(requestKey) || createUuid();
+    participantRequestIds.current.set(requestKey, requestId);
     try {
       const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/participants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: thread.projectId, provider, role }),
+        body: JSON.stringify({ projectId: thread.projectId, provider, role, requestId }),
       });
       const data = await response.json() as { participants?: Participant[]; primaryAgentId?: string; error?: string };
       if (!response.ok || !data.participants || !data.primaryAgentId) throw new Error(data.error || 'Could not add that agent.');
+      participantRequestIds.current.delete(requestKey);
       const added = data.participants.find((participant) => !thread.participants.some((current) => current.id === participant.id));
       mutateThread(thread.id, (current) => ({
         ...current,
         participants: data.participants!,
         primaryAgentId: data.primaryAgentId!,
         addressedAgentId: added?.kind === 'agent' ? added.id : current.addressedAgentId,
-        defaultMode: added?.kind === 'agent' ? added.defaultMode : current.defaultMode,
       }));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not add that agent.');
@@ -380,7 +429,7 @@ export function AppShell() {
 
   const prefillHandoff = useCallback((participantId: string, text: string, handoffMode?: AgentMode) => {
     selectAgent(participantId);
-    setComposer(text);
+    setComposer((current) => current.trim() ? `${current.trimEnd()}\n\n${text}` : text);
     if (handoffMode && threadId) mutateThread(threadId, (current) => ({ ...current, defaultMode: handoffMode }));
   }, [mutateThread, selectAgent, threadId]);
 
@@ -600,7 +649,7 @@ export function AppShell() {
           messageId: userId,
           participantId: turnAgent.id,
           text,
-          transcript: transcriptContext(thread),
+          transcript: transcriptContext(thread, turnAgent.id),
           diagramAttachments: attachmentPayload,
           mode: turnMode,
         }),
@@ -664,6 +713,7 @@ export function AppShell() {
     const controller = new AbortController();
     let owned = false;
     void (async () => {
+      if (projectId) await reconcileRoster(threadId, projectId);
       let response: Response;
       try {
         response = await fetch(`/api/agent/stream?threadId=${encodeURIComponent(threadId)}`, { signal: controller.signal });
@@ -690,7 +740,7 @@ export function AppShell() {
       }
     })();
     return () => { controller.abort(); if (owned) setRunning(false); };
-  }, [consumeStream, threadId]);
+  }, [consumeStream, projectId, reconcileRoster, threadId]);
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(thread?.participants || [], participantId);
@@ -701,6 +751,22 @@ export function AppShell() {
     }
     void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent', participantId });
   }, [health, send, thread?.participants]);
+
+  const recoverPersistence = useCallback(() => {
+    if (!persistenceFailure) return;
+    setThreads((current) => {
+      if (persistenceFailure.lastValid) {
+        return current.map((item) => item.id === persistenceFailure.threadId
+          ? persistenceFailure.lastValid!
+          : item);
+      }
+      const next = current.filter((item) => item.id !== persistenceFailure.threadId);
+      if (threadId === persistenceFailure.threadId) setThreadId(next[0]?.id);
+      return next;
+    });
+    setPersistenceFailure(undefined);
+    setNotice(undefined);
+  }, [persistenceFailure, threadId]);
 
   if (loading) return <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>;
 
@@ -755,6 +821,11 @@ export function AppShell() {
       {notice && (
         <div className="notice-banner" role="status">
           <span>{notice}</span>
+          {persistenceFailure && (
+            <button type="button" onClick={recoverPersistence}>
+              {persistenceFailure.lastValid ? 'Restore last saved copy' : 'Remove unsaved conversation'}
+            </button>
+          )}
           {missingSession && <button type="button" onClick={() => { void createThread(activeProvider); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${thread.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {continueMode && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button>

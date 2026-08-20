@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_MESSAGE_TEXT_CHARS, MAX_WIRE_TRANSCRIPT_MESSAGES } from './limits';
 
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 const point = z.object({ x: finite, y: finite, pressure: z.number().finite().min(0).max(1).optional() });
@@ -46,7 +47,9 @@ const transcriptContextMessageSchema = z.object({
   id: z.string().uuid(),
   authorId: participantIdSchema,
   createdAt: z.string().datetime(),
-  text: z.string().max(8_000),
+  text: z.string().max(MAX_MESSAGE_TEXT_CHARS),
+  status: z.enum(['sending', 'sent', 'cancelled', 'failed', 'complete']),
+  delivery: z.enum(['not-sent', 'possibly-sent']).optional(),
 }).strict();
 
 export const agentMessageRequestSchema = z.object({
@@ -54,8 +57,8 @@ export const agentMessageRequestSchema = z.object({
   threadId: z.string().uuid(),
   messageId: z.string().uuid(),
   participantId: participantIdSchema,
-  text: z.string().trim().min(1).max(8_000),
-  transcript: z.array(transcriptContextMessageSchema).max(200),
+  text: z.string().trim().min(1).max(MAX_MESSAGE_TEXT_CHARS),
+  transcript: z.array(transcriptContextMessageSchema).max(MAX_WIRE_TRANSCRIPT_MESSAGES),
   diagramAttachments: z.array(diagramAttachmentSchema),
   mode: agentModeSchema.optional(),
 }).strict();
@@ -78,6 +81,7 @@ export const addParticipantRequestSchema = z.object({
   projectId: z.string().min(1).max(128),
   provider: agentProviderSchema,
   role: agentRoleSchema,
+  requestId: z.string().uuid(),
 }).strict();
 
 export const setPrimaryAgentRequestSchema = z.object({

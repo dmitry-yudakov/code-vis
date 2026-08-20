@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentMode, AgentParticipant, AgentProvider, AgentRole } from '@/lib/shared/types';
 import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/lib/shared/participants';
 
@@ -33,6 +33,25 @@ export function ParticipantControls({
   const selected = agents.find((agent) => agent.id === activeAgentId) || agents[0];
   const quickAgents = useMemo(() => agents.filter((agent) => agent.id !== selected?.id), [agents, selected?.id]);
   const safeProvider = providers.includes(provider) ? provider : providers[0];
+
+  useEffect(() => {
+    const close = (event: Event) => {
+      const menu = addMenuRef.current;
+      if (!menu?.open) return;
+      if (event.type === 'keydown' && (event as KeyboardEvent).key === 'Escape') {
+        menu.removeAttribute('open');
+        (menu.querySelector('summary') as HTMLElement | null)?.focus();
+      } else if (event.type === 'pointerdown' && !menu.contains(event.target as Node)) {
+        menu.removeAttribute('open');
+      }
+    };
+    document.addEventListener('keydown', close);
+    document.addEventListener('pointerdown', close);
+    return () => {
+      document.removeEventListener('keydown', close);
+      document.removeEventListener('pointerdown', close);
+    };
+  }, []);
 
   const addParticipant = () => {
     if (!safeProvider) return;

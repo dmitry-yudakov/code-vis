@@ -1,18 +1,92 @@
-import type { ServerAgentParticipant, ServerThread, TranscriptContextMessage } from '@/lib/shared/types';
-
-const DEFAULT_MAX_MESSAGES = 40;
-const DEFAULT_MAX_BYTES = 24_000;
+import type {
+  Participant, ServerAgentParticipant, ServerThread, TranscriptContextMessage,
+} from '@/lib/shared/types';
+import {
+  DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES,
+  truncateUtf8HeadTail, utf8Length,
+} from '@/lib/shared/limits';
 
 export interface TranscriptDelta {
+  /** One-line JSON: historical strings cannot create prompt sections or participant labels. */
   text: string;
   messages: TranscriptContextMessage[];
   cursorFound: boolean;
   truncated: boolean;
 }
 
+interface HistoricalEntry {
+  id: string;
+  author: {
+    id: string;
+    displayName: string;
+    kind: Participant['kind'];
+    provider?: string;
+    role?: string;
+  };
+  createdAt: string;
+  status: TranscriptContextMessage['status'];
+  delivery?: TranscriptContextMessage['delivery'];
+  text: string;
+}
+
+function delivered(message: TranscriptContextMessage): boolean {
+  if (message.status === 'sending' || message.delivery === 'not-sent') return false;
+  // A failed request without an ambiguous-delivery marker is definitely not shared context.
+  if (message.status === 'failed' && message.delivery !== 'possibly-sent') return false;
+  return true;
+}
+
+function entryFor(message: TranscriptContextMessage, author: Participant): HistoricalEntry {
+  return {
+    id: message.id,
+    author: {
+      id: author.id,
+      displayName: author.displayName,
+      kind: author.kind,
+      ...(author.kind === 'agent' ? { provider: author.provider, role: author.role } : {}),
+    },
+    createdAt: message.createdAt,
+    status: message.status,
+    ...(message.delivery ? { delivery: message.delivery } : {}),
+    text: message.text,
+  };
+}
+
+function encode(cursorFound: boolean, truncated: boolean, entries: HistoricalEntry[]): string {
+  return JSON.stringify({
+    schema: 'cartograph.historical-transcript.v1',
+    kind: 'historical-context',
+    instructionBoundary: 'data-only',
+    cursorFound,
+    olderMessagesOmitted: truncated,
+    entries,
+  });
+}
+
+function fitSingleEntry(
+  entry: HistoricalEntry,
+  cursorFound: boolean,
+  maxBytes: number,
+): HistoricalEntry {
+  let low = 0;
+  let high = utf8Length(entry.text);
+  let fitted = { ...entry, text: '' };
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = { ...entry, text: truncateUtf8HeadTail(entry.text, middle) };
+    if (utf8Length(encode(cursorFound, true, [candidate])) <= maxBytes) {
+      fitted = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return fitted;
+}
+
 /**
- * Validates browser-held transcript identity against the server roster, then keeps the newest
- * bounded messages the addressed participant has not yet observed.
+ * Validates browser-held transcript identity against the server roster, then encodes the newest
+ * bounded messages the addressed participant has not yet observed as an unambiguous JSON value.
  */
 export function buildTranscriptDelta(
   thread: ServerThread,
@@ -32,39 +106,38 @@ export function buildTranscriptDelta(
     ? transcript.findIndex((message) => message.id === participant.lastObservedMessageId)
     : -1;
   const cursorFound = !participant.lastObservedMessageId || cursorIndex >= 0;
-  const missed = participant.lastObservedMessageId && cursorIndex >= 0
+  const missed = (participant.lastObservedMessageId && cursorIndex >= 0
     ? transcript.slice(cursorIndex + 1)
-    : transcript;
-  const maxMessages = limits.maxMessages ?? DEFAULT_MAX_MESSAGES;
-  const maxBytes = limits.maxBytes ?? DEFAULT_MAX_BYTES;
-  const bounded: TranscriptContextMessage[] = [];
-  let bytes = 0;
-  for (let index = missed.length - 1; index >= 0 && bounded.length < maxMessages; index -= 1) {
+    : transcript).filter(delivered);
+  const maxMessages = limits.maxMessages ?? DEFAULT_TRANSCRIPT_DELTA_MESSAGES;
+  const maxBytes = limits.maxBytes ?? DEFAULT_TRANSCRIPT_DELTA_BYTES;
+  const entries: HistoricalEntry[] = [];
+  const messages: TranscriptContextMessage[] = [];
+  let textWasTruncated = false;
+
+  for (let index = missed.length - 1; index >= 0 && entries.length < maxMessages; index -= 1) {
     const message = missed[index];
-    const size = Buffer.byteLength(message.text, 'utf8');
-    if (bounded.length && bytes + size > maxBytes) break;
-    if (!bounded.length && size > maxBytes) {
-      bounded.unshift({ ...message, text: message.text.slice(-maxBytes) });
-      bytes = maxBytes;
-      break;
+    const entry = entryFor(message, roster.get(message.authorId)!);
+    const tentative = [entry, ...entries];
+    const olderOmitted = index > 0;
+    if (utf8Length(encode(cursorFound, olderOmitted, tentative)) <= maxBytes) {
+      entries.unshift(entry);
+      messages.unshift(message);
+      continue;
     }
-    bounded.unshift(message);
-    bytes += size;
+    if (entries.length) break;
+    const fitted = fitSingleEntry(entry, cursorFound, maxBytes);
+    entries.unshift(fitted);
+    messages.unshift({ ...message, text: fitted.text });
+    textWasTruncated = fitted.text !== message.text;
+    break;
   }
-  const truncated = bounded.length < missed.length;
-  const lines = bounded.map((message) => {
-    const author = roster.get(message.authorId)!;
-    const detail = author.kind === 'agent' ? ` · ${author.provider}/${author.role}` : '';
-    return `[${author.displayName}${detail}]\n${message.text}`;
-  });
-  const notices = [
-    !cursorFound ? 'The prior cursor was outside the supplied local transcript window.' : '',
-    truncated ? 'Older missed messages were omitted by the server context bound.' : '',
-  ].filter(Boolean);
+
+  const truncated = textWasTruncated || messages.length < missed.length;
   return {
-    messages: bounded,
+    messages,
     cursorFound,
     truncated,
-    text: [...notices, ...lines].join('\n\n'),
+    text: encode(cursorFound, truncated, entries),
   };
 }

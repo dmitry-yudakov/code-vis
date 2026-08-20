@@ -46,7 +46,10 @@ export async function POST(request: Request): Promise<Response> {
   }
   let transcriptDelta: string;
   try {
-    transcriptDelta = buildTranscriptDelta(thread, participant, parsed.data.transcript).text;
+    transcriptDelta = buildTranscriptDelta(thread, participant, parsed.data.transcript, {
+      maxMessages: config.maxTranscriptMessages,
+      maxBytes: config.maxTranscriptBytes,
+    }).text;
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 400 });
   }

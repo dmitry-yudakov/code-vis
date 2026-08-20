@@ -51,7 +51,8 @@ function validParticipant(value: unknown): boolean {
     && ['ask', 'plan', 'agent'].includes(String(item.defaultMode))
     && validSession(item.session)
     && item.session.provider === item.provider
-    && (item.lastObservedMessageId === undefined || typeof item.lastObservedMessageId === 'string');
+    && (item.lastObservedMessageId === undefined || typeof item.lastObservedMessageId === 'string')
+    && (item.creationRequestId === undefined || typeof item.creationRequestId === 'string');
 }
 
 function validThread(value: unknown): value is ServerThread {
@@ -221,10 +222,25 @@ export class ThreadRegistry {
     return thread;
   }
 
-  async addAgent(id: string, projectId: string, provider: AgentProvider, role: AgentRole): Promise<ServerAgentParticipant> {
+  async addAgent(
+    id: string,
+    projectId: string,
+    provider: AgentProvider,
+    role: AgentRole,
+    requestId: string,
+  ): Promise<ServerAgentParticipant> {
     return this.mutate((data) => {
       const thread = data.threads.find((item) => item.id === id && item.projectId === projectId);
       if (!thread) throw new Error('Unknown project-bound thread');
+      const prior = thread.participants.find((item): item is ServerAgentParticipant => (
+        item.kind === 'agent' && item.creationRequestId === requestId
+      ));
+      if (prior) {
+        if (prior.provider !== provider || prior.role !== role) {
+          throw new Error('Participant request id was already used with different parameters');
+        }
+        return prior;
+      }
       if (thread.participants.filter((item) => item.kind === 'agent').length >= 8) {
         throw new Error('A conversation can contain at most 8 agents');
       }
@@ -242,6 +258,7 @@ export class ThreadRegistry {
         role,
         defaultMode: AGENT_ROLE_DEFAULT_MODES[role],
         session: { provider, started: false },
+        creationRequestId: requestId,
       };
       thread.participants.push(participant);
       thread.updatedAt = new Date().toISOString();

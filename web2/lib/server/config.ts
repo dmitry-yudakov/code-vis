@@ -1,5 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
+import {
+  DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES, MAX_WIRE_TRANSCRIPT_MESSAGES,
+} from '@/lib/shared/limits';
 
 export interface Web2Config {
   projectsRoot: string;
@@ -21,6 +24,8 @@ export interface Web2Config {
   maxDiagramAttachments: number;
   maxAttachmentBytes: number;
   maxGitContextBytes: number;
+  maxTranscriptMessages: number;
+  maxTranscriptBytes: number;
   debugAgent: boolean;
 }
 
@@ -67,6 +72,10 @@ export function getConfig(): Web2Config {
     maxDiagramAttachments: boundedInteger('CODEAI_WEB2_MAX_DIAGRAM_ATTACHMENTS', 4, 0, 12),
     maxAttachmentBytes: boundedInteger('CODEAI_WEB2_MAX_ATTACHMENT_BYTES', 4_194_304, 1_024, 20_971_520),
     maxGitContextBytes: boundedInteger('CODEAI_WEB2_MAX_GIT_CONTEXT_BYTES', 524_288, 4_096, 5_242_880),
+    maxTranscriptMessages: boundedInteger(
+      'CODEAI_WEB2_MAX_TRANSCRIPT_MESSAGES', DEFAULT_TRANSCRIPT_DELTA_MESSAGES, 1, MAX_WIRE_TRANSCRIPT_MESSAGES,
+    ),
+    maxTranscriptBytes: boundedInteger('CODEAI_WEB2_MAX_TRANSCRIPT_BYTES', DEFAULT_TRANSCRIPT_DELTA_BYTES, 1_024, 1_000_000),
     debugAgent: /^(1|true|yes)$/i.test(process.env.CODEAI_WEB2_DEBUG_AGENT || ''),
   };
 }

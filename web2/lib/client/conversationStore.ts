@@ -1,16 +1,45 @@
 import type { AgentMode, AgentProvider, CanvasTarget, ChatMessage, ChatThread, DiagramArtifact, Participant, SketchCanvas } from '@/lib/shared/types';
 import { normalizeMermaidSource, validateMermaidSource } from '@/lib/diagram/mermaidPolicy';
 import { legacyParticipants } from '@/lib/shared/participants';
+import { MAX_STORED_MESSAGES } from '@/lib/shared/limits';
 
 const PREFIX = 'code-ai:web2:v1:';
 const ACTIVE_PROJECT_KEY = `${PREFIX}active-project`;
 const MAX_THREADS = 20;
-const MAX_MESSAGES = 200;
 const MAX_ARTIFACTS = 100;
 
 interface StoredProject {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
+  /** Bookkeeping only. localStorage revisions are not compare-and-swap conflict tokens. */
+  revision?: number;
   threads: unknown[];
+}
+
+export interface ProjectConversationSnapshot {
+  revision: number;
+  threads: ChatThread[];
+}
+
+export interface ConversationPersistenceFailure {
+  threadId: string;
+  message: string;
+  lastValid?: ChatThread;
+}
+
+export interface SaveProjectThreadsResult extends ProjectConversationSnapshot {
+  failures: ConversationPersistenceFailure[];
+}
+
+export function projectConversationStorageKey(projectId: string): string {
+  return `${PREFIX}${projectId}`;
+}
+
+export function projectConversationLockName(projectId: string): string {
+  return `${projectConversationStorageKey(projectId)}:commit`;
+}
+
+function crossTabLocks(): LockManager | undefined {
+  return typeof navigator === 'undefined' ? undefined : navigator.locks;
 }
 
 export function loadSelectedProjectId(storage: Storage = localStorage): string | undefined {
@@ -84,15 +113,8 @@ function knownMode(value: unknown): AgentMode | undefined {
   return AGENT_MODES.includes(value as AgentMode) ? value as AgentMode : undefined;
 }
 
-export function loadProjectThreads(projectId: string, storage: Storage = localStorage): ChatThread[] {
-  const raw = storage.getItem(`${PREFIX}${projectId}`);
-  if (!raw) return [];
-  const parsed = JSON.parse(raw) as StoredProject;
-  if ((parsed.version !== 1 && parsed.version !== 2) || !Array.isArray(parsed.threads)
-    || !parsed.threads.every((thread) => isStoredThread(thread, projectId))) {
-    throw new Error('Saved conversations are corrupt or from an unsupported version. The in-memory workspace is unchanged.');
-  }
-  return parsed.threads.map((stored) => {
+function restoreStoredThread(stored: unknown, projectId: string): ChatThread {
+    if (!isStoredThread(stored, projectId)) throw new Error('Invalid stored conversation');
     const thread = stored as ChatThread & { version: 1 | 2; provider?: AgentProvider; participants?: Participant[]; primaryAgentId?: string };
     const provider = (thread.provider || 'claude') as AgentProvider;
     const participants = validRoster(thread.participants, thread.primaryAgentId)
@@ -145,33 +167,193 @@ export function loadProjectThreads(projectId: string, storage: Storage = localSt
     };
     }),
   };
-  });
+}
+
+function validThreadForSave(thread: ChatThread, projectId: string): boolean {
+  const names = thread.participants.map((participant) => participant.displayName);
+  return thread.version === 2
+    && isStoredThread(thread, projectId)
+    && validRoster(thread.participants, thread.primaryAgentId)
+    && new Set(names).size === names.length
+    && thread.messages.every((message) => thread.participants.some((participant) => participant.id === message.authorId)
+      && (message.role === 'assistant'
+        || thread.participants.some((participant) => participant.kind === 'agent' && participant.id === message.addressedParticipantId)));
+}
+
+function parseStoredProject(raw: string): StoredProject {
+  const parsed = JSON.parse(raw) as StoredProject;
+  if (![1, 2, 3].includes(parsed.version) || !Array.isArray(parsed.threads)
+    || (parsed.revision !== undefined && (!Number.isSafeInteger(parsed.revision) || parsed.revision < 0))) {
+    throw new Error('Saved conversations are corrupt or from an unsupported version. The in-memory workspace is unchanged.');
+  }
+  return parsed;
+}
+
+export function loadProjectSnapshot(
+  projectId: string,
+  storage: Storage = localStorage,
+): ProjectConversationSnapshot {
+  const raw = storage.getItem(projectConversationStorageKey(projectId));
+  if (!raw) return { revision: 0, threads: [] };
+  const parsed = parseStoredProject(raw);
+  let threads: ChatThread[];
+  try {
+    threads = parsed.threads.map((stored) => restoreStoredThread(stored, projectId));
+  } catch {
+    throw new Error('Saved conversations are corrupt or from an unsupported version. The in-memory workspace is unchanged.');
+  }
+  if (!threads.every((thread) => validThreadForSave(thread, projectId))) {
+    throw new Error('Saved conversations contain invalid participant attribution. The in-memory workspace is unchanged.');
+  }
+  return { revision: parsed.revision || 0, threads };
+}
+
+export function loadProjectThreads(projectId: string, storage: Storage = localStorage): ChatThread[] {
+  return loadProjectSnapshot(projectId, storage).threads;
 }
 
 function hasDrawings(thread: ChatThread): boolean {
   return Object.values(thread.annotations).some((annotation) => annotation.marks.length > 0);
 }
 
-export function saveProjectThreads(projectId: string, input: ChatThread[], storage: Storage = localStorage): void {
-  if (!input.every((thread) => thread.version === 2
-    && isStoredThread(thread, projectId)
-    && validRoster(thread.participants, thread.primaryAgentId)
-    && thread.messages.every((message) => thread.participants.some((participant) => participant.id === message.authorId)
-      && (message.role === 'assistant'
-        || thread.participants.some((participant) => participant.kind === 'agent' && participant.id === message.addressedParticipantId))))) {
-    throw new Error('Refusing to save invalid conversation data.');
+function messageStatusRank(message: ChatMessage): number {
+  if (message.role === 'assistant') return message.status === 'complete' ? 2 : 1;
+  if (message.status === 'sent') return 2;
+  return message.status === 'sending' ? 0 : 1;
+}
+
+function mergeMessage(existing: ChatMessage, incoming: ChatMessage): ChatMessage {
+  return messageStatusRank(incoming) >= messageStatusRank(existing) ? incoming : existing;
+}
+
+function mergeThread(existing: ChatThread, incoming: ChatThread): ChatThread {
+  const newer = incoming.updatedAt >= existing.updatedAt ? incoming : existing;
+  const older = newer === incoming ? existing : incoming;
+  const participants = new Map(older.participants.map((participant) => [participant.id, participant]));
+  for (const participant of newer.participants) participants.set(participant.id, participant);
+  const participantList = [...participants.values()];
+
+  const messages = new Map(existing.messages.map((message) => [message.id, message]));
+  for (const message of incoming.messages) {
+    const prior = messages.get(message.id);
+    messages.set(message.id, prior ? mergeMessage(prior, message) : message);
   }
-  const sorted = [...input].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  if (sorted.length > MAX_THREADS && sorted.slice(MAX_THREADS).some(hasDrawings)) {
-    throw new Error('Storage limit reached. Export or delete older annotated conversations before creating more.');
+
+  const annotations = { ...older.annotations };
+  for (const [id, annotation] of Object.entries(newer.annotations)) {
+    if (!annotations[id] || annotation.updatedAt >= annotations[id].updatedAt) annotations[id] = annotation;
   }
-  const threads = sorted.slice(0, MAX_THREADS).map((thread) => {
-    if (thread.messages.length > MAX_MESSAGES || getArtifacts(thread).length + getSketches(thread).length > MAX_ARTIFACTS) {
-      throw new Error('Conversation limit reached. Export this thread before removing messages or annotated canvases.');
+  const sketches = new Map(getSketches(older).map((sketch) => [sketch.id, sketch]));
+  for (const sketch of getSketches(newer)) sketches.set(sketch.id, sketch);
+  const primaryAgentId = participantList.some((participant) => participant.kind === 'agent' && participant.id === newer.primaryAgentId)
+    ? newer.primaryAgentId
+    : older.primaryAgentId;
+
+  return {
+    ...newer,
+    updatedAt: newer.updatedAt >= older.updatedAt ? newer.updatedAt : older.updatedAt,
+    participants: participantList,
+    primaryAgentId,
+    messages: [...messages.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
+    pinnedDiagramIds: [...new Set([...older.pinnedDiagramIds, ...newer.pinnedDiagramIds])],
+    annotations,
+    sketches: sketches.size ? [...sketches.values()] : undefined,
+  };
+}
+
+/** Additive merge for cross-tab state. Participant/message ids are immutable and server-owned. */
+export function mergeProjectThreads(current: ChatThread[], incoming: ChatThread[]): ChatThread[] {
+  const merged = new Map(current.map((thread) => [thread.id, thread]));
+  for (const thread of incoming) {
+    const prior = merged.get(thread.id);
+    merged.set(thread.id, prior ? mergeThread(prior, thread) : thread);
+  }
+  const result = [...merged.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return JSON.stringify(result) === JSON.stringify(current) ? current : result;
+}
+
+function readValidStoredSnapshot(projectId: string, storage: Storage): ProjectConversationSnapshot {
+  const raw = storage.getItem(projectConversationStorageKey(projectId));
+  if (!raw) return { revision: 0, threads: [] };
+  try {
+    const parsed = parseStoredProject(raw);
+    const threads = parsed.threads.flatMap((stored) => {
+      try {
+        const thread = restoreStoredThread(stored, projectId);
+        return validThreadForSave(thread, projectId) ? [thread] : [];
+      } catch {
+        return [];
+      }
+    });
+    return { revision: parsed.revision || 0, threads };
+  } catch {
+    return { revision: 0, threads: [] };
+  }
+}
+
+export function saveProjectThreads(
+  projectId: string,
+  input: ChatThread[],
+  storage: Storage = localStorage,
+): SaveProjectThreadsResult {
+  const stored = readValidStoredSnapshot(projectId, storage);
+  const lastValid = new Map(stored.threads.map((thread) => [thread.id, thread]));
+  const failures: ConversationPersistenceFailure[] = [];
+  const valid: ChatThread[] = [];
+
+  input.forEach((thread, index) => {
+    const threadId = typeof thread?.id === 'string' ? thread.id : `unknown-${index + 1}`;
+    let message: string | undefined;
+    if (!validThreadForSave(thread, projectId)) {
+      message = 'invalid participant attribution or conversation shape';
+    } else if (thread.messages.length > MAX_STORED_MESSAGES) {
+      message = `the ${MAX_STORED_MESSAGES}-message local history limit was reached; export this conversation before archiving older entries`;
+    } else if (getArtifacts(thread).length + getSketches(thread).length > MAX_ARTIFACTS) {
+      message = 'the 100-canvas local history limit was reached; export this conversation before removing canvases';
     }
-    return thread;
+    if (message) {
+      failures.push({
+        threadId,
+        message: `Conversation ${threadId} was not saved: ${message}.`,
+        lastValid: lastValid.get(threadId),
+      });
+    } else {
+      valid.push(thread);
+    }
   });
-  storage.setItem(`${PREFIX}${projectId}`, JSON.stringify({ version: 2, threads } satisfies StoredProject));
+
+  let threads = mergeProjectThreads(stored.threads, valid);
+  if (threads.length > MAX_THREADS && threads.slice(MAX_THREADS).some(hasDrawings)) {
+    for (const thread of threads.slice(MAX_THREADS).filter(hasDrawings)) {
+      failures.push({
+        threadId: thread.id,
+        message: `Conversation ${thread.id} was not saved: export or delete older annotated conversations first.`,
+        lastValid: lastValid.get(thread.id),
+      });
+    }
+  }
+  threads = threads.slice(0, MAX_THREADS);
+  const revision = stored.revision + 1;
+  storage.setItem(projectConversationStorageKey(projectId), JSON.stringify({
+    version: 3,
+    revision,
+    threads,
+  } satisfies StoredProject));
+  return { revision, threads, failures };
+}
+
+/** Serializes the localStorage read/merge/write across same-origin tabs when Web Locks exist. */
+export async function commitProjectThreads(
+  projectId: string,
+  input: ChatThread[],
+  storage: Storage = localStorage,
+): Promise<SaveProjectThreadsResult> {
+  const locks = crossTabLocks();
+  if (!locks) return saveProjectThreads(projectId, input, storage);
+  return locks.request(
+    projectConversationLockName(projectId),
+    async () => saveProjectThreads(projectId, input, storage),
+  );
 }
 
 export function serializeThreadExport(thread: ChatThread, exportedAt = new Date().toISOString()) {

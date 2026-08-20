@@ -70,6 +70,8 @@ export type Participant = HumanParticipant | AgentParticipant;
 export interface ServerAgentParticipant extends AgentParticipant {
   session: ProviderSessionRef;
   lastObservedMessageId?: string;
+  /** Private idempotency key used only while reconciling participant creation retries. */
+  creationRequestId?: string;
 }
 
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
@@ -307,6 +309,8 @@ export interface TranscriptContextMessage {
   authorId: string;
   createdAt: string;
   text: string;
+  status: UserMessage['status'] | AssistantMessage['status'];
+  delivery?: UserMessage['delivery'];
 }
 
 export interface PermissionDecisionRequest {
