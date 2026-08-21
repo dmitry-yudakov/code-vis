@@ -39,19 +39,19 @@ This story makes the card report on **the change**, not on the graph.
 ## Current behavior (where the code is)
 
 - Card component: `FocusedDeclarationView` in
-  [web/src/components/IncludesHierarchy.tsx](../web/src/components/IncludesHierarchy.tsx#L2385)
+  [web/src/components/IncludesHierarchy.tsx](../legacy/web/src/components/IncludesHierarchy.tsx#L2385)
   (~line 2385). It renders title + `file:lines` + a `.focused-reasons` row that maps over
   `info.reasons` and renders **every** reason as a `.focused-reason-chip`.
 - Reason → label string: `declarationReasonLabel(...)` in the same file (~line 373).
   Produces strings like `"changed declaration: modified"`,
   `"calls changed declaration (analyticsEventsLimit)"`, `"bridge between changes (...)"`.
 - Data type: `FocusedDeclarationInfo` in
-  [web/src/types.d.ts](../web/src/types.d.ts#L107) (~line 107). Reasons are
+  [web/src/types.d.ts](../legacy/web/src/types.d.ts#L107) (~line 107). Reasons are
   `FocusedDeclarationReason` with `type` ∈
   `changed | calls-changed | called-by-changed | bridge-between-changes` and optional `via`.
 - Styles: `.focused-declaration-view`, `.declaration-node-title`, `.declaration-node-file`,
   `.focused-reasons`, `.focused-reason-chip*` in
-  [web/src/components/IncludesHierarchy.css](../web/src/components/IncludesHierarchy.css#L724)
+  [web/src/components/IncludesHierarchy.css](../legacy/web/src/components/IncludesHierarchy.css#L724)
   (~line 724).
 
 ---
@@ -99,7 +99,7 @@ root cause of this change                                          ← causalRea
 ### Type contract (shared with Story 2)
 
 Add these optional fields to `FocusedDeclarationInfo` in
-[web/src/types.d.ts](../web/src/types.d.ts#L107) (mirror of the server type — Story 2
+[web/src/types.d.ts](../legacy/web/src/types.d.ts#L107) (mirror of the server type — Story 2
 adds the server side):
 
 ```ts
@@ -134,7 +134,7 @@ The original story scoped the file-level **Files** view out, but on review it ha
 identical clutter (a `changed: modified` chip, plus `imports changed file (…)` /
 `imported by changed file (…)` chips that merely repeat a labeled import edge). Since the
 fix is the same shape, the `FocusedFileView` card in
-[web/src/components/IncludesHierarchy.tsx](../web/src/components/IncludesHierarchy.tsx)
+[web/src/components/IncludesHierarchy.tsx](../legacy/web/src/components/IncludesHierarchy.tsx)
 was decluttered to match:
 
 - `changed` → the same colored status badge (now a shared `.change-status-badge`).

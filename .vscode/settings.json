@@ -1,9 +1,16 @@
-// Place your settings in this file to overwrite default and user settings.
+// Workspace settings for the root CodeAI application.
 {
-    "files.exclude": {
-        "out": false // set this to true to hide the "out" folder with the compiled JS files
-    },
     "search.exclude": {
-        "out": true // set this to false to include "out" folder in search results
-    }
+        "**/node_modules": true,
+        ".next": true,
+        ".next-e2e": true,
+        "test-results": true,
+        "playwright-report": true,
+        "legacy/**/out": true
+    },
+    "files.exclude": {
+        ".next": true,
+        ".next-e2e": true
+    },
+    "typescript.tsdk": "node_modules/typescript/lib"
 }

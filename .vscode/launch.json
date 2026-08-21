@@ -1,39 +1,56 @@
-// A launch configuration that compiles the extension and then opens it inside a new window
-// Use IntelliSense to learn about possible attributes.
-// Hover to view descriptions of existing attributes.
-// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+// Default configurations run the root CodeAI application.
+// The "legacy:" entries drive the archived runtime under legacy/ and are not maintained.
 {
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "CodeAI: dev server",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["dev"],
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal",
+      "serverReadyAction": { "pattern": "- Local:.+(https?://\\S+)", "uriFormat": "%s", "action": "debugWithChrome" }
+    },
+    {
+      "name": "CodeAI: unit tests",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["test"],
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "legacy: analyzer server tests (unmaintained)",
       "internalConsoleOptions": "openOnSessionStart",
-      "name": "Tests",
-      "cwd": "${workspaceFolder}/server",
-      "program": "${workspaceFolder}/server/node_modules/.bin/jest",
+      "cwd": "${workspaceFolder}/legacy/server",
+      "program": "${workspaceFolder}/legacy/server/node_modules/.bin/jest",
       "request": "launch",
       "skipFiles": ["<node_internals>/**"],
       "type": "pwa-node"
     },
     {
-      "name": "Run Extension",
+      "name": "legacy: run VS Code extension (unmaintained)",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "npm: watch"
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/legacy/extension"],
+      "outFiles": ["${workspaceFolder}/legacy/extension/out/**/*.js"]
     },
     {
-      "name": "Extension Tests",
+      "name": "legacy: VS Code extension tests (unmaintained)",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}",
-        "--extensionTestsPath=${workspaceFolder}/out/test"
+        "--extensionDevelopmentPath=${workspaceFolder}/legacy/extension",
+        "--extensionTestsPath=${workspaceFolder}/legacy/extension/out/test"
       ],
-      "outFiles": ["${workspaceFolder}/out/test/**/*.js"],
-      "preLaunchTask": "npm: watch"
+      "outFiles": ["${workspaceFolder}/legacy/extension/out/test/**/*.js"]
     }
   ]
 }

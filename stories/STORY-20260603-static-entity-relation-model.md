@@ -15,7 +15,7 @@ Story 2 rewrite). Foundation for [Story 2](STORY-20260602-llm-review-annotation.
 ## Motivation
 
 Today the model is three things: files, function declarations, and function calls
-([types.d.ts:33-44](../server/src/types.d.ts#L33)). A reviewer looking at a change sees functions
+([types.d.ts:33-44](../legacy/server/src/types.d.ts#L33)). A reviewer looking at a change sees functions
 floating free of the classes that own them, with no module-level state (`const`/`let` config,
 exported singletons) on the map at all — even though those are often *what changed*. The vision's
 first claim is that **a richer typed model is more comprehensible than files + functions + calls**,
@@ -37,25 +37,25 @@ downstream (caching, change overlays, the LLM merge) depends on, made now while 
 ## Current behavior (where the code is)
 
 - **Analyzer** extracts funcs + arrow-funcs + methods into a *flat* list and **discards the
-  owning class**: [js.ts:305-326](../server/src/analyzers/js.ts#L305). The method branch already
-  reads the class name at [js.ts:309](../server/src/analyzers/js.ts#L309)
+  owning class**: [js.ts:305-326](../legacy/server/src/analyzers/js.ts#L305). The method branch already
+  reads the class name at [js.ts:309](../legacy/server/src/analyzers/js.ts#L309)
   (`node.parent.name.escapedText`) purely to filter, then throws it away. **No `class` entity, no
   `variable`/`constant` entity is produced at all.**
 - **Current id:** `decl:${filename}->${name}:${pos}` —
-  [project.ts:342](../server/src/project.ts#L342). Position is *in* the identity, so it breaks on
+  [project.ts:342](../legacy/server/src/project.ts#L342). Position is *in* the identity, so it breaks on
   any edit above the declaration; and methods carry only their bare name, so same-named methods in
   two classes are told apart **only** by `pos`.
 - **Declaration type** `FunctionDeclarationInfo` is `{name, filename, pos, end, args}`
-  ([types.d.ts:33](../server/src/types.d.ts#L33)); the review projection
-  `FocusedDeclarationInfo` ([types.d.ts:115](../server/src/types.d.ts#L115)) is mirrored by hand
+  ([types.d.ts:33](../legacy/server/src/types.d.ts#L33)); the review projection
+  `FocusedDeclarationInfo` ([types.d.ts:115](../legacy/server/src/types.d.ts#L115)) is mirrored by hand
   in `web/src/types.d.ts` — the drift the vision flags.
 - **Review graph** is built in `buildFocusedDeclarationGraph(...)`
-  ([project.ts:942](../server/src/project.ts#L942)), returning `{ declarations, declarationCalls }`
-  (~[line 1200](../server/src/project.ts#L1200)); entry `handleCommandFocusedReview`
-  ([project.ts:1218](../server/src/project.ts#L1218)).
+  ([project.ts:942](../legacy/server/src/project.ts#L942)), returning `{ declarations, declarationCalls }`
+  (~[line 1200](../legacy/server/src/project.ts#L1200)); entry `handleCommandFocusedReview`
+  ([project.ts:1218](../legacy/server/src/project.ts#L1218)).
 - **Web layout already keys off `kind`/`role`:** `CodeLayoutNodeKind` is
   `module|directory|file|test|declaration` and edge kinds already include `declares`/`contains`
-  ([web/src/graphLayout/types.ts:1-25](../web/src/graphLayout/types.ts#L1)). New entity kinds slot
+  ([web/src/graphLayout/types.ts:1-25](../legacy/web/src/graphLayout/types.ts#L1)). New entity kinds slot
   into this existing dimension rather than requiring new layout machinery (vision principle #4).
 
 ---
@@ -77,7 +77,7 @@ captures the owning container, and the Review lens renders the richer kinds via 
    A single `entityId(...)` builder replaces inline id construction. **Position is not in the id.**
 3. **Analyzer: capture `container`.** Add `container?: string` to the declaration shape and
    populate it: for methods, the owning class name (already in hand at
-   [js.ts:309](../server/src/analyzers/js.ts#L309) — free); for class-field arrows
+   [js.ts:309](../legacy/server/src/analyzers/js.ts#L309) — free); for class-field arrows
    (`foo = () => {}`), one guarded parent hop (`node.parent.parent` is the `ClassDeclaration`).
    Top-level functions/consts have no container.
 4. **Analyzer: new entity kinds (static only).**
@@ -126,7 +126,7 @@ id = `${kind}:${file}#${container ? container + '.' : ''}${name}${ordinal > 0 ? 
   arrows).
 - **`ordinal`** disambiguates genuine same-`(kind,file,container,name)` collisions — assigned by
   **source order**, which is deterministic and free because the declaration list is already
-  `pos`-sorted ([js.ts:326](../server/src/analyzers/js.ts#L326)). Edits above shift the whole group
+  `pos`-sorted ([js.ts:326](../legacy/server/src/analyzers/js.ts#L326)). Edits above shift the whole group
   together (ordinals stable); only adding/removing a same-named sibling re-keys, which is
   acceptably rare. Cross-time id stability is **not** load-bearing in the MVP (in-memory, recompute
   per review, diff-driven change status) — it earns its keep at the persistence phase (step 2) and

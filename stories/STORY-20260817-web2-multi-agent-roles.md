@@ -28,29 +28,29 @@ handoffs cheap, but only prefill a prompt and recipient; they never start an age
 ## Implementation (where the code is)
 
 - Public participants, private server agent records, authored messages, and the main-agent pointer
-  are defined in [web2/lib/shared/types.ts](../web2/lib/shared/types.ts#L43).
+  are defined in [web2/lib/shared/types.ts](../src/shared/types.ts#L43).
 - The v3 atomic registry creates and manages rosters, keeps provider sessions/cursors private, and
   migrates v1/v2 single-provider records in
-  [threadRegistry.ts](../web2/lib/server/threadRegistry.ts#L95).
+  [threadRegistry.ts](../src/server/storage/threadRegistry.ts#L95).
 - Server-owned role fragments live in
-  [agentRoles.ts](../web2/lib/server/agentRoles.ts#L1); visible labels/defaults are shared without
-  exposing prompt text in [participants.ts](../web2/lib/shared/participants.ts#L1).
+  [agentRoles.ts](../src/server/agents/agentRoles.ts#L1); visible labels/defaults are shared without
+  exposing prompt text in [participants.ts](../src/shared/participants.ts#L1).
 - Addressing, transcript-author validation, provider health/mode checks, and sequential-run
   rejection happen before execution in
-  [POST /api/agent/message](../web2/app/api/agent/message/route.ts#L27).
+  [POST /api/agent/message](../src/app/api/agent/message/route.ts#L27).
 - Per-participant missed context is cursor-aware, JSON-encoded, delivery-aware, and bounded by
   shared/configured limits in
-  [transcript.ts](../web2/lib/conversation/transcript.ts#L1); successful responses advance only
+  [transcript.ts](../src/server/conversation/transcript.ts#L1); successful responses advance only
   that participant's cursor in
-  [conversationService.ts](../web2/lib/conversation/conversationService.ts#L28).
+  [conversationService.ts](../src/server/conversation/conversationService.ts#L28).
 - Public-roster reconciliation and retry-idempotent participant creation use
-  [participants/route.ts](../web2/app/api/threads/%5BthreadId%5D/participants/route.ts#L14), while
+  [participants/route.ts](../src/app/api/threads/%5BthreadId%5D/participants/route.ts#L14), while
   revisioned cross-tab merge and per-thread persistence recovery live in
-  [conversationStore.ts](../web2/lib/client/conversationStore.ts#L1).
+  [conversationStore.ts](../src/features/conversation/conversationStore.ts#L1).
 - The roster, `@participant` selection, main-agent action, add-agent form, and non-sending handoff
-  chips are in [ParticipantControls.tsx](../web2/components/ParticipantControls.tsx#L15).
+  chips are in [ParticipantControls.tsx](../src/features/agents/ParticipantControls.tsx#L15).
 - Local v1→v2 authored-message migration and expanded identity-aware export live in
-  [conversationStore.ts](../web2/lib/client/conversationStore.ts#L70).
+  [conversationStore.ts](../src/features/conversation/conversationStore.ts#L70).
 
 ## Desired behavior
 
@@ -151,7 +151,7 @@ is the recommended implementation order.
 ### Blockers
 
 1. **Publish the answer before persisting its cursor.**
-   [conversationService.ts](../web2/lib/conversation/conversationService.ts#L136) awaits
+   [conversationService.ts](../src/server/conversation/conversationService.ts#L136) awaits
    `markObserved()` *before* emitting `assistant-message`. A registry write failure — or an
    interruption in that window — discards an already completed model response while the turn is
    reported as failed. Emit or buffer the assistant event first, then persist the cursor
@@ -159,9 +159,9 @@ is the recommended implementation order.
    finished answer.
 
 2. **Encode handoff transcripts structurally so history cannot forge framing.**
-   [transcript.ts](../web2/lib/conversation/transcript.ts#L55) renders entries as
+   [transcript.ts](../src/server/conversation/transcript.ts#L55) renders entries as
    `[displayName · provider/role]` text and
-   [prompt.ts](../web2/lib/conversation/prompt.ts#L53) wraps them between
+   [prompt.ts](../src/server/conversation/prompt.ts#L53) wraps them between
    `[Missed shared transcript]` and `[End missed shared transcript]`. Nothing escapes those
    markers inside message text, so a prior message can close the quoted region and impersonate
    the contract, another participant, or the current `[User message]` section. This is not a
@@ -172,14 +172,14 @@ is the recommended implementation order.
 
 3. **Reconcile the roster with the server.**
    Participant ids are server-owned, but the browser learns them only from the create and
-   [add-participant](../web2/app/api/threads/%5BthreadId%5D/participants/route.ts#L14) responses;
+   [add-participant](../src/app/api/threads/%5BthreadId%5D/participants/route.ts#L14) responses;
    there is no GET. Expose a session-free roster read and reconcile it on hydration and on run
-   reattachment in [AppShell.tsx](../web2/components/AppShell.tsx#L329). Keep
+   reattachment in [AppShell.tsx](../src/features/shell/AppShell.tsx#L329). Keep
    `session` and `lastObservedMessageId` server-private, exactly as
-   [publicParticipants](../web2/lib/server/threadRegistry.ts#L114) does today.
+   [publicParticipants](../src/server/storage/threadRegistry.ts#L114) does today.
 
 4. **Handle cross-tab conflicts instead of last-writer-wins.**
-   [conversationStore.ts](../web2/lib/client/conversationStore.ts#L155) rewrites the whole project
+   [conversationStore.ts](../src/features/conversation/conversationStore.ts#L155) rewrites the whole project
    blob on every change and there is no `storage` listener or `BroadcastChannel` anywhere in
    `web2`. Two tabs on one project silently overwrite each other's rosters and messages; the
    project-wide save failure in finding 6 then surfaces later, typically when run reattachment
@@ -188,23 +188,23 @@ is the recommended implementation order.
 
 5. **Make participant creation retry-safe.**
    A lost POST response followed by a retry creates a second agent
-   ([addAgent](../web2/lib/server/threadRegistry.ts#L224) has no idempotency key). Because
+   ([addAgent](../src/server/storage/threadRegistry.ts#L224) has no idempotency key). Because
    participant removal is out of scope, every duplicate is permanent and consumes part of the
    eight-agent cap.
 
 6. **Isolate persistence failures per thread.**
-   [saveProjectThreads](../web2/lib/client/conversationStore.ts#L155) validates the whole project
+   [saveProjectThreads](../src/features/conversation/conversationStore.ts#L155) validates the whole project
    as one batch and throws, so a single thread with a dangling `authorId` stops `localStorage`
    writes for every conversation in the project. The save effect in
-   [AppShell.tsx](../web2/components/AppShell.tsx#L196) catches it into a notice and continues,
+   [AppShell.tsx](../src/features/shell/AppShell.tsx#L196) catches it into a notice and continues,
    making the loss silent. Report the offending thread by id, preserve its last valid serialized
    copy rather than dropping it, save unaffected threads, and offer a targeted recovery action.
 
 7. **Send a bounded transcript window and remove the 200-message wall.**
-   [AppShell.tsx](../web2/components/AppShell.tsx#L603) uploads the entire local transcript every
+   [AppShell.tsx](../src/features/shell/AppShell.tsx#L603) uploads the entire local transcript every
    turn — up to 200 entries × 8 000 characters against a 6 MB body limit shared with diagram
    attachments — and the server keeps at most 24 KB of it. Worse, `MAX_MESSAGES` and the
-   [schema cap](../web2/lib/shared/protocol.ts#L44) are both 200, so at 201 messages saving *and*
+   [schema cap](../src/shared/protocol.ts#L44) are both 200, so at 201 messages saving *and*
    sending both fail, the latter as an opaque “Message request is invalid.”
    Send only the tail from the addressed agent's anchor onward. The client can derive that anchor
    locally without exposing server state: `markObserved` has exactly one production call site and
@@ -228,7 +228,7 @@ is the recommended implementation order.
 
 10. **Centralize the limits.** Fixed wire limits belong in shared constants; the server's prompt
     byte budget can stay configurable. Today `DEFAULT_MAX_MESSAGES`/`DEFAULT_MAX_BYTES` are
-    hardcoded in [transcript.ts](../web2/lib/conversation/transcript.ts#L3) while every comparable
+    hardcoded in [transcript.ts](../src/server/conversation/transcript.ts#L3) while every comparable
     bound lives in `Web2Config`, and the message route never passes overrides.
 
 ### Low and release follow-ups
@@ -247,7 +247,7 @@ Three review claims were checked against the code and did not hold. They are rec
 not re-litigated during implementation.
 
 - **“Byte truncation overflows the bound in production.”** The oversized-single-message branch in
-  [transcript.ts](../web2/lib/conversation/transcript.ts#L46) is unreachable through the validated
+  [transcript.ts](../src/server/conversation/transcript.ts#L46) is unreachable through the validated
   HTTP path: `z.string().max(8_000)` counts UTF-16 code units, whose worst UTF-8 expansion is 3
   bytes per unit, so a validated message is at most 24 000 bytes — exactly `DEFAULT_MAX_BYTES`,
   and the branch guards on `>`. The unit mismatch (`Buffer.byteLength` measured, `String.slice`
@@ -255,13 +255,13 @@ not re-litigated during implementation.
   latent correctness with a multibyte test, not as a production defect, and note the worst-case
   ratio is 3×, not 4×.
 - **“`role` on thread creation is dead surface.”**
-  [threads/route.ts](../web2/app/api/threads/route.ts#L15) passes `parsed.data.role` into
+  [threads/route.ts](../src/app/api/threads/route.ts#L15) passes `parsed.data.role` into
   `ThreadRegistry.create()`. The path is fully wired; only the browser omits it. The real gap is
   that no test exercises a non-default role on create — see the coverage list below.
 - **“Approval cards do not identify the requesting agent.”**
-  [PermissionCard.tsx](../web2/components/PermissionCard.tsx#L14) renders the requesting
+  [PermissionCard.tsx](../src/features/agents/PermissionCard.tsx#L14) renders the requesting
   participant's display name and provider next to “Approval required”, wired from the roster in
-  [ConversationDrawer.tsx](../web2/components/ConversationDrawer.tsx#L92). Cards do not show the
+  [ConversationDrawer.tsx](../src/features/conversation/ConversationDrawer.tsx#L92). Cards do not show the
   originating transcript author or rationale, but they do identify the requesting agent process,
   so the corresponding acceptance criterion stays checked.
 
@@ -273,16 +273,16 @@ round.
 
 12. **Serialize the `localStorage` read/merge/write, and stop gating `storage` events on the
     revision counter.**
-    [saveProjectThreads](../web2/lib/client/conversationStore.ts#L285) reads the stored snapshot,
+    [saveProjectThreads](../src/features/conversation/conversationStore.ts#L285) reads the stored snapshot,
     merges, and writes `stored.revision + 1` with no compare-and-swap — and `localStorage` offers
     none. Two tabs that both read revision 5 both write revision 6, so the loser's write is simply
-    overwritten. The guard in [AppShell.tsx](../web2/components/AppShell.tsx#L243) then rejects the
+    overwritten. The guard in [AppShell.tsx](../src/features/shell/AppShell.tsx#L243) then rejects the
     survivor's `storage` event because `6 <= 6`, even though the two revision 6 payloads hold
     different content. The losing tab's messages survive only in its own memory, and are gone for
     good if that tab closes before it saves again.
 
     The current test saves tab A and then tab B, so B's save reads A's already-persisted write
-    ([conversationStore.test.ts](../web2/test/conversationStore.test.ts#L151)). That demonstrates
+    ([conversationStore.test.ts](../test/conversationStore.test.ts#L151)). That demonstrates
     sequential merging, not concurrent conflict handling, which is why finding 4 read as closed.
 
     Re-reading immediately after writing does **not** close this: both writers can verify before
@@ -292,7 +292,7 @@ round.
     **12a. Hold a cross-tab lock across the whole critical section.** Web Locks are same-origin and
     cross-tab, so wrapping the existing synchronous save is sufficient and leaves the merge logic
     untouched. Add to `conversationStore.ts`, and have
-    [the save effect](../web2/components/AppShell.tsx#L223) await it instead of calling
+    [the save effect](../src/features/shell/AppShell.tsx#L223) await it instead of calling
     `saveProjectThreads` directly:
 
     ```ts
@@ -437,7 +437,7 @@ provider resumes its own context, permission cards identify the right participan
 export preserves every author/provider/role.
 
 Automated coverage records the same-provider manual handoff slice in
-[web2/e2e/canvas.spec.ts](../web2/e2e/canvas.spec.ts#L123): separate Claude coder/reviewer
+[web2/e2e/canvas.spec.ts](../e2e/canvas.spec.ts#L123): separate Claude coder/reviewer
 sessions, quick-action prefill, attribution, and changing main. The real Claude↔Codex artifact and
 permission-card scenario remains the release-closing check.
 

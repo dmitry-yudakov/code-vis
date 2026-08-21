@@ -33,22 +33,22 @@ Before this story: a single frozen `conversation-readonly` policy, a one-way `-p
 the prompt on stdin, no `--allowedTools`, no mode on the request, and one global
 `REQUIRED_CLAUDE_FLAGS` list. Now:
 
-- Mode → policy: [web2/lib/server/agentPolicy.ts](../web2/lib/server/agentPolicy.ts#L10) —
+- Mode → policy: [web2/lib/server/agentPolicy.ts](../src/server/agents/agentPolicy.ts#L10) —
   `GIT_READ_ALLOWLIST` plus the three profiles.
-- CLI arguments and per-mode flags: [web2/lib/server/claudeInvocation.ts](../web2/lib/server/claudeInvocation.ts#L3).
+- CLI arguments and per-mode flags: [web2/lib/server/claudeInvocation.ts](../src/server/agents/claudeInvocation.ts#L3).
 - Control protocol, paused timeout clock, denial activity:
-  [web2/lib/server/claudeProcessRunner.ts](../web2/lib/server/claudeProcessRunner.ts#L186).
-- Pending approvals: [web2/lib/server/permissionBroker.ts](../web2/lib/server/permissionBroker.ts#L13),
-  routed by [runRegistry](../web2/lib/server/runRegistry.ts#L16) and answered at
-  [POST /api/agent/permission](../web2/app/api/agent/permission/route.ts#L8).
-- Mode contracts and plan markers: [web2/lib/conversation/prompt.ts](../web2/lib/conversation/prompt.ts#L12)
-  and [web2/lib/shared/plan.ts](../web2/lib/shared/plan.ts#L2).
-- Per-mode preflight: [web2/lib/server/claudePreflight.ts](../web2/lib/server/claudePreflight.ts#L13).
-- UI: [InstructionComposer](../web2/components/InstructionComposer.tsx#L60) (mode selector),
-  [PermissionCard](../web2/components/PermissionCard.tsx#L5),
-  [ChatMessage](../web2/components/ChatMessage.tsx#L72) (Execute plan),
-  [CanvasWorkspace](../web2/components/CanvasWorkspace.tsx#L112) (pending badge).
-- Git snapshots: [web2/lib/server/repositoryContext.ts](../web2/lib/server/repositoryContext.ts#L1)
+  [web2/lib/server/claudeProcessRunner.ts](../src/server/agents/claudeProcessRunner.ts#L186).
+- Pending approvals: [web2/lib/server/permissionBroker.ts](../src/server/runs/permissionBroker.ts#L13),
+  routed by [runRegistry](../src/server/runs/runRegistry.ts#L16) and answered at
+  [POST /api/agent/permission](../src/app/api/agent/permission/route.ts#L8).
+- Mode contracts and plan markers: [web2/lib/conversation/prompt.ts](../src/server/conversation/prompt.ts#L12)
+  and [web2/lib/shared/plan.ts](../src/shared/plan.ts#L2).
+- Per-mode preflight: [web2/lib/server/claudePreflight.ts](../src/server/agents/claudePreflight.ts#L13).
+- UI: [InstructionComposer](../src/features/conversation/InstructionComposer.tsx#L60) (mode selector),
+  [PermissionCard](../src/features/agents/PermissionCard.tsx#L5),
+  [ChatMessage](../src/features/conversation/ChatMessage.tsx#L72) (Execute plan),
+  [CanvasWorkspace](../src/features/diagram/components/CanvasWorkspace.tsx#L112) (pending badge).
+- Git snapshots: [web2/lib/server/repositoryContext.ts](../src/server/repository/repositoryContext.ts#L1)
   — unchanged; still the bounded default context, no longer the only history access.
 
 Three decisions the spec did not pin down:
@@ -103,21 +103,21 @@ Six bugs that unit tests could not have caught on their own; each now has a regr
 Found 2026-08-19 while reading a debug log of a timed-out Ask run; **not yet fixed**, and it
 survives the budget raise above because cancellation triggers it just as reliably as a timeout.
 
-When [`terminate()`](../web2/lib/server/claudeProcessRunner.ts#L186) fires it answers pending
+When [`terminate()`](../src/server/agents/claudeProcessRunner.ts#L186) fires it answers pending
 approvals, closes stdin, and sends SIGTERM. The real CLI does not exit silently: it flushes the
 aborted turn as a `user` frame and then a `result` frame with subtype `error_during_execution`,
 which is exactly what trap 6 taught us to classify. `processLine` duly throws
-([L315](../web2/lib/server/claudeProcessRunner.ts#L315)) — `error_during_execution` is not
+([L315](../src/server/agents/claudeProcessRunner.ts#L315)) — `error_during_execution` is not
 `error_max_turns`, so `classifyResultError` falls through to `classifyFailure` and produces the
 generic `process-failed`, "Claude Code exited before returning a complete response." The stdout
 handler stores it in `fatalStreamError`
-([L345-L348](../web2/lib/server/claudeProcessRunner.ts#L345-L348)); its own `terminate('cancelled')`
+([L345-L348](../src/server/agents/claudeProcessRunner.ts#L345-L348)); its own `terminate('cancelled')`
 is a no-op because `termination` is already set.
 
 The bug is the check order in the `close` handler:
-[`fatalStreamError` is tested at L359](../web2/lib/server/claudeProcessRunner.ts#L359-L362),
+[`fatalStreamError` is tested at L359](../src/server/agents/claudeProcessRunner.ts#L359-L362),
 *before* the `cancelled` and `timeout` branches at
-[L369-L376](../web2/lib/server/claudeProcessRunner.ts#L369-L376). The deliberate termination
+[L369-L376](../src/server/agents/claudeProcessRunner.ts#L369-L376). The deliberate termination
 reason — the one thing the server actually knows — always loses to the child's parting error.
 
 Two visible consequences:
@@ -126,7 +126,7 @@ Two visible consequences:
    time limit", so the user is never told which budget they hit or which setting raises it — the
    precise regression trap 6 fixed for `max-turns`.
 2. **A user-cancelled turn is recorded as `failed`, not `cancelled`.**
-   [AppShell.tsx](../web2/components/AppShell.tsx#L458) branches on `event.code === 'cancelled'`
+   [AppShell.tsx](../src/features/shell/AppShell.tsx#L458) branches on `event.code === 'cancelled'`
    to choose the message status, so pressing **Cancel** leaves a failed message in the transcript.
    That status is not cosmetic: Story 23 finding 8 wants `cancelled` and `failed` treated
    differently when a handoff delta is assembled for another agent.
@@ -137,7 +137,7 @@ is already dying and its diagnosis adds nothing the server does not know.
 
 Why the unit tests are green: `fake-claude.mjs` in `timeout` mode simply hangs and emits nothing
 on SIGTERM, so
-[the timeout test](../web2/test/claudeProcessRunner.test.ts#L140) takes the clean path the real
+[the timeout test](../test/claudeProcessRunner.test.ts#L140) takes the clean path the real
 CLI never takes. The regression test needs a fixture that emits a `result`
 `error_during_execution` frame after receiving SIGTERM.
 

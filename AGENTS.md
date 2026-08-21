@@ -1,41 +1,102 @@
-# code-vis (code-ai)
+# CodeAI
 
-Static analysis and visualization tool for JavaScript/TypeScript projects. Parses source files with the TypeScript Compiler API, extracts file dependencies and function calls, and displays them as interactive graphs.
+A local-first Next.js application for working on a trusted repository through a persistent
+local-agent conversation and a Mermaid canvas. The repository root **is** the application: one
+private Yarn 1 package, one Next.js app, one set of commands.
 
-## Components
+## Commands
 
-| Component | Path | Purpose |
-|-----------|------|---------|
-| Server | `server/` | Node.js. Analyzes project files, serves data over Socket.IO on port 3789 |
-| Web | `web/` | React SPA. Connects to server, renders graph views on port 3000 |
-| Extension | `extension/` | VS Code extension. Deprecated, not actively maintained |
-
-## Running
+All commands run from the repository root.
 
 ```sh
-# Server
-cd server && yarn start path/to/project
-
-# Web (separate terminal)
-cd web && yarn dev
+yarn dev        # Next.js dev server on 3023
+yarn start      # production server on 3023, after yarn build
+yarn build      # production build
+yarn lint       # strict TypeScript check (tsc --noEmit)
+yarn test       # Vitest suite, offline, with fake Claude/Codex executables
+yarn test:watch # the same suite in watch mode
+yarn test:e2e   # production build + Playwright against installed Chrome
 ```
 
-## Key Conventions
+`legacy/` is excluded from the TypeScript project, the Vitest include set, and the Playwright test
+directory. Nothing in the root build traverses it.
 
-- Shared types (`FunctionCallInfo`, `FileMapping`, etc.) are duplicated in `server/src/types.d.ts` and `web/src/types.d.ts` — both must be kept in sync.
-- `FunctionCallInfo.name` is the stable terminal callable identifier used for matching. Never change its semantics.
-- Socket.IO named events only — no generic `command` wrapper.
-- File paths in the analyzer are project-relative (not absolute).
-- Config stored at `~/.code-ai/projects/{url-encoded-path}/config.json`.
+## Source ownership
+
+| Path | Owns |
+|------|------|
+| `src/app/` | Next pages, layout, global CSS, and route handlers |
+| `src/features/shell/` | Application composition (`AppShell`) |
+| `src/features/agents/` | Activity timeline, participants, modes, permission cards |
+| `src/features/conversation/` | Transcript, composer, drawer, thread selection, browser conversation store |
+| `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
+| `src/features/diagram/mermaid/` | Mermaid validation policy and SVG renderer |
+| `src/features/diagram/annotations/` | Drawing state and composite export |
+| `src/features/projects/` | Project selection UI |
+| `src/features/repository/` | Repository tree, status, and diff UI and client state |
+| `src/server/agents/` | Provider policies, adapters, preflight, process runners |
+| `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
+| `src/server/projects/` | Project discovery and registry |
+| `src/server/repository/` | Fixed read-only git invocations and bounded context |
+| `src/server/runs/` | Run lifecycle and permission broker |
+| `src/server/storage/` | Thread registry, durable server records, per-run temp attachments |
+| `src/server/config.ts` | Environment resolution and limits |
+| `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
+| `test/`, `e2e/` | Vitest suite and Playwright suite |
+
+`@/*` resolves to `src/*` in both TypeScript and Vitest. Prefer `@/…` for anything outside the
+importing file's own directory; keep `./…` for same-directory siblings.
+
+## Safety boundaries
+
+- **Client components must not import `src/server`.** Provider execution, git invocation, and
+  server storage stay behind route handlers.
+- **Route handlers must not import browser storage or DOM modules.** `conversationStore`,
+  `compositeExport`, and the Mermaid SVG renderer are browser-only.
+- **`src/shared` must stay side-effect free** — no Node built-ins, no DOM access. It is imported
+  from both sides.
+- Provider capability is server-owned. The browser names a supported mode and nothing else; the
+  executable, tool list, allowlist, permission mode, sandbox, and model flags are resolved on the
+  server. An unknown or unsupported mode is a 400.
+- Agent mode edits the real working tree after explicit per-action approval. There is no worktree
+  isolation and no OS/container boundary — this runs as the desktop user.
+- Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is
+  ignored and must stay untracked.
+
+## Key conventions
+
+- Mermaid source is the canonical stored diagram artifact. Diagrams are immutable; a revision is a
+  new artifact, never a patch of an old one.
+- Browser state (transcript, artifacts, marks, pins, selection) lives in revisioned
+  `localStorage`; the server registry holds thread identity, roster, provider sessions, and
+  transcript cursors.
+- One agent run is active at a time, application-wide (`src/server/runs/runRegistry.ts`).
+- Settings are `CODEAI_*`; every one also accepts its former `CODEAI_WEB2_*` spelling
+  (`src/server/config.ts`). The neutral name wins when both carry a value.
+- Two identifiers keep their historical `web2` spelling **because they name existing data**: the
+  default data directory `~/.code-ai/web2` and the browser prefix `code-ai:web2:v1:`. Likewise the
+  `cartograph.*` wire schemas, the `cartograph:plan:*` delimiters, and the Codex
+  `serviceName`/`clientInfo.name` are compatibility identifiers, not branding. Renaming any of them
+  needs its own tested migration.
+- Active user-facing copy says **CodeAI**. Historical story prose and
+  `docs/design/Cartograph.dc.html` are historical artifacts and are left alone.
+
+## Legacy runtime
+
+The original static-analysis server, React Flow web client, and VS Code extension are archived
+under [`legacy/`](legacy/README.md) with their reference documentation in `legacy/docs/`. They are
+kept as a coherent historical snapshot: not maintained, not built, and not imported by the root
+application. Their conventions (duplicated `types.d.ts`, Socket.IO events, project-relative
+analyzer paths) apply only inside `legacy/` and must not be carried into `src/`.
 
 ## Docs
 
-- [Vision & North Star](docs/vision.md) — direction-setting (aspirational; where the product is going)
-- [Architecture](docs/architecture.md)
-- [Server](docs/server.md)
-- [Web](docs/web.md)
-- [JS/TS Analyzer](docs/analyzer.md)
-- [WebSocket API](docs/websocket-api.md)
+- [README](README.md) — product behavior, safety model, configuration
+- [Architecture](docs/architecture.md) — the current client/server boundary
+- [Vision & North Star](docs/vision.md) — direction-setting (aspirational)
+- [Multi-project, multi-session environment](docs/multi-project-session-environment.md) — exploratory memo
+- [Experiment log](docs/experiment-log.md) — manual real-agent matrix
+- [Legacy architecture](legacy/docs/architecture.md) — the archived analyzer runtime
 
 ## Stories (spec-driven loop)
 
@@ -48,4 +109,3 @@ Non-trivial changes are spec-driven:
 3. **Done = every box `[x]` and "How to verify" passes.** Flip to `Status: Shipped` and update the story to match what actually shipped. (Set `Superseded` instead if a later story replaces it.)
 
 Stories sit under [docs/vision.md](docs/vision.md) (the north star); reference the relevant phase/MVP when scoping one.
-

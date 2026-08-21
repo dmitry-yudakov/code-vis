@@ -88,17 +88,17 @@ There is no `web2/` directory today. The closest existing pieces are references 
 become runtime dependencies:
 
 - Completion-only CLI adapter:
-  [server/src/llm/cliAgent.ts](../server/src/llm/cliAgent.ts#L1) (~line 1) — starts an authenticated
+  [server/src/llm/cliAgent.ts](../legacy/server/src/llm/cliAgent.ts#L1) (~line 1) — starts an authenticated
   CLI and buffers one final response; it has no project-scoped conversation, partial output,
   drawing attachments, or multiple artifacts.
 - Subprocess lifecycle:
-  [server/src/llm/cliAgent.ts](../server/src/llm/cliAgent.ts#L80) (~line 80) — demonstrates spawn,
+  [server/src/llm/cliAgent.ts](../legacy/server/src/llm/cliAgent.ts#L80) (~line 80) — demonstrates spawn,
   timeout, stderr, and termination mechanics that the new independent runner should cover.
 - Completion contract:
-  [server/src/llm/types.ts](../server/src/llm/types.ts#L1) (~line 1) — intentionally excludes
+  [server/src/llm/types.ts](../legacy/server/src/llm/types.ts#L1) (~line 1) — intentionally excludes
   streaming, tools, and multi-turn behavior and must not be stretched for this prototype.
 - Existing project picker:
-  [web/src/App.tsx](../web/src/App.tsx#L68) (~line 68) — demonstrates selecting a local project but
+  [web/src/App.tsx](../legacy/web/src/App.tsx#L68) (~line 68) — demonstrates selecting a local project but
   is not reused by `web2`.
 - Bidirectional product direction:
   [docs/vision.md](../docs/vision.md#L349) (~line 349) — describes conversation, drawings,

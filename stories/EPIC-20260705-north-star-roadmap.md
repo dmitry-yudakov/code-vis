@@ -1,7 +1,7 @@
 # EPIC — From read-only visualizer to the north star
 
 **Status:** Active · **Owns:** the sequencing of all stories toward the
-[vision](../docs/vision.md) · **Updated:** August 5, 2026
+[vision](../docs/vision.md) · **Updated:** August 21, 2026
 
 This is the plan of record for reaching the [vision & north star](../docs/vision.md): which
 stories exist, which are still to be written, what depends on what, and in what order the work
@@ -17,8 +17,9 @@ here it carries just enough to sequence it.
 3. LLM discipline everywhere: opt-in, cached, fail-safe, never blocking the structural view.
 4. The **VR/3D surface is a differentiator, not a curiosity** — adjacent tools (editor + agent
    CLIs, classic diagram tools) have no credible spatial surface. It runs as a parallel track
-   because the surface-agnostic boundary makes it purely additive: it consumes the same
-   model / lens / arrangement JSON as the 2D web app.
+   because the surface-agnostic boundary makes it purely additive: desktop 3D and WebXR are
+   **code-split renderers/modes inside the root Next.js application**, consuming the same
+   artifact the 2D canvas does. There is no separate spatial product to keep in sync.
 
 ---
 
@@ -36,11 +37,14 @@ here it carries just enough to sequence it.
 | 18 | [web2-conversational-agent-canvas](STORY-20260805-web2-agent-mermaid-canvas.md) | 7–8 experiment | **Draft** — canvas-first multi-turn agent workspace with optional Mermaid artifacts and drawing attachments; informs Stories 14–15 |
 | — | [js-analyzer-improvement](STORY-20251111-js-analyzer-improvement.md) · [socket-io-improvements](STORY-20251111-socket-io-improvements.md) | pre-vision | Legacy groundwork |
 | — | [change-focused-review-view](STORY-20260501-change-focused-review-view.md) · [homepage-code-map-lenses](STORY-20260514-homepage-code-map-lenses.md) · [code-map-layout-strategies](STORY-20260520-code-map-layout-strategies.md) | ancestors | Shipped groundwork (review slice, lens shell, layout/arrangement sources) |
+| 24 | [promote-next-app-archive-legacy](STORY-20260820-promote-next-app-archive-legacy.md) | structural | **Shipped** — the Next.js app is the repository root; the visualizer runtime is archived under `legacy/` |
 
 The continuation of the `web2` track (Stories 19–21: operational modes, multi-agent roles,
 team environment) is sequenced by its own
 [web2 operational collaboration epic](EPIC-20260806-web2-operational-collaboration.md); it
-feeds Stories 14–16 here.
+feeds Stories 14–16 here. [Story 24](STORY-20260820-promote-next-app-archive-legacy.md) promoted
+that track's application to the repository root as **CodeAI** and archived the original
+visualizer runtime under `legacy/`, so every story below now lands in one product.
 
 ### Proposed stories (to be written)
 
@@ -52,8 +56,8 @@ feeds Stories 14–16 here.
 | 9 | Feature focus lens + relation-kind filters | 4 | 8 |
 | 10 | Saved views & notes (workspace memory) | 9 | 5, (7 for durability) |
 | 11 | Model-as-tools MCP server | agent-first | 3, (7 amortizes it) |
-| 12 | 3D surface bootstrap — react-three-fiber | VR track | 3 |
-| 13 | Immersive mode — WebXR on Quest | VR track | 12 |
+| 12 | 3D renderer inside the root app — react-three-fiber | VR track | 3 |
+| 13 | Immersive mode — WebXR on Quest, same root app | VR track | 12 |
 | 14 | Change loop v1 — intent → external agent → proposed overlay | 7 | 11, 17 (overlay rendering) |
 | 15 | Draw-over-diagram — sketch anchors | 8 | 14 (loop), 17 (overlay rendering), 12 (spatial input later) |
 | 16 | Team surface v1 — shareable views | 10 | 10 |
@@ -147,13 +151,17 @@ anchored to the live map.
 The differentiator track plus workspace memory. Deliberately parallelizable: everything here
 consumes model/lens/arrangement output through the existing API and touches no extraction code.
 
-- **Story 12 — 3D surface bootstrap (react-three-fiber)**: replace the `web3d` stub with an r3f
-  app rendering the same lens output as the 2D web app — entities as spatial nodes, regions as
-  volumes/platforms, provenance as material (solid = static, translucent/wireframe = suggested).
-  Shares `types.d.ts` and the websocket API; desktop-browser 3D first (orbit, select, expand).
-  The third dimension is not decoration — it is budget for what the 2D map crowds: depth for
-  architectural layers, elevation for change overlays.
-- **Story 13 — Immersive mode (WebXR on Quest 2/3)**: `@react-three/xr` on top of Story 12;
+- **Story 12 — 3D surface bootstrap (react-three-fiber)**: a **code-split spatial renderer inside
+  the root Next.js application**, not a separate `web3d` product. It renders the same artifact the
+  2D canvas does — entities as spatial nodes, regions as volumes/platforms, provenance as material
+  (solid = static, translucent/wireframe = suggested) — behind a renderer/mode switch under
+  `src/features/diagram/`, reusing the existing shell, project/thread state, agent routes, and
+  permission boundaries. Only the renderer chunk is new; r3f loads lazily so the 2D path pays
+  nothing. Desktop-browser 3D first (orbit, select, expand). The third dimension is not
+  decoration — it is budget for what the 2D map crowds: depth for architectural layers, elevation
+  for change overlays.
+- **Story 13 — Immersive mode (WebXR on Quest 2/3)**: `@react-three/xr` as a further mode of the
+  same root application on top of Story 12;
   served over the network, opened in the headset browser — no store app. Controller
   ray-pointing for select/expand, grab to move regions (`origin: 'user'` placement, same
   precedence rules as 2D drags). **Quest 2 perf is the design constraint**: lens + arrangement

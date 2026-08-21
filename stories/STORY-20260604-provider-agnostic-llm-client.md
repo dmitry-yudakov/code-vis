@@ -18,7 +18,7 @@ Story 2's annotation pass and `narrativeRank` are unaffected by this split (see
 ## Progress
 
 **Stage 1 — DONE & verified (2026-06-05).** The OpenAI-compatible HTTP client ships and is
-provider-agnostic by env alone. Files in [`server/src/llm/`](../server/src/llm/): `types.ts` (contract),
+provider-agnostic by env alone. Files in [`server/src/llm/`](../legacy/server/src/llm/): `types.ts` (contract),
 `openaiCompatible.ts` (the single `fetch` adapter), `index.ts` (`getLlmClient()` factory + env
 selection), `ping.ts` (`yarn llm:ping` smoke check), `llm.test.ts` (11 unit tests).
 
@@ -27,18 +27,18 @@ selection), `ping.ts` (`yarn llm:ping` smoke check), `llm.test.ts` (11 unit test
 - **Fail-safe paths confirmed:** no env → `getLlmClient()` is `null`, ping prints "no client
   configured"; dead port → ping reports the thrown error cleanly (the path consumers catch).
 - **Toolchain bumps (done):** `@types/node` `^14.14.10` → `^22.5.5` and `typescript` → `^5.6.3` in
-  [server/package.json](../server/package.json); **no runtime dep added** (global `fetch` /
+  [server/package.json](../legacy/server/package.json); **no runtime dep added** (global `fetch` /
   `AbortController`). `tsc --noEmit` clean in **server** and **web**; `yarn test` green
   (**77/77**, incl. the 11 new LLM tests).
 - **Test-env shim (new, outside `src/llm/`):** jest 26's sandboxed `node` VM omits Node 18+ globals
-  (`fetch`, `AbortController`). Added [server/jest.env.js](../server/jest.env.js) — a custom environment
-  copying them from the host realm — wired via [server/jest.config.js](../server/jest.config.js). Zero
+  (`fetch`, `AbortController`). Added [server/jest.env.js](../legacy/server/jest.env.js) — a custom environment
+  copying them from the host realm — wired via [server/jest.config.js](../legacy/server/jest.config.js). Zero
   new deps. (ts-jest 26 warns the resolved TS 5.9.x is newer than it tests against; non-fatal. A
   jest + ts-jest upgrade would retire both the shim and the warning — deferred, out of scope.)
 - **Secrets:** `.env` / `.env.*` added to [.gitignore](../.gitignore) so a local `CODEAI_LLM_API_KEY`
   is never committed; env is sourced into the shell (no `dotenv` dep, as designed).
 
-**Stage 2 — DONE & verified (2026-06-05).** [`cliAgent.ts`](../server/src/llm/cliAgent.ts) drives the
+**Stage 2 — DONE & verified (2026-06-05).** [`cliAgent.ts`](../legacy/server/src/llm/cliAgent.ts) drives the
 official, already-authenticated CLI as a subprocess to ride a Claude Pro/Max or ChatGPT Plus/Pro
 subscription — same `LlmClient` contract, **no tokens stored or extracted** (the non-goal is honored).
 
@@ -56,7 +56,7 @@ subscription — same `LlmClient` contract, **no tokens stored or extracted** (t
 - **Timeout** enforced by `SIGKILL`-ing the child; **throws** on spawn error (ENOENT → "failed to
   start"), non-zero exit (with stderr detail), or unparseable output — the same fail-safe surface
   consumers already catch from Stage 1.
-- **Wired into [`index.ts`](../server/src/llm/index.ts):** `claude-code`/`codex` now return a
+- **Wired into [`index.ts`](../legacy/server/src/llm/index.ts):** `claude-code`/`codex` now return a
   `cliAgent` client (previously no-op `null`); added the `CODEAI_LLM_CLI_BIN` binary override and a
   **Stage-2-only `CODEAI_LLM_CLI_MODEL`**. The Stage-1 `CODEAI_LLM_MODEL` is **deliberately not
   forwarded** to the CLI: a leftover local/openai id (e.g. `gpt-oss:20b`) passed as the CLI's
@@ -117,15 +117,15 @@ keeps its auth, its tool support, and the ToS intact.
 ## Current behavior (where the code is)
 
 - **No LLM integration exists.** No `server/src/llm/` directory; `grep` for `CODEAI_LLM` /
-  `getLlmClient` returns nothing. [server/package.json](../server/package.json) has **no AI/SDK
+  `getLlmClient` returns nothing. [server/package.json](../legacy/server/package.json) has **no AI/SDK
   dependency**.
 - **Runtime is Node v22**, so the global `fetch`, `AbortController`, and `AbortSignal` are available
   natively — **no runtime dependency is needed**. The only gap is *types*: `@types/node` is pinned
-  `^14.14.10` ([server/package.json](../server/package.json)), which predates global `fetch` typings,
+  `^14.14.10` ([server/package.json](../legacy/server/package.json)), which predates global `fetch` typings,
   so TS will not know about `fetch`. The fix is a `@types/node` bump (no `undici` shim required, unlike
   the cautious default Story 2 wrote before the runtime was confirmed to be Node 22).
 - **tsconfig:** `target: es5`, `lib: ["es2019"]`, `module: commonjs`, `strict: true`
-  ([server/tsconfig.json](../server/tsconfig.json)). `fetch` / `AbortController` types come from
+  ([server/tsconfig.json](../legacy/server/tsconfig.json)). `fetch` / `AbortController` types come from
   `@types/node`, not from `lib`, so the bump covers them; no `lib` change needed.
 - **`server/src/model/`** already exists from M1 (`entityId.ts`, `reviewModel.ts`) — the new
   `server/src/llm/` sits beside it as a peer concern.

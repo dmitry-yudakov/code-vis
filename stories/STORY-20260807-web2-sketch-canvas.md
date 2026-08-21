@@ -24,12 +24,12 @@ should be available before anything exists on the canvas.
 Before this story, a canvas was always a `DiagramArtifact` produced by an assistant message:
 
 - The canvas took an artifact directly and always rendered Mermaid:
-  [web2/components/DiagramCanvas.tsx](../web2/components/DiagramCanvas.tsx#L49).
+  [web2/components/DiagramCanvas.tsx](../src/features/diagram/components/DiagramCanvas.tsx#L49).
 - The empty canvas offered only text prompts:
-  [web2/components/CanvasWorkspace.tsx](../web2/components/CanvasWorkspace.tsx#L100).
+  [web2/components/CanvasWorkspace.tsx](../src/features/diagram/components/CanvasWorkspace.tsx#L100).
 - Attachments assumed Mermaid source existed: `source: z.string().min(1)` in
-  [web2/lib/shared/protocol.ts](../web2/lib/shared/protocol.ts#L19) and an unconditional
-  `validateMermaidSource` in [web2/lib/server/tempAttachments.ts](../web2/lib/server/tempAttachments.ts#L26).
+  [web2/lib/shared/protocol.ts](../src/shared/protocol.ts#L19) and an unconditional
+  `validateMermaidSource` in [web2/lib/server/tempAttachments.ts](../src/server/storage/tempAttachments.ts#L26).
 
 ---
 

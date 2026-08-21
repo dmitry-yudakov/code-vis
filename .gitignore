@@ -1,10 +1,22 @@
-!out/public/index.html
-out
-node_modules
-.vscode-test/
-.vsix
+node_modules/
 
-# Local LLM provider config / secrets (CODEAI_LLM_* incl. API keys)
+# Next.js build output and TypeScript build state
+.next/
+.next-e2e/
+*.tsbuildinfo
+
+# Test and coverage output
+coverage/
+test-results/
+playwright-report/
+
+# Local environment and provider credentials — never commit these.
 .env
 .env.*
 !.env.example
+
+# Legacy runtime build output (see legacy/README.md)
+!legacy/extension/out/public/index.html
+out
+.vscode-test/
+.vsix

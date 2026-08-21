@@ -24,29 +24,29 @@ is independently useful and removes provider-protocol risk from
 ## Implementation (where the code is)
 
 - Provider, health, adapter, and separate provider-session contracts live in
-  [web2/lib/shared/types.ts](../web2/lib/shared/types.ts#L43). The v2 atomic registry persists
+  [web2/lib/shared/types.ts](../src/shared/types.ts#L43). The v2 atomic registry persists
   them and migrates v1 Claude state in
-  [threadRegistry.ts](../web2/lib/server/threadRegistry.ts#L64).
+  [threadRegistry.ts](../src/server/storage/threadRegistry.ts#L64).
 - Strict browser requests require a provider only when creating a thread and reject it on a
-  message turn: [protocol.ts](../web2/lib/shared/protocol.ts#L43). The message route resolves the
+  message turn: [protocol.ts](../src/shared/protocol.ts#L43). The message route resolves the
   immutable server-side provider through the registry:
-  [POST /api/agent/message](../web2/app/api/agent/message/route.ts#L42).
+  [POST /api/agent/message](../src/app/api/agent/message/route.ts#L42).
 - Claude and Codex implement the common registry in
-  [providerRegistry.ts](../web2/lib/server/providerRegistry.ts#L38); per-provider readiness is
-  additive in [GET /api/health](../web2/app/api/health/route.ts#L40).
+  [providerRegistry.ts](../src/server/agents/providerRegistry.ts#L38); per-provider readiness is
+  additive in [GET /api/health](../src/app/api/health/route.ts#L40).
 - The Codex stdio handshake, thread start/resume, bounded streaming, activity, one-shot approvals,
   and interrupt flow are in
-  [codexProcessRunner.ts](../web2/lib/server/codexProcessRunner.ts#L95). Server-owned configuration,
+  [codexProcessRunner.ts](../src/server/agents/codexProcessRunner.ts#L95). Server-owned configuration,
   read-only/no-network modes, per-thread MCP disabling, and effective-policy validation are in
-  [codexInvocation.ts](../web2/lib/server/codexInvocation.ts#L9).
+  [codexInvocation.ts](../src/server/agents/codexInvocation.ts#L9).
 - Provider selection, capability-aware modes, provider status, and immutable browser persistence
-  are implemented in [AppShell.tsx](../web2/components/AppShell.tsx#L77),
-  [ThreadPicker.tsx](../web2/components/ThreadPicker.tsx#L7), and
-  [conversationStore.ts](../web2/lib/client/conversationStore.ts#L77).
+  are implemented in [AppShell.tsx](../src/features/shell/AppShell.tsx#L77),
+  [ThreadPicker.tsx](../src/features/conversation/ThreadPicker.tsx#L7), and
+  [conversationStore.ts](../src/features/conversation/conversationStore.ts#L77).
 - Offline App Server coverage, including ignored-isolation overrides, approvals, timeout, interrupt,
   malformed streams, and resume, is anchored in
-  [codexProcessRunner.test.ts](../web2/test/codexProcessRunner.test.ts#L45) and its
-  [fake Codex fixture](../web2/test/fixtures/fake-codex.mjs#L1).
+  [codexProcessRunner.test.ts](../test/codexProcessRunner.test.ts#L45) and its
+  [fake Codex fixture](../test/fixtures/fake-codex.mjs#L1).
 
 ## Desired behavior
 

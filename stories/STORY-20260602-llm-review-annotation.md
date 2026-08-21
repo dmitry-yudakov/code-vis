@@ -35,28 +35,28 @@ must never break when the LLM is unconfigured, slow, or returns garbage.
 - The server has **no LLM integration at all** (no SDK, no API key wiring) — this story
   stands it up from scratch. `server/package.json` has no AI deps.
 - Graph is built in `buildFocusedDeclarationGraph(...)` in
-  [server/src/project.ts](../server/src/project.ts#L942) (~line 942). It already loads
+  [server/src/project.ts](../legacy/server/src/project.ts#L942) (~line 942). It already loads
   each visible file into a `mappings: Map<filename, { content, mapping }>` and builds
   `focusedDeclarations: Map<id, FocusedDeclarationInfo>` with `pos`/`end` offsets, so the
   **declaration source text is recoverable** via `content.slice(decl.pos, decl.end)`. It
-  returns `{ declarations, declarationCalls }` near [line 1200](../server/src/project.ts#L1200).
+  returns `{ declarations, declarationCalls }` near [line 1200](../legacy/server/src/project.ts#L1200).
 - Entry point: `handleCommandFocusedReview(source, options)` at
-  [project.ts:1218](../server/src/project.ts#L1218); `options` is `FocusedReviewOptions`
+  [project.ts:1218](../legacy/server/src/project.ts#L1218); `options` is `FocusedReviewOptions`
   (currently just `{ includeTests?: boolean }`) in
-  [server/src/types.d.ts](../server/src/types.d.ts#L84) (~line 84).
+  [server/src/types.d.ts](../legacy/server/src/types.d.ts#L84) (~line 84).
 - The raw git diff is parsed to line *ranges* only and discarded (`parseUnifiedDiffLineRanges`
   ~line 213 in project.ts). So feed the LLM the **declaration source slices**, not a patch.
 - Declaration type `FocusedDeclarationInfo`:
-  [server/src/types.d.ts:107](../server/src/types.d.ts#L107) — mirror in
-  [web/src/types.d.ts:107](../web/src/types.d.ts#L107).
+  [server/src/types.d.ts:107](../legacy/server/src/types.d.ts#L107) — mirror in
+  [web/src/types.d.ts:107](../legacy/web/src/types.d.ts#L107).
 - Layout consumes nodes in the web `graphLayout/` module. The declaration spine ordering is
   computed by `computeDeclarationCallRanks(...)` in
-  [web/src/graphLayout/declarationLayout.ts](../web/src/graphLayout/declarationLayout.ts#L13)
+  [web/src/graphLayout/declarationLayout.ts](../legacy/web/src/graphLayout/declarationLayout.ts#L13)
   (~line 13) and used by the review-declarations strategy in
-  [web/src/graphLayout/reviewLayout.ts](../web/src/graphLayout/reviewLayout.ts#L697)
+  [web/src/graphLayout/reviewLayout.ts](../legacy/web/src/graphLayout/reviewLayout.ts#L697)
   (`computeDeclarationCallRanks` / `layoutReviewDeclarations`). The web layout node type
   `CodeLayoutNode` is in
-  [web/src/graphLayout/types.ts](../web/src/graphLayout/types.ts#L37) (~line 37).
+  [web/src/graphLayout/types.ts](../legacy/web/src/graphLayout/types.ts#L37) (~line 37).
 
 ---
 
@@ -140,7 +140,7 @@ declarations in place, or returns a new array — implementer's choice, keep it 
 
 - Extend `FocusedReviewOptions` (server types.d.ts ~line 84) with `annotate?: boolean`.
 - In `buildFocusedDeclarationGraph`, after `focusedDeclarations` is populated and before the
-  final sort/return ([~line 1200](../server/src/project.ts#L1200)): if
+  final sort/return ([~line 1200](../legacy/server/src/project.ts#L1200)): if
   `options?.annotate` **and** `getLlmClient()` returns a client, run the annotation pass
   (await, inside try/catch). Otherwise skip entirely.
   - Note: `buildFocusedDeclarationGraph`'s current signature is
@@ -164,12 +164,12 @@ Add to `FocusedDeclarationInfo` in **both** `server/src/types.d.ts` and `web/src
 Make the graph spine follow the *story*, not raw call topology:
 
 - When building `CodeLayoutNode`s for the review-declarations strategy in
-  [IncludesHierarchy.tsx](../web/src/components/IncludesHierarchy.tsx#L742) (~line 742),
+  [IncludesHierarchy.tsx](../legacy/web/src/components/IncludesHierarchy.tsx#L742) (~line 742),
   carry `narrativeRank` onto the layout node (extend `CodeLayoutNode` in
-  [graphLayout/types.ts](../web/src/graphLayout/types.ts#L37) with optional
+  [graphLayout/types.ts](../legacy/web/src/graphLayout/types.ts#L37) with optional
   `narrativeRank?: number`).
 - In `computeDeclarationCallRanks` /
-  [reviewLayout.ts](../web/src/graphLayout/reviewLayout.ts#L697): **when a node has a
+  [reviewLayout.ts](../legacy/web/src/graphLayout/reviewLayout.ts#L697): **when a node has a
   defined `narrativeRank`, use it as the rank (horizontal lane) instead of the
   topological call-rank.** Fall back to the existing topological computation for nodes
   without a rank (i.e. when annotation is off or the model omitted one). This keeps the

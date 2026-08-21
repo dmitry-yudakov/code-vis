@@ -19,14 +19,14 @@ review/change surface: a local, read-only working-tree sidebar rather than a new
 ## Current behavior (where the code is)
 
 - Application and project selection state live in
-  [web2/components/AppShell.tsx](../web2/components/AppShell.tsx#L66) (~line 66); the shell has
+  [web2/components/AppShell.tsx](../src/features/shell/AppShell.tsx#L66) (~line 66); the shell has
   right-side conversation/history drawers but no repository surface.
 - The selected project id resolves to a server-owned real path through
-  [web2/lib/server/projectRegistry.ts](../web2/lib/server/projectRegistry.ts#L95) (~line 95).
+  [web2/lib/server/projectRegistry.ts](../src/server/projects/projectRegistry.ts#L95) (~line 95).
 - Browser/server contracts are shared in
-  [web2/lib/shared/types.ts](../web2/lib/shared/types.ts#L1) (~line 1).
+  [web2/lib/shared/types.ts](../src/shared/types.ts#L1) (~line 1).
 - The app's shell and drawer layout is defined in
-  [web2/app/globals.css](../web2/app/globals.css#L26) (~line 26).
+  [web2/app/globals.css](../src/app/globals.css#L26) (~line 26).
 - The older change-focused story establishes local Git as the reliable first source and a
   changed-file list as the starting point:
   [change-focused review](STORY-20260501-change-focused-review-view.md#scope-definition).

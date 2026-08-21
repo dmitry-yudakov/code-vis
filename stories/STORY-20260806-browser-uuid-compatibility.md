@@ -19,10 +19,10 @@ browsers on the local network.
 
 ## Current behavior (where the code is)
 
-- Message creation: [web2/components/AppShell.tsx](../web2/components/AppShell.tsx#L239) (~line 239) — creates a compatible UUID before sending a user message.
-- Drawing creation: [web2/components/DiagramCanvas.tsx](../web2/components/DiagramCanvas.tsx#L137) (~line 137) — creates compatible UUIDs for pen, rectangle, arrow, and text marks.
-- UUID compatibility: [web2/lib/client/uuid.ts](../web2/lib/client/uuid.ts#L1) (~line 1) — prefers the native method and falls back to UUID-v4 formatting from random bytes.
-- Runtime validation: [web2/lib/shared/protocol.ts](../web2/lib/shared/protocol.ts#L6) (~line 6) — requires identifiers crossing the agent API to retain UUID syntax.
+- Message creation: [web2/components/AppShell.tsx](../src/features/shell/AppShell.tsx#L239) (~line 239) — creates a compatible UUID before sending a user message.
+- Drawing creation: [web2/components/DiagramCanvas.tsx](../src/features/diagram/components/DiagramCanvas.tsx#L137) (~line 137) — creates compatible UUIDs for pen, rectangle, arrow, and text marks.
+- UUID compatibility: [web2/lib/client/uuid.ts](../src/shared/uuid.ts#L1) (~line 1) — prefers the native method and falls back to UUID-v4 formatting from random bytes.
+- Runtime validation: [web2/lib/shared/protocol.ts](../src/shared/protocol.ts#L6) (~line 6) — requires identifiers crossing the agent API to retain UUID syntax.
 
 ---
 

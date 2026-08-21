@@ -1,17 +1,23 @@
 # Vision & North Star
 
 **Status:** Direction-setting. Aspirational — describes where the product is going, not what
-exists today. Reference docs ([architecture](architecture.md), [server](server.md),
-[web](web.md), [analyzer](analyzer.md)) describe current reality; this document describes the
+exists today. [architecture.md](architecture.md) describes the current CodeAI application;
+the archived analyzer runtime this document was written against is documented under
+[legacy/docs/](../legacy/docs/architecture.md) ([server](../legacy/docs/server.md),
+[web](../legacy/docs/web.md), [analyzer](../legacy/docs/analyzer.md)). This document describes the
 target and the transition toward it.
-**Updated:** July 7, 2026
+**Updated:** July 7, 2026 · paths and current-state notes refreshed August 21, 2026
 
 ---
 
 ## Thesis
 
-Today the product is a **read-only static visualizer**: it parses JS/TS, extracts files,
-function declarations, and calls, and draws them as graphs.
+The product started as a **read-only static visualizer**: it parsed JS/TS, extracted files,
+function declarations, and calls, and drew them as graphs (now archived under
+[`legacy/`](../legacy/README.md)). Today it is **CodeAI**: a conversation with a local agent over
+a trusted repository, where agent-authored Mermaid diagrams are the shared visual surface. Both
+answer the same question — *how does this software fit together?* — and neither yet holds a
+persistent model of it.
 
 The north star is a **model-centric, bidirectional, multi-modal, agentic development
 environment** built around one persistent semantic model of the software. It is not only a
@@ -35,9 +41,17 @@ pluggable front-ends.
 
 ## Where we are today
 
-Honest snapshot, so the gap is explicit:
+> **August 21, 2026.** The product is now the root Next.js **CodeAI** application: a persistent
+> local-agent conversation over a trusted repository with a Mermaid canvas as the primary
+> workspace ([architecture.md](architecture.md), [README](../README.md)). The static analyzer,
+> React Flow client, and VS Code extension described in the snapshot below are archived under
+> [`legacy/`](../legacy/README.md) — kept as a reference, not built or started by the root app.
+> The snapshot is retained because the model/lens gap it names is still the north star's premise;
+> read it as "where the analyzer track got to," not as the current runtime.
 
-- **Extraction** is static only, JS/TS only ([analyzer.md](analyzer.md)). The analyzer registry
+Honest snapshot of the analyzer track, so the gap is explicit:
+
+- **Extraction** is static only, JS/TS only ([analyzer.md](../legacy/docs/analyzer.md)). The analyzer registry
   is a single analyzer (`getAnalyzer(ext)`) covering js/ts/jsx/tsx — one implementation, no
   per-language extensibility.
 - **Entities** now span the M1 static kinds — `file`, `class`, `function`, `method`, `variable`,
@@ -53,7 +67,7 @@ Honest snapshot, so the gap is explicit:
   commit) are real; `Feature focus` and `Impact investigation` are placeholders.
 - **LLM is now built — arrangement, not extraction.** The provider-agnostic, opt-in, fail-safe
   client is shipped ([Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md), Stage 1
-  HTTP + Stage 2 CLI subscription, *complete & verified*) under `server/src/llm/`, with the full
+  HTTP + Stage 2 CLI subscription, *complete & verified*) under `legacy/server/src/llm/`, with the full
   `CODEAI_LLM_*` env wiring. The **arrangement pass** that consumes it
   ([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md)) is *in progress — core landed &
   green* (on-demand visibility + emphasis + editorial region bands); only the empirical
@@ -61,8 +75,8 @@ Honest snapshot, so the gap is explicit:
   model has no `origin: 'llm'` entities/relations yet (`Provenance` emits `'static'` only), and
   Story 1's per-card `summary` / `causalReason` remain display-only (rendered, not yet produced).
 - **Type drift closed.** Step 1 did what it promised: `Entity` / `Relation` / `Arrangement` and the
-  `summary` / `causalReason` fields are now symmetric across `server/src/types.d.ts` and
-  `web/src/types.d.ts`. One loose end remains — `narrativeRank` is still declared on both sides and
+  `summary` / `causalReason` fields are now symmetric across `legacy/server/src/types.d.ts` and
+  `legacy/web/src/types.d.ts`. One loose end remains — `narrativeRank` is still declared on both sides and
   still dead (nothing produces or consumes it); superseded by the `Arrangement` spec, pending
   removal.
 - **Read-only.** Editing exists (`saveFile` + file watch), but the map does not yet drive
@@ -411,7 +425,7 @@ verify it.
 **Two contracts, not one.** Driving a model splits in two:
 
 - **Completion** — one structured question, code-ai supplies the context (the provider-agnostic
-  `LlmClient` in `server/src/llm/`, run tools-*off*). This is what **extraction** (step 3) and
+  `LlmClient` in `legacy/server/src/llm/`, run tools-*off*). This is what **extraction** (step 3) and
   **arrangement** (step 5) need, and what they use today; the tools-off CLI adapter is correct
   here, not a placeholder.
 - **Delegation** — hand a *task* to an agent that runs *in the repo* with its own tools, MCP
@@ -622,7 +636,7 @@ LLM work in M2.
   complete & verified ([Story 4](../stories/STORY-20260604-provider-agnostic-llm-client.md));
   arrangement pass in progress — core landed & green
   ([Story 5](../stories/STORY-20260605-llm-arrangement-pass.md)), empirical side-by-side signal
-  open.* Stands up `server/src/llm/` and adds the LLM arrangement pass on top of M1's model.
+  open.* Stands up `legacy/server/src/llm/` and adds the LLM arrangement pass on top of M1's model.
 
 **Surface (both milestones):** the **Review** lens (diff / commit). Lowest-risk, highest-reuse —
 the slice is already built server-side, the lens is the most developed, and shipped Story 1 already
@@ -733,7 +747,8 @@ alternatives to it:
 
 | Artifact | Role in the north star |
 |---|---|
-| [architecture.md](architecture.md) / [server.md](server.md) / [web.md](web.md) / [analyzer.md](analyzer.md) | Current-reality reference. Accurate for the read-only visualizer; this doc is the direction beyond them. |
+| [architecture.md](architecture.md) | Current-reality reference for the CodeAI application that exists today; this doc is the direction beyond it. |
+| [legacy/docs/architecture.md](../legacy/docs/architecture.md) / [server.md](../legacy/docs/server.md) / [web.md](../legacy/docs/web.md) / [analyzer.md](../legacy/docs/analyzer.md) | The archived read-only visualizer. Accurate for what it describes, but no longer the running product. |
 | [homepage-code-map-lenses](../stories/STORY-20260514-homepage-code-map-lenses.md) | The lens shell and "editing/AI readiness" groundwork. Closest existing sketch of the model (`CodeMapNode`, reasons, `CodeMapScope`). |
 | [change-focused-review-view](../stories/STORY-20260501-change-focused-review-view.md) | The diff/PR/commit slice and the "reliability boundary" — direct ancestor of `origin`/provenance. |
 | [code-map-layout-strategies](../stories/STORY-20260520-code-map-layout-strategies.md) | The **algorithmic** arrangement source (geometry engines) and the built-in **user-defined** source (manual placement, `Reset layout`) — both under the arrangement layer. Keys off general `kind`/`role` so new kinds place automatically. |

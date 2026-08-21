@@ -1,7 +1,7 @@
 # EPIC — web2 operational collaboration: one builder → second provider → agent roles → team
 
 **Status:** Active · **Owns:** the sequencing of the `web2` conversation track from read-only
-explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 18, 2026
+explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 21, 2026
 
 [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) proved the surface: a canvas-first,
 session-persistent conversation over a local repository with a read-only agent. This epic owns
@@ -10,11 +10,15 @@ building), prove a safe **second provider** (Codex), compose providers into **mu
 roles, then add **multiple humans**. Each proposed story follows the executable
 [story template](TEMPLATE.md); Story 21 remains a sequencing-level draft until it is picked up.
 
-Relation to the [north-star roadmap](EPIC-20260705-north-star-roadmap.md): `web2` remains the
-experimental parallel track. Story 19 feeds the change-loop learnings of roadmap Stories
-14–15 (intent → agent → proposed change, plan preview); Story 20 tests that contract across
-providers; Story 23's roles and hand-offs inform the same; Story 21 is the experimental cousin
-of roadmap Story 16 (team surface). Nothing here imports the current `web/`/`server` runtime.
+Relation to the [north-star roadmap](EPIC-20260705-north-star-roadmap.md): this track began as
+the experimental parallel one. It is no longer parallel —
+[Story 24](STORY-20260820-promote-next-app-archive-legacy.md) promoted its application to the
+repository root as **CodeAI** and archived the original visualizer runtime under
+[`legacy/`](../legacy/README.md). The stories below keep their historical `web2` names and prose;
+their source paths now resolve under `src/`. Story 19 feeds the change-loop learnings of roadmap
+Stories 14–15 (intent → agent → proposed change, plan preview); Story 20 tests that contract
+across providers; Story 23's roles and hand-offs inform the same; Story 21 is the experimental
+cousin of roadmap Story 16 (team surface). Nothing here imports the archived `legacy/` runtime.
 
 **Invariants** (hold across every story in this epic):
 

@@ -1,84 +1,158 @@
-# Architecture
+# Architecture — CodeAI
 
-## Overview
+**Scope:** the Next.js application at the repository root. The superseded Socket.IO analyzer,
+React Flow client, and VS Code extension are archived and documented separately in
+[legacy/docs/architecture.md](../legacy/docs/architecture.md); nothing here imports them.
 
-code-vis analyzes JavaScript/TypeScript projects statically and renders the results as interactive graphs. Users point the server at a project directory; the web client connects and displays file dependency graphs and function call maps.
+---
 
-## Components
+## Shape
 
-### Server (`server/`)
-Node.js + TypeScript. Reads project files from disk, analyzes them with the TypeScript Compiler API, and serves results via Socket.IO.
+One private Yarn 1 package, one Next.js 15 App Router application, no separate backend process.
+Route handlers under `src/app/api/` are the only server surface; they spawn local agent CLIs as
+child processes and read the selected repository with fixed git invocations.
 
-- Entry: `src/index.ts`
-- Analyzer: `src/analyzers/js.ts`
-- Communication: `src/wsserver.ts` (Socket.IO, port 3789)
-- File I/O: `src/io.ts`
-- Project state: `src/project.ts`
-- Types: `src/types.d.ts`
-
-### Web (`web/`)
-React 19 SPA. Connects to server via Socket.IO, renders views using react-flow-renderer.
-
-- Entry: `src/index.tsx` → `src/App.tsx`
-- Connection: `src/connection/`
-- Components: `src/components/`
-- Types: `src/types.d.ts` (must match server copy)
-
-### Extension (`extension/`)
-VS Code extension. Was functionally equivalent to the server but embedded in the editor. Not actively maintained.
-
-## Data Flow
-
-```
-Disk files
-    │
-    ▼
-server/src/analyzers/js.ts   (TypeScript Compiler API: parse → extract)
-    │
-    ▼
-server/src/project.ts        (Project state, file watching)
-    │
-    ▼  Socket.IO port 3789
-web/src/connection/          (SocketConnection, projectApi)
-    │
-    ▼
-web/src/App.tsx              (state: projectMap, filesMappings)
-    │
-    ├── IncludesHierarchy    (/ route — project dependency graph and review scopes)
-    ├── FilesMapping         (/f/:filename — file-level view)
-    └── LogicMap             (/fine/:filename — function-level view)
+```text
+browser (src/features/**, localStorage)
+   │  fetch / NDJSON stream
+   ▼
+route handlers (src/app/api/**)
+   │
+   ├── src/server/projects     project discovery under CODEAI_PROJECTS_ROOT
+   ├── src/server/repository   fixed read-only git reads, bounded context files
+   ├── src/server/storage      thread registry (~/.code-ai/web2), per-run temp attachments
+   ├── src/server/runs         single active run + permission broker
+   └── src/server/agents       provider policy → claude / codex app-server child
+                                     │
+                                     ▼
+                          local agent CLI, user's own login
 ```
 
-## Overview Scopes
+`src/shared/` holds everything that crosses the boundary — wire schemas, limits, participant
+helpers, plan delimiters, and types. It must stay free of Node and DOM dependencies.
 
-The homepage opens in `Overview`, which starts at a module/directory dependency scale. Users can expand a module into files, then expand a selected file into analyzer-visible declarations. File-to-declaration expansion is loaded on demand with `mapFile` and reuses the cached `filesMappings` data in the web app.
+## Client/server split
 
-## Review Scopes
+The browser owns presentation **and** conversation content. The server owns capability.
 
-The root graph can switch from whole-project exploration to a change-focused review scope:
+| Concern | Owner |
+|---|---|
+| Transcript, Mermaid artifacts, marks, pins, selection | Browser `localStorage` |
+| Thread identity, roster, provider session ids, transcript cursors | Server registry |
+| Project discovery and the opaque project id | Server |
+| Provider executable, tool list, allowlist, sandbox, model flags | Server |
+| Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
 
-- `Working tree` uses local git status to show uncommitted and untracked changes.
-- `Branch / PR` compares the current branch to a base ref using a local git merge base. The UI name reflects the review workflow, but this path does not currently call a remote PR API.
-- `Commit` compares a selected commit to its first parent by default.
+The browser can name a supported mode and nothing else. An unknown or unsupported mode is a 400.
+This is why the client never sends flags, prompts-with-tools, or paths outside the selected
+project: every one of those is derived server-side from `src/server/config.ts` plus the resolved
+policy in `src/server/agents/agentPolicy.ts`.
 
-All review scopes return a `FocusedReviewMap`: changed files, one-hop import neighbors, optionally related test files, dependency edges between the visible focused files, and a declaration-level projection when changed hunks overlap analyzer-visible functions/methods. Declaration review includes changed declarations, direct caller/callee context, and short bridge call paths between changed declarations when they can be explained by analyzer-visible calls.
+## Browser-local persistence
 
-The review request accepts `options.includeTests`, which defaults to `true`. Related test files are marked with `isTest` and a `related-test` reason so the web workbench can style them separately and let users hide unchanged tests when the scope is too noisy.
+`src/features/conversation/conversationStore.ts` stores one revisioned blob per project under the
+`code-ai:web2:v1:` key prefix — a compatibility identifier kept from the `web2` package name so
+existing conversations keep loading. It holds threads, messages, participants, diagram artifacts
+(Mermaid source), sketches, vector marks, viewport, pins, and the active selection.
 
-## Scope Handoff
+- Multiple tabs merge by immutable participant/message id through `storage` events rather than
+  overwriting one another's blob.
+- One invalid thread retains its last valid copy; it does not block unrelated conversations.
+- Conversations retain up to 2,000 messages; at that boundary the UI names the thread and offers
+  recovery/export instead of failing opaquely.
+- Composite PNGs, repository files, and diffs are never persisted.
 
-The homepage workbench derives a `CodeMapScope` from the visible graph. This payload is client-side today: it can be copied as JSON from the sidebar, and it is passed through React Router state when opening the file-level or logic-map editors from a graph node. Editor views use the scope to keep related-file context limited to the current lens projection.
+Export (`codeai-<thread>.json`) includes the roster and per-entry author/provider/role metadata
+plus diagram and mark state — never provider session ids, credentials, or server paths.
 
-## Shared Types
+## Server-owned thread and provider session registry
 
-`FileIncludeInfo`, `FunctionCallInfo`, `FunctionDeclarationInfo`, `FileMapping`, focused review types (`ChangeSet`, `FocusedReviewMap`, etc.), and scope handoff types (`CodeMapScope`, etc.) are defined in both `server/src/types.d.ts` and `web/src/types.d.ts`. Both copies must be kept identical.
+`src/server/storage/threadRegistry.ts` keeps the minimal durable record under `CODEAI_DATA_DIR`
+(default `~/.code-ai/web2`), written atomically with user-only permissions:
+
+- thread identity and timestamps, permanently bound to one opaque project id;
+- the participant roster and the main-agent pointer;
+- each agent participant's **private** provider session id;
+- per-participant transcript cursors.
+
+A CodeAI thread id is never reinterpreted as a provider session id. Older single-provider records
+migrate in place without changing ids, content, or provider sessions.
+
+## The streamed agent route
+
+`POST /api/agent/message` is the one turn-executing endpoint.
+
+1. Validate the request against `src/shared/protocol.ts` and resolve the thread, participant, and
+   mode.
+2. Refuse if a run is already active — `src/server/runs/runRegistry.ts` permits **one global
+   active run**. This is a deliberate current constraint, not an oversight.
+3. Build a bounded per-run temporary directory outside the project (`code-ai-run-*`) holding
+   diagram attachments plus git status/diff snapshots from `src/server/repository/`.
+4. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
+   and role contract, the historical-context JSON delta, and the current request as one JSON
+   value. Historical text is data, never framing.
+5. Spawn the provider adapter (`claude` directly, `codex` as an `app-server` stdio child) and
+   stream NDJSON events back to the browser: tool activity, text deltas, permission requests,
+   and the result.
+6. Parse the answer in `src/server/conversation/responseParser.ts` — Markdown plus zero or more
+   fenced Mermaid blocks, validated by `src/features/diagram/mermaid/mermaidPolicy.ts`, plus
+   evidence comments.
+7. Remove the temporary directory, always.
+
+`GET /api/agent/stream` reattaches a detached browser to a live run; `POST /api/agent/cancel`
+ends one; `POST /api/agent/permission` resolves a pending approval card.
+
+**A run outlives the page that started it.** Closing the tab or reloading only detaches the
+browser. Reopening the conversation replays activity, any pending approval, and the answer. A
+finished run stays reattachable for five minutes.
+
+## Permissions
+
+In Agent mode every side effect raises a permission card. `src/server/runs/permissionBroker.ts`
+correlates the provider's approval request to the active run/thread/turn, sanitizes it, and waits
+for one allow/deny decision. While a card is pending the run's timeout clock is paused. An
+unanswered card is auto-denied after `CODEAI_APPROVAL_TIMEOUT_MS`. A denial is reported to the
+model as a decision — the run continues. Cancelling resolves pending cards as denied before
+terminating the child.
+
+Ask and Plan never prompt: they run under a server-owned read-only profile plus a fixed git/gh
+read allowlist. A command matching no rule is auto-denied and shown as a denial in the timeline.
+
+## Repository access
+
+`src/server/repository/gitRepository.ts` runs a fixed set of read-only git invocations without a
+shell, in the selected project's directory, with bounded output
+(`CODEAI_MAX_GIT_CONTEXT_BYTES`). It backs the repository sidebar (status, changed files, diffs)
+and the per-run context snapshots. Agent mode's writes go through the provider's own tools under
+approval, not through this module.
+
+## Diagrams
+
+Mermaid source is the canonical stored artifact. Diagrams are immutable: a revision is a new
+artifact, never a patch. `mermaidPolicy.ts` normalizes and validates source on both sides of the
+boundary (the browser before storing, the server before accepting); `mermaidRenderer.ts` is
+browser-only and produces the SVG. Annotations are vector marks held beside the artifact in
+`src/features/diagram/annotations/`, exported as a composite PNG only for attachment.
+
+## Current constraints
+
+These are real and deliberate, and they bound what can be built next:
+
+- one active agent run across the whole application;
+- one selected project and one selected thread in the browser shell;
+- conversation content lives only in that browser's `localStorage` — no server-side transcript,
+  no cross-device sync;
+- Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
+- a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
+
+The exploratory direction past the first two is recorded in
+[multi-project-session-environment.md](multi-project-session-environment.md); it is not
+implemented.
 
 ## Configuration
 
-Stored per-project at `~/.code-ai/projects/{url-encoded-absolute-path}/config.json`:
-```json
-{
-  "includeMask": "**/*.{ts,tsx,js,jsx}",
-  "excludeMask": ["**/node_modules/**"]
-}
-```
+`src/server/config.ts` resolves every setting as
+`CODEAI_<NAME> ?? CODEAI_WEB2_<NAME> ?? default`, treating an empty assignment as unset on either
+name. Validation runs on whichever raw value is selected, so an invalid neutral value fails rather
+than falling back. See [.env.example](../.env.example) and the
+[README](../README.md#configuration).
