@@ -14,8 +14,10 @@ Relation to the [north-star roadmap](EPIC-20260705-north-star-roadmap.md): this 
 the experimental parallel one. It is no longer parallel —
 [Story 24](STORY-20260820-promote-next-app-archive-legacy.md) promoted its application to the
 repository root as **CodeAI** and archived the original visualizer runtime under
-[`legacy/`](../legacy/README.md). The stories below keep their historical `web2` names and prose;
-their source paths now resolve under `src/`. Story 19 feeds the change-loop learnings of roadmap
+[`legacy/`](../legacy/README.md), and
+[Story 25](STORY-20260821-next-16-npm-toolchain.md) moved that root package to npm and Next.js 16.
+The stories below keep their historical `web2` names and prose; their source paths now resolve
+under `src/`, and their `yarn …` commands are `npm run …` today. Story 19 feeds the change-loop learnings of roadmap
 Stories 14–15 (intent → agent → proposed change, plan preview); Story 20 tests that contract
 across providers; Story 23's roles and hand-offs inform the same; Story 21 is the experimental
 cousin of roadmap Story 16 (team surface). Nothing here imports the archived `legacy/` runtime.

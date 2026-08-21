@@ -44,7 +44,8 @@ export async function writeDiagramAttachments(
       if (!policy.ok) throw new Error(`Attached diagram is unsafe: ${policy.error}`);
       record.sourceFile = `${stem}.mmd`;
       totalBytes += Buffer.byteLength(attachment.source);
-      await writeFile(path.join(directory, record.sourceFile), attachment.source, { mode: 0o600 });
+      // `directory` is a per-run temp directory, never a project path; no build tracing is needed.
+      await writeFile(path.join(/* turbopackIgnore: true */ directory, record.sourceFile), attachment.source, { mode: 0o600 });
     } else if (attachment.source.trim()) {
       throw new Error('A sketch attachment cannot carry Mermaid source.');
     }
@@ -57,7 +58,7 @@ export async function writeDiagramAttachments(
         throw new Error('Attached composite PNG is invalid or too large.');
       }
       record.imageFile = `${stem}.png`;
-      await writeFile(path.join(directory, record.imageFile), png, { mode: 0o600 });
+      await writeFile(path.join(/* turbopackIgnore: true */ directory, record.imageFile), png, { mode: 0o600 });
     }
     if (totalBytes > limits.maxBytes) throw new Error('Diagram attachments exceed the configured byte limit.');
     manifest.push(record);

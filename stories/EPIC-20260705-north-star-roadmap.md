@@ -38,6 +38,7 @@ here it carries just enough to sequence it.
 | — | [js-analyzer-improvement](STORY-20251111-js-analyzer-improvement.md) · [socket-io-improvements](STORY-20251111-socket-io-improvements.md) | pre-vision | Legacy groundwork |
 | — | [change-focused-review-view](STORY-20260501-change-focused-review-view.md) · [homepage-code-map-lenses](STORY-20260514-homepage-code-map-lenses.md) · [code-map-layout-strategies](STORY-20260520-code-map-layout-strategies.md) | ancestors | Shipped groundwork (review slice, lens shell, layout/arrangement sources) |
 | 24 | [promote-next-app-archive-legacy](STORY-20260820-promote-next-app-archive-legacy.md) | structural | **Shipped** — the Next.js app is the repository root; the visualizer runtime is archived under `legacy/` |
+| 25 | [next-16-npm-toolchain](STORY-20260821-next-16-npm-toolchain.md) | structural | **Shipped** — the root package runs on npm and Next.js 16/React 19.2 (Turbopack), with no product behavior change |
 
 The continuation of the `web2` track (Stories 19–21: operational modes, multi-agent roles,
 team environment) is sequenced by its own

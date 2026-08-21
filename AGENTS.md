@@ -2,24 +2,28 @@
 
 A local-first Next.js application for working on a trusted repository through a persistent
 local-agent conversation and a Mermaid canvas. The repository root **is** the application: one
-private Yarn 1 package, one Next.js app, one set of commands.
+private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Commands
 
 All commands run from the repository root.
 
 ```sh
-yarn dev        # Next.js dev server on 3023
-yarn start      # production server on 3023, after yarn build
-yarn build      # production build
-yarn lint       # strict TypeScript check (tsc --noEmit)
-yarn test       # Vitest suite, offline, with fake Claude/Codex executables
-yarn test:watch # the same suite in watch mode
-yarn test:e2e   # production build + Playwright against installed Chrome
+npm run dev        # Next.js dev server on 3023 (Turbopack, output in .next/dev)
+npm start          # production server on 3023, after npm run build
+npm run build      # production build (Turbopack)
+npm run lint       # strict TypeScript check (tsc --noEmit) — there is no ESLint/Biome setup
+npm test           # Vitest suite, offline, with fake Claude/Codex executables
+npm run test:watch # the same suite in watch mode
+npm run test:e2e   # production build into .next-e2e + Playwright against installed Chrome
 ```
 
 `legacy/` is excluded from the TypeScript project, the Vitest include set, and the Playwright test
 directory. Nothing in the root build traverses it.
+
+`next dev` maintains two files itself: the `nextjs-agent-rules` block at the end of this document
+and `next-env.d.ts` / the generated-type entries in `tsconfig.json`. They are committed as written
+so a dev run leaves the working tree clean — edit them only through Next.js.
 
 ## Source ownership
 
@@ -109,3 +113,13 @@ Non-trivial changes are spec-driven:
 3. **Done = every box `[x]` and "How to verify" passes.** Flip to `Status: Shipped` and update the story to match what actually shipped. (Set `Superseded` instead if a later story replaces it.)
 
 Stories sit under [docs/vision.md](docs/vision.md) (the north star); reference the relevant phase/MVP when scoping one.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

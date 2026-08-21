@@ -8,7 +8,7 @@ React Flow client, and VS Code extension are archived and documented separately 
 
 ## Shape
 
-One private Yarn 1 package, one Next.js 15 App Router application, no separate backend process.
+One private npm package, one Next.js 16 App Router application, no separate backend process.
 Route handlers under `src/app/api/` are the only server surface; they spawn local agent CLIs as
 child processes and read the selected repository with fixed git invocations.
 

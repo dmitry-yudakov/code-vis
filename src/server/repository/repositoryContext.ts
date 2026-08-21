@@ -43,7 +43,8 @@ export async function writeRepositoryContext(
         windowsHide: true,
       });
       const snapshot = bounded(stdout, perFileLimit);
-      await writeFile(path.join(directory, command.file), snapshot.content || '(no changes)\n', { mode: 0o600 });
+      // `directory` is a per-run temp directory, never a project path; no build tracing is needed.
+      await writeFile(path.join(/* turbopackIgnore: true */ directory, command.file), snapshot.content || '(no changes)\n', { mode: 0o600 });
       records.push({
         file: command.file,
         status: snapshot.truncated ? 'truncated' : 'ready',
@@ -54,7 +55,7 @@ export async function writeRepositoryContext(
       const message = command.file === 'last-commit.diff'
         ? 'Last commit is unavailable (the repository may have fewer than two commits).'
         : 'Git context is unavailable (this may not be a Git repository).';
-      await writeFile(path.join(directory, command.file), `[UNAVAILABLE] ${message}\n`, { mode: 0o600 });
+      await writeFile(path.join(/* turbopackIgnore: true */ directory, command.file), `[UNAVAILABLE] ${message}\n`, { mode: 0o600 });
       records.push({ file: command.file, status: 'unavailable', bytes: 0, message });
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
     }

@@ -137,7 +137,7 @@ else {
       : asked('Show two alternatives')
         ? 'Two deliberately distinct alternatives:\n\n```mermaid\nsequenceDiagram\n  Browser->>Agent: Ask\n  Agent-->>Browser: Stream\n```\n\nOr use a state view:\n\n```mermaid\nstateDiagram-v2\n  [*] --> Exploring\n  Exploring --> Ready\n```'
         : prompt.includes('Mode: PLAN')
-          ? 'I reviewed the module.\n\n<!-- cartograph:plan:start -->\n## Implementation plan\n1. Extract the parser into its own module.\n2. Verify with `yarn test`.\n<!-- cartograph:plan:end -->'
+          ? 'I reviewed the module.\n\n<!-- cartograph:plan:start -->\n## Implementation plan\n1. Extract the parser into its own module.\n2. Verify with `npm test`.\n<!-- cartograph:plan:end -->'
           : args.includes('--resume') ? 'I remember the prior turn without a transcript replay.' : 'First turn complete.';
   const delta = JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
   writeOut(delta.slice(0, 17));

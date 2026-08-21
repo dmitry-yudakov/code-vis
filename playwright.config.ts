@@ -23,7 +23,7 @@ export default defineConfig({
     },
   }],
   webServer: {
-    command: `yarn next start -p ${e2ePort}`,
+    command: `npx next start -p ${e2ePort}`,
     url: `${e2eBaseUrl}/api/projects`,
     reuseExistingServer: true,
     timeout: 30_000,

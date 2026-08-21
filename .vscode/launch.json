@@ -8,8 +8,8 @@
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "yarn",
-      "runtimeArgs": ["dev"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
       "skipFiles": ["<node_internals>/**"],
       "console": "integratedTerminal",
       "serverReadyAction": { "pattern": "- Local:.+(https?://\\S+)", "uriFormat": "%s", "action": "debugWithChrome" }
@@ -19,8 +19,8 @@
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "yarn",
-      "runtimeArgs": ["test"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "test"],
       "skipFiles": ["<node_internals>/**"],
       "console": "integratedTerminal"
     },

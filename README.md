@@ -13,7 +13,7 @@ static-analysis server, React Flow client, and VS Code extension are archived un
 
 ## Requirements
 
-- Node.js 20 or newer and Yarn 1
+- Node.js 20.9 or newer and npm (Next.js 16 sets the floor)
 - at least one current local agent CLI: `claude` and/or `codex`
 - the chosen CLI authenticated as the desktop user (`claude` or `codex login` if needed)
 - one trusted local project, or a directory whose immediate children are trusted projects
@@ -24,10 +24,10 @@ does not read, copy, or persist login material.
 ## Start
 
 ```sh
-yarn install
+npm install
 cp .env.example .env.local
 # Edit CODEAI_PROJECTS_ROOT in .env.local.
-yarn dev
+npm run dev
 ```
 
 Open <http://localhost:3023>. If the configured root itself contains a common project marker, it is
@@ -39,13 +39,13 @@ bound, immediate child directories remain available as a fallback.
 Useful commands, all run from the repository root:
 
 ```sh
-yarn dev       # Next.js development server on 3023
-yarn start     # production server on 3023, after yarn build
-yarn test      # offline suite with fake Claude and Codex executables
-yarn test:watch # the same suite in watch mode
-yarn lint      # strict TypeScript check
-yarn build     # production build
-yarn test:e2e  # production build + Playwright/installed Chrome canvas workflow
+npm run dev       # Next.js development server on 3023
+npm start         # production server on 3023, after npm run build
+npm test          # offline suite with fake Claude and Codex executables
+npm run test:watch # the same suite in watch mode
+npm run lint      # strict TypeScript check
+npm run build     # production build
+npm run test:e2e  # production build + Playwright/installed Chrome canvas workflow
 ```
 
 ### Upgrading from the `web2/` layout
@@ -55,13 +55,27 @@ The application used to live in `web2/`. If you have a working checkout from bef
 ```sh
 mv web2/.env.local .env.local   # keep your ignored local settings
 rm -rf web2                     # node_modules, .next, and build state are rebuilt at the root
-yarn install
+npm install
 ```
 
 Your existing conversations survive: server records still default to `~/.code-ai/web2` and browser
 threads still use the `code-ai:web2:v1:` storage prefix. Environment variables were renamed from
 `CODEAI_WEB2_*` to `CODEAI_*`, and **the old names continue to work** — see
 [Configuration](#configuration).
+
+### Upgrading from the Yarn/Next.js 15 toolchain
+
+The package manager is npm and the framework is Next.js 16. A checkout from before that switch
+still has a Yarn-installed `node_modules` and no `package-lock.json`:
+
+```sh
+rm -rf node_modules yarn.lock .next .next-e2e
+npm install
+```
+
+Nothing else changes: same port, same commands (`yarn x` → `npm run x`), same configuration, same
+stored data. `next dev` and `next build` now use Turbopack, and `next dev` writes its output under
+`.next/dev`, which stays ignored.
 
 ## Participants, roles, and manual handoffs
 
