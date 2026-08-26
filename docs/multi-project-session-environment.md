@@ -46,8 +46,9 @@ Next.js server on `localhost`, which is also the only executor.
 
 **A conversation may hold more than one person.** Already anticipated by
 [Story 21](../stories/STORY-20260806-web2-team-environment.md), and the real cost sits there —
-identity, authorization, server-owned transcript, sandboxing. Nothing in the near term needs to pay
-that, but the records should stop asserting that exactly one human exists.
+identity, authorization, multi-writer synchronization, and sandboxing. Server-owned conversation
+storage is pulled earlier for host/device continuity, but it does not make a team surface; the
+records should merely stop asserting that exactly one human exists in the meantime.
 
 The unifying rule the three share is in [Durable records never assume
 "here"](#durable-records-never-assume-here).
@@ -111,8 +112,9 @@ interface Layout {               // per (environment, client) — never shared b
 
 interface ProjectAttachment {
   id: string;
-  projectKey: string;            // portable identity of the repository
   hostId: string;                // which machine provides this checkout
+  checkoutId: string;            // current host-scoped path-hash id
+  // projectKey is a later portable identity beside checkoutId, not a rename of it
   role: 'primary' | 'reference';
 }
 
@@ -155,53 +157,64 @@ One rule covers most of what would otherwise need reworking later:
 
 - no host-local path inside an identity;
 - no record that means "the local machine" implicitly — a host is named or the record is host-free;
-- no process-global singleton standing in for state a second host would also have;
+- no single global *state slot* standing in for keyed host/session state — process-wide registry and
+  storage services may deliberately be pinned on `globalThis` so Next route bundles share them;
 - no browser-local storage holding anything another device must see.
 
 The current code breaks all four, reasonably, because there is exactly one of everything: ids are
 path hashes, the working directory is "the project", `runRegistry` is one global active slot
 ([runRegistry.ts:37](../src/server/runs/runRegistry.ts#L37)), and the transcript lives in
-`localStorage`. Each is a small change now and a migration later.
+`localStorage`. These are development-era formats rather than compatibility promises: Story 26
+moves canonical conversation state to fresh host-owned JSON and leaves the old records untouched;
+Story 27 replaces the single run slot without removing the load-bearing process-wide registry.
 
 ## What to loosen now
 
-Small, data-shape-first changes that buy the broader scope without building it, specified as
-[Story 26](../stories/STORY-20260826-loosen-project-host-bindings.md). Roughly in dependency order:
+Small, foundation-first changes that buy the broader scope without building remote access, specified
+as [Story 26](../stories/STORY-20260826-loosen-project-host-bindings.md) and
+[Story 27](../stories/STORY-20260826-session-keyed-host-bound-runs.md). Roughly in dependency order:
 
-1. **Thread → attachments.** Replace `ServerThread.projectId`
-   ([types.ts:81](../src/shared/types.ts#L81)) with an ordered attachment list, migrating the
-   existing value to one primary attachment; registry file version 3 → 4
-   ([threadRegistry.ts](../src/server/storage/threadRegistry.ts)). The browser `ChatThread`
-   ([types.ts:227](../src/shared/types.ts#L227)) needs the matching revision bump. Cheapest today,
-   more expensive per week of accumulated v3 data.
-2. **Stop authorizing by project.** `get(id, projectId)` and the "Unknown project-bound thread"
-   errors ([threadRegistry.ts:219](../src/server/storage/threadRegistry.ts#L219)) make the project a
-   component of thread identity. Authorization belongs to the user and environment; the project is
-   content. Drop the paired lookups and make `projectId` optional in the wire schemas
-   ([protocol.ts:55-90](../src/shared/protocol.ts#L55-L90)).
-3. **Allow zero attachments — in the record first.** An attachment-free thread should persist, list,
-   and accept participants immediately; what it cannot do yet is run a turn, because agent processes
-   need a working directory. Splitting it that way keeps the migration cheap now and leaves the real
-   question — a per-thread scratch directory, absent repository sidebar and git context
+1. **The host owns conversations.** Replace the split minimal server registry plus authoritative
+   browser `localStorage` blob with one validated, revisioned JSON file per conversation on the
+   host. Serialize operation-level writes behind a one-process store lock and a `globalThis`-shared
+   mutation queue. The old server file and browser keys remain untouched and unread; there is no
+   compatibility migration or temporary browser namespace.
+2. **Thread → attachments.** Replace `ServerThread.projectId`
+   ([types.ts:81](../src/shared/types.ts#L81)) with an ordered attachment list in that fresh store.
+   The current `checkoutId` stays honestly host-scoped; portable `projectKey` is added later beside
+   it rather than pretending the path hash already identifies a repository across devices.
+3. **Stop treating project match as thread identity.** `get(id, projectId)` and the "Unknown
+   project-bound thread" errors ([threadRegistry.ts:219](../src/server/storage/threadRegistry.ts#L219))
+   make project match a locality guard. Drop the paired lookups and make `projectId` optional only at
+   the create boundary; it is not authentication. Until real user/environment authorization lands,
+   agent routes remain inside the trusted localhost boundary.
+4. **Allow zero attachments — in the record first.** An attachment-free thread should persist and
+   accept participants immediately; what it cannot do yet is run a turn, because agent processes
+   need a working directory. Splitting it that way leaves the real question — a per-thread scratch
+   directory, absent repository sidebar and git context
    ([conversationService.ts:76](../src/server/conversation/conversationService.ts#L76)), and the tool
    policy for a thread with no repo — as its own story, where it belongs. That second half is what
    makes brainstorming and drawing threads first-class.
-4. **Name the host.** Add a host id to records that persist agent sessions and checkouts, even while
-   there is only ever one host and the value is constant. It is the field whose absence forces the
-   migration later.
-5. **Key runs by session, not by a global slot.** Key active runs by `(threadId, participantId)` in
-   `runRegistry` while keeping the policy at one concurrent turn. Lifting the limit then becomes a
-   policy decision rather than a re-architecture, and a second host does not have to invent a second
-   meaning for "active".
+5. **Name the host.** Add a host id to records that persist agent sessions and checkouts, even while
+   there is only ever one host and the value is constant. Mint it atomically and never silently
+   replace an invalid persisted identity. A remote-host attachment, missing working directory,
+   stale checkout, and foreign-host provider session are distinct non-runnable states; none makes
+   the conversation disappear.
 6. **Drop "exactly one human".** The registry currently rejects a thread with two human participants
    ([threadRegistry.ts:70](../src/server/storage/threadRegistry.ts#L70)). Allowing several does not
-   build the team surface — Story 21 still owns identity, authorization, and shared transcript — it
-   only avoids a migration when that story lands.
+   build the team surface — Story 21 still owns identity, authorization, live multi-client sync, and
+   multi-writer policy — it only avoids baking the single-human restriction into the new record
+   shape.
+7. **Key runs by session and reattach by run id.** Story 27 keys live runs by
+   `(threadId, participantId)`, makes every run operation—including permission attachment—resolve by
+   `runId`, and lets the browser discover a thread's live run before reattaching. The process-wide
+   registry remains; only the singleton active slot disappears. The policy stays one concurrent
+   turn.
 
-Deliberately **not** now: portable project identity, a sync protocol, a coordinator service,
-sandboxing, presence, and any UI for more than one open workspace. Loosening structure is also not
-loosening authority: permission decisions stay bound to an authenticated user on the host that runs
-the tool, and every capability boundary in `AGENTS.md` survives untouched.
+Deliberately **not** now: portable project identity, live multi-client sync, a coordinator service,
+sandboxing, presence, and any UI for more than one open workspace. Capability boundaries survive,
+but there is not yet an authenticated remote-user boundary: permission decisions remain inside the
+trusted local-host application, and nothing in these stories authorizes LAN/cloud exposure.
 
 ## Mermaid across 2D and 3D
 
@@ -250,7 +263,9 @@ An environment needs state indexed by workspace and thread instead:
 - a workspace whose host is unreachable is a normal state, not an error — asleep laptops are routine.
 
 This likely calls for an environment-level state owner and smaller per-workspace controllers rather
-than extending the current `AppShell` with parallel arrays of state.
+than extending the current `AppShell` with parallel arrays of state. Story 26 first removes durable
+conversation content from browser storage. `localStorage` may later persist device-specific layout,
+selection, viewport, panels, modes, or drafts, but losing it must never lose a conversation.
 
 ## Agent concurrency
 
@@ -278,10 +293,10 @@ another workspace's permission request.
 
 ## Persistence and device continuity
 
-Browser-local storage is enough for one desktop prototype but cannot give a second machine or a Quest
-browser the same environment. Cross-device continuity requires durable environment, thread,
-transcript, artifact, annotation, and saved-view records somewhere other than a browser. Three
-topologies, in increasing cost:
+Browser-local conversation storage was enough for one desktop prototype but cannot give a second
+client the same conversation. Story 26 moves thread, transcript, artifact, and annotation state to
+host-owned JSON behind domain operations. Cross-device continuity later adds durable environment and
+saved-view records plus authenticated transport. Three eventual topologies, in increasing cost:
 
 - **Home host.** One machine — usually the desktop — owns the records; other devices are clients of
   it. Cheapest, reuses today's server, and fails exactly when that machine is asleep or off-network.
@@ -320,23 +335,33 @@ resolved on the host that executes it, never asserted by the client that request
 
 1. **Repository promotion** — done: the Next.js product is the root application
    ([Story 24](../stories/STORY-20260820-promote-next-app-archive-legacy.md), shipped 2026-08-21).
-2. **Loosening slice** — [Story 26](../stories/STORY-20260826-loosen-project-host-bindings.md): the
-   data-shape changes in [What to loosen now](#what-to-loosen-now). No new UI, no new capability —
-   attachments, host ids, session-keyed runs, and the migrations they need.
-3. **Environment shell:** open several threads at once in the browser, persist the arrangement
+2. **Host-owned conversations and loosened bindings** —
+   [Story 26](../stories/STORY-20260826-loosen-project-host-bindings.md): fresh host-owned JSON behind
+   domain operations, complete conversation records, project attachments, host-bound sessions,
+   several-human-valid records, and a clean legacy-data cutoff. The browser stops owning durable
+   conversation content.
+3. **Session-keyed runs** —
+   [Story 27](../stories/STORY-20260826-session-keyed-host-bound-runs.md): keyed live/retained run
+   records, run discovery, run-id reattachment, and complete permission/cancel/replay routing while
+   the global concurrency limit remains one.
+4. **Environment shell:** open several threads at once in the browser, persist the arrangement
    locally, still one agent run globally. Tests navigation without taking on concurrency.
-4. **Threads without, and with several, projects:** attachment management UI, the repository-free
+5. **Threads without, and with several, projects:** attachment management UI, the repository-free
    thread, and repository surfaces that follow the selected attachment.
-5. **Independent run registry:** concurrent runs keyed by agent session with a conservative per-host
+6. **Independent run registry:** concurrent runs keyed by agent session with a conservative per-host
    limit, and background activity/permissions surfaced across workspaces.
-6. **Second host:** a host registry, authenticated attachment to a remote host, and threads listed
-   and streamed across hosts in one environment. The first genuinely multi-device step, and where
-   transport security stops being optional.
-7. **Durable environment and transcript:** environments, threads, and transcript available to any
-   client, with an explicit migration from local storage.
-8. **Desktop spatial renderer:** place Mermaid canvases/workspaces in R3F with orbit/select/focus and
+7. **Authenticated clients to one home host:** pair a user's laptop, phone, or headset with the host
+   that owns the conversations; add secure transport and authorization for reads, turns,
+   cancellations, and permission decisions before leaving localhost. This delivers multi-device
+   viewing without adding a second execution host or a second human.
+8. **Second execution host:** a host registry, authenticated attachment to another executor, and
+   threads listed and streamed across hosts in one environment. This is where host selection,
+   offline-host state, and remote session routing become real.
+9. **Durable environment and coordinator continuity:** persist environment/workspace identity and
+   support the selected home-host or coordinator topology when no single client owns navigation.
+10. **Desktop spatial renderer:** place Mermaid canvases/workspaces in R3F with orbit/select/focus and
    SVG fallback.
-9. **Immersive WebXR:** controller interaction, room-scale placement, performance limits, secure
+11. **Immersive WebXR:** controller interaction, room-scale placement, performance limits, secure
    headset access, and restoration of saved spatial views.
 
 These may be reordered after a desktop 3D spike, but multi-device persistence and security cannot be

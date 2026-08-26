@@ -1,7 +1,7 @@
 # Story 21 — Team environment: multiple humans in the conversation
 
 **Status:** Draft (sequencing-level — refine to a full spec when picked up) · **Type:** Full-stack ·
-**Depends on:** [Story 23](STORY-20260817-web2-multi-agent-roles.md) ·
+**Depends on:** [Story 27](STORY-20260826-session-keyed-host-bound-runs.md) ·
 **Epic:** [web2 operational collaboration](EPIC-20260806-web2-operational-collaboration.md)
 
 ---
@@ -20,10 +20,10 @@ needed.
 
 ## What changes at this boundary
 
-1. **Transcript moves server-side.** Browser localStorage cannot be the source of truth for a
-   shared thread. Threads, messages, artifacts, and annotations get durable server storage and
-   a sync/streaming protocol for multiple concurrent viewers (presence, unread, live turn
-   status).
+1. **Server-owned conversations become shared live state.** Story 26 moves threads, messages,
+   artifacts, and annotations out of browser `localStorage` into host-owned durable storage. This
+   story adds the authenticated sync/streaming protocol for multiple concurrent viewers: presence,
+   unread state, live turn status, and conflict policy for human edits.
 2. **Identity and authorization.** Named human participants, sign-in, per-thread membership,
    and explicit rights: who may address which agent, who may send agent-mode turns, who may
    answer permission cards (Story 19's approval flow becomes multi-party).
@@ -41,7 +41,7 @@ needed.
 
 - Deployment shape: shared always-on host vs. one member's machine with invited access.
 - Auth mechanism appropriate for a small team (and whether it reuses an existing IdP).
-- Storage engine and migration of existing local threads.
+- Hosted storage backend and deployment topology for the server-owned conversation contract.
 - Whether agent credentials are per-deployment (service keys) or per-member (BYOK).
 - Moderation of concurrent input: typing/turn arbitration when two humans address agents at
   once.

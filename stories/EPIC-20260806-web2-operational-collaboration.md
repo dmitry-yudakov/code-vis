@@ -1,7 +1,7 @@
 # EPIC — web2 operational collaboration: one builder → second provider → agent roles → team
 
 **Status:** Active · **Owns:** the sequencing of the `web2` conversation track from read-only
-explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 21, 2026
+explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 26, 2026
 
 [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) proved the surface: a canvas-first,
 session-persistent conversation over a local repository with a read-only agent. This epic owns
@@ -24,8 +24,9 @@ cousin of roadmap Story 16 (team surface). Nothing here imports the archived `le
 
 **Invariants** (hold across every story in this epic):
 
-1. **Local-first, single desktop user until Story 21.** No remote hosting, no auth, and no
-   multi-tenant assumptions leak in earlier.
+1. **Local-first, single trusted user until Story 21.** No multi-user or multi-tenant assumptions
+   leak in earlier. A separate pairing/authentication boundary is required before that user's other
+   devices can reach the host; host-owned storage alone never authorizes network exposure.
 2. **Bring-your-own agent auth.** Agents run through the user's own locally configured CLIs
    (`claude`, then `codex`). web2 never owns, injects, copies, or persists provider credentials.
    Provider capability configuration is server-owned and isolated from ambient executable
@@ -50,8 +51,9 @@ cousin of roadmap Story 16 (team surface). Nothing here imports the archived `le
 | 19 | [web2-conversation-modes](STORY-20260806-web2-conversation-modes.md) | Ask/Plan/Agent modes, git read allowlist, interactive permissions, env passthrough | **In progress** — implemented, real-agent smoke pending | 18 |
 | 20 | [web2-codex-provider](STORY-20260817-web2-codex-provider.md) | provider/session separation, Codex App Server adapter, safe mode parity | **Shipped** | 19 |
 | 23 | [web2-multi-agent-roles](STORY-20260817-web2-multi-agent-roles.md) | participants, authored deltas, manual handoffs, roles, cross-vendor peer review | **In progress** | 20 |
-| 26 | [loosen-project-host-bindings](STORY-20260826-loosen-project-host-bindings.md) | thread attachments (0..n projects), host ids, session-keyed runs, N humans | **Draft** | 23 |
-| 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, server transcripts, auth, billing shift, sandboxing | **Draft** (sequencing) | 23 |
+| 26 | [loosen-project-host-bindings](STORY-20260826-loosen-project-host-bindings.md) | host-owned JSON conversations, attachments, host-bound sessions, N-human-valid records | **Draft** | 23 |
+| 27 | [session-keyed-host-bound-runs](STORY-20260826-session-keyed-host-bound-runs.md) | session-keyed runs, discovery, run-id reattachment, permission routing | **Draft** | 26 |
+| 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, authenticated live sync, billing shift, sandboxing | **Draft** (sequencing) | 27 |
 | 22 | [web2-sketch-canvas](STORY-20260807-web2-sketch-canvas.md) | blank sketch canvas, drawing as the first instruction | **Shipped** | 18 |
 
 ```mermaid
@@ -59,15 +61,17 @@ graph LR
   S18[18 canvas conversation] --> S19[19 Ask/Plan/Agent + permissions]
   S19 --> S20[20 Codex provider foundation]
   S20 --> S23[23 multi-agent roles]
-  S23 --> S26[26 loosened records]
-  S26 --> S21[21 team environment]
+  S23 --> S26[26 host-owned conversations]
+  S26 --> S27[27 session-keyed runs]
+  S27 --> S21[21 team environment]
   S19 -.change-loop learnings.-> R14[roadmap 14/15]
   S21 -.experimental cousin.-> R16[roadmap 16 team surface]
 ```
 
 Story numbers reflect when the stories were created; dependency order is
-`18 → 19 → 20 → 23 → 26 → 21`. Each core abstraction is the substrate of the next: mode policy →
-provider/session boundary → participant model → loosened records → shared server state.
+`18 → 19 → 20 → 23 → 26 → 27 → 21`. Each core abstraction is the substrate of the next: mode
+policy → provider/session boundary → participant model → host-owned conversations → keyed live runs
+→ authenticated shared use.
 
 ---
 
@@ -104,22 +108,33 @@ roster-aware quick handoff; nothing relays autonomously.
 **Exit:** the spec → review → implement → review scenario completes with Claude and Codex in
 one thread, attribution correct in transcript and export.
 
-### Phase 3b — Loosened records (Story 26)
+### Phase 3b — Host-owned conversations and loosened records (Story 26)
 
-The persisted shapes stop asserting one project, one machine, one run, and one human. A thread
-holds zero or more project attachments, records name the host that owns them, runs are keyed by
-agent session, and both roster validators accept several humans. No behavior changes; the point is
-to pay these migrations while the stored data is small, and to stop Phase 4 and the
-[environment memo](../docs/multi-project-session-environment.md) from starting with a rewrite.
+Plain JSON on the host becomes the canonical conversation store: transcript, canvases, annotations,
+participants, provider sessions, and project attachments live together behind operation-level APIs.
+The browser stops owning durable conversation content. Threads accept zero or more host-scoped
+attachments and several-human-valid rosters; sessions name their host. Existing development data is
+left untouched and unread rather than migrated.
 
-**Exit:** existing conversations migrate silently, the product loop is unchanged, and a
-project-free thread can be created and persisted through the API.
+**Exit:** a fresh conversation survives browser clearing/reload, is visible to another client after
+refetch, cannot be corrupted by a second writer process or route-bundle race, and reports missing,
+remote, or stale working-directory bindings without losing the conversation.
+
+### Phase 3c — Session-keyed live runs (Story 27)
+
+The load-bearing process-wide run registry remains, but its one optional active field becomes keyed
+state. The browser discovers a thread's run and reattaches by `runId`; permission attachment,
+decisions, cancellation, replay, and finish all resolve the same record. Concurrency remains one.
+
+**Exit:** reload and cross-tab addressee divergence cannot orphan a live run, and every approval or
+cancel reaches only the run that owns it.
 
 ### Phase 4 — Team (Story 21)
 
-Other humans join: server-side transcripts, identity, per-thread rights (including who may
-answer permission cards), and presence. Billing moves to API keys/BYOK; agent processes gain
-OS sandboxing before anything listens beyond localhost.
+Other humans join the server-owned conversation: identity, live multi-client synchronization,
+per-thread rights (including who may answer permission cards), conflict policy, and presence.
+Billing moves to API keys/BYOK; agent processes gain OS sandboxing before anything listens beyond
+localhost.
 
 **Exit:** two people on two machines share one live thread with agents, safely.
 
@@ -151,7 +166,8 @@ OS sandboxing before anything listens beyond localhost.
   persistent grants are deliberately deferred until they have their own security design.
 - **Identity confusion in shared transcripts.** The identity preamble and authored deltas in
   Story 23 are load-bearing, not polish.
-- **localStorage runway.** Multi-participant threads may hit browser storage limits before
-  Story 21; Story 23 should pull server-side transcripts forward if measured usage requires it.
+- **Filesystem-store runway.** Story 26 deliberately chooses bounded, one-file-per-thread JSON under
+  one writer process. A hosted/multi-process deployment must provide a database-backed store rather
+  than sharing those files between workers.
 
 ---
