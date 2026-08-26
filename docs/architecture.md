@@ -140,12 +140,15 @@ These are real and deliberate, and they bound what can be built next:
 
 - one active agent run across the whole application;
 - one selected project and one selected thread in the browser shell;
+- a thread is bound to exactly one project, and a project id is a hash of its local checkout path,
+  so nothing is portable between machines;
 - conversation content lives only in that browser's `localStorage` — no server-side transcript,
   no cross-device sync;
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The exploratory direction past the first two is recorded in
+The exploratory direction past the first three — several open workspaces, threads with zero or many
+projects, and sessions spread across machines — is recorded in
 [multi-project-session-environment.md](multi-project-session-environment.md); it is not
 implemented.
 

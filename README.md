@@ -302,7 +302,7 @@ over-capable provider is reported without making a healthy provider unusable.
 
 - [Architecture](docs/architecture.md) — the current client/server boundary
 - [Vision & North Star](docs/vision.md) — direction-setting
-- [Multi-project, multi-session environment](docs/multi-project-session-environment.md) — exploratory memo
+- [Multi-project, multi-session, multi-device environment](docs/multi-project-session-environment.md) — exploratory memo
 - [Experiment log](docs/experiment-log.md) — manual real-agent matrix
 - [Repository conventions](AGENTS.md) — source ownership and the spec-driven loop
 - [Legacy runtime](legacy/README.md) — the archived analyzer, web client, and extension

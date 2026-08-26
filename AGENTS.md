@@ -98,7 +98,7 @@ analyzer paths) apply only inside `legacy/` and must not be carried into `src/`.
 - [README](README.md) — product behavior, safety model, configuration
 - [Architecture](docs/architecture.md) — the current client/server boundary
 - [Vision & North Star](docs/vision.md) — direction-setting (aspirational)
-- [Multi-project, multi-session environment](docs/multi-project-session-environment.md) — exploratory memo
+- [Multi-project, multi-session, multi-device environment](docs/multi-project-session-environment.md) — exploratory memo
 - [Experiment log](docs/experiment-log.md) — manual real-agent matrix
 - [Legacy architecture](legacy/docs/architecture.md) — the archived analyzer runtime
 

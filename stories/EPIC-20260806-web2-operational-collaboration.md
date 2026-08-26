@@ -50,6 +50,7 @@ cousin of roadmap Story 16 (team surface). Nothing here imports the archived `le
 | 19 | [web2-conversation-modes](STORY-20260806-web2-conversation-modes.md) | Ask/Plan/Agent modes, git read allowlist, interactive permissions, env passthrough | **In progress** — implemented, real-agent smoke pending | 18 |
 | 20 | [web2-codex-provider](STORY-20260817-web2-codex-provider.md) | provider/session separation, Codex App Server adapter, safe mode parity | **Shipped** | 19 |
 | 23 | [web2-multi-agent-roles](STORY-20260817-web2-multi-agent-roles.md) | participants, authored deltas, manual handoffs, roles, cross-vendor peer review | **In progress** | 20 |
+| 26 | [loosen-project-host-bindings](STORY-20260826-loosen-project-host-bindings.md) | thread attachments (0..n projects), host ids, session-keyed runs, N humans | **Draft** | 23 |
 | 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, server transcripts, auth, billing shift, sandboxing | **Draft** (sequencing) | 23 |
 | 22 | [web2-sketch-canvas](STORY-20260807-web2-sketch-canvas.md) | blank sketch canvas, drawing as the first instruction | **Shipped** | 18 |
 
@@ -58,14 +59,15 @@ graph LR
   S18[18 canvas conversation] --> S19[19 Ask/Plan/Agent + permissions]
   S19 --> S20[20 Codex provider foundation]
   S20 --> S23[23 multi-agent roles]
-  S23 --> S21[21 team environment]
+  S23 --> S26[26 loosened records]
+  S26 --> S21[21 team environment]
   S19 -.change-loop learnings.-> R14[roadmap 14/15]
   S21 -.experimental cousin.-> R16[roadmap 16 team surface]
 ```
 
 Story numbers reflect when the stories were created; dependency order is
-`18 → 19 → 20 → 23 → 21`. Each core abstraction is the substrate of the next: mode policy →
-provider/session boundary → participant model → shared server state.
+`18 → 19 → 20 → 23 → 26 → 21`. Each core abstraction is the substrate of the next: mode policy →
+provider/session boundary → participant model → loosened records → shared server state.
 
 ---
 
@@ -101,6 +103,17 @@ roster-aware quick handoff; nothing relays autonomously.
 
 **Exit:** the spec → review → implement → review scenario completes with Claude and Codex in
 one thread, attribution correct in transcript and export.
+
+### Phase 3b — Loosened records (Story 26)
+
+The persisted shapes stop asserting one project, one machine, one run, and one human. A thread
+holds zero or more project attachments, records name the host that owns them, runs are keyed by
+agent session, and both roster validators accept several humans. No behavior changes; the point is
+to pay these migrations while the stored data is small, and to stop Phase 4 and the
+[environment memo](../docs/multi-project-session-environment.md) from starting with a rewrite.
+
+**Exit:** existing conversations migrate silently, the product loop is unchanged, and a
+project-free thread can be created and persisted through the API.
 
 ### Phase 4 — Team (Story 21)
 
