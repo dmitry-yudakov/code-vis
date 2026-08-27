@@ -13,14 +13,14 @@ Route handlers under `src/app/api/` are the only server surface; they spawn loca
 child processes and read the selected repository with fixed git invocations.
 
 ```text
-browser (src/features/**, localStorage)
+browser (src/features/**, server snapshots + device-only React state)
    │  fetch / NDJSON stream
    ▼
 route handlers (src/app/api/**)
    │
    ├── src/server/projects     project discovery under CODEAI_PROJECTS_ROOT
    ├── src/server/repository   fixed read-only git reads, bounded context files
-   ├── src/server/storage      thread registry (~/.code-ai/web2), per-run temp attachments
+   ├── src/server/storage      host conversation store, writer lock, per-run temp attachments
    ├── src/server/runs         single active run + permission broker
    └── src/server/agents       provider policy → claude / codex app-server child
                                      │
@@ -33,12 +33,14 @@ helpers, plan delimiters, and types. It must stay free of Node and DOM dependenc
 
 ## Client/server split
 
-The browser owns presentation **and** conversation content. The server owns capability.
+The browser owns presentation and device selection. The server owns conversation content and
+capability.
 
 | Concern | Owner |
 |---|---|
-| Transcript, Mermaid artifacts, marks, pins, selection | Browser `localStorage` |
-| Thread identity, roster, provider session ids, transcript cursors | Server registry |
+| Transcript, Mermaid artifacts, marks, pins, roster | Host conversation store |
+| Focused canvas, next recipient/mode, panels, drafts | Browser memory |
+| Provider session ids and transcript cursors | Private fields in the host store |
 | Project discovery and the opaque project id | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
 | Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
@@ -48,56 +50,70 @@ This is why the client never sends flags, prompts-with-tools, or paths outside t
 project: every one of those is derived server-side from `src/server/config.ts` plus the resolved
 policy in `src/server/agents/agentPolicy.ts`.
 
-## Browser-local persistence
+## Browser snapshots and device state
 
-`src/features/conversation/conversationStore.ts` stores one revisioned blob per project under the
-`code-ai:web2:v1:` key prefix — a compatibility identifier kept from the `web2` package name so
-existing conversations keep loading. It holds threads, messages, participants, diagram artifacts
-(Mermaid source), sketches, vector marks, viewport, pins, and the active selection.
+`src/features/conversation/conversationStore.ts` contains pure snapshot/canvas/export helpers. It
+does not persist conversation content. `AppShell` lists snapshots by checkout with
+`GET /api/threads`, hydrates one complete snapshot with `GET /api/threads/[threadId]`, and sends
+annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
+revisions return 409 and trigger a refetch instead of silently replacing another client's work.
 
-- Multiple tabs merge by immutable participant/message id through `storage` events rather than
-  overwriting one another's blob.
-- One invalid thread retains its last valid copy; it does not block unrelated conversations.
-- Conversations retain up to 2,000 messages; at that boundary the UI names the thread and offers
-  recovery/export instead of failing opaquely.
-- Composite PNGs, repository files, and diffs are never persisted.
+The selected checkout preference uses `code-ai:device:v1:active-checkout`; focus, next recipient,
+mode, panels, viewport, and drafts remain React state. Legacy `code-ai:web2:v1:*` conversation keys
+are untouched and unread.
 
 Export (`codeai-<thread>.json`) includes the roster and per-entry author/provider/role metadata
 plus diagram and mark state — never provider session ids, credentials, or server paths.
 
-## Server-owned thread and provider session registry
+## Host-owned conversation store
 
-`src/server/storage/threadRegistry.ts` keeps the minimal durable record under `CODEAI_DATA_DIR`
-(default `~/.code-ai/web2`), written atomically with user-only permissions:
+`src/server/storage/conversationStore.ts` owns `CODEAI_DATA_DIR/conversation-store-v1` (the data-dir
+default remains `~/.code-ai/web2`):
 
-- thread identity and timestamps, permanently bound to one opaque project id;
-- the participant roster and the main-agent pointer;
-- each agent participant's **private** provider session id;
-- per-participant transcript cursors.
+```text
+conversation-store-v1/
+  manifest.json       # version + durable host id/label
+  writer.lock         # owner token, pid, hostname, heartbeat
+  threads/<uuid>.json # one complete private conversation per file
+```
 
-A CodeAI thread id is never reinterpreted as a provider session id. Older single-provider records
-migrate in place without changing ids, content, or provider sessions.
+The store opens lazily. A live lock excludes a second process; stale takeover uses an owner token
+so the old process cannot remove its successor's lock. The process-wide instance and mutation
+queue are pinned on `globalThis`, because Next route handlers are compiled into separate bundles.
+Every thread write flushes a same-directory temporary file before atomic rename. Store directories
+are `0700`; manifest, lock, and thread files are `0600`.
+
+Each conversation has a monotonic revision and contains project attachments, participants,
+messages, canvases, annotations, pins, private provider sessions, and cursors. Public snapshots
+strip session ids, host-bound session state, cursors, and idempotency keys. Missing/corrupt store
+identity fails closed; the whole `conversation-store-v1` directory is the backup/restore unit.
+Legacy `threads.json` and browser records are not imported or modified.
 
 ## The streamed agent route
 
 `POST /api/agent/message` is the one turn-executing endpoint.
 
-1. Validate the request against `src/shared/protocol.ts` and resolve the thread, participant, and
-   mode.
-2. Refuse if a run is already active — `src/server/runs/runRegistry.ts` permits **one global
+1. Validate the request against `src/shared/protocol.ts`, load the canonical conversation, and
+   resolve its participant, primary attachment, host-bound session, and mode. The request contains
+   neither a project id nor transcript.
+2. Refuse unavailable/foreign/stale attachments and foreign-host sessions before provider spawn,
+   then refuse if a run is already active — `src/server/runs/runRegistry.ts` permits **one global
    active run**. This is a deliberate current constraint, not an oversight.
-3. Build a bounded per-run temporary directory outside the project (`code-ai-run-*`) holding
+3. Append the user message idempotently, then build the historical prompt delta from the canonical
+   host record.
+4. Build a bounded per-run temporary directory outside the project (`code-ai-run-*`) holding
    diagram attachments plus git status/diff snapshots from `src/server/repository/`.
-4. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
+5. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
    and role contract, the historical-context JSON delta, and the current request as one JSON
    value. Historical text is data, never framing.
-5. Spawn the provider adapter (`claude` directly, `codex` as an `app-server` stdio child) and
+6. Spawn the provider adapter (`claude` directly, `codex` as an `app-server` stdio child) and
    stream NDJSON events back to the browser: tool activity, text deltas, permission requests,
    and the result.
-6. Parse the answer in `src/server/conversation/responseParser.ts` — Markdown plus zero or more
+7. Parse the answer in `src/server/conversation/responseParser.ts` — Markdown plus zero or more
    fenced Mermaid blocks, validated by `src/features/diagram/mermaid/mermaidPolicy.ts`, plus
    evidence comments.
-7. Remove the temporary directory, always.
+8. Commit the assistant message, user delivery state, and participant cursor in one revision before
+   emitting the durable assistant event. Remove the temporary directory, always.
 
 `GET /api/agent/stream` reattaches a detached browser to a live run; `POST /api/agent/cancel`
 ends one; `POST /api/agent/permission` resolves a pending approval card.
@@ -140,15 +156,15 @@ These are real and deliberate, and they bound what can be built next:
 
 - one active agent run across the whole application;
 - one selected project and one selected thread in the browser shell;
-- a thread is bound to exactly one project, and a project id is a hash of its local checkout path,
-  so nothing is portable between machines;
-- conversation content lives only in that browser's `localStorage` — no server-side transcript,
-  no cross-device sync;
+- the shell shows one checkout and one thread, while the data model accepts zero or more host-scoped
+  attachments; attachment management/rebind UI is not implemented;
+- clients see committed host content after refetch/reload, but there is no live synchronization,
+  presence, authentication, or remote-client authorization;
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The exploratory direction past the first three — several open workspaces, threads with zero or many
-projects, and sessions spread across machines — is recorded in
+The exploratory direction past the current shell — several open workspaces, attachment management,
+and sessions spread across machines — is recorded in
 [multi-project-session-environment.md](multi-project-session-environment.md); it is not
 implemented.
 

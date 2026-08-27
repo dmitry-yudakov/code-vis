@@ -120,12 +120,10 @@ describe('agent modes', () => {
 
   it('accepts only the three mode names over the wire', () => {
     const base = {
-      projectId: 'p',
       threadId: crypto.randomUUID(),
       messageId: crypto.randomUUID(),
       participantId: 'agent-1',
       text: 'hello',
-      transcript: [],
       diagramAttachments: [],
     };
     expect(agentMessageRequestSchema.safeParse(base).success).toBe(true);
@@ -139,6 +137,8 @@ describe('agent modes', () => {
     expect(agentMessageRequestSchema.safeParse({ ...base, tools: ['Bash'] }).success).toBe(false);
     expect(agentMessageRequestSchema.safeParse({ ...base, allowedTools: ['Bash(rm:*)'] }).success).toBe(false);
     expect(agentMessageRequestSchema.safeParse({ ...base, permissionMode: 'bypassPermissions' }).success).toBe(false);
+    expect(agentMessageRequestSchema.safeParse({ ...base, projectId: 'p' }).success).toBe(false);
+    expect(agentMessageRequestSchema.safeParse({ ...base, transcript: [] }).success).toBe(false);
   });
 
   it('states the mode contract and git allowlist in the prompt', () => {

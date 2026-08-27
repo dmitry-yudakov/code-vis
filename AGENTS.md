@@ -32,7 +32,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/app/` | Next pages, layout, global CSS, and route handlers |
 | `src/features/shell/` | Application composition (`AppShell`) |
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
-| `src/features/conversation/` | Transcript, composer, drawer, thread selection, browser conversation store |
+| `src/features/conversation/` | Transcript, composer, drawer, thread selection, public snapshot helpers |
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
 | `src/features/diagram/mermaid/` | Mermaid validation policy and SVG renderer |
 | `src/features/diagram/annotations/` | Drawing state and composite export |
@@ -55,7 +55,7 @@ importing file's own directory; keep `./…` for same-directory siblings.
 
 - **Client components must not import `src/server`.** Provider execution, git invocation, and
   server storage stay behind route handlers.
-- **Route handlers must not import browser storage or DOM modules.** `conversationStore`,
+- **Route handlers must not import browser storage or DOM modules.** The client snapshot helpers,
   `compositeExport`, and the Mermaid SVG renderer are browser-only.
 - **`src/shared` must stay side-effect free** — no Node built-ins, no DOM access. It is imported
   from both sides.
@@ -71,14 +71,14 @@ importing file's own directory; keep `./…` for same-directory siblings.
 
 - Mermaid source is the canonical stored diagram artifact. Diagrams are immutable; a revision is a
   new artifact, never a patch of an old one.
-- Browser state (transcript, artifacts, marks, pins, selection) lives in revisioned
-  `localStorage`; the server registry holds thread identity, roster, provider sessions, and
-  transcript cursors.
+- Canonical conversation content (transcript, artifacts, marks, pins, roster, sessions, cursors)
+  lives in revisioned host JSON. Browser memory owns device-only selection, panels, mode, and drafts;
+  `localStorage` holds only the selected-checkout preference.
 - One agent run is active at a time, application-wide (`src/server/runs/runRegistry.ts`).
 - Settings are `CODEAI_*`; every one also accepts its former `CODEAI_WEB2_*` spelling
   (`src/server/config.ts`). The neutral name wins when both carry a value.
-- Two identifiers keep their historical `web2` spelling **because they name existing data**: the
-  default data directory `~/.code-ai/web2` and the browser prefix `code-ai:web2:v1:`. Likewise the
+- Two identifiers keep their historical `web2` spelling: the default data directory
+  `~/.code-ai/web2` and the retired, untouched browser prefix `code-ai:web2:v1:`. Likewise the
   `cartograph.*` wire schemas, the `cartograph:plan:*` delimiters, and the Codex
   `serviceName`/`clientInfo.name` are compatibility identifiers, not branding. Renaming any of them
   needs its own tested migration.

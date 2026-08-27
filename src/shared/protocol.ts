@@ -1,22 +1,16 @@
 import { z } from 'zod';
-import { MAX_MESSAGE_TEXT_CHARS, MAX_WIRE_TRANSCRIPT_MESSAGES } from './limits';
+import { MAX_MESSAGE_TEXT_CHARS } from './limits';
+import {
+  diagramAnnotationSchema, drawingMarkSchema, projectAttachmentSchema, sketchCanvasSchema,
+} from './conversationSchema';
+
+export {
+  assistantMessageSchema, chatMessageSchema, diagramAnnotationSchema, drawingMarkSchema,
+  durableConversationSchema, participantSchema, projectAttachmentSchema, providerSessionRefSchema,
+  publicConversationSchema, serverParticipantSchema, sketchCanvasSchema, userMessageSchema,
+} from './conversationSchema';
 
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
-const point = z.object({ x: finite, y: finite, pressure: z.number().finite().min(0).max(1).optional() });
-const markBase = {
-  id: z.string().uuid(),
-  origin: z.literal('user'),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  createdAt: z.string().datetime(),
-};
-
-export const drawingMarkSchema = z.discriminatedUnion('kind', [
-  z.object({ ...markBase, kind: z.literal('pen'), points: z.array(point).min(1).max(5_000) }),
-  z.object({ ...markBase, kind: z.literal('rectangle'), x: finite, y: finite, width: finite, height: finite }),
-  z.object({ ...markBase, kind: z.literal('arrow'), start: point, end: point }),
-  z.object({ ...markBase, kind: z.literal('text'), x: finite, y: finite, text: z.string().trim().min(1).max(500) }),
-]);
-
 /**
  * One attached canvas. A diagram carries immutable Mermaid source; a sketch has none, so its
  * marks and composite PNG are the whole payload. `kind` defaults to `diagram` so a browser tab
@@ -43,22 +37,11 @@ export const agentProviderSchema = z.enum(['claude', 'codex']);
 export const agentRoleSchema = z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']);
 
 const participantIdSchema = z.string().trim().min(1).max(160);
-const transcriptContextMessageSchema = z.object({
-  id: z.string().uuid(),
-  authorId: participantIdSchema,
-  createdAt: z.string().datetime(),
-  text: z.string().max(MAX_MESSAGE_TEXT_CHARS),
-  status: z.enum(['sending', 'sent', 'cancelled', 'failed', 'complete']),
-  delivery: z.enum(['not-sent', 'possibly-sent']).optional(),
-}).strict();
-
 export const agentMessageRequestSchema = z.object({
-  projectId: z.string().min(1).max(128),
   threadId: z.string().uuid(),
   messageId: z.string().uuid(),
   participantId: participantIdSchema,
   text: z.string().trim().min(1).max(MAX_MESSAGE_TEXT_CHARS),
-  transcript: z.array(transcriptContextMessageSchema).max(MAX_WIRE_TRANSCRIPT_MESSAGES),
   diagramAttachments: z.array(diagramAttachmentSchema),
   mode: agentModeSchema.optional(),
 }).strict();
@@ -72,21 +55,39 @@ export const permissionDecisionRequestSchema = z.object({
 export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 
 export const createThreadRequestSchema = z.object({
-  projectId: z.string().min(1).max(128),
+  checkoutId: z.string().trim().min(1).max(128).optional(),
   provider: agentProviderSchema,
   role: agentRoleSchema.optional(),
 }).strict();
 
 export const addParticipantRequestSchema = z.object({
-  projectId: z.string().min(1).max(128),
   provider: agentProviderSchema,
   role: agentRoleSchema,
   requestId: z.string().uuid(),
 }).strict();
 
 export const setPrimaryAgentRequestSchema = z.object({
-  projectId: z.string().min(1).max(128),
   primaryAgentId: participantIdSchema,
+  expectedRevision: z.number().int().nonnegative(),
+}).strict();
+
+export const putAnnotationRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  annotation: diagramAnnotationSchema,
+}).strict();
+
+export const createSketchRequestSchema = z.object({
+  sketch: sketchCanvasSchema,
+}).strict();
+
+export const setPinsRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  pinnedDiagramIds: z.array(z.string().uuid()).max(100),
+}).strict();
+
+export const projectAttachmentRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  attachment: projectAttachmentSchema,
 }).strict();
 
 export function safeJsonResponse(data: unknown, init?: ResponseInit): Response {

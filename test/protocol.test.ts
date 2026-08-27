@@ -9,14 +9,18 @@ const ids = {
 
 describe('provider protocol contracts', () => {
   it('requires a supported provider when creating a thread', () => {
-    expect(createThreadRequestSchema.parse({ projectId: 'project', provider: 'codex' }).provider).toBe('codex');
-    expect(() => createThreadRequestSchema.parse({ projectId: 'project' })).toThrow();
-    expect(() => createThreadRequestSchema.parse({ projectId: 'project', provider: 'other' })).toThrow();
+    expect(createThreadRequestSchema.parse({ checkoutId: 'project', provider: 'codex' }).provider).toBe('codex');
+    expect(createThreadRequestSchema.parse({ provider: 'codex' }).checkoutId).toBeUndefined();
+    expect(() => createThreadRequestSchema.parse({ checkoutId: 'project' })).toThrow();
+    expect(() => createThreadRequestSchema.parse({ checkoutId: 'project', provider: 'other' })).toThrow();
+    expect(() => createThreadRequestSchema.parse({ projectId: 'legacy', provider: 'codex' })).toThrow();
   });
 
   it('does not allow the browser to override the provider for a turn', () => {
-    const request = { ...ids, projectId: 'project', text: 'Explain this.', transcript: [], diagramAttachments: [] };
+    const request = { ...ids, text: 'Explain this.', diagramAttachments: [] };
     expect(agentMessageRequestSchema.parse(request)).toMatchObject(request);
     expect(() => agentMessageRequestSchema.parse({ ...request, provider: 'codex' })).toThrow();
+    expect(() => agentMessageRequestSchema.parse({ ...request, projectId: 'legacy' })).toThrow();
+    expect(() => agentMessageRequestSchema.parse({ ...request, transcript: [] })).toThrow();
   });
 });

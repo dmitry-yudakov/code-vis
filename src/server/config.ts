@@ -18,6 +18,7 @@ export interface AppConfig {
   buildMaxTurns: number;
   approvalTimeoutMs: number;
   dataDir: string;
+  hostLabel: string;
   maxAssistantBytes: number;
   maxMermaidBytes: number;
   maxDiagramsPerMessage: number;
@@ -90,6 +91,7 @@ export function getConfig(): AppConfig {
     // `web2` in the default path is a persisted compatibility identifier, not branding: existing
     // thread records and provider sessions live there. Renaming it needs its own data migration.
     dataDir: path.resolve(expandHome(rawSetting('DATA_DIR') || '~/.code-ai/web2')),
+    hostLabel: rawSetting('HOST_LABEL') || os.hostname(),
     maxAssistantBytes: boundedInteger('MAX_ASSISTANT_BYTES', 1_048_576, 1_024, 10_485_760),
     maxMermaidBytes: boundedInteger('MAX_MERMAID_BYTES', 100_000, 128, 1_048_576),
     maxDiagramsPerMessage: boundedInteger('MAX_DIAGRAMS_PER_MESSAGE', 8, 1, 32),

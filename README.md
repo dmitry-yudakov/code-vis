@@ -58,10 +58,11 @@ rm -rf web2                     # node_modules, .next, and build state are rebui
 npm install
 ```
 
-Your existing conversations survive: server records still default to `~/.code-ai/web2` and browser
-threads still use the `code-ai:web2:v1:` storage prefix. Environment variables were renamed from
-`CODEAI_WEB2_*` to `CODEAI_*`, and **the old names continue to work** — see
-[Configuration](#configuration).
+The current host store starts fresh under `~/.code-ai/web2/conversation-store-v1`. Legacy
+`threads.json` and browser keys under `code-ai:web2:v1:` are deliberately left untouched and are
+not imported; this avoids silently combining browser-authoritative development data with the new
+host-authoritative format. Environment variables were renamed from `CODEAI_WEB2_*` to `CODEAI_*`,
+and **the old names continue to work** — see [Configuration](#configuration).
 
 ### Upgrading from the Yarn/Next.js 15 toolchain
 
@@ -88,15 +89,14 @@ or an orchestrator can be main while a coder and reviewer handle focused turns.
 
 Every send addresses exactly one participant and every message names its author. Each agent owns a
 private native provider session. On handoff, the server gives the addressed agent a bounded,
-author-labeled JSON delta of the shared browser transcript it has missed. Failed, definitely
+author-labeled JSON delta of the canonical host transcript it has missed. Failed, definitely
 undelivered instructions are excluded; ambiguous/cancelled delivery remains visibly labelled.
 Quick handoff chips prefill an
 editable recipient, prompt, and role-default mode; they never send automatically. Autonomous
 agent-to-agent relay, parallel turns, and autopilot are intentionally not implemented yet.
 
 New conversations intentionally open in **Plan** because their initial participant is the `coder`
-preset. Browser conversations migrated from the older single-agent format keep **Ask**, preserving
-their previous behavior.
+preset.
 
 ## Conversation modes
 
@@ -209,23 +209,23 @@ environment of whoever starts CodeAI.**
 
 ## How conversations and data work
 
-- A CodeAI thread UUID is registered server-side and permanently bound to one opaque project
-  ID. Its roster contains one local human identity and one or more agent identities; each agent
-  stores its provider-session continuity privately.
-- The minimal server registry stores thread identity, timestamps, roster, main-agent pointer,
-  private provider sessions, and transcript cursors. It uses atomic writes and user-only
-  permissions. Older single-provider registries and browser threads migrate without changing
-  their IDs, content, canvases, or provider session.
-- Transcript, Mermaid artifacts, evidence references, pins, active selection, and vector marks are
-  stored in revisioned browser `localStorage`. Tabs merge immutable participant/message ids through
-  `storage` events instead of replacing one another's project blob. One invalid thread retains its
-  last valid copy and does not block unrelated conversations. Composite PNGs, repository files, and
-  diffs are not.
-- Reloading restores browser state; later turns resume the addressed participant's native provider
-  session and receive only the bounded shared transcript delta missed since its last complete turn.
-  The browser sends at most 80 history entries and the server defaults to 40 entries / 24 KB. Local
-  conversations retain up to 2,000 messages; at that explicit boundary the UI names the affected
-  thread and offers recovery/export rather than making subsequent requests fail opaquely.
+- `conversation-store-v1` is the canonical store. Its manifest gives this installation a durable
+  host id and label; each thread is one validated, revisioned JSON file containing attachments,
+  roster, messages, Mermaid artifacts, sketches, annotations, and pins. Provider session ids and
+  transcript cursors live in the same private record but are removed from every route response.
+- Writes are operation-level and serialized. A process-owned `writer.lock` excludes a second
+  CodeAI process from the same data directory; thread files are flushed and atomically renamed with
+  user-only permissions. Revision-bearing overwrite operations reject stale clients with 409,
+  while stable request ids make append retries idempotent.
+- Threads carry zero or more host-scoped project attachments instead of a permanent project id.
+  The current shell creates one local primary attachment; attachment-free records remain readable,
+  while their turns fail clearly until attachment management is implemented.
+- The browser lists and hydrates snapshots from `/api/threads`. It writes no transcript, canvas,
+  roster, or annotation content to `localStorage`; only the selected checkout preference is stored
+  as device state. Reloading or a second browser context sees committed host content after refetch.
+- Later turns resume the addressed participant's host-bound native provider session and receive
+  only the bounded canonical transcript delta missed since its last complete turn. The server
+  defaults to 40 entries / 24 KB and never accepts a browser-supplied transcript.
 - If the provider's native session is missing, visible history is retained and the UI offers an explicit
   new-session continuation with a visible bounded recap.
 - Export includes the roster and expanded author/provider/role metadata for every entry, plus
@@ -270,12 +270,13 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_CLAUDE_BIN` / `CODEAI_CLAUDE_MODEL` — local agent executable and optional model;
 - `CODEAI_CODEX_BIN` / `CODEAI_CODEX_MODEL` — local Codex executable and optional model;
 - `CODEAI_CODEX_AGENT` — explicit Codex Agent release gate; unset means Ask/Plan only;
-- `CODEAI_DATA_DIR` — minimal server registry (tilde expansion is handled in Node);
+- `CODEAI_DATA_DIR` — canonical host conversation store root (tilde expansion is handled in Node);
+- `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
 - `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
 - `CODEAI_AGENT_*` / `CODEAI_BUILD_*` — per-message turn and time budgets for Ask/Plan
   and for Agent respectively;
-- `CODEAI_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_MAX_TRANSCRIPT_BYTES` — server-side prompt
-  bounds applied after the fixed 80-entry browser wire window;
+- `CODEAI_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_MAX_TRANSCRIPT_BYTES` — server-side prompt bounds
+  applied to the canonical host transcript;
 - response, Mermaid, attachment, and Git-context bounds.
 
 **`CODEAI_WEB2_*` compatibility.** Every setting above also accepts its former `CODEAI_WEB2_*`
@@ -289,9 +290,9 @@ value = process.env.CODEAI_SETTING ?? process.env.CODEAI_WEB2_SETTING ?? default
 The neutral name wins when both are set to a value; an assignment with an empty value counts as
 unset on either name, which is how these settings have always behaved. Validation runs on whichever
 raw value is selected, so an invalid neutral value fails rather than silently falling back to a
-valid legacy one. Two compatibility identifiers are deliberately *not* renamed, because they name
-existing data: the default data directory `~/.code-ai/web2` and the browser storage prefix
-`code-ai:web2:v1:`.
+valid legacy one. The default data directory keeps its historical `~/.code-ai/web2` spelling. The
+old browser prefix `code-ai:web2:v1:` is also left untouched, but current code neither reads nor
+writes conversation records under it.
 
 The health endpoint checks infrastructure and each provider independently, without invoking a
 model. Claude flags are checked through `claude --help`; Codex performs a bounded App Server

@@ -6,6 +6,7 @@ const MANAGED = [
   'CODEAI_CODEX_AGENT', 'CODEAI_WEB2_CODEX_AGENT',
   'CODEAI_CLAUDE_BIN', 'CODEAI_WEB2_CLAUDE_BIN',
   'CODEAI_CLAUDE_MODEL', 'CODEAI_WEB2_CLAUDE_MODEL',
+  'CODEAI_HOST_LABEL', 'CODEAI_WEB2_HOST_LABEL',
 ] as const;
 
 const original = new Map(MANAGED.map((name) => [name, process.env[name]]));
@@ -34,6 +35,14 @@ describe.sequential('config', () => {
     expect(getConfig().codexAgentEnabled).toBe(false);
     process.env.CODEAI_CODEX_AGENT = 'yes';
     expect(getConfig().codexAgentEnabled).toBe(true);
+  });
+
+  it('accepts a neutral or legacy host label for first-store initialization', () => {
+    process.env.CODEAI_HOST_LABEL = 'Desktop';
+    process.env.CODEAI_WEB2_HOST_LABEL = 'Legacy desktop';
+    expect(getConfig().hostLabel).toBe('Desktop');
+    delete process.env.CODEAI_HOST_LABEL;
+    expect(getConfig().hostLabel).toBe('Legacy desktop');
   });
 
   describe('web2 compatibility', () => {

@@ -14,7 +14,7 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await expect(projectResults.getByRole('option')).toHaveCount(1);
   await projectResults.getByRole('option', { name: /packages\/deep-app/ }).click();
   await expect(page.locator('.project-search-trigger')).toContainText('packages/deep-app');
-  await page.getByRole('button', { name: /New conversation/ }).click();
+  await page.locator('.new-thread-button').click();
 
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
@@ -75,7 +75,19 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
 
   await page.reload();
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
-  await expect(page.locator('.canvas-context strong')).toContainText('Diagram 2 of 4');
+  // Focused canvas is device state; after reload the newest durable canvas is selected.
+  await expect(page.locator('.canvas-context strong')).toContainText('Diagram 4 of 4');
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('code-ai:web2:v1:')))).toEqual([]);
+
+  // A separate browser context hydrates the same committed host conversation after selecting its checkout.
+  const secondContext = await page.context().browser()!.newContext();
+  const secondPage = await secondContext.newPage();
+  await secondPage.goto('/');
+  await secondPage.locator('.project-search-trigger').click();
+  await secondPage.getByRole('searchbox', { name: 'Search projects' }).fill('DEEP');
+  await secondPage.getByRole('option', { name: /packages\/deep-app/ }).click();
+  await expect(secondPage.locator('.canvas-context strong')).toContainText('Diagram 4 of 4');
+  await secondContext.close();
 
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export' }).click();
@@ -87,7 +99,7 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
 
 test('sketches a blank canvas and sends the drawing as the instruction', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /New conversation/ }).click();
+  await page.locator('.new-thread-button').click();
   await page.getByRole('button', { name: 'Close conversation' }).click();
 
   // A sketch is reachable before any diagram exists — that is the point of it.
@@ -122,7 +134,7 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
 
 test('adds a role participant and performs an explicit quick handoff', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /New conversation/ }).click();
+  await page.locator('.new-thread-button').click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const composer = conversation.locator('textarea');
 

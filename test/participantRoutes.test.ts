@@ -11,6 +11,7 @@ const routeState = vi.hoisted(() => ({
 vi.mock('@/server/config', () => ({
   getConfig: () => ({
     dataDir: routeState.dataDir,
+    hostLabel: 'Test host',
     projectsRoot: '/projects',
     projectDiscoveryDepth: 1,
     maxDiagramAttachments: 4,
@@ -38,7 +39,7 @@ vi.mock('@/server/agents/providerRegistry', () => ({
 import { GET, POST } from '@/app/api/threads/[threadId]/participants/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { POST as POST_THREAD } from '@/app/api/threads/route';
-import { ThreadRegistry } from '@/server/storage/threadRegistry';
+import { getConversationStore } from '@/server/storage/conversationStore';
 
 describe('participant routes', () => {
   beforeEach(async () => {
@@ -47,11 +48,11 @@ describe('participant routes', () => {
   });
 
   it('returns a session-free roster and reconciles an idempotent participant retry', async () => {
-    const registry = new ThreadRegistry(routeState.dataDir);
-    const thread = await registry.create('project-a', 'claude');
+    const registry = getConversationStore(routeState.dataDir, 'Test host');
+    const thread = await registry.createConversation({ checkoutId: 'project-a', provider: 'claude' });
     const context = { params: Promise.resolve({ threadId: thread.id }) };
     const rosterResponse = await GET(new Request(
-      `http://localhost/api/threads/${thread.id}/participants?projectId=project-a`,
+      `http://localhost/api/threads/${thread.id}/participants`,
     ), context);
     expect(rosterResponse.status).toBe(200);
     const roster = await rosterResponse.json();
@@ -61,7 +62,7 @@ describe('participant routes', () => {
     const add = () => POST(new Request(`http://localhost/api/threads/${thread.id}/participants`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: 'project-a', provider: 'codex', role: 'reviewer', requestId }),
+      body: JSON.stringify({ provider: 'codex', role: 'reviewer', requestId }),
     }), context);
     const first = await add();
     const retry = await add();
@@ -70,7 +71,7 @@ describe('participant routes', () => {
     const firstBody = await first.json();
     const retryBody = await retry.json();
     expect(retryBody).toEqual(firstBody);
-    expect(firstBody.participants).toHaveLength(3);
+    expect(firstBody.thread.participants).toHaveLength(3);
     expect(JSON.stringify(firstBody)).not.toMatch(/session|lastObserved|creationRequest/i);
   });
 
@@ -78,7 +79,7 @@ describe('participant routes', () => {
     const response = await POST_THREAD(new Request('http://localhost/api/threads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: 'project-a', provider: 'claude', role: 'reviewer' }),
+      body: JSON.stringify({ checkoutId: 'project-a', provider: 'claude', role: 'reviewer' }),
     }));
     expect(response.status).toBe(201);
     const body = await response.json();
@@ -88,39 +89,39 @@ describe('participant routes', () => {
   });
 
   it('returns 409 before creating a participant when its provider is unhealthy', async () => {
-    const registry = new ThreadRegistry(routeState.dataDir);
-    const thread = await registry.create('project-a', 'claude');
+    const registry = getConversationStore(routeState.dataDir, 'Test host');
+    const thread = await registry.createConversation({ checkoutId: 'project-a', provider: 'claude' });
     routeState.health = { available: false, authenticated: true, supportedModes: [] };
     const response = await POST(new Request(`http://localhost/api/threads/${thread.id}/participants`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        projectId: 'project-a', provider: 'codex', role: 'reviewer', requestId: crypto.randomUUID(),
+        provider: 'codex', role: 'reviewer', requestId: crypto.randomUUID(),
       }),
     }), { params: Promise.resolve({ threadId: thread.id }) });
     expect(response.status).toBe(409);
-    expect((await registry.get(thread.id)).participants).toHaveLength(2);
+    expect((await registry.getConversation(thread.id)).participants).toHaveLength(2);
   });
 
   it('returns a clear 404 for an unknown thread', async () => {
     const threadId = crypto.randomUUID();
     const response = await GET(new Request(
-      `http://localhost/api/threads/${threadId}/participants?projectId=project-a`,
+      `http://localhost/api/threads/${threadId}/participants`,
     ), { params: Promise.resolve({ threadId }) });
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'Unknown project-bound thread' });
+    expect(await response.json()).toEqual({ error: 'Unknown conversation' });
   });
 
   it('rejects an addressed participant id owned by a different thread', async () => {
-    const registry = new ThreadRegistry(routeState.dataDir);
-    const first = await registry.create('project-a', 'claude');
-    const second = await registry.create('project-a', 'codex');
+    const registry = getConversationStore(routeState.dataDir, 'Test host');
+    const first = await registry.createConversation({ checkoutId: 'project-a', provider: 'claude' });
+    const second = await registry.createConversation({ checkoutId: 'project-a', provider: 'codex' });
     const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        projectId: 'project-a', threadId: first.id, messageId: crypto.randomUUID(),
-        participantId: second.primaryAgentId, text: 'forged address', transcript: [], diagramAttachments: [],
+        threadId: first.id, messageId: crypto.randomUUID(),
+        participantId: second.primaryAgentId, text: 'forged address', diagramAttachments: [],
       }),
     }));
     expect(response.status).toBe(400);

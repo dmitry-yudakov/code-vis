@@ -43,10 +43,16 @@ export interface GitFileDiff {
 export type AgentProvider = 'claude' | 'codex';
 export type AgentRole = 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom';
 
-export interface ProviderSessionRef {
-  provider: AgentProvider;
-  sessionId?: string;
-  started: boolean;
+export type ProviderSessionRef =
+  | { provider: AgentProvider; started: false; sessionId?: never; hostId?: never }
+  | { provider: AgentProvider; started: true; sessionId: string; hostId: string };
+
+export interface ProjectAttachment {
+  id: string;
+  hostId: string;
+  /** Host-scoped path hash returned by the project registry. */
+  checkoutId: string;
+  role: 'primary' | 'reference';
 }
 
 export interface HumanParticipant {
@@ -76,14 +82,24 @@ export interface ServerAgentParticipant extends AgentParticipant {
 
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
-export interface ServerThread {
+export interface DurableConversation {
+  version: 1;
+  revision: number;
   id: string;
-  projectId: string;
+  title: string;
+  attachments: ProjectAttachment[];
   createdAt: string;
   updatedAt: string;
   participants: ServerParticipant[];
   primaryAgentId: string;
+  messages: ChatMessage[];
+  pinnedDiagramIds: string[];
+  annotations: Record<string, DiagramAnnotation>;
+  sketches: SketchCanvas[];
 }
+
+/** Historical internal name retained only as a source-compatible alias. */
+export type ServerThread = DurableConversation;
 
 export interface ProviderHealth {
   available: boolean;
@@ -221,25 +237,33 @@ export interface DiagramAnnotation {
   updatedAt: string;
 }
 
-export interface ChatThread {
-  version: 2;
+/** Public server snapshot. Private provider sessions and cursors are removed. */
+export interface PublicConversation {
+  version: 1;
+  revision: number;
   id: string;
-  projectId: string;
   title: string;
+  attachments: ProjectAttachment[];
   createdAt: string;
   updatedAt: string;
   participants: Participant[];
   primaryAgentId: string;
+  messages: ChatMessage[];
+  pinnedDiagramIds: string[];
+  annotations: Record<string, DiagramAnnotation>;
+  sketches: SketchCanvas[];
+}
+
+/**
+ * A public host snapshot plus device-only selection state. The optional fields are never persisted
+ * as conversation content and can be reconstructed after a refetch.
+ */
+export interface ChatThread extends PublicConversation {
   /** Recipient selected for the next turn. Falls back to `primaryAgentId`. */
   addressedAgentId?: string;
-  messages: ChatMessage[];
   /** Points at a diagram artifact or a sketch — both share one canvas id space. */
   activeDiagramId?: string;
   previousDiagramId?: string;
-  pinnedDiagramIds: string[];
-  annotations: Record<string, DiagramAnnotation>;
-  /** Blank canvases the user opened. Absent on threads saved before sketches existed. */
-  sketches?: SketchCanvas[];
   /** Mode pre-selected for the next message. Threads themselves stay mode-agnostic. */
   defaultMode?: AgentMode;
 }
@@ -292,12 +316,10 @@ export type AgentEvent =
   | { type: 'done'; runId: string; durationMs: number; cancelled: boolean };
 
 export interface AgentMessageRequest {
-  projectId: string;
   threadId: string;
   messageId: string;
   participantId: string;
   text: string;
-  transcript: TranscriptContextMessage[];
   diagramAttachments: DiagramMessageAttachment[];
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;

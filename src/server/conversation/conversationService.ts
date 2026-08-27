@@ -3,7 +3,7 @@ import type {
   AgentEvent, AgentMessageRequest, AgentProcessRunner, AssistantMessage, ServerProject, ServerThread,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
-import type { ThreadRegistry } from '@/server/storage/threadRegistry';
+import type { ConversationStore } from '@/server/storage/conversationStore';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { createRunDirectory, removeRunDirectory, writeDiagramAttachments } from '@/server/storage/tempAttachments';
@@ -11,21 +11,27 @@ import { writeRepositoryContext } from '@/server/repository/repositoryContext';
 import { hasProposedPlan, stripPlanMarkers } from '@/shared/plan';
 import { buildConversationPrompt } from './prompt';
 import { parseAssistantResponse } from './responseParser';
-import { serverAgent } from '@/server/storage/threadRegistry';
+import { serverAgent } from '@/server/storage/conversationStore';
 import { roleContract } from '@/server/agents/agentRoles';
 
 export async function publishCompletedAssistant(input: {
   runId: string;
   threadId: string;
   participantId: string;
+  userMessageId: string;
   message: AssistantMessage;
   emit(event: AgentEvent): void;
-  markObserved(threadId: string, participantId: string, messageId: string): Promise<void>;
+  commit(
+    threadId: string,
+    participantId: string,
+    userMessageId: string,
+    message: AssistantMessage,
+  ): Promise<unknown>;
 }): Promise<void> {
+  // The event is a durable-completion claim, so the complete message, user delivery state, and
+  // participant cursor must be one successful store revision before the browser sees it.
+  await input.commit(input.threadId, input.participantId, input.userMessageId, input.message);
   input.emit({ type: 'assistant-message', runId: input.runId, message: input.message });
-  // Delivery is the primary invariant. If registry persistence fails, replaying context next turn
-  // is safer than turning an already completed answer into an error and hiding it from the user.
-  await input.markObserved(input.threadId, input.participantId, input.message.id).catch(() => undefined);
 }
 
 export async function runConversation(input: {
@@ -35,13 +41,13 @@ export async function runConversation(input: {
   thread: ServerThread;
   config: AppConfig;
   runner: AgentProcessRunner;
-  threadRegistry: ThreadRegistry;
+  conversationStore: ConversationStore;
   transcriptDelta: string;
   signal: AbortSignal;
   emit(event: AgentEvent): void;
   onPermissionBroker?(broker: PermissionBroker): void;
 }): Promise<void> {
-  const { runId, request, project, thread, config, runner, threadRegistry, transcriptDelta, signal, emit } = input;
+  const { runId, request, project, thread, config, runner, conversationStore, transcriptDelta, signal, emit } = input;
   const startedAt = Date.now();
   const mode = request.mode || 'ask';
   let directory: string | undefined;
@@ -49,6 +55,10 @@ export async function runConversation(input: {
   let sessionMarkError: unknown;
   const participant = serverAgent(thread, request.participantId);
   if (!participant) throw new Error('Unknown addressed agent participant');
+  const host = await conversationStore.host();
+  if (participant.session.started && participant.session.hostId !== host.id) {
+    throw new Error(`This provider session belongs to another host (${participant.session.hostId}) and cannot be resumed here.`);
+  }
   emit({ type: 'run-started', runId, threadId: thread.id, messageId: request.messageId, participantId: participant.id });
   const resuming = participant.session.started && Boolean(participant.session.sessionId);
   const providerName = participant.provider === 'codex' ? 'Codex' : 'Claude';
@@ -101,7 +111,7 @@ export async function runConversation(input: {
       emit(event) {
         if (event.type === 'session-started' && event.sessionId) {
           sessionMark = sessionMark
-            .then(() => threadRegistry.markSessionStarted(thread.id, participant.id, participant.provider, event.sessionId!))
+            .then(async () => { await conversationStore.markSessionStarted(thread.id, participant.id, participant.provider, event.sessionId!); })
             .catch((error: unknown) => { sessionMarkError = error; });
         } else if (event.type === 'text-delta' && event.text) {
           emit({ type: 'assistant-delta', runId, delta: event.text });
@@ -151,10 +161,11 @@ export async function runConversation(input: {
       runId,
       threadId: thread.id,
       participantId: participant.id,
+      userMessageId: request.messageId,
       message,
       emit,
-      markObserved: (threadId, participantId, messageId) => (
-        threadRegistry.markObserved(threadId, participantId, messageId)
+      commit: (threadId, participantId, userMessageId, assistantMessage) => (
+        conversationStore.completeAssistantMessage(threadId, participantId, userMessageId, assistantMessage)
       ),
     });
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });

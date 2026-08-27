@@ -6,19 +6,10 @@ import { diagramAttachmentSchema } from '@/shared/protocol';
 import { writeDiagramAttachments } from '@/server/storage/tempAttachments';
 import { buildConversationPrompt } from '@/server/conversation/prompt';
 import {
-  canvasTargetId, findCanvasTarget, getSketches, loadProjectThreads, saveProjectThreads,
+  canvasTargetId, findCanvasTarget, getSketches,
 } from '@/features/conversation/conversationStore';
+import { ConversationStore } from '@/server/storage/conversationStore';
 import type { ChatThread, DiagramMessageAttachment, DrawingMark, SketchCanvas } from '@/shared/types';
-
-class MemoryStorage implements Storage {
-  private values = new Map<string, string>();
-  get length() { return this.values.size; }
-  clear() { this.values.clear(); }
-  getItem(key: string) { return this.values.get(key) ?? null; }
-  key(index: number) { return [...this.values.keys()][index] ?? null; }
-  removeItem(key: string) { this.values.delete(key); }
-  setItem(key: string, value: string) { this.values.set(key, value); }
-}
 
 const now = new Date().toISOString();
 const PNG = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]).toString('base64')}`;
@@ -34,13 +25,13 @@ function sketch(overrides: Partial<SketchCanvas> = {}): SketchCanvas {
 
 function thread(overrides: Partial<ChatThread> = {}): ChatThread {
   return {
-    version: 2, id: 't1', projectId: 'p1', title: 'Test', createdAt: now, updatedAt: now,
+    version: 1, revision: 0, id: 't1', title: 'Test', attachments: [], createdAt: now, updatedAt: now,
     participants: [
       { id: 'human-1', kind: 'human', displayName: 'You' },
       { id: 'agent-1', kind: 'agent', displayName: 'Claude', provider: 'claude', role: 'coder', defaultMode: 'ask' },
     ],
     primaryAgentId: 'agent-1', addressedAgentId: 'agent-1',
-    messages: [], pinnedDiagramIds: [], annotations: {}, ...overrides,
+    messages: [], pinnedDiagramIds: [], annotations: {}, sketches: [], ...overrides,
   };
 }
 
@@ -110,16 +101,15 @@ describe('sketch storage', () => {
     expect(findCanvasTarget(value, undefined)).toBeUndefined();
   });
 
-  it('round trips sketches and still loads threads saved before they existed', () => {
-    const storage = new MemoryStorage();
-    const drawing = sketch();
-    const withSketch = thread({ sketches: [drawing], activeDiagramId: drawing.id });
-    saveProjectThreads('p1', [withSketch], storage);
-    expect(loadProjectThreads('p1', storage)[0].sketches).toEqual([drawing]);
-
-    const legacy = thread();
-    delete (legacy as { sketches?: unknown }).sketches;
-    storage.setItem('code-ai:web2:v1:p2', JSON.stringify({ version: 1, threads: [{ ...legacy, projectId: 'p2' }] }));
-    expect(getSketches(loadProjectThreads('p2', storage)[0])).toEqual([]);
+  it('persists a sketch idempotently in the host conversation record', async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-sketch-store-'));
+    const store = new ConversationStore(dataDir);
+    const conversation = await store.createConversation({ provider: 'claude' });
+    const drawing = sketch({ threadId: conversation.id });
+    const saved = await store.createSketch(conversation.id, drawing);
+    expect(saved.sketches).toEqual([drawing]);
+    expect(saved.revision).toBe(1);
+    expect((await store.createSketch(conversation.id, drawing)).revision).toBe(1);
+    await store.close();
   });
 });

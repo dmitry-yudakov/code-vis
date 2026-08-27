@@ -51,7 +51,7 @@ cousin of roadmap Story 16 (team surface). Nothing here imports the archived `le
 | 19 | [web2-conversation-modes](STORY-20260806-web2-conversation-modes.md) | Ask/Plan/Agent modes, git read allowlist, interactive permissions, env passthrough | **In progress** — implemented, real-agent smoke pending | 18 |
 | 20 | [web2-codex-provider](STORY-20260817-web2-codex-provider.md) | provider/session separation, Codex App Server adapter, safe mode parity | **Shipped** | 19 |
 | 23 | [web2-multi-agent-roles](STORY-20260817-web2-multi-agent-roles.md) | participants, authored deltas, manual handoffs, roles, cross-vendor peer review | **In progress** | 20 |
-| 26 | [loosen-project-host-bindings](STORY-20260826-loosen-project-host-bindings.md) | host-owned JSON conversations, attachments, host-bound sessions, N-human-valid records | **Draft** | 23 |
+| 26 | [loosen-project-host-bindings](STORY-20260826-loosen-project-host-bindings.md) | host-owned JSON conversations, attachments, host-bound sessions, N-human-valid records | **Shipped** | 23 |
 | 27 | [session-keyed-host-bound-runs](STORY-20260826-session-keyed-host-bound-runs.md) | session-keyed runs, discovery, run-id reattachment, permission routing | **Draft** | 26 |
 | 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, authenticated live sync, billing shift, sandboxing | **Draft** (sequencing) | 27 |
 | 22 | [web2-sketch-canvas](STORY-20260807-web2-sketch-canvas.md) | blank sketch canvas, drawing as the first instruction | **Shipped** | 18 |

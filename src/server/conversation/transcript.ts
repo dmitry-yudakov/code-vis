@@ -1,5 +1,5 @@
 import type {
-  Participant, ServerAgentParticipant, ServerThread, TranscriptContextMessage,
+  ChatMessage, Participant, ServerAgentParticipant, ServerThread, TranscriptContextMessage,
 } from '@/shared/types';
 import {
   DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES,
@@ -84,10 +84,18 @@ function fitSingleEntry(
   return fitted;
 }
 
-/**
- * Validates browser-held transcript identity against the server roster, then encodes the newest
- * bounded messages the addressed participant has not yet observed as an unambiguous JSON value.
- */
+export function canonicalTranscript(messages: readonly ChatMessage[]): TranscriptContextMessage[] {
+  return messages.map((message) => ({
+    id: message.id,
+    authorId: message.authorId,
+    createdAt: message.createdAt,
+    text: message.role === 'user' ? message.text : message.rawMarkdown,
+    status: message.status,
+    ...(message.role === 'user' && message.delivery ? { delivery: message.delivery } : {}),
+  }));
+}
+
+/** Encodes the newest bounded canonical messages the addressed participant has not observed. */
 export function buildTranscriptDelta(
   thread: ServerThread,
   participant: ServerAgentParticipant,

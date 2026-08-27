@@ -1,70 +1,59 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildTranscriptDelta } from '@/server/conversation/transcript';
+import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
 import { buildConversationPrompt } from '@/server/conversation/prompt';
 import { publishCompletedAssistant } from '@/server/conversation/conversationService';
-import { transcriptContext } from '@/features/conversation/transcriptContext';
-import { MAX_WIRE_TRANSCRIPT_MESSAGES, utf8Length } from '@/shared/limits';
+import { utf8Length } from '@/shared/limits';
 import { roleContract } from '@/server/agents/agentRoles';
-import {
-  publicParticipants, serverAgent, ThreadRegistry,
-} from '@/server/storage/threadRegistry';
-import { AGENT_ROLE_DEFAULT_MODES, humanParticipantId, legacyAgentParticipantId } from '@/shared/participants';
+import { ConversationStore, publicParticipants, serverAgent } from '@/server/storage/conversationStore';
+import { AGENT_ROLE_DEFAULT_MODES } from '@/shared/participants';
 import { agentMessageRequestSchema } from '@/shared/protocol';
 import type {
-  AssistantMessage, ChatThread, ServerAgentParticipant, ServerThread, TranscriptContextMessage,
+  AssistantMessage, ServerAgentParticipant, ServerThread, TranscriptContextMessage,
 } from '@/shared/types';
 
-describe('multi-agent thread registry', () => {
+describe('multi-agent conversation records', () => {
   it('creates a human and main coder, then keeps added agent sessions and cursors independent', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-multi-agent-'));
-    const registry = new ThreadRegistry(directory);
-    const created = await registry.create('project-a', 'claude');
+    const registry = new ConversationStore(directory);
+    const created = await registry.createConversation({ checkoutId: 'project-a', provider: 'claude' });
     const claude = serverAgent(created, created.primaryAgentId)!;
     expect(created.participants.find((participant) => participant.kind === 'human')).toMatchObject({ displayName: 'You' });
     expect(claude).toMatchObject({ provider: 'claude', role: 'coder', defaultMode: 'plan', session: { started: false } });
 
     const requestId = crypto.randomUUID();
-    const codex = await registry.addAgent(created.id, 'project-a', 'codex', 'reviewer', requestId);
+    let updated = await registry.addAgent(created.id, 'codex', 'reviewer', requestId);
+    const codex = updated.participants.find((item): item is ServerAgentParticipant => item.kind === 'agent' && item.provider === 'codex')!;
     expect(codex).toMatchObject({ displayName: 'Codex', role: 'reviewer', defaultMode: 'ask' });
-    const retried = await registry.addAgent(created.id, 'project-a', 'codex', 'reviewer', requestId);
-    expect(retried.id).toBe(codex.id);
+    const retried = await registry.addAgent(created.id, 'codex', 'reviewer', requestId);
+    expect(retried.participants.find((item) => item.kind === 'agent' && item.provider === 'codex')?.id).toBe(codex.id);
     await registry.markSessionStarted(created.id, claude.id, 'claude', 'claude-session');
     await registry.markSessionStarted(created.id, codex.id, 'codex', 'codex-session');
-    await registry.markObserved(created.id, codex.id, crypto.randomUUID());
-    await registry.setPrimaryAgent(created.id, 'project-a', codex.id);
+    updated = await registry.getConversation(created.id);
+    const human = updated.participants.find((item) => item.kind === 'human')!;
+    const user = {
+      id: crypto.randomUUID(), role: 'user' as const, authorId: human.id, addressedParticipantId: codex.id,
+      text: 'Review it.', createdAt: new Date().toISOString(), status: 'sending' as const, diagramAttachments: [],
+    };
+    await registry.appendUserMessage(created.id, user);
+    const assistant = {
+      id: crypto.randomUUID(), role: 'assistant' as const, authorId: codex.id, createdAt: new Date().toISOString(),
+      status: 'complete' as const, rawMarkdown: 'Reviewed.', blocks: [],
+    };
+    await registry.completeAssistantMessage(created.id, codex.id, user.id, assistant);
+    updated = await registry.getConversation(created.id);
+    await registry.setPrimaryAgent(created.id, codex.id, updated.revision);
 
-    const persisted = await registry.get(created.id);
+    const persisted = await registry.getConversation(created.id);
     expect(persisted.primaryAgentId).toBe(codex.id);
     expect(serverAgent(persisted, claude.id)?.session.sessionId).toBe('claude-session');
     expect(serverAgent(persisted, claude.id)?.lastObservedMessageId).toBeUndefined();
     expect(serverAgent(persisted, codex.id)?.session.sessionId).toBe('codex-session');
     expect(serverAgent(persisted, codex.id)?.lastObservedMessageId).toBeTruthy();
     expect(publicParticipants(persisted).some((participant) => 'session' in participant)).toBe(false);
-  });
-
-  it('migrates the shipped v2 single-provider session to deterministic roster identities', async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-v2-roster-'));
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    await writeFile(path.join(directory, 'threads.json'), JSON.stringify({
-      version: 2,
-      threads: [{
-        id, projectId: 'project-a', createdAt: now, updatedAt: now,
-        agent: { provider: 'codex', sessionId: 'kept-session', started: true },
-      }],
-    }));
-    const migrated = await new ThreadRegistry(directory).get(id);
-    expect(migrated.primaryAgentId).toBe(legacyAgentParticipantId(id));
-    expect(migrated.participants).toMatchObject([
-      { id: humanParticipantId(id), kind: 'human', displayName: 'You' },
-      {
-        id: legacyAgentParticipantId(id), kind: 'agent', provider: 'codex', role: 'coder', defaultMode: 'ask',
-        session: { provider: 'codex', sessionId: 'kept-session', started: true },
-      },
-    ]);
+    await registry.close();
   });
 });
 
@@ -75,16 +64,16 @@ describe('authored transcript handoff', () => {
   const reviewerId = 'agent-reviewer';
   const editor: ServerAgentParticipant = {
     id: editorId, kind: 'agent', displayName: 'Claude', provider: 'claude', role: 'coder', defaultMode: 'plan',
-    session: { provider: 'claude', started: true, sessionId: 'claude-session' },
+    session: { provider: 'claude', started: true, sessionId: 'claude-session', hostId: crypto.randomUUID() },
   };
   const reviewer: ServerAgentParticipant = {
     id: reviewerId, kind: 'agent', displayName: 'Codex', provider: 'codex', role: 'reviewer', defaultMode: 'ask',
     session: { provider: 'codex', started: false },
   };
   const thread: ServerThread = {
-    id: crypto.randomUUID(), projectId: 'project-a', createdAt: now, updatedAt: now,
+    version: 1, revision: 0, id: crypto.randomUUID(), title: 'Handoff', attachments: [], createdAt: now, updatedAt: now,
     participants: [{ id: humanId, kind: 'human', displayName: 'You' }, editor, reviewer],
-    primaryAgentId: editorId,
+    primaryAgentId: editorId, messages: [], pinnedDiagramIds: [], annotations: {}, sketches: [],
   };
   const message = (
     authorId: string,
@@ -159,8 +148,8 @@ describe('authored transcript handoff', () => {
 
   it('requires an explicit participant and transcript while forbidding provider overrides', () => {
     const request = {
-      projectId: 'project-a', threadId: thread.id, messageId: crypto.randomUUID(), participantId: reviewerId,
-      text: 'Review this.', transcript: [], diagramAttachments: [], mode: 'ask',
+      threadId: thread.id, messageId: crypto.randomUUID(), participantId: reviewerId,
+      text: 'Review this.', diagramAttachments: [], mode: 'ask',
     };
     expect(agentMessageRequestSchema.parse(request).participantId).toBe(reviewerId);
     expect(agentMessageRequestSchema.safeParse({ ...request, participantId: undefined }).success).toBe(false);
@@ -189,47 +178,54 @@ describe('role presets', () => {
   });
 });
 
-describe('delivery and browser transcript boundaries', () => {
-  it('publishes a completed answer before a failing cursor write and does not reject the turn', async () => {
+describe('durable delivery and canonical transcript boundaries', () => {
+  it('commits a completed answer before advertising it as durable', async () => {
     const message: AssistantMessage = {
       id: crypto.randomUUID(), role: 'assistant', authorId: 'agent', createdAt: new Date().toISOString(),
       status: 'complete', rawMarkdown: 'Finished answer.', blocks: [],
     };
     const order: string[] = [];
     await expect(publishCompletedAssistant({
-      runId: crypto.randomUUID(), threadId: crypto.randomUUID(), participantId: 'agent', message,
+      runId: crypto.randomUUID(), threadId: crypto.randomUUID(), participantId: 'agent', userMessageId: crypto.randomUUID(), message,
       emit: (event) => order.push(event.type),
-      markObserved: async () => { order.push('cursor-write'); throw new Error('disk full'); },
+      commit: async () => { order.push('commit'); },
     })).resolves.toBeUndefined();
-    expect(order).toEqual(['assistant-message', 'cursor-write']);
+    expect(order).toEqual(['commit', 'assistant-message']);
+
+    order.length = 0;
+    await expect(publishCompletedAssistant({
+      runId: crypto.randomUUID(), threadId: crypto.randomUUID(), participantId: 'agent', userMessageId: crypto.randomUUID(), message,
+      emit: (event) => order.push(event.type),
+      commit: async () => { order.push('commit'); throw new Error('disk full'); },
+    })).rejects.toThrow('disk full');
+    expect(order).toEqual(['commit']);
   });
 
-  it('sends only the addressed agent anchor tail and remains valid beyond 200 stored messages', () => {
+  it('builds the addressed agent tail from canonical history beyond 200 stored messages', () => {
     const now = new Date().toISOString();
     const humanId = 'human';
     const agentId = 'agent';
-    const messages: ChatThread['messages'] = Array.from({ length: 240 }, (_, index) => index % 2 === 0 ? {
+    const messages: ServerThread['messages'] = Array.from({ length: 240 }, (_, index) => index % 2 === 0 ? {
       id: crypto.randomUUID(), role: 'user' as const, authorId: humanId, addressedParticipantId: agentId,
       text: `request ${index}`, createdAt: now, status: 'sent' as const, diagramAttachments: [],
     } : {
       id: crypto.randomUUID(), role: 'assistant' as const, authorId: agentId, rawMarkdown: `answer ${index}`,
       createdAt: now, status: 'complete' as const, blocks: [],
     });
-    const thread: ChatThread = {
-      version: 2, id: crypto.randomUUID(), projectId: 'p', title: 'Long', createdAt: now, updatedAt: now,
+    const participant: ServerAgentParticipant = {
+      id: agentId, kind: 'agent', displayName: 'Codex', provider: 'codex', role: 'coder', defaultMode: 'plan',
+      session: { provider: 'codex', started: false }, lastObservedMessageId: messages[237].id,
+    };
+    const thread: ServerThread = {
+      version: 1, revision: 0, id: crypto.randomUUID(), title: 'Long', attachments: [], createdAt: now, updatedAt: now,
       participants: [
         { id: humanId, kind: 'human', displayName: 'You' },
-        { id: agentId, kind: 'agent', displayName: 'Codex', provider: 'codex', role: 'coder', defaultMode: 'plan' },
+        participant,
       ],
-      primaryAgentId: agentId, messages, pinnedDiagramIds: [], annotations: {},
+      primaryAgentId: agentId, messages, pinnedDiagramIds: [], annotations: {}, sketches: [],
     };
-    const context = transcriptContext(thread, agentId);
-    expect(context).toHaveLength(1);
-    expect(context[0].text).toBe('answer 239');
-    expect(context.length).toBeLessThanOrEqual(MAX_WIRE_TRANSCRIPT_MESSAGES);
-    expect(agentMessageRequestSchema.safeParse({
-      projectId: 'p', threadId: thread.id, messageId: crypto.randomUUID(), participantId: agentId,
-      text: 'continue', transcript: context, diagramAttachments: [],
-    }).success).toBe(true);
+    const context = canonicalTranscript(thread.messages);
+    const delta = buildTranscriptDelta(thread, participant, context);
+    expect(delta.messages.map((item) => item.text)).toEqual(['request 238', 'answer 239']);
   });
 });

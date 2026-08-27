@@ -1,6 +1,6 @@
 # Story 26 — Move conversations to host-owned JSON and loosen project bindings
 
-**Status:** Draft · **Type:** Full-stack (durable store + protocol + browser hydration) ·
+**Status:** Shipped · **Type:** Full-stack (durable store + protocol + browser hydration) ·
 **Depends on:** [Story 23](STORY-20260817-web2-multi-agent-roles.md) (participant model)
 
 **Epic context:** [web2 operational collaboration](EPIC-20260806-web2-operational-collaboration.md) ·
@@ -10,10 +10,10 @@ Slice 2 of [the environment memo](../docs/multi-project-session-environment.md#p
 
 ## Motivation
 
-The browser currently owns the conversation. Messages, diagrams, sketches, annotations, pins, and
-selection live in revisioned `localStorage`; the host stores only a small thread/participant record
-needed to resume provider sessions. That was a useful prototype boundary and is the wrong durable
-boundary for the intended product:
+Before this story, the browser owned the conversation. Messages, diagrams, sketches, annotations,
+pins, and selection lived in revisioned `localStorage`; the host stored only a small
+thread/participant record needed to resume provider sessions. That was a useful prototype boundary
+and the wrong durable boundary for the intended product:
 
 > it's pretty common for me to run agent sessions on my laptop, my desktop and sometimes cloud at
 > the same time … it's not impossible that a certain work session involves several repos or no repo
@@ -37,29 +37,32 @@ do not land as one oversized change.
 
 ---
 
-## Current behavior (where the code is)
+## Shipped behavior (where the code is)
 
-- **Browser source of truth:** [conversationStore.ts](../src/features/conversation/conversationStore.ts#L1)
-  stores `ChatThread` records under `code-ai:web2:v1:<projectId>`, performs cross-tab merging, and
-  restores authored messages and canvas state.
-- **Browser composition:** [AppShell.tsx](../src/features/shell/AppShell.tsx#L96) hydrates threads from
-  `localStorage`, saves on every thread change, and sends the browser-held transcript with a turn.
-- **Minimal host registry:** [threadRegistry.ts](../src/server/storage/threadRegistry.ts#L135) writes
-  `threads.json` with thread identity, one required `projectId`, participants, private provider
-  sessions, and transcript cursors.
-- **Project-bound identity:** [`get(id, projectId)`](../src/server/storage/threadRegistry.ts#L219),
-  `addAgent`, and `setPrimaryAgent` treat a matching project id as part of finding a thread.
-- **Client-supplied context:** [agentMessageRequestSchema](../src/shared/protocol.ts#L54) requires both
-  `projectId` and a transcript array; [message/route.ts](../src/app/api/agent/message/route.ts#L37)
-  resolves that project before looking up the thread.
-- **Completion persistence:** [conversationService.ts](../src/server/conversation/conversationService.ts#L28)
-  streams a completed assistant message to the browser but persists only the addressed participant's
-  transcript cursor.
-- **Project id:** [projectRegistry.ts](../src/server/projects/projectRegistry.ts#L30) hashes the
-  checkout's real path. It is a host-scoped checkout id, not a portable repository identity.
-- **Roster validators:** [threadRegistry.ts](../src/server/storage/threadRegistry.ts#L58) and
-  [conversationStore.ts](../src/features/conversation/conversationStore.ts#L78) reject a roster
-  unless it contains exactly one human.
+- **Canonical host store:** [conversationStore.ts](../src/server/storage/conversationStore.ts#L179)
+  owns complete per-thread JSON, atomic writes, the writer lock, host identity, revisions,
+  idempotent domain operations, and the process-wide store/queue map.
+- **Strict records:** [conversationSchema.ts](../src/shared/conversationSchema.ts#L288) validates the
+  private durable record and public snapshot, including attachments, host-bound sessions, authored
+  messages, canvases, annotations, pins, cursors, and the at-least-one-human roster rule.
+- **Host hydration and operations:** [threads/route.ts](../src/app/api/threads/route.ts#L12) lists and
+  creates conversations; [thread/route.ts](../src/app/api/threads/%5BthreadId%5D/route.ts#L11)
+  returns one snapshot; the adjacent participant, annotation, sketch, and pin routes expose bounded
+  domain mutations rather than whole-record replacement.
+- **Browser composition:** [AppShell.tsx](../src/features/shell/AppShell.tsx#L121) applies public host
+  snapshots and serializes revisioned operations; [conversationStore.ts](../src/features/conversation/conversationStore.ts#L42)
+  contains only hydration/export helpers and the device checkout preference, with no conversation
+  `localStorage` persistence.
+- **Canonical turns:** [message/route.ts](../src/app/api/agent/message/route.ts#L21) resolves the
+  primary attachment, rejects unavailable hosts/checkouts/sessions before spawn, idempotently
+  appends the user turn, and derives context from [transcript.ts](../src/server/conversation/transcript.ts#L87).
+  [conversationService.ts](../src/server/conversation/conversationService.ts#L17) commits the
+  assistant message, delivery state, and participant cursor before emitting durable completion.
+- **Host configuration:** [config.ts](../src/server/config.ts#L94) resolves the neutral and legacy
+  host-label settings, while the manifest preserves the label selected at first store creation.
+- **Checkout identity remains scoped:** [projectRegistry.ts](../src/server/projects/projectRegistry.ts#L30)
+  still hashes the checkout's real path. Attachments name that host-scoped checkout id; they do not
+  claim it is a portable repository identity.
 
 ---
 
@@ -230,40 +233,40 @@ repository-identity policy exists; the current path hash is never relabelled as 
 
 ## Acceptance criteria
 
-- [ ] A new `conversation-store-v1` is the only canonical conversation store; legacy server and
+- [x] A new `conversation-store-v1` is the only canonical conversation store; legacy server and
   browser records remain untouched and unread, with no migration code.
-- [ ] One validated, revisioned JSON file per thread holds the complete durable conversation and is
+- [x] One validated, revisioned JSON file per thread holds the complete durable conversation and is
   written atomically with private filesystem permissions.
-- [ ] A live writer lock excludes a second process, stale ownership is recovered safely, and a
+- [x] A live writer lock excludes a second process, stale ownership is recovered safely, and a
   `globalThis`-shared mutation queue serializes route-bundle writes inside one process.
-- [ ] Missing or invalid store identity fails closed without minting a replacement host id; backup
+- [x] Missing or invalid store identity fails closed without minting a replacement host id; backup
   and restore treat the whole store directory as one unit.
-- [ ] The browser lists and hydrates conversations from the host, writes no conversation content to
+- [x] The browser lists and hydrates conversations from the host, writes no conversation content to
   `localStorage`, and another browser sees committed work after refetch/reload.
-- [ ] Browser requests use strict operation-level mutations with revision conflict handling and
+- [x] Browser requests use strict operation-level mutations with revision conflict handling and
   idempotency; they never replace a server conversation blob.
-- [ ] The message request carries no project id or transcript; the server persists the user turn,
+- [x] The message request carries no project id or transcript; the server persists the user turn,
   builds context from its canonical transcript, and commits the assistant message plus cursor before
   advertising durable completion.
-- [ ] Conversation creation accepts optional `checkoutId`, returns attachments, and exposes no
+- [x] Conversation creation accepts optional `checkoutId`, returns attachments, and exposes no
   optional legacy `projectId`; other conversation and participant operations are thread-addressed.
-- [ ] Attachments validate UUIDs, bounded checkout ids, unique ids, unique `(hostId, checkoutId)`
+- [x] Attachments validate UUIDs, bounded checkout ids, unique ids, unique `(hostId, checkoutId)`
   pairs, known roles, and at most one primary.
-- [ ] Attachment-free conversations create, persist, list, accept participants, and remain readable;
+- [x] Attachment-free conversations create, persist, list, accept participants, and remain readable;
   turns fail before spawn with the specified missing-working-directory 400.
-- [ ] Remote-host and stale-local-checkout primaries remain readable and return distinct 409 errors;
+- [x] Remote-host and stale-local-checkout primaries remain readable and return distinct 409 errors;
   neither is reported as an unknown conversation and neither spawns a process.
-- [ ] Started sessions require a session id and host id; local resume checks the host id before
+- [x] Started sessions require a session id and host id; local resume checks the host id before
   passing a session to the provider.
-- [ ] Both roster validators accept two humans and reject none without adding multi-human authority.
-- [ ] Tests that only covered retired registry/browser migrations are removed intentionally. Tests
+- [x] Both roster validators accept two humans and reject none without adding multi-human authority.
+- [x] Tests that only covered retired registry/browser migrations are removed intentionally. Tests
   that cover current behavior are adapted rather than deleted, including conversation/sketch
   persistence, participants, protocol, modes, and multi-agent roles.
-- [ ] New tests cover store initialization/validation, atomic write failure, process exclusion,
+- [x] New tests cover store initialization/validation, atomic write failure, process exclusion,
   stale lock recovery, route-bundle serialization, idempotent operations, revision conflicts,
   host hydration, attachment availability, session host checks, and two-human validation.
-- [ ] `npm run lint`, `npm test`, and `npm run test:e2e` pass.
-- [ ] Apart from the explicit fresh-state cutoff, the current product loop works for a newly created
+- [x] `npm run lint`, `npm test`, and `npm run test:e2e` pass.
+- [x] Apart from the explicit fresh-state cutoff, the current product loop works for a newly created
   conversation: create, reload, send, stream, approve, cancel, draw, annotate, pin, export, and view
   repository status/diff.
 
@@ -282,6 +285,9 @@ repository-identity policy exists; the current path hash is never relabelled as 
 - Any weakening of Ask/Plan/Agent capability policies or provider allowlists.
 
 ## How to verify
+
+Verification completed on 2026-08-26: strict TypeScript, 132 Vitest tests, the production build,
+and all three Playwright scenarios passed.
 
 1. `npm run lint && npm test && npm run test:e2e` — all green.
 2. Seed an old `threads.json` and `code-ai:web2:v1:*` browser value, start CodeAI, and confirm neither

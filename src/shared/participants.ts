@@ -1,4 +1,4 @@
-import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, HumanParticipant, Participant } from './types';
+import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, Participant } from './types';
 
 export const AGENT_ROLES: readonly AgentRole[] = ['orchestrator', 'coder', 'reviewer', 'tester', 'custom'];
 
@@ -22,24 +22,6 @@ export const PROVIDER_LABELS: Record<AgentProvider, string> = { claude: 'Claude'
 
 export function humanParticipantId(threadId: string): string {
   return `${threadId}:human`;
-}
-
-export function legacyAgentParticipantId(threadId: string): string {
-  return `${threadId}:agent:primary`;
-}
-
-export function legacyParticipants(threadId: string, provider: AgentProvider): Participant[] {
-  const human: HumanParticipant = { id: humanParticipantId(threadId), kind: 'human', displayName: 'You' };
-  const agent: AgentParticipant = {
-    id: legacyAgentParticipantId(threadId),
-    kind: 'agent',
-    displayName: PROVIDER_LABELS[provider],
-    provider,
-    role: 'coder',
-    // Existing single-provider conversations were Ask-first; keep that behavior on migration.
-    defaultMode: 'ask',
-  };
-  return [human, agent];
 }
 
 export function findAgentParticipant(participants: readonly Participant[], id?: string): AgentParticipant | undefined {
