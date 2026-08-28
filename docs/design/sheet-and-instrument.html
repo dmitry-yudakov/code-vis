@@ -1,0 +1,874 @@
+<title>CodeAI Canvas Redesign</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..800&display=swap">
+
+<style>
+/* ── Tokens ─────────────────────────────────────────────────────────────
+   Light is the base. Dark is declared twice, on purpose: once behind
+   prefers-color-scheme (guarded so an explicit light choice wins) and once
+   behind the [data-theme] stamp (so the toggle wins the other way).
+   This is the exact mechanism proposed for globals.css.                */
+:root {
+  --shell:        #f4f6f8;
+  --shell-sunk:   #eceff3;
+  --sheet:        #ffffff;
+  --raised:       #ffffff;
+  --ink:          #0f1319;
+  --ink-2:        #3c4453;
+  --muted:        #657084;
+  --faint:        #939cad;
+  --line:         #e1e6ec;
+  --line-strong:  #cdd4de;
+  --live:         #12795c;
+  --live-wash:    #e6f4ef;
+  --wait:         #a8620a;
+  --wait-wash:    #fdf1e0;
+  --stop:         #be3227;
+  --stop-wash:    #fdeceb;
+  --plot:         #2f5ad0;
+  --plot-wash:    #eaf0fd;
+  --add:          #1a7a4c;
+  --add-wash:     #e8f5ee;
+  --del:          #b8332a;
+  --del-wash:     #fceeed;
+  --grid:         rgba(15,19,25,.055);
+  --lift:         0 1px 2px rgba(15,19,25,.05), 0 8px 24px rgba(15,19,25,.07);
+  --lift-lg:      0 2px 4px rgba(15,19,25,.05), 0 18px 48px rgba(15,19,25,.12);
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --disp: "Archivo", "Geist", ui-sans-serif, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --shell:       #0a0c10;
+    --shell-sunk:  #06080b;
+    --sheet:       #151920;
+    --raised:      #171c24;
+    --ink:         #e8ecf3;
+    --ink-2:       #b9c2d0;
+    --muted:       #8a94a6;
+    --faint:       #616b7d;
+    --line:        #222831;
+    --line-strong: #333b47;
+    --live:        #3fbf95;
+    --live-wash:   #10261f;
+    --wait:        #e0a252;
+    --wait-wash:   #2a1e0f;
+    --stop:        #f0776b;
+    --stop-wash:   #2b1412;
+    --plot:        #7d9df5;
+    --plot-wash:   #131c33;
+    --add:         #45b57c;
+    --add-wash:    #10231a;
+    --del:         #ef7a70;
+    --del-wash:    #2a1513;
+    --grid:        rgba(232,236,243,.06);
+    --lift:        0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.4);
+    --lift-lg:     0 2px 4px rgba(0,0,0,.5), 0 18px 48px rgba(0,0,0,.55);
+  }
+}
+:root[data-theme="dark"] {
+  --shell:       #0a0c10;
+  --shell-sunk:  #06080b;
+  --sheet:       #151920;
+  --raised:      #171c24;
+  --ink:         #e8ecf3;
+  --ink-2:       #b9c2d0;
+  --muted:       #8a94a6;
+  --faint:       #616b7d;
+  --line:        #222831;
+  --line-strong: #333b47;
+  --live:        #3fbf95;
+  --live-wash:   #10261f;
+  --wait:        #e0a252;
+  --wait-wash:   #2a1e0f;
+  --stop:        #f0776b;
+  --stop-wash:   #2b1412;
+  --plot:        #7d9df5;
+  --plot-wash:   #131c33;
+  --add:         #45b57c;
+  --add-wash:    #10231a;
+  --del:         #ef7a70;
+  --del-wash:    #2a1513;
+  --grid:        rgba(232,236,243,.06);
+  --lift:        0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.4);
+  --lift-lg:     0 2px 4px rgba(0,0,0,.5), 0 18px 48px rgba(0,0,0,.55);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--shell-sunk); color: var(--ink);
+  font-family: var(--sans); font-size: 16px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1080px; margin: 0 auto; padding: 56px 24px 96px; display: flex; flex-direction: column; gap: 64px; }
+
+/* ── Page furniture ─────────────────────────────────────────────────── */
+.masthead { display: flex; flex-direction: column; gap: 20px; }
+.kicker {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+  margin: 0; font-family: var(--disp);
+  font-size: clamp(34px, 5.2vw, 58px); font-weight: 700;
+  font-stretch: 118%; letter-spacing: -.025em; line-height: 1.02;
+  text-wrap: balance;
+}
+.lede { margin: 0; max-width: 60ch; font-size: 18px; color: var(--ink-2); line-height: 1.55; }
+h2 {
+  margin: 0; font-family: var(--disp); font-size: 26px; font-weight: 700;
+  font-stretch: 112%; letter-spacing: -.015em; line-height: 1.15;
+}
+h3 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
+section { display: flex; flex-direction: column; gap: 22px; }
+section > p { margin: 0; max-width: 68ch; color: var(--ink-2); }
+.sec-head { display: flex; flex-direction: column; gap: 8px; }
+code, .mono { font-family: var(--mono); font-size: .875em; }
+p code, li code { background: var(--shell); border: 1px solid var(--line); border-radius: 4px; padding: .08em .34em; }
+a { color: var(--plot); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+:where(a, button, [tabindex]):focus-visible { outline: 2px solid var(--plot); outline-offset: 2px; border-radius: 3px; }
+
+/* ── Theme switch ───────────────────────────────────────────────────── */
+.switch-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.switch { display: inline-flex; padding: 3px; gap: 2px; background: var(--shell); border: 1px solid var(--line); border-radius: 999px; }
+.switch button {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  padding: 6px 14px; border-radius: 999px; color: var(--muted);
+  font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: .01em;
+}
+.switch button[aria-pressed="true"] { background: var(--raised); color: var(--ink); box-shadow: var(--lift); }
+
+/* ── The mock ───────────────────────────────────────────────────────── */
+.mock-frame { overflow-x: auto; border-radius: 14px; background: var(--shell-sunk); }
+.app {
+  width: 1240px; height: 660px; display: grid;
+  grid-template-columns: 268px minmax(0,1fr) 336px;
+  grid-template-rows: 48px minmax(0,1fr);
+  background: var(--shell); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  box-shadow: var(--lift-lg); font-size: 13px;
+}
+
+/* header */
+.app-head {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 14px;
+  padding: 0 12px 0 14px; border-bottom: 1px solid var(--line); background: var(--shell);
+}
+.mark {
+  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
+  border-radius: 6px; background: var(--ink); color: var(--shell);
+  font-family: var(--disp); font-weight: 700; font-stretch: 118%; font-size: 12px;
+}
+.wordmark { font-family: var(--disp); font-weight: 700; font-stretch: 112%; font-size: 13px; letter-spacing: -.01em; }
+.crumbs { display: flex; align-items: center; gap: 7px; min-width: 0; margin-left: 6px; }
+.crumb {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px;
+  border-radius: 6px; border: 1px solid transparent; color: var(--ink-2);
+  font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: default;
+}
+.crumb:hover { border-color: var(--line); background: var(--raised); }
+.crumb .chev { color: var(--faint); font-size: 9px; }
+.crumb--path { font-family: var(--mono); font-size: 12px; }
+.sep { color: var(--line-strong); font-size: 13px; }
+.head-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.state {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 7px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--raised);
+  font-size: 11.5px; font-weight: 500; color: var(--ink-2); white-space: nowrap;
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); flex: none; }
+.state--run .dot { animation: breathe 1.6s ease-in-out infinite; }
+.iconbtn {
+  width: 28px; height: 28px; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid transparent; border-radius: 7px; background: transparent;
+  color: var(--muted); font-size: 13px;
+}
+.iconbtn:hover, .iconbtn[data-on="true"] { border-color: var(--line); background: var(--raised); color: var(--ink); }
+.btn {
+  padding: 5px 11px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--raised); color: var(--ink); font-family: var(--sans);
+  font-size: 12px; font-weight: 550; cursor: pointer; white-space: nowrap;
+}
+.btn--solid { background: var(--ink); color: var(--shell); border-color: var(--ink); }
+
+/* left rail */
+.rail { border-right: 1px solid var(--line); display: grid; grid-template-rows: 38px minmax(0,1fr); min-height: 0; }
+.rail-head, .dock-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 10px 0 14px; border-bottom: 1px solid var(--line);
+}
+.panel-title {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--muted);
+}
+.rail-body { overflow: hidden; padding: 12px 10px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.branch {
+  display: flex; align-items: center; gap: 9px; padding: 9px 10px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--raised);
+}
+.branch-glyph { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 6px; background: var(--shell); color: var(--muted); }
+.branch-name { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.branch-sub { font-size: 10.5px; color: var(--muted); }
+.ahead { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--live); background: var(--live-wash); padding: 2px 6px; border-radius: 5px; }
+.list-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px; }
+.list-head strong { font-size: 12px; font-weight: 600; }
+.counts { display: flex; gap: 4px; font-family: var(--mono); font-size: 10px; }
+.counts span { padding: 2px 5px; border-radius: 4px; background: var(--shell-sunk); color: var(--muted); }
+.files { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.file {
+  display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center;
+  gap: 9px; padding: 6px 8px; border-radius: 7px; cursor: default;
+}
+.file:hover { background: var(--raised); }
+.file[data-sel="true"] { background: var(--plot-wash); }
+.file-mark {
+  width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  background: var(--wait-wash); color: var(--wait);
+}
+.file-mark[data-k="a"] { background: var(--add-wash); color: var(--add); }
+.file-mark[data-k="u"] { background: var(--shell-sunk); color: var(--faint); }
+.file-name { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.file-name b { font-size: 12px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-name small { font-family: var(--mono); font-size: 10px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-delta { font-family: var(--mono); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.file-delta i { font-style: normal; color: var(--add); }
+.file-delta u { text-decoration: none; color: var(--del); }
+
+/* canvas */
+.canvas { position: relative; min-width: 0; background: var(--sheet); overflow: hidden; }
+.canvas::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, var(--grid) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+/* signature: the run ribbon */
+.ribbon { position: absolute; inset: 0 0 auto 0; height: 2px; display: flex; gap: 2px; z-index: 4; }
+.ribbon i { flex: 1; background: var(--live); opacity: .32; border-radius: 1px; }
+.ribbon i[data-done="1"] { opacity: 1; }
+.ribbon i[data-now="1"] { opacity: 1; animation: ribbon 1.4s ease-in-out infinite; }
+.ribbon i[data-idle="1"] { background: var(--line-strong); opacity: 1; }
+.canvas-inner { position: absolute; inset: 2px 0 0 0; display: grid; place-items: center; padding: 26px 20px; }
+.canvas-inner svg { width: 100%; height: 100%; max-height: 100%; }
+.float {
+  position: absolute; z-index: 5; display: flex; align-items: center; gap: 2px;
+  padding: 4px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--raised); box-shadow: var(--lift);
+}
+.float--tools { left: 12px; top: 14px; }
+.float--zoom { right: 12px; bottom: 12px; }
+.float button {
+  min-width: 26px; height: 26px; padding: 0 7px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font-family: var(--sans); font-size: 12px; font-weight: 550;
+}
+.float button:hover { background: var(--shell); color: var(--ink); }
+.float button[data-on="true"] { background: var(--ink); color: var(--shell); }
+.float .rule { width: 1px; height: 16px; margin: 0 3px; background: var(--line); }
+.float .pct { font-family: var(--mono); font-size: 11px; color: var(--muted); min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
+.titleblock {
+  position: absolute; z-index: 5; left: 12px; bottom: 12px;
+  display: flex; align-items: baseline; gap: 9px; padding: 6px 11px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--raised); box-shadow: var(--lift);
+}
+.titleblock b { font-family: var(--disp); font-stretch: 118%; font-weight: 700; font-size: 12.5px; letter-spacing: -.01em; }
+.titleblock span { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+/* right dock */
+.dock { border-left: 1px solid var(--line); display: grid; grid-template-rows: 38px minmax(0,1fr) auto; min-height: 0; background: var(--shell); }
+.dock-body { overflow: hidden; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.msg { border-radius: 10px; padding: 10px 12px; border: 1px solid var(--line); background: var(--raised); }
+.msg--user { background: var(--shell-sunk); border-color: transparent; margin-left: 28px; }
+.msg-meta {
+  display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--faint);
+}
+.msg p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
+.msg p + p { margin-top: 7px; }
+.msg b { color: var(--ink); font-weight: 600; }
+.msg .ref { font-family: var(--mono); font-size: 11px; color: var(--plot); background: var(--plot-wash); padding: .08em .3em; border-radius: 4px; }
+.trace { display: flex; flex-direction: column; gap: 4px; padding: 9px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; }
+.trace-title { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-bottom: 2px; }
+.trace-row { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.trace-row .dot { width: 5px; height: 5px; }
+.trace-row[data-now="true"] { color: var(--ink); }
+.trace-row[data-now="true"] .dot { animation: breathe 1.4s ease-in-out infinite; }
+.composer { border-top: 1px solid var(--line); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; background: var(--shell); }
+.chips { display: flex; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px;
+  border-radius: 999px; font-size: 10.5px; font-weight: 550;
+  background: var(--plot-wash); color: var(--plot);
+}
+.field {
+  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--raised);
+  padding: 9px 10px; display: flex; flex-direction: column; gap: 9px;
+}
+.field-text { color: var(--faint); font-size: 12.5px; }
+.field-row { display: flex; align-items: center; gap: 8px; }
+.modes { display: inline-flex; padding: 2px; gap: 2px; border-radius: 8px; background: var(--shell-sunk); }
+.modes button {
+  border: 0; background: transparent; cursor: pointer; padding: 4px 10px; border-radius: 6px;
+  font-family: var(--sans); font-size: 11px; font-weight: 600; color: var(--muted);
+}
+.modes button[aria-pressed="true"] { background: var(--raised); color: var(--ink); box-shadow: var(--lift); }
+.modes button[aria-pressed="true"][data-m="agent"] { background: var(--wait); color: #fff; }
+.send { margin-left: auto; width: 26px; height: 26px; border: 0; border-radius: 7px; background: var(--ink); color: var(--shell); cursor: pointer; font-size: 12px; }
+.hint { font-family: var(--mono); font-size: 9.5px; color: var(--faint); }
+
+/* diagram ink */
+.d-box { fill: var(--plot-wash); stroke: var(--plot); stroke-width: 1.25; }
+.d-label { fill: var(--ink); font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.d-life { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 4; }
+.d-arrow { stroke: var(--ink-2); stroke-width: 1.25; fill: none; }
+.d-arrow-back { stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 4 3; fill: none; }
+.d-msg { fill: var(--ink-2); font-family: var(--sans); font-size: 11.5px; }
+.d-frame { fill: none; stroke: var(--plot); stroke-width: 1; stroke-dasharray: 4 3; opacity: .55; }
+.d-tag { fill: var(--plot); font-family: var(--mono); font-size: 10px; font-weight: 600; }
+.d-head { fill: var(--ink-2); }
+
+/* ── Verdict block ──────────────────────────────────────────────────── */
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.verdict > div { background: var(--shell); padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+.verdict .tag {
+  align-self: flex-start; font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px;
+}
+.tag--yes { background: var(--add-wash); color: var(--add); }
+.tag--no { background: var(--del-wash); color: var(--del); }
+.tag--maybe { background: var(--wait-wash); color: var(--wait); }
+.verdict p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+
+/* ── Token strip ────────────────────────────────────────────────────── */
+.tokens { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; }
+.tok { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--shell); }
+.tok .chipbar { height: 44px; display: flex; }
+.tok .chipbar i { flex: 1; }
+.tok .meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 1px; }
+.tok .meta b { font-family: var(--mono); font-size: 11px; font-weight: 500; }
+.tok .meta small { font-size: 10.5px; color: var(--muted); }
+
+/* ── Before / after ─────────────────────────────────────────────────── */
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.cmp { border: 1px solid var(--line); border-radius: 12px; padding: 16px; background: var(--shell); display: flex; flex-direction: column; gap: 12px; }
+.cmp h3 { display: flex; align-items: center; gap: 8px; }
+.cmp .badge { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; }
+.badge--now { background: var(--del-wash); color: var(--del); }
+.badge--next { background: var(--add-wash); color: var(--add); }
+.cmp pre {
+  margin: 0; overflow-x: auto; font-family: var(--mono); font-size: 10.5px;
+  line-height: 1.45; color: var(--muted); background: var(--shell-sunk);
+  border-radius: 8px; padding: 12px;
+}
+.cmp p { margin: 0; font-size: 13px; color: var(--ink-2); }
+
+/* ── Steps ──────────────────────────────────────────────────────────── */
+.steps { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.step { background: var(--shell); padding: 16px 20px; display: grid; grid-template-columns: 26px minmax(0,1fr) auto; gap: 16px; align-items: baseline; }
+.step .n { font-family: var(--mono); font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.step .body { display: flex; flex-direction: column; gap: 4px; }
+.step .body b { font-size: 14px; font-weight: 600; }
+.step .body span { font-size: 13px; color: var(--muted); line-height: 1.5; }
+.step .cost { font-family: var(--mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+.foot { border-top: 1px solid var(--line); padding-top: 24px; font-size: 13px; color: var(--muted); max-width: 70ch; }
+
+@keyframes breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@keyframes ribbon  { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+@media (max-width: 720px) {
+  .page { padding: 36px 16px 64px; gap: 48px; }
+  .step { grid-template-columns: 22px minmax(0,1fr); }
+  .step .cost { grid-column: 2; }
+}
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <span class="kicker">Design direction · CodeAI</span>
+    <h1>Sheet and instrument</h1>
+    <p class="lede">
+      One surface holds your diagram. Everything else is the instrument around it, and it never
+      competes for attention. Below is the proposed shell, in both themes — switch it and see.
+    </p>
+    <div class="switch-bar">
+      <div class="switch" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+        <button type="button" data-theme-set="system" aria-pressed="true">System</button>
+      </div>
+      <span class="kicker">Geist · Geist Mono · Archivo</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="mock-frame">
+      <div class="app">
+
+        <div class="app-head">
+          <span class="mark">C</span>
+          <span class="wordmark">CodeAI</span>
+          <div class="crumbs">
+            <span class="sep">/</span>
+            <span class="crumb crumb--path">code.ai/code-ai <span class="chev">▾</span></span>
+            <span class="sep">/</span>
+            <span class="crumb">pls review the uncommitted changes <span class="chev">▾</span></span>
+          </div>
+          <div class="head-right">
+            <span class="state state--run"><span class="dot"></span>Claude · reading 4 files</span>
+            <button type="button" class="iconbtn" title="Theme">◐</button>
+            <button type="button" class="iconbtn" data-on="true" title="Repository panel">◧</button>
+            <button type="button" class="iconbtn" data-on="true" title="Conversation panel">◨</button>
+            <button type="button" class="btn">Export</button>
+          </div>
+        </div>
+
+        <aside class="rail">
+          <div class="rail-head">
+            <span class="panel-title">Repository</span>
+            <button type="button" class="iconbtn" title="Refresh">↻</button>
+          </div>
+          <div class="rail-body">
+            <div class="branch">
+              <span class="branch-glyph">⑂</span>
+              <span class="file-name">
+                <b class="branch-name">master</b>
+                <small class="branch-sub">Working tree</small>
+              </span>
+              <span class="ahead">↑4</span>
+            </div>
+
+            <div class="list-head">
+              <strong>11 changed files</strong>
+              <span class="counts"><span>8 staged</span><span>3 new</span></span>
+            </div>
+
+            <div class="files">
+              <div class="file" data-sel="true">
+                <span class="file-mark">M</span>
+                <span class="file-name"><b>globals.css</b><small>src/app</small></span>
+                <span class="file-delta"><i>+148</i> <u>−92</u></span>
+              </div>
+              <div class="file">
+                <span class="file-mark">M</span>
+                <span class="file-name"><b>AppShell.tsx</b><small>src/features/shell</small></span>
+                <span class="file-delta"><i>+31</i> <u>−12</u></span>
+              </div>
+              <div class="file">
+                <span class="file-mark">M</span>
+                <span class="file-name"><b>route.ts</b><small>src/app/api/projects</small></span>
+                <span class="file-delta"><i>+22</i> <u>−4</u></span>
+              </div>
+              <div class="file">
+                <span class="file-mark">M</span>
+                <span class="file-name"><b>ProjectPicker.tsx</b><small>src/features/projects</small></span>
+                <span class="file-delta"><i>+17</i> <u>−9</u></span>
+              </div>
+              <div class="file">
+                <span class="file-mark" data-k="u">?</span>
+                <span class="file-name"><b>projectPickerModel.ts</b><small>src/features/projects</small></span>
+                <span class="file-delta"><i>+96</i></span>
+              </div>
+              <div class="file">
+                <span class="file-mark" data-k="u">?</span>
+                <span class="file-name"><b>recentProjects.ts</b><small>src/server/projects</small></span>
+                <span class="file-delta"><i>+74</i></span>
+              </div>
+              <div class="file">
+                <span class="file-mark">M</span>
+                <span class="file-name"><b>types.ts</b><small>src/shared</small></span>
+                <span class="file-delta"><i>+11</i> <u>−2</u></span>
+              </div>
+              <div class="file">
+                <span class="file-mark" data-k="a">A</span>
+                <span class="file-name"><b>projectRoutes.test.ts</b><small>test</small></span>
+                <span class="file-delta"><i>+130</i></span>
+              </div>
+              <div class="file">
+                <span class="file-mark">M</span>
+                <span class="file-name"><b>canvas.spec.ts</b><small>e2e</small></span>
+                <span class="file-delta"><i>+8</i> <u>−3</u></span>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <main class="canvas">
+          <div class="ribbon" aria-label="Agent run progress">
+            <i data-done="1"></i><i data-done="1"></i><i data-done="1"></i><i data-done="1"></i>
+            <i data-now="1"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+
+          <div class="canvas-inner">
+            <svg viewBox="0 0 880 430" role="img" aria-label="Sequence diagram: sending a message from the app shell through the agent route to the conversation store and provider">
+              <defs>
+                <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" class="d-head"></path>
+                </marker>
+              </defs>
+
+              <!-- lifelines -->
+              <line x1="72"  y1="46" x2="72"  y2="418" class="d-life"></line>
+              <line x1="248" y1="46" x2="248" y2="418" class="d-life"></line>
+              <line x1="450" y1="46" x2="450" y2="418" class="d-life"></line>
+              <line x1="662" y1="46" x2="662" y2="418" class="d-life"></line>
+              <line x1="820" y1="46" x2="820" y2="418" class="d-life"></line>
+
+              <!-- participants -->
+              <rect x="26"  y="8" width="92"  height="30" rx="6" class="d-box"></rect>
+              <text x="72"  y="27" class="d-label" text-anchor="middle">User</text>
+              <rect x="176" y="8" width="144" height="30" rx="6" class="d-box"></rect>
+              <text x="248" y="27" class="d-label" text-anchor="middle">AppShell.send</text>
+              <rect x="344" y="8" width="212" height="30" rx="6" class="d-box"></rect>
+              <text x="450" y="27" class="d-label" text-anchor="middle">POST /agent/message</text>
+              <rect x="576" y="8" width="172" height="30" rx="6" class="d-box"></rect>
+              <text x="662" y="27" class="d-label" text-anchor="middle">ConversationStore</text>
+              <rect x="770" y="8" width="84"  height="30" rx="6" class="d-box"></rect>
+              <text x="812" y="27" class="d-label" text-anchor="middle">Provider</text>
+
+              <!-- messages -->
+              <text x="160" y="66" class="d-msg" text-anchor="middle">type + send</text>
+              <line x1="72" y1="76" x2="244" y2="76" class="d-arrow" marker-end="url(#ah)"></line>
+
+              <text x="252" y="102" class="d-msg">clear composer, optimistic user message</text>
+              <path d="M 248 112 h 30 a 8 8 0 0 1 0 20 h -30" class="d-arrow" marker-end="url(#ah)"></path>
+
+              <text x="349" y="152" class="d-msg" text-anchor="middle">POST (no transcript)</text>
+              <line x1="248" y1="162" x2="446" y2="162" class="d-arrow" marker-end="url(#ah)"></line>
+
+              <text x="556" y="188" class="d-msg" text-anchor="middle">getConversation / host checks</text>
+              <line x1="450" y1="198" x2="658" y2="198" class="d-arrow" marker-end="url(#ah)"></line>
+
+              <!-- alt frame -->
+              <rect x="196" y="216" width="600" height="88" rx="4" class="d-frame"></rect>
+              <text x="208" y="232" class="d-tag">alt · rejected before spawn</text>
+              <text x="349" y="258" class="d-msg" text-anchor="middle">error, nothing appended</text>
+              <line x1="446" y1="268" x2="252" y2="268" class="d-arrow-back" marker-end="url(#ah)"></line>
+              <text x="262" y="292" class="d-msg">composer text is restored</text>
+
+              <text x="556" y="332" class="d-msg" text-anchor="middle">appendUserMessage</text>
+              <line x1="450" y1="342" x2="658" y2="342" class="d-arrow" marker-end="url(#ah)"></line>
+
+              <text x="741" y="370" class="d-msg" text-anchor="middle">spawn run</text>
+              <line x1="450" y1="380" x2="816" y2="380" class="d-arrow" marker-end="url(#ah)"></line>
+
+              <text x="349" y="406" class="d-msg" text-anchor="middle">run-started</text>
+              <line x1="446" y1="414" x2="252" y2="414" class="d-arrow-back" marker-end="url(#ah)"></line>
+            </svg>
+          </div>
+
+          <div class="float float--tools">
+            <button type="button" data-on="true" title="Select">↖</button>
+            <button type="button" title="Pan">✋</button>
+            <button type="button" title="Draw">✎</button>
+            <button type="button" title="Rectangle">▭</button>
+            <button type="button" title="Arrow">↗</button>
+            <button type="button" title="Text">T</button>
+            <span class="rule"></span>
+            <button type="button" title="Undo">↶</button>
+            <button type="button" title="Redo">↷</button>
+          </div>
+
+          <div class="titleblock">
+            <b>Send path</b>
+            <span>rev 3 · sequence · 2 marks</span>
+          </div>
+
+          <div class="float float--zoom">
+            <button type="button" title="Zoom out">−</button>
+            <span class="pct">106%</span>
+            <button type="button" title="Zoom in">+</button>
+            <span class="rule"></span>
+            <button type="button">Fit</button>
+            <button type="button">.mmd</button>
+          </div>
+        </main>
+
+        <aside class="dock">
+          <div class="dock-head">
+            <span class="panel-title">Conversation</span>
+            <button type="button" class="iconbtn" title="Close">✕</button>
+          </div>
+          <div class="dock-body">
+            <div class="msg msg--user">
+              <div class="msg-meta"><span>You</span><span>14:02</span></div>
+              <p>pls review the uncommitted changes</p>
+            </div>
+
+            <div class="msg">
+              <div class="msg-meta"><span>Claude · Coder</span><span>Plan</span></div>
+              <p>
+                The appended user message doesn't double-appear in the prompt.
+                <b class="ref">canonicalTranscript</b> includes it, but <b class="ref">delivered()</b>
+                filters on <code>status === 'sending'</code>.
+              </p>
+              <p>Correct, though load-bearing and undocumented — worth a comment at the call site.</p>
+            </div>
+
+            <div class="trace">
+              <span class="trace-title">Working</span>
+              <div class="trace-row"><span class="dot"></span>Read src/server/conversation/transcript.ts</div>
+              <div class="trace-row"><span class="dot"></span>Read src/app/api/agent/message/route.ts</div>
+              <div class="trace-row" data-now="true"><span class="dot"></span>Grep atomicWrite</div>
+            </div>
+          </div>
+
+          <div class="composer">
+            <div class="chips"><span class="chip">Send path · 2 marks ✕</span></div>
+            <div class="field">
+              <span class="field-text">Ask about or revise the attached diagram…</span>
+              <div class="field-row">
+                <div class="modes" role="group" aria-label="Mode">
+                  <button type="button" aria-pressed="true">Ask</button>
+                  <button type="button" aria-pressed="false">Plan</button>
+                  <button type="button" aria-pressed="false" data-m="agent">Agent</button>
+                </div>
+                <button type="button" class="send" title="Send">↑</button>
+              </div>
+            </div>
+            <span class="hint">Read-only · git history · ⌘↵ to send</span>
+          </div>
+        </aside>
+
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>On shadcn/ui</h2>
+      <p>Short answer: take its token architecture, skip the library.</p>
+    </div>
+    <div class="verdict">
+      <div>
+        <span class="tag tag--no">Skip the install</span>
+        <p>
+          shadcn/ui requires Tailwind. You have 425 lines of hand-written global CSS across
+          135 semantic class names and no Tailwind anywhere. Adopting it means rewriting every
+          <code>className</code> in 2,360 lines of TSX — a full rewrite billed as a redesign,
+          on an app whose layout depends on subtle <code>minmax(0, 1fr)</code> grid work.
+        </p>
+      </div>
+      <div>
+        <span class="tag tag--no">It won't help the canvas</span>
+        <p>
+          Your hardest UI is a pan-zoom viewport, an SVG ink layer, Mermaid rendering, and a
+          streaming transcript. No component library ships those. The parts shadcn is genuinely
+          good at — dialog, popover, combobox — are maybe six of your surfaces.
+        </p>
+      </div>
+      <div>
+        <span class="tag tag--yes">Steal the tokens</span>
+        <p>
+          shadcn's real idea is semantic CSS variables with a dark override block. That is
+          plain CSS. Adopt the naming, keep your stylesheet, and dark mode falls out of it.
+          This is the whole recommendation.
+        </p>
+      </div>
+      <div>
+        <span class="tag tag--maybe">Radix, if anything</span>
+        <p>
+          If you want the accessibility work on the project popover and the agent menu
+          (which is a <code>&lt;details&gt;</code> today), install Radix primitives directly.
+          They're unstyled and don't care that you use plain CSS. That's what shadcn wraps anyway.
+        </p>
+      </div>
+      <div>
+        <span class="tag tag--yes">And it decides the VR question</span>
+        <p>
+          react-three-fiber renders to WebGL — no DOM, no classes, no CSS. Tailwind and shadcn
+          contribute nothing there. A framework-neutral token module does: colors, spacing, and
+          type scale that both the DOM shell and your r3f materials read from one source.
+        </p>
+      </div>
+      <div>
+        <span class="tag tag--yes">Where the tokens live</span>
+        <p>
+          <code>src/shared/design/tokens.ts</code> — a side-effect-free object, which is exactly
+          what <code>src/shared</code> is already specified to hold. CSS variables are generated
+          from it; the VR client imports the same object.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>The structural problem</h2>
+      <p>
+        The screenshots show it more clearly than the CSS does: every panel floats <em>over</em>
+        the canvas instead of docking beside it. The drawing toolbar sits on top of the first
+        participant boxes, the ask pill covers the bottom lifeline labels, the zoom controls
+        land on the Provider column, and opening the conversation hides the right third of the
+        diagram. Fit-to-view has no idea any of that chrome exists.
+      </p>
+    </div>
+    <div class="compare">
+      <div class="cmp">
+        <h3>Today <span class="badge badge--now">Overlay</span></h3>
+        <pre>position: fixed        ← drawer
+position: absolute    ← toolbar
+position: absolute    ← zoom
+margin-left: 340px    ← manual offset
+
+canvas never learns its own
+visible area</pre>
+        <p>
+          Panels are pinned above the stage, so content underneath is simply lost. The
+          repository sidebar is compensated for with a hardcoded margin; nothing compensates
+          for the rest.
+        </p>
+      </div>
+      <div class="cmp">
+        <h3>Proposed <span class="badge badge--next">Dock</span></h3>
+        <pre>grid-template-columns:
+  [rail] 268px
+  [canvas] minmax(0,1fr)
+  [dock] 336px
+
+--canvas-inset-top/left/bottom
+consumed by fit()</pre>
+        <p>
+          Panels take real columns and the canvas reflows, both rails resizable. Only the
+          toolbar and zoom still float — and they publish their footprint as insets, so
+          <b>Fit</b> never parks a node under a button.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Tokens</h2>
+      <p>
+        Chrome is strictly achromatic. Every hue in the app carries meaning: run state, mode
+        escalation, git status, and diagram ink. The most colorful thing on screen is always
+        your own drawing. Each swatch below shows light on the left, dark on the right.
+      </p>
+    </div>
+    <div class="tokens">
+      <div class="tok"><div class="chipbar"><i style="background:#ffffff"></i><i style="background:#151920"></i></div><div class="meta"><b>--sheet</b><small>Diagram surface</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#f4f6f8"></i><i style="background:#0a0c10"></i></div><div class="meta"><b>--shell</b><small>Instrument ground</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#0f1319"></i><i style="background:#e8ecf3"></i></div><div class="meta"><b>--ink</b><small>Primary text, buttons</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#657084"></i><i style="background:#8a94a6"></i></div><div class="meta"><b>--muted</b><small>Labels, metadata</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#e1e6ec"></i><i style="background:#222831"></i></div><div class="meta"><b>--line</b><small>Hairlines</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#12795c"></i><i style="background:#3fbf95"></i></div><div class="meta"><b>--live</b><small>Run in progress</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#a8620a"></i><i style="background:#e0a252"></i></div><div class="meta"><b>--wait</b><small>Agent mode, approvals</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#be3227"></i><i style="background:#f0776b"></i></div><div class="meta"><b>--stop</b><small>Failed, denied</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#2f5ad0"></i><i style="background:#7d9df5"></i></div><div class="meta"><b>--plot</b><small>Diagram ink, links</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#1a7a4c"></i><i style="background:#45b57c"></i></div><div class="meta"><b>--add</b><small>Additions</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#b8332a"></i><i style="background:#ef7a70"></i></div><div class="meta"><b>--del</b><small>Removals</small></div></div>
+      <div class="tok"><div class="chipbar"><i style="background:#eceff3"></i><i style="background:#06080b"></i></div><div class="meta"><b>--shell-sunk</b><small>Wells, inputs</small></div></div>
+    </div>
+    <p>
+      Three typefaces, three jobs. <b>Geist</b> runs the interface at 12–15px. <b>Geist Mono</b>
+      takes everything that is data rather than prose — paths, diffs, tool names, counts, zoom —
+      which is close to half the text in the app. <b>Archivo</b> at expanded width appears only
+      as a titleblock: the wordmark, the canvas name, and empty-state headlines. Never below 24px,
+      never more than once per screen. All three load through <code>next/font/google</code>, which
+      self-hosts at build time — a local-first app shouldn't need a CDN to render its own type.
+    </p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>How this lands</h2>
+      <p>
+        Four stories, in dependency order. Nothing here needs a new dependency except the
+        fonts, and each step leaves the app shippable.
+      </p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="n">01</span>
+        <span class="body">
+          <b>Tokenize the stylesheet</b>
+          <span>
+            73 distinct hex values and 49 <code>rgba()</code> literals become ~30 semantic
+            tokens. Mechanical, reviewable, and the app looks identical when it's done. This
+            is the step that actually unblocks dark mode.
+          </span>
+        </span>
+        <span class="cost">no visual change</span>
+      </div>
+      <div class="step">
+        <span class="n">02</span>
+        <span class="body">
+          <b>Add the theme switch</b>
+          <span>
+            Light / dark / system, stamped as <code>data-theme</code> on <code>&lt;html&gt;</code>
+            by a small inline script in <code>layout.tsx</code> so there's no flash before paint.
+            Mermaid is the catch: <code>themeVariables</code> is hardcoded light in
+            <code>mermaidRenderer.ts</code> and caches after first init — it needs to read the
+            computed tokens and re-render on change.
+          </span>
+        </span>
+        <span class="cost">dark mode ships</span>
+      </div>
+      <div class="step">
+        <span class="n">03</span>
+        <span class="body">
+          <b>Dock the panels</b>
+          <span>
+            Overlays become grid columns, both rails resizable, floating chrome publishes
+            insets that fit-to-view consumes. The largest change and the one users will feel
+            first, because the diagram stops being covered up.
+          </span>
+        </span>
+        <span class="cost">largest diff</span>
+      </div>
+      <div class="step">
+        <span class="n">04</span>
+        <span class="body">
+          <b>Restyle on the new tokens</b>
+          <span>
+            Typefaces, the 48px header with breadcrumbs, the run ribbon, mode escalation
+            colour. Only at this point does anything look different, and by then it's a
+            values change rather than a rewrite.
+          </span>
+        </span>
+        <span class="cost">the redesign</span>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">
+    The order matters more than the palette. Steps 1 and 2 are worth doing even if you reject
+    every aesthetic choice on this page — they're what turn "add dark mode" from a rewrite into
+    a diff, and what gives the VR client something to read colours from.
+  </p>
+
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-theme-set]'));
+
+  function paint(mode) {
+    buttons.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-theme-set') === mode));
+    });
+    if (mode === 'system') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', mode);
+  }
+
+  var saved = 'system';
+  try { saved = localStorage.getItem('codeai-doc-theme') || 'system'; } catch (e) {}
+  paint(saved);
+
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var mode = b.getAttribute('data-theme-set');
+      paint(mode);
+      try { localStorage.setItem('codeai-doc-theme', mode); } catch (e) {}
+    });
+  });
+})();
+</script>

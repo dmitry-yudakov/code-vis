@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start -p 3023",
     "lint": "tsc --noEmit",
+    "tokens": "tsx scripts/generate-tokens.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "CODEAI_DIST_DIR=.next-e2e npm run build && CODEAI_DIST_DIR=.next-e2e playwright test"
@@ -29,6 +30,7 @@
     "@types/node": "^22.18.8",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }
