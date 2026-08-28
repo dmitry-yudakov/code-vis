@@ -79,6 +79,16 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await expect(page.locator('.canvas-context strong')).toContainText('Diagram 4 of 4');
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('code-ai:web2:v1:')))).toEqual([]);
 
+  await page.locator('.project-search-trigger').click();
+  const recentProjects = page.getByRole('group', { name: 'Recent' });
+  await expect(recentProjects).toBeVisible();
+  await expect(recentProjects.getByRole('option').first()).toContainText('packages/deep-app');
+  await expect(page.getByRole('listbox', { name: 'Projects' }).getByRole('option')).toHaveCount(3);
+  await page.getByRole('searchbox', { name: 'Search projects' }).fill('alpha');
+  await expect(page.getByRole('group', { name: 'Recent' })).toHaveCount(0);
+  await expect(projectResults.getByRole('option')).toHaveCount(1);
+  await page.getByRole('searchbox', { name: 'Search projects' }).press('Escape');
+
   // A separate browser context hydrates the same committed host conversation after selecting its checkout.
   const secondContext = await page.context().browser()!.newContext();
   const secondPage = await secondContext.newPage();

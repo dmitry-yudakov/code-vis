@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, ChatThread, DiagramArtifact,
   DiagramMessageAttachment, DrawingMark, GitWorkingTree, ProjectSummary, ProviderHealth, PublicConversation,
-  RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
+  ProjectsResponse, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import { readNdjson } from '@/features/conversation/ndjson';
 import {
@@ -57,6 +57,7 @@ function updateArtifact(thread: ChatThread, id: string, update: (artifact: Diagr
 export function AppShell() {
   const [health, setHealth] = useState<Health>();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [recentProjectIds, setRecentProjectIds] = useState<string[]>([]);
   const [projectDiscoveryDepth, setProjectDiscoveryDepth] = useState(1);
   const [projectId, setProjectId] = useState('');
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -129,6 +130,13 @@ export function AppShell() {
       : [hydrated, ...current];
     threadsRef.current = next;
     setThreads(next);
+    const primaryCheckoutId = snapshot.attachments.find((attachment) => attachment.role === 'primary')?.checkoutId;
+    if (primaryCheckoutId) {
+      setRecentProjectIds((current) => [
+        primaryCheckoutId,
+        ...current.filter((id) => id !== primaryCheckoutId),
+      ].slice(0, 5));
+    }
     return hydrated;
   }, []);
 
@@ -170,14 +178,19 @@ export function AppShell() {
     void Promise.all([
       fetch('/api/health', { cache: 'no-store' }).then((response) => response.json() as Promise<Health>),
       fetch('/api/projects', { cache: 'no-store' }).then(async (response) => {
-        const data = await response.json() as { projects?: ProjectSummary[]; discoveryDepth?: number; error?: string };
+        const data = await response.json() as Partial<ProjectsResponse> & { error?: string };
         if (!response.ok) throw new Error(data.error || 'Could not load projects.');
-        return { projects: data.projects || [], discoveryDepth: data.discoveryDepth || 1 };
+        return {
+          projects: data.projects || [],
+          recentProjectIds: data.recentProjectIds || [],
+          discoveryDepth: data.discoveryDepth || 1,
+        };
       }),
     ]).then(([healthResult, projectResult]) => {
       if (!current) return;
       setHealth(healthResult);
       setProjects(projectResult.projects);
+      setRecentProjectIds(projectResult.recentProjectIds);
       setProjectDiscoveryDepth(projectResult.discoveryDepth);
       const healthy = AGENT_PROVIDERS.filter((provider) => healthResult.providers[provider]?.available);
       setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
@@ -845,7 +858,14 @@ export function AppShell() {
       <header className="app-header">
         <div className="brand"><span className="brand-mark">C</span><span><strong>CodeAI</strong><small>conversational code canvas</small></span></div>
         <div className="header-pickers">
-          <ProjectPicker projects={projects} value={projectId} discoveryDepth={projectDiscoveryDepth} disabled={running} onChange={switchProject} />
+          <ProjectPicker
+            projects={projects}
+            recentProjectIds={recentProjectIds}
+            value={projectId}
+            discoveryDepth={projectDiscoveryDepth}
+            disabled={running}
+            onChange={switchProject}
+          />
           <ThreadPicker
             threads={threads}
             value={threadId}

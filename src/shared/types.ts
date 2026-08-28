@@ -4,6 +4,12 @@ export interface ProjectSummary {
   relativePath: string;
 }
 
+export interface ProjectsResponse {
+  projects: ProjectSummary[];
+  recentProjectIds: string[];
+  discoveryDepth: number;
+}
+
 export interface ServerProject extends ProjectSummary {
   realPath: string;
 }

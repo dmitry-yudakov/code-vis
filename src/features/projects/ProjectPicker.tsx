@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { groupProjects } from './projectPickerModel';
 import type { ProjectSummary } from '@/shared/types';
 
-export function ProjectPicker({ projects, value, discoveryDepth, disabled, onChange }: {
+export function ProjectPicker({ projects, recentProjectIds, value, discoveryDepth, disabled, onChange }: {
   projects: ProjectSummary[];
+  recentProjectIds: string[];
   value: string;
   discoveryDepth: number;
   disabled?: boolean;
@@ -15,6 +17,7 @@ export function ProjectPicker({ projects, value, discoveryDepth, disabled, onCha
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const selected = projects.find((project) => project.id === value);
+  const searching = Boolean(query.trim());
   const filtered = useMemo(() => {
     const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
     if (!terms.length) return projects;
@@ -23,6 +26,10 @@ export function ProjectPicker({ projects, value, discoveryDepth, disabled, onCha
       return terms.every((term) => haystack.includes(term));
     });
   }, [projects, query]);
+  const { recent, other } = useMemo(
+    () => groupProjects(projects, recentProjectIds),
+    [projects, recentProjectIds],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -37,6 +44,25 @@ export function ProjectPicker({ projects, value, discoveryDepth, disabled, onCha
   useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled]);
+
+  const option = (project: ProjectSummary) => (
+    <button
+      type="button"
+      role="option"
+      aria-selected={project.id === value}
+      className={`project-search-option${project.id === value ? ' selected' : ''}`}
+      key={project.id}
+      onClick={() => {
+        if (project.id !== value) onChange(project.id);
+        setOpen(false);
+        setQuery('');
+      }}
+    >
+      <span>{project.name}</span>
+      <small>{project.relativePath === '.' ? 'Configured root' : project.relativePath}</small>
+      {project.id === value && <i aria-hidden="true">✓</i>}
+    </button>
+  );
 
   return (
     <div className="project-search-picker" ref={containerRef}>
@@ -70,24 +96,20 @@ export function ProjectPicker({ projects, value, discoveryDepth, disabled, onCha
             />
           </label>
           <div className="project-search-results" role="listbox" aria-label="Projects">
-            {filtered.map((project) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={project.id === value}
-                className={project.id === value ? 'selected' : ''}
-                key={project.id}
-                onClick={() => {
-                  if (project.id !== value) onChange(project.id);
-                  setOpen(false);
-                  setQuery('');
-                }}
-              >
-                <span>{project.name}</span>
-                <small>{project.relativePath === '.' ? 'Configured root' : project.relativePath}</small>
-                {project.id === value && <i aria-hidden="true">✓</i>}
-              </button>
-            ))}
+            {searching || !recent.length ? filtered.map(option) : (
+              <>
+                <div className="project-search-group" role="group" aria-label="Recent">
+                  <div className="project-search-group-label" aria-hidden="true">Recent</div>
+                  {recent.map(option)}
+                </div>
+                {!!other.length && (
+                  <div className="project-search-group" role="group" aria-label="Other projects">
+                    <div className="project-search-group-label" aria-hidden="true">Other projects</div>
+                    {other.map(option)}
+                  </div>
+                )}
+              </>
+            )}
             {!filtered.length && <div className="project-search-empty">No projects match “{query}”.</div>}
           </div>
         </div>
