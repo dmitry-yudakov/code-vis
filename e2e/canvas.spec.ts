@@ -132,6 +132,25 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await expect(page.locator('.navigator-item')).toContainText('Sketch 1');
 });
 
+test('discovers, reattaches, and cancels a turn that outlives a reload', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.new-thread-button').click();
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await conversation.locator('textarea').fill('Wait for reload cancellation.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.tool-timeline')).toContainText('Reading README.md');
+
+  const discovery = page.waitForResponse((response) => response.url().includes('/api/agent/runs?threadId='));
+  await page.reload();
+  expect((await (await discovery).json()).active).toHaveLength(1);
+  await expect(page.getByRole('button', { name: /Open conversation/ })).toHaveAttribute('aria-label', /Agent working/);
+  await page.getByRole('button', { name: /Open conversation/ }).click();
+  await expect(page.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('.notice-banner')).toContainText('cancelled');
+  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+});
+
 test('adds a role participant and performs an explicit quick handoff', async ({ page }) => {
   await page.goto('/');
   await page.locator('.new-thread-button').click();
@@ -173,6 +192,20 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   await expect(conversation.locator('.chat-message.user').last()).toContainText('→ @Claude Reviewer');
   await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Claude Reviewer');
 
-  await conversation.getByRole('button', { name: 'Make @Claude Reviewer the main agent' }).click();
-  await expect(conversation.locator('.participant-chip.active')).toContainText('Main');
+  // A completed retained reviewer run must not announce itself as live or rewrite device-local
+  // selection when this browser reloads. The primary coder is the hydration default.
+  await conversation.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
+  const discovery = page.waitForResponse((response) => response.url().includes('/api/agent/runs?threadId='));
+  await page.reload({ waitUntil: 'networkidle' });
+  expect((await (await discovery).json()).active).toHaveLength(0);
+  await expect(page.locator('.unread-badge')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('.participant-chip.active')).toContainText('Main');
+  await expect(page.locator('.stream-preview')).toHaveCount(0);
+  await expect(page.locator('.notice-banner')).toHaveCount(0);
+
+  const reloadedConversation = page.getByRole('complementary', { name: 'Conversation' });
+  await reloadedConversation.locator('.participant-chip').filter({ hasText: 'Reviewer' }).click();
+  await reloadedConversation.getByRole('button', { name: 'Make @Claude Reviewer the main agent' }).click();
+  await expect(reloadedConversation.locator('.participant-chip.active')).toContainText('Main');
 });

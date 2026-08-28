@@ -315,6 +315,20 @@ export type AgentEvent =
     }
   | { type: 'done'; runId: string; durationMs: number; cancelled: boolean };
 
+/** Public, host-local identity for a live or briefly retained agent run. */
+export interface RunDescriptor {
+  runId: string;
+  threadId: string;
+  participantId: string;
+  startedAt: number;
+  finishedAt?: number;
+}
+
+export interface RunDiscovery {
+  active: RunDescriptor[];
+  recent: RunDescriptor[];
+}
+
 export interface AgentMessageRequest {
   threadId: string;
   messageId: string;

@@ -1,7 +1,7 @@
 # EPIC — web2 operational collaboration: one builder → second provider → agent roles → team
 
 **Status:** Active · **Owns:** the sequencing of the `web2` conversation track from read-only
-explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 26, 2026
+explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 28, 2026
 
 [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) proved the surface: a canvas-first,
 session-persistent conversation over a local repository with a read-only agent. This epic owns
@@ -52,7 +52,7 @@ cousin of roadmap Story 16 (team surface). Nothing here imports the archived `le
 | 20 | [web2-codex-provider](STORY-20260817-web2-codex-provider.md) | provider/session separation, Codex App Server adapter, safe mode parity | **Shipped** | 19 |
 | 23 | [web2-multi-agent-roles](STORY-20260817-web2-multi-agent-roles.md) | participants, authored deltas, manual handoffs, roles, cross-vendor peer review | **In progress** | 20 |
 | 26 | [loosen-project-host-bindings](STORY-20260826-loosen-project-host-bindings.md) | host-owned JSON conversations, attachments, host-bound sessions, N-human-valid records | **Shipped** | 23 |
-| 27 | [session-keyed-host-bound-runs](STORY-20260826-session-keyed-host-bound-runs.md) | session-keyed runs, discovery, run-id reattachment, permission routing | **Draft** | 26 |
+| 27 | [session-keyed-host-bound-runs](STORY-20260826-session-keyed-host-bound-runs.md) | run-id addressing, host-wide discovery, canonical reload, permission routing | **Shipped** | 26 |
 | 21 | [web2-team-environment](STORY-20260806-web2-team-environment.md) | multiple humans, authenticated live sync, billing shift, sandboxing | **Draft** (sequencing) | 27 |
 | 22 | [web2-sketch-canvas](STORY-20260807-web2-sketch-canvas.md) | blank sketch canvas, drawing as the first instruction | **Shipped** | 18 |
 
@@ -62,7 +62,7 @@ graph LR
   S19 --> S20[20 Codex provider foundation]
   S20 --> S23[23 multi-agent roles]
   S23 --> S26[26 host-owned conversations]
-  S26 --> S27[27 session-keyed runs]
+  S26 --> S27[27 run-id runs + discovery]
   S27 --> S21[21 team environment]
   S19 -.change-loop learnings.-> R14[roadmap 14/15]
   S21 -.experimental cousin.-> R16[roadmap 16 team surface]
@@ -70,8 +70,9 @@ graph LR
 
 Story numbers reflect when the stories were created; dependency order is
 `18 → 19 → 20 → 23 → 26 → 27 → 21`. Each core abstraction is the substrate of the next: mode
-policy → provider/session boundary → participant model → host-owned conversations → keyed live runs
-→ authenticated shared use.
+policy → provider/session boundary → participant model → host-owned conversations → run-id addressed
+live runs → authenticated shared use. The `27 → 21` edge is a dependency, not a claim that nothing
+sits between them: the environment memo lists further slices there that have no story yet.
 
 ---
 
@@ -120,14 +121,22 @@ left untouched and unread rather than migrated.
 refetch, cannot be corrupted by a second writer process or route-bundle race, and reports missing,
 remote, or stale working-directory bindings without losing the conversation.
 
-### Phase 3c — Session-keyed live runs (Story 27)
+### Phase 3c — Run-id addressed live runs (Story 27)
 
-The load-bearing process-wide run registry remains, but its one optional active field becomes keyed
-state. The browser discovers a thread's run and reattaches by `runId`; permission attachment,
-decisions, cancellation, replay, and finish all resolve the same record. Concurrency remains one.
+The load-bearing process-wide run registry remains, but its one optional active field and its
+thread-keyed retention become run-id indexes. Runs are discoverable host-wide, since capacity is
+host-wide; the browser attaches by `runId`, and permission attachment, decisions, cancellation,
+replay, and finish all resolve the same record. Now that Story 26's record is canonical, a reload
+trusts the conversation rather than a retained stream. Concurrency remains one.
 
-**Exit:** reload and cross-tab addressee divergence cannot orphan a live run, and every approval or
-cancel reaches only the run that owns it.
+**Exit:** a finished run is never mistaken for a live one, every discovery/hydration/completion
+interleaving ends in the canonical conversation, and every approval or cancel reaches only the run
+that owns it.
+
+**Shipped 2026-08-28:** run-id live/recent indexes, host-wide and filtered discovery, busy-run
+descriptors, direct retained replay, canonical reload reconciliation, and immediate cancel after
+reload are implemented. Verification passed strict TypeScript, 139 Vitest tests, the production
+build, and 4 Playwright scenarios.
 
 ### Phase 4 — Team (Story 21)
 
@@ -149,6 +158,11 @@ localhost.
 - **Worktree isolation and apply/discard checkpoints** — named in Story 18's expansion path;
   revisit after permission cards prove insufficient, at latest in Story 21's sandboxing.
 - **Remote/multi-tenant hosting** — beyond even Story 21's small-trusted-team scope.
+- **The environment slices between Story 27 and Story 21** — the memo's
+  [possible slices](../docs/multi-project-session-environment.md#possible-delivery-slices) 4–6
+  (several threads open at once, attachment management and repository-free threads, an independent
+  concurrent run registry) have no story yet. They are candidate work, not proven prerequisites for
+  the team story, so no dependency edge is drawn to them.
 
 ## Risks to watch
 

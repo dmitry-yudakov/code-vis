@@ -1,17 +1,16 @@
-import type { AgentEvent } from '@/shared/types';
+import type { AgentEvent, RunDescriptor, RunDiscovery } from '@/shared/types';
 import type { PermissionBroker } from './permissionBroker';
 
 export type PermissionDecisionOutcome = 'accepted' | 'unknown-run' | 'unknown-request';
 
-/** How long a finished run stays reattachable, so a reloading browser can still collect its result. */
+/** How long a finished run stays directly replayable after its result becomes canonical. */
 const RETENTION_MS = 300_000;
+export const MAX_CONCURRENT_RUNS = 1;
 /** Replay bound. Tool activity and status are droppable; permissions and errors never are. */
 const MAX_TRANSCRIPT = 1_000;
 const DROPPABLE = new Set(['tool-activity', 'status']);
 
-interface RunRecord {
-  runId: string;
-  threadId: string;
+interface RunRecord extends RunDescriptor {
   cancel(): void;
   permissions?: PermissionBroker;
   /** Every event except assistant-delta, which is accumulated into `deltaText` instead. */
@@ -34,24 +33,30 @@ export interface RunAttachment {
  * timeout, or an explicit cancel.
  */
 export class RunRegistry {
-  private active?: RunRecord;
-  private readonly recent = new Map<string, RunRecord>();
+  private readonly liveByRunId = new Map<string, RunRecord>();
+  private readonly recentByRunId = new Map<string, RunRecord>();
 
   /** Returns false when another turn is already running; only one runs at a time. */
-  start(input: { runId: string; threadId: string; cancel(): void }): boolean {
-    if (this.active) return false;
-    this.recent.delete(input.threadId);
-    this.active = { ...input, transcript: [], deltaText: '' };
+  start(input: { runId: string; threadId: string; participantId: string; cancel(): void }): boolean {
+    this.evictExpired();
+    if (this.liveByRunId.size >= MAX_CONCURRENT_RUNS) return false;
+    this.liveByRunId.set(input.runId, {
+      ...input,
+      startedAt: Date.now(),
+      transcript: [],
+      deltaText: '',
+    });
     return true;
   }
 
   attachPermissions(runId: string, permissions: PermissionBroker): void {
-    if (this.active?.runId === runId) this.active.permissions = permissions;
+    const run = this.liveByRunId.get(runId);
+    if (run) run.permissions = permissions;
   }
 
   /** Buffers an event for replay and forwards it to the attached stream, if any. */
   record(runId: string, event: AgentEvent): void {
-    const run = this.active?.runId === runId ? this.active : undefined;
+    const run = this.liveByRunId.get(runId);
     if (run) {
       if (event.type === 'assistant-delta') {
         run.deltaText += event.delta;
@@ -66,9 +71,10 @@ export class RunRegistry {
     run?.subscriber?.(event);
   }
 
-  /** Attaches a stream to this thread's run, replaying what it has missed. */
-  subscribe(threadId: string, subscriber: (event: AgentEvent) => void): RunAttachment | undefined {
-    const run = this.active?.threadId === threadId ? this.active : this.liveRecent(threadId);
+  /** Attaches a stream directly to a live or retained run, replaying what it has missed. */
+  subscribe(runId: string, subscriber: (event: AgentEvent) => void): RunAttachment | undefined {
+    this.evictExpired();
+    const run = this.liveByRunId.get(runId) || this.recentByRunId.get(runId);
     if (!run) return undefined;
     run.subscriber = subscriber;
     const replay = [...run.transcript];
@@ -77,45 +83,63 @@ export class RunRegistry {
   }
 
   unsubscribe(runId: string): void {
-    if (this.active?.runId === runId) this.active.subscriber = undefined;
-    for (const run of this.recent.values()) if (run.runId === runId) run.subscriber = undefined;
+    const run = this.liveByRunId.get(runId) || this.recentByRunId.get(runId);
+    if (run) run.subscriber = undefined;
   }
 
   decide(runId: string, requestId: string, decision: 'allow' | 'deny'): PermissionDecisionOutcome {
-    if (this.active?.runId !== runId || !this.active.permissions) return 'unknown-run';
-    return this.active.permissions.decide(requestId, decision) ? 'accepted' : 'unknown-request';
+    const run = this.liveByRunId.get(runId);
+    if (!run?.permissions) return 'unknown-run';
+    return run.permissions.decide(requestId, decision) ? 'accepted' : 'unknown-request';
   }
 
   cancel(runId: string): boolean {
-    if (this.active?.runId !== runId) return false;
-    this.active.cancel();
+    const run = this.liveByRunId.get(runId);
+    if (!run) return false;
+    run.cancel();
     return true;
   }
 
   /** Frees the slot for the next turn while keeping the record reattachable for a while. */
   finish(runId: string): void {
-    if (this.active?.runId !== runId) return;
-    const run = this.active;
+    const run = this.liveByRunId.get(runId);
+    if (!run) return;
     run.finishedAt = Date.now();
     run.subscriber = undefined;
-    this.recent.set(run.threadId, run);
-    this.active = undefined;
+    this.liveByRunId.delete(runId);
+    this.recentByRunId.set(runId, run);
     this.evictExpired();
   }
 
-  get current(): Readonly<{ runId: string; threadId: string }> | undefined {
-    return this.active && { runId: this.active.runId, threadId: this.active.threadId };
+  list(threadId?: string): RunDiscovery {
+    this.evictExpired();
+    const descriptors = (runs: Iterable<RunRecord>) => [...runs]
+      .filter((run) => !threadId || run.threadId === threadId)
+      .map((run) => this.descriptor(run));
+    return {
+      active: descriptors(this.liveByRunId.values()),
+      recent: descriptors(this.recentByRunId.values()),
+    };
   }
 
-  private liveRecent(threadId: string): RunRecord | undefined {
-    this.evictExpired();
-    return this.recent.get(threadId);
+  get currentRuns(): readonly RunDescriptor[] {
+    return this.list().active;
+  }
+
+  private descriptor(run: RunRecord): RunDescriptor {
+    return {
+      runId: run.runId,
+      threadId: run.threadId,
+      participantId: run.participantId,
+      startedAt: run.startedAt,
+      ...(run.finishedAt === undefined ? {} : { finishedAt: run.finishedAt }),
+    };
   }
 
   private evictExpired(): void {
     const cutoff = Date.now() - RETENTION_MS;
-    for (const [threadId, run] of this.recent) {
-      if ((run.finishedAt ?? 0) < cutoff) this.recent.delete(threadId);
+    for (const [runId, run] of this.recentByRunId) {
+      if ((run.finishedAt ?? 0) < cutoff) this.recentByRunId.delete(runId);
     }
   }
 }

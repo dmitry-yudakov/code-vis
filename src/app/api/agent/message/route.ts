@@ -118,8 +118,16 @@ export async function POST(request: Request): Promise<Response> {
 
   const runId = randomUUID();
   const abortController = new AbortController();
-  if (!runRegistry.start({ runId, threadId: thread.id, cancel: () => abortController.abort() })) {
-    return safeJsonResponse({ error: 'Another agent turn is already running.' }, { status: 409 });
+  if (!runRegistry.start({
+    runId,
+    threadId: thread.id,
+    participantId: participant.id,
+    cancel: () => abortController.abort(),
+  })) {
+    return safeJsonResponse({
+      error: 'Another agent turn is already running.',
+      activeRun: runRegistry.currentRuns[0],
+    }, { status: 409 });
   }
 
   const human = thread.participants.find((item) => item.kind === 'human');
@@ -165,7 +173,7 @@ export async function POST(request: Request): Promise<Response> {
     // A closed browser tab must not kill work the user already approved: detach, never cancel.
     onDetach: () => runRegistry.unsubscribe(runId),
     start(write) {
-      runRegistry.subscribe(thread.id, write);
+      runRegistry.subscribe(runId, write);
       const runner = adapter.createRunner();
       return runConversation({
         runId,

@@ -123,7 +123,9 @@ else {
     { type: 'tool_use', id: 'toolu-4', name: 'Read', input: { file_path: '/etc/hostname' } },
   ];
   emit({ type: 'assistant', message: { content: toolUses } });
-  const toolDelay = Number(process.env.CODEAI_FAKE_TOOL_DELAY_MS || 0);
+  // Gives the reload/cancel E2E case a deterministic window without slowing every fake turn.
+  const cancellationProbe = prompt.includes(`"text":${JSON.stringify('Wait for reload cancellation.')}`);
+  const toolDelay = cancellationProbe ? 5_000 : Number(process.env.CODEAI_FAKE_TOOL_DELAY_MS || 0);
   if (toolDelay > 0) await new Promise((resolve) => setTimeout(resolve, toolDelay));
   emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'thinking' } } });
   emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text' } } });

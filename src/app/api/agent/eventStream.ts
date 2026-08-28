@@ -14,6 +14,7 @@ const NDJSON_HEADERS = {
 export function agentEventStream(input: {
   runId: string;
   onDetach(): void;
+  headers?: HeadersInit;
   replay?: AgentEvent[];
   start(write: (event: AgentEvent) => void): Promise<unknown>;
 }): Response {
@@ -50,5 +51,7 @@ export function agentEventStream(input: {
     },
   });
 
-  return new Response(stream, { headers: NDJSON_HEADERS });
+  const headers = new Headers(NDJSON_HEADERS);
+  if (input.headers) new Headers(input.headers).forEach((value, key) => headers.set(key, value));
+  return new Response(stream, { headers });
 }

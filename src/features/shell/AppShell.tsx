@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, ChatThread, DiagramArtifact,
   DiagramMessageAttachment, DrawingMark, GitWorkingTree, ProjectSummary, ProviderHealth, PublicConversation,
-  SketchCanvas, UserMessage,
+  RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import { readNdjson } from '@/features/conversation/ndjson';
 import {
@@ -26,6 +26,7 @@ import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/compone
 import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
+import { reconcileThreadRun } from '@/features/conversation/runRecovery';
 
 interface Health {
   ok: boolean;
@@ -76,6 +77,7 @@ export function AppShell() {
   const [unread, setUnread] = useState(0);
   const [pendingAttachmentIds, setPendingAttachmentIds] = useState<string[]>([]);
   const [notice, setNotice] = useState<string>();
+  const [busyRun, setBusyRun] = useState<RunDescriptor>();
   const [missingSession, setMissingSession] = useState(false);
   /** Set when a turn stopped on its turn budget: the session survives, so it can be resumed. */
   const [continueMode, setContinueMode] = useState<AgentMode>();
@@ -521,6 +523,9 @@ export function AppShell() {
       if (event.type === 'assistant-message') {
         receivedFinal = true;
         const assistant = event.message as AssistantMessage;
+        const alreadyPresent = threadsRef.current
+          .find((item) => item.id === turn.threadId)
+          ?.messages.some((message) => message.id === assistant.id) ?? false;
         const ready = assistant.blocks.flatMap((block) => block.kind === 'diagram' && block.artifact.status === 'ready' ? [block.artifact] : []);
         mutateThread(turn.threadId, (current) => {
           if (current.messages.some((message) => message.id === assistant.id)) return current;
@@ -547,7 +552,7 @@ export function AppShell() {
             ],
           };
         });
-        if (!chatOpenRef.current) setUnread((value) => value + 1);
+        if (!alreadyPresent && !chatOpenRef.current) setUnread((value) => value + 1);
         if (ready.length > 1) setNotice(`${ready.length} diagram results are ready in history. The active canvas was preserved.`);
         setPreview('');
         await refreshConversation(turn.threadId);
@@ -575,6 +580,7 @@ export function AppShell() {
       return;
     }
     setNotice(undefined);
+    setBusyRun(undefined);
     setMissingSession(false);
     setContinueMode(undefined);
     const attachmentPayload: DiagramMessageAttachment[] = [];
@@ -643,6 +649,7 @@ export function AppShell() {
     setPreview('');
     setToolActivity([]);
     setPermissions([]);
+    runningRef.current = true;
     setRunning(true);
     setStatus(turnMode === 'agent'
       ? `Starting ${turnAgent.displayName}`
@@ -666,7 +673,8 @@ export function AppShell() {
         signal: controller.signal,
       });
       if (!response.ok) {
-        const data = await response.json().catch(() => ({})) as { error?: string };
+        const data = await response.json().catch(() => ({})) as { error?: string; activeRun?: RunDescriptor };
+        if (data.activeRun) setBusyRun(data.activeRun);
         throw new Error(data.error || `Agent request failed (${response.status}).`);
       }
       const outcome = await consumeStream(response, {
@@ -691,6 +699,7 @@ export function AppShell() {
     } finally {
       abortRef.current = undefined;
       runIdRef.current = undefined;
+      runningRef.current = false;
       setRunning(false);
       setPreview('');
       setToolActivity([]);
@@ -699,6 +708,27 @@ export function AppShell() {
       setStatus('Ready for an instruction');
     }
   }, [activeAgent, composer, consumeStream, health, mode, mutateThread, pendingAttachmentIds, refreshConversation, running, thread]);
+
+  const busyRunLabel = busyRun && (
+    threads.find((item) => item.id === busyRun.threadId)?.title
+    || `conversation ${busyRun.threadId.slice(0, 8)}`
+  );
+
+  const cancelBusyRun = useCallback(async () => {
+    if (!busyRun) return;
+    try {
+      const response = await fetch('/api/agent/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: busyRun.runId }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error || 'That agent run could not be cancelled.');
+      const label = busyRunLabel;
+      setBusyRun(undefined);
+      setNotice(`Cancellation requested for ${label}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That agent run could not be cancelled.');
+    }
+  }, [busyRun, busyRunLabel]);
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
   const cancelRun = useCallback(async () => {
@@ -718,30 +748,68 @@ export function AppShell() {
     }
   }, []);
 
-  // Recover a turn that outlived the page: a reload, a crash, or a dev-server refresh mid-run.
+  // Recover a turn that outlived the page: discovery selects only live work, while the canonical
+  // conversation remains authoritative before and after every possible completion race.
   useEffect(() => {
     if (!threadId || runningRef.current) return;
     const controller = new AbortController();
-    let owned = false;
+    let adoptedRunId: string | undefined;
     void (async () => {
-      await refreshConversation(threadId);
-      let response: Response;
       try {
-        response = await fetch(`/api/agent/stream?threadId=${encodeURIComponent(threadId)}`, { signal: controller.signal });
+        await reconcileThreadRun<Response>({
+          async discover() {
+            const response = await fetch(`/api/agent/runs?threadId=${encodeURIComponent(threadId)}`, {
+              cache: 'no-store',
+              signal: controller.signal,
+            });
+            const data = await response.json().catch(() => ({})) as RunDiscovery & { error?: string };
+            if (!response.ok) throw new Error(data.error || 'Could not discover running turns.');
+            // A send that began while discovery was in flight owns its own stream. Do not replace
+            // that subscriber or overwrite its optimistic state with recovery hydration.
+            if (runningRef.current) {
+              controller.abort();
+              throw new DOMException('Run recovery was superseded by a local send.', 'AbortError');
+            }
+            return data.active[0];
+          },
+          adopt(run) {
+            adoptedRunId = run.runId;
+            runIdRef.current = run.runId;
+            mutateThread(threadId, (current) => ({ ...current, addressedAgentId: run.participantId }));
+            runningRef.current = true;
+            setRunning(true);
+            setStatus('Reconnecting to the running turn');
+          },
+          async attach(runId) {
+            const response = await fetch(`/api/agent/stream?runId=${encodeURIComponent(runId)}`, {
+              cache: 'no-store',
+              signal: controller.signal,
+            });
+            if (response.status === 404) return { kind: 'missing' };
+            if (!response.ok) throw new Error('Could not attach to the running turn.');
+            if (response.headers.get('X-CodeAI-Run-Finished') === 'true') {
+              await response.body?.cancel();
+              return { kind: 'finished' };
+            }
+            setNotice('Reconnected to the turn that was still running.');
+            return { kind: 'stream', stream: response };
+          },
+          async hydrate() {
+            await refreshConversation(threadId);
+          },
+          async consume(response) {
+            await consumeStream(response, { threadId, mode: 'agent' });
+          },
+        });
       } catch {
-        return;
-      }
-      if (!response.ok || controller.signal.aborted || runningRef.current) return;
-      owned = true;
-      setRunning(true);
-      setNotice('Reconnected to the turn that was still running.');
-      try {
-        await consumeStream(response, { threadId, mode: 'agent' });
-      } catch {
-        if (!controller.signal.aborted) setNotice('Lost the connection to the running turn.');
+        if (!controller.signal.aborted) {
+          await refreshConversation(threadId);
+          if (adoptedRunId) setNotice('Lost the connection to the running turn.');
+        }
       } finally {
         if (!controller.signal.aborted) {
-          runIdRef.current = undefined;
+          if (runIdRef.current === adoptedRunId) runIdRef.current = undefined;
+          runningRef.current = false;
           setRunning(false);
           setPreview('');
           setToolActivity([]);
@@ -750,8 +818,15 @@ export function AppShell() {
         }
       }
     })();
-    return () => { controller.abort(); if (owned) setRunning(false); };
-  }, [consumeStream, refreshConversation, threadId]);
+    return () => {
+      controller.abort();
+      if (runIdRef.current === adoptedRunId) runIdRef.current = undefined;
+      if (adoptedRunId) {
+        runningRef.current = false;
+        setRunning(false);
+      }
+    };
+  }, [consumeStream, mutateThread, refreshConversation, threadId]);
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(thread?.participants || [], participantId);
@@ -816,9 +891,10 @@ export function AppShell() {
       {notice && (
         <div className="notice-banner" role="status">
           <span>{notice}</span>
+          {busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
           {missingSession && <button type="button" onClick={() => { void createThread(activeProvider); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${thread.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {continueMode && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
-          <button type="button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button>
+          <button type="button" aria-label="Dismiss notice" onClick={() => { setNotice(undefined); setBusyRun(undefined); }}>×</button>
         </div>
       )}
 

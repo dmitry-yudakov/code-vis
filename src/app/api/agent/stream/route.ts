@@ -7,22 +7,23 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Reattaches a browser to the turn already running (or just finished) on a thread, replaying what
- * it missed. This is what makes a page reload survivable: the run never depended on that page.
+ * Attaches directly to a live or retained run and replays what the caller missed. Page reload uses
+ * discovery first and selects only a live run; retained replay remains available for diagnostics.
  */
 export async function GET(request: Request): Promise<Response> {
-  const threadId = new URL(request.url).searchParams.get('threadId') || '';
-  if (!/^[0-9a-f-]{36}$/i.test(threadId)) {
-    return safeJsonResponse({ error: 'A thread id is required.' }, { status: 400 });
+  const runId = new URL(request.url).searchParams.get('runId') || '';
+  if (!/^[0-9a-f-]{36}$/i.test(runId)) {
+    return safeJsonResponse({ error: 'A run id is required.' }, { status: 400 });
   }
 
   let live: ((event: AgentEvent) => void) | undefined;
-  const attachment = runRegistry.subscribe(threadId, (event) => live?.(event));
-  if (!attachment) return safeJsonResponse({ error: 'No agent turn is running for this conversation.' }, { status: 404 });
+  const attachment = runRegistry.subscribe(runId, (event) => live?.(event));
+  if (!attachment) return safeJsonResponse({ error: 'That agent run is no longer available.' }, { status: 404 });
 
   return agentEventStream({
     runId: attachment.runId,
     replay: attachment.replay,
+    headers: { 'X-CodeAI-Run-Finished': String(attachment.finished) },
     onDetach: () => runRegistry.unsubscribe(attachment.runId),
     start(write) {
       if (attachment.finished) return Promise.resolve();

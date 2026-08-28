@@ -277,7 +277,7 @@ repository-identity policy exists; the current path hash is never relabelled as 
 - Persisting device-specific layout, selection, viewport, panels, modes, or drafts.
 - Attachment management/rebind UI, a scratch directory for attachment-free conversations,
   multi-attachment prompt policy, and portable project identity.
-- Session-keyed run storage, run discovery/reattachment changes, and raising concurrency —
+- Run-record rekeying, run discovery/reattachment changes, and raising concurrency —
   [Story 27](STORY-20260826-session-keyed-host-bound-runs.md) owns the first two while retaining the
   one-run limit.
 - Remote clients, LAN/cloud exposure, authentication, authorization, pairing, TLS, or a second host.

@@ -63,6 +63,7 @@ import { PUT as PUT_ANNOTATION } from '@/app/api/threads/[threadId]/annotations/
 import { PUT as PUT_PINS } from '@/app/api/threads/[threadId]/pins/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { ConversationStore, serverAgent } from '@/server/storage/conversationStore';
+import { runRegistry } from '@/server/runs/runRegistry';
 import type { DurableConversation, PublicConversation } from '@/shared/types';
 
 function context(threadId: string) {
@@ -152,6 +153,30 @@ describe('conversation snapshot and mutation routes', () => {
     expect(routeState.healthChecks).toBe(0);
     expect(routeState.runnersCreated).toBe(0);
     expect((await GET_THREAD(new Request('http://localhost'), context(thread.id))).status).toBe(200);
+  });
+
+  it('keeps the visible busy error and reports the host-wide active run descriptor', async () => {
+    const thread = await createViaRoute('checkout-a');
+    const blockingRun = {
+      runId: crypto.randomUUID(),
+      threadId: crypto.randomUUID(),
+      participantId: 'agent-on-another-conversation',
+    };
+    expect(runRegistry.start({ ...blockingRun, cancel: () => undefined })).toBe(true);
+    try {
+      const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(thread)),
+      }));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        error: 'Another agent turn is already running.',
+        activeRun: expect.objectContaining({ ...blockingRun, startedAt: expect.any(Number) }),
+      });
+      expect(routeState.runnersCreated).toBe(0);
+      expect(runRegistry.currentRuns).toHaveLength(1);
+    } finally {
+      runRegistry.finish(blockingRun.runId);
+    }
   });
 
   it.each([

@@ -166,7 +166,8 @@ path hashes, the working directory is "the project", `runRegistry` is one global
 ([runRegistry.ts:37](../src/server/runs/runRegistry.ts#L37)), and the transcript lives in
 `localStorage`. These are development-era formats rather than compatibility promises: Story 26
 moves canonical conversation state to fresh host-owned JSON and leaves the old records untouched;
-Story 27 replaces the single run slot without removing the load-bearing process-wide registry.
+Story 27 replaces the single run slot and the thread-keyed retention without removing the
+load-bearing process-wide registry.
 
 ## What to loosen now
 
@@ -205,11 +206,14 @@ as [Story 26](../stories/STORY-20260826-loosen-project-host-bindings.md) and
    build the team surface — Story 21 still owns identity, authorization, live multi-client sync, and
    multi-writer policy — it only avoids baking the single-human restriction into the new record
    shape.
-7. **Key runs by session and reattach by run id.** Story 27 keys live runs by
-   `(threadId, participantId)`, makes every run operation—including permission attachment—resolve by
-   `runId`, and lets the browser discover a thread's live run before reattaching. The process-wide
-   registry remains; only the singleton active slot disappears. The policy stays one concurrent
-   turn.
+7. **Address runs by run id and discover them host-wide.** Story 27 gives every live and retained run
+   a record carrying its thread and participant, makes every run operation—including permission
+   attachment—resolve by `runId`, and lets the browser discover runs before attaching. Because
+   capacity is host-wide, discovery is too: a conversation blocked by another conversation's turn can
+   name it. A reload now trusts the canonical conversation from Story 26 instead of replaying a
+   finished run. The process-wide registry remains; the singleton active slot and the thread-keyed
+   retention disappear. Keying by `(threadId, participantId)` waits until concurrency makes it
+   observable. The policy stays one concurrent turn.
 
 Deliberately **not** now: portable project identity, live multi-client sync, a coordinator service,
 sandboxing, presence, and any UI for more than one open workspace. Capability boundaries survive,
@@ -340,10 +344,12 @@ resolved on the host that executes it, never asserted by the client that request
    domain operations, complete conversation records, project attachments, host-bound sessions,
    several-human-valid records, and a clean legacy-data cutoff. The browser stops owning durable
    conversation content.
-3. **Session-keyed runs** —
-   [Story 27](../stories/STORY-20260826-session-keyed-host-bound-runs.md): keyed live/retained run
-   records, run discovery, run-id reattachment, and complete permission/cancel/replay routing while
-   the global concurrency limit remains one.
+3. **Run-id addressed runs** —
+   [Story 27](../stories/STORY-20260826-session-keyed-host-bound-runs.md): live and retained run
+   records addressed by run id and carrying thread/participant identity, host-wide run discovery,
+   run-id reattachment, a reload that trusts the canonical conversation rather than a retained
+   stream, and complete permission/cancel/replay routing while the global concurrency limit remains
+   one. Keying runs by session waits for slice 6, where concurrency makes it observable.
 4. **Environment shell:** open several threads at once in the browser, persist the arrangement
    locally, still one agent run globally. Tests navigation without taking on concurrency.
 5. **Threads without, and with several, projects:** attachment management UI, the repository-free
