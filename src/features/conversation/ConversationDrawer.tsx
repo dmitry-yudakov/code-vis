@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import type { ThemeName } from '@/shared/design/tokens';
 import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, ChatThread } from '@/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
@@ -10,12 +11,13 @@ import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
-  open, thread, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running,
+  open, thread, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running,
   status, composer, mode, unsupportedModes, attached, markCounts, onClose, onSelectDiagram, onRetry, onComposer, onModeChange,
   onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
 }: {
   open: boolean;
   thread?: ChatThread;
+  theme: ThemeName;
   agents: AgentParticipant[];
   activeAgent?: AgentParticipant;
   healthyProviders: AgentProvider[];
@@ -67,6 +69,7 @@ export function ConversationDrawer({
           <ChatMessage
             key={message.id}
             message={message}
+            theme={theme}
             participants={thread.participants}
             activeDiagramId={thread.activeDiagramId}
             running={running}

@@ -13,13 +13,32 @@ function cssName(name: string): string {
 }
 
 export function renderTokensCss(): string {
-  const declarations = [
-    ...Object.entries(palette.light),
-    ...Object.entries(effects.light),
-    ...Object.entries(fonts),
-  ].map(([name, value]) => `  --${cssName(name)}: ${value};`);
+  const declarations = (values: Record<string, string>) => Object.entries(values)
+    .map(([name, value]) => `  --${cssName(name)}: ${value};`);
+  const lightDeclarations = [
+    '  color-scheme: light;',
+    ...declarations({ ...palette.light, ...effects.light, ...fonts }),
+  ];
+  const darkDeclarations = [
+    '  color-scheme: dark;',
+    ...declarations({ ...palette.dark, ...effects.dark }),
+  ];
 
-  return `${GENERATED_HEADER}\n:root {\n${declarations.join('\n')}\n}\n`;
+  return [
+    GENERATED_HEADER,
+    ':root {',
+    ...lightDeclarations,
+    '}',
+    '@media (prefers-color-scheme: dark) {',
+    '  :root:not([data-theme="light"]) {',
+    ...darkDeclarations.map((line) => `  ${line}`),
+    '  }',
+    '}',
+    ':root[data-theme="dark"] {',
+    ...darkDeclarations,
+    '}',
+    '',
+  ].join('\n');
 }
 
 const entryPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : '';

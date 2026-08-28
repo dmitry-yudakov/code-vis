@@ -1,6 +1,6 @@
 # Story 30 — Add a light, dark, and system theme switch
 
-**Status:** Draft · **Type:** Frontend-only ·
+**Status:** Shipped · **Type:** Frontend-only ·
 **Depends on:** [Story 29](STORY-20260828-semantic-design-tokens.md) (semantic tokens) ·
 **Epic:** [shell design system](EPIC-20260828-shell-design-system.md)
 
@@ -139,28 +139,33 @@ Stored under `code-ai:theme`. An unrecognized stored value is treated as `system
 
 ## Acceptance criteria
 
-- [ ] Light, Dark, and System are selectable from the header; the choice survives reload.
-- [ ] System follows the OS live — changing the desktop appearance while the app is open repaints
+- [x] Light, Dark, and System are selectable from the header; the choice survives reload.
+- [x] System follows the OS live — changing the desktop appearance while the app is open repaints
   it without a reload.
-- [ ] An explicit Light choice stays light under a dark OS, and an explicit Dark choice stays dark
+- [x] An explicit Light choice stays light under a dark OS, and an explicit Dark choice stays dark
   under a light OS.
-- [ ] No flash of the wrong theme on load or on a hard refresh, in either OS setting, and the
+- [x] No flash of the wrong theme on load or on a hard refresh, in either OS setting, and the
   stamp survives development Strict Mode remounts.
-- [ ] Native controls and scrollbars follow an explicit in-app override, not just the OS setting.
-- [ ] A `localStorage` read or write that throws leaves the app on System rather than failing.
-- [ ] `globals.css` still contains no color literal, and the theme blocks in the generated
+- [x] Native controls and scrollbars follow an explicit in-app override, not just the OS setting.
+- [x] A `localStorage` read or write that throws leaves the app on System rather than failing.
+- [x] `globals.css` still contains no color literal, and the theme blocks in the generated
   `tokens.css` redefine custom properties only — no component selector appears in either.
-- [ ] `renderMermaid` takes an explicit theme; no module-level "current theme" exists.
-- [ ] Mermaid diagrams re-render in the active theme, on the canvas and in conversation diagram
+- [x] `renderMermaid` takes an explicit theme; no module-level "current theme" exists.
+- [x] Mermaid diagrams re-render in the active theme, on the canvas and in conversation diagram
   cards, without losing pan, zoom, or annotation marks.
-- [ ] The composite PNG attached to an agent message is light in both themes, verified from the
+- [x] The composite PNG attached to an agent message is light in both themes, verified from the
   intercepted request payload.
-- [ ] A light composite render issued while the canvas is dark leaves the canvas dark — the two
+- [x] A light composite render issued while the canvas is dark leaves the canvas dark — the two
   do not race.
-- [ ] Body text, muted text, and every state color meet WCAG AA contrast against their own surface
+- [x] Body text, muted text, and every state color meet WCAG AA contrast against their own surface
   in both themes.
-- [ ] `npm test`, `npm run lint`, `npm run build`, and `npm run test:e2e` pass, with a new
+- [x] `npm test`, `npm run lint`, `npm run build`, and `npm run test:e2e` pass, with a new
   Playwright case asserting the stamp and the re-rendered diagram in dark.
+
+Verified August 28, 2026: 147 Vitest tests, strict TypeScript, the default production build, and
+all five Playwright scenarios pass. The theme scenario also exercises live OS changes, explicit
+override persistence, blocked `localStorage`, preserved ink/viewport state, and a decoded light
+composite while the visible canvas remains dark.
 
 ## Out of scope
 

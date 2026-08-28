@@ -219,3 +219,104 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   await reloadedConversation.getByRole('button', { name: 'Make @Claude Reviewer the main agent' }).click();
   await expect(reloadedConversation.locator('.participant-chip.active')).toContainText('Main');
 });
+
+test('switches themes, repaints Mermaid, and keeps attachment composites light', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.addInitScript(() => localStorage.setItem('code-ai:theme', 'dark'));
+  await page.goto('/');
+
+  const root = page.locator('html');
+  await expect(root).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.locator('.new-thread-button').click();
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const composer = conversation.locator('textarea');
+  await composer.fill('Draw a simple architecture');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
+  await expect(conversation.locator('.diagram-card-svg[data-mermaid-theme="dark"] svg')).toBeVisible();
+  await expect(page.locator('.tool-timeline')).toHaveCount(0);
+
+  await conversation.getByRole('button', { name: 'Close conversation' }).click();
+  await page.getByRole('button', { name: 'Pen (P)' }).click();
+  const ink = page.locator('svg.ink-layer');
+  const box = await ink.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width * 0.3, box!.y + box!.height * 0.35);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.5, { steps: 6 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.getByRole('button', { name: 'Pointer (V)' }).click();
+  await page.mouse.move(box!.x + box!.width * 0.55, box!.y + box!.height * 0.55);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width * 0.65, box!.y + box!.height * 0.62);
+  await page.mouse.up();
+  const transformBeforeThemeChange = await page.locator('.diagram-scene').getAttribute('style');
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Open conversation' }).click();
+  const darkSvg = await page.locator('.mermaid-layer svg').evaluate((element) => element.outerHTML);
+  await page.getByRole('button', { name: 'Light', exact: true }).click();
+  await expect(root).toHaveAttribute('data-theme', 'light');
+  expect(await root.evaluate((element) => getComputedStyle(element).colorScheme)).toBe('light');
+  await expect(page.locator('.mermaid-layer[data-mermaid-theme="light"] svg')).toBeVisible();
+  await expect(conversation.locator('.diagram-card-svg[data-mermaid-theme="light"] svg')).toBeVisible();
+  const lightSvg = await page.locator('.mermaid-layer svg').evaluate((element) => element.outerHTML);
+  expect(lightSvg).not.toBe(darkSvg);
+  await expect(page.locator('.diagram-scene')).toHaveAttribute('style', transformBeforeThemeChange!);
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'System', exact: true }).click();
+  await expect(root).not.toHaveAttribute('data-theme', /.+/);
+  await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(root).not.toHaveAttribute('data-theme', /.+/);
+  await expect(page.locator('.mermaid-layer[data-mermaid-theme="light"] svg')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Dark', exact: true }).click();
+  await expect(root).toHaveAttribute('data-theme', 'dark');
+  expect(await root.evaluate((element) => getComputedStyle(element).colorScheme)).toBe('dark');
+  const requestPromise = page.waitForRequest((request) => request.url().endsWith('/api/agent/message'));
+  await composer.fill('Explain the attached diagram briefly');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  const request = await requestPromise;
+  const payload = request.postDataJSON() as { diagramAttachments: Array<{ compositePngDataUrl?: string }> };
+  const composite = payload.diagramAttachments[0]?.compositePngDataUrl;
+  expect(composite).toMatch(/^data:image\/png;base64,/);
+  const cornerPixel = await page.evaluate(async (dataUrl) => {
+    const image = new Image();
+    image.src = dataUrl!;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    return Array.from(context.getImageData(0, 0, 1, 1).data);
+  }, composite);
+  expect(cornerPixel[0] + cornerPixel[1] + cornerPixel[2]).toBeGreaterThan(700);
+  expect(cornerPixel[3]).toBe(255);
+  await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
+  await expect(page.locator('.tool-timeline')).toHaveCount(0);
+
+  await page.reload();
+  await expect(root).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
+
+  const blockedContext = await page.context().browser()!.newContext({ colorScheme: 'dark' });
+  await blockedContext.addInitScript(() => {
+    Storage.prototype.getItem = () => { throw new DOMException('Storage blocked'); };
+    Storage.prototype.setItem = () => { throw new DOMException('Storage blocked'); };
+  });
+  const blockedPage = await blockedContext.newPage();
+  await blockedPage.goto('/');
+  await expect(blockedPage.locator('html')).not.toHaveAttribute('data-theme', /.+/);
+  await expect(blockedPage.getByRole('button', { name: 'System', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await blockedPage.getByRole('button', { name: 'Dark', exact: true }).click();
+  await expect(blockedPage.locator('html')).not.toHaveAttribute('data-theme', /.+/);
+  await expect(blockedPage.getByRole('button', { name: 'System', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await blockedContext.close();
+});

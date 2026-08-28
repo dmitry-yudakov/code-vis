@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import type { ThemeName } from '@/shared/design/tokens';
 import type { ChatThread, DrawingMark } from '@/shared/types';
 import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/conversationStore';
 import { DiagramCanvas } from './DiagramCanvas';
@@ -12,6 +13,7 @@ export interface CanvasSnapshot {
 
 export function CanvasWorkspace({
   thread,
+  theme,
   running,
   status,
   unread,
@@ -27,6 +29,7 @@ export function CanvasWorkspace({
   onArtifactError,
 }: {
   thread: ChatThread;
+  theme: ThemeName;
   running: boolean;
   status: string;
   unread: number;
@@ -93,6 +96,7 @@ export function CanvasWorkspace({
           <DiagramCanvas
             key={activeId}
             target={target}
+            theme={theme}
             initialMarks={marks}
             onMarksChange={handleMarks}
             onSnapshot={handleSnapshot}

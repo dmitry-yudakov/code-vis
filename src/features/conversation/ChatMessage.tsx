@@ -2,6 +2,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { ThemeName } from '@/shared/design/tokens';
 import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord, Participant } from '@/shared/types';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { DiagramCard } from '@/features/diagram/components/DiagramCard';
@@ -22,8 +23,9 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, participants, activeDiagramId, running, onSelectDiagram, onRetry, onExecutePlan }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, running, onSelectDiagram, onRetry, onExecutePlan }: {
   message: ChatMessageType;
+  theme: ThemeName;
   participants: Participant[];
   activeDiagramId?: string;
   running?: boolean;
@@ -65,6 +67,7 @@ export function ChatMessage({ message, participants, activeDiagramId, running, o
               key={block.artifact.id}
               artifact={block.artifact}
               active={activeDiagramId === block.artifact.id}
+              theme={theme}
               onSelect={() => onSelectDiagram(block.artifact.id)}
             />
           );

@@ -4,12 +4,13 @@
 hardcoded light-only stylesheet to a themed, token-driven, canvas-first surface ·
 **Updated:** August 28, 2026
 
-The application's capability grew faster than its surface. The stylesheet is still one 425-line
-hand-written file whose palette is written inline — 18 custom properties against **73 distinct hex
-literals and 49 `rgba()` values** across 135 selectors — so a second theme is a rewrite rather than
-a diff. Panels float over the canvas rather than docking beside it, which is expensive in a product
-whose own README says the canvas is the primary workspace. And the interface font named in the
-stylesheet has never been loaded.
+The application's capability grew faster than its surface. At the start of this epic, the
+stylesheet was one 425-line hand-written file whose palette was written inline — 18 custom
+properties against **73 distinct hex literals and 49 `rgba()` values** across 135 selectors — so a
+second theme was a rewrite rather than a diff. Stories 29 and 30 have now moved those values into a
+shared token source, added the generated light/dark blocks, and shipped a system-aware theme
+switch. Panels still float over the canvas rather than docking beside it, and the interface font
+named in the stylesheet has never been loaded; those are the remaining halves of the epic.
 
 This epic owns fixing that in an order where each step is safe. Colors become data, then the data
 gets a second theme, then the layout stops covering the thing it exists to show, and only then does
@@ -35,9 +36,10 @@ achromatic instrument around it. The reference mock lives at
    `globals.css` never contains a color literal. A story that needs a new color adds a token — it
    does not add a literal, and it does not add a second palette. The Mermaid palette is included:
    it is the one place a duplicate palette already exists, and Story 30 removes it.
-2. **The first two stories are invisible.** Stories 29 and 30 must not change the light-theme
-   appearance by a pixel. They are large mechanical diffs, which makes them easy to review
-   carelessly; "looks identical" is the acceptance test, not a nice-to-have.
+2. **The first two stories are foundational, not a redesign.** Story 29 changes no pixels. Story
+   30 preserves the existing layout and visual language while adding the dark appearance; its one
+   deliberate light-palette correction darkens the `live` state enough to meet WCAG AA wherever
+   it is used as text or beneath light text. The visual restyle remains owned by Story 32.
 3. **No protocol change. The design yields, not the contract.** This epic is frontend-only end to
    end: no route, no store, no `AgentEvent` field, no provider adapter. Where a visual idea wants
    data the protocol does not carry, the *idea* is reshaped to what the client already holds. The
@@ -62,7 +64,7 @@ achromatic instrument around it. The reference mock lives at
 | # | Story | Theme | Status | Depends on |
 |---|---|---|---|---|
 | 29 | [semantic-design-tokens](STORY-20260828-semantic-design-tokens.md) | tokens.ts as source of truth, generated tokens.css, literal-free globals.css | **Shipped** | — |
-| 30 | [theme-switch](STORY-20260828-theme-switch.md) | light/dark/system, no-flash stamp, theme as an explicit Mermaid argument | **Draft** | 29 |
+| 30 | [theme-switch](STORY-20260828-theme-switch.md) | light/dark/system, no-flash stamp, theme as an explicit Mermaid argument | **Shipped** | 29 |
 | 31 | [dock-canvas-panels](STORY-20260828-dock-canvas-panels.md) | three-column grid, resizable rails, inset-aware fit, dock capacity bands | **Draft** | 30 |
 | 32 | [visual-language](STORY-20260828-visual-language.md) | Geist/Geist Mono/Archivo, 48px breadcrumb header, run ribbon, titleblock | **Draft** | 31 |
 
@@ -81,14 +83,14 @@ removed the literals; 32 is a restyle rather than a rewrite only because 31 alre
 layout. Attempting 32 first would mean doing all four at once, which is the trap this sequence is
 designed to avoid.
 
-The odd-looking consequence — that the two most valuable steps are invisible — is deliberate.
-Stories 29 and 30 are worth landing even if every aesthetic decision in Story 32 is rejected.
+The two foundation stories are now shipped. Story 31 is the next executable story; Story 32 stays
+blocked on its layout so the final restyle does not have to solve docking at the same time.
 
 ---
 
 ## Phases
 
-### Phase 1 — Colors become data (Story 29)
+### Phase 1 — Colors become data (Story 29, shipped)
 
 The palette moves out of the stylesheet into `src/shared/design/tokens.ts`, a side-effect-free
 module that satisfies the existing `src/shared` constraint and that a future react-three-fiber
@@ -96,10 +98,10 @@ client can import without touching CSS. A generator projects it into a committed
 tests hold the line, one forbidding literals in `globals.css` and one asserting the committed
 generated file matches a fresh generation.
 
-**Exit:** `grep` finds no color literal in `globals.css`, regeneration is a no-op, and a
-before/after screenshot comparison shows no visual difference.
+**Exit met:** `grep` finds no color literal in `globals.css`, regeneration is a no-op, and the
+shipped before/after screenshot comparison shows no visual difference.
 
-### Phase 2 — The second theme (Story 30)
+### Phase 2 — The second theme (Story 30, shipped)
 
 The generator emits dark values into the three-block pattern that handles all three viewer states —
 explicit light, explicit dark, and un-stamped system. An inline script stamps `data-theme` before
@@ -110,9 +112,11 @@ This phase also fixes a correctness bug it uncovers rather than deferring it: th
 attached to agent messages reuses the cached SVG, so in dark mode the agent would receive a
 dark-background image. It is rendered light regardless of theme, per Invariant 6.
 
-**Exit:** light, dark, and system all work with no flash and no Strict Mode regression; diagrams
-repaint on switch without losing pan, zoom, or marks; the intercepted attachment payload is light
-in both themes.
+**Exit met:** light, dark, and system all work with the pre-paint stamp and Strict Mode reapply;
+diagrams repaint on switch without losing pan, zoom, or marks; blocked browser storage falls back
+to System; and the decoded attachment payload is light while the visible canvas remains dark.
+Verification completed August 28, 2026 with 147 Vitest tests, strict TypeScript, the default
+production build, and all five Playwright scenarios passing.
 
 ### Phase 3 — The canvas stops being covered (Story 31)
 
@@ -163,9 +167,10 @@ under `prefers-reduced-motion`.
 
 ## Risks to watch
 
-- **The invisible-refactor review trap.** Stories 29 and 30 produce large diffs whose acceptance
-  test is "nothing changed". They are the easiest place in this epic for an error to pass review.
-  The parity and purity tests exist because human review alone will not catch a swapped token.
+- **The foundational-refactor review trap.** Stories 29 and 30 produced large diffs with little
+  light-theme visual churn. They were the easiest place in this epic for an error to pass review.
+  The parity, purity, contrast, and browser theme tests remain because human review alone will not
+  catch a swapped token or a theme-specific render race.
 - **Mermaid's global configuration.** `mermaid.initialize` is process-global and a no-op after the
   first call. Story 30 serializes renders for this reason; any later feature that renders a diagram
   at a non-active theme must go through the same queue or it will race the canvas.

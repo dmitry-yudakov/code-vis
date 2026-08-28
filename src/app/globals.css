@@ -45,13 +45,17 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .project-search-option.selected { background: var(--selected-wash); }
 .project-search-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
 .project-search-option small { overflow: hidden; color: var(--muted); font: 9px/1.3 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-.project-search-option i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--live); font-style: normal; }
+.project-search-option i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--live-ink); font-style: normal; }
 .project-search-empty { padding: 24px 12px; color: var(--muted); text-align: center; font-size: 11px; }
 .thread-picker { min-width: 0; display: flex; align-items: flex-end; gap: 8px; }
 .provider-select select { min-width: 82px; max-width: 100px; }
 .new-thread-button, .header-actions button { padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--header-control-backdrop); font-size: 12px; font-weight: 600; }
 .new-thread-button:hover, .header-actions button:hover { background: var(--raised); border-color: var(--faint); }
 .header-actions { display: flex; align-items: center; gap: 10px; }
+.theme-selector { flex: none; display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--header-control-backdrop); }
+.header-actions .theme-selector button { padding: 4px 7px; border: 0; background: transparent; color: var(--muted); font-size: 10px; }
+.header-actions .theme-selector button:hover { border-color: transparent; background: var(--raised); color: var(--ink); }
+.header-actions .theme-selector button.active { color: var(--on-emphasis); background: var(--plot); }
 .health-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .health-pill > span { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); }
 .health-pill.ready > span { background: var(--live); box-shadow: 0 0 0 3px var(--live-halo); }
@@ -161,7 +165,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .add-agent-menu select { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--shell); font-size: 11px; }
 .add-agent-menu button, .make-main-action { padding: 7px 9px; border: 0; border-radius: 8px; color: var(--on-emphasis); background: var(--live); font-size: 10px; font-weight: 700; }
 .add-agent-menu > div > button { grid-column: 1 / -1; }
-.make-main-action { justify-self: start; color: var(--live); background: var(--live-wash); }
+.make-main-action { justify-self: start; color: var(--live-ink); background: var(--live-wash); }
 .handoff-actions { min-width: 0; display: flex; gap: 5px; overflow-x: auto; }
 .handoff-actions button { flex: none; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--plot-ink-muted); background: var(--raised-backdrop-medium); font-size: 9px; }
 .handoff-actions button:hover:not(:disabled) { border-color: var(--plot-line); background: var(--raised); }
@@ -248,11 +252,11 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .navigator-item { margin-bottom: 9px; padding: 9px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
 .navigator-item.active { border-color: var(--plot); }
 .navigator-select { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; text-align: left; background: transparent; }
-.version-number { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--plot); background: var(--plot-wash); font: 10px/1 var(--mono); }
+.version-number { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--plot-ink); background: var(--plot-wash); font: 10px/1 var(--mono); }
 .navigator-select > span:last-child { display: grid; gap: 3px; }
 .navigator-select strong { font-size: 12px; }
 .navigator-select small { color: var(--muted); font-size: 9px; }
-.lineage { margin: 7px 0 0 42px; color: var(--live); font-size: 9px; }
+.lineage { margin: 7px 0 0 42px; color: var(--live-ink); font-size: 9px; }
 .navigator-actions { margin: 8px 0 0 42px; display: flex; gap: 6px; }
 .navigator-actions button { border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; color: var(--muted); background: var(--neutral-wash-raised); font-size: 9px; }
 
@@ -308,7 +312,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .git-branch-summary > div { min-width: 0; display: grid; gap: 3px; }
 .git-branch-summary small { color: var(--muted); font: 9px/1 var(--mono); text-transform: uppercase; }
 .git-branch-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 12px/1.2 var(--mono); }
-.git-branch-summary em { color: var(--live); font: 600 9px/1 var(--mono); font-style: normal; }
+.git-branch-summary em { color: var(--live-ink); font: 600 9px/1 var(--mono); font-style: normal; }
 .git-change-heading { display: flex; align-items: end; justify-content: space-between; gap: 8px; padding: 22px 4px 9px; }
 .git-change-heading > div:first-child { display: grid; gap: 5px; }
 .git-change-heading strong { font-size: 12px; }
@@ -327,7 +331,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .repository-file-path strong, .repository-file-path small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repository-file-path strong { font-size: 11px; }
 .repository-file-path small { color: var(--muted); font: 9px/1.2 var(--mono); }
-.repository-file-path .previous-path { color: var(--live); }
+.repository-file-path .previous-path { color: var(--live-ink); }
 .git-stage-marks { display: flex; gap: 3px; }
 .git-stage-marks i { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 5px; color: var(--live-ink-soft); background: var(--live-wash); font: 800 8px/1 var(--mono); font-style: normal; }
 .git-stage-marks i[title="Working tree"] { color: var(--wait); background: var(--wait-wash-muted); }

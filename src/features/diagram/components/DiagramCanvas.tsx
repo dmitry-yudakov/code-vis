@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, DrawingMark, DrawingTool, Point } from '@/shared/types';
 import { drawingReducer } from '@/features/diagram/annotations/drawingReducer';
 import { createUuid } from '@/shared/uuid';
@@ -48,12 +49,14 @@ function markElement(mark: DrawingMark) {
 
 export function DiagramCanvas({
   target,
+  theme,
   initialMarks,
   onMarksChange,
   onSnapshot,
   onArtifactError,
 }: {
   target: CanvasTarget;
+  theme: ThemeName;
   initialMarks: DrawingMark[];
   onMarksChange(marks: DrawingMark[]): void;
   onSnapshot(snapshot?: Snapshot): void;
@@ -64,6 +67,7 @@ export function DiagramCanvas({
   const sketch = target.kind === 'sketch' ? target.sketch : undefined;
   const viewportRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
+  const fittedCanvasRef = useRef<string | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [renderError, setRenderError] = useState<string>();
   const [tool, setTool] = useState<DrawingTool>('pointer');
@@ -77,6 +81,7 @@ export function DiagramCanvas({
     dispatch({ type: 'reset', marks: initialMarks });
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    fittedCanvasRef.current = undefined;
   }, [canvasId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => onMarksChange(state.marks), [state.marks, onMarksChange]);
@@ -98,7 +103,7 @@ export function DiagramCanvas({
       return;
     }
     if (!artifact || artifact.status !== 'ready') return;
-    void renderMermaid(`codeai-${artifact.id.replaceAll('-', '')}`, artifact.source).then((result) => {
+    void renderMermaid(`codeai-${artifact.id.replaceAll('-', '')}`, artifact.source, theme).then((result) => {
       if (!current) return;
       setSnapshot(result);
       onSnapshot(result);
@@ -109,7 +114,7 @@ export function DiagramCanvas({
       onArtifactError('parse-error', message);
     });
     return () => { current = false; };
-  }, [artifact?.id, artifact?.source, artifact?.status, sketchSheet, onArtifactError, onSnapshot]);
+  }, [artifact?.id, artifact?.source, artifact?.status, sketchSheet, theme, onArtifactError, onSnapshot]);
 
   const fit = useCallback(() => {
     if (!snapshot || !viewportRef.current) return;
@@ -118,7 +123,11 @@ export function DiagramCanvas({
     setPan({ x: 0, y: 0 });
   }, [snapshot]);
 
-  useEffect(() => { if (snapshot) fit(); }, [snapshot, fit]);
+  useEffect(() => {
+    if (!snapshot || fittedCanvasRef.current === canvasId) return;
+    fittedCanvasRef.current = canvasId;
+    fit();
+  }, [canvasId, snapshot, fit]);
 
   useEffect(() => {
     const shortcuts: Record<string, DrawingTool> = { v: 'pointer', h: 'pan', p: 'pen', r: 'rectangle', a: 'arrow', t: 'text', e: 'eraser' };
@@ -239,7 +248,7 @@ export function DiagramCanvas({
           <div className="diagram-scene" style={sceneStyle}>
             {sketch
               ? <div className="sketch-sheet" aria-label="Blank sketch sheet" />
-              : <div className="mermaid-layer" dangerouslySetInnerHTML={{ __html: snapshot.svg }} />}
+              : <div className="mermaid-layer" data-mermaid-theme={theme} dangerouslySetInnerHTML={{ __html: snapshot.svg }} />}
             <svg
               ref={overlayRef}
               className="ink-layer"

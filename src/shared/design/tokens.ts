@@ -131,7 +131,7 @@ const light = {
   faint: '#a99d8d',
   line: '#d9cbb6',
   lineStrong: '#cfbea6',
-  live: '#73805b',
+  live: '#66734f',
   liveWash: '#e7eed7',
   wait: '#8c491a',
   waitWash: '#fff2eb',

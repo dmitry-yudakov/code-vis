@@ -24,9 +24,11 @@ import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/components/CanvasWorkspace';
 import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
+import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { reconcileThreadRun } from '@/features/conversation/runRecovery';
+import { useTheme, type ThemePreference } from './useTheme';
 
 interface Health {
   ok: boolean;
@@ -38,6 +40,7 @@ interface Health {
 
 const AGENT_MODES: readonly AgentMode[] = ['ask', 'plan', 'agent'];
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
+const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'system'];
 
 /** Sent when the user draws and hits send without typing anything. */
 const SKETCH_ONLY_INSTRUCTION = 'I drew the attached sketch. Read it as my instruction: say what you understand it to mean, then answer it against this repository.';
@@ -55,6 +58,7 @@ function updateArtifact(thread: ChatThread, id: string, update: (artifact: Diagr
 }
 
 export function AppShell() {
+  const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
   const [health, setHealth] = useState<Health>();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [recentProjectIds, setRecentProjectIds] = useState<string[]>([]);
@@ -604,11 +608,21 @@ export function AppShell() {
       const snapshot = id === thread.activeDiagramId ? snapshotRef.current : undefined;
       // A sketch has no rendered source, so its own sheet is the fallback frame for the marks.
       const fallbackViewBox = canvas.kind === 'sketch' ? canvas.sketch.viewBox : [0, 0, 1, 1] as const;
-      const viewBox = snapshot?.viewBox || fallbackViewBox;
+      let viewBox = snapshot?.viewBox || fallbackViewBox;
       let png: string | undefined;
-      if (snapshot || canvas.kind === 'sketch') {
+      if (canvas.kind === 'diagram') {
         try {
-          png = await compositePng(snapshot?.svg || EMPTY_CANVAS_SVG, marks, viewBox as [number, number, number, number]);
+          const lightSnapshot = await renderMermaid(
+            `attachment-${id.replaceAll('-', '')}`,
+            canvas.artifact.source,
+            'light',
+          );
+          viewBox = lightSnapshot.viewBox;
+          png = await compositePng(lightSnapshot.svg, marks, lightSnapshot.viewBox);
+        } catch { compositeWarning = true; }
+      } else {
+        try {
+          png = await compositePng(EMPTY_CANVAS_SVG, marks, viewBox as [number, number, number, number]);
         } catch { compositeWarning = true; }
       }
       attachmentPayload.push({
@@ -878,6 +892,19 @@ export function AppShell() {
           />
         </div>
         <div className="header-actions">
+          <div className="theme-selector" role="group" aria-label="Theme">
+            {THEME_PREFERENCES.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                className={themePreference === choice ? 'active' : ''}
+                aria-pressed={themePreference === choice}
+                onClick={() => setThemePreference(choice)}
+              >
+                {choice[0].toUpperCase() + choice.slice(1)}
+              </button>
+            ))}
+          </div>
           {projectId && (
             <button
               type="button"
@@ -935,6 +962,7 @@ export function AppShell() {
         <>
           <CanvasWorkspace
             thread={thread}
+            theme={theme}
             running={running}
             status={status}
             unread={unread}
@@ -952,6 +980,7 @@ export function AppShell() {
           <ConversationDrawer
             open={chatOpen}
             thread={thread}
+            theme={theme}
             agents={agents}
             activeAgent={activeAgent}
             healthyProviders={selectableProviders}
