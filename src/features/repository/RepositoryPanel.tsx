@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+
 import type { GitWorkingTree } from '@/shared/types';
 import { RepositoryChangesView } from './RepositoryChangesView';
 import { RepositoryDiffInspector } from './RepositoryDiffInspector';
@@ -10,14 +12,19 @@ import { useRepositoryChanges } from './useRepositoryChanges';
  * Repository-view composition point. A future file-tree view belongs here beside `changes`,
  * while the sidebar chrome and each view's data controller remain independent.
  */
-export function RepositoryPanel({ projectId, projectName, open, onClose, onTreeChange }: {
+export function RepositoryPanel({ projectId, projectName, open, onClose, onTreeChange, onInspectorOpenChange }: {
   projectId: string;
   projectName: string;
   open: boolean;
   onClose(): void;
   onTreeChange(tree?: GitWorkingTree): void;
+  onInspectorOpenChange(open: boolean): void;
 }) {
   const changes = useRepositoryChanges(projectId, onTreeChange);
+
+  useEffect(() => {
+    onInspectorOpenChange(Boolean(changes.selectedFile));
+  }, [changes.selectedFile, onInspectorOpenChange]);
 
   return (
     <RepositorySidebar

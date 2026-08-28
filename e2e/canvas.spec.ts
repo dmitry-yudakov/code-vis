@@ -33,6 +33,50 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
   await expect(page.locator('.canvas-context strong')).toContainText('Diagram 1 of 1');
 
+  // At desktop width both panels are real columns, and Fit targets the unobstructed canvas rect.
+  await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-2/);
+  const repository = page.getByRole('complementary', { name: 'Repository' });
+  const [repositoryBox, canvasBox, conversationBox] = await Promise.all([
+    repository.boundingBox(),
+    page.locator('.canvas-workspace').boundingBox(),
+    conversation.boundingBox(),
+  ]);
+  expect(repositoryBox).not.toBeNull();
+  expect(canvasBox).not.toBeNull();
+  expect(conversationBox).not.toBeNull();
+  expect(repositoryBox!.x + repositoryBox!.width).toBeLessThanOrEqual(canvasBox!.x + 1);
+  expect(canvasBox!.x + canvasBox!.width).toBeLessThanOrEqual(conversationBox!.x + 1);
+  await page.getByRole('button', { name: 'Fit' }).click();
+  const fitted = await page.evaluate(() => {
+    const stage = document.querySelector<HTMLElement>('.canvas-stage')!;
+    const diagram = document.querySelector<HTMLElement>('.mermaid-layer')!;
+    const stageBox = stage.getBoundingClientRect();
+    const diagramBox = diagram.getBoundingClientRect();
+    const styles = getComputedStyle(stage);
+    const inset = (name: string) => Number.parseFloat(styles.getPropertyValue(name)) || 0;
+    const visible = {
+      left: stageBox.left + inset('--canvas-inset-left'),
+      right: stageBox.right - inset('--canvas-inset-right'),
+      top: stageBox.top + inset('--canvas-inset-top'),
+      bottom: stageBox.bottom - inset('--canvas-inset-bottom'),
+    };
+    return {
+      inside: diagramBox.left >= visible.left && diagramBox.right <= visible.right
+        && diagramBox.top >= visible.top && diagramBox.bottom <= visible.bottom,
+      centerDeltaX: Math.abs((diagramBox.left + diagramBox.right) / 2 - (visible.left + visible.right) / 2),
+      centerDeltaY: Math.abs((diagramBox.top + diagramBox.bottom) / 2 - (visible.top + visible.bottom) / 2),
+    };
+  });
+  expect(fitted.inside).toBe(true);
+  expect(fitted.centerDeltaX).toBeLessThan(2);
+  expect(fitted.centerDeltaY).toBeLessThan(2);
+
+  const repositorySeparator = page.getByRole('separator', { name: 'Resize repository panel' });
+  const repositoryWidth = Number(await repositorySeparator.getAttribute('aria-valuenow'));
+  await repositorySeparator.press('ArrowRight');
+  await expect(repositorySeparator).toHaveAttribute('aria-valuenow', String(repositoryWidth + 8));
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:panel-widths'))).toContain(`"repositoryWidth":${repositoryWidth + 8}`);
+
   // The canvas keeps every pixel for the diagram; the composer lives in the drawer.
   await page.getByRole('button', { name: 'Close conversation' }).click();
   await expect(page.locator('.instruction-composer')).toHaveCount(0);
@@ -45,22 +89,20 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width * .55, box!.y + box!.height * .55, { steps: 8 });
   await page.mouse.up();
-  await expect(page.locator('.canvas-ask-chip')).toContainText('1 marks');
-
   await openConversation.click();
   await expect(page.locator('.attachment-chip')).toContainText('1 marks');
   await page.getByRole('button', { name: 'Close conversation' }).click();
 
   await page.getByRole('button', { name: 'Focus' }).click();
   await expect(page.locator('.canvas-workspace')).toHaveClass(/focus-mode/);
+  await expect(repository).toBeHidden();
+  await page.getByRole('button', { name: 'Exit focus' }).click();
   await openConversation.click();
   const revisionComposer = page.getByPlaceholder(/Ask about or revise/);
   await revisionComposer.fill('Revise it with a context step');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByRole('button', { name: /Previous version/ })).toBeVisible();
   await expect(page.locator('.canvas-context strong')).toContainText('Diagram 2 of 2');
-  await page.getByRole('button', { name: 'Exit focus' }).click();
-
   await page.getByPlaceholder(/Ask about or revise/).fill('Show two alternatives');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.canvas-context strong')).toContainText('Diagram 2 of 4');
@@ -125,8 +167,6 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width * .6, box!.y + box!.height * .5, { steps: 8 });
   await page.mouse.up();
-  await expect(page.locator('.canvas-ask-chip')).toContainText('sketch attached · 1 marks');
-
   await page.getByRole('button', { name: 'Open conversation' }).click();
   await expect(page.locator('.attachment-chip')).toContainText('Your sketch included · 1 marks');
   // The drawing is the instruction: sending needs no typed text.
@@ -218,6 +258,54 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   await reloadedConversation.locator('.participant-chip').filter({ hasText: 'Reviewer' }).click();
   await reloadedConversation.getByRole('button', { name: 'Make @Claude Reviewer the main agent' }).click();
   await expect(reloadedConversation.locator('.participant-chip.active')).toContainText('Main');
+});
+
+test('docks only the panels that fit the live shell width', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 720 });
+  await page.goto('/');
+  await page.locator('.new-thread-button').click();
+
+  const shell = page.locator('.app-shell');
+  const repository = page.getByRole('complementary', { name: 'Repository' });
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(shell).toHaveClass(/dock-capacity-1/);
+  await expect(conversation).toBeVisible();
+  await expect(repository).toBeHidden();
+
+  // At one-panel capacity, the newly opened repository replaces the conversation column.
+  await page.locator('.repository-toggle').click();
+  await expect(repository).toBeVisible();
+  await expect(conversation).toBeHidden();
+
+  // Below the one-panel minimum both surfaces become overlays and can remain open together.
+  await page.setViewportSize({ width: 600, height: 720 });
+  await expect(shell).toHaveClass(/dock-capacity-0/);
+  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await expect(repository).toBeVisible();
+  await expect(conversation).toBeVisible();
+  await expect(repository).toHaveCSS('position', 'absolute');
+  await expect(page.locator('.repository-region')).toHaveCSS('position', 'fixed');
+  await expect(page.locator('.conversation-region')).toHaveCSS('position', 'fixed');
+
+  const conversationSeparator = page.getByRole('separator', { name: 'Resize conversation panel' });
+  const conversationWidth = Number(await conversationSeparator.getAttribute('aria-valuenow'));
+  await conversationSeparator.press('ArrowLeft');
+  await expect(conversationSeparator).toHaveAttribute('aria-valuenow', String(conversationWidth + 8));
+
+  // Widening restores both as columns while retaining at least 360px for the canvas.
+  await page.setViewportSize({ width: 1000, height: 720 });
+  await expect(shell).toHaveClass(/dock-capacity-2/);
+  const [repositoryBox, canvasBox, conversationBox] = await Promise.all([
+    repository.boundingBox(),
+    page.locator('.canvas-workspace').boundingBox(),
+    conversation.boundingBox(),
+  ]);
+  expect(repositoryBox).not.toBeNull();
+  expect(canvasBox).not.toBeNull();
+  expect(conversationBox).not.toBeNull();
+  expect(canvasBox!.width).toBeGreaterThanOrEqual(360);
+  expect(repositoryBox!.x + repositoryBox!.width).toBeLessThanOrEqual(canvasBox!.x + 1);
+  expect(canvasBox!.x + canvasBox!.width).toBeLessThanOrEqual(conversationBox!.x + 1);
 });
 
 test('switches themes, repaints Mermaid, and keeps attachment composites light', async ({ page }) => {

@@ -1,5 +1,6 @@
 'use client';
 
+import type { Ref } from 'react';
 import type { DrawingTool } from '@/shared/types';
 
 const TOOLS: Array<{ id: DrawingTool; icon: string; label: string; shortcut: string }> = [
@@ -13,7 +14,7 @@ const TOOLS: Array<{ id: DrawingTool; icon: string; label: string; shortcut: str
 ];
 
 export function DrawingToolbar({
-  tool, onTool, canUndo, canRedo, onUndo, onRedo, onClear,
+  tool, onTool, canUndo, canRedo, onUndo, onRedo, onClear, rootRef,
 }: {
   tool: DrawingTool;
   onTool(tool: DrawingTool): void;
@@ -22,9 +23,10 @@ export function DrawingToolbar({
   onUndo(): void;
   onRedo(): void;
   onClear(): void;
+  rootRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div className="drawing-toolbar" role="toolbar" aria-label="Diagram drawing tools">
+    <div ref={rootRef} className="drawing-toolbar" role="toolbar" aria-label="Diagram drawing tools">
       {TOOLS.map((item) => (
         <button
           key={item.id}

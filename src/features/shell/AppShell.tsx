@@ -29,6 +29,8 @@ import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { reconcileThreadRun } from '@/features/conversation/runRecovery';
 import { useTheme, type ThemePreference } from './useTheme';
+import { usePanelLayout } from './usePanelLayout';
+import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
   ok: boolean;
@@ -64,6 +66,8 @@ export function AppShell() {
   const [recentProjectIds, setRecentProjectIds] = useState<string[]>([]);
   const [projectDiscoveryDepth, setProjectDiscoveryDepth] = useState(1);
   const [projectId, setProjectId] = useState('');
+  const shellRef = useRef<HTMLDivElement>(null);
+  const panelLayout = usePanelLayout(shellRef, Boolean(projectId));
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [threadId, setThreadId] = useState<string>();
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
@@ -75,9 +79,6 @@ export function AppShell() {
   const [toolActivity, setToolActivity] = useState<ToolActivityEntry[]>([]);
   const [permissions, setPermissions] = useState<PendingPermission[]>([]);
   const [decidingPermission, setDecidingPermission] = useState<string>();
-  const [chatOpen, setChatOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [repositoryOpen, setRepositoryOpen] = useState(true);
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
   const [unread, setUnread] = useState(0);
   const [pendingAttachmentIds, setPendingAttachmentIds] = useState<string[]>([]);
@@ -95,8 +96,8 @@ export function AppShell() {
   const threadsRef = useRef<ChatThread[]>([]);
   const mutationQueues = useRef(new Map<string, Promise<void>>());
   const annotationTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const chatOpenRef = useRef(chatOpen);
-  chatOpenRef.current = chatOpen;
+  const chatOpenRef = useRef(panelLayout.conversationOpen);
+  chatOpenRef.current = panelLayout.conversationOpen;
   const runningRef = useRef(running);
   runningRef.current = running;
   threadsRef.current = threads;
@@ -274,12 +275,12 @@ export function AppShell() {
       if (!response.ok || !data.thread) throw new Error(data.error || 'Could not create a conversation.');
       const created = applyServerSnapshot(data.thread);
       setThreadId(created.id);
-      setChatOpen(true);
+      panelLayout.openConversation();
       setMissingSession(false);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a conversation.');
     }
-  }, [applyServerSnapshot, newProvider, projectId, running]);
+  }, [applyServerSnapshot, newProvider, panelLayout.openConversation, projectId, running]);
 
   const switchProject = (next: string) => {
     if (next === projectId) return;
@@ -291,10 +292,10 @@ export function AppShell() {
     setThreads([]);
     setThreadId(undefined);
     setUnread(0);
-    setChatOpen(false);
-    setHistoryOpen(false);
+    panelLayout.closeConversation();
+    panelLayout.closeHistory();
     setRepositoryTree(undefined);
-    setRepositoryOpen(true);
+    panelLayout.openRepository();
   };
 
   const selectDiagram = useCallback((id: string) => {
@@ -865,10 +866,26 @@ export function AppShell() {
     void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent', participantId });
   }, [health, send, thread?.participants]);
 
-  if (loading) return <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>;
+  // Keep the loading surface in the named canvas area. Rendering the interactive header only
+  // after hydration also lets its device-owned theme controls reflect the pre-paint preference.
+  if (loading) {
+    return (
+      <div
+        ref={shellRef}
+        className={`app-shell dock-capacity-${panelLayout.dockCapacity}`}
+        style={panelLayout.shellStyle}
+      >
+        <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`app-shell ${repositoryOpen && projectId ? 'repository-open' : ''}`}>
+    <div
+      ref={shellRef}
+      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${panelLayout.focusMode ? 'focus-mode' : ''}`}
+      style={panelLayout.shellStyle}
+    >
       <header className="app-header">
         <div className="brand"><span className="brand-mark">C</span><span><strong>CodeAI</strong><small>conversational code canvas</small></span></div>
         <div className="header-pickers">
@@ -909,10 +926,33 @@ export function AppShell() {
             <button
               type="button"
               className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
-              aria-pressed={repositoryOpen}
-              onClick={() => setRepositoryOpen((current) => !current)}
+              aria-pressed={panelLayout.repositoryOpen}
+              onClick={panelLayout.toggleRepository}
             >
               Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
+            </button>
+          )}
+          {thread && (
+            <button
+              type="button"
+              className={`run-status-toggle ${running ? 'working' : ''} ${permissions.length ? 'awaiting-approval' : ''}`}
+              aria-pressed={panelLayout.conversationOpen}
+              aria-label={permissions.length > 0
+                ? `${permissions.length} action${permissions.length === 1 ? '' : 's'} waiting for your approval. Open conversation`
+                : running ? `Agent working: ${status}. Open conversation` : 'Open conversation'}
+              title={running || permissions.length ? status : 'Open conversation'}
+              onClick={() => {
+                if (panelLayout.conversationOpen) panelLayout.closeConversation();
+                else {
+                  panelLayout.openConversation();
+                  setUnread(0);
+                }
+              }}
+            >
+              <span className="run-status-dot" aria-hidden="true" />
+              <span>{permissions.length ? 'Approval needed' : running ? status : 'Conversation'}</span>
+              {permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
+              {unread > 0 && <span className="unread-badge">{unread}</span>}
             </button>
           )}
           <span
@@ -926,13 +966,30 @@ export function AppShell() {
       </header>
 
       {projectId && selectedProject && (
-        <RepositoryPanel
-          projectId={projectId}
-          projectName={selectedProject.name}
-          open={repositoryOpen}
-          onClose={() => setRepositoryOpen(false)}
-          onTreeChange={setRepositoryTree}
-        />
+        <div className="repository-region">
+          <RepositoryPanel
+            projectId={projectId}
+            projectName={selectedProject.name}
+            open={panelLayout.repositoryOpen}
+            onClose={panelLayout.closeRepository}
+            onTreeChange={setRepositoryTree}
+            onInspectorOpenChange={panelLayout.setInspectorOpen}
+          />
+          {panelLayout.repositoryOpen && (
+            <div
+              className="panel-resize-handle repository-resize-handle"
+              role="separator"
+              tabIndex={0}
+              aria-label="Resize repository panel"
+              aria-orientation="vertical"
+              aria-valuemin={REPOSITORY_MIN_WIDTH}
+              aria-valuemax={panelLayout.repositoryMaximum}
+              aria-valuenow={Math.round(panelLayout.repositoryPanelWidth)}
+              onPointerDown={(event) => panelLayout.beginResize('repository', event)}
+              onKeyDown={(event) => panelLayout.resizeByKeyboard('repository', event)}
+            />
+          )}
+        </div>
       )}
 
       {notice && (
@@ -963,63 +1020,78 @@ export function AppShell() {
           <CanvasWorkspace
             thread={thread}
             theme={theme}
-            running={running}
-            status={status}
             unread={unread}
             pendingApprovals={permissions.length}
-            markCount={thread.activeDiagramId ? thread.annotations[thread.activeDiagramId]?.marks.length || 0 : 0}
+            focusMode={panelLayout.focusMode}
             onComposer={setComposer}
-            onOpenChat={() => { setChatOpen(true); setHistoryOpen(false); setUnread(0); }}
-            onOpenHistory={() => { setHistoryOpen(true); setChatOpen(false); }}
+            onOpenChat={() => { panelLayout.openConversation(); setUnread(0); }}
+            onOpenHistory={panelLayout.openHistory}
+            onToggleFocus={panelLayout.toggleFocusMode}
             onSelectDiagram={selectDiagram}
             onNewSketch={createSketch}
             onMarksChange={handleMarksChange}
             onSnapshot={handleSnapshot}
             onArtifactError={handleArtifactError}
           />
-          <ConversationDrawer
-            open={chatOpen}
-            thread={thread}
-            theme={theme}
-            agents={agents}
-            activeAgent={activeAgent}
-            healthyProviders={selectableProviders}
-            participantBusy={participantBusy}
-            preview={preview}
-            toolActivity={toolActivity}
-            permissions={permissions}
-            decidingPermission={decidingPermission}
-            running={running}
-            status={status}
-            composer={composer}
-            mode={mode}
-            unsupportedModes={unsupportedModes}
-            attached={attachedCanvases}
-            markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), thread.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
-            onClose={() => setChatOpen(false)}
-            onSelectDiagram={(id) => selectDiagram(id)}
-            onRetry={(text, participantId, retryMode) => prefillHandoff(participantId, text, retryMode)}
-            onComposer={setComposer}
-            onModeChange={setMode}
-            onSelectAgent={selectAgent}
-            onMakePrimary={(participantId) => void setPrimaryAgent(participantId)}
-            onAddAgent={(provider, role) => void addAgent(provider, role)}
-            onHandoff={prefillHandoff}
-            onSend={() => void send()}
-            onCancel={() => void cancelRun()}
-            onRemoveAttachment={removeAttachment}
-            onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
-            onExecutePlan={executePlan}
-          />
-          <DiagramNavigator
-            open={historyOpen}
-            thread={thread}
-            pendingAttachmentIds={pendingAttachmentIds}
-            onClose={() => setHistoryOpen(false)}
-            onSelect={(id) => { selectDiagram(id); setHistoryOpen(false); }}
-            onPin={togglePin}
-            onToggleAttachment={toggleAttachment}
-          />
+          <div className="conversation-region">
+            <ConversationDrawer
+              open={panelLayout.conversationOpen}
+              thread={thread}
+              theme={theme}
+              agents={agents}
+              activeAgent={activeAgent}
+              healthyProviders={selectableProviders}
+              participantBusy={participantBusy}
+              preview={preview}
+              toolActivity={toolActivity}
+              permissions={permissions}
+              decidingPermission={decidingPermission}
+              running={running}
+              status={status}
+              composer={composer}
+              mode={mode}
+              unsupportedModes={unsupportedModes}
+              attached={attachedCanvases}
+              markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), thread.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
+              onClose={panelLayout.closeConversation}
+              onSelectDiagram={(id) => selectDiagram(id)}
+              onRetry={(text, participantId, retryMode) => prefillHandoff(participantId, text, retryMode)}
+              onComposer={setComposer}
+              onModeChange={setMode}
+              onSelectAgent={selectAgent}
+              onMakePrimary={(participantId) => void setPrimaryAgent(participantId)}
+              onAddAgent={(provider, role) => void addAgent(provider, role)}
+              onHandoff={prefillHandoff}
+              onSend={() => void send()}
+              onCancel={() => void cancelRun()}
+              onRemoveAttachment={removeAttachment}
+              onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
+              onExecutePlan={executePlan}
+            />
+            <DiagramNavigator
+              open={panelLayout.historyOpen}
+              thread={thread}
+              pendingAttachmentIds={pendingAttachmentIds}
+              onClose={panelLayout.closeHistory}
+              onSelect={(id) => { selectDiagram(id); panelLayout.closeHistory(); }}
+              onPin={togglePin}
+              onToggleAttachment={toggleAttachment}
+            />
+            {(panelLayout.conversationOpen || panelLayout.historyOpen) && (
+              <div
+                className="panel-resize-handle conversation-resize-handle"
+                role="separator"
+                tabIndex={0}
+                aria-label="Resize conversation panel"
+                aria-orientation="vertical"
+                aria-valuemin={CONVERSATION_MIN_WIDTH}
+                aria-valuemax={panelLayout.conversationMaximum}
+                aria-valuenow={Math.round(panelLayout.conversationPanelWidth)}
+                onPointerDown={(event) => panelLayout.beginResize('conversation', event)}
+                onKeyDown={(event) => panelLayout.resizeByKeyboard('conversation', event)}
+              />
+            )}
+          </div>
         </>
       )}
     </div>

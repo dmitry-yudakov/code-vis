@@ -9,8 +9,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline: 3px solid var(--focus-color); outline-offset: 2px; }
 ::selection { background: var(--plot-wash); }
 
-.app-shell { height: 100dvh; display: grid; grid-template-rows: 64px minmax(0, 1fr); background: var(--shell); }
-.app-header { display: flex; align-items: center; gap: 28px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--header-backdrop); z-index: 20; }
+.app-shell { height: 100dvh; display: grid; grid-template-rows: 64px minmax(0, 1fr); grid-template-columns: [rail] var(--repository-column-width, 0) [canvas] minmax(min(360px, 100vw), 1fr) [dock] var(--conversation-column-width, 0); grid-template-areas: "header header header" "rail canvas dock"; background: var(--shell); }
+.app-header { grid-area: header; display: flex; align-items: center; gap: 28px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--header-backdrop); z-index: 20; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 215px; }
 .brand > span:last-child { display: grid; line-height: 1.05; }
 .brand strong { font: 700 19px/1 var(--display); letter-spacing: -.02em; }
@@ -60,9 +60,14 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .health-pill > span { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); }
 .health-pill.ready > span { background: var(--live); box-shadow: 0 0 0 3px var(--live-halo); }
 .health-pill.warning { color: var(--wait); background: var(--wait-wash); border-color: var(--wait-line); }
+.run-status-toggle { min-width: 0; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; }
+.run-status-toggle > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--idle); }
+.run-status-toggle.working .run-status-dot { background: var(--live); animation: pulse 1.3s infinite; }
+.run-status-toggle.awaiting-approval { color: var(--wait); border-color: var(--wait-line-strong); background: var(--wait-wash); }
+.run-status-toggle.awaiting-approval .run-status-dot { background: var(--wait); }
 
-.canvas-workspace { min-height: 0; position: relative; display: grid; grid-template-rows: 52px minmax(0, 1fr); background: var(--sheet); overflow: hidden; }
-.canvas-workspace.focus-mode { position: fixed; inset: 0; z-index: 50; height: 100dvh; }
+.canvas-workspace { grid-area: canvas; min-width: 0; min-height: 0; position: relative; display: grid; grid-template-rows: 52px minmax(0, 1fr); background: var(--sheet); overflow: hidden; }
 .canvas-workspace.focus-mode .canvas-topbar { background: var(--sheet-backdrop); }
 .canvas-topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 18px; border-bottom: 1px solid var(--line-backdrop); background: var(--sheet-sunk); z-index: 8; }
 .canvas-context { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -74,14 +79,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .canvas-top-actions button:hover { border-color: var(--faint); transform: translateY(-1px); }
 .button-count { margin-left: 5px; color: var(--plot); }
 .unread-badge { min-width: 18px; height: 18px; margin-left: 5px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--absolute-white); background: var(--plot); font-size: 9px; }
-.canvas-stage { position: relative; min-height: 0; overflow: hidden; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--grid) 1px, transparent 0); background-size: 24px 24px; }
+.canvas-stage { --canvas-inset-top: 0px; --canvas-inset-right: 0px; --canvas-inset-bottom: 0px; --canvas-inset-left: 0px; position: relative; min-height: 0; overflow: hidden; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--grid) 1px, transparent 0); background-size: 24px 24px; }
 .canvas-stage::after { content: ""; pointer-events: none; position: absolute; inset: 0; box-shadow: inset 0 0 90px var(--canvas-vignette); }
-.canvas-ask { position: absolute; z-index: 10; left: 16px; bottom: 16px; max-width: calc(100% - 32px); display: flex; align-items: center; gap: 9px; padding: 8px 14px 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--floating-backdrop); box-shadow: var(--shadow); backdrop-filter: blur(8px); font-size: 12px; }
-.canvas-ask:hover { border-color: var(--plot-line); transform: translateY(-1px); }
-.canvas-ask-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
-.canvas-ask.working .canvas-ask-dot { background: var(--plot-bright); animation: pulse 1.3s infinite; }
-.canvas-ask-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.canvas-ask-chip { flex: none; padding: 3px 8px; border-radius: 999px; color: var(--live-ink-deep); background: var(--live-wash); font: 500 10px/1.3 var(--mono); }
 .inline-status { display: flex; align-items: center; gap: 7px; padding-left: 4px; color: var(--muted); font-size: 10px; }
 .inline-status > span { width: 6px; height: 6px; border-radius: 50%; background: var(--live); }
 .inline-status.working > span { background: var(--plot-bright); animation: pulse 1.3s infinite; }
@@ -148,7 +147,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 
 /* The explicit minmax(0, 1fr) column matters: an auto column sizes to max-content, so one wide
    row (composer, long path, code span) would silently push the rest of the panel out of view. */
-.conversation-drawer, .diagram-navigator { position: fixed; z-index: 60; top: 74px; bottom: 10px; right: 10px; width: min(460px, calc(100vw - 20px)); display: grid; grid-template-rows: 64px minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--shell); box-shadow: var(--drawer-shadow); animation: drawer-in .2s ease-out; }
+.conversation-region { grid-area: dock; position: relative; min-width: 0; min-height: 0; z-index: 12; }
+.conversation-drawer, .diagram-navigator { position: absolute; z-index: 1; inset: 0; width: 100%; display: grid; grid-template-rows: 64px minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border-left: 1px solid var(--line); overflow: hidden; background: var(--shell); box-shadow: -12px 0 35px var(--drawer-shadow); }
 .conversation-drawer { grid-template-rows: 64px minmax(0,1fr) auto; }
 .drawer-composer { position: relative; z-index: 3; display: grid; gap: 5px; padding: 8px 10px 10px; overflow: visible; border-top: 1px solid var(--line); background: var(--shell-sunk); }
 .participant-controls { position: relative; min-width: 0; display: grid; gap: 6px; }
@@ -226,8 +226,6 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .plan-approval button:hover:not(:disabled) { background: var(--live-hover); }
 
 .approval-badge { min-width: 18px; height: 18px; margin-left: 5px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--on-emphasis); background: var(--wait); font: 700 9px/1 var(--mono); }
-.canvas-ask.awaiting-approval { border-color: var(--wait-line-strong); background: var(--wait-backdrop); }
-.canvas-ask.awaiting-approval .canvas-ask-dot { background: var(--wait); animation: pulse 1.3s infinite; }
 .stream-preview { margin: 0; white-space: pre-wrap; color: var(--muted); }
 .typing-cursor { display: inline-block; width: 6px; height: 1em; margin-left: 3px; vertical-align: -.15em; background: var(--plot); animation: blink .8s steps(1) infinite; }
 
@@ -265,7 +263,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .notice-banner button { border: 0; border-radius: 7px; padding: 5px 8px; color: var(--stop-ink); background: var(--stop-wash-strong); font-size: 10px; font-weight: 600; }
 .notice-banner button:last-child { width: 25px; height: 25px; padding: 0; border-radius: 50%; font-size: 16px; }
 
-.welcome-screen, .fatal-empty, .app-loading { grid-row: 2; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 35px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
+.welcome-screen, .fatal-empty, .app-loading { grid-area: canvas; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 35px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
 .welcome-screen > p { max-width: 590px; margin: 0; color: var(--muted); line-height: 1.65; }
 .welcome-orbit { position: relative; width: 115px; height: 115px; margin-bottom: 25px; display: grid; place-items: center; border: 1px solid var(--plot-orbit); border-radius: 50%; }
 .welcome-orbit::before { content: ""; position: absolute; inset: 17px; border: 1px solid var(--plot-orbit-inner); border-radius: 50%; }
@@ -278,7 +276,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .primary-cta span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--on-emphasis-wash); }
 .welcome-screen > small { margin-top: 16px; color: var(--faint); font: 9px/1.4 var(--mono); }
 .fatal-empty p { max-width: 600px; color: var(--muted); }
-.app-loading { height: 100dvh; gap: 15px; color: var(--muted); }
+.app-loading { gap: 15px; color: var(--muted); }
 .app-loading .brand-mark { width: 48px; height: 48px; font-size: 24px; animation: breathe 1.5s ease-in-out infinite; }
 
 .repository-toggle { display: inline-flex; align-items: center; gap: 6px; }
@@ -286,15 +284,30 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 .repository-toggle.dirty { color: var(--wait); border-color: var(--wait-line-strong); background: var(--plot-wash-soft); }
 .repository-toggle.dirty span { background: var(--plot); }
 
-.app-shell.repository-open > .canvas-workspace,
-.app-shell.repository-open > .welcome-screen,
-.app-shell.repository-open > .fatal-empty { margin-left: 340px; min-width: 0; }
-.app-shell.repository-open > .canvas-workspace.focus-mode { margin-left: 0; }
-
-.repository-sidebar { position: fixed; z-index: 15; left: 0; top: 64px; bottom: 0; width: 340px; display: grid; grid-template-columns: 340px; overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: 12px 0 35px var(--sidebar-shadow); animation: repository-in .18s ease-out; }
-.repository-sidebar.has-inspector { width: min(920px, calc(100vw - 12px)); grid-template-columns: 340px minmax(0, 1fr); box-shadow: 18px 0 55px var(--sidebar-inspector-shadow); }
+.repository-region { grid-area: rail; position: relative; min-width: 0; min-height: 0; z-index: 15; }
+.repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, var(--repository-panel-width)); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: 12px 0 35px var(--sidebar-shadow); }
+.repository-sidebar.has-inspector { grid-template-columns: minmax(0, var(--repository-panel-width)) minmax(0, 1fr); box-shadow: 18px 0 55px var(--sidebar-inspector-shadow); }
 .repository-summary-panel, .repository-inspector { min-width: 0; min-height: 0; display: grid; grid-template-rows: 64px minmax(0, 1fr); background: var(--shell); }
 .repository-sidebar.has-inspector .repository-summary-panel { border-right: 1px solid var(--line); }
+.panel-resize-handle { position: absolute; z-index: 5; top: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; }
+.panel-resize-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; }
+.panel-resize-handle:hover::after, .panel-resize-handle:focus-visible::after { background: var(--plot-bright); }
+.repository-resize-handle { right: -4px; }
+.conversation-resize-handle { left: -4px; }
+.panel-resizing, .panel-resizing * { cursor: col-resize !important; user-select: none !important; }
+.app-shell.focus-mode .repository-region, .app-shell.focus-mode .conversation-region { visibility: hidden; pointer-events: none; }
+
+/* At one-column capacity an inspector replaces the file list. Only a two-panel-capacity shell
+   has enough room to show the repository summary and inspector side by side. */
+.dock-capacity-0 .repository-sidebar.has-inspector,
+.dock-capacity-1 .repository-sidebar.has-inspector { grid-template-columns: minmax(0, 1fr); }
+.dock-capacity-0 .repository-sidebar.has-inspector .repository-summary-panel,
+.dock-capacity-1 .repository-sidebar.has-inspector .repository-summary-panel { display: none; }
+
+/* Below the live 640px minimum, side regions return to recoverable overlays. */
+.dock-capacity-0 .repository-region { position: fixed; z-index: 60; left: 0; top: 64px; bottom: 0; width: min(var(--repository-width), 100vw); }
+.dock-capacity-0 .conversation-region { position: fixed; z-index: 60; top: 74px; right: 10px; bottom: 10px; width: min(var(--conversation-width), calc(100vw - 20px)); }
+.dock-capacity-0 .conversation-drawer, .dock-capacity-0 .diagram-navigator { border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--drawer-shadow); }
 .repository-panel-header, .diff-inspector-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
 .repository-panel-header > div:first-child, .diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
 .repository-panel-header strong, .diff-inspector-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
@@ -364,9 +377,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
 
 @keyframes pulse { 0%, 100% { opacity: .45; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
 @keyframes blink { 50% { opacity: 0; } }
-@keyframes drawer-in { from { opacity: 0; transform: translateX(18px); } }
 @keyframes project-search-in { from { opacity: 0; transform: translateY(-5px); } }
-@keyframes repository-in { from { opacity: 0; transform: translateX(-12px); } }
 @keyframes breathe { 50% { transform: scale(1.06); box-shadow: 0 0 0 12px var(--plot-halo); } }
 
 @media (max-width: 850px) {
@@ -387,17 +398,9 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visi
   .quick-prompts { grid-template-columns: 1fr; }
   .drawing-toolbar { right: 10px; left: 10px; top: 10px; flex-wrap: wrap; width: fit-content; max-width: calc(100% - 20px); }
   .canvas-controls { right: 10px; bottom: 10px; max-width: calc(100% - 20px); overflow-x: auto; }
-  .canvas-ask { left: 10px; bottom: 58px; max-width: calc(100% - 20px); }
-  .canvas-ask-chip { display: none; }
   .composer-hint { display: none; }
   .composer-actions { justify-content: space-between; }
-  .conversation-drawer, .diagram-navigator { top: 68px; }
-  .app-shell.repository-open > .canvas-workspace,
-  .app-shell.repository-open > .welcome-screen,
-  .app-shell.repository-open > .fatal-empty { margin-left: 0; }
-  .repository-sidebar, .repository-sidebar.has-inspector { top: 64px; width: 100vw; grid-template-columns: minmax(0, 1fr); border-right: 0; }
-  .repository-sidebar.has-inspector .repository-summary-panel { display: none; }
-  .repository-inspector { grid-column: 1; }
+  .run-status-toggle > span:nth-child(2) { display: none; }
 }
 
 @media (max-height: 650px) {

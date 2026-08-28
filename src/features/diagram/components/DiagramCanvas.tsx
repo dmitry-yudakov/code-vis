@@ -65,9 +65,13 @@ export function DiagramCanvas({
   const canvasId = canvasTargetId(target);
   const artifact = target.kind === 'diagram' ? target.artifact : undefined;
   const sketch = target.kind === 'sketch' ? target.sketch : undefined;
+  const shellRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
   const fittedCanvasRef = useRef<string | undefined>(undefined);
+  const viewIsFittedRef = useRef(false);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [renderError, setRenderError] = useState<string>();
   const [tool, setTool] = useState<DrawingTool>('pointer');
@@ -119,9 +123,62 @@ export function DiagramCanvas({
   const fit = useCallback(() => {
     if (!snapshot || !viewportRef.current) return;
     const bounds = viewportRef.current.getBoundingClientRect();
-    setZoom(Math.max(0.08, Math.min(4, Math.min(bounds.width / snapshot.viewBox[2], bounds.height / snapshot.viewBox[3]) * 0.86)));
-    setPan({ x: 0, y: 0 });
+    const styles = getComputedStyle(viewportRef.current);
+    const readInset = (name: string) => Number.parseFloat(styles.getPropertyValue(name)) || 0;
+    const left = readInset('--canvas-inset-left');
+    const right = readInset('--canvas-inset-right');
+    const top = readInset('--canvas-inset-top');
+    const bottom = readInset('--canvas-inset-bottom');
+    const fitPadding = 24;
+    const visibleWidth = Math.max(1, bounds.width - left - right - fitPadding * 2);
+    const visibleHeight = Math.max(1, bounds.height - top - bottom - fitPadding * 2);
+    setZoom(Math.max(0.08, Math.min(4, Math.min(visibleWidth / snapshot.viewBox[2], visibleHeight / snapshot.viewBox[3]))));
+    setPan({ x: (left - right) / 2, y: (top - bottom) / 2 });
+    viewIsFittedRef.current = true;
   }, [snapshot]);
+
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    const stage = shell?.parentElement;
+    const toolbar = toolbarRef.current;
+    const controls = controlsRef.current;
+    const viewport = viewportRef.current;
+    if (!shell || !stage || !toolbar || !controls || !viewport) return;
+    let frame: number | undefined;
+    const measure = () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        const stageBounds = stage.getBoundingClientRect();
+        const toolbarBounds = toolbar.getBoundingClientRect();
+        const controlsBounds = controls.getBoundingClientRect();
+        const gutter = 16;
+        const toolbarIsHorizontal = toolbarBounds.width >= toolbarBounds.height;
+        const controlsAreHorizontal = controlsBounds.width >= controlsBounds.height;
+        stage.style.setProperty('--canvas-inset-top', `${Math.max(0, toolbarIsHorizontal ? toolbarBounds.bottom - stageBounds.top + gutter : gutter)}px`);
+        stage.style.setProperty('--canvas-inset-left', `${Math.max(0, toolbarIsHorizontal ? toolbarBounds.left - stageBounds.left + gutter : toolbarBounds.right - stageBounds.left + gutter)}px`);
+        stage.style.setProperty('--canvas-inset-right', `${Math.max(0, controlsAreHorizontal ? stageBounds.right - controlsBounds.right + gutter : stageBounds.right - controlsBounds.left + gutter)}px`);
+        stage.style.setProperty('--canvas-inset-bottom', `${Math.max(0, controlsAreHorizontal ? stageBounds.bottom - controlsBounds.top + gutter : gutter)}px`);
+        if (viewIsFittedRef.current) fitRef.current();
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(toolbar);
+    observer.observe(controls);
+    return () => {
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      stage.style.removeProperty('--canvas-inset-top');
+      stage.style.removeProperty('--canvas-inset-right');
+      stage.style.removeProperty('--canvas-inset-bottom');
+      stage.style.removeProperty('--canvas-inset-left');
+    };
+  }, [canvasId]);
 
   useEffect(() => {
     if (!snapshot || fittedCanvasRef.current === canvasId) return;
@@ -184,6 +241,7 @@ export function DiagramCanvas({
     const current = gesture.current;
     if (!current || !snapshot) return;
     if (current.mode === 'pointer' || current.mode === 'pan') {
+      viewIsFittedRef.current = false;
       setPan({ x: event.clientX - current.panStart.x, y: event.clientY - current.panStart.y });
       return;
     }
@@ -228,8 +286,9 @@ export function DiagramCanvas({
   }
 
   return (
-    <div className="diagram-canvas-shell">
+    <div ref={shellRef} className="diagram-canvas-shell">
       <DrawingToolbar
+        rootRef={toolbarRef}
         tool={tool}
         onTool={setTool}
         canUndo={state.past.length > 0}
@@ -241,7 +300,11 @@ export function DiagramCanvas({
       <div
         ref={viewportRef}
         className="diagram-viewport"
-        onWheel={(event) => { event.preventDefault(); setZoom((value) => Math.max(0.08, Math.min(8, value * (event.deltaY > 0 ? 0.9 : 1.1)))); }}
+        onWheel={(event) => {
+          event.preventDefault();
+          viewIsFittedRef.current = false;
+          setZoom((value) => Math.max(0.08, Math.min(8, value * (event.deltaY > 0 ? 0.9 : 1.1))));
+        }}
       >
         {!snapshot && <div className="canvas-loading"><span className="pulse-dot" /> Rendering diagram…</div>}
         {snapshot && (
@@ -265,12 +328,12 @@ export function DiagramCanvas({
           </div>
         )}
       </div>
-      <div className="canvas-controls" aria-label="Canvas view controls">
-        <button type="button" onClick={() => setZoom((value) => Math.max(0.08, value / 1.2))} aria-label="Zoom out">−</button>
+      <div ref={controlsRef} className="canvas-controls" aria-label="Canvas view controls">
+        <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom((value) => Math.max(0.08, value / 1.2)); }} aria-label="Zoom out">−</button>
         <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => setZoom((value) => Math.min(8, value * 1.2))} aria-label="Zoom in">+</button>
+        <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom((value) => Math.min(8, value * 1.2)); }} aria-label="Zoom in">+</button>
         <button type="button" onClick={fit}>Fit</button>
-        <button type="button" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
+        <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
         {artifact && <button type="button" onClick={() => download(`diagram-${artifact.ordinal}.mmd`, artifact.source, 'text/plain')}>.mmd</button>}
         <button
           type="button"

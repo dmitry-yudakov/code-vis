@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { ChatThread, DrawingMark } from '@/shared/types';
 import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/conversationStore';
@@ -14,14 +14,13 @@ export interface CanvasSnapshot {
 export function CanvasWorkspace({
   thread,
   theme,
-  running,
-  status,
   unread,
   pendingApprovals,
-  markCount,
+  focusMode,
   onComposer,
   onOpenChat,
   onOpenHistory,
+  onToggleFocus,
   onSelectDiagram,
   onNewSketch,
   onMarksChange,
@@ -30,21 +29,19 @@ export function CanvasWorkspace({
 }: {
   thread: ChatThread;
   theme: ThemeName;
-  running: boolean;
-  status: string;
   unread: number;
   pendingApprovals: number;
-  markCount: number;
+  focusMode: boolean;
   onComposer(value: string): void;
   onOpenChat(): void;
   onOpenHistory(): void;
+  onToggleFocus(): void;
   onSelectDiagram(id: string): void;
   onNewSketch(): void;
   onMarksChange(diagramId: string, marks: DrawingMark[]): void;
   onSnapshot(snapshot?: CanvasSnapshot): void;
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
 }) {
-  const [focusMode, setFocusMode] = useState(false);
   const artifacts = useMemo(() => getArtifacts(thread), [thread]);
   const sketches = useMemo(() => getSketches(thread), [thread]);
   const target = useMemo(() => findCanvasTarget(thread, thread.activeDiagramId), [thread]);
@@ -87,7 +84,7 @@ export function CanvasWorkspace({
             {pendingApprovals > 0 && <span className="approval-badge">{pendingApprovals}</span>}
             {unread > 0 && <span className="unread-badge">{unread}</span>}
           </button>
-          <button type="button" onClick={() => setFocusMode((value) => !value)}>{focusMode ? 'Exit focus' : 'Focus'}</button>
+          <button type="button" onClick={onToggleFocus}>{focusMode ? 'Exit focus' : 'Focus'}</button>
         </div>
       </div>
 
@@ -123,24 +120,6 @@ export function CanvasWorkspace({
         )}
       </div>
 
-      <button
-        type="button"
-        className={`canvas-ask ${running ? 'working' : ''} ${pendingApprovals > 0 ? 'awaiting-approval' : ''}`}
-        aria-label={pendingApprovals > 0
-          ? `${pendingApprovals} action${pendingApprovals === 1 ? '' : 's'} waiting for your approval. Open conversation`
-          : running ? `Agent working: ${status}. Open conversation` : 'Open conversation'}
-        onClick={onOpenChat}
-      >
-        <span className="canvas-ask-dot" aria-hidden="true" />
-        <span className="canvas-ask-label">
-          {pendingApprovals > 0
-            ? `${pendingApprovals} approval${pendingApprovals === 1 ? '' : 's'} pending`
-            : running ? status || 'Working…' : 'Ask Claude…'}
-        </span>
-        {!running && target && <span className="canvas-ask-chip">{target.kind} attached · {markCount} marks</span>}
-        {pendingApprovals > 0 && <span className="approval-badge">{pendingApprovals}</span>}
-        {unread > 0 && <span className="unread-badge">{unread}</span>}
-      </button>
     </main>
   );
 }

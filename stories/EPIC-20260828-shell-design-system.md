@@ -7,10 +7,11 @@ hardcoded light-only stylesheet to a themed, token-driven, canvas-first surface 
 The application's capability grew faster than its surface. At the start of this epic, the
 stylesheet was one 425-line hand-written file whose palette was written inline — 18 custom
 properties against **73 distinct hex literals and 49 `rgba()` values** across 135 selectors — so a
-second theme was a rewrite rather than a diff. Stories 29 and 30 have now moved those values into a
-shared token source, added the generated light/dark blocks, and shipped a system-aware theme
-switch. Panels still float over the canvas rather than docking beside it, and the interface font
-named in the stylesheet has never been loaded; those are the remaining halves of the epic.
+second theme was a rewrite rather than a diff. Stories 29 through 31 have now moved those values
+into a shared token source, added the generated light/dark blocks, shipped a system-aware theme
+switch, and replaced the panel overlays with responsive, resizable dock columns. The interface
+font named in the stylesheet has still never been loaded; the visual-language pass is the one
+remaining part of the epic.
 
 This epic owns fixing that in an order where each step is safe. Colors become data, then the data
 gets a second theme, then the layout stops covering the thing it exists to show, and only then does
@@ -65,7 +66,7 @@ achromatic instrument around it. The reference mock lives at
 |---|---|---|---|---|
 | 29 | [semantic-design-tokens](STORY-20260828-semantic-design-tokens.md) | tokens.ts as source of truth, generated tokens.css, literal-free globals.css | **Shipped** | — |
 | 30 | [theme-switch](STORY-20260828-theme-switch.md) | light/dark/system, no-flash stamp, theme as an explicit Mermaid argument | **Shipped** | 29 |
-| 31 | [dock-canvas-panels](STORY-20260828-dock-canvas-panels.md) | three-column grid, resizable rails, inset-aware fit, dock capacity bands | **Draft** | 30 |
+| 31 | [dock-canvas-panels](STORY-20260828-dock-canvas-panels.md) | three-column grid, resizable rails, inset-aware fit, dock capacity bands | **Shipped** | 30 |
 | 32 | [visual-language](STORY-20260828-visual-language.md) | Geist/Geist Mono/Archivo, 48px breadcrumb header, run ribbon, titleblock | **Draft** | 31 |
 
 ```mermaid
@@ -83,8 +84,8 @@ removed the literals; 32 is a restyle rather than a rewrite only because 31 alre
 layout. Attempting 32 first would mean doing all four at once, which is the trap this sequence is
 designed to avoid.
 
-The two foundation stories are now shipped. Story 31 is the next executable story; Story 32 stays
-blocked on its layout so the final restyle does not have to solve docking at the same time.
+The two foundation stories and the layout story are now shipped. Story 32 is the next executable
+story, unblocked from layout work so the final restyle can stay a presentation pass.
 
 ---
 
@@ -118,7 +119,7 @@ to System; and the decoded attachment payload is light while the visible canvas 
 Verification completed August 28, 2026 with 147 Vitest tests, strict TypeScript, the default
 production build, and all five Playwright scenarios passing.
 
-### Phase 3 — The canvas stops being covered (Story 31)
+### Phase 3 — The canvas stops being covered (Story 31, shipped)
 
 Overlays become grid columns and the canvas reflows. Both rails resize within clamps; the diff
 inspector gets an explicit strategy instead of widening its column to 920px; fit-to-view fits the
@@ -126,11 +127,18 @@ inspector gets an explicit strategy instead of widening its column to 920px; fit
 the three minimum widths cannot coexist at every viewport, docking is banded — two panels, one
 panel, or overlay — derived from live column minimums rather than a hardcoded breakpoint.
 
-This is the largest diff in the epic and the one users feel first.
+This is the largest diff in the epic and the one users feel first. Shell-owned layout state now
+derives the 640/960px capacity bands from the column minimums, persists clamped panel widths, and
+collapses both side columns for focus mode. The canvas publishes the measured toolbar and control
+footprints as CSS insets; fitted views follow panel changes while manually panned or zoomed views
+stay put.
 
-**Exit:** with both panels open, no diagram element is covered by a panel, the toolbar, or the zoom
-cluster; **Fit** centers the diagram in the visible rect in all four open/closed combinations; the
-three viewport bands behave as specified.
+**Exit met:** with both panels open, no diagram element is covered by a panel, the toolbar, or the
+zoom cluster; **Fit** centers the diagram in the visible rect; the three viewport bands behave as
+specified; keyboard resizing persists; and focus mode restores the prior layout. Verification
+completed August 28, 2026 with 151 Vitest tests, strict TypeScript, the default production build,
+and all six Playwright scenarios passing. The browser suite directly asserts panel/canvas bounding
+boxes, the inset-reduced fitted rect, persisted keyboard resizing, and the responsive bands.
 
 ### Phase 4 — It finally looks different (Story 32)
 
@@ -174,9 +182,10 @@ under `prefers-reduced-motion`.
 - **Mermaid's global configuration.** `mermaid.initialize` is process-global and a no-op after the
   first call. Story 30 serializes renders for this reason; any later feature that renders a diagram
   at a non-active theme must go through the same queue or it will race the canvas.
-- **Story 31 is where regressions will come from.** It rewrites the shell's layout, and the current
-  grid depends on subtle `minmax(0, 1fr)` behavior that a wide row will silently defeat. The
-  Playwright canvas scenario should be extended before the refactor, not after.
+- **The dock grid remains a regression boundary.** Story 31 rewrote the shell's layout, and the
+  grid still depends on subtle `minmax(0, 1fr)` behavior that a wide row can silently defeat. Keep
+  the Playwright panel/canvas bounding-box and responsive-band assertions whenever Story 32 moves
+  or restyles shell chrome.
 - **Font acquisition at build time.** `next/font/google` self-hosts the files but downloads them
   during the build. If offline builds matter, the fonts must be committed and loaded with
   `next/font/local`. Decide before Story 32 starts, since it changes what lands in the repository.

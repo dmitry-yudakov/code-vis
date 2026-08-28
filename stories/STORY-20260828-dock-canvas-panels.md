@@ -1,6 +1,6 @@
 # Story 31 — Dock the repository and conversation panels beside the canvas
 
-**Status:** Draft · **Type:** Frontend-only ·
+**Status:** Shipped · **Type:** Frontend-only ·
 **Depends on:** [Story 30](STORY-20260828-theme-switch.md) (theme switch) ·
 **Epic:** [shell design system](EPIC-20260828-shell-design-system.md)
 
@@ -175,30 +175,39 @@ export function useDockCapacity(): DockCapacity;
 
 ## Acceptance criteria
 
-- [ ] Opening either side panel reflows the canvas; no panel overlaps the sheet at ≥ 640px.
-- [ ] With both panels open on a sequence diagram, no participant box, lifeline label, or message
+- [x] Opening either side panel reflows the canvas; no panel overlaps the sheet at ≥ 640px.
+- [x] With both panels open on a sequence diagram, no participant box, lifeline label, or message
   label is covered by the toolbar, the zoom controls, or a panel.
-- [ ] **Fit** places the whole diagram inside the visible canvas rect, *centered within it*, in
+- [x] **Fit** places the whole diagram inside the visible canvas rect, *centered within it*, in
   all four open/closed combinations — no node ends up under the toolbar or the zoom controls, and
   the diagram is not offset toward the side with the smaller inset.
-- [ ] Between 640 and 959px exactly one panel docks; opening the second closes the first. Below
+- [x] Between 640 and 959px exactly one panel docks; opening the second closes the first. Below
   640px both overlay. At ≥ 960px both dock.
-- [ ] The diff inspector never pushes the canvas column below 360px at any viewport, and the
+- [x] The diff inspector never pushes the canvas column below 360px at any viewport, and the
   `min(920px, …)` sidebar rule is gone.
-- [ ] Both panels resize by drag and by keyboard within their clamps; the canvas column never
+- [x] Both panels resize by drag and by keyboard within their clamps; the canvas column never
   drops below 360px; widths survive reload and out-of-range stored widths are clamped, not
   discarded.
-- [ ] A fitted view refits when a panel resizes; a view the user has panned or zoomed keeps its
+- [x] A fitted view refits when a panel resizes; a view the user has panned or zoomed keeps its
   pan and zoom.
-- [ ] Focus mode collapses both side columns and restores the previous widths on exit.
-- [ ] The welcome, fatal-empty, and loading states occupy the canvas area and reflow with it.
-- [ ] The conversation and history panels remain mutually exclusive and keep their current
+- [x] Focus mode collapses both side columns and restores the previous widths on exit.
+- [x] The welcome, fatal-empty, and loading states occupy the canvas area and reflow with it.
+- [x] The conversation and history panels remain mutually exclusive and keep their current
   open/close entry points.
-- [ ] Run status, pending approvals, and unread count remain visible from the canvas with the
+- [x] Run status, pending approvals, and unread count remain visible from the canvas with the
   conversation closed, without the ask pill.
-- [ ] `npm test`, `npm run lint`, `npm run build`, and `npm run test:e2e` pass, with the Playwright
+- [x] `npm test`, `npm run lint`, `npm run build`, and `npm run test:e2e` pass, with the Playwright
   canvas scenario extended to assert the diagram bounding box sits inside the visible canvas rect
   with both panels open.
+
+Shipped August 28, 2026. Shell ownership and persisted widths live in
+[usePanelLayout.ts](../src/features/shell/usePanelLayout.ts), with pure clamps and capacity math in
+[panelLayout.ts](../src/features/shell/panelLayout.ts). The stage publishes measured chrome insets
+and fits against them in
+[DiagramCanvas.tsx](../src/features/diagram/components/DiagramCanvas.tsx). Verification passes
+with 151 Vitest tests, strict TypeScript, the default production build, and all six Playwright
+scenarios; the browser suite covers both docked panels, centered visible-rect fitting, keyboard
+resizing and persistence, focus collapse, and the 640/960px responsive bands.
 
 ## Out of scope
 
