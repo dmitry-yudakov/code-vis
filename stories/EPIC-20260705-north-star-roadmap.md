@@ -1,25 +1,75 @@
-# EPIC — From read-only visualizer to the north star
+# EPIC — The software model: understanding and changing code inside a session
 
-**Status:** Active · **Owns:** the sequencing of all stories toward the
-[vision](../docs/vision.md) · **Updated:** August 21, 2026
+**Status:** Active · **Owns:** the *depth* half of [the vision](../docs/vision.md) — the software
+model, lenses, arrangement, and the change loop, as specified in
+[software-model.md](../docs/software-model.md) · **Updated:** August 29, 2026 ·
+**Rewritten:** August 29, 2026, after the analyzer archive and the arena vision
 
-This is the plan of record for reaching the [vision & north star](../docs/vision.md): which
-stories exist, which are still to be written, what depends on what, and in what order the work
-lands. The vision says *where* and *why*; this epic says *what, when, and after what*. Each
-proposed story below gets a full spec ([TEMPLATE](TEMPLATE.md)) only when it is picked up —
-here it carries just enough to sequence it.
+This is the plan of record for making CodeAI *understand* software, not just converse about it. The
+[software model chapter](../docs/software-model.md) says *where* and *why*; this epic says *what,
+when, and after what*. Each proposed story below gets a full spec ([TEMPLATE](TEMPLATE.md)) only
+when it is picked up — here it carries just enough to sequence it.
+
+## What this epic does not own
+
+The product now has two halves ([vision.md](../docs/vision.md)), and three documents used to claim
+overlapping authority over both. The split, stated once:
+
+- **Breadth — the arena** (many sessions, states, the Inbox, machines, devices, cloud) is sequenced
+  by [vision.md's steps](../docs/vision.md#sequence), executed through the
+  [web2 operational collaboration epic](EPIC-20260806-web2-operational-collaboration.md).
+- **Depth — understanding one piece of software** is this epic.
+- **Naming** for both is [vocabulary.md](../docs/vocabulary.md). This epic's prose predates it in
+  places; *thread* means **session** and *project* means **repository** wherever old story titles
+  are quoted.
+
+The two halves meet in one place: a session is where a model is built and read, so everything here
+lands inside the session surface the other track builds.
+
+---
+
+## The question this epic has to answer first
+
+[Story 24](STORY-20260820-promote-next-app-archive-legacy.md) archived the analyzer runtime under
+[`legacy/`](../legacy/README.md). That was right for the product and it invalidated this epic's
+original Phases A and B, which sequenced work against code the root application does not build,
+start, or import. Concretely: `Entity`, `Relation`, the identity scheme in
+[entityId.ts](../legacy/server/src/model/entityId.ts), the `Arrangement` spec, and the LLM client all
+exist **only under `legacy/`**. In `src/` there is no model, no extractor, and no lens.
+
+So the model has no producer, and the plan cannot resume until one is chosen. Three candidates:
+
+| Source | What it buys | What it costs |
+|---|---|---|
+| **Port the static analyzer** out of `legacy/` | Exact, fast, `origin: 'static'` facts; the provenance floor the credibility principle rests on | JS/TS only; the largest net-new integration; re-litigates decisions made for a runtime that no longer exists |
+| **Agent-emitted** — sessions already run an agent in the repository; have it emit typed entities and relations beside the Mermaid it authors | Reuses the entire existing runtime; breadth across every language on day one; matches *agents enrich the model as a side effect* | Everything is `origin: 'llm'` with a confidence, so provenance honesty has no `static` half to contrast against |
+| **A separate LLM extraction pass** (the legacy `LlmClient` ported) | Independent of the conversation; schedulable and cacheable | A second model client beside the agent that is already there, paid for, and authenticated |
+
+**This epic takes the agent-emitted path first, with the static port as the follow-on.** The agent
+is already running in the repository with file access, its own tools, and the user's own
+subscription; asking it for structure costs one output contract rather than a new subsystem, and it
+produces a model for repositories no analyzer of ours will ever cover. The static port then lands
+underneath it (Story 8) to restore the exact/heuristic contrast that
+[principle 1](../docs/software-model.md#principles) depends on — by which point the model's shape
+has been proven by real use rather than guessed.
+
+**What would flip it:** if agent-emitted entities prove too unstable to merge across turns — ids
+churning, the same function arriving under three names — then identity is doing the work no
+extractor can fake, and Story 8 moves ahead of Story 6.
 
 **Sequencing principles** (from the vision, applied):
 
-1. Read-only understanding before acting — the change loop waits until the model, lenses, and
-   arrangement have proven themselves.
+1. Read-only understanding before acting — the change loop waits until the model and its lenses have
+   proven themselves.
 2. Every story is shippable on its own; no story strands the product in a half-state.
-3. LLM discipline everywhere: opt-in, cached, fail-safe, never blocking the structural view.
-4. The **VR/3D surface is a differentiator, not a curiosity** — adjacent tools (editor + agent
-   CLIs, classic diagram tools) have no credible spatial surface. It runs as a parallel track
-   because the surface-agnostic boundary makes it purely additive: desktop 3D and WebXR are
-   **code-split renderers/modes inside the root Next.js application**, consuming the same
-   artifact the 2D canvas does. There is no separate spatial product to keep in sync.
+3. LLM discipline everywhere: opt-in, cached, fail-safe, never blocking the surface the user is
+   looking at.
+4. **Mermaid stays the canonical diagram source.** A lens emits Mermaid, so every model view reuses
+   the canvas, annotations, pins, and drawing that already exist. A native renderer is an
+   optimization, not a prerequisite ([the notes](../docs/multi-project-session-environment.md#mermaid-across-2d-and-3d)).
+5. The **VR/3D surface is a differentiator, not a curiosity** — and it now serves both halves: the
+   same renderer places a model in space and, later, the arena's sessions around you. Code-split
+   modes inside the root application; no separate spatial product to keep in sync.
 
 ---
 
@@ -27,200 +77,174 @@ here it carries just enough to sequence it.
 
 ### Existing stories
 
-| # | Story | Arc step | Status |
-|---|---|---|---|
-| 1 | [review-card-declutter](STORY-20260602-review-card-declutter.md) | 6 (seed) | **Shipped** |
-| 2 | [llm-review-annotation](STORY-20260602-llm-review-annotation.md) | — | **Split three ways** — client → Story 4; annotation pass → Story 6; `narrativeRank` superseded by Story 5 |
-| 3 | [static-entity-relation-model](STORY-20260603-static-entity-relation-model.md) | 1 | **In progress** — core landed (MVP M1) |
-| 4 | [provider-agnostic-llm-client](STORY-20260604-provider-agnostic-llm-client.md) | — (foundation) | **Shipped** — built & verified |
-| 5 | [llm-arrangement-pass](STORY-20260605-llm-arrangement-pass.md) | 5 | **In progress** — core landed; empirical side-by-side signal open (MVP M2) |
-| 18 | [web2-conversational-agent-canvas](STORY-20260805-web2-agent-mermaid-canvas.md) | 7–8 experiment | **Draft** — canvas-first multi-turn agent workspace with optional Mermaid artifacts and drawing attachments; informs Stories 14–15 |
-| — | [js-analyzer-improvement](STORY-20251111-js-analyzer-improvement.md) · [socket-io-improvements](STORY-20251111-socket-io-improvements.md) | pre-vision | Legacy groundwork |
-| — | [change-focused-review-view](STORY-20260501-change-focused-review-view.md) · [homepage-code-map-lenses](STORY-20260514-homepage-code-map-lenses.md) · [code-map-layout-strategies](STORY-20260520-code-map-layout-strategies.md) | ancestors | Shipped groundwork (review slice, lens shell, layout/arrangement sources) |
-| 24 | [promote-next-app-archive-legacy](STORY-20260820-promote-next-app-archive-legacy.md) | structural | **Shipped** — the Next.js app is the repository root; the visualizer runtime is archived under `legacy/` |
-| 25 | [next-16-npm-toolchain](STORY-20260821-next-16-npm-toolchain.md) | structural | **Shipped** — the root package runs on npm and Next.js 16/React 19.2 (Turbopack), with no product behavior change |
+| # | Story | Status today |
+|---|---|---|
+| 1 | [review-card-declutter](STORY-20260602-review-card-declutter.md) | **Shipped** into the archived runtime; its per-item content + description UI is the reference design for the model card, not running code |
+| 2 | [llm-review-annotation](STORY-20260602-llm-review-annotation.md) | **Split three ways** — client → Story 4; annotation pass → folded into Story 6's `description` facet; `narrativeRank` superseded by the `Arrangement` spec |
+| 3 | [static-entity-relation-model](STORY-20260603-static-entity-relation-model.md) | **Shipped**, into a runtime since archived. Its `Entity`/`Relation` shape and identity scheme live under `legacy/`; Story 6 ports the *types* and Story 8 the *extractor* |
+| 4 | [provider-agnostic-llm-client](STORY-20260604-provider-agnostic-llm-client.md) | **Shipped into `legacy/`.** The root app reaches models through the agent CLIs instead; the client is a reference for the day a non-conversational pass needs one |
+| 5 | [llm-arrangement-pass](STORY-20260605-llm-arrangement-pass.md) | **Superseded** — 13 of 14 criteria met; the empirical side-by-side signal needed the archived Review lens. The `Arrangement` contract (regions, visibility, order, emphasis) and its unmeasured bet are what Story 9 inherits |
+| 18 | [web2-conversational-agent-canvas](STORY-20260805-web2-agent-mermaid-canvas.md) | **In progress** — the surface every story below lands in |
+| 24 | [promote-next-app-archive-legacy](STORY-20260820-promote-next-app-archive-legacy.md) | **Shipped** — one product at the repository root; the visualizer runtime archived |
+| 25 | [next-16-npm-toolchain](STORY-20260821-next-16-npm-toolchain.md) | **Shipped** |
+| — | [change-focused-review-view](STORY-20260501-change-focused-review-view.md) · [homepage-code-map-lenses](STORY-20260514-homepage-code-map-lenses.md) · [code-map-layout-strategies](STORY-20260520-code-map-layout-strategies.md) | Ancestors: the review slice, the lens shell, and the algorithmic/user arrangement sources — archived, still the best written record of each |
 
-The continuation of the `web2` track (Stories 19–21: operational modes, multi-agent roles,
-team environment) is sequenced by its own
-[web2 operational collaboration epic](EPIC-20260806-web2-operational-collaboration.md); it
-feeds Stories 14–16 here. [Story 24](STORY-20260820-promote-next-app-archive-legacy.md) promoted
-that track's application to the repository root as **CodeAI** and archived the original
-visualizer runtime under `legacy/`, so every story below now lands in one product.
+Stories 19–23 and 26–36 belong to the other track and are sequenced by the
+[web2 operational collaboration epic](EPIC-20260806-web2-operational-collaboration.md).
 
 ### Proposed stories (to be written)
 
-| # | Story (working title) | Arc step | Depends on |
-|---|---|---|---|
-| 6 | Annotation pass — produce `summary` / `causalReason` | 6 | 4 |
-| 7 | Persist & cache the model | 2 | 3 |
-| 8 | Extractor pipeline + LLM extractor — client↔server API vertical | 3 | 3, 4, (7 for caching) |
-| 9 | Feature focus lens + relation-kind filters | 4 | 8 |
-| 10 | Saved views & notes (workspace memory) | 9 | 5, (7 for durability) |
-| 11 | Model-as-tools MCP server | agent-first | 3, (7 amortizes it) |
-| 12 | 3D renderer inside the root app — react-three-fiber | VR track | 3 |
-| 13 | Immersive mode — WebXR on Quest, same root app | VR track | 12 |
-| 14 | Change loop v1 — intent → external agent → proposed overlay | 7 | 11, 17 (overlay rendering) |
-| 15 | Draw-over-diagram — sketch anchors | 8 | 14 (loop), 17 (overlay rendering), 12 (spatial input later) |
-| 16 | Team surface v1 — shareable views | 10 | 10 |
-| 17 | Plan preview — spec/story/plan doc → proposed-change overlay | 7 (seed) · 8 | 3, 4, (5 for regions) |
+Numbers 6–17 are **reserved placeholders** assigned when a story is picked up; other tracks number
+from 36 upward. Several are referenced by number from the other epic, so the meanings below are
+stable even as the content is rescoped.
 
-Dependency shape (arrows = "needs"):
+| # | Story (working title) | Depends on |
+|---|---|---|
+| 6 | Model records and their first producer — agent-emitted entities and relations | 18 |
+| 7 | Persist and cache the model per repository | 6 |
+| 8 | Static extractor floor — port the JS/TS analyzer for `origin: 'static'` | 6, (7 for caching) |
+| 9 | Lenses and arrangement on the canvas — feature focus, relation-kind filters | 6, (7), (5's spec) |
+| 10 | Saved views and notes | 9, (7 for durability) |
+| 11 | Model-as-tools MCP server, and agent write-back | 6, (7 amortizes it) |
+| 12 | 3D renderer inside the root app — react-three-fiber | 9 |
+| 13 | Immersive mode — WebXR on Quest, same root app | 12 |
+| 14 | Change loop v1 — intent → agent → proposed overlay | 11, 17 |
+| 15 | Draw-over-diagram — sketch anchors | 14, 17, (12 for spatial input) |
+| 16 | Shareable views — the async half of the team surface | 10 |
+| 17 | Plan preview — spec/story/plan document → proposed-change overlay | 6, 9 |
 
 ```mermaid
 graph LR
-  S3[3 static model] --> S7[7 persistence]
-  S3 --> S11[11 MCP tools]
-  S3 --> S12[12 r3f 3D surface]
-  S3 --> S17[17 plan preview]
-  S4[4 LLM client] --> S6[6 annotations]
-  S4 --> S8[8 LLM extractor]
-  S4 --> S17
-  S5[5 arrangement] --> S10[10 saved views]
-  S5 -.regions.-> S17
-  S7 --> S8
-  S7 -.durability.-> S10
-  S8 --> S9[9 feature lens]
+  S18[18 session canvas] --> S6[6 agent-emitted model]
+  S6 --> S7[7 persistence]
+  S6 --> S8[8 static floor]
+  S6 --> S9[9 lenses + arrangement]
+  S6 --> S11[11 MCP tools + write-back]
+  S7 -.caching.-> S8
+  S7 -.durability.-> S10[10 saved views]
+  S9 --> S10
+  S9 --> S12[12 r3f 3D surface]
+  S9 --> S17[17 plan preview]
+  S12 --> S13[13 WebXR Quest]
   S11 --> S14[14 change loop v1]
   S17 -.overlay rendering.-> S14
-  S12 --> S13[13 WebXR Quest]
   S14 --> S15[15 sketch anchors]
-  S10 --> S16[16 team v1]
+  S10 --> S16[16 shareable views]
 ```
 
 ---
 
 ## Phases
 
-### Phase A — Finish the MVP (now)
+### Phase A — Re-found the model on the running product (now)
 
-Close out both MVP milestones and the loose ends the vision already names.
+The model has to exist inside CodeAI before anything can be built on it. Everything here lands in
+the session surface, and nothing imports `legacy/`.
 
-- **Story 3** — finish M1: richer facets (per-facet `origin`, `traits`, lazy `content`).
-- **Story 5** — close M2: the **empirical side-by-side signal** (success criterion #4 — a
-  number, e.g. timed locate-task or N-of-M preference, not just "looks better").
-- **Story 6 — Annotation pass** *(new)*: the still-pending third of Story 2. Produce
-  `summary` / `causalReason` via the Story 4 client (the fields already render). Small,
-  high-visibility, pure reuse of existing plumbing. Also remove the dead `narrativeRank` field
-  from both type files.
+- **Story 6 — Model records and their first producer.** Port the `Entity` / `Relation` types and the
+  identity scheme from `legacy/` into `src/shared/`, and give them a producer: an agent turn may emit
+  typed entities and relations alongside its Mermaid, captured into a per-repository model with
+  `origin: 'llm'` and a confidence. Merge by stable id across turns. Fail-safe in both directions — a
+  turn that emits nothing still works, and a malformed emission is dropped, never partially merged.
+  Story 2's pending annotation pass folds in here as the `description` facet, produced by the same
+  agent that produced the entity.
+- **Story 7 — Persist and cache the model.** One model record per repository checkout in the host
+  store, revisioned and written under the same lock discipline as sessions. Invalidation is keyed by
+  file, and the first honest answer for "what changed" is git, not a watcher. Prerequisite for
+  amortizing model cost across sessions — and the point where the model stops being a per-session
+  artifact and becomes something the arena can show.
+- **Story 9 — Lenses and arrangement on the canvas.** A lens is a query over the model that emits
+  Mermaid, so it renders through the canvas that already exists: *overview*, *feature focus*, and
+  relation-kind filters ("only the data layer", "only client↔server"). Story 5's `Arrangement` spec
+  — regions, initial visibility, order, emphasis — is realized here, with a deterministic layout
+  always available as the fallback.
 
-**Exit:** both vision bets validated with evidence; review lens cards show real descriptions.
+**Exit:** working in a repository leaves it more understood than it was; a lens over the accumulated
+model renders on the canvas without an agent turn.
 
-### Phase B — The model becomes real (understanding deepens)
+### Phase B — The model earns its keep
 
-The persistent model is the center of the vision; this phase builds it, proves multi-source
-extraction, and extends understanding from what *is* to what is *proposed*.
+- **Story 8 — Static extractor floor.** Port the JS/TS analyzer into `src/server/model/` so
+  structural facts arrive as `origin: 'static'` and merge with the agent's `llm` facts by id. This is
+  what restores the exact/heuristic contrast the credibility principle needs, and it is also the
+  first real test of the identity scheme: two producers, one merge key.
+- **Story 11 — Model-as-tools MCP server, and write-back.** Expose the model to agents as a few sharp
+  tools — *who-calls*, *what-does-this-expose*, *slice-around-X* — so a session reads the
+  pre-digested graph instead of grepping, and its discoveries flow back as `origin: 'llm'` relations.
+  The loop closes: the model makes agents cheaper, and agents make the model richer.
+- **Story 17 — Plan preview.** Render a written plan — a `stories/*.md`, a design spec, an agent's
+  plan output — as a `changePhase: 'proposed'` overlay anchored to the live model, before anything is
+  implemented. References to real code resolve to existing ids; genuinely new parts become proposed
+  nodes. This adds the proposed-overlay rendering with the simplest possible producer, so Story 14
+  later adds only delegation. Dogfood it on this epic.
 
-- **Story 7 — Persist & cache the model** (arc 2): on-disk store per project (open question #2:
-  `~/.code-ai/projects/{...}/`), invalidated by the existing chokidar watch, file-level
-  granularity first. Prerequisite for amortizing LLM cost and cross-file relations.
-- **Story 8 — Extractor pipeline + LLM extractor** (arc 3): turn `getAnalyzer(ext)` into a
-  pipeline of extractors merged by stable id; add the LLM extractor; prove the
-  **client↔server API vertical** end-to-end (`api-endpoint` / `api-call` entities, `consumes`
-  edge with `origin: 'llm'` + confidence).
-- **Story 11 — Model-as-tools MCP server** (agent-first-class): expose the model as MCP tools —
-  *who-calls*, *what-exposes*, *slice-around-X* — so an external Claude Code/codex session reads
-  the pre-digested graph instead of grepping. Can start against the in-memory model; Story 7
-  makes it fast. This is also the hand-off substrate the change loop (Story 14) needs, and where
-  **agents enrich the model as a side effect** (write-back of discovered relations) lands.
-- **Story 9 — Feature focus lens + relation-kind filters** (arc 4): seed entities + semantic
-  neighborhood; "show only the DB layer / only client↔server API" filters — the payoff of typed
-  relations.
-- **Story 17 — Plan preview: spec/story/plan doc → proposed-change overlay** (arc 7 seed · 8):
-  render a written plan — a `stories/*.md`, a design spec, an agent's plan output — on the live
-  map *before anything is implemented*. One scoped completion pass (no delegation, no apply)
-  parses the doc into proposed entities/relations anchored to the current model: references to
-  real code resolve to existing entity ids (`changeStatus: 'modified'`), genuinely new parts
-  become proposed-new nodes with session-stable ids (open question #4 in its low-stakes form).
-  Rendering is pure reuse of the review visualization — this story adds the deferred
-  `changePhase: 'proposed'` field (both type files) and its visual treatment, making the
-  vision's "same rendering, different phase" insight real; impact comes free from the review
-  lens's existing neighborhood expansion, and arrangement regions (Story 5) group the plan into
-  its chapters. Discipline as always: pre-narrow deterministically ("send only relevant
-  changes"), validate anchors against the model, render as *suggested* — validation catches
-  nonexistent anchors, not wrong-but-existing ones, so provenance rendering does the safety work
-  (non-goal #3). **Why here, not Phase D:** its dependencies (3, 4) are already met; it moves
-  verification to the earliest point in the loop — the plan, before any code exists — and it
-  builds the proposed-overlay rendering with the simplest possible producer, so Story 14 later
-  adds only delegation. Dogfood: point it at this epic.
+**Exit:** a multi-source model with honest provenance; an agent that reads it instead of re-deriving
+it; a plan verifiable on the map before code exists.
 
-**Exit:** a persisted, multi-source model; an agent can query it cheaply; one cross-cutting
-vertical demonstrably beyond files/functions/calls; a written plan renders as a proposed overlay
-anchored to the live map.
+### Phase C — Surfaces and memory (parallel; can start during Phase B)
 
-### Phase C — Surfaces & memory (parallel track, can start during Phase B)
+Everything here consumes model, lens, and arrangement output and touches no producer code.
 
-The differentiator track plus workspace memory. Deliberately parallelizable: everything here
-consumes model/lens/arrangement output through the existing API and touches no extraction code.
+- **Story 12 — 3D renderer (react-three-fiber).** A code-split spatial renderer inside the root
+  application, rendering the same artifact the 2D canvas does: entities as nodes, regions as
+  volumes, provenance as material (solid = static, translucent = suggested). Desktop browser first.
+  The third dimension is budget for what the 2D map crowds — depth for layers, elevation for change
+  overlays.
+- **Story 13 — Immersive mode (WebXR, Quest).** `@react-three/xr` as a further mode of the same
+  application, opened in the headset browser, no store app. Quest 2 performance is the design
+  constraint, and the mitigation is editorial: the same visibility discipline that makes a 2D map
+  readable makes a 3D one renderable. This is also where the arena's spatial form
+  ([vision.md step 9](../docs/vision.md#sequence)) gets its renderer.
+- **Story 10 — Saved views and notes.** A view = lens + scope + arrangement + viewport + notes,
+  serialized; notes attach to entities, regions, or the view. Cheap because the arrangement is a spec
+  rather than pixels. A restored view doubles as an agent context pack through Story 11's tools, and
+  the viewport includes the 3D camera, so a saved view restores in the headset too.
 
-- **Story 12 — 3D surface bootstrap (react-three-fiber)**: a **code-split spatial renderer inside
-  the root Next.js application**, not a separate `web3d` product. It renders the same artifact the
-  2D canvas does — entities as spatial nodes, regions as volumes/platforms, provenance as material
-  (solid = static, translucent/wireframe = suggested) — behind a renderer/mode switch under
-  `src/features/diagram/`, reusing the existing shell, project/thread state, agent routes, and
-  permission boundaries. Only the renderer chunk is new; r3f loads lazily so the 2D path pays
-  nothing. Desktop-browser 3D first (orbit, select, expand). The third dimension is not
-  decoration — it is budget for what the 2D map crowds: depth for architectural layers, elevation
-  for change overlays.
-- **Story 13 — Immersive mode (WebXR on Quest 2/3)**: `@react-three/xr` as a further mode of the
-  same root application on top of Story 12;
-  served over the network, opened in the headset browser — no store app. Controller
-  ray-pointing for select/expand, grab to move regions (`origin: 'user'` placement, same
-  precedence rules as 2D drags). **Quest 2 perf is the design constraint**: lens + arrangement
-  visibility already bound the slice size — the same editorial discipline that makes the 2D map
-  readable makes the 3D one renderable. Walking through your codebase at room scale is the demo
-  no adjacent tool can give.
-- **Story 10 — Saved views & notes** (arc 9): view = (lens + scope + arrangement + viewport +
-  notes), serialized; notes attach to entities/regions/views. Session-scoped works after
-  Story 5; durable across restarts once Story 7 lands. A restored view doubles as an agent
-  **context pack** through Story 11's tools. Viewport serialization includes the 3D camera —
-  a saved view restores in 2D *and* in the headset.
-
-**Exit:** the map is bookmarkable and annotatable; the product demos in a Quest headset.
+**Exit:** the map is bookmarkable and annotatable; the product demos in a headset.
 
 ### Phase D — Acting (the bidirectional loop)
 
-Understanding is proven; now the map drives change.
+- **Story 14 — Change loop v1.** Intent attached to a scope → delegate to the session's own agent
+  through Story 11's tools → render the returned diff as a `changePhase: 'proposed'` overlay on the
+  rendering path Story 17 proved → apply or export. No autonomous apply.
+- **Story 15 — Sketch anchors.** Boxes and arrows drawn over the diagram become `origin: 'user'`
+  proposed entities and relations that generation treats as fixed points
+  ([the chapter](../docs/software-model.md#user-drawings-as-anchors)). Touch-drawing on a tablet and
+  drawing in space in a headset are the same structured intent.
+- **Story 16 — Shareable views.** Serialized views and notes exported, imported, or linked; async
+  design review on a live map. The rest of the team surface — several people in one session — belongs
+  to the arena track, not here.
 
-- **Story 14 — Change loop v1** (arc 7, source ladder rung 1 — complementary): intent (text
-  first) attached to a scope → delegate to an installed `claude`/`codex` via Story 11's MCP
-  hand-off → render the returned diff as a `changePhase: 'proposed'` overlay — the rendering
-  path Story 17 already proved on the review visualization → apply via `saveFile` or export.
-  No autonomous apply (non-goal #2).
-- **Story 15 — Sketch anchors** (arc 8): draw boxes/arrows over the diagram → `origin: 'user'`
-  proposed entities/relations → generation treats them as anchors
-  ([vision](../docs/vision.md#user-drawings-as-anchors)). Touch-draw on tablet and — the
-  differentiator again — **drawing in space in the headset** are the same structured intent.
-- **Story 16 — Team surface v1** (arc 10): shareable serialized views/notes (export/import or
-  URL first, no realtime); async design review on a live map.
-
-**Exit:** the vision's core loop — see, understand, express intent, verify a proposal, apply —
-works end-to-end with an external agent.
+**Exit:** see, understand, express intent, verify a proposal, apply — end to end.
 
 ---
 
 ## What is deliberately not scheduled
 
-- **Full native agent loop** (source ladder rung 3) — kept open by the `CodeAgent` abstraction,
-  not committed to.
-- **Real-time multiplayer** — Story 16 is async sharing only (vision non-goal #6).
-- **Per-language static analyzers** beyond JS/TS — the LLM extractor (Story 8) is the breadth
-  path (vision non-goal #4).
+- **A native agent loop of our own** — the session's `claude`/`codex` is the executor; the
+  `CodeAgent` abstraction keeps the option open without committing to it.
+- **Real-time multiplayer** — Story 16 is async sharing; live collaboration is the arena track's
+  problem and is deferred there too.
+- **Per-language static analyzers** beyond JS/TS — the agent is the breadth path.
+- **A native 2D diagram renderer** replacing Mermaid — allowed by principle 4, not planned.
 - **Voice input** — after sketch anchors prove the structured-intent path.
 
 ## Risks to watch
 
-1. **The arrangement bet fails its measurement** (Phase A): if the arranged map is *not*
-   measurably clearer, Phases B–D still stand (they lean on the model, not the arrangement),
-   but the LLM-editorial ambition shrinks. Measure early; that is why the signal closes Phase A.
-2. **Quest 2 performance** (Story 13): mitigation is editorial (small slices, aggressive
-   collapse), not heroic rendering work. If a review slice cannot hit frame rate on Quest 2,
-   cap immersive mode to Quest 3-class devices before compromising the model.
-3. **Identity scheme cracks under persistence** (Story 7): renames/moves churning ids would
-   poison the cache and saved views. Open questions #4/#11 get answered here, at the latest.
-4. **MCP surface sprawl** (Story 11): a few sharp tools (slice, who-calls, exposes) beat a
-   generic graph-query API nobody can prompt against.
-5. **Plan-preview anchoring is too noisy** (Story 17): mapping prose to real entities can
-   mis-resolve — validation rejects nonexistent anchors but not wrong-but-existing ones. Ship it
-   suggested-only (non-goal #3) and measure it like the arrangement bet; if precision stays low,
-   it degrades to unanchored proposed nodes grouped by region — still a useful shared sketch,
-   not a broken map.
+1. **Agent-emitted identity churns** (Story 6). The same function arriving under different ids across
+   turns poisons every merge downstream. This is the epic's central bet; measure id stability on a
+   repeated pass over the same repository before building Story 7 on top of it. Mitigation is the
+   flip described above — pull Story 8 forward and let static facts carry identity.
+2. **The model is never worth the tokens** (Phase A). If a lens over the accumulated model is not
+   more useful than asking the agent again, the model is a cache with a maintenance cost. Story 9 is
+   deliberately early so this is answerable before Stories 7, 8, and 11 invest in it.
+3. **Provenance reads as certainty** (Story 6 until Story 8). With only `llm` facts, everything on
+   the map is a suggestion, and a map of suggestions that *looks* structural violates the credibility
+   principle. Until the static floor lands, the rendering must lean visibly editorial.
+4. **MCP surface sprawl** (Story 11) — a few sharp tools beat a generic graph API nobody can prompt
+   against.
+5. **Quest performance** (Story 13) — cap immersive mode to Quest 3-class devices before compromising
+   the model.
+6. **Plan-preview anchoring is too noisy** (Story 17) — validation rejects nonexistent anchors, not
+   wrong-but-existing ones. Ship suggested-only; if precision stays low it degrades to unanchored
+   proposed nodes grouped by region, which is still a useful shared sketch.

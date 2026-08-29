@@ -1,6 +1,15 @@
 # Story 5 — LLM arrangement pass: editorial visibility & emphasis over the Review slice (MVP Milestone 2)
 
-**Status:** In progress — core landed & green (on-demand visibility + emphasis + editorial region bands); the empirical side-by-side signal still open. · **Type:** Full-stack · **Depends on:** [Story 4](STORY-20260604-provider-agnostic-llm-client.md) (the LLM client) and [Story 3](STORY-20260603-static-entity-relation-model.md) (the static `Entity`/`Relation` model). Realizes [vision.md](../docs/vision.md) step 5 (Arrangement) / MVP Milestone 2, and is the graduation of Story 2's superseded `narrativeRank` from one ordering axis to a full editorial spec.
+**Status:** Superseded — core landed & green (on-demand visibility + emphasis + editorial region bands) in a runtime since archived; its one open criterion is no longer reachable. · **Type:** Full-stack · **Depends on:** [Story 4](STORY-20260604-provider-agnostic-llm-client.md) (the LLM client) and [Story 3](STORY-20260603-static-entity-relation-model.md) (the static `Entity`/`Relation` model). Realizes [software-model.md](../docs/software-model.md) step 5 (Arrangement) / MVP Milestone 2, and is the graduation of Story 2's superseded `narrativeRank` from one ordering axis to a full editorial spec.
+
+> **Superseded 2026-08-29.** Thirteen of fourteen criteria were met. The fourteenth — the empirical
+> side-by-side signal, and the whole point of MVP Milestone 2 — needed the Review lens to measure
+> against, and [Story 24](STORY-20260820-promote-next-app-archive-legacy.md) archived it: everything
+> below lives under [`legacy/`](../legacy/README.md) and the root application builds none of it. The
+> measurement is not abandoned, it moves: the `Arrangement` contract specified here (regions,
+> visibility, order, emphasis) is inherited by Story 9 of the
+> [software-model epic](EPIC-20260705-north-star-roadmap.md), which realizes it on the Mermaid canvas
+> and carries the same bet — *does an arranged map read as clearer?* — as its own risk to measure.
 
 ---
 

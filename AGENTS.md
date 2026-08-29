@@ -4,6 +4,22 @@ A local-first Next.js application for working on a trusted repository through a 
 local-agent conversation and a Mermaid canvas. The repository root **is** the application: one
 private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
+## Now
+
+Updated 2026-08-29. When a story ships, change the line that names it; each story file keeps its own
+`Status:`, so nothing here duplicates it.
+
+- **In flight:** nothing.
+- **Next:** [Story 34](stories/STORY-20260829-rename-thread-to-session.md) — rename thread → session
+  across types, wire, routes, records, and UI strings. Delivers nothing to a user; runs first so the
+  stories after it are not written twice.
+- **Then:** [Story 35](stories/STORY-20260829-projects-and-repositories.md) — a project becomes a
+  body of work, a repository its own noun, and a session may hold none or several.
+- **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
+  machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
+  depth (the model, lenses, and the change loop). Naming for both:
+  [vocabulary.md](docs/vocabulary.md).
+
 ## Commands
 
 All commands run from the repository root.
@@ -97,8 +113,10 @@ analyzer paths) apply only inside `legacy/` and must not be carried into `src/`.
 
 - [README](README.md) — product behavior, safety model, configuration
 - [Architecture](docs/architecture.md) — the current client/server boundary
-- [Vision & North Star](docs/vision.md) — direction-setting (aspirational)
-- [Multi-project, multi-session, multi-device environment](docs/multi-project-session-environment.md) — exploratory memo
+- [Vision — the arena](docs/vision.md) — the main product direction (aspirational)
+- [Vocabulary](docs/vocabulary.md) — naming authority; use these words in new code, UI, and docs
+- [The software model](docs/software-model.md) — the model/map north star (a chapter of the vision)
+- [Sessions, machines, and records](docs/multi-project-session-environment.md) — engineering notes behind the arena
 - [Experiment log](docs/experiment-log.md) — manual real-agent matrix
 - [Legacy architecture](legacy/docs/architecture.md) — the archived analyzer runtime
 
@@ -112,7 +130,7 @@ Non-trivial changes are spec-driven:
 2. **Implement against it.** Set `Status: In progress` and tick boxes `[x]` as each criterion is satisfied.
 3. **Done = every box `[x]` and "How to verify" passes.** Flip to `Status: Shipped` and update the story to match what actually shipped. (Set `Superseded` instead if a later story replaces it.)
 
-Stories sit under [docs/vision.md](docs/vision.md) (the north star); reference the relevant phase/MVP when scoping one.
+Stories sit under [docs/vision.md](docs/vision.md) (the arena vision) and [docs/software-model.md](docs/software-model.md) (the model/map north star); reference the relevant slice, phase, or MVP when scoping one, and use the vocabulary of [docs/vocabulary.md](docs/vocabulary.md).
 
 <!-- BEGIN:nextjs-agent-rules -->
 

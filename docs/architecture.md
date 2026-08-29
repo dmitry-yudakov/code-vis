@@ -163,10 +163,10 @@ These are real and deliberate, and they bound what can be built next:
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The exploratory direction past the current shell — several open workspaces, attachment management,
-and sessions spread across machines — is recorded in
-[multi-project-session-environment.md](multi-project-session-environment.md); it is not
-implemented.
+The direction past the current shell — the arena, several open sessions, repository management, and
+sessions spread across machines — is in [vision.md](vision.md), with the record-level engineering
+notes in [multi-project-session-environment.md](multi-project-session-environment.md) and the names
+in [vocabulary.md](vocabulary.md). None of it is implemented.
 
 ## Configuration
 

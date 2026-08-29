@@ -302,8 +302,10 @@ over-capable provider is reported without making a healthy provider unusable.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — the current client/server boundary
-- [Vision & North Star](docs/vision.md) — direction-setting
-- [Multi-project, multi-session, multi-device environment](docs/multi-project-session-environment.md) — exploratory memo
+- [Vision — the arena](docs/vision.md) — the main product direction
+- [Vocabulary](docs/vocabulary.md) — the words the product uses, and why
+- [The software model](docs/software-model.md) — the model/map north star (a chapter of the vision)
+- [Sessions, machines, and records](docs/multi-project-session-environment.md) — engineering notes behind the arena
 - [Experiment log](docs/experiment-log.md) — manual real-agent matrix
 - [Repository conventions](AGENTS.md) — source ownership and the spec-driven loop
 - [Legacy runtime](legacy/README.md) — the archived analyzer, web client, and extension

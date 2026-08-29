@@ -1,8 +1,13 @@
-# Story 24 — Show working-tree changes in a repository sidebar
+# Story 36 — Show working-tree changes in a repository sidebar
 
 **Status:** Shipped · **Type:** Full-stack ·
 **Depends on:** [Change-focused review view](STORY-20260501-change-focused-review-view.md) ·
 **Epic:** [web2 operational collaboration](EPIC-20260806-web2-operational-collaboration.md)
+
+> **Renumbered 2026-08-29.** This story was written as "Story 24" on 2026-08-17 and collided with
+> [Story 24](STORY-20260820-promote-next-app-archive-legacy.md), which every other document already
+> cites by that number. It takes the next free number instead; nothing referenced this file by its
+> old one. Its date, content, and shipped status are unchanged.
 
 ---
 

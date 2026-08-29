@@ -4,9 +4,9 @@
 the M2 annotation + arrangement passes. **Supersedes** [Story 2](STORY-20260602-llm-review-annotation.md)
 §1 ("Provider-agnostic LLM client") — the client is carved out of Story 2 into this dedicated story;
 Story 2's annotation pass and `narrativeRank` are unaffected by this split (see
-[vision.md MVP](../docs/vision.md#L438)).
+[software-model.md MVP](../docs/software-model.md#L438)).
 
-> This is **MVP Milestone 2's first build step** ([vision.md:460](../docs/vision.md#L460)): "standing
+> This is **MVP Milestone 2's first build step** ([software-model.md:460](../docs/software-model.md#L460)): "standing
 > up `server/src/llm/` … is M2's first build step — Story 2's client is not optional background, it is
 > a dependency." It ships the LLM **transport layer only** — the `LlmClient` interface plus its
 > adapters — decoupled from any *use* of it. The annotation pass (M2 cards, step 6) and the
@@ -318,7 +318,7 @@ export function getLlmClient(): LlmClient | null; // server/src/llm/index.ts
 
 - **Any *consumer* of the client.** The annotation pass (`summary`/`causalReason`, M2 cards) and the
   LLM **arrangement** pass (the `Arrangement` spec) are separate M2 stories that wire
-  `getLlmClient()` into the review path ([vision.md step 5/6](../docs/vision.md#L424)). This story
+  `getLlmClient()` into the review path ([software-model.md step 5/6](../docs/software-model.md#L424)). This story
   ships only the client + the `ping` smoke check.
 - **3rd-party / subscription token extraction or OAuth-harness impersonation** — the `openclaw` /
   `hermes-agent` approach. **Explicit non-goal**, on three grounds documented in

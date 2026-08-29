@@ -101,13 +101,13 @@ become runtime dependencies:
   [web/src/App.tsx](../legacy/web/src/App.tsx#L68) (~line 68) — demonstrates selecting a local project but
   is not reused by `web2`.
 - Bidirectional product direction:
-  [docs/vision.md](../docs/vision.md#L349) (~line 349) — describes conversation, drawings,
+  [docs/software-model.md](../docs/software-model.md#L349) (~line 349) — describes conversation, drawings,
   proposals, verification, and explicit application.
 - Drawings as anchors:
-  [docs/vision.md](../docs/vision.md#L380) (~line 380) — establishes user marks as durable,
+  [docs/software-model.md](../docs/software-model.md#L380) (~line 380) — establishes user marks as durable,
   higher-precedence input whose ambiguity should remain visible.
 - Completion versus delegation:
-  [docs/vision.md](../docs/vision.md#L400) (~line 400) — explains why a repository-exploring agent
+  [docs/software-model.md](../docs/software-model.md#L400) (~line 400) — explains why a repository-exploring agent
   is a different abstraction from the current `LlmClient`.
 - Design reference:
   [docs/design/Cartograph.dc.html](../docs/design/Cartograph.dc.html#L359) (~line 359) — shows a

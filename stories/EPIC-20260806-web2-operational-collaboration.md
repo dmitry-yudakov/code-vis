@@ -1,7 +1,12 @@
 # EPIC — web2 operational collaboration: one builder → second provider → agent roles → team
 
 **Status:** Active · **Owns:** the sequencing of the `web2` conversation track from read-only
-explainer to a collaborative multi-agent, multi-human workspace · **Updated:** August 28, 2026
+explainer to a collaborative multi-agent, multi-human workspace — and, since August 29, 2026, the
+execution of the *breadth* half of [the vision](../docs/vision.md): the arena, its sessions, and the
+machines they run on, in the order [vision.md sequences them](../docs/vision.md#sequence). The
+*depth* half — the software model and its lenses — is the
+[software-model epic](EPIC-20260705-north-star-roadmap.md). ·
+**Updated:** August 29, 2026
 
 [Story 18](STORY-20260805-web2-agent-mermaid-canvas.md) proved the surface: a canvas-first,
 session-persistent conversation over a local repository with a read-only agent. This epic owns
@@ -10,7 +15,7 @@ building), prove a safe **second provider** (Codex), compose providers into **mu
 roles, then add **multiple humans**. Each proposed story follows the executable
 [story template](TEMPLATE.md); Story 21 remains a sequencing-level draft until it is picked up.
 
-Relation to the [north-star roadmap](EPIC-20260705-north-star-roadmap.md): this track began as
+Relation to the [software-model epic](EPIC-20260705-north-star-roadmap.md): this track began as
 the experimental parallel one. It is no longer parallel —
 [Story 24](STORY-20260820-promote-next-app-archive-legacy.md) promoted its application to the
 repository root as **CodeAI** and archived the original visualizer runtime under
@@ -158,11 +163,13 @@ localhost.
 - **Worktree isolation and apply/discard checkpoints** — named in Story 18's expansion path;
   revisit after permission cards prove insufficient, at latest in Story 21's sandboxing.
 - **Remote/multi-tenant hosting** — beyond even Story 21's small-trusted-team scope.
-- **The environment slices between Story 27 and Story 21** — the memo's
-  [possible slices](../docs/multi-project-session-environment.md#possible-delivery-slices) 4–6
-  (several threads open at once, attachment management and repository-free threads, an independent
-  concurrent run registry) have no story yet. They are candidate work, not proven prerequisites for
-  the team story, so no dependency edge is drawn to them.
+- **The environment slices between Story 27 and Story 21** — the notes'
+  [delivery slices](../docs/multi-project-session-environment.md#possible-delivery-slices) 4–7.
+  Slice 4 is now specified as [Story 34](STORY-20260829-rename-thread-to-session.md) and
+  [Story 35](STORY-20260829-projects-and-repositories.md); slices 5–7 (several sessions open at
+  once, an independent concurrent run registry, and the arena itself) still have no story. They are
+  candidate work, not proven prerequisites for the team story, so no dependency edge is drawn to
+  them.
 
 ## Risks to watch
 

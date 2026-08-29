@@ -1,10 +1,20 @@
 # Story 3 — Richer static Entity/Relation model, rendered via elk (MVP Milestone 1)
 
-**Status:** In progress · **Type:** Full-stack · **Depends on:** nothing (no LLM — unblocked by the
-Story 2 rewrite). Foundation for [Story 2](STORY-20260602-llm-review-annotation.md)'s successor
-(MVP Milestone 2, the LLM arrangement pass).
+**Status:** Shipped, into a runtime since archived · **Type:** Full-stack · **Depends on:** nothing
+(no LLM — unblocked by the Story 2 rewrite). Foundation for
+[Story 2](STORY-20260602-llm-review-annotation.md)'s successor (MVP Milestone 2, the LLM arrangement
+pass).
 
-> This is the first of the two MVP milestones in [vision.md](../docs/vision.md#L438). **M1 (this
+> **Status corrected 2026-08-29.** All nine acceptance criteria were met, so this was never "in
+> progress"; it shipped. What changed underneath it is that
+> [Story 24](STORY-20260820-promote-next-app-archive-legacy.md) archived the runtime it shipped
+> into: `Entity`, `Relation`, and the identity scheme live only under
+> [`legacy/`](../legacy/README.md), and the root application builds none of it. The types and the
+> merge-key scheme are inherited by Story 6 of the
+> [software-model epic](EPIC-20260705-north-star-roadmap.md), which re-founds the model on the
+> current runtime. Read this story as the specification it still is, not as running code.
+
+> This is the first of the two MVP milestones in [software-model.md](../docs/software-model.md#L438). **M1 (this
 > story)** proves the low-risk claim — *a richer typed static model beats files + functions +
 > calls* — and ships on its own with **zero LLM**. **M2** (a later story) adds the LLM client and
 > the arrangement pass (the real bet) on top. Threads transition-arc step 1 (model, minimal) and
@@ -23,10 +33,10 @@ and it's the low-risk half of the MVP because it needs no LLM — just more from
 we already have.
 
 This story introduces the shared **`Entity` / `Relation`** model (the vision's center,
-[vision.md:67](../docs/vision.md#L67)) as the internal representation, promotes `class`, `method`,
+[software-model.md:67](../docs/software-model.md#L67)) as the internal representation, promotes `class`, `method`,
 module-level `variable`, and `constant` to first-class entities, and renders them in the Review
 lens via the existing elk layout. It also fixes the `web`↔`server` type drift the vision calls out
-([vision.md:53-58](../docs/vision.md#L53)) by replacing the hand-synced narrow projection types
+([software-model.md:53-58](../docs/software-model.md#L53)) by replacing the hand-synced narrow projection types
 with one shared contract.
 
 Crucially, it nails down the **stable entity id / merge key** — the design decision everything
@@ -69,7 +79,7 @@ captures the owning container, and the Review lens renders the richer kinds via 
 ### Concrete changes
 
 1. **Shared `Entity`/`Relation` types** (a *minimal, forward-compatible subset* of the vision's
-   illustrative shape, [vision.md:148](../docs/vision.md#L148)) in one place, imported by both
+   illustrative shape, [software-model.md:148](../docs/software-model.md#L148)) in one place, imported by both
    `server` and `web`. Only the fields M1 needs; the rest of the vision's fields (`confidence`,
    `traitOrigins`, `changePhase`, …) are omitted now but the shape must be a strict subset so they
    add cleanly later.
@@ -132,11 +142,11 @@ id = `${kind}:${file}#${container ? container + '.' : ''}${name}${ordinal > 0 ? 
   per review, diff-driven change status) — it earns its keep at the persistence phase (step 2) and
   the proposed-change overlay (step 7).
 - **Rename = delete + add.** No rename identity; the vision's `'renamed'` status stays gated to the
-  deferred LLM phase ([vision.md:151](../docs/vision.md#L151)).
+  deferred LLM phase ([software-model.md:151](../docs/software-model.md#L151)).
 
 ### Type contract (if types change)
 
-A minimal subset of [vision.md:148-188](../docs/vision.md#L148) — same field names and shape, so
+A minimal subset of [software-model.md:148-188](../docs/software-model.md#L148) — same field names and shape, so
 the deferred fields add without churn. Shared by **`server/src/types.d.ts`** and
 **`web/src/types.d.ts`** (single contract; ends the hand-synced drift):
 
@@ -216,7 +226,7 @@ interface Relation {
 - **`api-endpoint` / `api-call` entities and any cross-boundary edge** (`consumes` client→server,
   GraphQL, socket.io). The connection problem spans frameworks/languages/dynamic values and is not
   grammar-resolvable — it belongs to M2+ (LLM/heuristic) and the future **user-asserted +
-  learned** edges ([vision.md open questions](../docs/vision.md#L547)). M1 emits **only in-grammar
+  learned** edges ([software-model.md open questions](../docs/software-model.md#L547)). M1 emits **only in-grammar
   edges**.
 - **Any LLM** — no `server/src/llm/`, no `description`, no arrangement. That is MVP Milestone 2.
 - **Persistence / caching** the model across requests — in-memory only (transition-arc step 2).
