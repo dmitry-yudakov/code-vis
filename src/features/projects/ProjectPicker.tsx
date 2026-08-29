@@ -66,11 +66,11 @@ export function ProjectPicker({ projects, recentProjectIds, value, discoveryDept
 
   return (
     <div className="project-search-picker" ref={containerRef}>
-      <span className="picker-label">Project</span>
       <button
         type="button"
         className="project-search-trigger"
         disabled={disabled}
+        aria-label={`Project: ${selected?.name || 'Choose project'}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}

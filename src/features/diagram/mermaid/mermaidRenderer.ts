@@ -16,12 +16,16 @@ function themeVariables(theme: ThemeName) {
   const colors = palette[theme];
   return {
     background: colors.sheet,
-    primaryColor: colors.raised,
+    primaryColor: colors.plotWash,
     primaryTextColor: colors.ink,
     primaryBorderColor: colors.plot,
-    lineColor: colors.muted,
-    secondaryColor: colors.addWash,
-    tertiaryColor: colors.waitWash,
+    lineColor: colors.plot,
+    secondaryColor: colors.plotWash,
+    secondaryBorderColor: colors.plot,
+    tertiaryColor: colors.raised,
+    tertiaryBorderColor: colors.plot,
+    noteBkgColor: colors.plotWash,
+    noteBorderColor: colors.plot,
     fontFamily: fonts.sans,
   };
 }

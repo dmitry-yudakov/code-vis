@@ -1,8 +1,27 @@
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+
+async function startConversation(page: Page) {
+  await page.locator('.new-thread-menu summary').click();
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+}
 
 test('creates, annotates, revises, restores, and exports a canvas conversation', async ({ page }) => {
+  const externalFontRequests: string[] = [];
+  page.on('request', (request) => {
+    const host = new URL(request.url()).hostname;
+    if (host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com') externalFontRequests.push(request.url());
+  });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /Your repository/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.fonts.status)).toBe('loaded');
+  const fontVariables = await page.evaluate(() => {
+    const styles = getComputedStyle(document.documentElement);
+    return ['--font-geist', '--font-geist-mono', '--font-archivo']
+      .map((name) => styles.getPropertyValue(name).trim());
+  });
+  expect(fontVariables.every(Boolean)).toBe(true);
+  expect(externalFontRequests).toEqual([]);
   await page.getByRole('button', { name: /alpha/ }).click();
   await expect(page.locator('.project-search-meta')).toContainText('3 projects');
   await expect(page.locator('.project-search-meta')).toContainText('Depth 2');
@@ -14,7 +33,7 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await expect(projectResults.getByRole('option')).toHaveCount(1);
   await projectResults.getByRole('option', { name: /packages\/deep-app/ }).click();
   await expect(page.locator('.project-search-trigger')).toContainText('packages/deep-app');
-  await page.locator('.new-thread-button').click();
+  await startConversation(page);
 
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
@@ -28,10 +47,16 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await expect(timeline).toBeVisible();
   await expect(timeline).toContainText('Reading README.md');
   await expect(timeline).toContainText('Searching architecture in src');
+  await expect(page.locator('.run-ribbon')).toHaveClass(/working/);
+  await expect(page.locator('.run-ribbon-tick')).not.toHaveCount(0);
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
   await expect(timeline).toHaveCount(0);
+  await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
+  await expect(page.locator('.run-ribbon-tick')).toHaveCount(0);
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
-  await expect(page.locator('.canvas-context strong')).toContainText('Diagram 1 of 1');
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
+  await expect(page.locator('.canvas-titleblock')).toContainText('0 marks');
+  await expect(page.locator('.app-header')).toHaveCSS('height', '48px');
 
   // At desktop width both panels are real columns, and Fit targets the unobstructed canvas rect.
   await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-2/);
@@ -102,10 +127,13 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await revisionComposer.fill('Revise it with a context step');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByRole('button', { name: /Previous version/ })).toBeVisible();
-  await expect(page.locator('.canvas-context strong')).toContainText('Diagram 2 of 2');
+  // Artifact ordinals are response-local; the titleblock deliberately renders the stored field
+  // rather than inventing a separate global revision number.
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
+  await expect(page.locator('.canvas-titleblock')).toContainText('derived from Diagram 1');
   await page.getByPlaceholder(/Ask about or revise/).fill('Show two alternatives');
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.locator('.canvas-context strong')).toContainText('Diagram 2 of 4');
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
   await expect(page.locator('.notice-banner')).toContainText('2 diagram results');
   await expect(page.locator('.diagram-card')).toHaveCount(4);
   await expect(page.locator('.diagram-card-svg svg')).toHaveCount(4);
@@ -118,7 +146,7 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await page.reload();
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
   // Focused canvas is device state; after reload the newest durable canvas is selected.
-  await expect(page.locator('.canvas-context strong')).toContainText('Diagram 4 of 4');
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 2');
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('code-ai:web2:v1:')))).toEqual([]);
 
   await page.locator('.project-search-trigger').click();
@@ -138,7 +166,7 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await secondPage.locator('.project-search-trigger').click();
   await secondPage.getByRole('searchbox', { name: 'Search projects' }).fill('DEEP');
   await secondPage.getByRole('option', { name: /packages\/deep-app/ }).click();
-  await expect(secondPage.locator('.canvas-context strong')).toContainText('Diagram 4 of 4');
+  await expect(secondPage.locator('.canvas-titleblock strong')).toHaveText('Diagram 2');
   await secondContext.close();
 
   const downloadPromise = page.waitForEvent('download');
@@ -151,13 +179,13 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
 
 test('sketches a blank canvas and sends the drawing as the instruction', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.new-thread-button').click();
+  await startConversation(page);
   await page.getByRole('button', { name: 'Close conversation' }).click();
 
   // A sketch is reachable before any diagram exists — that is the point of it.
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
-  await expect(page.locator('.canvas-context strong')).toContainText('Sketch 1');
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Sketch 1');
 
   await page.getByRole('button', { name: 'Pen (P)' }).click();
   const ink = page.locator('svg.ink-layer');
@@ -184,7 +212,7 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
 
 test('discovers, reattaches, and cancels a turn that outlives a reload', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.new-thread-button').click();
+  await startConversation(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Wait for reload cancellation.');
   await conversation.getByRole('button', { name: 'Send' }).click();
@@ -201,9 +229,32 @@ test('discovers, reattaches, and cancels a turn that outlives a reload', async (
   await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
 });
 
+test('traces an Agent run without implying progress and shifts to wait for approval', async ({ page }) => {
+  await page.goto('/');
+  await startConversation(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const agentMode = conversation.getByRole('radio', { name: 'Agent' });
+  await agentMode.click();
+  await expect(agentMode).toHaveAttribute('aria-checked', 'true');
+
+  await conversation.locator('textarea').fill('Make one approved edit.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.run-ribbon')).toHaveClass(/awaiting-approval/);
+  await expect(page.locator('.run-ribbon')).not.toHaveAttribute('role', 'progressbar');
+  await expect(conversation.getByLabel(/Approval required: Edit/)).toBeVisible();
+  await expect(page.locator('.run-ribbon-line')).toHaveCSS('animation-name', 'ribbon-breathe');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.locator('.run-ribbon-line')).toHaveCSS('animation-name', 'none');
+
+  await conversation.getByRole('button', { name: 'Deny' }).click();
+  await expect(conversation.getByLabel(/Approval required: Edit/)).toHaveCount(0);
+  await expect(conversation.locator('.chat-message.assistant')).toContainText('Edit denied');
+  await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
+});
+
 test('adds a role participant and performs an explicit quick handoff', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.new-thread-button').click();
+  await startConversation(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const composer = conversation.locator('textarea');
 
@@ -263,7 +314,7 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
 test('docks only the panels that fit the live shell width', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 720 });
   await page.goto('/');
-  await page.locator('.new-thread-button').click();
+  await startConversation(page);
 
   const shell = page.locator('.app-shell');
   const repository = page.getByRole('complementary', { name: 'Repository' });
@@ -317,7 +368,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   await expect(root).toHaveAttribute('data-theme', 'dark');
   await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
-  await page.locator('.new-thread-button').click();
+  await startConversation(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const composer = conversation.locator('textarea');
   await composer.fill('Draw a simple architecture');

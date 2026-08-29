@@ -67,7 +67,7 @@ achromatic instrument around it. The reference mock lives at
 | 29 | [semantic-design-tokens](STORY-20260828-semantic-design-tokens.md) | tokens.ts as source of truth, generated tokens.css, literal-free globals.css | **Shipped** | — |
 | 30 | [theme-switch](STORY-20260828-theme-switch.md) | light/dark/system, no-flash stamp, theme as an explicit Mermaid argument | **Shipped** | 29 |
 | 31 | [dock-canvas-panels](STORY-20260828-dock-canvas-panels.md) | three-column grid, resizable rails, inset-aware fit, dock capacity bands | **Shipped** | 30 |
-| 32 | [visual-language](STORY-20260828-visual-language.md) | Geist/Geist Mono/Archivo, 48px breadcrumb header, run ribbon, titleblock | **Draft** | 31 |
+| 32 | [visual-language](STORY-20260828-visual-language.md) | Geist/Geist Mono/Archivo, 48px breadcrumb header, run ribbon, titleblock | **Shipped** | 31 |
 
 ```mermaid
 graph LR

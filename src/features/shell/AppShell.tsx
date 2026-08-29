@@ -77,6 +77,7 @@ export function AppShell() {
   const [composer, setComposer] = useState('');
   const [preview, setPreview] = useState('');
   const [toolActivity, setToolActivity] = useState<ToolActivityEntry[]>([]);
+  const [runFailed, setRunFailed] = useState(false);
   const [permissions, setPermissions] = useState<PendingPermission[]>([]);
   const [decidingPermission, setDecidingPermission] = useState<string>();
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
@@ -90,6 +91,7 @@ export function AppShell() {
   const [participantBusy, setParticipantBusy] = useState(false);
   const abortRef = useRef<AbortController | undefined>(undefined);
   const runIdRef = useRef<string | undefined>(undefined);
+  const toolActivityKeyRef = useRef(0);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
   const navigationRevision = useRef(0);
   const participantRequestIds = useRef(new Map<string, string>());
@@ -510,7 +512,10 @@ export function AppShell() {
       if (event.type === 'tool-activity') {
         const entry = { tool: event.tool, detail: event.detail, denied: event.denied };
         setStatus(toolActivityLabel(entry));
-        setToolActivity((current) => [...current, { ...entry, key: current.length }].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
+        setToolActivity((current) => [
+          ...current,
+          { ...entry, key: toolActivityKeyRef.current++ },
+        ].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
       }
       if (event.type === 'permission-request') {
         const request: PendingPermission = {
@@ -530,6 +535,7 @@ export function AppShell() {
       if (event.type === 'assistant-delta') setPreview((current) => current + event.delta);
       if (event.type === 'error') {
         streamError = event;
+        setRunFailed(true);
         setNotice(event.message);
         if (event.code === 'missing-session') setMissingSession(true);
         if (event.code === 'max-turns') setContinueMode(turn.mode);
@@ -677,6 +683,7 @@ export function AppShell() {
     setPreview('');
     setToolActivity([]);
     setPermissions([]);
+    setRunFailed(false);
     runningRef.current = true;
     setRunning(true);
     setStatus(turnMode === 'agent'
@@ -718,6 +725,7 @@ export function AppShell() {
     } catch (error) {
       const cancelled = controller.signal.aborted;
       if (!streamError) {
+        if (!cancelled) setRunFailed(true);
         setNotice(cancelled ? 'The request was cancelled. Earlier conversation and diagrams are unchanged.' : error instanceof Error ? error.message : 'Agent request failed.');
         mutateThread(thread.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
           ? { ...message, status: cancelled ? 'cancelled' : 'failed', delivery: cancelled ? 'possibly-sent' : 'not-sent' }
@@ -803,6 +811,7 @@ export function AppShell() {
           adopt(run) {
             adoptedRunId = run.runId;
             runIdRef.current = run.runId;
+            setRunFailed(false);
             mutateThread(threadId, (current) => ({ ...current, addressedAgentId: run.participantId }));
             runningRef.current = true;
             setRunning(true);
@@ -832,7 +841,10 @@ export function AppShell() {
       } catch {
         if (!controller.signal.aborted) {
           await refreshConversation(threadId);
-          if (adoptedRunId) setNotice('Lost the connection to the running turn.');
+          if (adoptedRunId) {
+            setRunFailed(true);
+            setNotice('Lost the connection to the running turn.');
+          }
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -887,8 +899,9 @@ export function AppShell() {
       style={panelLayout.shellStyle}
     >
       <header className="app-header">
-        <div className="brand"><span className="brand-mark">C</span><span><strong>CodeAI</strong><small>conversational code canvas</small></span></div>
-        <div className="header-pickers">
+        <div className="brand"><span className="brand-mark">C</span><strong>CodeAI</strong></div>
+        <nav className="header-breadcrumbs" aria-label="Current project and conversation">
+          <span className="breadcrumb-separator" aria-hidden="true">/</span>
           <ProjectPicker
             projects={projects}
             recentProjectIds={recentProjectIds}
@@ -897,6 +910,7 @@ export function AppShell() {
             disabled={running}
             onChange={switchProject}
           />
+          <span className="breadcrumb-separator" aria-hidden="true">/</span>
           <ThreadPicker
             threads={threads}
             value={threadId}
@@ -907,7 +921,7 @@ export function AppShell() {
             onNewProvider={setNewProvider}
             onNew={(provider) => void createThread(provider)}
           />
-        </div>
+        </nav>
         <div className="header-actions">
           <div className="theme-selector" role="group" aria-label="Theme">
             {THEME_PREFERENCES.map((choice) => (
@@ -1022,6 +1036,9 @@ export function AppShell() {
             theme={theme}
             unread={unread}
             pendingApprovals={permissions.length}
+            running={running}
+            runFailed={runFailed}
+            toolActivity={toolActivity}
             focusMode={panelLayout.focusMode}
             onComposer={setComposer}
             onOpenChat={() => { panelLayout.openConversation(); setUnread(0); }}

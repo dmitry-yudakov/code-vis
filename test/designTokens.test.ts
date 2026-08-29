@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { renderTokensCss } from '../scripts/generate-tokens';
-import { palette } from '@/shared/design/tokens';
+import { effects, fonts, palette } from '@/shared/design/tokens';
 
 const globalsPath = new URL('../src/app/globals.css', import.meta.url);
 const tokensPath = new URL('../src/app/tokens.css', import.meta.url);
@@ -67,6 +67,18 @@ describe('design tokens', () => {
       for (const [foreground, background] of textPairs) {
         expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);
       }
+    }
+  });
+
+  it('routes every typography role through a loaded next/font variable and a real fallback', () => {
+    expect(fonts.sans).toMatch(/^var\(--font-geist\), .+sans-serif$/);
+    expect(fonts.mono).toMatch(/^var\(--font-geist-mono\), .+monospace$/);
+    expect(fonts.display).toMatch(/^var\(--font-archivo\), var\(--font-geist\), .+sans-serif$/);
+  });
+
+  it('uses the full plot color for a visible focus ring in both themes', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      expect(effects[theme].focusColor).toBe(palette[theme].plot);
     }
   });
 });

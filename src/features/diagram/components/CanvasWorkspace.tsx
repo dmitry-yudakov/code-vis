@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
+import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { ChatThread, DrawingMark } from '@/shared/types';
 import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/conversationStore';
 import { DiagramCanvas } from './DiagramCanvas';
+import { RunRibbon } from './RunRibbon';
 
 export interface CanvasSnapshot {
   svg: string;
@@ -16,6 +18,9 @@ export function CanvasWorkspace({
   theme,
   unread,
   pendingApprovals,
+  running,
+  runFailed,
+  toolActivity,
   focusMode,
   onComposer,
   onOpenChat,
@@ -31,6 +36,9 @@ export function CanvasWorkspace({
   theme: ThemeName;
   unread: number;
   pendingApprovals: number;
+  running: boolean;
+  runFailed: boolean;
+  toolActivity: ToolActivityEntry[];
   focusMode: boolean;
   onComposer(value: string): void;
   onOpenChat(): void;
@@ -47,6 +55,15 @@ export function CanvasWorkspace({
   const target = useMemo(() => findCanvasTarget(thread, thread.activeDiagramId), [thread]);
   const activeId = target && canvasTargetId(target);
   const marks = activeId ? thread.annotations[activeId]?.marks || [] : [];
+  const artifactOrdinals = useMemo(
+    () => new Map(artifacts.map((artifact) => [artifact.id, artifact.ordinal])),
+    [artifacts],
+  );
+  const lineage = target?.kind === 'diagram'
+    ? target.artifact.derivedFromDiagramIds
+      .map((id) => artifactOrdinals.get(id))
+      .filter((ordinal): ordinal is number => ordinal !== undefined)
+    : [];
   const handleMarks = useCallback((next: DrawingMark[]) => {
     if (activeId) onMarksChange(activeId, next);
   }, [activeId, onMarksChange]);
@@ -58,21 +75,6 @@ export function CanvasWorkspace({
   return (
     <main className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
-        <div className="canvas-context">
-          {target?.kind === 'diagram' ? (
-            <>
-              <span className="canvas-kicker">Active canvas</span>
-              <strong>Diagram {artifacts.indexOf(target.artifact) + 1} of {artifacts.length}</strong>
-              {target.artifact.derivedFromDiagramIds.length > 0 && <span className="lineage-pill">derived revision</span>}
-            </>
-          ) : target?.kind === 'sketch' ? (
-            <>
-              <span className="canvas-kicker">Active canvas</span>
-              <strong>Sketch {target.sketch.ordinal}</strong>
-              <span className="lineage-pill">your drawing</span>
-            </>
-          ) : <><span className="canvas-kicker">Project canvas</span><strong>No canvas yet</strong></>}
-        </div>
         <div className="canvas-top-actions">
           {thread.previousDiagramId && target && (
             <button type="button" onClick={() => onSelectDiagram(thread.previousDiagramId!)}>← Previous version</button>
@@ -89,6 +91,12 @@ export function CanvasWorkspace({
       </div>
 
       <div className="canvas-stage">
+        <RunRibbon
+          running={running}
+          failed={runFailed}
+          pendingApprovals={pendingApprovals}
+          activity={toolActivity}
+        />
         {target ? (
           <DiagramCanvas
             key={activeId}
@@ -116,6 +124,15 @@ export function CanvasWorkspace({
                 <button type="button" key={prompt} onClick={() => { onComposer(prompt); onOpenChat(); }}>{prompt}<span>↗</span></button>
               ))}
             </div>
+          </div>
+        )}
+        {target && (
+          <div className="canvas-titleblock">
+            <strong>{target.kind === 'diagram' ? `Diagram ${target.artifact.ordinal}` : `Sketch ${target.sketch.ordinal}`}</strong>
+            {lineage.length > 0 && (
+              <span>derived from {lineage.length === 1 ? 'Diagram' : 'Diagrams'} {lineage.join(', ')}</span>
+            )}
+            <span>{marks.length} {marks.length === 1 ? 'mark' : 'marks'}</span>
           </div>
         )}
       </div>
