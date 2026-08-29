@@ -44,9 +44,10 @@ export function InstructionComposer({
             const label = canvas.kind === 'sketch'
               ? 'Your sketch'
               : id === activeDiagramId ? 'Active diagram' : 'Additional diagram';
+            const marks = markCounts[id] || 0;
             return (
               <span className={`attachment-chip ${canvas.kind}`} key={id}>
-                <span>{label} included · {markCounts[id] || 0} marks</span>
+                <span>{label} included{marks > 0 ? ` · ${marks} ${marks === 1 ? 'mark' : 'marks'}` : ''}</span>
                 <button type="button" aria-label={`Remove ${canvas.kind} attachment`} onClick={() => onRemoveAttachment(id)}>×</button>
               </span>
             );

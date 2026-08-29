@@ -922,20 +922,10 @@ export function AppShell() {
             onNew={(provider) => void createThread(provider)}
           />
         </nav>
+        {/* Grouped by what each control does: panels, then the thread action, then readiness,
+            then the one preference — with a rule before it so four kinds of control in one row
+            stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
-          <div className="theme-selector" role="group" aria-label="Theme">
-            {THEME_PREFERENCES.map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                className={themePreference === choice ? 'active' : ''}
-                aria-pressed={themePreference === choice}
-                onClick={() => setThemePreference(choice)}
-              >
-                {choice[0].toUpperCase() + choice.slice(1)}
-              </button>
-            ))}
-          </div>
           {projectId && (
             <button
               type="button"
@@ -969,13 +959,27 @@ export function AppShell() {
               {unread > 0 && <span className="unread-badge">{unread}</span>}
             </button>
           )}
+          {thread && <button type="button" onClick={() => exportThread(thread)}>Export</button>}
           <span
             className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
             title={providerHealth?.message || health?.message || 'Local readiness'}
           >
             <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
           </span>
-          {thread && <button type="button" onClick={() => exportThread(thread)}>Export</button>}
+          <span className="header-divider" aria-hidden="true" />
+          <div className="theme-selector" role="group" aria-label="Theme">
+            {THEME_PREFERENCES.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                className={themePreference === choice ? 'active' : ''}
+                aria-pressed={themePreference === choice}
+                onClick={() => setThemePreference(choice)}
+              >
+                {choice[0].toUpperCase() + choice.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 

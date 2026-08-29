@@ -51,6 +51,15 @@ type DetailColorToken =
   | 'plotHover'
   | 'plotWashSoft'
   | 'plotWashMuted'
+  // Diagram section fills. Mermaid's mindmap, pie, journey and quadrant renderers colour their
+  // sections from cScale0…n rather than from primaryColor, and the base theme derives those by
+  // hue-rotating the primary — which lands on magenta and purple. This is the ramp they use
+  // instead: one hue, five steps, every one of them readable under `ink`.
+  | 'plotScale1'
+  | 'plotScale2'
+  | 'plotScale3'
+  | 'plotScale4'
+  | 'plotScale5'
   | 'waitLine'
   | 'waitLineStrong'
   | 'waitInkMuted'
@@ -169,6 +178,11 @@ const light = {
   plotHover: '#2449b5',
   plotWashSoft: '#f2f5fd',
   plotWashMuted: '#eaf0fd',
+  plotScale1: '#eaf0fd',
+  plotScale2: '#d8e3fa',
+  plotScale3: '#c5d2f4',
+  plotScale4: '#afbfec',
+  plotScale5: '#9db2ec',
   waitLine: '#e4bd85',
   waitLineStrong: '#d49b4d',
   waitInkMuted: '#80531b',
@@ -249,6 +263,11 @@ const dark = {
   plotHover: darkCore.plot,
   plotWashSoft: darkCore.plotWash,
   plotWashMuted: darkCore.plotWash,
+  plotScale1: darkCore.plotWash,
+  plotScale2: '#1b2745',
+  plotScale3: '#243358',
+  plotScale4: '#2e406c',
+  plotScale5: '#394d80',
   waitLine: darkCore.wait,
   waitLineStrong: darkCore.wait,
   waitInkMuted: darkCore.wait,

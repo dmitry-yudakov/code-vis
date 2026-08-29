@@ -49,6 +49,11 @@
   --plot-hover: #2449b5;
   --plot-wash-soft: #f2f5fd;
   --plot-wash-muted: #eaf0fd;
+  --plot-scale-1: #eaf0fd;
+  --plot-scale-2: #d8e3fa;
+  --plot-scale-3: #c5d2f4;
+  --plot-scale-4: #afbfec;
+  --plot-scale-5: #9db2ec;
   --wait-line: #e4bd85;
   --wait-line-strong: #d49b4d;
   --wait-ink-muted: #80531b;
@@ -168,6 +173,11 @@
     --plot-hover: #7d9df5;
     --plot-wash-soft: #131c33;
     --plot-wash-muted: #131c33;
+    --plot-scale-1: #131c33;
+    --plot-scale-2: #1b2745;
+    --plot-scale-3: #243358;
+    --plot-scale-4: #2e406c;
+    --plot-scale-5: #394d80;
     --wait-line: #e0a252;
     --wait-line-strong: #e0a252;
     --wait-ink-muted: #e0a252;
@@ -284,6 +294,11 @@
   --plot-hover: #7d9df5;
   --plot-wash-soft: #131c33;
   --plot-wash-muted: #131c33;
+  --plot-scale-1: #131c33;
+  --plot-scale-2: #1b2745;
+  --plot-scale-3: #243358;
+  --plot-scale-4: #2e406c;
+  --plot-scale-5: #394d80;
   --wait-line: #e0a252;
   --wait-line-strong: #e0a252;
   --wait-ink-muted: #e0a252;

@@ -68,12 +68,14 @@ achromatic instrument around it. The reference mock lives at
 | 30 | [theme-switch](STORY-20260828-theme-switch.md) | light/dark/system, no-flash stamp, theme as an explicit Mermaid argument | **Shipped** | 29 |
 | 31 | [dock-canvas-panels](STORY-20260828-dock-canvas-panels.md) | three-column grid, resizable rails, inset-aware fit, dock capacity bands | **Shipped** | 30 |
 | 32 | [visual-language](STORY-20260828-visual-language.md) | Geist/Geist Mono/Archivo, 48px breadcrumb header, run ribbon, titleblock | **Shipped** | 31 |
+| 33 | [visual-language-corrections](STORY-20260829-visual-language-corrections.md) | header overflow and flex sizing, one control height, hue discipline, Mermaid cScale | **Shipped** | 32 |
 
 ```mermaid
 graph LR
   S29[29 semantic tokens] --> S30[30 theme switch]
   S30 --> S31[31 docked panels]
   S31 --> S32[32 visual language]
+  S32 --> S33[33 corrections]
   S30 -.restyles.-> R19[operational 19 modes]
   S32 -.renders.-> R27[operational 27 run state]
 ```
@@ -84,8 +86,9 @@ removed the literals; 32 is a restyle rather than a rewrite only because 31 alre
 layout. Attempting 32 first would mean doing all four at once, which is the trap this sequence is
 designed to avoid.
 
-The two foundation stories and the layout story are now shipped. Story 32 is the next executable
-story, unblocked from layout work so the final restyle can stay a presentation pass.
+All five stories are shipped. Story 33 is the correction pass over the running application that
+Story 32 could not do from the mock alone: the flaws it found are the ones that only appear at a
+real viewport width, with real repository and transcript content in place.
 
 ---
 

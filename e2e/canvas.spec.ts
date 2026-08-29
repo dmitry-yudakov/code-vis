@@ -55,7 +55,8 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await expect(page.locator('.run-ribbon-tick')).toHaveCount(0);
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
-  await expect(page.locator('.canvas-titleblock')).toContainText('0 marks');
+  // An unannotated canvas states its identity and nothing else — a "0 marks" count is noise.
+  await expect(page.locator('.canvas-titleblock')).not.toContainText('mark');
   await expect(page.locator('.app-header')).toHaveCSS('height', '48px');
 
   // At desktop width both panels are real columns, and Fit targets the unobstructed canvas rect.
@@ -115,7 +116,7 @@ test('creates, annotates, revises, restores, and exports a canvas conversation',
   await page.mouse.move(box!.x + box!.width * .55, box!.y + box!.height * .55, { steps: 8 });
   await page.mouse.up();
   await openConversation.click();
-  await expect(page.locator('.attachment-chip')).toContainText('1 marks');
+  await expect(page.locator('.attachment-chip')).toContainText('1 mark');
   await page.getByRole('button', { name: 'Close conversation' }).click();
 
   await page.getByRole('button', { name: 'Focus' }).click();
@@ -196,7 +197,7 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await page.mouse.move(box!.x + box!.width * .6, box!.y + box!.height * .5, { steps: 8 });
   await page.mouse.up();
   await page.getByRole('button', { name: 'Open conversation' }).click();
-  await expect(page.locator('.attachment-chip')).toContainText('Your sketch included · 1 marks');
+  await expect(page.locator('.attachment-chip')).toContainText('Your sketch included · 1 mark');
   // The drawing is the instruction: sending needs no typed text.
   await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
   await page.getByRole('button', { name: 'Send' }).click();

@@ -14,6 +14,15 @@ let renderQueue: Promise<void> = Promise.resolve();
 
 function themeVariables(theme: ThemeName) {
   const colors = palette[theme];
+  // Mindmap, pie, journey and quadrant sections read cScale0…n, not primaryColor. Left unset the
+  // base theme derives them by rotating the primary hue, which lands on magenta and purple — the
+  // one thing on screen that belongs to no palette. Cycling the plot ramp keeps diagram ink in
+  // the plot family whatever the diagram type is.
+  const scale = [colors.plotScale1, colors.plotScale2, colors.plotScale3, colors.plotScale4, colors.plotScale5];
+  const sections = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
+    [`cScale${index}`, scale[index % scale.length]],
+    [`cScaleLabel${index}`, colors.ink],
+  ]).flat());
   return {
     background: colors.sheet,
     primaryColor: colors.plotWash,
@@ -27,6 +36,7 @@ function themeVariables(theme: ThemeName) {
     noteBkgColor: colors.plotWash,
     noteBorderColor: colors.plot,
     fontFamily: fonts.sans,
+    ...sections,
   };
 }
 

@@ -38,11 +38,14 @@ function FileRow({ file, selected, onSelect }: {
         {parts.directory && <small>{parts.directory}</small>}
         {file.previousPath && <small className="previous-path">from {file.previousPath}</small>}
       </span>
-      <span className="git-stage-marks" aria-label="Change areas">
-        {file.status === 'untracked' ? <i title="Untracked">U</i> : (
-          <>{file.staged && <i title="Staged">S</i>}{file.unstaged && <i title="Working tree">W</i>}</>
-        )}
-      </span>
+      {/* Untracked files already say so in the status mark on the left; repeating it as a `U`
+          chip on the right states the same fact twice. Staged/working tree is new information. */}
+      {file.status !== 'untracked' && (
+        <span className="git-stage-marks" aria-label="Change areas">
+          {file.staged && <i title="Staged">S</i>}
+          {file.unstaged && <i title="Working tree">W</i>}
+        </span>
+      )}
     </button>
   );
 }
@@ -75,7 +78,15 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
           </div>
           <div className="git-change-heading">
             <div><span className="eyebrow">Working tree</span><strong>{tree.files.length ? `${tree.files.length} changed ${tree.files.length === 1 ? 'file' : 'files'}` : 'Clean'}</strong></div>
-            {tree.files.length > 0 && <div className="git-counts"><span>S {staged}</span><span>W {working}</span><span>U {untracked}</span></div>}
+            {/* Only the counts that are actually non-zero, spelled out. `S 0  W 0  U 5` gives two
+                zeros the same weight as the one number that matters, behind letters nobody reads. */}
+            {tree.files.length > 0 && (
+              <div className="git-counts">
+                {staged > 0 && <span>{staged} staged</span>}
+                {working > 0 && <span>{working} unstaged</span>}
+                {untracked > 0 && <span>{untracked} untracked</span>}
+              </div>
+            )}
           </div>
           {tree.files.length ? (
             <div className="repository-file-list">

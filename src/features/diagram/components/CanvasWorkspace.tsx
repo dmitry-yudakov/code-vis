@@ -132,7 +132,7 @@ export function CanvasWorkspace({
             {lineage.length > 0 && (
               <span>derived from {lineage.length === 1 ? 'Diagram' : 'Diagrams'} {lineage.join(', ')}</span>
             )}
-            <span>{marks.length} {marks.length === 1 ? 'mark' : 'marks'}</span>
+            {marks.length > 0 && <span>{marks.length} {marks.length === 1 ? 'mark' : 'marks'}</span>}
           </div>
         )}
       </div>

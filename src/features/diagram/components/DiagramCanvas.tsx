@@ -334,15 +334,27 @@ export function DiagramCanvas({
         <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom((value) => Math.min(8, value * 1.2)); }} aria-label="Zoom in">+</button>
         <button type="button" onClick={fit}>Fit</button>
         <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
-        {artifact && <button type="button" onClick={() => download(`diagram-${artifact.ordinal}.mmd`, artifact.source, 'text/plain')}>.mmd</button>}
+        {/* Everything past the rule downloads a file. `.mmd` and `JSON` named the format rather
+            than what they save, and sat in the same row as the view controls. */}
+        <span className="control-separator" aria-hidden="true" />
+        {artifact && (
+          <button
+            type="button"
+            className="control-download"
+            title="Download the Mermaid source (.mmd)"
+            onClick={() => download(`diagram-${artifact.ordinal}.mmd`, artifact.source, 'text/plain')}
+          >Source</button>
+        )}
         <button
           type="button"
+          className="control-download"
+          title="Download this canvas and its marks (.json)"
           onClick={() => download(
             `${target.kind}-${artifact?.ordinal ?? sketch?.ordinal}-marks.json`,
             JSON.stringify({ version: 1, ...target, marks: state.marks, viewBox: snapshot?.viewBox }, null, 2),
             'application/json',
           )}
-        >JSON</button>
+        >Marks</button>
       </div>
     </div>
   );
