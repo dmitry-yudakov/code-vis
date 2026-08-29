@@ -6,7 +6,7 @@ const routeState = vi.hoisted(() => ({
     { id: 'b', name: 'B', relativePath: 'b' },
     { id: 'c', name: 'C', relativePath: 'c' },
   ],
-  conversations: [] as Array<{
+  sessions: [] as Array<{
     attachments: Array<{ id: string; hostId: string; checkoutId: string; role: 'primary' | 'reference' }>;
     updatedAt: string;
   }>,
@@ -25,10 +25,10 @@ vi.mock('@/server/projects/projectRegistry', () => ({
   getProjectRegistry: () => ({ list: async () => routeState.projects }),
 }));
 
-vi.mock('@/server/storage/conversationStore', () => ({
-  getConversationStore: () => ({
+vi.mock('@/server/storage/sessionStore', () => ({
+  getSessionStore: () => ({
     host: async () => ({ id: '11111111-1111-4111-8111-111111111111', label: 'Route host' }),
-    listConversations: async () => routeState.conversations,
+    listSessions: async () => routeState.sessions,
   }),
 }));
 
@@ -36,7 +36,7 @@ import { GET } from '@/app/api/projects/route';
 
 describe('projects route', () => {
   beforeEach(() => {
-    routeState.conversations = [
+    routeState.sessions = [
       {
         attachments: [{
           id: 'attachment-b',
@@ -58,7 +58,7 @@ describe('projects route', () => {
     ];
   });
 
-  it('returns discovered projects with conversation-derived recency', async () => {
+  it('returns discovered projects with session-derived recency', async () => {
     const response = await GET();
 
     expect(response.status).toBe(200);

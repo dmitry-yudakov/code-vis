@@ -19,7 +19,8 @@ export default defineConfig({
     name: 'chrome',
     use: {
       ...devices['Desktop Chrome'],
-      launchOptions: { executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] },
+      channel: 'chrome',
+      launchOptions: { args: ['--no-sandbox'] },
     },
   }],
   webServer: {

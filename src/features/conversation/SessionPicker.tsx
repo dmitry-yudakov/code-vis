@@ -1,11 +1,11 @@
 'use client';
 
 import { useRef } from 'react';
-import type { AgentProvider, ChatThread } from '@/shared/types';
+import type { AgentProvider, SessionSnapshot } from '@/shared/types';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 
-export function ThreadPicker({ threads, value, disabled, providers, newProvider, onChange, onNewProvider, onNew }: {
-  threads: ChatThread[];
+export function SessionPicker({ sessions, value, disabled, providers, newProvider, onChange, onNewProvider, onNew }: {
+  sessions: SessionSnapshot[];
   value?: string;
   disabled?: boolean;
   providers: AgentProvider[];
@@ -14,41 +14,41 @@ export function ThreadPicker({ threads, value, disabled, providers, newProvider,
   onNewProvider(value: AgentProvider): void;
   onNew(provider: AgentProvider): void;
 }) {
-  const newConversationMenu = useRef<HTMLDetailsElement>(null);
-  const newConversationDisabled = Boolean(disabled || !providers.length);
+  const newSessionMenu = useRef<HTMLDetailsElement>(null);
+  const newSessionDisabled = Boolean(disabled || !providers.length);
 
   return (
-    <div className="thread-picker">
+    <div className="session-picker">
       <label className="breadcrumb-select">
-        <span className="sr-only">Conversation</span>
+        <span className="sr-only">Session</span>
         <select
-          aria-label="Conversation"
+          aria-label="Session"
           value={value || ''}
-          disabled={disabled || !threads.length}
+          disabled={disabled || !sessions.length}
           onChange={(event) => onChange(event.target.value)}
         >
-          {!threads.length && <option value="">None yet</option>}
-          {threads.map((thread) => (
-            <option value={thread.id} key={thread.id}>
-              {findAgentParticipant(thread.participants, thread.primaryAgentId)?.displayName || 'Agent'} · {thread.title}
+          {!sessions.length && <option value="">No sessions yet</option>}
+          {sessions.map((session) => (
+            <option value={session.id} key={session.id}>
+              {findAgentParticipant(session.participants, session.primaryAgentId)?.displayName || 'Agent'} · {session.title}
             </option>
           ))}
         </select>
       </label>
-      <details className="new-thread-menu" ref={newConversationMenu}>
+      <details className="new-session-menu" ref={newSessionMenu}>
         <summary
           role="button"
-          aria-label="New conversation"
-          aria-disabled={newConversationDisabled}
-          onClick={(event) => { if (newConversationDisabled) event.preventDefault(); }}
+          aria-label="New session"
+          aria-disabled={newSessionDisabled}
+          onClick={(event) => { if (newSessionDisabled) event.preventDefault(); }}
         >
           ＋
         </summary>
         <div>
           <label>
-            <span>New conversation with</span>
+            <span>New session with</span>
             <select
-              aria-label="New conversation provider"
+              aria-label="New session provider"
               value={providers.includes(newProvider) ? newProvider : ''}
               disabled={disabled || !providers.length}
               onChange={(event) => onNewProvider(event.target.value as AgentProvider)}
@@ -62,10 +62,10 @@ export function ThreadPicker({ threads, value, disabled, providers, newProvider,
             disabled={disabled || !providers.length}
             onClick={() => {
               onNew(newProvider);
-              if (newConversationMenu.current) newConversationMenu.current.open = false;
+              if (newSessionMenu.current) newSessionMenu.current.open = false;
             }}
           >
-            Start conversation
+            Start session
           </button>
         </div>
       </details>

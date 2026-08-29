@@ -223,9 +223,9 @@ states only mean something once several turns can run at once, which is step 5. 
 a real improvement — switching sessions without losing your place, and answering a permission from
 elsewhere — but it is not yet the thing this document describes.
 
-One piece of work sits outside this list because it delivers nothing to a user:
-[Story 34](../stories/STORY-20260829-rename-thread-to-session.md) renames the code to the vocabulary
-above. It runs first, before step 3, because every story after it is otherwise written twice.
+One prerequisite sat outside this list because it delivered nothing to a user:
+[Story 34](../stories/STORY-20260829-rename-thread-to-session.md) shipped the code-level vocabulary
+rename before step 3, so every story after it is written once in the settled nouns.
 
 ---
 

@@ -5,7 +5,7 @@ import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, DrawingMark, DrawingTool, Point } from '@/shared/types';
 import { drawingReducer } from '@/features/diagram/annotations/drawingReducer';
 import { createUuid } from '@/shared/uuid';
-import { canvasTargetId } from '@/features/conversation/conversationStore';
+import { canvasTargetId } from '@/features/conversation/sessionStore';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { DrawingToolbar } from './DrawingToolbar';
 

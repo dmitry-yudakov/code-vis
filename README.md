@@ -2,7 +2,7 @@
 
 A local-first Next.js application for working on a repository through a persistent local-agent
 conversation and a large Mermaid canvas. Choose Claude Code or Codex as the first main agent, then
-add more provider/role participants to the same conversation. Conversation is the command/history
+add more provider/role participants to the same session. Conversation is the command/history
 channel, and once a diagram exists the canvas becomes the primary workspace. Each message runs in
 one of three modes — **Ask**, **Plan**, or **Agent** — subject to the selected provider's supported
 modes.
@@ -58,11 +58,11 @@ rm -rf web2                     # node_modules, .next, and build state are rebui
 npm install
 ```
 
-The current host store starts fresh under `~/.code-ai/web2/conversation-store-v1`. Legacy
-`threads.json` and browser keys under `code-ai:web2:v1:` are deliberately left untouched and are
-not imported; this avoids silently combining browser-authoritative development data with the new
-host-authoritative format. Environment variables were renamed from `CODEAI_WEB2_*` to `CODEAI_*`,
-and **the old names continue to work** — see [Configuration](#configuration).
+The current host store lives under `~/.code-ai/web2/session-store-v1`. On first open it copies a
+valid `conversation-store-v1` into that store and leaves the old directory untouched as a rollback.
+The older `threads.json` prototype and browser keys under `code-ai:web2:v1:` are still deliberately
+left untouched and are not imported. Environment variables were renamed from `CODEAI_WEB2_*` to
+`CODEAI_*`, and **the old names continue to work** — see [Configuration](#configuration).
 
 ### Upgrading from the Yarn/Next.js 15 toolchain
 
@@ -80,7 +80,7 @@ stored data. `next dev` and `next build` now use Turbopack, and `next dev` write
 
 ## Participants, roles, and manual handoffs
 
-A new conversation starts with one main `coder`. The main designation is only the default
+A new session starts with one main `coder`. The main designation is only the default
 recipient: select any `@participant` for the next message or make that participant main without
 moving its provider session. Add Claude or Codex participants with one of five transparent prompt
 presets: `orchestrator`, `coder`, `reviewer`, `tester`, or `custom`. Provider and role are
@@ -95,13 +95,13 @@ Quick handoff chips prefill an
 editable recipient, prompt, and role-default mode; they never send automatically. Autonomous
 agent-to-agent relay, parallel turns, and autopilot are intentionally not implemented yet.
 
-New conversations intentionally open in **Plan** because their initial participant is the `coder`
+New sessions intentionally open in **Plan** because their initial participant is the `coder`
 preset.
 
 ## Conversation modes
 
 Every message carries a mode. The browser sends only the mode name; the server resolves it to a
-fixed provider policy. A thread can change modes and recipients; later turns resume only the
+fixed provider policy. A session can change modes and recipients; later turns resume only the
 addressed participant's private provider-owned session.
 
 | | Ask (wire fallback; reviewer/tester/custom default) | Plan (orchestrator/coder default) | Agent |
@@ -207,20 +207,20 @@ key — applies to CodeAI runs exactly as it does in the terminal. CodeAI adds n
 credentials or endpoint variables and never persists any. **Billing follows the login and
 environment of whoever starts CodeAI.**
 
-## How conversations and data work
+## How sessions and data work
 
-- `conversation-store-v1` is the canonical store. Its manifest gives this installation a durable
-  host id and label; each thread is one validated, revisioned JSON file containing attachments,
+- `session-store-v1` is the canonical store. Its manifest gives this installation a durable
+  host id and label; each session is one validated, revisioned JSON file containing attachments,
   roster, messages, Mermaid artifacts, sketches, annotations, and pins. Provider session ids and
   transcript cursors live in the same private record but are removed from every route response.
 - Writes are operation-level and serialized. A process-owned `writer.lock` excludes a second
-  CodeAI process from the same data directory; thread files are flushed and atomically renamed with
+  CodeAI process from the same data directory; session files are flushed and atomically renamed with
   user-only permissions. Revision-bearing overwrite operations reject stale clients with 409,
   while stable request ids make append retries idempotent.
-- Threads carry zero or more host-scoped project attachments instead of a permanent project id.
+- Sessions carry zero or more host-scoped project attachments instead of a permanent project id.
   The current shell creates one local primary attachment; attachment-free records remain readable,
   while their turns fail clearly until attachment management is implemented.
-- The browser lists and hydrates snapshots from `/api/threads`. It writes no transcript, canvas,
+- The browser lists and hydrates snapshots from `/api/sessions`. It writes no transcript, canvas,
   roster, or annotation content to `localStorage`; only the selected checkout preference is stored
   as device state. Reloading or a second browser context sees committed host content after refetch.
 - Later turns resume the addressed participant's host-bound native provider session and receive
@@ -270,7 +270,7 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_CLAUDE_BIN` / `CODEAI_CLAUDE_MODEL` — local agent executable and optional model;
 - `CODEAI_CODEX_BIN` / `CODEAI_CODEX_MODEL` — local Codex executable and optional model;
 - `CODEAI_CODEX_AGENT` — explicit Codex Agent release gate; unset means Ask/Plan only;
-- `CODEAI_DATA_DIR` — canonical host conversation store root (tilde expansion is handled in Node);
+- `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node);
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
 - `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
 - `CODEAI_AGENT_*` / `CODEAI_BUILD_*` — per-message turn and time budgets for Ask/Plan
@@ -292,7 +292,7 @@ unset on either name, which is how these settings have always behaved. Validatio
 raw value is selected, so an invalid neutral value fails rather than silently falling back to a
 valid legacy one. The default data directory keeps its historical `~/.code-ai/web2` spelling. The
 old browser prefix `code-ai:web2:v1:` is also left untouched, but current code neither reads nor
-writes conversation records under it.
+writes session records under it.
 
 The health endpoint checks infrastructure and each provider independently, without invoking a
 model. Claude flags are checked through `claude --help`; Codex performs a bounded App Server

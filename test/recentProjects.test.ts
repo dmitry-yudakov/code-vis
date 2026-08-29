@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { groupProjects } from '@/features/projects/projectPickerModel';
 import { recentProjectIds } from '@/server/projects/recentProjects';
-import type { DurableConversation, ProjectAttachment, ProjectSummary } from '@/shared/types';
+import type { DurableSession, ProjectAttachment, ProjectSummary } from '@/shared/types';
 
 const hostId = '11111111-1111-4111-8111-111111111111';
 
@@ -9,7 +9,7 @@ function attachment(checkoutId: string, role: ProjectAttachment['role'] = 'prima
   return { id: `${checkoutId}-${role}`, hostId: attachedHostId, checkoutId, role };
 }
 
-function activity(updatedAt: string, attachments: ProjectAttachment[]): Pick<DurableConversation, 'attachments' | 'updatedAt'> {
+function activity(updatedAt: string, attachments: ProjectAttachment[]): Pick<DurableSession, 'attachments' | 'updatedAt'> {
   return { attachments, updatedAt };
 }
 
@@ -18,9 +18,9 @@ function project(id: string): ProjectSummary {
 }
 
 describe('recent projects', () => {
-  it('uses each current project’s newest local primary conversation and limits the result to five', () => {
+  it('uses each current project’s newest local primary session and limits the result to five', () => {
     const projects = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(project);
-    const conversations = [
+    const sessions = [
       activity('2026-08-20T00:00:00.000Z', [attachment('a')]),
       activity('2026-08-28T00:00:00.000Z', [attachment('a')]),
       activity('2026-08-27T00:00:00.000Z', [attachment('b')]),
@@ -33,17 +33,17 @@ describe('recent projects', () => {
       activity('2026-08-31T00:00:00.000Z', [attachment('no-longer-discovered')]),
     ];
 
-    expect(recentProjectIds(projects, conversations, hostId)).toEqual(['a', 'b', 'd', 'e', 'f']);
+    expect(recentProjectIds(projects, sessions, hostId)).toEqual(['a', 'b', 'd', 'e', 'f']);
   });
 
   it('uses registry order as a deterministic tie breaker', () => {
     const projects = ['b', 'a'].map(project);
-    const conversations = [
+    const sessions = [
       activity('2026-08-28T00:00:00.000Z', [attachment('a')]),
       activity('2026-08-28T00:00:00.000Z', [attachment('b')]),
     ];
 
-    expect(recentProjectIds(projects, conversations, hostId)).toEqual(['b', 'a']);
+    expect(recentProjectIds(projects, sessions, hostId)).toEqual(['b', 'a']);
   });
 
   it('groups recent projects once in activity order and leaves other projects in registry order', () => {

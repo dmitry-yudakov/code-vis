@@ -79,7 +79,7 @@ function classifyCodexFailure(
     return new AgentRunError('unauthenticated', 'Codex is not authenticated. Run `codex login` locally and sign in.', 'not-sent');
   }
   if (action === 'resume' && /thread|session/.test(normalized) && /not found|missing|invalid|unknown/.test(normalized)) {
-    return new AgentRunError('missing-session', 'The native Codex thread is missing or cannot be resumed. Continue in a new agent session.', 'not-sent');
+    return new AgentRunError('missing-session', 'The native Codex provider session is missing or cannot be resumed. Continue in a new provider session.', 'not-sent');
   }
   if (error instanceof RpcResponseError && (error.code === -32601 || /requires experimentalapi|invalid params/.test(normalized))) {
     return new AgentRunError('unsupported-flags', 'The installed Codex version does not support CodeAI\'s required App Server protocol.', 'not-sent', false);
@@ -97,7 +97,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
 
   async run(input: AgentProcessRun): Promise<AgentProcessResult> {
     if (input.session.action === 'resume' && !input.session.id) {
-      throw new AgentRunError('missing-session', 'The native Codex thread id is missing. Continue in a new agent session.', 'not-sent');
+      throw new AgentRunError('missing-session', 'The native Codex provider session id is missing. Continue in a new provider session.', 'not-sent');
     }
     const imagePaths = (await readdir(input.attachmentDirectory))
       .filter((name) => name.endsWith('.png'))
@@ -500,9 +500,9 @@ export class CodexProcessRunner implements AgentProcessRunner {
               : { ...common, threadId: input.session.id },
           ));
           const providerThread = record(threadResult?.thread);
-          if (typeof providerThread?.id !== 'string') throw new Error('Codex App Server returned no thread id');
+          if (typeof providerThread?.id !== 'string') throw new Error('Codex App Server returned no provider session id');
           if (input.session.action === 'resume' && providerThread.id !== input.session.id) {
-            throw new AgentRunError('missing-session', 'Codex resumed an unexpected native thread.', 'not-sent');
+            throw new AgentRunError('missing-session', 'Codex resumed an unexpected native provider session.', 'not-sent');
           }
           sessionId = providerThread.id;
           const policyIssue = codexThreadPolicyIssue(threadResult, input.project.realPath, security.approvalPolicy);

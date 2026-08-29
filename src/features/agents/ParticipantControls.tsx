@@ -61,7 +61,7 @@ export function ParticipantControls({
 
   return (
     <div className="participant-controls">
-      <div className="participant-row" aria-label="Conversation agents">
+      <div className="participant-row" aria-label="Session agents">
         {agents.map((agent) => (
           <button
             type="button"

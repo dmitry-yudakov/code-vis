@@ -67,7 +67,7 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
       {loading && !tree ? <div className="repository-state"><span className="pulse-dot" /><p>Reading working tree…</p></div> : error ? (
         <div className="repository-state error"><strong>Status unavailable</strong><p>{error}</p><button type="button" onClick={onRetry}>Try again</button></div>
       ) : tree && !tree.isRepository ? (
-        <div className="repository-state"><span className="repository-state-mark">◇</span><strong>Not a Git repository</strong><p>This project can still use the canvas and conversations; working-tree changes are unavailable.</p></div>
+        <div className="repository-state"><span className="repository-state-mark">◇</span><strong>Not a Git repository</strong><p>This project can still use the canvas and sessions; working-tree changes are unavailable.</p></div>
       ) : tree ? (
         <>
           <div className="repository-view-heading"><span className="eyebrow">Changes</span></div>

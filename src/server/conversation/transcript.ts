@@ -1,5 +1,5 @@
 import type {
-  ChatMessage, Participant, ServerAgentParticipant, ServerThread, TranscriptContextMessage,
+  ChatMessage, Participant, ServerAgentParticipant, DurableSession, TranscriptContextMessage,
 } from '@/shared/types';
 import {
   DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES,
@@ -97,15 +97,15 @@ export function canonicalTranscript(messages: readonly ChatMessage[]): Transcrip
 
 /** Encodes the newest bounded canonical messages the addressed participant has not observed. */
 export function buildTranscriptDelta(
-  thread: ServerThread,
+  session: DurableSession,
   participant: ServerAgentParticipant,
   transcript: TranscriptContextMessage[],
   limits: { maxMessages?: number; maxBytes?: number } = {},
 ): TranscriptDelta {
-  const roster = new Map(thread.participants.map((item) => [item.id, item]));
+  const roster = new Map(session.participants.map((item) => [item.id, item]));
   const seen = new Set<string>();
   for (const message of transcript) {
-    if (!roster.has(message.authorId)) throw new Error('Transcript contains an author outside this conversation');
+    if (!roster.has(message.authorId)) throw new Error('Transcript contains an author outside this session');
     if (seen.has(message.id)) throw new Error('Transcript contains duplicate message ids');
     seen.add(message.id);
   }

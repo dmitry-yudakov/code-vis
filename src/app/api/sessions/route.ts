@@ -1,9 +1,9 @@
 import { getConfig } from '@/server/config';
 import { getProjectRegistry } from '@/server/projects/projectRegistry';
 import {
-  conversationStoreStatus, getConversationStore, publicConversation,
-} from '@/server/storage/conversationStore';
-import { createThreadRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
+  sessionStoreStatus, getSessionStore, publicSession,
+} from '@/server/storage/sessionStore';
+import { createSessionRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,24 +15,24 @@ export async function GET(request: Request): Promise<Response> {
   }
   try {
     const config = getConfig();
-    const conversations = await getConversationStore(config.dataDir, config.hostLabel).listConversations(checkoutId);
-    return safeJsonResponse({ threads: conversations.map(publicConversation) });
+    const sessions = await getSessionStore(config.dataDir, config.hostLabel).listSessions(checkoutId);
+    return safeJsonResponse({ sessions: sessions.map(publicSession) });
   } catch (error) {
-    return safeJsonResponse({ error: publicError(error) }, { status: conversationStoreStatus(error) });
+    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
 }
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const parsed = createThreadRequestSchema.safeParse(await request.json());
+    const parsed = createSessionRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'A valid checkout, provider, and role are required.' }, { status: 400 });
     const config = getConfig();
     if (parsed.data.checkoutId) {
       await getProjectRegistry(config.projectsRoot, config.projectDiscoveryDepth).resolve(parsed.data.checkoutId);
     }
-    const conversation = await getConversationStore(config.dataDir, config.hostLabel).createConversation(parsed.data);
-    return safeJsonResponse({ thread: publicConversation(conversation) }, { status: 201 });
+    const session = await getSessionStore(config.dataDir, config.hostLabel).createSession(parsed.data);
+    return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
-    return safeJsonResponse({ error: publicError(error) }, { status: conversationStoreStatus(error) });
+    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
 }

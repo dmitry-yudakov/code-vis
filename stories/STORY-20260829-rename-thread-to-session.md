@@ -1,6 +1,6 @@
 # Story 34 — Rename the unit of work from thread to session
 
-**Status:** Draft · **Type:** Full-stack (types, wire, routes, store records, UI strings, tests) ·
+**Status:** Shipped · **Type:** Full-stack (types, wire, routes, store records, UI strings, tests) ·
 **Depends on:** [Story 26](STORY-20260826-loosen-project-host-bindings.md) (host-owned conversation
 store, shipped 2026-08-26) and [Story 27](STORY-20260826-session-keyed-host-bound-runs.md)
 (run-id addressed runs, shipped 2026-08-28)
@@ -22,49 +22,48 @@ Assistants API it is the conversation object. Both meanings are ones this produc
 neither is what we mean. Keeping the word also blocks the feature it usually names — branching a
 conversation.
 
-This is worth a story rather than a commit because the word is not only a type name. `threadId`
-appears 123 times and sits on four boundaries at once:
+This was worth a story rather than a commit because the word was not only a type name. `threadId`
+appeared 123 times and sat on four boundaries at once:
 
-- the wire ([protocol.ts:41](../src/shared/protocol.ts#L41)),
+- the wire,
 - the URL space (`/api/threads/[threadId]/...`),
-- **persisted records** ([conversationSchema.ts:40](../src/shared/conversationSchema.ts#L40)),
-- and the **store layout on disk** (`conversation-store-v1/threads/<id>.json`,
-  [conversationStore.ts:201](../src/server/storage/conversationStore.ts#L201)).
+- **persisted records**,
+- and the **store layout on disk** (`conversation-store-v1/threads/<id>.json`).
 
 The last two mean the rename needs a stated data policy, not a find-and-replace. It is also cheapest
 now: the store is three days old, and every story after this one writes new code in the right words.
 
-A second, smaller correction rides along. `markSessionStarted`
-([conversationStore.ts:449](../src/server/storage/conversationStore.ts#L449)) already uses *session*
-for a provider's private Claude/Codex handle. Once the user-visible unit is a session, that name
-means two things in one file, so provider-side names get qualified.
+A second, smaller correction rode along. `markSessionStarted` already used *session* for a
+provider's private Claude/Codex handle. Once the user-visible unit became a session, that name meant
+two things in one file, so provider-side names were qualified.
 
 ---
 
-## Current behavior (where the code is)
+## Shipped behavior (where the code is)
 
-- **Durable record:** `DurableConversation` [types.ts:91](../src/shared/types.ts#L91), with the
-  source-compatible alias `ServerThread` [types.ts:108](../src/shared/types.ts#L108); the public
-  client shape is `ChatThread` [types.ts:267](../src/shared/types.ts#L267).
-- **Record schema:** [conversationSchema.ts:32](../src/shared/conversationSchema.ts#L32) pins
-  `version: 1`; message and annotation records carry `threadId`
-  ([:40](../src/shared/conversationSchema.ts#L40), [:120](../src/shared/conversationSchema.ts#L120)).
-- **Store:** [conversationStore.ts:200](../src/server/storage/conversationStore.ts#L200) roots
-  `conversation-store-v1/` with `manifest.json`, `writer.lock`, and `threads/<uuid>.json`; the domain
-  operations are `listConversations`, `getConversation`, `createConversation`, `appendUserMessage`,
-  `completeAssistantMessage`, `addAgent`, `setPrimaryAgent`, `putAnnotation`, `createSketch`,
-  `setPins`, `markSessionStarted`.
-- **Wire:** [protocol.ts:41](../src/shared/protocol.ts#L41) carries `threadId` on stream events and
-  operation payloads.
-- **Routes:** `src/app/api/threads/route.ts` and `src/app/api/threads/[threadId]/{,annotations,participants,pins,sketches}/route.ts`.
-- **Runs:** [runRegistry.ts:40](../src/server/runs/runRegistry.ts#L40) — `start({ runId, threadId, participantId })`.
-- **Browser:** [AppShell.tsx:72](../src/features/shell/AppShell.tsx#L72) holds `threadId` state;
-  [ThreadPicker.tsx:7](../src/features/conversation/ThreadPicker.tsx#L7) renders the picker;
-  [conversationStore.ts:42](../src/features/conversation/conversationStore.ts#L42) hydrates.
-- **User-visible strings:** "New conversation", "New conversation with", "Close conversation",
-  "Conversation agents", "Current project and conversation", and the default record title
-  `Conversation ${n}` ([conversationStore.ts:262](../src/server/storage/conversationStore.ts#L262)).
-- **Tests:** 13 files under `test/` and `e2e/` reference threads by name.
+- **Durable and public records:** `DurableSession`, `PublicSession`, and `SessionSnapshot` live in
+  [types.ts:91](../src/shared/types.ts#L91) and [types.ts:243](../src/shared/types.ts#L243); the old
+  source alias is gone.
+- **Record schema:** [sessionSchema.ts:173](../src/shared/sessionSchema.ts#L173) pins `version: 2`,
+  validates `sessionId` container references, and converts a strictly validated v1 record at the
+  upgrade boundary ([sessionSchema.ts:323](../src/shared/sessionSchema.ts#L323)).
+- **Store and migration:** [sessionStore.ts:184](../src/server/storage/sessionStore.ts#L184) owns
+  `session-store-v1/` and its `sessions/` records. The copy-forward migration validates the old
+  manifest and every record, carries the host identity, writes under the new store lock, removes a
+  partial destination on failure, and never changes the old store
+  ([sessionStore.ts:592](../src/server/storage/sessionStore.ts#L592)).
+- **Wire and routes:** [protocol.ts:40](../src/shared/protocol.ts#L40) carries `sessionId`; handlers
+  live under `src/app/api/sessions/` and use `[sessionId]`.
+- **Runs:** [runRegistry.ts:40](../src/server/runs/runRegistry.ts#L40) records
+  `{ runId, sessionId, participantId }` while retaining the run vocabulary.
+- **Browser:** [AppShell.tsx:71](../src/features/shell/AppShell.tsx#L71) holds session state,
+  [SessionPicker.tsx:7](../src/features/conversation/SessionPicker.tsx#L7) renders the picker, and
+  [sessionStore.ts:42](../src/features/conversation/sessionStore.ts#L42) hydrates public snapshots.
+- **User-visible strings:** the unit is a session, including `Session ${n}`; Conversation remains
+  the transcript panel label.
+- **Tests:** [sessionStore.test.ts](../test/sessionStore.test.ts) covers fresh records, complete v1
+  migration, byte-preserving rollback, and invalid-record cleanup; API and UI coverage use session
+  names and routes.
 
 ---
 
@@ -144,9 +143,9 @@ export interface DurableSession {          // was DurableConversation
 
 export interface SessionSnapshot extends PublicSession { /* was ChatThread */ }
 
-// records that referenced their container
-interface ChatMessage      { sessionId: string; /* was threadId */ }
-interface DiagramAnnotation { sessionId: string; /* was threadId */ }
+// records that reference their container
+interface SketchCanvas    { sessionId: string; /* was threadId */ }
+interface DiagramArtifact { sessionId: string; /* was threadId */ }
 
 // src/shared/protocol.ts — every event and operation payload
 { sessionId: string }                      // was threadId
@@ -156,26 +155,26 @@ interface DiagramAnnotation { sessionId: string; /* was threadId */ }
 
 ## Acceptance criteria
 
-- [ ] `grep -ri "thread" src/ e2e/ test/` returns nothing outside `legacy/`, except where quoting a
+- [x] `grep -ri "thread" src/ e2e/ test/` returns nothing outside `legacy/`, except where quoting a
       provider's own vocabulary.
-- [ ] `DurableSession`, `SessionSnapshot`, and `sessionId` are the only names for the unit across
+- [x] `DurableSession`, `SessionSnapshot`, and `sessionId` are the only names for the unit across
       types, schema, store, routes, wire, and browser state; `ServerThread` no longer exists.
-- [ ] Routes answer at `/api/sessions` and `/api/sessions/[sessionId]/…`; no `/api/threads` route
+- [x] Routes answer at `/api/sessions` and `/api/sessions/[sessionId]/…`; no `/api/threads` route
       remains.
-- [ ] A fresh install with no store creates `session-store-v1/` at record `version: 2` and never
+- [x] A fresh install with no store creates `session-store-v1/` at record `version: 2` and never
       looks for a v1 store again.
-- [ ] An install holding a v1 store upgrades it once on first open: every session, message,
+- [x] An install holding a v1 store upgrades it once on first open: every session, message,
       annotation, sketch, pin, participant, and provider-session binding survives with its id,
       revision, and `hostId` intact.
-- [ ] `conversation-store-v1/` is byte-identical after the upgrade, and a second start does not
+- [x] `conversation-store-v1/` is byte-identical after the upgrade, and a second start does not
       re-run it.
-- [ ] An invalid v1 record aborts the upgrade, names the file, leaves no partial `session-store-v1/`,
+- [x] An invalid v1 record aborts the upgrade, names the file, leaves no partial `session-store-v1/`,
       and leaves the v1 store readable by the previous build.
-- [ ] The UI says session for the unit and conversation only for the transcript; no string says
+- [x] The UI says session for the unit and conversation only for the transcript; no string says
       thread.
-- [ ] `markProviderSessionStarted` is the only session-started operation, and no scope holds both
+- [x] `markProviderSessionStarted` is the only session-started operation, and no scope holds both
       meanings of the word.
-- [ ] `npm run lint`, `npm test`, and `npm run test:e2e` pass; tests are renamed with the code rather
+- [x] `npm run lint`, `npm test`, and `npm run test:e2e` pass; tests are renamed with the code rather
       than kept as thread-named fixtures.
 
 ## Out of scope
@@ -189,14 +188,10 @@ interface DiagramAnnotation { sessionId: string; /* was threadId */ }
 
 ## How to verify
 
-1. Back up `<dataDir>` and note the ids and titles of two or three existing conversations.
-2. `npm run dev`. On first request the log reports a one-time store upgrade; `session-store-v1/`
-   appears beside an unchanged `conversation-store-v1/`.
-3. Every session is listed with its title, transcript, pinned diagrams, sketches, and agents intact;
-   opening one and continuing a turn works, including a permission prompt and a cancel.
-4. Restart. No second upgrade runs, and the store opens directly at v2.
-5. Corrupt one record in a copied v1 store, point `<dataDir>` at the copy, and start: the upgrade
-   aborts naming that file, no `session-store-v1/` is left behind, and the previous build still
-   opens the v1 store.
-6. Read the shell: every label for the unit says session; the transcript panel still says
-   Conversation.
+1. `npm run lint` — strict TypeScript check.
+2. `npm test` — includes complete and failing copy-forward migration fixtures, route behavior,
+   provider resume behavior, and the application-owned vocabulary audit surface.
+3. `npm run test:e2e` — production build plus the seven browser flows, including starting and
+   closing a session.
+4. `rg -l -i thread src test e2e` — only Codex adapter/preflight/fixture files may remain because
+   the provider calls its native object a thread.

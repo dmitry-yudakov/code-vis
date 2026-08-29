@@ -10,7 +10,7 @@ describe('parseAssistantResponse', () => {
     const blocks = await parseAssistantResponse(
       '```mermaid\nflowchart LR\nF["`.claude/settings.local.json`<br/>M · +3 / −0"]\n```',
       {
-        threadId: crypto.randomUUID(), messageId: crypto.randomUUID(), projectRoot: root,
+        sessionId: crypto.randomUUID(), messageId: crypto.randomUUID(), projectRoot: root,
         derivedFromDiagramIds: [], maxMermaidBytes: 10_000, maxDiagrams: 8,
       },
     );
@@ -27,7 +27,7 @@ describe('parseAssistantResponse', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'codeai-parser-'));
     await writeFile(path.join(root, 'index.ts'), 'one\ntwo\nthree\n');
     const blocks = await parseAssistantResponse('Before\n```ts\nconst x = 1\n```\nMiddle\n```mermaid\ngraph LR\nA-->B\n%%@evidence A | index.ts:1-2 | observed\n```\nAfter\n~~~mermaid\nsequenceDiagram\nX->>Y: hi\n~~~', {
-      threadId: crypto.randomUUID(), messageId: crypto.randomUUID(), projectRoot: root,
+      sessionId: crypto.randomUUID(), messageId: crypto.randomUUID(), projectRoot: root,
       derivedFromDiagramIds: [], maxMermaidBytes: 10_000, maxDiagrams: 8,
     });
     expect(blocks.map((block) => block.kind)).toEqual(['markdown', 'code', 'markdown', 'diagram', 'markdown', 'diagram']);
@@ -39,7 +39,7 @@ describe('parseAssistantResponse', () => {
   it('keeps extra and unsafe diagrams visible without losing prose', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'codeai-parser-limit-'));
     const blocks = await parseAssistantResponse('Hello\n```mermaid\ngraph LR\nA[<b>bad</b>]\n```\n```mermaid\ngraph LR\nB-->C\n```', {
-      threadId: crypto.randomUUID(), messageId: crypto.randomUUID(), projectRoot: root,
+      sessionId: crypto.randomUUID(), messageId: crypto.randomUUID(), projectRoot: root,
       derivedFromDiagramIds: [], maxMermaidBytes: 10_000, maxDiagrams: 1,
     });
     expect(blocks[0]).toMatchObject({ kind: 'markdown' });

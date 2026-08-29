@@ -2,13 +2,13 @@ import { z } from 'zod';
 import { MAX_MESSAGE_TEXT_CHARS } from './limits';
 import {
   diagramAnnotationSchema, drawingMarkSchema, projectAttachmentSchema, sketchCanvasSchema,
-} from './conversationSchema';
+} from './sessionSchema';
 
 export {
   assistantMessageSchema, chatMessageSchema, diagramAnnotationSchema, drawingMarkSchema,
-  durableConversationSchema, participantSchema, projectAttachmentSchema, providerSessionRefSchema,
-  publicConversationSchema, serverParticipantSchema, sketchCanvasSchema, userMessageSchema,
-} from './conversationSchema';
+  durableSessionSchema, participantSchema, projectAttachmentSchema, providerSessionRefSchema,
+  publicSessionSchema, serverParticipantSchema, sketchCanvasSchema, userMessageSchema,
+} from './sessionSchema';
 
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 /**
@@ -38,7 +38,7 @@ export const agentRoleSchema = z.enum(['orchestrator', 'coder', 'reviewer', 'tes
 
 const participantIdSchema = z.string().trim().min(1).max(160);
 export const agentMessageRequestSchema = z.object({
-  threadId: z.string().uuid(),
+  sessionId: z.string().uuid(),
   messageId: z.string().uuid(),
   participantId: participantIdSchema,
   text: z.string().trim().min(1).max(MAX_MESSAGE_TEXT_CHARS),
@@ -54,7 +54,7 @@ export const permissionDecisionRequestSchema = z.object({
 
 export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 
-export const createThreadRequestSchema = z.object({
+export const createSessionRequestSchema = z.object({
   checkoutId: z.string().trim().min(1).max(128).optional(),
   provider: agentProviderSchema,
   role: agentRoleSchema.optional(),

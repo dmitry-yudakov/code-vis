@@ -76,7 +76,7 @@ function classifyFailure(stderr: string, action: 'start' | 'resume'): AgentRunEr
     return new AgentRunError('unauthenticated', 'Claude Code is not authenticated. Run `claude` locally and sign in.', 'not-sent');
   }
   if (action === 'resume' && /session.*(not found|missing|invalid|corrupt)|no conversation found/.test(normalized)) {
-    return new AgentRunError('missing-session', 'The native Claude session is missing or cannot be resumed. Continue in a new agent session.', 'not-sent');
+    return new AgentRunError('missing-session', 'The native Claude session is missing or cannot be resumed. Continue in a new provider session.', 'not-sent');
   }
   if (/unknown option|unknown argument|unrecognized option/.test(normalized)) {
     return new AgentRunError('unsupported-flags', 'The installed Claude Code version does not support the required safe conversation flags.', 'not-sent', false);
@@ -112,7 +112,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
     const startedAt = Date.now();
     const providerSessionId = input.session.id;
     if (!providerSessionId) {
-      throw new AgentRunError('missing-session', 'The native Claude session id is missing. Continue in a new agent session.', 'not-sent');
+      throw new AgentRunError('missing-session', 'The native Claude session id is missing. Continue in a new provider session.', 'not-sent');
     }
     const args = buildClaudeArgs({
       session: { ...input.session, id: providerSessionId },

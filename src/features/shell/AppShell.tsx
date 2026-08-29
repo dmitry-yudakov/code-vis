@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, ChatThread, DiagramArtifact,
-  DiagramMessageAttachment, DrawingMark, GitWorkingTree, ProjectSummary, ProviderHealth, PublicConversation,
+  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, SessionSnapshot, DiagramArtifact,
+  DiagramMessageAttachment, DrawingMark, GitWorkingTree, ProjectSummary, ProviderHealth, PublicSession,
   ProjectsResponse, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import { readNdjson } from '@/features/conversation/ndjson';
@@ -15,11 +15,11 @@ import { EXECUTE_PLAN_INSTRUCTION } from '@/shared/plan';
 import { compositePng } from '@/features/diagram/annotations/compositeExport';
 import { createUuid } from '@/shared/uuid';
 import {
-  canvasTargetId, exportThread, findCanvasTarget, getSketches, hydrateConversation,
+  canvasTargetId, exportSession, findCanvasTarget, getSketches, hydrateSession,
   loadSelectedProjectId, saveSelectedProjectId,
-} from '@/features/conversation/conversationStore';
+} from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
-import { ThreadPicker } from '@/features/conversation/ThreadPicker';
+import { SessionPicker } from '@/features/conversation/SessionPicker';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/components/CanvasWorkspace';
@@ -27,7 +27,7 @@ import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
-import { reconcileThreadRun } from '@/features/conversation/runRecovery';
+import { reconcileSessionRun } from '@/features/conversation/runRecovery';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
@@ -47,10 +47,10 @@ const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'system'
 /** Sent when the user draws and hits send without typing anything. */
 const SKETCH_ONLY_INSTRUCTION = 'I drew the attached sketch. Read it as my instruction: say what you understand it to mean, then answer it against this repository.';
 
-function updateArtifact(thread: ChatThread, id: string, update: (artifact: DiagramArtifact) => DiagramArtifact): ChatThread {
+function updateArtifact(session: SessionSnapshot, id: string, update: (artifact: DiagramArtifact) => DiagramArtifact): SessionSnapshot {
   return {
-    ...thread,
-    messages: thread.messages.map((message) => message.role === 'assistant' ? {
+    ...session,
+    messages: session.messages.map((message) => message.role === 'assistant' ? {
       ...message,
       blocks: message.blocks.map((block) => block.kind === 'diagram' && block.artifact.id === id
         ? { ...block, artifact: update(block.artifact) }
@@ -68,8 +68,8 @@ export function AppShell() {
   const [projectId, setProjectId] = useState('');
   const shellRef = useRef<HTMLDivElement>(null);
   const panelLayout = usePanelLayout(shellRef, Boolean(projectId));
-  const [threads, setThreads] = useState<ChatThread[]>([]);
-  const [threadId, setThreadId] = useState<string>();
+  const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
+  const [sessionId, setSessionId] = useState<string>();
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -85,7 +85,7 @@ export function AppShell() {
   const [pendingAttachmentIds, setPendingAttachmentIds] = useState<string[]>([]);
   const [notice, setNotice] = useState<string>();
   const [busyRun, setBusyRun] = useState<RunDescriptor>();
-  const [missingSession, setMissingSession] = useState(false);
+  const [missingProviderSession, setMissingProviderSession] = useState(false);
   /** Set when a turn stopped on its turn budget: the session survives, so it can be resumed. */
   const [continueMode, setContinueMode] = useState<AgentMode>();
   const [participantBusy, setParticipantBusy] = useState(false);
@@ -95,48 +95,48 @@ export function AppShell() {
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
   const navigationRevision = useRef(0);
   const participantRequestIds = useRef(new Map<string, string>());
-  const threadsRef = useRef<ChatThread[]>([]);
+  const sessionsRef = useRef<SessionSnapshot[]>([]);
   const mutationQueues = useRef(new Map<string, Promise<void>>());
   const annotationTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const chatOpenRef = useRef(panelLayout.conversationOpen);
   chatOpenRef.current = panelLayout.conversationOpen;
   const runningRef = useRef(running);
   runningRef.current = running;
-  threadsRef.current = threads;
+  sessionsRef.current = sessions;
 
-  const thread = useMemo(() => threads.find((item) => item.id === threadId), [threads, threadId]);
+  const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => health?.providers[provider]?.available), [health]);
-  const agents = useMemo(() => thread?.participants.filter((participant): participant is AgentParticipant => participant.kind === 'agent') || [], [thread]);
-  const activeAgent = findAgentParticipant(agents, thread?.addressedAgentId)
-    || findAgentParticipant(agents, thread?.primaryAgentId);
+  const agents = useMemo(() => session?.participants.filter((participant): participant is AgentParticipant => participant.kind === 'agent') || [], [session]);
+  const activeAgent = findAgentParticipant(agents, session?.addressedAgentId)
+    || findAgentParticipant(agents, session?.primaryAgentId);
   const activeProvider = activeAgent?.provider || newProvider;
   const providerHealth = health?.providers[activeProvider];
   const unsupportedModes = useMemo(() => health
     ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
     : [], [health, providerHealth]);
   // A mode the installed CLI cannot run falls back to Ask rather than failing at send time.
-  const storedMode = thread?.defaultMode || 'ask';
+  const storedMode = session?.defaultMode || 'ask';
   const mode: AgentMode = unsupportedModes.includes(storedMode)
     ? providerHealth?.supportedModes[0] || 'ask'
     : storedMode;
   const attachedCanvases = useMemo(() => {
-    if (!thread) return [];
+    if (!session) return [];
     return pendingAttachmentIds.flatMap((id) => {
-      const target = findCanvasTarget(thread, id);
+      const target = findCanvasTarget(session, id);
       return target ? [target] : [];
     });
-  }, [thread, pendingAttachmentIds]);
+  }, [session, pendingAttachmentIds]);
 
-  const applyServerSnapshot = useCallback((snapshot: PublicConversation): ChatThread => {
-    const current = threadsRef.current;
+  const applyServerSnapshot = useCallback((snapshot: PublicSession): SessionSnapshot => {
+    const current = sessionsRef.current;
     const prior = current.find((item) => item.id === snapshot.id);
-    const hydrated = hydrateConversation(snapshot, prior);
+    const hydrated = hydrateSession(snapshot, prior);
     const next = prior
       ? current.map((item) => item.id === snapshot.id ? hydrated : item)
       : [hydrated, ...current];
-    threadsRef.current = next;
-    setThreads(next);
+    sessionsRef.current = next;
+    setSessions(next);
     const primaryCheckoutId = snapshot.attachments.find((attachment) => attachment.role === 'primary')?.checkoutId;
     if (primaryCheckoutId) {
       setRecentProjectIds((current) => [
@@ -147,38 +147,38 @@ export function AppShell() {
     return hydrated;
   }, []);
 
-  const refreshConversation = useCallback(async (targetThreadId: string): Promise<ChatThread | undefined> => {
+  const refreshSession = useCallback(async (targetSessionId: string): Promise<SessionSnapshot | undefined> => {
     try {
-      const response = await fetch(`/api/threads/${encodeURIComponent(targetThreadId)}`, { cache: 'no-store' });
-      const data = await response.json() as { thread?: PublicConversation; error?: string };
-      if (!response.ok || !data.thread) return undefined;
-      return applyServerSnapshot(data.thread);
+      const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}`, { cache: 'no-store' });
+      const data = await response.json() as { session?: PublicSession; error?: string };
+      if (!response.ok || !data.session) return undefined;
+      return applyServerSnapshot(data.session);
     } catch {
       return undefined;
     }
   }, [applyServerSnapshot]);
 
-  const enqueueConversationMutation = useCallback((
-    targetThreadId: string,
-    operation: (current: ChatThread) => Promise<Response>,
-  ): Promise<ChatThread> => {
-    const prior = mutationQueues.current.get(targetThreadId) || Promise.resolve();
-    let result!: Promise<ChatThread>;
+  const enqueueSessionMutation = useCallback((
+    targetSessionId: string,
+    operation: (current: SessionSnapshot) => Promise<Response>,
+  ): Promise<SessionSnapshot> => {
+    const prior = mutationQueues.current.get(targetSessionId) || Promise.resolve();
+    let result!: Promise<SessionSnapshot>;
     const queued = prior.then(async () => {
-      const current = threadsRef.current.find((item) => item.id === targetThreadId);
-      if (!current) throw new Error('Conversation is no longer available.');
+      const current = sessionsRef.current.find((item) => item.id === targetSessionId);
+      if (!current) throw new Error('Session is no longer available.');
       const response = await operation(current);
-      const data = await response.json().catch(() => ({})) as { thread?: PublicConversation; error?: string };
-      if (!response.ok || !data.thread) {
-        if (response.status === 409) await refreshConversation(targetThreadId);
-        throw new Error(data.error || 'Conversation update failed.');
+      const data = await response.json().catch(() => ({})) as { session?: PublicSession; error?: string };
+      if (!response.ok || !data.session) {
+        if (response.status === 409) await refreshSession(targetSessionId);
+        throw new Error(data.error || 'Session update failed.');
       }
-      return applyServerSnapshot(data.thread);
+      return applyServerSnapshot(data.session);
     });
     result = queued;
-    mutationQueues.current.set(targetThreadId, queued.then(() => undefined, () => undefined));
+    mutationQueues.current.set(targetSessionId, queued.then(() => undefined, () => undefined));
     return result;
-  }, [applyServerSnapshot, refreshConversation]);
+  }, [applyServerSnapshot, refreshSession]);
 
   useEffect(() => {
     let current = true;
@@ -223,64 +223,64 @@ export function AppShell() {
   useEffect(() => {
     if (!projectId) return;
     let current = true;
-    void fetch(`/api/threads?checkoutId=${encodeURIComponent(projectId)}`, { cache: 'no-store' })
+    void fetch(`/api/sessions?checkoutId=${encodeURIComponent(projectId)}`, { cache: 'no-store' })
       .then(async (response) => {
-        const data = await response.json() as { threads?: PublicConversation[]; error?: string };
-        if (!response.ok) throw new Error(data.error || 'Could not load conversations.');
-        return data.threads || [];
+        const data = await response.json() as { sessions?: PublicSession[]; error?: string };
+        if (!response.ok) throw new Error(data.error || 'Could not load sessions.');
+        return data.sessions || [];
       })
       .then((snapshots) => {
         if (!current) return;
-        const prior = new Map(threadsRef.current.map((item) => [item.id, item]));
-        const hydrated = snapshots.map((snapshot) => hydrateConversation(snapshot, prior.get(snapshot.id)));
-        threadsRef.current = hydrated;
-        setThreads(hydrated);
-        setThreadId((selected) => hydrated.some((item) => item.id === selected) ? selected : hydrated[0]?.id);
+        const prior = new Map(sessionsRef.current.map((item) => [item.id, item]));
+        const hydrated = snapshots.map((snapshot) => hydrateSession(snapshot, prior.get(snapshot.id)));
+        sessionsRef.current = hydrated;
+        setSessions(hydrated);
+        setSessionId((selected) => hydrated.some((item) => item.id === selected) ? selected : hydrated[0]?.id);
         setNotice(undefined);
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (!current) return;
-        threadsRef.current = [];
-        setThreads([]);
-        setThreadId(undefined);
-        setNotice(error instanceof Error ? error.message : 'Conversations could not be loaded.');
+        sessionsRef.current = [];
+        setSessions([]);
+        setSessionId(undefined);
+        setNotice(error instanceof Error ? error.message : 'Sessions could not be loaded.');
         setLoading(false);
       });
     return () => { current = false; };
   }, [projectId]);
 
   useEffect(() => {
-    const active = thread?.activeDiagramId;
+    const active = session?.activeDiagramId;
     setPendingAttachmentIds(active ? [active] : []);
     snapshotRef.current = undefined;
-  }, [threadId, thread?.activeDiagramId]);
+  }, [sessionId, session?.activeDiagramId]);
 
-  const mutateThread = useCallback((id: string, operation: (value: ChatThread) => ChatThread) => {
-    setThreads((current) => {
+  const mutateSession = useCallback((id: string, operation: (value: SessionSnapshot) => SessionSnapshot) => {
+    setSessions((current) => {
       const next = current.map((item) => item.id === id ? operation(item) : item);
-      threadsRef.current = next;
+      sessionsRef.current = next;
       return next;
     });
   }, []);
 
-  const createThread = useCallback(async (requestedProvider: AgentProvider = newProvider) => {
+  const createSession = useCallback(async (requestedProvider: AgentProvider = newProvider) => {
     if (!projectId || running) return;
     setNotice(undefined);
     try {
-      const response = await fetch('/api/threads', {
+      const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ checkoutId: projectId, provider: requestedProvider }),
       });
-      const data = await response.json() as { thread?: PublicConversation; error?: string };
-      if (!response.ok || !data.thread) throw new Error(data.error || 'Could not create a conversation.');
-      const created = applyServerSnapshot(data.thread);
-      setThreadId(created.id);
+      const data = await response.json() as { session?: PublicSession; error?: string };
+      if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
+      const created = applyServerSnapshot(data.session);
+      setSessionId(created.id);
       panelLayout.openConversation();
-      setMissingSession(false);
+      setMissingProviderSession(false);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not create a conversation.');
+      setNotice(error instanceof Error ? error.message : 'Could not create a session.');
     }
   }, [applyServerSnapshot, newProvider, panelLayout.openConversation, projectId, running]);
 
@@ -290,9 +290,9 @@ export function AppShell() {
     try { saveSelectedProjectId(next); } catch { /* Project switching still works without preference persistence. */ }
     setLoading(true);
     setProjectId(next);
-    threadsRef.current = [];
-    setThreads([]);
-    setThreadId(undefined);
+    sessionsRef.current = [];
+    setSessions([]);
+    setSessionId(undefined);
     setUnread(0);
     panelLayout.closeConversation();
     panelLayout.closeHistory();
@@ -301,40 +301,40 @@ export function AppShell() {
   };
 
   const selectDiagram = useCallback((id: string) => {
-    if (!threadId) return;
+    if (!sessionId) return;
     navigationRevision.current += 1;
-    mutateThread(threadId, (current) => ({ ...current, activeDiagramId: id }));
+    mutateSession(sessionId, (current) => ({ ...current, activeDiagramId: id }));
     setPendingAttachmentIds([id]);
-  }, [mutateThread, threadId]);
+  }, [mutateSession, sessionId]);
 
   /** A blank sheet the user can draw on before any diagram exists. */
   const createSketch = useCallback(() => {
-    if (!threadId || running) return;
-    const current = threadsRef.current.find((item) => item.id === threadId);
+    if (!sessionId || running) return;
+    const current = sessionsRef.current.find((item) => item.id === sessionId);
     if (!current) return;
     const sketch: SketchCanvas = {
       id: createUuid(),
-      threadId,
+      sessionId,
       ordinal: getSketches(current).length + 1,
       createdAt: new Date().toISOString(),
       viewBox: [0, 0, 1_600, 1_000],
     };
     navigationRevision.current += 1;
-    void enqueueConversationMutation(threadId, () => fetch(
-      `/api/threads/${encodeURIComponent(threadId)}/sketches`,
+    void enqueueSessionMutation(sessionId, () => fetch(
+      `/api/sessions/${encodeURIComponent(sessionId)}/sketches`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sketch }),
       },
     )).then(() => {
-      mutateThread(threadId, (thread) => ({ ...thread, activeDiagramId: sketch.id }));
+      mutateSession(sessionId, (session) => ({ ...session, activeDiagramId: sketch.id }));
       setPendingAttachmentIds([sketch.id]);
       snapshotRef.current = undefined;
     }).catch((error: unknown) => {
       setNotice(error instanceof Error ? error.message : 'Could not create the sketch.');
     });
-  }, [enqueueConversationMutation, mutateThread, running, threadId]);
+  }, [enqueueSessionMutation, mutateSession, running, sessionId]);
 
   const removeAttachment = (id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id));
   const toggleAttachment = (id: string) => setPendingAttachmentIds((current) => current.includes(id)
@@ -342,12 +342,12 @@ export function AppShell() {
     : current.length < 4 ? [...current, id] : current);
 
   const togglePin = useCallback((canvasId: string) => {
-    if (!threadId) return;
-    void enqueueConversationMutation(threadId, (current) => {
+    if (!sessionId) return;
+    void enqueueSessionMutation(sessionId, (current) => {
       const pinnedDiagramIds = current.pinnedDiagramIds.includes(canvasId)
         ? current.pinnedDiagramIds.filter((item) => item !== canvasId)
         : [...current.pinnedDiagramIds, canvasId];
-      return fetch(`/api/threads/${encodeURIComponent(threadId)}/pins`, {
+      return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/pins`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision: current.revision, pinnedDiagramIds }),
@@ -355,25 +355,25 @@ export function AppShell() {
     }).catch((error: unknown) => {
       setNotice(error instanceof Error ? error.message : 'Could not update the pinned canvases.');
     });
-  }, [enqueueConversationMutation, threadId]);
+  }, [enqueueSessionMutation, sessionId]);
 
   const handleMarksChange = useCallback((diagramId: string, marks: DrawingMark[]) => {
-    if (!threadId) return;
+    if (!sessionId) return;
     const annotation = { version: 1 as const, diagramId, marks, updatedAt: new Date().toISOString() };
-    mutateThread(threadId, (current) => ({
+    mutateSession(sessionId, (current) => ({
       ...current,
       annotations: {
         ...current.annotations,
         [diagramId]: annotation,
       },
     }));
-    const key = `${threadId}:${diagramId}`;
+    const key = `${sessionId}:${diagramId}`;
     const prior = annotationTimers.current.get(key);
     if (prior) clearTimeout(prior);
     annotationTimers.current.set(key, setTimeout(() => {
       annotationTimers.current.delete(key);
-      void enqueueConversationMutation(threadId, (current) => {
-        return fetch(`/api/threads/${encodeURIComponent(threadId)}/annotations`, {
+      void enqueueSessionMutation(sessionId, (current) => {
+        return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/annotations`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ expectedRevision: current.revision, annotation }),
@@ -382,40 +382,40 @@ export function AppShell() {
         setNotice(error instanceof Error ? error.message : 'Could not save the drawing.');
       });
     }, 250));
-  }, [enqueueConversationMutation, mutateThread, threadId]);
+  }, [enqueueSessionMutation, mutateSession, sessionId]);
 
   const handleArtifactError = useCallback((diagramId: string, artifactStatus: 'parse-error' | 'render-error', error: string) => {
-    if (!threadId) return;
-    mutateThread(threadId, (current) => updateArtifact(current, diagramId, (artifact) => ({ ...artifact, status: artifactStatus, error })));
-  }, [mutateThread, threadId]);
+    if (!sessionId) return;
+    mutateSession(sessionId, (current) => updateArtifact(current, diagramId, (artifact) => ({ ...artifact, status: artifactStatus, error })));
+  }, [mutateSession, sessionId]);
 
   const handleSnapshot = useCallback((value?: CanvasSnapshot) => {
     snapshotRef.current = value;
   }, []);
 
   const setMode = useCallback((next: AgentMode) => {
-    if (!threadId) return;
-    mutateThread(threadId, (current) => ({ ...current, defaultMode: next }));
-  }, [mutateThread, threadId]);
+    if (!sessionId) return;
+    mutateSession(sessionId, (current) => ({ ...current, defaultMode: next }));
+  }, [mutateSession, sessionId]);
 
   const selectAgent = useCallback((participantId: string) => {
-    if (!threadId || running) return;
-    mutateThread(threadId, (current) => {
+    if (!sessionId || running) return;
+    mutateSession(sessionId, (current) => {
       const participant = findAgentParticipant(current.participants, participantId);
       return participant ? { ...current, addressedAgentId: participantId } : current;
     });
-  }, [mutateThread, running, threadId]);
+  }, [mutateSession, running, sessionId]);
 
   const addAgent = useCallback(async (provider: AgentProvider, role: AgentRole) => {
-    if (!thread || running || participantBusy) return;
+    if (!session || running || participantBusy) return;
     setParticipantBusy(true);
     setNotice(undefined);
-    const requestKey = `${thread.id}:${provider}:${role}`;
+    const requestKey = `${session.id}:${provider}:${role}`;
     const requestId = participantRequestIds.current.get(requestKey) || createUuid();
     participantRequestIds.current.set(requestKey, requestId);
     try {
-      const updated = await enqueueConversationMutation(thread.id, () => fetch(
-        `/api/threads/${encodeURIComponent(thread.id)}/participants`,
+      const updated = await enqueueSessionMutation(session.id, () => fetch(
+        `/api/sessions/${encodeURIComponent(session.id)}/participants`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -423,31 +423,31 @@ export function AppShell() {
         },
       ));
       participantRequestIds.current.delete(requestKey);
-      const added = updated.participants.find((participant) => !thread.participants.some((current) => current.id === participant.id));
+      const added = updated.participants.find((participant) => !session.participants.some((current) => current.id === participant.id));
       if (added?.kind === 'agent') {
-        mutateThread(thread.id, (current) => ({ ...current, addressedAgentId: added.id }));
+        mutateSession(session.id, (current) => ({ ...current, addressedAgentId: added.id }));
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not add that agent.');
     } finally {
       setParticipantBusy(false);
     }
-  }, [enqueueConversationMutation, mutateThread, participantBusy, running, thread]);
+  }, [enqueueSessionMutation, mutateSession, participantBusy, running, session]);
 
   const setPrimaryAgent = useCallback(async (participantId: string) => {
-    if (!thread || running || participantBusy) return;
+    if (!session || running || participantBusy) return;
     setParticipantBusy(true);
     setNotice(undefined);
     try {
-      await enqueueConversationMutation(thread.id, (current) => fetch(
-        `/api/threads/${encodeURIComponent(thread.id)}/participants`,
+      await enqueueSessionMutation(session.id, (current) => fetch(
+        `/api/sessions/${encodeURIComponent(session.id)}/participants`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ primaryAgentId: participantId, expectedRevision: current.revision }),
         },
       ));
-      mutateThread(thread.id, (current) => ({
+      mutateSession(session.id, (current) => ({
         ...current,
         addressedAgentId: participantId,
       }));
@@ -456,13 +456,13 @@ export function AppShell() {
     } finally {
       setParticipantBusy(false);
     }
-  }, [enqueueConversationMutation, mutateThread, participantBusy, running, thread]);
+  }, [enqueueSessionMutation, mutateSession, participantBusy, running, session]);
 
   const prefillHandoff = useCallback((participantId: string, text: string, handoffMode?: AgentMode) => {
     selectAgent(participantId);
     setComposer((current) => current.trim() ? `${current.trimEnd()}\n\n${text}` : text);
-    if (handoffMode && threadId) mutateThread(threadId, (current) => ({ ...current, defaultMode: handoffMode }));
-  }, [mutateThread, selectAgent, threadId]);
+    if (handoffMode && sessionId) mutateSession(sessionId, (current) => ({ ...current, defaultMode: handoffMode }));
+  }, [mutateSession, selectAgent, sessionId]);
 
   const decidePermission = useCallback(async (requestId: string, decision: 'allow' | 'deny') => {
     const runId = runIdRef.current;
@@ -491,7 +491,7 @@ export function AppShell() {
    * run already in flight, so a reloaded page recovers the live turn instead of losing it.
    */
   const consumeStream = useCallback(async (response: Response, turn: {
-    threadId: string;
+    sessionId: string;
     mode: AgentMode;
     userMessageId?: string;
     activeAtSend?: string;
@@ -505,8 +505,8 @@ export function AppShell() {
       if (event.type === 'run-started') {
         runIdRef.current = event.runId;
         userMessageId ||= event.messageId;
-        mutateThread(turn.threadId, (current) => ({ ...current, addressedAgentId: event.participantId }));
-        await refreshConversation(turn.threadId);
+        mutateSession(turn.sessionId, (current) => ({ ...current, addressedAgentId: event.participantId }));
+        await refreshSession(turn.sessionId);
       }
       if (event.type === 'status') setStatus(event.label);
       if (event.type === 'tool-activity') {
@@ -537,21 +537,21 @@ export function AppShell() {
         streamError = event;
         setRunFailed(true);
         setNotice(event.message);
-        if (event.code === 'missing-session') setMissingSession(true);
+        if (event.code === 'missing-session') setMissingProviderSession(true);
         if (event.code === 'max-turns') setContinueMode(turn.mode);
-        mutateThread(turn.threadId, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userMessageId && message.role === 'user'
+        mutateSession(turn.sessionId, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userMessageId && message.role === 'user'
           ? { ...message, status: event.code === 'cancelled' ? 'cancelled' : 'failed', delivery: event.delivery }
           : message) }));
-        await refreshConversation(turn.threadId);
+        await refreshSession(turn.sessionId);
       }
       if (event.type === 'assistant-message') {
         receivedFinal = true;
         const assistant = event.message as AssistantMessage;
-        const alreadyPresent = threadsRef.current
-          .find((item) => item.id === turn.threadId)
+        const alreadyPresent = sessionsRef.current
+          .find((item) => item.id === turn.sessionId)
           ?.messages.some((message) => message.id === assistant.id) ?? false;
         const ready = assistant.blocks.flatMap((block) => block.kind === 'diagram' && block.artifact.status === 'ready' ? [block.artifact] : []);
-        mutateThread(turn.threadId, (current) => {
+        mutateSession(turn.sessionId, (current) => {
           if (current.messages.some((message) => message.id === assistant.id)) return current;
           let activeDiagramId = current.activeDiagramId;
           let previousDiagramId = current.previousDiagramId;
@@ -579,18 +579,18 @@ export function AppShell() {
         if (!alreadyPresent && !chatOpenRef.current) setUnread((value) => value + 1);
         if (ready.length > 1) setNotice(`${ready.length} diagram results are ready in history. The active canvas was preserved.`);
         setPreview('');
-        await refreshConversation(turn.threadId);
+        await refreshSession(turn.sessionId);
       }
     }
     return { receivedFinal, streamError, userMessageId };
-  }, [mutateThread, refreshConversation]);
+  }, [mutateSession, refreshSession]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
-    if (!thread || running) return;
-    const turnAgent = findAgentParticipant(thread.participants, override?.participantId) || activeAgent;
+    if (!session || running) return;
+    const turnAgent = findAgentParticipant(session.participants, override?.participantId) || activeAgent;
     if (!turnAgent) return;
     const selected = pendingAttachmentIds.flatMap((id) => {
-      const canvas = findCanvasTarget(thread, id);
+      const canvas = findCanvasTarget(session, id);
       return canvas ? [canvas] : [];
     });
     // A sketch is itself the instruction, so an empty composer still makes a valid turn.
@@ -605,14 +605,14 @@ export function AppShell() {
     }
     setNotice(undefined);
     setBusyRun(undefined);
-    setMissingSession(false);
+    setMissingProviderSession(false);
     setContinueMode(undefined);
     const attachmentPayload: DiagramMessageAttachment[] = [];
     let compositeWarning = false;
     for (const canvas of selected) {
       const id = canvasTargetId(canvas);
-      const marks = thread.annotations[id]?.marks || [];
-      const snapshot = id === thread.activeDiagramId ? snapshotRef.current : undefined;
+      const marks = session.annotations[id]?.marks || [];
+      const snapshot = id === session.activeDiagramId ? snapshotRef.current : undefined;
       // A sketch has no rendered source, so its own sheet is the fallback frame for the marks.
       const fallbackViewBox = canvas.kind === 'sketch' ? canvas.sketch.viewBox : [0, 0, 1, 1] as const;
       let viewBox = snapshot?.viewBox || fallbackViewBox;
@@ -649,9 +649,9 @@ export function AppShell() {
 
     const userId = createUuid();
     const createdAt = new Date().toISOString();
-    const human = thread.participants.find((participant) => participant.kind === 'human');
+    const human = session.participants.find((participant) => participant.kind === 'human');
     if (!human) {
-      setNotice('This conversation has no local user identity.');
+      setNotice('This session has no local user identity.');
       return;
     }
     const userMessage: UserMessage = {
@@ -671,12 +671,12 @@ export function AppShell() {
       })),
       mode: turnMode,
     };
-    const activeAtSend = thread.activeDiagramId;
+    const activeAtSend = session.activeDiagramId;
     const navigationAtSend = navigationRevision.current;
-    mutateThread(thread.id, (current) => ({
+    mutateSession(session.id, (current) => ({
       ...current,
-      // A sketch-only turn would otherwise title the thread with the whole synthesized instruction.
-      title: current.messages.length === 0 ? (typed ? typed.slice(0, 56) : 'Sketch conversation') : current.title,
+      // A sketch-only turn would otherwise title the session with the whole synthesized instruction.
+      title: current.messages.length === 0 ? (typed ? typed.slice(0, 56) : 'Sketch session') : current.title,
       messages: [...current.messages, userMessage],
     }));
     if (!override) setComposer('');
@@ -698,7 +698,7 @@ export function AppShell() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          threadId: thread.id,
+          sessionId: session.id,
           messageId: userId,
           participantId: turnAgent.id,
           text,
@@ -713,7 +713,7 @@ export function AppShell() {
         throw new Error(data.error || `Agent request failed (${response.status}).`);
       }
       const outcome = await consumeStream(response, {
-        threadId: thread.id,
+        sessionId: session.id,
         mode: turnMode,
         userMessageId: userId,
         activeAtSend,
@@ -727,10 +727,10 @@ export function AppShell() {
       if (!streamError) {
         if (!cancelled) setRunFailed(true);
         setNotice(cancelled ? 'The request was cancelled. Earlier conversation and diagrams are unchanged.' : error instanceof Error ? error.message : 'Agent request failed.');
-        mutateThread(thread.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
+        mutateSession(session.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
           ? { ...message, status: cancelled ? 'cancelled' : 'failed', delivery: cancelled ? 'possibly-sent' : 'not-sent' }
           : message) }));
-        await refreshConversation(thread.id);
+        await refreshSession(session.id);
       }
     } finally {
       abortRef.current = undefined;
@@ -743,11 +743,11 @@ export function AppShell() {
       setDecidingPermission(undefined);
       setStatus('Ready for an instruction');
     }
-  }, [activeAgent, composer, consumeStream, health, mode, mutateThread, pendingAttachmentIds, refreshConversation, running, thread]);
+  }, [activeAgent, composer, consumeStream, health, mode, mutateSession, pendingAttachmentIds, refreshSession, running, session]);
 
   const busyRunLabel = busyRun && (
-    threads.find((item) => item.id === busyRun.threadId)?.title
-    || `conversation ${busyRun.threadId.slice(0, 8)}`
+    sessions.find((item) => item.id === busyRun.sessionId)?.title
+    || `session ${busyRun.sessionId.slice(0, 8)}`
   );
 
   const cancelBusyRun = useCallback(async () => {
@@ -785,16 +785,16 @@ export function AppShell() {
   }, []);
 
   // Recover a turn that outlived the page: discovery selects only live work, while the canonical
-  // conversation remains authoritative before and after every possible completion race.
+  // session remains authoritative before and after every possible completion race.
   useEffect(() => {
-    if (!threadId || runningRef.current) return;
+    if (!sessionId || runningRef.current) return;
     const controller = new AbortController();
     let adoptedRunId: string | undefined;
     void (async () => {
       try {
-        await reconcileThreadRun<Response>({
+        await reconcileSessionRun<Response>({
           async discover() {
-            const response = await fetch(`/api/agent/runs?threadId=${encodeURIComponent(threadId)}`, {
+            const response = await fetch(`/api/agent/runs?sessionId=${encodeURIComponent(sessionId)}`, {
               cache: 'no-store',
               signal: controller.signal,
             });
@@ -812,7 +812,7 @@ export function AppShell() {
             adoptedRunId = run.runId;
             runIdRef.current = run.runId;
             setRunFailed(false);
-            mutateThread(threadId, (current) => ({ ...current, addressedAgentId: run.participantId }));
+            mutateSession(sessionId, (current) => ({ ...current, addressedAgentId: run.participantId }));
             runningRef.current = true;
             setRunning(true);
             setStatus('Reconnecting to the running turn');
@@ -832,15 +832,15 @@ export function AppShell() {
             return { kind: 'stream', stream: response };
           },
           async hydrate() {
-            await refreshConversation(threadId);
+            await refreshSession(sessionId);
           },
           async consume(response) {
-            await consumeStream(response, { threadId, mode: 'agent' });
+            await consumeStream(response, { sessionId, mode: 'agent' });
           },
         });
       } catch {
         if (!controller.signal.aborted) {
-          await refreshConversation(threadId);
+          await refreshSession(sessionId);
           if (adoptedRunId) {
             setRunFailed(true);
             setNotice('Lost the connection to the running turn.');
@@ -866,17 +866,17 @@ export function AppShell() {
         setRunning(false);
       }
     };
-  }, [consumeStream, mutateThread, refreshConversation, threadId]);
+  }, [consumeStream, mutateSession, refreshSession, sessionId]);
 
   const executePlan = useCallback((participantId: string) => {
-    const planAgent = findAgentParticipant(thread?.participants || [], participantId);
+    const planAgent = findAgentParticipant(session?.participants || [], participantId);
     const planHealth = planAgent && health?.providers[planAgent.provider];
     if (!planAgent || !planHealth?.supportedModes.includes('agent')) {
       setNotice(planHealth?.message || 'That agent cannot execute in Agent mode.');
       return;
     }
     void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent', participantId });
-  }, [health, send, thread?.participants]);
+  }, [health, send, session?.participants]);
 
   // Keep the loading surface in the named canvas area. Rendering the interactive header only
   // after hydration also lets its device-owned theme controls reflect the pre-paint preference.
@@ -900,7 +900,7 @@ export function AppShell() {
     >
       <header className="app-header">
         <div className="brand"><span className="brand-mark">C</span><strong>CodeAI</strong></div>
-        <nav className="header-breadcrumbs" aria-label="Current project and conversation">
+        <nav className="header-breadcrumbs" aria-label="Current project and session">
           <span className="breadcrumb-separator" aria-hidden="true">/</span>
           <ProjectPicker
             projects={projects}
@@ -911,18 +911,18 @@ export function AppShell() {
             onChange={switchProject}
           />
           <span className="breadcrumb-separator" aria-hidden="true">/</span>
-          <ThreadPicker
-            threads={threads}
-            value={threadId}
+          <SessionPicker
+            sessions={sessions}
+            value={sessionId}
             disabled={running || !projectId}
             providers={selectableProviders}
             newProvider={newProvider}
-            onChange={setThreadId}
+            onChange={setSessionId}
             onNewProvider={setNewProvider}
-            onNew={(provider) => void createThread(provider)}
+            onNew={(provider) => void createSession(provider)}
           />
         </nav>
-        {/* Grouped by what each control does: panels, then the thread action, then readiness,
+        {/* Grouped by what each control does: panels, then the session action, then readiness,
             then the one preference — with a rule before it so four kinds of control in one row
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
@@ -936,7 +936,7 @@ export function AppShell() {
               Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
             </button>
           )}
-          {thread && (
+          {session && (
             <button
               type="button"
               className={`run-status-toggle ${running ? 'working' : ''} ${permissions.length ? 'awaiting-approval' : ''}`}
@@ -959,7 +959,7 @@ export function AppShell() {
               {unread > 0 && <span className="unread-badge">{unread}</span>}
             </button>
           )}
-          {thread && <button type="button" onClick={() => exportThread(thread)}>Export</button>}
+          {session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
           <span
             className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
             title={providerHealth?.message || health?.message || 'Local readiness'}
@@ -1014,7 +1014,7 @@ export function AppShell() {
         <div className="notice-banner" role="status">
           <span>{notice}</span>
           {busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
-          {missingSession && <button type="button" onClick={() => { void createThread(activeProvider); setComposer(`Continue this conversation in a new agent session. Here is a brief visible recap:\n\n${thread?.messages.slice(-6).map((message) => `${thread.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {continueMode && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => { setNotice(undefined); setBusyRun(undefined); }}>×</button>
         </div>
@@ -1022,21 +1022,21 @@ export function AppShell() {
 
       {!projects.length ? (
         <div className="fatal-empty"><span className="eyebrow">No projects found</span><h1>Point CodeAI at a project.</h1><p>Set <code>CODEAI_PROJECTS_ROOT</code> to one project or a directory containing projects, then restart the app.</p></div>
-      ) : !thread ? (
+      ) : !session ? (
         <div className="welcome-screen">
           <div className="welcome-orbit"><span /><span /><span /><div className="brand-mark">C</div></div>
           <span className="eyebrow">Local exploration, planning, and building</span>
           <h1>Your repository,<br />as a living map.</h1>
-          <p>Start a persistent conversation. Ask questions, build a diagram, draw directly on it, and use those marks in your next instruction. Switch to Plan for an approvable plan, or Agent to build behind explicit approvals.</p>
-          <button type="button" className="primary-cta" disabled={!selectableProviders.length} onClick={() => void createThread(newProvider)}>New conversation <span>→</span></button>
+          <p>Start a persistent session. Ask questions, build a diagram, draw directly on it, and use those marks in your next instruction. Switch to Plan for an approvable plan, or Agent to build behind explicit approvals.</p>
+          <button type="button" className="primary-cta" disabled={!selectableProviders.length} onClick={() => void createSession(newProvider)}>New session <span>→</span></button>
           <small>{selectableProviders.length
             ? `${selectableProviders.map((provider) => PROVIDER_LABELS[provider]).join(' and ')} run locally on your own login. Ask and Plan stay read-only; Agent appears only where its approval contract is verified.`
-            : 'Install and authenticate Claude Code or Codex to start a local conversation.'}</small>
+            : 'Install and authenticate Claude Code or Codex to start a local session.'}</small>
         </div>
       ) : (
         <>
           <CanvasWorkspace
-            thread={thread}
+            session={session}
             theme={theme}
             unread={unread}
             pendingApprovals={permissions.length}
@@ -1057,7 +1057,7 @@ export function AppShell() {
           <div className="conversation-region">
             <ConversationDrawer
               open={panelLayout.conversationOpen}
-              thread={thread}
+              session={session}
               theme={theme}
               agents={agents}
               activeAgent={activeAgent}
@@ -1073,7 +1073,7 @@ export function AppShell() {
               mode={mode}
               unsupportedModes={unsupportedModes}
               attached={attachedCanvases}
-              markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), thread.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
+              markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), session.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
               onClose={panelLayout.closeConversation}
               onSelectDiagram={(id) => selectDiagram(id)}
               onRetry={(text, participantId, retryMode) => prefillHandoff(participantId, text, retryMode)}
@@ -1091,7 +1091,7 @@ export function AppShell() {
             />
             <DiagramNavigator
               open={panelLayout.historyOpen}
-              thread={thread}
+              session={session}
               pendingAttachmentIds={pendingAttachmentIds}
               onClose={panelLayout.closeHistory}
               onSelect={(id) => { selectDiagram(id); panelLayout.closeHistory(); }}

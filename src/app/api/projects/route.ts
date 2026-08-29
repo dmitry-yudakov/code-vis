@@ -1,7 +1,7 @@
 import { getConfig } from '@/server/config';
 import { getProjectRegistry } from '@/server/projects/projectRegistry';
 import { recentProjectIds } from '@/server/projects/recentProjects';
-import { getConversationStore } from '@/server/storage/conversationStore';
+import { getSessionStore } from '@/server/storage/sessionStore';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
 
 export const runtime = 'nodejs';
@@ -10,15 +10,15 @@ export const dynamic = 'force-dynamic';
 export async function GET(): Promise<Response> {
   try {
     const config = getConfig();
-    const store = getConversationStore(config.dataDir, config.hostLabel);
-    const [projects, conversations, host] = await Promise.all([
+    const store = getSessionStore(config.dataDir, config.hostLabel);
+    const [projects, sessions, host] = await Promise.all([
       getProjectRegistry(config.projectsRoot, config.projectDiscoveryDepth).list(),
-      store.listConversations(),
+      store.listSessions(),
       store.host(),
     ]);
     return safeJsonResponse({
       projects,
-      recentProjectIds: recentProjectIds(projects, conversations, host.id),
+      recentProjectIds: recentProjectIds(projects, sessions, host.id),
       discoveryDepth: config.projectDiscoveryDepth,
     });
   } catch (error) {

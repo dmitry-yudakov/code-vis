@@ -89,7 +89,7 @@ export function getConfig(): AppConfig {
     buildMaxTurns: boundedInteger('BUILD_MAX_TURNS', 200, 1, 1_000),
     approvalTimeoutMs: boundedInteger('APPROVAL_TIMEOUT_MS', 600_000, 5_000, 3_600_000),
     // `web2` in the default path is a persisted compatibility identifier, not branding: existing
-    // thread records and provider sessions live there. Renaming it needs its own data migration.
+    // session records and provider sessions live there. Renaming it needs its own data migration.
     dataDir: path.resolve(expandHome(rawSetting('DATA_DIR') || '~/.code-ai/web2')),
     hostLabel: rawSetting('HOST_LABEL') || os.hostname(),
     maxAssistantBytes: boundedInteger('MAX_ASSISTANT_BYTES', 1_048_576, 1_024, 10_485_760),

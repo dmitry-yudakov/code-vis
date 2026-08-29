@@ -16,9 +16,9 @@ people and agents over concepts and drawings with no repository at all. The near
 build all of that — it is to stop the current data shapes from forbidding it.
 
 **Vocabulary note.** This document uses the vocabulary of [vocabulary.md](vocabulary.md) — *session*,
-*machine*, *device*, *view*, *repository*, *checkout*. The code still uses the older names
-(`ServerThread`/`DurableConversation`, `hostId`, `ProjectAttachment`, `projectId`), and code
-references below are quoted as they exist today, not as they will be renamed.
+*machine*, *device*, *view*, *repository*, *checkout*. Story 34 aligned the session names in code;
+`hostId`, `ProjectAttachment`, and `projectId` remain until the machine UI and Story 35's
+project/repository split give them their final shapes.
 
 ## Three loosened boundaries
 
@@ -134,9 +134,9 @@ One rule covers most of what would otherwise need reworking later:
   and storage services may deliberately be pinned on `globalThis` so Next route bundles share them;
 - no browser-local storage holding anything another device must see.
 
-Two of the four are now obeyed. Stories 26 and 27 shipped: canonical conversation state is a
+Two of the four are now obeyed. Stories 26, 27, and 34 shipped: canonical session state is a
 machine-owned JSON record with repository bindings and a `hostId`
-([conversationStore.ts](../src/server/storage/conversationStore.ts)), and runs are keyed by `runId`
+([sessionStore.ts](../src/server/storage/sessionStore.ts)), and runs are keyed by `runId`
 in live and recent maps rather than one global active slot
 ([runRegistry.ts:36](../src/server/runs/runRegistry.ts#L36)) — the process-wide registry itself stays
 pinned on `globalThis` deliberately, so Next route bundles share it.
@@ -153,35 +153,34 @@ foundation-first half: the changes that buy the broader scope without building r
 
 **Done:**
 
-1. **The machine owns sessions.** One validated, revisioned JSON record per conversation on the
-   machine ([conversationStore.ts](../src/server/storage/conversationStore.ts)), replacing the split
+1. **The machine owns sessions.** One validated, revisioned JSON record per session on the machine
+   ([sessionStore.ts](../src/server/storage/sessionStore.ts)), replacing the split
    server registry plus authoritative browser `localStorage` blob, with operation-level writes
    serialized behind a store lock and a `globalThis`-shared mutation queue.
 2. **Session → repositories.** `projectId` became an ordered
    `attachments: ProjectAttachment[]` ([types.ts:91](../src/shared/types.ts#L91)); `checkoutId` stays
    honestly machine-scoped.
 3. **Repository match is no longer session identity.** The paired `get(id, projectId)` lookups and
-   the "unknown project-bound thread" locality guard are gone; agent routes remain inside the
+   the old project-match locality guard are gone; agent routes remain inside the
    trusted localhost boundary because there is no user authorization yet, not because a path hash
    authenticates anything.
 4. **The machine is named.** `hostId` rides on the records that persist provider sessions and
    checkouts ([types.ts:52](../src/shared/types.ts#L52)), minted once and never silently replaced,
    even though there is only ever one machine and the value is constant.
 5. **"Exactly one human" is gone.** The schema now requires *at least* one human
-   ([conversationSchema.ts:219](../src/shared/conversationSchema.ts#L219)). This does not build the
+   ([sessionSchema.ts:218](../src/shared/sessionSchema.ts#L218)). This does not build the
    team surface — Story 21 still owns identity, authorization, live sync, and multi-writer policy —
    it only stops baking the restriction into the record shape.
-6. **Runs are addressed by run id.** Every live and retained run carries its conversation and
-   participant, every operation including permission attachment resolves by `runId`
+6. **Runs are addressed by run id.** Every live and retained run carries its session and
+   participant; every operation including permission attachment resolves by `runId`
    ([runRegistry.ts:36](../src/server/runs/runRegistry.ts#L36)), and the browser discovers runs
    machine-wide before attaching, so a session blocked by another session's turn can name it. A
    reload trusts the canonical record instead of replaying a finished run. The policy is still one
    concurrent turn.
 
-**Left, in dependency order** — the first two are specified as
-[Story 34](../stories/STORY-20260829-rename-thread-to-session.md) (the vocabulary rename) and
+**Left, in dependency order** — the first is specified as
 [Story 35](../stories/STORY-20260829-projects-and-repositories.md) (projects, repository bindings,
-and repository management):
+and repository management); Story 34's vocabulary prerequisite is shipped:
 
 1. **Allow zero repositories — in the record first.** A repository-free session should persist and
    accept participants immediately; what it cannot do yet is run a turn, because agent processes need
@@ -335,9 +334,8 @@ resolved on the machine that executes it, never asserted by the device that requ
    stream, and complete permission/cancel/replay routing while the global concurrency limit remains
    one. Keying runs by provider session waits for the independent run registry below, where
    concurrency makes it observable.
-4. **Projects, and sessions without or with several repositories** —
-   [Story 34](../stories/STORY-20260829-rename-thread-to-session.md) first renames the records to the
-   agreed vocabulary; [Story 35](../stories/STORY-20260829-projects-and-repositories.md) then adds
+4. **Projects, and sessions without or with several repositories** — Story 34's record rename is
+   shipped; [Story 35](../stories/STORY-20260829-projects-and-repositories.md) adds
    project records, repository management UI, the repository-free session, and repository surfaces
    that follow the selected one. This precedes the arena because the arena groups sessions by
    project.

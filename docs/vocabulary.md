@@ -166,7 +166,7 @@ word, never a data-model type — every noun inside it is borrowed.
 | Top container | Environment | **Workspace** | not built |
 | Body of work | Project (= repo) | **Project** (grouping) | `projectRegistry`, `ProjectSummary` ([types.ts:1](../src/shared/types.ts#L1)), project picker |
 | Repo binding | Attachment | **Repository** + **Checkout** | `ProjectAttachment` ([types.ts:56](../src/shared/types.ts#L56)) |
-| Unit of work | Thread | **Session** | `DurableConversation` ([types.ts:91](../src/shared/types.ts#L91)), `ServerThread` alias ([types.ts:108](../src/shared/types.ts#L108)), `threadRegistry`, `ThreadPicker.tsx`, "New conversation" |
+| Unit of work | Thread | **Session** | `DurableSession` ([types.ts:91](../src/shared/types.ts#L91)), `SessionStore`, `SessionPicker.tsx`, "New session" |
 | Transcript | Conversation | **Conversation** (narrowed) | unchanged |
 | Diagram surface | Canvas (= one diagram) | **Canvas** (the surface) | `CanvasKind` ([types.ts:134](../src/shared/types.ts#L134)), `CanvasWorkspace.tsx` |
 | Executor | Host | **Machine** (UI) / `hostId` (code) | `hostId` fields |
@@ -175,7 +175,7 @@ word, never a data-model type — every noun inside it is borrowed.
 | Provider handle | Agent session | **provider session** (always qualified) | `ProviderSessionRef` |
 
 Most of the cost is concentrated in two renames — *thread → session* and *project → project +
-repository* — and both are cheapest now: the durable conversation record is young, and Stories 26
+repository* — and both are cheapest now: the durable session record is young, and Stories 26
 and 27 already rewrite attachments and host identity. The rest is either unbuilt or a string change.
 
 Two names deliberately do **not** change: `runId`/`runRegistry` (correct, and never user-visible as
@@ -200,11 +200,10 @@ Still deferred: a level between workspace and project (Miro's *Space*, Notion's 
 needed until there is a team; *space* stays reserved for it.
 
 The code follows in two stories: [Story 34](../stories/STORY-20260829-rename-thread-to-session.md)
-renames thread → session across types, wire, routes, records, and strings, and
-[Story 35](../stories/STORY-20260829-projects-and-repositories.md) makes a project a body of work and
-a repository its own noun. Until they land, the code keeps its current names
-(`DurableConversation`, `ProjectAttachment`, `hostId`) and new user-visible strings use the
-vocabulary above.
+landed session across types, wire, routes, records, and strings;
+[Story 35](../stories/STORY-20260829-projects-and-repositories.md) next makes a project a body of work
+and a repository its own noun. The remaining transitional names are `ProjectAttachment` and
+`hostId`; new user-visible strings use the vocabulary above.
 
 ---
 

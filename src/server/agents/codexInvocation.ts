@@ -107,7 +107,7 @@ export function codexThreadPolicyIssue(
   const sandbox = record(response?.sandbox);
   if (response?.cwd !== cwd || response?.approvalPolicy !== approvalPolicy
     || sandbox?.type !== 'readOnly' || sandbox.networkAccess !== false) {
-    return 'Codex did not apply CodeAI\'s required thread sandbox and approval policy.';
+    return 'Codex did not apply CodeAI\'s required provider-session sandbox and approval policy.';
   }
   if (!Array.isArray(response.instructionSources)) {
     return 'Codex did not report its effective instruction sources.';

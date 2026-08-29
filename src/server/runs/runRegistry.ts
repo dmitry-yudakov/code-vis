@@ -37,7 +37,7 @@ export class RunRegistry {
   private readonly recentByRunId = new Map<string, RunRecord>();
 
   /** Returns false when another turn is already running; only one runs at a time. */
-  start(input: { runId: string; threadId: string; participantId: string; cancel(): void }): boolean {
+  start(input: { runId: string; sessionId: string; participantId: string; cancel(): void }): boolean {
     this.evictExpired();
     if (this.liveByRunId.size >= MAX_CONCURRENT_RUNS) return false;
     this.liveByRunId.set(input.runId, {
@@ -111,10 +111,10 @@ export class RunRegistry {
     this.evictExpired();
   }
 
-  list(threadId?: string): RunDiscovery {
+  list(sessionId?: string): RunDiscovery {
     this.evictExpired();
     const descriptors = (runs: Iterable<RunRecord>) => [...runs]
-      .filter((run) => !threadId || run.threadId === threadId)
+      .filter((run) => !sessionId || run.sessionId === sessionId)
       .map((run) => this.descriptor(run));
     return {
       active: descriptors(this.liveByRunId.values()),
@@ -129,7 +129,7 @@ export class RunRegistry {
   private descriptor(run: RunRecord): RunDescriptor {
     return {
       runId: run.runId,
-      threadId: run.threadId,
+      sessionId: run.sessionId,
       participantId: run.participantId,
       startedAt: run.startedAt,
       ...(run.finishedAt === undefined ? {} : { finishedAt: run.finishedAt }),

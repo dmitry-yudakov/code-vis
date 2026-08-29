@@ -120,7 +120,7 @@ describe('agent modes', () => {
 
   it('accepts only the three mode names over the wire', () => {
     const base = {
-      threadId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
       messageId: crypto.randomUUID(),
       participantId: 'agent-1',
       text: 'hello',
@@ -196,7 +196,7 @@ describe('permission broker', () => {
     const runId = crypto.randomUUID();
     const broker = new PermissionBroker(5_000);
     expect(registry.decide(runId, 'req', 'allow')).toBe('unknown-run');
-    registry.start({ runId, threadId: 'thread', participantId: 'agent-1', cancel: () => undefined });
+    registry.start({ runId, sessionId: 'session', participantId: 'agent-1', cancel: () => undefined });
     registry.attachPermissions(runId, broker);
     broker.request('req', () => undefined);
     expect(registry.decide(crypto.randomUUID(), 'req', 'allow')).toBe('unknown-run');
@@ -210,13 +210,13 @@ describe('permission broker', () => {
     const registry = new RunRegistry();
     const first = crypto.randomUUID();
     const second = crypto.randomUUID();
-    expect(registry.start({ runId: first, threadId: 't1', participantId: 'agent-1', cancel: () => undefined })).toBe(true);
+    expect(registry.start({ runId: first, sessionId: 't1', participantId: 'agent-1', cancel: () => undefined })).toBe(true);
     expect(registry.currentRuns).toEqual([expect.objectContaining({
-      runId: first, threadId: 't1', participantId: 'agent-1', startedAt: expect.any(Number),
+      runId: first, sessionId: 't1', participantId: 'agent-1', startedAt: expect.any(Number),
     })]);
-    expect(registry.start({ runId: second, threadId: 't2', participantId: 'agent-2', cancel: () => undefined })).toBe(false);
+    expect(registry.start({ runId: second, sessionId: 't2', participantId: 'agent-2', cancel: () => undefined })).toBe(false);
     registry.finish(first);
-    expect(registry.start({ runId: second, threadId: 't2', participantId: 'agent-2', cancel: () => undefined })).toBe(true);
+    expect(registry.start({ runId: second, sessionId: 't2', participantId: 'agent-2', cancel: () => undefined })).toBe(true);
     registry.finish(second);
   });
 
@@ -225,7 +225,7 @@ describe('permission broker', () => {
     const registry = new RunRegistry();
     const runId = crypto.randomUUID();
     let cancelled = false;
-    registry.start({ runId, threadId: 'thread', participantId: 'agent-1', cancel: () => { cancelled = true; } });
+    registry.start({ runId, sessionId: 'session', participantId: 'agent-1', cancel: () => { cancelled = true; } });
 
     const firstStream: AgentEvent[] = [];
     registry.subscribe(runId, (event) => firstStream.push(event));
@@ -257,14 +257,14 @@ describe('permission broker', () => {
     const registry = new RunRegistry();
     const first = crypto.randomUUID();
     const second = crypto.randomUUID();
-    registry.start({ runId: first, threadId: 'thread', participantId: 'agent-1', cancel: () => undefined });
+    registry.start({ runId: first, sessionId: 'session', participantId: 'agent-1', cancel: () => undefined });
     registry.record(first, { type: 'done', runId: first, durationMs: 10, cancelled: false });
     registry.finish(first);
-    registry.start({ runId: second, threadId: 'thread', participantId: 'agent-2', cancel: () => undefined });
+    registry.start({ runId: second, sessionId: 'session', participantId: 'agent-2', cancel: () => undefined });
     registry.record(second, { type: 'done', runId: second, durationMs: 11, cancelled: false });
     registry.finish(second);
 
-    expect(registry.list('thread').recent).toEqual([
+    expect(registry.list('session').recent).toEqual([
       expect.objectContaining({ runId: first, participantId: 'agent-1', finishedAt: now }),
       expect.objectContaining({ runId: second, participantId: 'agent-2', finishedAt: now }),
     ]);

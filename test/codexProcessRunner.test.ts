@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
 import { checkCodex } from '@/server/agents/codexPreflight';
 import { buildCodexAppServerArgs, codexTurnSecurity } from '@/server/agents/codexInvocation';
@@ -43,7 +43,7 @@ describe.sequential('CodexProcessRunner', () => {
       session: { id: options.sessionId, action: options.action || 'start' },
       prompt: mode === 'plan' ? 'Mode: PLAN\n\n[User message]\nMake a plan' : 'Mode: ASK\n\n[User message]\nExplain this',
       attachmentDirectory: directory,
-      policy: { ...resolveAgentPolicy(getConfig(), mode), timeoutMs: options.timeoutMs || 2_000 },
+      policy: { ...resolveAgentPolicy(getConfig(), mode), timeoutMs: options.timeoutMs || 5_000 },
       permissions: options.permissions,
       signal: options.signal || new AbortController().signal,
       emit(event) { events.push(event); options.onEvent?.(event); },
@@ -126,7 +126,6 @@ describe.sequential('CodexProcessRunner', () => {
   it('interrupts on cancellation and timeout before closing the child', async () => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'wait';
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 40);
     const cancelledDirectory = await mkdtemp(path.join(os.tmpdir(), 'codeai-codex-cancel-'));
     const cancelledRecord = path.join(cancelledDirectory, 'record.json');
     process.env.CODEAI_FAKE_CODEX_RECORD = cancelledRecord;
@@ -139,7 +138,14 @@ describe.sequential('CodexProcessRunner', () => {
       policy: { ...resolveAgentPolicy(getConfig(), 'ask'), timeoutMs: 1_000 },
       signal: controller.signal, emit() {},
     };
-    await expect(runner.run(base)).rejects.toMatchObject({ code: 'cancelled' });
+    const cancelled = runner.run(base);
+    const cancellation = expect(cancelled).rejects.toMatchObject({ code: 'cancelled' });
+    await vi.waitFor(async () => {
+      const current = JSON.parse(await readFile(cancelledRecord, 'utf8'));
+      expect(current.requests).toContainEqual(expect.objectContaining({ method: 'turn/start' }));
+    }, { timeout: 5_000, interval: 20 });
+    controller.abort();
+    await cancellation;
     let record = JSON.parse(await readFile(cancelledRecord, 'utf8'));
     expect(record.requests).toContainEqual(expect.objectContaining({ method: 'turn/interrupt' }));
 
@@ -149,7 +155,7 @@ describe.sequential('CodexProcessRunner', () => {
       ...base,
       runId: crypto.randomUUID(),
       signal: new AbortController().signal,
-      policy: { ...base.policy, timeoutMs: 40 },
+      policy: { ...base.policy, timeoutMs: 1_000 },
     })).rejects.toMatchObject({ code: 'timeout' });
     record = JSON.parse(await readFile(timeoutRecord, 'utf8'));
     expect(record.requests).toContainEqual(expect.objectContaining({ method: 'turn/interrupt' }));

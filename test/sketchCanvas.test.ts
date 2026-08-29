@@ -7,9 +7,9 @@ import { writeDiagramAttachments } from '@/server/storage/tempAttachments';
 import { buildConversationPrompt } from '@/server/conversation/prompt';
 import {
   canvasTargetId, findCanvasTarget, getSketches,
-} from '@/features/conversation/conversationStore';
-import { ConversationStore } from '@/server/storage/conversationStore';
-import type { ChatThread, DiagramMessageAttachment, DrawingMark, SketchCanvas } from '@/shared/types';
+} from '@/features/conversation/sessionStore';
+import { SessionStore } from '@/server/storage/sessionStore';
+import type { SessionSnapshot, DiagramMessageAttachment, DrawingMark, SketchCanvas } from '@/shared/types';
 
 const now = new Date().toISOString();
 const PNG = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]).toString('base64')}`;
@@ -20,12 +20,12 @@ const mark: DrawingMark = {
 };
 
 function sketch(overrides: Partial<SketchCanvas> = {}): SketchCanvas {
-  return { id: crypto.randomUUID(), threadId: 't1', ordinal: 1, createdAt: now, viewBox: [0, 0, 1_600, 1_000], ...overrides };
+  return { id: crypto.randomUUID(), sessionId: 't1', ordinal: 1, createdAt: now, viewBox: [0, 0, 1_600, 1_000], ...overrides };
 }
 
-function thread(overrides: Partial<ChatThread> = {}): ChatThread {
+function session(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
   return {
-    version: 1, revision: 0, id: 't1', title: 'Test', attachments: [], createdAt: now, updatedAt: now,
+    version: 2, revision: 0, id: 't1', title: 'Test', attachments: [], createdAt: now, updatedAt: now,
     participants: [
       { id: 'human-1', kind: 'human', displayName: 'You' },
       { id: 'agent-1', kind: 'agent', displayName: 'Claude', provider: 'claude', role: 'coder', defaultMode: 'ask' },
@@ -92,7 +92,7 @@ describe('sketch attachments', () => {
 describe('sketch storage', () => {
   it('resolves diagrams and sketches through one canvas id space', () => {
     const drawing = sketch();
-    const value = thread({ sketches: [drawing] });
+    const value = session({ sketches: [drawing] });
     expect(getSketches(value)).toEqual([drawing]);
     const target = findCanvasTarget(value, drawing.id);
     expect(target).toEqual({ kind: 'sketch', sketch: drawing });
@@ -101,15 +101,15 @@ describe('sketch storage', () => {
     expect(findCanvasTarget(value, undefined)).toBeUndefined();
   });
 
-  it('persists a sketch idempotently in the host conversation record', async () => {
+  it('persists a sketch idempotently in the host session record', async () => {
     const dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-sketch-store-'));
-    const store = new ConversationStore(dataDir);
-    const conversation = await store.createConversation({ provider: 'claude' });
-    const drawing = sketch({ threadId: conversation.id });
-    const saved = await store.createSketch(conversation.id, drawing);
+    const store = new SessionStore(dataDir);
+    const sessionRecord = await store.createSession({ provider: 'claude' });
+    const drawing = sketch({ sessionId: sessionRecord.id });
+    const saved = await store.createSketch(sessionRecord.id, drawing);
     expect(saved.sketches).toEqual([drawing]);
     expect(saved.revision).toBe(1);
-    expect((await store.createSketch(conversation.id, drawing)).revision).toBe(1);
+    expect((await store.createSketch(sessionRecord.id, drawing)).revision).toBe(1);
     await store.close();
   });
 });

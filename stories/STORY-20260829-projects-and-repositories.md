@@ -1,7 +1,7 @@
 # Story 35 — Make a project a body of work and a repository its own noun
 
 **Status:** Draft · **Type:** Full-stack (new durable record, discovery rename, session bindings, UI) ·
-**Depends on:** [Story 34](STORY-20260829-rename-thread-to-session.md) (thread → session) and
+**Depends on:** [Story 34](STORY-20260829-rename-thread-to-session.md) (shipped 2026-08-29) and
 [Story 26](STORY-20260826-loosen-project-host-bindings.md) (host-owned store, shipped)
 
 **Vocabulary context:** [vocabulary.md](../docs/vocabulary.md) · step 2 of the naming work behind
@@ -30,7 +30,7 @@ This is not cosmetic. Three things the arena needs are impossible while project 
   records are supposed to stop leaning on.
 
 Story 26 already loosened the record: a session carries an ordered `attachments` list, zero
-attachments validate ([conversationSchema.ts:178](../src/shared/conversationSchema.ts#L178)), and
+attachments validate ([sessionSchema.ts:188](../src/shared/sessionSchema.ts#L188)), and
 `checkoutId` is honestly machine-scoped. What is missing is the container above it and any way for a
 person to manage the list.
 
@@ -46,11 +46,11 @@ person to manage the list.
   by `src/app/api/projects/route.ts`.
 - **Session bindings:** `ProjectAttachment` [types.ts:56](../src/shared/types.ts#L56)
   (`hostId`, `checkoutId`, `role`); at most one `primary`
-  ([conversationSchema.ts:209](../src/shared/conversationSchema.ts#L209)).
-- **Creation:** [conversationStore.ts:264](../src/server/storage/conversationStore.ts#L264) attaches
+  ([sessionSchema.ts:188](../src/shared/sessionSchema.ts#L188)).
+- **Creation:** [sessionStore.ts:250](../src/server/storage/sessionStore.ts#L250) attaches
   the one `checkoutId` it is given, or none.
 - **Turns:** [message/route.ts:49](../src/app/api/agent/message/route.ts#L49) resolves the primary
-  attachment and refuses a session without one — *"This conversation has no working directory yet.
+  attachment and refuses a session without one — *"This session has no working directory yet.
   Attachment management is not available in this version."*
 - **Browser:** [AppShell.tsx:68](../src/features/shell/AppShell.tsx#L68) holds one `projectId`, lists
   sessions with `?checkoutId=…` ([AppShell.tsx:226](../src/features/shell/AppShell.tsx#L226)), and
@@ -66,7 +66,7 @@ person to manage the list.
 ### A. Projects become durable records
 
 1. A project is a user-created record in the same store, under the same writer lock and mutation
-   queue, at `session-store-v1/projects/<uuid>.json`: an id, a name, timestamps, a revision, and the
+   queue, at `session-store-v2/projects/<uuid>.json`: an id, a name, timestamps, a revision, and the
    repositories it works in. It is created explicitly ("New project"), renamed, and deleted.
 2. Deleting a project never deletes sessions. Its sessions become loose (`projectId` cleared), and
    the UI says so before the delete.
@@ -106,12 +106,10 @@ person to manage the list.
 
 ### D. Records and the version bump
 
-13. Sessions move to `version: 3`: `attachments` → `repositories`, plus the optional `projectId`.
-    Projects are new records at `version: 1`. The upgrade reuses the machinery Story 34 builds —
-    copy forward under the writer lock, ids and revisions preserved, the previous store untouched as
-    the rollback.
-14. If Story 34 has not shipped when this one starts, the two renames collapse into a single version
-    bump and a single upgrade rather than running two in a row.
+13. The store root becomes `session-store-v2` and sessions move to `version: 3`:
+    `attachments` → `repositories`, plus the optional `projectId`. Projects are new records at
+    `version: 1`. The upgrade reuses Story 34's copy-forward machinery under the new store's writer
+    lock: ids and revisions are preserved, and `session-store-v1` stays untouched as the rollback.
 
 ### Type contract
 

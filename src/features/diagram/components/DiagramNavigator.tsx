@@ -1,7 +1,7 @@
 'use client';
 
-import type { ChatThread, DiagramArtifact } from '@/shared/types';
-import { getArtifacts, getSketches } from '@/features/conversation/conversationStore';
+import type { SessionSnapshot, DiagramArtifact } from '@/shared/types';
+import { getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 
 // Seconds never tell a reader which canvas is which, and the full locale string spends the card's
 // whole second line saying it.
@@ -12,10 +12,10 @@ function formatCreated(createdAt: string): string {
 }
 
 export function DiagramNavigator({
-  open, thread, pendingAttachmentIds, onClose, onSelect, onPin, onToggleAttachment,
+  open, session, pendingAttachmentIds, onClose, onSelect, onPin, onToggleAttachment,
 }: {
   open: boolean;
-  thread: ChatThread;
+  session: SessionSnapshot;
   pendingAttachmentIds: string[];
   onClose(): void;
   onSelect(id: string): void;
@@ -23,8 +23,8 @@ export function DiagramNavigator({
   onToggleAttachment(id: string): void;
 }) {
   if (!open) return null;
-  const artifacts = getArtifacts(thread);
-  const sketches = getSketches(thread);
+  const artifacts = getArtifacts(session);
+  const sketches = getSketches(session);
   const byId = new Map<string, DiagramArtifact>(artifacts.map((item) => [item.id, item]));
   // One list, newest concern first: both kinds share the canvas id space and the same actions.
   // The badge marks which kind a card is. It used to be a running 01…05 taken from the artifact's
@@ -63,14 +63,14 @@ export function DiagramNavigator({
       </header>
       <div className="navigator-list">
         {entries.map((entry) => (
-          <div className={`navigator-item ${thread.activeDiagramId === entry.id ? 'active' : ''}`} key={entry.id}>
+          <div className={`navigator-item ${session.activeDiagramId === entry.id ? 'active' : ''}`} key={entry.id}>
             <button type="button" className="navigator-select" onClick={() => onSelect(entry.id)}>
               <span className="version-number">{entry.badge}</span>
               <span><strong>{entry.title}</strong><small>{formatCreated(entry.createdAt)}</small></span>
             </button>
             {entry.lineage && <div className="lineage">{entry.lineage}</div>}
             <div className="navigator-actions">
-              <button type="button" onClick={() => onPin(entry.id)}>{thread.pinnedDiagramIds.includes(entry.id) ? 'Unpin' : 'Pin'}</button>
+              <button type="button" onClick={() => onPin(entry.id)}>{session.pinnedDiagramIds.includes(entry.id) ? 'Unpin' : 'Pin'}</button>
               <button type="button" onClick={() => onToggleAttachment(entry.id)}>{pendingAttachmentIds.includes(entry.id) ? 'Remove attachment' : 'Attach next'}</button>
             </div>
           </div>

@@ -5,10 +5,10 @@ export type RunRecoveryAttachment<T> =
   | { kind: 'finished' | 'missing' };
 
 /**
- * Reconciles host run discovery with the canonical conversation snapshot. Discovery and stream
+ * Reconciles host run discovery with the canonical session snapshot. Discovery and stream
  * attachment are only hints about live work; every completion path finishes on a fresh snapshot.
  */
-export async function reconcileThreadRun<T>(input: {
+export async function reconcileSessionRun<T>(input: {
   discover(): Promise<RunDescriptor | undefined>;
   adopt(run: RunDescriptor): void;
   attach(runId: string): Promise<RunRecoveryAttachment<T>>;

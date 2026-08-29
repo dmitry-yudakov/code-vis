@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
-import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, ChatThread } from '@/shared/types';
+import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, SessionSnapshot } from '@/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer } from './InstructionComposer';
@@ -11,12 +11,12 @@ import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
-  open, thread, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running,
+  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running,
   status, composer, mode, unsupportedModes, attached, markCounts, onClose, onSelectDiagram, onRetry, onComposer, onModeChange,
   onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
 }: {
   open: boolean;
-  thread?: ChatThread;
+  session?: SessionSnapshot;
   theme: ThemeName;
   agents: AgentParticipant[];
   activeAgent?: AgentParticipant;
@@ -51,27 +51,27 @@ export function ConversationDrawer({
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: 'end' });
-  }, [open, preview, toolActivity.length, permissions.length, thread?.messages.length]);
+  }, [open, preview, toolActivity.length, permissions.length, session?.messages.length]);
   if (!open) return null;
-  const lastMessage = thread?.messages[thread.messages.length - 1];
+  const lastMessage = session?.messages[session.messages.length - 1];
   return (
     <aside className="conversation-drawer" aria-label="Conversation">
       <header>
         <div>
           <span className="eyebrow">Conversation</span>
-          <strong>{thread?.title || 'New conversation'}</strong>
+          <strong>{session?.title || 'New session'}</strong>
           {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
         </div>
-        <button type="button" onClick={onClose} aria-label="Close conversation">×</button>
+        <button type="button" onClick={onClose} aria-label="Close session">×</button>
       </header>
       <div className="conversation-scroll">
-        {thread?.messages.map((message) => (
+        {session?.messages.map((message) => (
           <ChatMessage
             key={message.id}
             message={message}
             theme={theme}
-            participants={thread.participants}
-            activeDiagramId={thread.activeDiagramId}
+            participants={session.participants}
+            activeDiagramId={session.activeDiagramId}
             running={running}
             onSelectDiagram={onSelectDiagram}
             onRetry={onRetry}
@@ -106,14 +106,14 @@ export function ConversationDrawer({
             <p className="stream-preview">{preview}<span className="typing-cursor" /></p>
           </article>
         )}
-        {!thread?.messages.length && <div className="drawer-empty">Your conversation history will stay here while you work on the canvas.</div>}
+        {!session?.messages.length && <div className="drawer-empty">Your conversation history will stay here while you work on the canvas.</div>}
         <div ref={endRef} />
       </div>
       <div className="drawer-composer">
         <ParticipantControls
           agents={agents}
           activeAgentId={activeAgent?.id}
-          primaryAgentId={thread?.primaryAgentId}
+          primaryAgentId={session?.primaryAgentId}
           providers={healthyProviders}
           disabled={running}
           busy={participantBusy}
@@ -128,7 +128,7 @@ export function ConversationDrawer({
           running={running}
           autoFocus
           attached={attached}
-          activeDiagramId={thread?.activeDiagramId}
+          activeDiagramId={session?.activeDiagramId}
           markCounts={markCounts}
           mode={mode}
           unsupportedModes={unsupportedModes}

@@ -20,7 +20,7 @@ route handlers (src/app/api/**)
    │
    ├── src/server/projects     project discovery under CODEAI_PROJECTS_ROOT
    ├── src/server/repository   fixed read-only git reads, bounded context files
-   ├── src/server/storage      host conversation store, writer lock, per-run temp attachments
+   ├── src/server/storage      host session store, writer lock, per-run temp attachments
    ├── src/server/runs         single active run + permission broker
    └── src/server/agents       provider policy → claude / codex app-server child
                                      │
@@ -33,12 +33,12 @@ helpers, plan delimiters, and types. It must stay free of Node and DOM dependenc
 
 ## Client/server split
 
-The browser owns presentation and device selection. The server owns conversation content and
+The browser owns presentation and device selection. The server owns session content and
 capability.
 
 | Concern | Owner |
 |---|---|
-| Transcript, Mermaid artifacts, marks, pins, roster | Host conversation store |
+| Transcript, Mermaid artifacts, marks, pins, roster | Host session store |
 | Focused canvas, next recipient/mode, panels, drafts | Browser memory |
 | Provider session ids and transcript cursors | Private fields in the host store |
 | Project discovery and the opaque project id | Server |
@@ -52,9 +52,9 @@ policy in `src/server/agents/agentPolicy.ts`.
 
 ## Browser snapshots and device state
 
-`src/features/conversation/conversationStore.ts` contains pure snapshot/canvas/export helpers. It
+`src/features/conversation/sessionStore.ts` contains pure snapshot/canvas/export helpers. It
 does not persist conversation content. `AppShell` lists snapshots by checkout with
-`GET /api/threads`, hydrates one complete snapshot with `GET /api/threads/[threadId]`, and sends
+`GET /api/sessions`, hydrates one complete snapshot with `GET /api/sessions/[sessionId]`, and sends
 annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
 revisions return 409 and trigger a refetch instead of silently replacing another client's work.
 
@@ -62,38 +62,39 @@ The selected checkout preference uses `code-ai:device:v1:active-checkout`; focus
 mode, panels, viewport, and drafts remain React state. Legacy `code-ai:web2:v1:*` conversation keys
 are untouched and unread.
 
-Export (`codeai-<thread>.json`) includes the roster and per-entry author/provider/role metadata
+Export (`codeai-<session>.json`) includes the roster and per-entry author/provider/role metadata
 plus diagram and mark state — never provider session ids, credentials, or server paths.
 
-## Host-owned conversation store
+## Host-owned session store
 
-`src/server/storage/conversationStore.ts` owns `CODEAI_DATA_DIR/conversation-store-v1` (the data-dir
+`src/server/storage/sessionStore.ts` owns `CODEAI_DATA_DIR/session-store-v1` (the data-dir
 default remains `~/.code-ai/web2`):
 
 ```text
-conversation-store-v1/
+session-store-v1/
   manifest.json       # version + durable host id/label
   writer.lock         # owner token, pid, hostname, heartbeat
-  threads/<uuid>.json # one complete private conversation per file
+  sessions/<uuid>.json # one complete private session per file
 ```
 
 The store opens lazily. A live lock excludes a second process; stale takeover uses an owner token
 so the old process cannot remove its successor's lock. The process-wide instance and mutation
 queue are pinned on `globalThis`, because Next route handlers are compiled into separate bundles.
-Every thread write flushes a same-directory temporary file before atomic rename. Store directories
-are `0700`; manifest, lock, and thread files are `0600`.
+Every session write flushes a same-directory temporary file before atomic rename. Store directories
+are `0700`; manifest, lock, and session files are `0600`.
 
-Each conversation has a monotonic revision and contains project attachments, participants,
+Each session has a monotonic revision and contains project attachments, participants,
 messages, canvases, annotations, pins, private provider sessions, and cursors. Public snapshots
 strip session ids, host-bound session state, cursors, and idempotency keys. Missing/corrupt store
-identity fails closed; the whole `conversation-store-v1` directory is the backup/restore unit.
-Legacy `threads.json` and browser records are not imported or modified.
+identity fails closed; the whole `session-store-v1` directory is the backup/restore unit. A valid
+`conversation-store-v1` is copied forward once and then ignored; it is never modified. Older
+`threads.json` and browser records are not imported or modified.
 
 ## The streamed agent route
 
 `POST /api/agent/message` is the one turn-executing endpoint.
 
-1. Validate the request against `src/shared/protocol.ts`, load the canonical conversation, and
+1. Validate the request against `src/shared/protocol.ts`, load the canonical session, and
    resolve its participant, primary attachment, host-bound session, and mode. The request contains
    neither a project id nor transcript.
 2. Refuse unavailable/foreign/stale attachments and foreign-host sessions before provider spawn,
@@ -119,13 +120,13 @@ Legacy `threads.json` and browser records are not imported or modified.
 ends one; `POST /api/agent/permission` resolves a pending approval card.
 
 **A run outlives the page that started it.** Closing the tab or reloading only detaches the
-browser. Reopening the conversation replays activity, any pending approval, and the answer. A
+browser. Reopening the session replays activity, any pending approval, and the answer. A
 finished run stays reattachable for five minutes.
 
 ## Permissions
 
 In Agent mode every side effect raises a permission card. `src/server/runs/permissionBroker.ts`
-correlates the provider's approval request to the active run/thread/turn, sanitizes it, and waits
+correlates the provider's approval request to the active run/session/turn, sanitizes it, and waits
 for one allow/deny decision. While a card is pending the run's timeout clock is paused. An
 unanswered card is auto-denied after `CODEAI_APPROVAL_TIMEOUT_MS`. A denial is reported to the
 model as a decision — the run continues. Cancelling resolves pending cards as denied before
@@ -155,8 +156,8 @@ browser-only and produces the SVG. Annotations are vector marks held beside the 
 These are real and deliberate, and they bound what can be built next:
 
 - one active agent run across the whole application;
-- one selected project and one selected thread in the browser shell;
-- the shell shows one checkout and one thread, while the data model accepts zero or more host-scoped
+- one selected project and one selected session in the browser shell;
+- the shell shows one checkout and one session, while the data model accepts zero or more host-scoped
   attachments; attachment management/rebind UI is not implemented;
 - clients see committed host content after refetch/reload, but there is no live synchronization,
   presence, authentication, or remote-client authorization;

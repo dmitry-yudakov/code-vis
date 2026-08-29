@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { AgentMode, CanvasTarget } from '@/shared/types';
-import { canvasTargetId } from '@/features/conversation/conversationStore';
+import { canvasTargetId } from '@/features/conversation/sessionStore';
 import { AGENT_MODE_HINTS, AGENT_MODE_LABELS, AGENT_MODE_TOOLTIPS } from '@/features/agents/toolActivity';
 
 const MODES: AgentMode[] = ['ask', 'plan', 'agent'];

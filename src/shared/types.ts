@@ -88,8 +88,8 @@ export interface ServerAgentParticipant extends AgentParticipant {
 
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
-export interface DurableConversation {
-  version: 1;
+export interface DurableSession {
+  version: 2;
   revision: number;
   id: string;
   title: string;
@@ -103,9 +103,6 @@ export interface DurableConversation {
   annotations: Record<string, DiagramAnnotation>;
   sketches: SketchCanvas[];
 }
-
-/** Historical internal name retained only as a source-compatible alias. */
-export type ServerThread = DurableConversation;
 
 export interface ProviderHealth {
   available: boolean;
@@ -135,13 +132,13 @@ export type CanvasKind = 'diagram' | 'sketch';
 
 /**
  * A blank drawing surface the user creates directly, with no Mermaid source behind it.
- * Sketches live on the thread rather than inside an assistant message, but they share the
+ * Sketches live on the session rather than inside an assistant message, but they share the
  * annotation store and the id space with diagrams, so selection, marks, and attachment all
  * behave the same way for both.
  */
 export interface SketchCanvas {
   id: string;
-  threadId: string;
+  sessionId: string;
   ordinal: number;
   createdAt: string;
   viewBox: [number, number, number, number];
@@ -185,7 +182,7 @@ export interface EvidenceResult {
 
 export interface DiagramArtifact {
   id: string;
-  threadId: string;
+  sessionId: string;
   messageId: string;
   ordinal: number;
   source: string;
@@ -244,8 +241,8 @@ export interface DiagramAnnotation {
 }
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
-export interface PublicConversation {
-  version: 1;
+export interface PublicSession {
+  version: 2;
   revision: number;
   id: string;
   title: string;
@@ -262,15 +259,15 @@ export interface PublicConversation {
 
 /**
  * A public host snapshot plus device-only selection state. The optional fields are never persisted
- * as conversation content and can be reconstructed after a refetch.
+ * as session content and can be reconstructed after a refetch.
  */
-export interface ChatThread extends PublicConversation {
+export interface SessionSnapshot extends PublicSession {
   /** Recipient selected for the next turn. Falls back to `primaryAgentId`. */
   addressedAgentId?: string;
   /** Points at a diagram artifact or a sketch — both share one canvas id space. */
   activeDiagramId?: string;
   previousDiagramId?: string;
-  /** Mode pre-selected for the next message. Threads themselves stay mode-agnostic. */
+  /** Mode pre-selected for the next message. Sessions themselves stay mode-agnostic. */
   defaultMode?: AgentMode;
 }
 
@@ -304,7 +301,7 @@ export type AgentErrorCode =
 export type PermissionResolution = 'allow' | 'deny' | 'timeout' | 'cancelled';
 
 export type AgentEvent =
-  | { type: 'run-started'; runId: string; threadId: string; messageId: string; participantId: string }
+  | { type: 'run-started'; runId: string; sessionId: string; messageId: string; participantId: string }
   | { type: 'status'; runId: string; phase: AgentPhase; label: string }
   | { type: 'tool-activity'; runId: string; tool: string; detail?: string; denied?: boolean }
   | { type: 'assistant-delta'; runId: string; delta: string }
@@ -324,7 +321,7 @@ export type AgentEvent =
 /** Public, host-local identity for a live or briefly retained agent run. */
 export interface RunDescriptor {
   runId: string;
-  threadId: string;
+  sessionId: string;
   participantId: string;
   startedAt: number;
   finishedAt?: number;
@@ -336,7 +333,7 @@ export interface RunDiscovery {
 }
 
 export interface AgentMessageRequest {
-  threadId: string;
+  sessionId: string;
   messageId: string;
   participantId: string;
   text: string;

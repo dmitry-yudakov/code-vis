@@ -56,116 +56,117 @@ vi.mock('@/server/agents/providerRegistry', () => ({
   }),
 }));
 
-import { GET as GET_THREADS, POST as POST_THREAD } from '@/app/api/threads/route';
-import { GET as GET_THREAD } from '@/app/api/threads/[threadId]/route';
-import { POST as POST_SKETCH } from '@/app/api/threads/[threadId]/sketches/route';
-import { PUT as PUT_ANNOTATION } from '@/app/api/threads/[threadId]/annotations/route';
-import { PUT as PUT_PINS } from '@/app/api/threads/[threadId]/pins/route';
+import { GET as GET_SESSIONS, POST as POST_SESSION } from '@/app/api/sessions/route';
+import { GET as GET_SESSION } from '@/app/api/sessions/[sessionId]/route';
+import { POST as POST_SKETCH } from '@/app/api/sessions/[sessionId]/sketches/route';
+import { PUT as PUT_ANNOTATION } from '@/app/api/sessions/[sessionId]/annotations/route';
+import { PUT as PUT_PINS } from '@/app/api/sessions/[sessionId]/pins/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
-import { ConversationStore, serverAgent } from '@/server/storage/conversationStore';
+import { SessionStore, serverAgent } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
-import type { DurableConversation, PublicConversation } from '@/shared/types';
+import type { DurableSession, PublicSession } from '@/shared/types';
 
-function context(threadId: string) {
-  return { params: Promise.resolve({ threadId }) };
+function context(sessionId: string) {
+  return { params: Promise.resolve({ sessionId }) };
 }
 
-function requestBody(thread: PublicConversation) {
+function requestBody(session: PublicSession) {
   return {
-    threadId: thread.id,
+    sessionId: session.id,
     messageId: crypto.randomUUID(),
-    participantId: thread.primaryAgentId,
+    participantId: session.primaryAgentId,
     text: 'Explain this.',
     diagramAttachments: [],
     mode: 'ask',
   };
 }
 
-async function createViaRoute(checkoutId?: string): Promise<PublicConversation> {
-  const response = await POST_THREAD(new Request('http://localhost/api/threads', {
+async function createViaRoute(checkoutId?: string): Promise<PublicSession> {
+  const response = await POST_SESSION(new Request('http://localhost/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...(checkoutId ? { checkoutId } : {}), provider: 'claude' }),
   }));
   expect(response.status).toBe(201);
-  return (await response.json()).thread as PublicConversation;
+  return (await response.json()).session as PublicSession;
 }
 
-describe('conversation snapshot and mutation routes', () => {
+describe('session snapshot and mutation routes', () => {
   beforeEach(async () => {
-    routeState.dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-conversation-routes-'));
+    routeState.dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-session-routes-'));
     routeState.checkoutAvailable = true;
     routeState.healthChecks = 0;
     routeState.runnersCreated = 0;
   });
 
   it('lists and hydrates public host snapshots, then applies revisioned canvas operations', async () => {
-    let thread = await createViaRoute('checkout-a');
-    expect(thread).toMatchObject({ version: 1, revision: 0, attachments: [{ checkoutId: 'checkout-a', role: 'primary' }] });
-    expect(JSON.stringify(thread)).not.toMatch(/projectId|sessionId|lastObserved/);
+    let session = await createViaRoute('checkout-a');
+    expect(session).toMatchObject({ version: 2, revision: 0, attachments: [{ checkoutId: 'checkout-a', role: 'primary' }] });
+    expect(session.participants.some((participant) => 'session' in participant)).toBe(false);
+    expect(JSON.stringify(session)).not.toMatch(/projectId|lastObserved/);
 
-    const list = await GET_THREADS(new Request('http://localhost/api/threads?checkoutId=checkout-a'));
+    const list = await GET_SESSIONS(new Request('http://localhost/api/sessions?checkoutId=checkout-a'));
     expect(list.status).toBe(200);
-    expect((await list.json()).threads).toEqual([thread]);
-    const hydrated = await GET_THREAD(new Request(`http://localhost/api/threads/${thread.id}`), context(thread.id));
-    expect((await hydrated.json()).thread).toEqual(thread);
+    expect((await list.json()).sessions).toEqual([session]);
+    const hydrated = await GET_SESSION(new Request(`http://localhost/api/sessions/${session.id}`), context(session.id));
+    expect((await hydrated.json()).session).toEqual(session);
 
     const sketch = {
-      id: crypto.randomUUID(), threadId: thread.id, ordinal: 1,
+      id: crypto.randomUUID(), sessionId: session.id, ordinal: 1,
       createdAt: new Date().toISOString(), viewBox: [0, 0, 1_600, 1_000],
     };
-    const sketchResponse = await POST_SKETCH(new Request(`http://localhost/api/threads/${thread.id}/sketches`, {
+    const sketchResponse = await POST_SKETCH(new Request(`http://localhost/api/sessions/${session.id}/sketches`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sketch }),
-    }), context(thread.id));
-    thread = (await sketchResponse.json()).thread;
-    expect(thread).toMatchObject({ revision: 1, sketches: [sketch] });
+    }), context(session.id));
+    session = (await sketchResponse.json()).session;
+    expect(session).toMatchObject({ revision: 1, sketches: [sketch] });
 
     const annotation = { version: 1, diagramId: sketch.id, marks: [], updatedAt: new Date().toISOString() };
-    const annotationResponse = await PUT_ANNOTATION(new Request(`http://localhost/api/threads/${thread.id}/annotations`, {
+    const annotationResponse = await PUT_ANNOTATION(new Request(`http://localhost/api/sessions/${session.id}/annotations`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedRevision: thread.revision, annotation }),
-    }), context(thread.id));
-    thread = (await annotationResponse.json()).thread;
-    expect(thread).toMatchObject({ revision: 2, annotations: { [sketch.id]: annotation } });
+      body: JSON.stringify({ expectedRevision: session.revision, annotation }),
+    }), context(session.id));
+    session = (await annotationResponse.json()).session;
+    expect(session).toMatchObject({ revision: 2, annotations: { [sketch.id]: annotation } });
 
-    const pinsResponse = await PUT_PINS(new Request(`http://localhost/api/threads/${thread.id}/pins`, {
+    const pinsResponse = await PUT_PINS(new Request(`http://localhost/api/sessions/${session.id}/pins`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedRevision: thread.revision, pinnedDiagramIds: [sketch.id] }),
-    }), context(thread.id));
-    thread = (await pinsResponse.json()).thread;
-    expect(thread).toMatchObject({ revision: 3, pinnedDiagramIds: [sketch.id] });
+      body: JSON.stringify({ expectedRevision: session.revision, pinnedDiagramIds: [sketch.id] }),
+    }), context(session.id));
+    session = (await pinsResponse.json()).session;
+    expect(session).toMatchObject({ revision: 3, pinnedDiagramIds: [sketch.id] });
 
-    const stale = await PUT_PINS(new Request(`http://localhost/api/threads/${thread.id}/pins`, {
+    const stale = await PUT_PINS(new Request(`http://localhost/api/sessions/${session.id}/pins`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ expectedRevision: 1, pinnedDiagramIds: [] }),
-    }), context(thread.id));
+    }), context(session.id));
     expect(stale.status).toBe(409);
     expect((await stale.json()).error).toContain('Refetch and retry');
   });
 
-  it('keeps attachment-free conversations readable and rejects their turns before provider work', async () => {
-    const thread = await createViaRoute();
+  it('keeps attachment-free sessions readable and rejects their turns before provider work', async () => {
+    const session = await createViaRoute();
     const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(thread)),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(session)),
     }));
     expect(response.status).toBe(400);
     expect((await response.json()).error).toContain('no working directory');
     expect(routeState.healthChecks).toBe(0);
     expect(routeState.runnersCreated).toBe(0);
-    expect((await GET_THREAD(new Request('http://localhost'), context(thread.id))).status).toBe(200);
+    expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(200);
   });
 
   it('keeps the visible busy error and reports the host-wide active run descriptor', async () => {
-    const thread = await createViaRoute('checkout-a');
+    const session = await createViaRoute('checkout-a');
     const blockingRun = {
       runId: crypto.randomUUID(),
-      threadId: crypto.randomUUID(),
-      participantId: 'agent-on-another-conversation',
+      sessionId: crypto.randomUUID(),
+      participantId: 'agent-on-another-session',
     };
     expect(runRegistry.start({ ...blockingRun, cancel: () => undefined })).toBe(true);
     try {
       const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(thread)),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(session)),
       }));
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({
@@ -180,13 +181,13 @@ describe('conversation snapshot and mutation routes', () => {
   });
 
   it.each([
-    ['remote attachment', (record: DurableConversation) => {
+    ['remote attachment', (record: DurableSession) => {
       record.attachments[0].hostId = crypto.randomUUID();
     }, /another host/, true],
-    ['stale checkout', (_record: DurableConversation) => {
+    ['stale checkout', (_record: DurableSession) => {
       routeState.checkoutAvailable = false;
     }, /Rebinding attachments is not available/, false],
-    ['foreign session', (record: DurableConversation) => {
+    ['foreign session', (record: DurableSession) => {
       const agent = serverAgent(record, record.primaryAgentId)!;
       agent.session = {
         provider: agent.provider,
@@ -196,24 +197,24 @@ describe('conversation snapshot and mutation routes', () => {
       };
     }, /provider session belongs to another host/, true],
   ])('rejects a %s before registry admission or provider spawn', async (_label, mutate, expected, editFile) => {
-    const direct = new ConversationStore(routeState.dataDir, { hostLabel: 'Route host' });
-    const created = await direct.createConversation({ checkoutId: 'checkout-a', provider: 'claude' });
-    const publicThread = {
+    const direct = new SessionStore(routeState.dataDir, { hostLabel: 'Route host' });
+    const created = await direct.createSession({ checkoutId: 'checkout-a', provider: 'claude' });
+    const publicSession = {
       ...created,
       participants: created.participants.map((item) => item.kind === 'human' ? item : {
         id: item.id, kind: item.kind, displayName: item.displayName, provider: item.provider,
         role: item.role, defaultMode: item.defaultMode,
       }),
-    } as PublicConversation;
+    } as PublicSession;
     await direct.close();
 
-    const threadPath = path.join(routeState.dataDir, 'conversation-store-v1', 'threads', `${created.id}.json`);
-    const record = JSON.parse(await readFile(threadPath, 'utf8')) as DurableConversation;
+    const sessionPath = path.join(routeState.dataDir, 'session-store-v1', 'sessions', `${created.id}.json`);
+    const record = JSON.parse(await readFile(sessionPath, 'utf8')) as DurableSession;
     mutate(record);
-    if (editFile) await writeFile(threadPath, `${JSON.stringify(record, null, 2)}\n`);
+    if (editFile) await writeFile(sessionPath, `${JSON.stringify(record, null, 2)}\n`);
 
     const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(publicThread)),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(publicSession)),
     }));
     expect(response.status).toBe(409);
     expect((await response.json()).error).toMatch(expected);

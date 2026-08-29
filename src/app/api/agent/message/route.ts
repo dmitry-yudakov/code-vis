@@ -4,8 +4,8 @@ import { agentMessageRequestSchema, publicError, safeJsonResponse } from '@/shar
 import { getConfig } from '@/server/config';
 import { getProjectRegistry } from '@/server/projects/projectRegistry';
 import {
-  conversationStoreStatus, getConversationStore, primaryAttachment, serverAgent,
-} from '@/server/storage/conversationStore';
+  sessionStoreStatus, getSessionStore, primaryAttachment, serverAgent,
+} from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { AgentRunError } from '@/server/agents/agentRunError';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
@@ -34,28 +34,28 @@ export async function POST(request: Request): Promise<Response> {
   if (parsed.data.diagramAttachments.length > config.maxDiagramAttachments) {
     return safeJsonResponse({ error: `At most ${config.maxDiagramAttachments} diagrams may be attached.` }, { status: 400 });
   }
-  const store = getConversationStore(config.dataDir, config.hostLabel);
-  let thread;
+  const store = getSessionStore(config.dataDir, config.hostLabel);
+  let session;
   try {
-    thread = await store.getConversation(parsed.data.threadId);
+    session = await store.getSession(parsed.data.sessionId);
   } catch (error) {
-    return safeJsonResponse({ error: publicError(error) }, { status: conversationStoreStatus(error) });
+    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
   const mode = parsed.data.mode || 'ask';
-  const participant = serverAgent(thread, parsed.data.participantId);
+  const participant = serverAgent(session, parsed.data.participantId);
   if (!participant) {
-    return safeJsonResponse({ error: 'The addressed participant is not an agent in this conversation.' }, { status: 400 });
+    return safeJsonResponse({ error: 'The addressed participant is not an agent in this session.' }, { status: 400 });
   }
-  const attachment = primaryAttachment(thread);
+  const attachment = primaryAttachment(session);
   if (!attachment) {
     return safeJsonResponse({
-      error: 'This conversation has no working directory yet. Attachment management is not available in this version.',
+      error: 'This session has no working directory yet. Attachment management is not available in this version.',
     }, { status: 400 });
   }
   const host = await store.host();
   if (attachment.hostId !== host.id) {
     return safeJsonResponse({
-      error: `This conversation's primary project belongs to another host (${attachment.hostId}) and is unavailable here.`,
+      error: `This session's primary project belongs to another host (${attachment.hostId}) and is unavailable here.`,
     }, { status: 409 });
   }
   if (participant.session.started && participant.session.hostId !== host.id) {
@@ -68,12 +68,12 @@ export async function POST(request: Request): Promise<Response> {
     project = await getProjectRegistry(config.projectsRoot, config.projectDiscoveryDepth).resolve(attachment.checkoutId);
   } catch (error) {
     return safeJsonResponse({
-      error: `This conversation's project attachment no longer resolves on this host. Rebinding attachments is not available yet. ${publicError(error)}`,
+      error: `This session's project attachment no longer resolves on this host. Rebinding attachments is not available yet. ${publicError(error)}`,
     }, { status: 409 });
   }
   const canvases = new Map<string, { kind: CanvasKind; source: string }>();
-  for (const sketch of thread.sketches as SketchCanvas[]) canvases.set(sketch.id, { kind: 'sketch', source: '' });
-  for (const message of thread.messages) {
+  for (const sketch of session.sketches as SketchCanvas[]) canvases.set(sketch.id, { kind: 'sketch', source: '' });
+  for (const message of session.messages) {
     if (message.role !== 'assistant') continue;
     for (const block of message.blocks) {
       if (block.kind !== 'diagram') continue;
@@ -85,7 +85,7 @@ export async function POST(request: Request): Promise<Response> {
     const canonical = canvases.get(item.diagramId);
     return !canonical || canonical.kind !== item.kind || canonical.source !== item.source;
   })) {
-    return safeJsonResponse({ error: 'One or more canvas attachments are not available in this conversation.' }, { status: 400 });
+    return safeJsonResponse({ error: 'One or more canvas attachments are not available in this session.' }, { status: 400 });
   }
   const messageAttachments = parsed.data.diagramAttachments.map((item) => ({
     diagramId: item.diagramId,
@@ -94,7 +94,7 @@ export async function POST(request: Request): Promise<Response> {
     viewport: item.viewport,
     compositeIncluded: Boolean(item.compositePngDataUrl),
   }));
-  const priorRequest = thread.messages.find((message) => message.id === parsed.data.messageId);
+  const priorRequest = session.messages.find((message) => message.id === parsed.data.messageId);
   if (priorRequest) {
     const sameRequest = priorRequest.role === 'user'
       && priorRequest.addressedParticipantId === participant.id
@@ -103,7 +103,7 @@ export async function POST(request: Request): Promise<Response> {
       && JSON.stringify(priorRequest.diagramAttachments) === JSON.stringify(messageAttachments);
     return safeJsonResponse({
       error: sameRequest
-        ? 'This message request was already accepted. Reload the conversation to see its durable state.'
+        ? 'This message request was already accepted. Reload the session to see its durable state.'
         : 'This message id was already used with different content.',
     }, { status: sameRequest ? 409 : 400 });
   }
@@ -120,7 +120,7 @@ export async function POST(request: Request): Promise<Response> {
   const abortController = new AbortController();
   if (!runRegistry.start({
     runId,
-    threadId: thread.id,
+    sessionId: session.id,
     participantId: participant.id,
     cancel: () => abortController.abort(),
   })) {
@@ -130,10 +130,10 @@ export async function POST(request: Request): Promise<Response> {
     }, { status: 409 });
   }
 
-  const human = thread.participants.find((item) => item.kind === 'human');
+  const human = session.participants.find((item) => item.kind === 'human');
   if (!human) {
     runRegistry.finish(runId);
-    return safeJsonResponse({ error: 'This conversation has no human participant.' }, { status: 400 });
+    return safeJsonResponse({ error: 'This session has no human participant.' }, { status: 400 });
   }
   const userMessage: UserMessage = {
     id: parsed.data.messageId,
@@ -147,20 +147,20 @@ export async function POST(request: Request): Promise<Response> {
     mode,
   };
   try {
-    const accepted = await store.appendUserMessage(thread.id, userMessage);
-    thread = accepted.conversation;
+    const accepted = await store.appendUserMessage(session.id, userMessage);
+    session = accepted.session;
     if (!accepted.appended) {
       runRegistry.finish(runId);
       return safeJsonResponse({
-        error: 'This message request was already accepted. Reload the conversation to see its durable state.',
+        error: 'This message request was already accepted. Reload the session to see its durable state.',
       }, { status: 409 });
     }
   } catch (error) {
     runRegistry.finish(runId);
-    return safeJsonResponse({ error: publicError(error) }, { status: conversationStoreStatus(error) });
+    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
-  const currentParticipant = serverAgent(thread, participant.id)!;
-  const transcriptDelta = buildTranscriptDelta(thread, currentParticipant, canonicalTranscript(thread.messages), {
+  const currentParticipant = serverAgent(session, participant.id)!;
+  const transcriptDelta = buildTranscriptDelta(session, currentParticipant, canonicalTranscript(session.messages), {
     maxMessages: config.maxTranscriptMessages,
     maxBytes: config.maxTranscriptBytes,
   }).text;
@@ -179,10 +179,10 @@ export async function POST(request: Request): Promise<Response> {
         runId,
         request: parsed.data,
         project,
-        thread,
+        session,
         config,
         runner,
-        conversationStore: store,
+        sessionStore: store,
         transcriptDelta,
         signal: abortController.signal,
         emit,
@@ -191,7 +191,7 @@ export async function POST(request: Request): Promise<Response> {
         const known = error instanceof AgentRunError ? error : undefined;
         const delivery = known?.delivery || (abortController.signal.aborted || currentParticipant.session.started ? 'possibly-sent' : 'not-sent');
         await store.failUserMessage(
-          thread.id,
+          session.id,
           parsed.data.messageId,
           known?.code === 'cancelled' || abortController.signal.aborted ? 'cancelled' : 'failed',
           delivery,

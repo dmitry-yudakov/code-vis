@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { reconcileThreadRun } from '@/features/conversation/runRecovery';
+import { reconcileSessionRun } from '@/features/conversation/runRecovery';
 import type { RunDescriptor } from '@/shared/types';
 
 const active: RunDescriptor = {
   runId: '11111111-2222-4333-8444-555555555555',
-  threadId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+  sessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
   participantId: 'agent-a',
   startedAt: 1,
 };
@@ -14,7 +14,7 @@ describe('run recovery reconciliation', () => {
     let canonical = 'running';
     let rendered = canonical; // The app list hydrated just before this recovery pass begins.
     const attach = vi.fn();
-    const outcome = await reconcileThreadRun({
+    const outcome = await reconcileSessionRun({
       async discover() {
         canonical = 'complete';
         return undefined;
@@ -34,7 +34,7 @@ describe('run recovery reconciliation', () => {
     let rendered = 'stale';
     const adopted: RunDescriptor[] = [];
     const consume = vi.fn();
-    const outcome = await reconcileThreadRun({
+    const outcome = await reconcileSessionRun({
       async discover() { return active; },
       adopt(run) { adopted.push(run); },
       async attach() {
@@ -54,7 +54,7 @@ describe('run recovery reconciliation', () => {
     let canonical = 'running';
     let rendered = 'stale';
     const order: string[] = [];
-    const outcome = await reconcileThreadRun({
+    const outcome = await reconcileSessionRun({
       async discover() { order.push('discover'); return active; },
       adopt() { order.push('adopt'); },
       async attach() { order.push('attach'); return { kind: 'stream' as const, stream: 'events' }; },

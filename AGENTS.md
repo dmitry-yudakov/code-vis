@@ -10,11 +10,10 @@ Updated 2026-08-29. When a story ships, change the line that names it; each stor
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** [Story 34](stories/STORY-20260829-rename-thread-to-session.md) — rename thread → session
-  across types, wire, routes, records, and UI strings. Delivers nothing to a user; runs first so the
-  stories after it are not written twice.
-- **Then:** [Story 35](stories/STORY-20260829-projects-and-repositories.md) — a project becomes a
+- **Next:** [Story 35](stories/STORY-20260829-projects-and-repositories.md) — a project becomes a
   body of work, a repository its own noun, and a session may hold none or several.
+- **Then:** the arena sequence continues with several open sessions, concurrency, and machine/device
+  separation as ordered in [vision.md](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop). Naming for both:
@@ -48,7 +47,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/app/` | Next pages, layout, global CSS, and route handlers |
 | `src/features/shell/` | Application composition (`AppShell`) |
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
-| `src/features/conversation/` | Transcript, composer, drawer, thread selection, public snapshot helpers |
+| `src/features/conversation/` | Transcript, composer, drawer, session selection, public snapshot helpers |
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
 | `src/features/diagram/mermaid/` | Mermaid validation policy and SVG renderer |
 | `src/features/diagram/annotations/` | Drawing state and composite export |
@@ -59,7 +58,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/server/projects/` | Project discovery and registry |
 | `src/server/repository/` | Fixed read-only git invocations and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
-| `src/server/storage/` | Thread registry, durable server records, per-run temp attachments |
+| `src/server/storage/` | Session store, durable server records, per-run temp attachments |
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
 | `test/`, `e2e/` | Vitest suite and Playwright suite |
@@ -87,7 +86,7 @@ importing file's own directory; keep `./…` for same-directory siblings.
 
 - Mermaid source is the canonical stored diagram artifact. Diagrams are immutable; a revision is a
   new artifact, never a patch of an old one.
-- Canonical conversation content (transcript, artifacts, marks, pins, roster, sessions, cursors)
+- Canonical session content (conversation transcript, artifacts, marks, pins, roster, provider sessions, cursors)
   lives in revisioned host JSON. Browser memory owns device-only selection, panels, mode, and drafts;
   `localStorage` holds only the selected-checkout preference.
 - One agent run is active at a time, application-wide (`src/server/runs/runRegistry.ts`).

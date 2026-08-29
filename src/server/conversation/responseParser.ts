@@ -4,7 +4,7 @@ import { extractEvidence } from '@/features/diagram/evidence';
 import { normalizeMermaidSource, validateMermaidSource } from '@/features/diagram/mermaid/mermaidPolicy';
 
 interface ParseOptions {
-  threadId: string;
+  sessionId: string;
   messageId: string;
   projectRoot: string;
   derivedFromDiagramIds: string[];
@@ -58,7 +58,7 @@ export async function parseAssistantResponse(markdown: string, options: ParseOpt
       const policy = validateMermaidSource(source, options.maxMermaidBytes);
       const artifact: DiagramArtifact = {
         id: randomUUID(),
-        threadId: options.threadId,
+        sessionId: options.sessionId,
         messageId: options.messageId,
         ordinal: diagramCount,
         source,

@@ -3,8 +3,8 @@
 import { useCallback, useMemo } from 'react';
 import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
-import type { ChatThread, DrawingMark } from '@/shared/types';
-import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/conversationStore';
+import type { SessionSnapshot, DrawingMark } from '@/shared/types';
+import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 import { DiagramCanvas } from './DiagramCanvas';
 import { RunRibbon } from './RunRibbon';
 
@@ -14,7 +14,7 @@ export interface CanvasSnapshot {
 }
 
 export function CanvasWorkspace({
-  thread,
+  session,
   theme,
   unread,
   pendingApprovals,
@@ -32,7 +32,7 @@ export function CanvasWorkspace({
   onSnapshot,
   onArtifactError,
 }: {
-  thread: ChatThread;
+  session: SessionSnapshot;
   theme: ThemeName;
   unread: number;
   pendingApprovals: number;
@@ -50,11 +50,11 @@ export function CanvasWorkspace({
   onSnapshot(snapshot?: CanvasSnapshot): void;
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
 }) {
-  const artifacts = useMemo(() => getArtifacts(thread), [thread]);
-  const sketches = useMemo(() => getSketches(thread), [thread]);
-  const target = useMemo(() => findCanvasTarget(thread, thread.activeDiagramId), [thread]);
+  const artifacts = useMemo(() => getArtifacts(session), [session]);
+  const sketches = useMemo(() => getSketches(session), [session]);
+  const target = useMemo(() => findCanvasTarget(session, session.activeDiagramId), [session]);
   const activeId = target && canvasTargetId(target);
-  const marks = activeId ? thread.annotations[activeId]?.marks || [] : [];
+  const marks = activeId ? session.annotations[activeId]?.marks || [] : [];
   const artifactOrdinals = useMemo(
     () => new Map(artifacts.map((artifact) => [artifact.id, artifact.ordinal])),
     [artifacts],
@@ -76,8 +76,8 @@ export function CanvasWorkspace({
     <main className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
         <div className="canvas-top-actions">
-          {thread.previousDiagramId && target && (
-            <button type="button" onClick={() => onSelectDiagram(thread.previousDiagramId!)}>← Previous version</button>
+          {session.previousDiagramId && target && (
+            <button type="button" onClick={() => onSelectDiagram(session.previousDiagramId!)}>← Previous version</button>
           )}
           {target && <button type="button" onClick={onNewSketch}>New sketch</button>}
           <button type="button" onClick={onOpenHistory}>History <span className="button-count">{artifacts.length + sketches.length}</span></button>

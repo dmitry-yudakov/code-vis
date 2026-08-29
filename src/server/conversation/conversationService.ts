@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type {
-  AgentEvent, AgentMessageRequest, AgentProcessRunner, AssistantMessage, ServerProject, ServerThread,
+  AgentEvent, AgentMessageRequest, AgentProcessRunner, AssistantMessage, DurableSession, ServerProject,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
-import type { ConversationStore } from '@/server/storage/conversationStore';
+import type { SessionStore } from '@/server/storage/sessionStore';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { createRunDirectory, removeRunDirectory, writeDiagramAttachments } from '@/server/storage/tempAttachments';
@@ -11,18 +11,18 @@ import { writeRepositoryContext } from '@/server/repository/repositoryContext';
 import { hasProposedPlan, stripPlanMarkers } from '@/shared/plan';
 import { buildConversationPrompt } from './prompt';
 import { parseAssistantResponse } from './responseParser';
-import { serverAgent } from '@/server/storage/conversationStore';
+import { serverAgent } from '@/server/storage/sessionStore';
 import { roleContract } from '@/server/agents/agentRoles';
 
 export async function publishCompletedAssistant(input: {
   runId: string;
-  threadId: string;
+  sessionId: string;
   participantId: string;
   userMessageId: string;
   message: AssistantMessage;
   emit(event: AgentEvent): void;
   commit(
-    threadId: string,
+    sessionId: string,
     participantId: string,
     userMessageId: string,
     message: AssistantMessage,
@@ -30,7 +30,7 @@ export async function publishCompletedAssistant(input: {
 }): Promise<void> {
   // The event is a durable-completion claim, so the complete message, user delivery state, and
   // participant cursor must be one successful store revision before the browser sees it.
-  await input.commit(input.threadId, input.participantId, input.userMessageId, input.message);
+  await input.commit(input.sessionId, input.participantId, input.userMessageId, input.message);
   input.emit({ type: 'assistant-message', runId: input.runId, message: input.message });
 }
 
@@ -38,35 +38,35 @@ export async function runConversation(input: {
   runId: string;
   request: AgentMessageRequest;
   project: ServerProject;
-  thread: ServerThread;
+  session: DurableSession;
   config: AppConfig;
   runner: AgentProcessRunner;
-  conversationStore: ConversationStore;
+  sessionStore: SessionStore;
   transcriptDelta: string;
   signal: AbortSignal;
   emit(event: AgentEvent): void;
   onPermissionBroker?(broker: PermissionBroker): void;
 }): Promise<void> {
-  const { runId, request, project, thread, config, runner, conversationStore, transcriptDelta, signal, emit } = input;
+  const { runId, request, project, session, config, runner, sessionStore, transcriptDelta, signal, emit } = input;
   const startedAt = Date.now();
   const mode = request.mode || 'ask';
   let directory: string | undefined;
   let sessionMark = Promise.resolve();
   let sessionMarkError: unknown;
-  const participant = serverAgent(thread, request.participantId);
+  const participant = serverAgent(session, request.participantId);
   if (!participant) throw new Error('Unknown addressed agent participant');
-  const host = await conversationStore.host();
+  const host = await sessionStore.host();
   if (participant.session.started && participant.session.hostId !== host.id) {
     throw new Error(`This provider session belongs to another host (${participant.session.hostId}) and cannot be resumed here.`);
   }
-  emit({ type: 'run-started', runId, threadId: thread.id, messageId: request.messageId, participantId: participant.id });
+  emit({ type: 'run-started', runId, sessionId: session.id, messageId: request.messageId, participantId: participant.id });
   const resuming = participant.session.started && Boolean(participant.session.sessionId);
   const providerName = participant.provider === 'codex' ? 'Codex' : 'Claude';
   emit({
     type: 'status',
     runId,
     phase: resuming ? 'resuming' : 'starting',
-    label: resuming ? `Resuming ${providerName} conversation` : `Starting ${providerName} conversation`,
+    label: resuming ? `Resuming ${providerName} provider session` : `Starting ${providerName} provider session`,
   });
 
   const policy = resolveAgentPolicy(config, mode);
@@ -90,7 +90,7 @@ export async function runConversation(input: {
       attachedCanvasNames: manifest.map((item, index) => `${item.kind === 'sketch' ? 'Sketch' : 'Diagram'} ${index + 1} (${item.diagramId})`),
       hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
       mode,
-      participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this CodeAI conversation. Your stable participant id is ${participant.id}.`,
+      participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this CodeAI session. Your stable participant id is ${participant.id}.`,
       roleContract: roleContract(participant.role),
       transcriptDelta,
     });
@@ -98,8 +98,8 @@ export async function runConversation(input: {
       runId,
       project,
       session: {
-        // Claude accepts a client-generated session id; Codex owns ids returned by thread/start.
-        // Either way the provider id is distinct from the CodeAI thread id.
+        // Claude accepts a client-generated session id; Codex owns ids returned when it starts one.
+        // Either way the provider id is distinct from the CodeAI session id.
         id: resuming ? participant.session.sessionId : participant.provider === 'claude' ? randomUUID() : undefined,
         action: resuming ? 'resume' : 'start',
       },
@@ -111,7 +111,7 @@ export async function runConversation(input: {
       emit(event) {
         if (event.type === 'session-started' && event.sessionId) {
           sessionMark = sessionMark
-            .then(async () => { await conversationStore.markSessionStarted(thread.id, participant.id, participant.provider, event.sessionId!); })
+            .then(async () => { await sessionStore.markProviderSessionStarted(session.id, participant.id, participant.provider, event.sessionId!); })
             .catch((error: unknown) => { sessionMarkError = error; });
         } else if (event.type === 'text-delta' && event.text) {
           emit({ type: 'assistant-delta', runId, delta: event.text });
@@ -138,7 +138,7 @@ export async function runConversation(input: {
     const planProposed = mode === 'plan' && hasProposedPlan(result.finalText);
     const markdown = stripPlanMarkers(result.finalText);
     const blocks = await parseAssistantResponse(markdown, {
-      threadId: thread.id,
+      sessionId: session.id,
       messageId: assistantId,
       projectRoot: project.realPath,
       derivedFromDiagramIds: request.diagramAttachments.map((item) => item.diagramId),
@@ -159,13 +159,13 @@ export async function runConversation(input: {
     };
     await publishCompletedAssistant({
       runId,
-      threadId: thread.id,
+      sessionId: session.id,
       participantId: participant.id,
       userMessageId: request.messageId,
       message,
       emit,
-      commit: (threadId, participantId, userMessageId, assistantMessage) => (
-        conversationStore.completeAssistantMessage(threadId, participantId, userMessageId, assistantMessage)
+      commit: (sessionId, participantId, userMessageId, assistantMessage) => (
+        sessionStore.completeAssistantMessage(sessionId, participantId, userMessageId, assistantMessage)
       ),
     });
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });

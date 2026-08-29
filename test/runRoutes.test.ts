@@ -12,33 +12,33 @@ function events(body: string): AgentEvent[] {
 }
 
 describe('run discovery and stream routes', () => {
-  it('lists host-wide ownership, filters by thread, and replays retained runs by run id', async () => {
+  it('lists host-wide ownership, filters by session, and replays retained runs by run id', async () => {
     const runId = crypto.randomUUID();
-    const threadId = crypto.randomUUID();
-    const otherThreadId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const otherSessionId = crypto.randomUUID();
     expect(runRegistry.start({
-      runId, threadId, participantId: 'agent-a', cancel: () => undefined,
+      runId, sessionId, participantId: 'agent-a', cancel: () => undefined,
     })).toBe(true);
     try {
       const hostWide = await GET_RUNS(new Request('http://localhost/api/agent/runs'));
       expect(hostWide.headers.get('cache-control')).toBe('no-store');
       expect((await hostWide.json() as RunDiscovery).active).toContainEqual(expect.objectContaining({
-        runId, threadId, participantId: 'agent-a', startedAt: expect.any(Number),
+        runId, sessionId, participantId: 'agent-a', startedAt: expect.any(Number),
       }));
 
-      const filtered = await GET_RUNS(new Request(`http://localhost/api/agent/runs?threadId=${otherThreadId}`));
+      const filtered = await GET_RUNS(new Request(`http://localhost/api/agent/runs?sessionId=${otherSessionId}`));
       expect(await filtered.json()).toEqual({ active: [], recent: [] });
-      expect((await GET_RUNS(new Request('http://localhost/api/agent/runs?threadId=bad'))).status).toBe(400);
+      expect((await GET_RUNS(new Request('http://localhost/api/agent/runs?sessionId=bad'))).status).toBe(400);
 
       runRegistry.record(runId, { type: 'status', runId, phase: 'thinking', label: 'Thinking…' });
       runRegistry.record(runId, { type: 'done', runId, durationMs: 10, cancelled: false });
       runRegistry.finish(runId);
 
-      const completed = await GET_RUNS(new Request(`http://localhost/api/agent/runs?threadId=${threadId}`));
+      const completed = await GET_RUNS(new Request(`http://localhost/api/agent/runs?sessionId=${sessionId}`));
       const completedBody = await completed.json() as RunDiscovery;
       expect(completedBody.active).toEqual([]);
       expect(completedBody.recent).toContainEqual(expect.objectContaining({
-        runId, threadId, participantId: 'agent-a', finishedAt: expect.any(Number),
+        runId, sessionId, participantId: 'agent-a', finishedAt: expect.any(Number),
       }));
 
       const replay = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
@@ -56,10 +56,10 @@ describe('run discovery and stream routes', () => {
   it('attaches a live stream only by run id and follows it through completion', async () => {
     const runId = crypto.randomUUID();
     expect(runRegistry.start({
-      runId, threadId: crypto.randomUUID(), participantId: 'agent-live', cancel: () => undefined,
+      runId, sessionId: crypto.randomUUID(), participantId: 'agent-live', cancel: () => undefined,
     })).toBe(true);
     try {
-      expect((await GET_STREAM(new Request('http://localhost/api/agent/stream?threadId=ignored'))).status).toBe(400);
+      expect((await GET_STREAM(new Request('http://localhost/api/agent/stream?sessionId=ignored'))).status).toBe(400);
       const response = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
       expect(response.headers.get('X-CodeAI-Run-Finished')).toBe('false');
       runRegistry.record(runId, { type: 'status', runId, phase: 'responding', label: 'Responding…' });
@@ -81,7 +81,7 @@ describe('run discovery and stream routes', () => {
     let resolution: string | undefined;
     expect(runRegistry.start({
       runId,
-      threadId: crypto.randomUUID(),
+      sessionId: crypto.randomUUID(),
       participantId: 'agent-routed',
       cancel: () => { cancelled = true; },
     })).toBe(true);

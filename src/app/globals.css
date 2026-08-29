@@ -46,21 +46,21 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .project-search-option i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--live-ink); font-style: normal; }
 .project-search-empty { padding: 24px 12px; color: var(--muted); text-align: center; font-size: 11px; }
 /* Cap the wrapper, not the select. A growing wrapper around a capped select leaves the new
-   conversation button stranded hundreds of pixels from the picker it belongs to. */
-.thread-picker { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; }
+   session button stranded hundreds of pixels from the picker it belongs to. */
+.session-picker { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; }
 .breadcrumb-select { min-width: 0; flex: 0 1 320px; }
 .breadcrumb-select select { height: 28px; width: 100%; padding: 0 25px 0 7px; overflow: hidden; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 500; text-overflow: ellipsis; }
 .breadcrumb-select select:hover:not(:disabled), .breadcrumb-select select:focus { border-color: var(--line); background-color: var(--raised); }
-.new-thread-menu { position: relative; flex: none; }
-.new-thread-menu summary { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; list-style: none; font-size: 14px; }
-.new-thread-menu summary::-webkit-details-marker { display: none; }
-.new-thread-menu summary:hover, .new-thread-menu[open] summary { border-color: var(--line); color: var(--ink); background: var(--raised); }
-.new-thread-menu summary[aria-disabled="true"] { pointer-events: none; opacity: .45; }
-.new-thread-menu > div { position: absolute; z-index: 100; right: 0; top: calc(100% + 8px); width: 220px; display: grid; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--shell); box-shadow: var(--popover-shadow); }
-.new-thread-menu label { display: grid; gap: 6px; color: var(--muted); font: 500 9px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
-.new-thread-menu select { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-family: var(--sans); font-size: 12px; text-transform: none; }
-.new-thread-menu button, .header-actions button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); font-size: 11px; font-weight: 600; }
-.new-thread-menu button:hover, .header-actions button:hover { background: var(--raised); border-color: var(--line-strong); }
+.new-session-menu { position: relative; flex: none; }
+.new-session-menu summary { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; list-style: none; font-size: 14px; }
+.new-session-menu summary::-webkit-details-marker { display: none; }
+.new-session-menu summary:hover, .new-session-menu[open] summary { border-color: var(--line); color: var(--ink); background: var(--raised); }
+.new-session-menu summary[aria-disabled="true"] { pointer-events: none; opacity: .45; }
+.new-session-menu > div { position: absolute; z-index: 100; right: 0; top: calc(100% + 8px); width: 220px; display: grid; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--shell); box-shadow: var(--popover-shadow); }
+.new-session-menu label { display: grid; gap: 6px; color: var(--muted); font: 500 9px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.new-session-menu select { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-family: var(--sans); font-size: 12px; text-transform: none; }
+.new-session-menu button, .header-actions button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); font-size: 11px; font-weight: 600; }
+.new-session-menu button:hover, .header-actions button:hover { background: var(--raised); border-color: var(--line-strong); }
 .header-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 /* One control height across the whole 48px bar. Left to their own padding these land on five
    different heights and the row reads as unaligned. */
@@ -421,7 +421,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .header-breadcrumbs { gap: 4px; }
   .project-search-picker, .project-search-trigger { min-width: 100px; max-width: 150px; }
   .project-search-popover { position: fixed; left: 12px; right: 12px; top: 52px; width: auto; }
-  .thread-picker { gap: 3px; }
+  .session-picker { gap: 3px; }
   .header-actions { margin-left: auto; }
   .canvas-top-actions button { padding: 0 8px; }
   .quick-prompts { grid-template-columns: 1fr; }

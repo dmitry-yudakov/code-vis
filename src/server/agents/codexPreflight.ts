@@ -150,7 +150,7 @@ export async function checkCodex(
           }));
           const thread = record(threadResult?.thread);
           if (typeof thread?.id !== 'string') {
-            issue = 'Codex App Server could not create an isolated readiness thread.';
+            issue = 'Codex App Server could not create an isolated readiness provider session.';
           } else {
             issue = codexThreadPolicyIssue(threadResult, cwd, security.approvalPolicy);
             if (!issue) {
