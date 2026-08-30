@@ -6,14 +6,13 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-08-29. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-08-30. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** [Story 35](stories/STORY-20260829-projects-and-repositories.md) — a project becomes a
-  body of work, a repository its own noun, and a session may hold none or several.
-- **Then:** the arena sequence continues with several open sessions, concurrency, and machine/device
-  separation as ordered in [vision.md](docs/vision.md#sequence).
+- **Next:** several sessions open at once — views and per-device layout, still with one global turn.
+- **Then:** concurrent turns, the arena, and machine/device separation as ordered in
+  [vision.md](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop). Naming for both:
@@ -55,10 +54,9 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/features/repository/` | Repository tree, status, and diff UI and client state |
 | `src/server/agents/` | Provider policies, adapters, preflight, process runners |
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
-| `src/server/projects/` | Project discovery and registry |
-| `src/server/repository/` | Fixed read-only git invocations and bounded context |
+| `src/server/repository/` | Checkout discovery, fixed read-only git invocations, and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
-| `src/server/storage/` | Session store, durable server records, per-run temp attachments |
+| `src/server/storage/` | Project/session store, durable server records, per-run temp attachments |
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
 | `test/`, `e2e/` | Vitest suite and Playwright suite |
@@ -86,8 +84,8 @@ importing file's own directory; keep `./…` for same-directory siblings.
 
 - Mermaid source is the canonical stored diagram artifact. Diagrams are immutable; a revision is a
   new artifact, never a patch of an old one.
-- Canonical session content (conversation transcript, artifacts, marks, pins, roster, provider sessions, cursors)
-  lives in revisioned host JSON. Browser memory owns device-only selection, panels, mode, and drafts;
+- Canonical project and session content (repository bindings, transcript, artifacts, marks, pins,
+  roster, provider sessions, cursors) lives in revisioned host JSON. Browser memory owns device-only selection, panels, mode, and drafts;
   `localStorage` holds only the selected-checkout preference.
 - One agent run is active at a time, application-wide (`src/server/runs/runRegistry.ts`).
 - Settings are `CODEAI_*`; every one also accepts its former `CODEAI_WEB2_*` spelling

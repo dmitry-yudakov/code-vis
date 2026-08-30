@@ -5,8 +5,8 @@ import {
 } from '@/shared/limits';
 
 export interface AppConfig {
-  projectsRoot: string;
-  projectDiscoveryDepth: number;
+  repositoriesRoot: string;
+  repositoryDiscoveryDepth: number;
   claudeBin: string;
   claudeModel?: string;
   codexBin: string;
@@ -58,6 +58,36 @@ function boundedInteger(suffix: string, fallback: number, min: number, max: numb
   return value;
 }
 
+function boundedIntegerWithCompatibility(
+  suffix: string,
+  compatibilitySuffix: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const { raw, name } = compatibleSetting(suffix, compatibilitySuffix);
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}`);
+  }
+  return value;
+}
+
+function compatibleSetting(
+  suffix: string,
+  compatibilitySuffix: string,
+): { raw?: string; name?: string } {
+  const names = [
+    `CODEAI_${suffix}`,
+    `CODEAI_${compatibilitySuffix}`,
+    `CODEAI_WEB2_${suffix}`,
+    `CODEAI_WEB2_${compatibilitySuffix}`,
+  ];
+  const name = names.find((candidate) => process.env[candidate]);
+  return name ? { raw: process.env[name], name } : {};
+}
+
 function flag(suffix: string): boolean {
   return /^(1|true|yes)$/i.test(rawSetting(suffix) || '');
 }
@@ -69,8 +99,12 @@ function expandHome(value: string): string {
 
 export function getConfig(): AppConfig {
   return {
-    projectsRoot: path.resolve(expandHome(rawSetting('PROJECTS_ROOT') || process.cwd())),
-    projectDiscoveryDepth: boundedInteger('PROJECTS_DEPTH', 1, 1, 10),
+    repositoriesRoot: path.resolve(expandHome(
+      compatibleSetting('REPOSITORIES_ROOT', 'PROJECTS_ROOT').raw || process.cwd(),
+    )),
+    repositoryDiscoveryDepth: boundedIntegerWithCompatibility(
+      'REPOSITORIES_DEPTH', 'PROJECTS_DEPTH', 1, 1, 10,
+    ),
     claudeBin: rawSetting('CLAUDE_BIN') || 'claude',
     claudeModel: rawSetting('CLAUDE_MODEL'),
     codexBin: rawSetting('CODEX_BIN') || 'codex',

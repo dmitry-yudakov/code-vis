@@ -1,6 +1,6 @@
 # Story 35 — Make a project a body of work and a repository its own noun
 
-**Status:** Draft · **Type:** Full-stack (new durable record, discovery rename, session bindings, UI) ·
+**Status:** Shipped · **Type:** Full-stack (new durable record, discovery rename, session bindings, UI) ·
 **Depends on:** [Story 34](STORY-20260829-rename-thread-to-session.md) (shipped 2026-08-29) and
 [Story 26](STORY-20260826-loosen-project-host-bindings.md) (host-owned store, shipped)
 
@@ -12,14 +12,14 @@ repositories" in [the engineering notes](../docs/multi-project-session-environme
 
 ## Motivation
 
-Today a *project* is a repository: `projectRegistry` hashes a checkout's real path into an id
-([projectRegistry.ts:30](../src/server/projects/projectRegistry.ts#L30)), the header picker chooses
-one, and a session binds to it. That is the only meaning the product has for the word, and it is not
+Before this story a *project* was a repository: `projectRegistry` hashed a checkout's real path into
+an id, the header picker chose one, and a session bound to it. That was the only meaning the product
+had for the word, and it was not
 the meaning anyone arrives with. Claude.ai, ChatGPT, Linear, Motion, and Figma all use *project* for
 a **body of work** that groups things — which is why [vocabulary.md](../docs/vocabulary.md) redefines
 it that way and gives *repository* its own noun.
 
-This is not cosmetic. Three things the arena needs are impossible while project means repository:
+This was not cosmetic. Three things the arena needs were impossible while project meant repository:
 
 - **A session with no repository at all** — a design argued out on a canvas, a plan, a brainstorm —
   has nothing to belong to, so it is a degenerate case rather than a first-class one.
@@ -31,33 +31,29 @@ This is not cosmetic. Three things the arena needs are impossible while project 
 
 Story 26 already loosened the record: a session carries an ordered `attachments` list, zero
 attachments validate ([sessionSchema.ts:188](../src/shared/sessionSchema.ts#L188)), and
-`checkoutId` is honestly machine-scoped. What is missing is the container above it and any way for a
+`checkoutId` is honestly machine-scoped. This story adds the container above it and the UI for a
 person to manage the list.
 
 ---
 
 ## Current behavior (where the code is)
 
-- **Discovery:** [projectRegistry.ts:30](../src/server/projects/projectRegistry.ts#L30) mints
-  `id = hash(realPath)` for marked directories under `CODEAI_PROJECTS_ROOT`, bounded by
-  `CODEAI_PROJECTS_DEPTH` ([config.ts](../src/server/config.ts)).
-- **Public shape:** `ProjectSummary` [types.ts:1](../src/shared/types.ts#L1) and `ProjectsResponse`
-  [types.ts:7](../src/shared/types.ts#L7) (`projects`, `recentProjectIds`, `discoveryDepth`), served
-  by `src/app/api/projects/route.ts`.
-- **Session bindings:** `ProjectAttachment` [types.ts:56](../src/shared/types.ts#L56)
-  (`hostId`, `checkoutId`, `role`); at most one `primary`
-  ([sessionSchema.ts:188](../src/shared/sessionSchema.ts#L188)).
-- **Creation:** [sessionStore.ts:250](../src/server/storage/sessionStore.ts#L250) attaches
-  the one `checkoutId` it is given, or none.
-- **Turns:** [message/route.ts:49](../src/app/api/agent/message/route.ts#L49) resolves the primary
-  attachment and refuses a session without one — *"This session has no working directory yet.
-  Attachment management is not available in this version."*
-- **Browser:** [AppShell.tsx:68](../src/features/shell/AppShell.tsx#L68) holds one `projectId`, lists
-  sessions with `?checkoutId=…` ([AppShell.tsx:226](../src/features/shell/AppShell.tsx#L226)), and
-  creates a session with that checkout ([AppShell.tsx:274](../src/features/shell/AppShell.tsx#L274));
-  [ProjectPicker.tsx](../src/features/projects/ProjectPicker.tsx) is the header selector.
-- **Repository surfaces:** `src/app/api/repository/{status,diff}/route.ts` and the sidebar read the
-  single selected checkout.
+- **Durable records:** [sessionStore.ts](../src/server/storage/sessionStore.ts) owns revisioned
+  projects and v3 sessions in `session-store-v2`, plus the copy-forward migration from
+  `session-store-v1`.
+- **Discovery:** [checkoutRegistry.ts](../src/server/repository/checkoutRegistry.ts) discovers
+  machine-local checkouts under `CODEAI_REPOSITORIES_ROOT`, with the project-named settings as
+  compatibility fallbacks in [config.ts](../src/server/config.ts).
+- **Public shapes:** [types.ts](../src/shared/types.ts) defines `DurableProject`,
+  `RepositoryBinding`, `CheckoutSummary`, and v3 `DurableSession` / `PublicSession` records.
+- **Routes:** `src/app/api/projects`, `src/app/api/checkouts`, and the session repositories route
+  expose project CRUD, checkout discovery, and revisioned binding updates.
+- **Turns:** [message/route.ts](../src/app/api/agent/message/route.ts) resolves only the primary
+  repository binding and explains how to enable a turn when none exists.
+- **Browser:** [AppShell.tsx](../src/features/shell/AppShell.tsx),
+  [ProjectPicker.tsx](../src/features/projects/ProjectPicker.tsx), and
+  [RepositoryManager.tsx](../src/features/repository/RepositoryManager.tsx) represent **No
+  project**, repository-free sessions, and multi-repository selection and management.
 
 ---
 
@@ -150,26 +146,33 @@ export interface CheckoutSummary {          // was ProjectSummary
 
 ## Acceptance criteria
 
-- [ ] A project can be created, renamed, and deleted; deleting one leaves its sessions intact and
+- [x] A project can be created, renamed, and deleted; deleting one leaves its sessions intact and
       loose.
-- [ ] A session can be created inside a project (inheriting its repositories) or loose, with no
+- [x] A session can be created inside a project (inheriting its repositories) or loose, with no
       repository at all, and both persist across a restart.
-- [ ] A session's repositories can be added, removed, reordered, and re-rolled between primary and
+- [x] A session's repositories can be added, removed, reordered, and re-rolled between primary and
       reference, with the store's revision and conflict rules enforced.
-- [ ] Binding a repository unknown to the session's project adds it to the project too.
-- [ ] The repository sidebar, status, and diffs follow the repository selected within the session and
+- [x] Binding a repository unknown to the session's project adds it to the project too.
+- [x] The repository sidebar, status, and diffs follow the repository selected within the session and
       default to the primary one.
-- [ ] A turn still runs against the primary repository only, and the Ask/Plan/Agent capability
+- [x] A turn still runs against the primary repository only, and the Ask/Plan/Agent capability
       boundaries are unchanged.
-- [ ] A repository-free session states why it cannot run a turn and what would fix it, and does not
+- [x] A repository-free session states why it cannot run a turn and what would fix it, and does not
       error, disappear, or block its canvas and conversation.
-- [ ] `projectRegistry`/`ProjectSummary`/`/api/projects` are gone in favor of the checkout names;
-      no code uses *project* for a repository.
-- [ ] `CODEAI_REPOSITORIES_ROOT` works, `CODEAI_PROJECTS_ROOT` still works, and README plus
+- [x] `projectRegistry` and `ProjectSummary` are gone; checkout discovery moved from the old
+      `/api/projects` behavior to `/api/checkouts`, while `/api/projects` now serves durable project
+      records. No code uses *project* for a repository.
+- [x] `CODEAI_REPOSITORIES_ROOT` works, `CODEAI_PROJECTS_ROOT` still works, and README plus
       `.env.example` lead with the new names.
-- [ ] An existing store upgrades once: every session keeps its id, revision, transcript, canvases,
+- [x] An existing store upgrades once: every session keeps its id, revision, transcript, canvases,
       and bindings, and lands loose (no `projectId`) unless a project is created for it.
-- [ ] `npm run lint`, `npm test`, and `npm run test:e2e` pass, including e2e coverage for a two-
+- [x] Queued repository edits derive their payload from the latest session snapshot, so rapid
+      relative edits compose instead of replaying a stale array with a fresh revision.
+- [x] Reissuing an unchanged session repository list repairs a project missing one of those
+      repositories, and ambiguous `projectId` plus `loose=true` session queries are rejected.
+- [x] Project conflict handling uses HTTP status, checkout validation performs one discovery pass,
+      and streaming session updates do not repeatedly read the selected-checkout preference.
+- [x] `npm run lint`, `npm test`, and `npm run test:e2e` pass, including e2e coverage for a two-
       repository session and a repository-free one.
 
 ## Out of scope
@@ -185,6 +188,9 @@ export interface CheckoutSummary {          // was ProjectSummary
 - **Project instructions and knowledge** — the record leaves room; this story adds no such field.
 - **The arena, workspace, views, and Inbox** — later stories.
 - **Turns acting on more than the primary repository.**
+- **Crash-atomic multi-record project deletion.** Per-record writes remain atomic and deletion is
+  idempotently retryable, but a recovery journal for interruption between session detaches is a
+  separate durability change.
 
 ## How to verify
 
@@ -201,3 +207,6 @@ export interface CheckoutSummary {          // was ProjectSummary
 6. Delete the project: its sessions remain, now loose, with their transcripts and canvases.
 7. Start with only `CODEAI_PROJECTS_ROOT` set, then only `CODEAI_REPOSITORIES_ROOT`: discovery
    behaves identically.
+8. Attach three repositories and double-click the third repository's move-up action: both relative
+   moves apply in order. Reissue an unchanged binding list after removing one binding from its
+   project: the project regains it without incrementing the session revision.

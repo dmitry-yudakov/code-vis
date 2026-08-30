@@ -41,7 +41,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     const events: AgentProcessEvent[] = [];
     const result = await runner.run({
       runId: crypto.randomUUID(),
-      project: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
+      checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id, action },
       prompt: options.prompt ?? (action === 'start' ? 'unique first question' : 'short follow-up only'),
       attachmentDirectory: directory,

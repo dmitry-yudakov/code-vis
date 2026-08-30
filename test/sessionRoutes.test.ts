@@ -14,19 +14,19 @@ vi.mock('@/server/config', () => ({
   getConfig: () => ({
     dataDir: routeState.dataDir,
     hostLabel: 'Route host',
-    projectsRoot: '/projects',
-    projectDiscoveryDepth: 1,
+    repositoriesRoot: '/repositories',
+    repositoryDiscoveryDepth: 1,
     maxDiagramAttachments: 4,
     maxTranscriptMessages: 40,
     maxTranscriptBytes: 24_000,
   }),
 }));
 
-vi.mock('@/server/projects/projectRegistry', () => ({
-  getProjectRegistry: () => ({
+vi.mock('@/server/repository/checkoutRegistry', () => ({
+  getCheckoutRegistry: () => ({
     resolve: async (checkoutId: string) => {
-      if (!routeState.checkoutAvailable || checkoutId !== 'checkout-a') throw new Error('Unknown project');
-      return { id: checkoutId, name: 'Project', relativePath: '.', realPath: '/projects/checkout-a' };
+      if (!routeState.checkoutAvailable || !['checkout-a', 'checkout-b'].includes(checkoutId)) throw new Error('Unknown checkout');
+      return { id: checkoutId, name: 'Repository', relativePath: '.', realPath: `/repositories/${checkoutId}` };
     },
   }),
 }));
@@ -61,6 +61,7 @@ import { GET as GET_SESSION } from '@/app/api/sessions/[sessionId]/route';
 import { POST as POST_SKETCH } from '@/app/api/sessions/[sessionId]/sketches/route';
 import { PUT as PUT_ANNOTATION } from '@/app/api/sessions/[sessionId]/annotations/route';
 import { PUT as PUT_PINS } from '@/app/api/sessions/[sessionId]/pins/route';
+import { PUT as PUT_REPOSITORIES } from '@/app/api/sessions/[sessionId]/repositories/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { SessionStore, serverAgent } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
@@ -82,10 +83,16 @@ function requestBody(session: PublicSession) {
 }
 
 async function createViaRoute(checkoutId?: string): Promise<PublicSession> {
+  let projectId: string | undefined;
+  if (checkoutId) {
+    const direct = new SessionStore(routeState.dataDir, { hostLabel: 'Route host' });
+    projectId = (await direct.createProject('Test project', [checkoutId])).id;
+    await direct.close();
+  }
   const response = await POST_SESSION(new Request('http://localhost/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...(checkoutId ? { checkoutId } : {}), provider: 'claude' }),
+    body: JSON.stringify({ ...(projectId ? { projectId } : {}), provider: 'claude' }),
   }));
   expect(response.status).toBe(201);
   return (await response.json()).session as PublicSession;
@@ -101,13 +108,16 @@ describe('session snapshot and mutation routes', () => {
 
   it('lists and hydrates public host snapshots, then applies revisioned canvas operations', async () => {
     let session = await createViaRoute('checkout-a');
-    expect(session).toMatchObject({ version: 2, revision: 0, attachments: [{ checkoutId: 'checkout-a', role: 'primary' }] });
+    expect(session).toMatchObject({ version: 3, revision: 0, repositories: [{ checkoutId: 'checkout-a', role: 'primary' }] });
     expect(session.participants.some((participant) => 'session' in participant)).toBe(false);
-    expect(JSON.stringify(session)).not.toMatch(/projectId|lastObserved/);
+    expect(JSON.stringify(session)).not.toMatch(/lastObserved/);
 
-    const list = await GET_SESSIONS(new Request('http://localhost/api/sessions?checkoutId=checkout-a'));
+    const list = await GET_SESSIONS(new Request(`http://localhost/api/sessions?projectId=${session.projectId}`));
     expect(list.status).toBe(200);
     expect((await list.json()).sessions).toEqual([session]);
+    const ambiguous = await GET_SESSIONS(new Request(`http://localhost/api/sessions?projectId=${session.projectId}&loose=true`));
+    expect(ambiguous.status).toBe(400);
+    expect((await ambiguous.json()).error).toContain('either a project or loose sessions');
     const hydrated = await GET_SESSION(new Request(`http://localhost/api/sessions/${session.id}`), context(session.id));
     expect((await hydrated.json()).session).toEqual(session);
 
@@ -144,16 +154,42 @@ describe('session snapshot and mutation routes', () => {
     expect((await stale.json()).error).toContain('Refetch and retry');
   });
 
-  it('keeps attachment-free sessions readable and rejects their turns before provider work', async () => {
+  it('keeps repository-free sessions readable and rejects their turns before provider work', async () => {
     const session = await createViaRoute();
     const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(session)),
     }));
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain('no working directory');
+    expect((await response.json()).error).toContain('no repository');
     expect(routeState.healthChecks).toBe(0);
     expect(routeState.runnersCreated).toBe(0);
     expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(200);
+  });
+
+  it('updates repository order and primary role with revision conflicts enforced', async () => {
+    const session = await createViaRoute('checkout-a');
+    const second = {
+      id: crypto.randomUUID(),
+      hostId: session.repositories[0].hostId,
+      checkoutId: 'checkout-b',
+      role: 'primary' as const,
+    };
+    const repositories = [second, { ...session.repositories[0], role: 'reference' as const }];
+    const update = await PUT_REPOSITORIES(new Request(`http://localhost/api/sessions/${session.id}/repositories`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: session.revision, repositories }),
+    }), context(session.id));
+    expect(update.status).toBe(200);
+    const updated = (await update.json()).session as PublicSession;
+    expect(updated).toMatchObject({ revision: 1, repositories });
+
+    const stale = await PUT_REPOSITORIES(new Request(`http://localhost/api/sessions/${session.id}/repositories`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: 0, repositories: [] }),
+    }), context(session.id));
+    expect(stale.status).toBe(409);
   });
 
   it('keeps the visible busy error and reports the host-wide active run descriptor', async () => {
@@ -181,12 +217,12 @@ describe('session snapshot and mutation routes', () => {
   });
 
   it.each([
-    ['remote attachment', (record: DurableSession) => {
-      record.attachments[0].hostId = crypto.randomUUID();
+    ['remote repository', (record: DurableSession) => {
+      record.repositories[0].hostId = crypto.randomUUID();
     }, /another host/, true],
     ['stale checkout', (_record: DurableSession) => {
       routeState.checkoutAvailable = false;
-    }, /Rebinding attachments is not available/, false],
+    }, /Choose another checkout or reattach it/, false],
     ['foreign session', (record: DurableSession) => {
       const agent = serverAgent(record, record.primaryAgentId)!;
       agent.session = {
@@ -198,7 +234,8 @@ describe('session snapshot and mutation routes', () => {
     }, /provider session belongs to another host/, true],
   ])('rejects a %s before registry admission or provider spawn', async (_label, mutate, expected, editFile) => {
     const direct = new SessionStore(routeState.dataDir, { hostLabel: 'Route host' });
-    const created = await direct.createSession({ checkoutId: 'checkout-a', provider: 'claude' });
+    const project = await direct.createProject('Test project', ['checkout-a']);
+    const created = await direct.createSession({ projectId: project.id, provider: 'claude' });
     const publicSession = {
       ...created,
       participants: created.participants.map((item) => item.kind === 'human' ? item : {
@@ -208,7 +245,7 @@ describe('session snapshot and mutation routes', () => {
     } as PublicSession;
     await direct.close();
 
-    const sessionPath = path.join(routeState.dataDir, 'session-store-v1', 'sessions', `${created.id}.json`);
+    const sessionPath = path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${created.id}.json`);
     const record = JSON.parse(await readFile(sessionPath, 'utf8')) as DurableSession;
     mutate(record);
     if (editFile) await writeFile(sessionPath, `${JSON.stringify(record, null, 2)}\n`);

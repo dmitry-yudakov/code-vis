@@ -112,12 +112,12 @@ export function codexThreadPolicyIssue(
   if (!Array.isArray(response.instructionSources)) {
     return 'Codex did not report its effective instruction sources.';
   }
-  const projectRoot = path.resolve(cwd);
+  const repositoryRoot = path.resolve(cwd);
   for (const source of response.instructionSources) {
     if (typeof source !== 'string' || !path.isAbsolute(source)) {
       return 'Codex reported an invalid instruction source.';
     }
-    const relative = path.relative(projectRoot, path.resolve(source));
+    const relative = path.relative(repositoryRoot, path.resolve(source));
     if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       return 'Ambient Codex instruction files are still active.';
     }

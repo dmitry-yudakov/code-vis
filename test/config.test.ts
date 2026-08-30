@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { getConfig } from '@/server/config';
 
 const MANAGED = [
+  'CODEAI_REPOSITORIES_ROOT', 'CODEAI_WEB2_REPOSITORIES_ROOT',
+  'CODEAI_PROJECTS_ROOT', 'CODEAI_WEB2_PROJECTS_ROOT',
+  'CODEAI_REPOSITORIES_DEPTH', 'CODEAI_WEB2_REPOSITORIES_DEPTH',
   'CODEAI_PROJECTS_DEPTH', 'CODEAI_WEB2_PROJECTS_DEPTH',
   'CODEAI_CODEX_AGENT', 'CODEAI_WEB2_CODEX_AGENT',
   'CODEAI_CLAUDE_BIN', 'CODEAI_WEB2_CLAUDE_BIN',
@@ -19,14 +22,15 @@ describe.sequential('config', () => {
     }
   });
 
-  it('reads project discovery depth from the neutral variable', () => {
-    process.env.CODEAI_PROJECTS_DEPTH = '3';
-    expect(getConfig().projectDiscoveryDepth).toBe(3);
+  it('reads repository discovery settings from the new neutral variables', () => {
+    process.env.CODEAI_REPOSITORIES_ROOT = '/repositories';
+    process.env.CODEAI_REPOSITORIES_DEPTH = '3';
+    expect(getConfig()).toMatchObject({ repositoriesRoot: '/repositories', repositoryDiscoveryDepth: 3 });
   });
 
-  it.each(['0', '1.5', '11'])('rejects invalid project discovery depth %s', (value) => {
-    process.env.CODEAI_PROJECTS_DEPTH = value;
-    expect(() => getConfig()).toThrow('CODEAI_PROJECTS_DEPTH');
+  it.each(['0', '1.5', '11'])('rejects invalid repository discovery depth %s', (value) => {
+    process.env.CODEAI_REPOSITORIES_DEPTH = value;
+    expect(() => getConfig()).toThrow('CODEAI_REPOSITORIES_DEPTH');
   });
 
   it('keeps Codex Agent behind an explicit configuration gate', () => {
@@ -54,7 +58,7 @@ describe.sequential('config', () => {
       process.env.CODEAI_WEB2_CLAUDE_BIN = '/legacy/claude';
       process.env.CODEAI_WEB2_CODEX_AGENT = '1';
       const config = getConfig();
-      expect(config.projectDiscoveryDepth).toBe(4);
+      expect(config.repositoryDiscoveryDepth).toBe(4);
       expect(config.claudeBin).toBe('/legacy/claude');
       expect(config.codexAgentEnabled).toBe(true);
     });
@@ -65,7 +69,7 @@ describe.sequential('config', () => {
       process.env.CODEAI_CLAUDE_BIN = '/neutral/claude';
       process.env.CODEAI_WEB2_CLAUDE_BIN = '/legacy/claude';
       const config = getConfig();
-      expect(config.projectDiscoveryDepth).toBe(2);
+      expect(config.repositoryDiscoveryDepth).toBe(2);
       expect(config.claudeBin).toBe('/neutral/claude');
     });
 
@@ -87,6 +91,26 @@ describe.sequential('config', () => {
       expect(getConfig().claudeModel).toBe('legacy-model');
       process.env.CODEAI_WEB2_CLAUDE_MODEL = '';
       expect(getConfig().claudeModel).toBeUndefined();
+    });
+
+    it('prefers repository names while accepting project-named root and depth fallbacks', () => {
+      process.env.CODEAI_PROJECTS_ROOT = '/old-root';
+      process.env.CODEAI_PROJECTS_DEPTH = '2';
+      expect(getConfig()).toMatchObject({ repositoriesRoot: '/old-root', repositoryDiscoveryDepth: 2 });
+      process.env.CODEAI_REPOSITORIES_ROOT = '/new-root';
+      process.env.CODEAI_REPOSITORIES_DEPTH = '5';
+      expect(getConfig()).toMatchObject({ repositoriesRoot: '/new-root', repositoryDiscoveryDepth: 5 });
+    });
+
+    it('prefers an old neutral repository-discovery name over a new web2-prefixed name', () => {
+      process.env.CODEAI_PROJECTS_ROOT = '/neutral-old-root';
+      process.env.CODEAI_PROJECTS_DEPTH = '3';
+      process.env.CODEAI_WEB2_REPOSITORIES_ROOT = '/legacy-new-root';
+      process.env.CODEAI_WEB2_REPOSITORIES_DEPTH = '6';
+      expect(getConfig()).toMatchObject({
+        repositoriesRoot: '/neutral-old-root',
+        repositoryDiscoveryDepth: 3,
+      });
     });
   });
 });

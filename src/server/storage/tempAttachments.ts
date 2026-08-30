@@ -44,7 +44,7 @@ export async function writeDiagramAttachments(
       if (!policy.ok) throw new Error(`Attached diagram is unsafe: ${policy.error}`);
       record.sourceFile = `${stem}.mmd`;
       totalBytes += Buffer.byteLength(attachment.source);
-      // `directory` is a per-run temp directory, never a project path; no build tracing is needed.
+      // `directory` is a per-run temp directory, never a repository path; no build tracing is needed.
       await writeFile(path.join(/* turbopackIgnore: true */ directory, record.sourceFile), attachment.source, { mode: 0o600 });
     } else if (attachment.source.trim()) {
       throw new Error('A sketch attachment cannot carry Mermaid source.');

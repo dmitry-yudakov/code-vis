@@ -102,9 +102,9 @@ function boundedGitError(error: unknown, operation: 'status' | 'diff'): Error {
   return new Error(`Could not read Git ${operation}.`);
 }
 
-export async function readWorkingTree(projectPath: string): Promise<GitWorkingTree> {
+export async function readWorkingTree(repositoryPath: string): Promise<GitWorkingTree> {
   try {
-    const output = await runGit(projectPath, [
+    const output = await runGit(repositoryPath, [
       '-c', 'status.relativePaths=true', 'status', '--porcelain=v1', '-z', '--branch',
       '--untracked-files=all', '--', '.',
     ]);
@@ -120,30 +120,30 @@ export function findChangedFile(tree: GitWorkingTree, requestedPath: string): Gi
   return tree.files.find((file) => file.path === requestedPath);
 }
 
-async function readDiff(projectPath: string, args: string[], allowedExitCodes?: number[]): Promise<string> {
+async function readDiff(repositoryPath: string, args: string[], allowedExitCodes?: number[]): Promise<string> {
   try {
-    return await runGit(projectPath, args, { allowedExitCodes, maxBuffer: DIFF_BUFFER_BYTES });
+    return await runGit(repositoryPath, args, { allowedExitCodes, maxBuffer: DIFF_BUFFER_BYTES });
   } catch (error) {
     throw boundedGitError(error, 'diff');
   }
 }
 
-export async function readFileDiff(projectPath: string, file: GitChangedFile): Promise<GitFileDiff> {
+export async function readFileDiff(repositoryPath: string, file: GitChangedFile): Promise<GitFileDiff> {
   const result: GitFileDiff = { path: file.path };
   const common = ['--no-ext-diff', '--no-color', '--unified=3'];
 
   if (file.staged) {
-    result.staged = await readDiff(projectPath, ['diff', '--cached', ...common, '--', file.path]);
+    result.staged = await readDiff(repositoryPath, ['diff', '--cached', ...common, '--', file.path]);
   }
   if (file.status === 'untracked') {
     const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
     result.unstaged = await readDiff(
-      projectPath,
+      repositoryPath,
       ['diff', '--no-index', ...common, '--', nullDevice, file.path],
       [1],
     );
   } else if (file.unstaged) {
-    result.unstaged = await readDiff(projectPath, ['diff', ...common, '--', file.path]);
+    result.unstaged = await readDiff(repositoryPath, ['diff', ...common, '--', file.path]);
   }
   return result;
 }

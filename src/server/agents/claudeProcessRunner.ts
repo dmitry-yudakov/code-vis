@@ -41,16 +41,16 @@ const PATH_INPUT_KEYS = ['file_path', 'notebook_path', 'path'] as const;
 function describeToolUse(
   name: string,
   input: Record<string, unknown> | undefined,
-  projectRoot: string,
+  repositoryRoot: string,
   attachmentDirectory: string,
 ): { tool: string; detail?: string } {
   const searchScope = () => {
-    const scope = typeof input?.path === 'string' ? relativeWithin(projectRoot, input.path) : undefined;
+    const scope = typeof input?.path === 'string' ? relativeWithin(repositoryRoot, input.path) : undefined;
     return scope ? ` in ${scope}` : '';
   };
   if (name === 'Read' && typeof input?.file_path === 'string') {
-    const projectPath = relativeWithin(projectRoot, input.file_path);
-    if (projectPath) return { tool: name, detail: sanitizeDetail(projectPath) };
+    const repositoryPath = relativeWithin(repositoryRoot, input.file_path);
+    if (repositoryPath) return { tool: name, detail: sanitizeDetail(repositoryPath) };
     const contextPath = relativeWithin(attachmentDirectory, input.file_path);
     if (contextPath) return { tool: name, detail: sanitizeDetail(`attached context: ${path.posix.basename(contextPath)}`) };
     return { tool: name };
@@ -64,8 +64,8 @@ function describeToolUse(
   for (const key of PATH_INPUT_KEYS) {
     const value = input?.[key];
     if (typeof value !== 'string') continue;
-    const projectPath = relativeWithin(projectRoot, value);
-    if (projectPath) return { tool: name, detail: sanitizeDetail(projectPath) };
+    const repositoryPath = relativeWithin(repositoryRoot, value);
+    if (repositoryPath) return { tool: name, detail: sanitizeDetail(repositoryPath) };
   }
   return { tool: name };
 }
@@ -129,7 +129,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       // The environment is inherited untouched: whatever login, base URL, or token the user's own
       // Claude Code uses applies here too. CodeAI adds no provider variables of its own.
       const child = spawn(this.options.binary, args, {
-        cwd: input.project.realPath,
+        cwd: input.checkout.realPath,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -205,7 +205,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         if (!cliRequestId || request?.subtype !== 'can_use_tool') return;
         const tool = typeof request.tool_name === 'string' ? request.tool_name : 'tool';
         const toolInput = request.input && typeof request.input === 'object' ? request.input as Record<string, unknown> : undefined;
-        const described = describeToolUse(tool, toolInput, input.project.realPath, input.attachmentDirectory);
+        const described = describeToolUse(tool, toolInput, input.checkout.realPath, input.attachmentDirectory);
         const requestId = randomUUID();
         log?.(`recv permission request ${tool}${described.detail ? ` (${described.detail})` : ''}`);
 
@@ -264,7 +264,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           // Auto-denials (no allowlist match, headless with no prompt) are visible rather than silent.
           const tool = typeof event.tool_name === 'string' ? event.tool_name : 'tool';
           const toolInput = event.tool_input && typeof event.tool_input === 'object' ? event.tool_input as Record<string, unknown> : undefined;
-          const described = describeToolUse(tool, toolInput, input.project.realPath, input.attachmentDirectory);
+          const described = describeToolUse(tool, toolInput, input.checkout.realPath, input.attachmentDirectory);
           input.emit({ type: 'activity', ...described, denied: true });
           return;
         }
@@ -299,7 +299,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             if (emittedToolUseIds.has(toolUseId)) continue;
             emittedToolUseIds.add(toolUseId);
             const toolInput = part.input && typeof part.input === 'object' ? part.input as Record<string, unknown> : undefined;
-            const activity = describeToolUse(part.name, toolInput, input.project.realPath, input.attachmentDirectory);
+            const activity = describeToolUse(part.name, toolInput, input.checkout.realPath, input.attachmentDirectory);
             log?.(`recv tool_use ${activity.tool}${activity.detail ? ` (${activity.detail})` : ''}`);
             input.emit({ type: 'activity', ...activity });
           }

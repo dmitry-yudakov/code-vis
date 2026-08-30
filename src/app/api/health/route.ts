@@ -9,15 +9,15 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(): Promise<Response> {
   const config = getConfig();
-  let projectsRootReady = false;
+  let repositoriesRootReady = false;
   let dataDirectoryReady = false;
   let readinessMessage: string | undefined;
   try {
-    await realpath(config.projectsRoot);
-    await access(config.projectsRoot, constants.R_OK);
-    projectsRootReady = true;
+    await realpath(config.repositoriesRoot);
+    await access(config.repositoriesRoot, constants.R_OK);
+    repositoriesRootReady = true;
   } catch {
-    readinessMessage = 'Projects root is missing or unreadable.';
+    readinessMessage = 'Repositories root is missing or unreadable.';
   }
   try {
     await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
@@ -34,8 +34,8 @@ export async function GET(): Promise<Response> {
   ]);
   const providerReady = claude.available || codex.available;
   return safeJsonResponse({
-    ok: projectsRootReady && dataDirectoryReady && providerReady,
-    projectsRootReady,
+    ok: repositoriesRootReady && dataDirectoryReady && providerReady,
+    repositoriesRootReady,
     dataDirectoryReady,
     providers: { claude, codex },
     message: readinessMessage || (!providerReady ? claude.message || codex.message : undefined),

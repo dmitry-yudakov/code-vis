@@ -1,16 +1,17 @@
-export interface ProjectSummary {
+export interface CheckoutSummary {
   id: string;
   name: string;
   relativePath: string;
 }
 
-export interface ProjectsResponse {
-  projects: ProjectSummary[];
-  recentProjectIds: string[];
+export interface CheckoutsResponse {
+  checkouts: CheckoutSummary[];
+  recentCheckoutIds: string[];
   discoveryDepth: number;
+  hostId: string;
 }
 
-export interface ServerProject extends ProjectSummary {
+export interface ServerCheckout extends CheckoutSummary {
   realPath: string;
 }
 
@@ -23,7 +24,7 @@ export type GitFileStatus =
   | 'conflicted'
   | 'untracked';
 
-/** A project-relative working-tree entry. Paths never expose the configured projects root. */
+/** A repository-relative working-tree entry. Paths never expose the configured repositories root. */
 export interface GitChangedFile {
   path: string;
   previousPath?: string;
@@ -53,12 +54,22 @@ export type ProviderSessionRef =
   | { provider: AgentProvider; started: false; sessionId?: never; hostId?: never }
   | { provider: AgentProvider; started: true; sessionId: string; hostId: string };
 
-export interface ProjectAttachment {
+export interface RepositoryBinding {
   id: string;
   hostId: string;
-  /** Host-scoped path hash returned by the project registry. */
+  /** Host-scoped path hash returned by the checkout registry. */
   checkoutId: string;
   role: 'primary' | 'reference';
+}
+
+export interface DurableProject {
+  version: 1;
+  revision: number;
+  id: string;
+  name: string;
+  repositories: RepositoryBinding[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HumanParticipant {
@@ -89,11 +100,12 @@ export interface ServerAgentParticipant extends AgentParticipant {
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
 export interface DurableSession {
-  version: 2;
+  version: 3;
   revision: number;
   id: string;
   title: string;
-  attachments: ProjectAttachment[];
+  projectId?: string;
+  repositories: RepositoryBinding[];
   createdAt: string;
   updatedAt: string;
   participants: ServerParticipant[];
@@ -167,7 +179,7 @@ export type EvidenceStatus =
   | 'inferred'
   | 'invalid'
   | 'missing-file'
-  | 'outside-project'
+  | 'outside-repository'
   | 'invalid-range';
 
 export interface EvidenceResult {
@@ -242,11 +254,12 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 2;
+  version: 3;
   revision: number;
   id: string;
   title: string;
-  attachments: ProjectAttachment[];
+  projectId?: string;
+  repositories: RepositoryBinding[];
   createdAt: string;
   updatedAt: string;
   participants: Participant[];
@@ -397,7 +410,7 @@ export interface AgentProcessEvent {
 
 export interface AgentProcessRun {
   runId: string;
-  project: ServerProject;
+  checkout: ServerCheckout;
   session: { id?: string; action: 'start' | 'resume' };
   prompt: string;
   attachmentDirectory: string;

@@ -9,11 +9,11 @@ const ids = {
 
 describe('provider protocol contracts', () => {
   it('requires a supported provider when creating a session', () => {
-    expect(createSessionRequestSchema.parse({ checkoutId: 'project', provider: 'codex' }).provider).toBe('codex');
-    expect(createSessionRequestSchema.parse({ provider: 'codex' }).checkoutId).toBeUndefined();
-    expect(() => createSessionRequestSchema.parse({ checkoutId: 'project' })).toThrow();
-    expect(() => createSessionRequestSchema.parse({ checkoutId: 'project', provider: 'other' })).toThrow();
-    expect(() => createSessionRequestSchema.parse({ projectId: 'legacy', provider: 'codex' })).toThrow();
+    expect(createSessionRequestSchema.parse({ projectId: ids.sessionId, provider: 'codex' }).provider).toBe('codex');
+    expect(createSessionRequestSchema.parse({ provider: 'codex' }).projectId).toBeUndefined();
+    expect(() => createSessionRequestSchema.parse({ projectId: ids.sessionId })).toThrow();
+    expect(() => createSessionRequestSchema.parse({ projectId: ids.sessionId, provider: 'other' })).toThrow();
+    expect(() => createSessionRequestSchema.parse({ checkoutId: 'legacy', provider: 'codex' })).toThrow();
   });
 
   it('does not allow the browser to override the provider for a turn', () => {

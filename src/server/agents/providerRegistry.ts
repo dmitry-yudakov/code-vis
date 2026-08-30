@@ -44,7 +44,7 @@ class CodexProviderAdapter implements AgentProviderAdapter {
   }
 
   checkHealth(): Promise<ProviderHealth> {
-    return checkCodex(this.config.codexBin, this.config.projectsRoot, this.config.codexAgentEnabled);
+    return checkCodex(this.config.codexBin, this.config.repositoriesRoot, this.config.codexAgentEnabled);
   }
 
   createRunner(): AgentProcessRunner {

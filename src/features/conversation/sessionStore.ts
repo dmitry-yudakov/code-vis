@@ -4,11 +4,11 @@ import type {
 
 const ACTIVE_CHECKOUT_KEY = 'code-ai:device:v1:active-checkout';
 
-export function loadSelectedProjectId(storage: Storage = localStorage): string | undefined {
+export function loadSelectedCheckoutId(storage: Storage = localStorage): string | undefined {
   return storage.getItem(ACTIVE_CHECKOUT_KEY) || undefined;
 }
 
-export function saveSelectedProjectId(checkoutId: string, storage: Storage = localStorage): void {
+export function saveSelectedCheckoutId(checkoutId: string, storage: Storage = localStorage): void {
   storage.setItem(ACTIVE_CHECKOUT_KEY, checkoutId);
 }
 

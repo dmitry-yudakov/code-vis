@@ -30,8 +30,8 @@ export default defineConfig({
     timeout: 30_000,
     env: {
       ...process.env,
-      CODEAI_PROJECTS_ROOT: path.resolve('test/fixtures/projects'),
-      CODEAI_PROJECTS_DEPTH: '2',
+      CODEAI_REPOSITORIES_ROOT: path.resolve('test/fixtures/projects'),
+      CODEAI_REPOSITORIES_DEPTH: '2',
       CODEAI_DATA_DIR: path.resolve('test-results/server-data'),
       CODEAI_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'),
       CODEAI_CODEX_BIN: path.resolve('test/fixtures/not-a-real-codex'),

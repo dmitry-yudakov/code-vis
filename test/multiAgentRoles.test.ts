@@ -18,7 +18,7 @@ describe('multi-agent session records', () => {
   it('creates a human and main coder, then keeps added agent sessions and cursors independent', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-multi-agent-'));
     const registry = new SessionStore(directory);
-    const created = await registry.createSession({ checkoutId: 'project-a', provider: 'claude' });
+    const created = await registry.createSession({ provider: 'claude' });
     const claude = serverAgent(created, created.primaryAgentId)!;
     expect(created.participants.find((participant) => participant.kind === 'human')).toMatchObject({ displayName: 'You' });
     expect(claude).toMatchObject({ provider: 'claude', role: 'coder', defaultMode: 'plan', session: { started: false } });
@@ -71,7 +71,7 @@ describe('authored transcript handoff', () => {
     session: { provider: 'codex', started: false },
   };
   const session: DurableSession = {
-    version: 2, revision: 0, id: crypto.randomUUID(), title: 'Handoff', attachments: [], createdAt: now, updatedAt: now,
+    version: 3, revision: 0, id: crypto.randomUUID(), title: 'Handoff', repositories: [], createdAt: now, updatedAt: now,
     participants: [{ id: humanId, kind: 'human', displayName: 'You' }, editor, reviewer],
     primaryAgentId: editorId, messages: [], pinnedDiagramIds: [], annotations: {}, sketches: [],
   };
@@ -217,7 +217,7 @@ describe('durable delivery and canonical transcript boundaries', () => {
       session: { provider: 'codex', started: false }, lastObservedMessageId: messages[237].id,
     };
     const session: DurableSession = {
-      version: 2, revision: 0, id: crypto.randomUUID(), title: 'Long', attachments: [], createdAt: now, updatedAt: now,
+      version: 3, revision: 0, id: crypto.randomUUID(), title: 'Long', repositories: [], createdAt: now, updatedAt: now,
       participants: [
         { id: humanId, kind: 'human', displayName: 'You' },
         participant,

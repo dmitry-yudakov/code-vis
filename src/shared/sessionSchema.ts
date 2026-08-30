@@ -43,12 +43,39 @@ export const sketchCanvasSchema = z.object({
   viewBox: z.tuple([finite, finite, finite.positive(), finite.positive()]),
 }).strict();
 
-export const projectAttachmentSchema = z.object({
+export const repositoryBindingSchema = z.object({
   id: z.string().uuid(),
   hostId: z.string().uuid(),
   checkoutId,
   role: z.enum(['primary', 'reference']),
 }).strict();
+
+function validateRepositoryBindings(
+  repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>,
+  ctx: z.RefinementCtx,
+): void {
+  const bindingIds = repositories.map((repository) => repository.id);
+  const checkoutKeys = repositories.map((repository) => `${repository.hostId}\0${repository.checkoutId}`);
+  if (new Set(bindingIds).size !== bindingIds.length) {
+    ctx.addIssue({ code: 'custom', message: 'Repository binding ids must be unique.', path: ['repositories'] });
+  }
+  if (new Set(checkoutKeys).size !== checkoutKeys.length) {
+    ctx.addIssue({ code: 'custom', message: 'A checkout may be bound only once per host.', path: ['repositories'] });
+  }
+  if (repositories.filter((repository) => repository.role === 'primary').length > 1) {
+    ctx.addIssue({ code: 'custom', message: 'A record may have at most one primary repository.', path: ['repositories'] });
+  }
+}
+
+export const durableProjectSchema = z.object({
+  version: z.literal(1),
+  revision: z.number().int().nonnegative(),
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(200),
+  repositories: z.array(repositoryBindingSchema).max(32),
+  createdAt: dateTime,
+  updatedAt: dateTime,
+}).strict().superRefine((project, ctx) => validateRepositoryBindings(project.repositories, ctx));
 
 export const providerSessionRefSchema = z.discriminatedUnion('started', [
   z.object({ provider: agentProvider, started: z.literal(false) }).strict(),
@@ -111,7 +138,7 @@ const evidenceSchema = z.object({
   path: z.string().max(4_096).optional(),
   startLine: z.number().int().positive().optional(),
   endLine: z.number().int().positive().optional(),
-  status: z.enum(['observed', 'inferred', 'invalid', 'missing-file', 'outside-project', 'invalid-range']),
+  status: z.enum(['observed', 'inferred', 'invalid', 'missing-file', 'outside-repository', 'invalid-range']),
   message: z.string().max(4_096),
 }).strict();
 
@@ -171,11 +198,12 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 const sessionBase = {
-  version: z.literal(2),
+  version: z.literal(3),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(200),
-  attachments: z.array(projectAttachmentSchema).max(32),
+  projectId: z.string().uuid().optional(),
+  repositories: z.array(repositoryBindingSchema).max(32),
   createdAt: dateTime,
   updatedAt: dateTime,
   primaryAgentId: participantId,
@@ -188,7 +216,7 @@ const sessionBase = {
 function validateSession(
   value: {
     id: string;
-    attachments: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
+    repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
     primaryAgentId: string;
     messages: Array<{ id: string; role: string; authorId: string; addressedParticipantId?: string }>;
@@ -198,17 +226,7 @@ function validateSession(
   },
   ctx: z.RefinementCtx,
 ): void {
-  const attachmentIds = value.attachments.map((attachment) => attachment.id);
-  const checkoutKeys = value.attachments.map((attachment) => `${attachment.hostId}\0${attachment.checkoutId}`);
-  if (new Set(attachmentIds).size !== attachmentIds.length) {
-    ctx.addIssue({ code: 'custom', message: 'Attachment ids must be unique.', path: ['attachments'] });
-  }
-  if (new Set(checkoutKeys).size !== checkoutKeys.length) {
-    ctx.addIssue({ code: 'custom', message: 'A checkout may be attached only once per host.', path: ['attachments'] });
-  }
-  if (value.attachments.filter((attachment) => attachment.role === 'primary').length > 1) {
-    ctx.addIssue({ code: 'custom', message: 'A session may have at most one primary attachment.', path: ['attachments'] });
-  }
+  validateRepositoryBindings(value.repositories, ctx);
 
   const participantIds = value.participants.map((participant) => participant.id);
   const participantNames = value.participants.map((participant) => participant.displayName);
@@ -319,7 +337,52 @@ function migrateLegacyContainerId(
   return migrated;
 }
 
-/** Validates a v1 durable record while returning its exact v2 session equivalent. */
+function migrateEvidenceStatuses(messages: unknown): unknown {
+  if (!Array.isArray(messages)) return messages;
+  return messages.map((message) => {
+    const messageRecord = record(message);
+    if (!messageRecord || !Array.isArray(messageRecord.blocks)) return message;
+    return {
+      ...messageRecord,
+      blocks: messageRecord.blocks.map((block) => {
+        const blockRecord = record(block);
+        const artifact = record(blockRecord?.artifact);
+        if (!blockRecord || !artifact || !Array.isArray(artifact.evidence)) return block;
+        return {
+          ...blockRecord,
+          artifact: {
+            ...artifact,
+            evidence: artifact.evidence.map((item) => {
+              const evidence = record(item);
+              return evidence?.status === 'outside-project'
+                ? { ...evidence, status: 'outside-repository' }
+                : item;
+            }),
+          },
+        };
+      }),
+    };
+  });
+}
+
+function migrateBindings(source: Record<string, unknown>): Record<string, unknown> {
+  const migrated: Record<string, unknown> = { ...source, version: 3, repositories: source.attachments };
+  delete migrated.attachments;
+  delete migrated.projectId;
+  return migrated;
+}
+
+/** Validates a v2 durable record while returning its exact v3 session equivalent. */
+export const previousDurableSessionSchema = z.unknown().transform((value, ctx) => {
+  const source = record(value);
+  if (!source || source.version !== 2) {
+    ctx.addIssue({ code: 'custom', message: 'A previous session record must have version 2.', path: ['version'] });
+    return z.NEVER;
+  }
+  return { ...migrateBindings(source), messages: migrateEvidenceStatuses(source.messages) };
+}).pipe(durableSessionSchema);
+
+/** Validates a v1 durable record while returning its exact v3 session equivalent. */
 export const legacyDurableSessionSchema = z.unknown().transform((value, ctx) => {
   const source = record(value);
   if (!source || source.version !== 1) {
@@ -350,5 +413,5 @@ export const legacyDurableSessionSchema = z.unknown().transform((value, ctx) => 
     };
   }) : source.messages;
 
-  return { ...source, version: 2, sketches, messages };
+  return { ...migrateBindings(source), sketches, messages: migrateEvidenceStatuses(messages) };
 }).pipe(durableSessionSchema);

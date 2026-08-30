@@ -7,7 +7,7 @@ const LABELS: Record<EvidenceResult['status'], string> = {
   inferred: 'Inferred from location',
   invalid: 'Invalid evidence',
   'missing-file': 'Invalid evidence',
-  'outside-project': 'Invalid evidence',
+  'outside-repository': 'Invalid evidence',
   'invalid-range': 'Invalid evidence',
 };
 

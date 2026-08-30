@@ -39,9 +39,9 @@ function sanitizeDetail(value: string): string {
   return clean.length > 160 ? `${clean.slice(0, 159)}…` : clean;
 }
 
-function sanitizeRunDetail(value: string, projectRoot: string, attachmentDirectory: string): string {
+function sanitizeRunDetail(value: string, repositoryRoot: string, attachmentDirectory: string): string {
   return sanitizeDetail(value
-    .replaceAll(projectRoot, '.')
+    .replaceAll(repositoryRoot, '.')
     .replaceAll(attachmentDirectory, '[attachment]'));
 }
 
@@ -57,12 +57,12 @@ function relativeWithin(root: string, target: string): string | undefined {
   return relative.split(path.sep).join('/');
 }
 
-function describeFileChanges(item: JsonRecord, projectRoot: string): string | undefined {
+function describeFileChanges(item: JsonRecord, repositoryRoot: string): string | undefined {
   if (!Array.isArray(item.changes)) return undefined;
   const paths = item.changes.flatMap((change) => {
     const value = record(change);
     if (typeof value?.path !== 'string') return [];
-    return [relativeWithin(projectRoot, value.path) || path.basename(value.path)];
+    return [relativeWithin(repositoryRoot, value.path) || path.basename(value.path)];
   });
   return paths.length ? sanitizeDetail(paths.slice(0, 4).join(', ')) : undefined;
 }
@@ -111,7 +111,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
 
     return new Promise<AgentProcessResult>((resolve, reject) => {
       const child = spawn(this.options.binary, args, {
-        cwd: input.project.realPath,
+        cwd: input.checkout.realPath,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -229,12 +229,12 @@ export class CodexProcessRunner implements AgentProcessRunner {
         if (type === 'plan' && completed && typeof item.text === 'string') assistantFallback = item.text;
         if (type === 'commandExecution') {
           const detail = typeof item.command === 'string'
-            ? sanitizeRunDetail(item.command, input.project.realPath, input.attachmentDirectory)
+            ? sanitizeRunDetail(item.command, input.checkout.realPath, input.attachmentDirectory)
             : undefined;
           if (detail) itemDetails.set(id, detail);
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Shell', detail });
         } else if (type === 'fileChange') {
-          const detail = describeFileChanges(item, input.project.realPath);
+          const detail = describeFileChanges(item, input.checkout.realPath);
           if (detail) itemDetails.set(id, detail);
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Edit', detail });
         } else if (type === 'imageView') {
@@ -267,7 +267,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         const rawDetail = isCommand
           ? (typeof params?.command === 'string' ? params.command : typeof params?.reason === 'string' ? params.reason : '')
           : (itemDetails.get(itemId) || (typeof params?.reason === 'string' ? params.reason : typeof params?.grantRoot === 'string' ? params.grantRoot : ''));
-        const detail = sanitizeRunDetail(rawDetail, input.project.realPath, input.attachmentDirectory);
+        const detail = sanitizeRunDetail(rawDetail, input.checkout.realPath, input.attachmentDirectory);
         const requestId = randomUUID();
         let answered = false;
         const settle = (resolution: PermissionResolution) => {
@@ -315,7 +315,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           const error = record(params?.error);
           const errorKind = codexErrorKind(error?.codexErrorInfo);
           const errorMessage = typeof error?.message === 'string'
-            ? sanitizeRunDetail(error.message, input.project.realPath, input.attachmentDirectory)
+            ? sanitizeRunDetail(error.message, input.checkout.realPath, input.attachmentDirectory)
             : 'No error message';
           log?.(`turn error ${errorKind}: ${errorMessage}`);
           stopWith(new AgentRunError(
@@ -340,7 +340,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             const turnError = record(turn?.error);
             log?.(`turn completed failed ${codexErrorKind(turnError?.codexErrorInfo)}: ${sanitizeRunDetail(
               typeof turnError?.message === 'string' ? turnError.message : 'No error message',
-              input.project.realPath,
+              input.checkout.realPath,
               input.attachmentDirectory,
             )}`);
             stopWith(new Error(typeof turnError?.message === 'string' ? turnError.message : 'Codex turn failed'));
@@ -461,8 +461,8 @@ export class CodexProcessRunner implements AgentProcessRunner {
           notify('initialized');
           const [mcp, hooks, skills] = await Promise.all([
             request('mcpServerStatus/list', { cursor: null, limit: 100, detail: 'toolsAndAuthOnly' }),
-            request('hooks/list', { cwds: [input.project.realPath] }),
-            request('skills/list', { cwds: [input.project.realPath], forceReload: true }),
+            request('hooks/list', { cwds: [input.checkout.realPath] }),
+            request('skills/list', { cwds: [input.checkout.realPath], forceReload: true }),
           ]);
           const mcpServerNames = codexMcpServerNames(mcp);
           if (!mcpServerNames) {
@@ -484,7 +484,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           }
           const security = codexTurnSecurity(input.policy.mode);
           const common = {
-            cwd: input.project.realPath,
+            cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
             sandbox: security.sandbox,
             config: codexThreadConfig(mcpServerNames),
@@ -505,7 +505,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             throw new AgentRunError('missing-session', 'Codex resumed an unexpected native provider session.', 'not-sent');
           }
           sessionId = providerThread.id;
-          const policyIssue = codexThreadPolicyIssue(threadResult, input.project.realPath, security.approvalPolicy);
+          const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security.approvalPolicy);
           if (policyIssue) {
             throw new AgentRunError('unsupported-flags', policyIssue, 'not-sent', false);
           }
@@ -530,7 +530,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           const turnResult = record(await request('turn/start', {
             threadId: sessionId,
             input: turnInput,
-            cwd: input.project.realPath,
+            cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
             sandboxPolicy: security.sandboxPolicy,
             ...(this.options.model ? { model: this.options.model } : {}),

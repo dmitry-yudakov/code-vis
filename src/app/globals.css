@@ -29,6 +29,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .project-search-meta { display: flex; align-items: center; justify-content: space-between; padding: 3px 4px 9px; color: var(--muted); font-size: 10px; }
 .project-search-meta strong { color: var(--ink); font-size: 11px; }
 .project-search-meta span { padding: 3px 7px; border-radius: 999px; color: var(--live-ink); background: var(--live-wash); font: 9px/1 var(--mono); }
+.project-search-meta button, .project-create-form button { padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-size: 10px; font-weight: 650; }
+.project-create-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
+.project-create-form input { min-width: 0; padding: 6px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--shell); font-size: 11px; }
 .project-search-input { height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); }
 .project-search-input:focus-within { border-color: var(--plot-bright); box-shadow: 0 0 0 3px var(--focus-wash); }
 .project-search-input > span { color: var(--plot); font-size: 17px; }
@@ -44,6 +47,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .project-search-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
 .project-search-option small { overflow: hidden; color: var(--muted); font: 9px/1.3 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .project-search-option i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--live-ink); font-style: normal; }
+.project-record-option { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; align-items: center; gap: 3px; }
+.project-record-option > button:not(.project-search-option) { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; }
+.project-record-option > button:not(.project-search-option):hover { border-color: var(--line); color: var(--ink); background: var(--raised); }
 .project-search-empty { padding: 24px 12px; color: var(--muted); text-align: center; font-size: 11px; }
 /* Cap the wrapper, not the select. A growing wrapper around a capped select leaves the new
    session button stranded hundreds of pixels from the picker it belongs to. */
@@ -324,6 +330,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, var(--repository-panel-width)); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: var(--sidebar-shadow); }
 .repository-sidebar.has-inspector { grid-template-columns: minmax(0, var(--repository-panel-width)) minmax(0, 1fr); box-shadow: var(--sidebar-inspector-shadow); }
 .repository-summary-panel, .repository-inspector { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); background: var(--shell); }
+.repository-panel-body { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .repository-sidebar.has-inspector .repository-summary-panel { border-right: 1px solid var(--line); }
 .panel-resize-handle { position: absolute; z-index: 5; top: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; }
 .panel-resize-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; }
@@ -353,6 +360,22 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .repository-header-actions .repository-refresh-button { font-size: 16px; }
 .repository-summary-scroll, .diff-inspector-scroll { min-height: 0; overflow: auto; }
 .repository-summary-scroll { padding: 14px 12px 20px; }
+.repository-manager { max-height: 280px; overflow-y: auto; display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
+.repository-manager-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.repository-manager-heading strong { font: 650 10px/1 var(--mono); }
+.repository-binding-list { display: grid; gap: 4px; }
+.repository-binding { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
+.repository-binding.selected { border-color: var(--plot-line-muted); background: var(--plot-wash-soft); }
+.repository-binding-select { min-width: 0; display: grid; gap: 3px; border: 0; text-align: left; background: transparent; }
+.repository-binding-select strong, .repository-binding-select small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repository-binding-select strong { font-size: 10px; }
+.repository-binding-select small { color: var(--muted); font: 8px/1 var(--mono); text-transform: uppercase; }
+.repository-binding-actions { display: flex; align-items: center; gap: 2px; }
+.repository-binding-actions button { width: 22px; height: 22px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--muted); background: var(--neutral-wash-strong); font-size: 10px; }
+.repository-binding-actions button:hover:not(:disabled) { color: var(--ink); background: var(--raised); }
+.repository-manager-empty { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.repository-add-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
+.repository-add-row select, .repository-add-row button { min-width: 0; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-size: 10px; }
 .repository-view-heading { padding: 3px 4px 11px; }
 
 .git-branch-summary { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }

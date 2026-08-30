@@ -27,7 +27,7 @@ function bounded(value: string, limit: number): { content: string; truncated: bo
 }
 
 export async function writeRepositoryContext(
-  projectRoot: string,
+  repositoryRoot: string,
   directory: string,
   maxTotalBytes: number,
 ): Promise<ContextRecord[]> {
@@ -36,14 +36,14 @@ export async function writeRepositoryContext(
   for (const command of COMMANDS) {
     try {
       const { stdout } = await execFileAsync('git', command.args, {
-        cwd: projectRoot,
+        cwd: repositoryRoot,
         encoding: 'utf8',
         maxBuffer: Math.max(perFileLimit * 2, 1_048_576),
         timeout: 15_000,
         windowsHide: true,
       });
       const snapshot = bounded(stdout, perFileLimit);
-      // `directory` is a per-run temp directory, never a project path; no build tracing is needed.
+      // `directory` is a per-run temp directory, never a repository path; no build tracing is needed.
       await writeFile(path.join(/* turbopackIgnore: true */ directory, command.file), snapshot.content || '(no changes)\n', { mode: 0o600 });
       records.push({
         file: command.file,

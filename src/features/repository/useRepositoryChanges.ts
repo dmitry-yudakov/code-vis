@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { GitWorkingTree } from '@/shared/types';
 
 /** Git-specific state remains outside the reusable repository shell and presentation views. */
-export function useRepositoryChanges(projectId: string, onTreeChange: (tree?: GitWorkingTree) => void) {
+export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: GitWorkingTree) => void) {
   const [tree, setTree] = useState<GitWorkingTree>();
   const [selectedPath, setSelectedPath] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -16,14 +16,14 @@ export function useRepositoryChanges(projectId: string, onTreeChange: (tree?: Gi
     setSelectedPath(undefined);
     setError(undefined);
     onTreeChange(undefined);
-  }, [onTreeChange, projectId]);
+  }, [checkoutId, onTreeChange]);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!checkoutId) return;
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
-    void fetch(`/api/repository/status?projectId=${encodeURIComponent(projectId)}`, {
+    void fetch(`/api/repository/status?checkoutId=${encodeURIComponent(checkoutId)}`, {
       cache: 'no-store', signal: controller.signal,
     }).then(async (response) => {
       const data = await response.json() as { tree?: GitWorkingTree; error?: string };
@@ -40,7 +40,7 @@ export function useRepositoryChanges(projectId: string, onTreeChange: (tree?: Gi
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [onTreeChange, projectId, revision]);
+  }, [checkoutId, onTreeChange, revision]);
 
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   return {

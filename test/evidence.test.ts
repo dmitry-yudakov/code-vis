@@ -16,7 +16,7 @@ describe('extractEvidence', () => {
 %%@evidence B | ../secret.ts:1 | inferred
 %%@evidence C | link.ts:1 | observed
 %%@evidence D | safe.ts:99 | observed`, root);
-    expect(results.map((item) => item.status)).toEqual(['observed', 'outside-project', 'outside-project', 'invalid-range']);
+    expect(results.map((item) => item.status)).toEqual(['observed', 'outside-repository', 'outside-repository', 'invalid-range']);
     expect(JSON.stringify(results)).not.toContain(outside);
   });
 });

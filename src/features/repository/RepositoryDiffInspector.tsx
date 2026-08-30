@@ -22,8 +22,8 @@ function Patch({ source }: { source?: string }) {
   );
 }
 
-export function RepositoryDiffInspector({ projectId, file, revision, onClose, onRetry }: {
-  projectId: string;
+export function RepositoryDiffInspector({ checkoutId, file, revision, onClose, onRetry }: {
+  checkoutId: string;
   file: GitChangedFile;
   revision: number;
   onClose(): void;
@@ -38,7 +38,7 @@ export function RepositoryDiffInspector({ projectId, file, revision, onClose, on
     setDiff(undefined);
     setLoading(true);
     setError(undefined);
-    const query = new URLSearchParams({ projectId, path: file.path });
+    const query = new URLSearchParams({ checkoutId, path: file.path });
     void fetch(`/api/repository/diff?${query}`, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const data = await response.json() as { diff?: GitFileDiff; error?: string };
@@ -50,7 +50,7 @@ export function RepositoryDiffInspector({ projectId, file, revision, onClose, on
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [file.path, projectId, revision]);
+  }, [checkoutId, file.path, revision]);
 
   return (
     <section className="repository-inspector diff-inspector" aria-label={`Changes in ${file.path}`}>

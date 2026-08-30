@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { MAX_MESSAGE_TEXT_CHARS } from './limits';
 import {
-  diagramAnnotationSchema, drawingMarkSchema, projectAttachmentSchema, sketchCanvasSchema,
+  diagramAnnotationSchema, drawingMarkSchema, repositoryBindingSchema, sketchCanvasSchema,
 } from './sessionSchema';
 
 export {
   assistantMessageSchema, chatMessageSchema, diagramAnnotationSchema, drawingMarkSchema,
-  durableSessionSchema, participantSchema, projectAttachmentSchema, providerSessionRefSchema,
+  durableProjectSchema, durableSessionSchema, participantSchema, providerSessionRefSchema,
   publicSessionSchema, serverParticipantSchema, sketchCanvasSchema, userMessageSchema,
+  repositoryBindingSchema,
 } from './sessionSchema';
 
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
@@ -55,9 +56,26 @@ export const permissionDecisionRequestSchema = z.object({
 export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 
 export const createSessionRequestSchema = z.object({
-  checkoutId: z.string().trim().min(1).max(128).optional(),
+  projectId: z.string().uuid().optional(),
   provider: agentProviderSchema,
   role: agentRoleSchema.optional(),
+}).strict();
+
+export const createProjectRequestSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  checkoutIds: z.array(z.string().trim().min(1).max(128)).max(32).default([]),
+}).strict();
+
+export const updateProjectRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  name: z.string().trim().min(1).max(200).optional(),
+  repositories: z.array(repositoryBindingSchema).max(32).optional(),
+}).strict().refine((value) => value.name !== undefined || value.repositories !== undefined, {
+  message: 'A project update requires a name or repositories.',
+});
+
+export const deleteProjectRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
 }).strict();
 
 export const addParticipantRequestSchema = z.object({
@@ -85,9 +103,9 @@ export const setPinsRequestSchema = z.object({
   pinnedDiagramIds: z.array(z.string().uuid()).max(100),
 }).strict();
 
-export const projectAttachmentRequestSchema = z.object({
+export const setSessionRepositoriesRequestSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
-  attachment: projectAttachmentSchema,
+  repositories: z.array(repositoryBindingSchema).max(32),
 }).strict();
 
 export function safeJsonResponse(data: unknown, init?: ResponseInit): Response {

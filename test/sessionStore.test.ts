@@ -9,7 +9,7 @@ import {
 } from '@/server/storage/sessionStore';
 import { durableSessionSchema } from '@/shared/sessionSchema';
 import {
-  hydrateSession, loadSelectedProjectId, saveSelectedProjectId, serializeSessionExport,
+  hydrateSession, loadSelectedCheckoutId, saveSelectedCheckoutId, serializeSessionExport,
 } from '@/features/conversation/sessionStore';
 import type { AssistantMessage, DurableSession, UserMessage } from '@/shared/types';
 
@@ -39,11 +39,11 @@ function durableFixture(id: string, hostId: string, title = 'Migrated session'):
   const diagramId = crypto.randomUUID();
   const sketchId = crypto.randomUUID();
   return durableSessionSchema.parse({
-    version: 2,
+    version: 3,
     revision: 9,
     id,
     title,
-    attachments: [{ id: crypto.randomUUID(), hostId, checkoutId: 'checkout-a', role: 'primary' }],
+    repositories: [{ id: crypto.randomUUID(), hostId, checkoutId: 'checkout-a', role: 'primary' }],
     createdAt: now,
     updatedAt: now,
     participants: [
@@ -108,6 +108,9 @@ function durableFixture(id: string, hostId: string, title = 'Migrated session'):
 function legacyRecord(session: DurableSession): Record<string, unknown> {
   const legacy = structuredClone(session) as unknown as Record<string, unknown>;
   legacy.version = 1;
+  legacy.attachments = legacy.repositories;
+  delete legacy.repositories;
+  delete legacy.projectId;
   legacy.sketches = (legacy.sketches as Array<Record<string, unknown>>).map((sketch) => {
     const result = { ...sketch, [LEGACY_CONTAINER_ID_KEY]: sketch.sessionId };
     delete result.sessionId;
@@ -150,6 +153,36 @@ async function seedLegacyStore(
   return contents;
 }
 
+function previousRecord(session: DurableSession): Record<string, unknown> {
+  const previous = structuredClone(session) as unknown as Record<string, unknown>;
+  previous.version = 2;
+  previous.attachments = previous.repositories;
+  delete previous.repositories;
+  delete previous.projectId;
+  return previous;
+}
+
+async function seedPreviousStore(
+  dataDir: string,
+  host: { id: string; label: string },
+  sessions: DurableSession[],
+): Promise<Map<string, string>> {
+  const root = path.join(dataDir, 'session-store-v1');
+  const records = path.join(root, 'sessions');
+  await mkdir(records, { recursive: true });
+  const contents = new Map<string, string>();
+  const manifest = `${JSON.stringify({ version: 1, host }, null, 2)}\n`;
+  await writeFile(path.join(root, 'manifest.json'), manifest);
+  contents.set('manifest.json', manifest);
+  for (const session of sessions) {
+    const value = `${JSON.stringify(previousRecord(session), null, 2)}\n`;
+    const name = `${session.id}.json`;
+    await writeFile(path.join(records, name), value);
+    contents.set(name, value);
+  }
+  return contents;
+}
+
 function userMessage(sessionId: string, humanId: string, agentId: string, text = 'Explain this.'): UserMessage {
   return {
     id: crypto.randomUUID(),
@@ -172,17 +205,24 @@ describe('host-owned session store', () => {
     await writeFile(legacyPath, legacy);
 
     const first = new SessionStore(dataDir, { hostLabel: 'Laptop' });
-    const created = await first.createSession({ checkoutId: 'checkout-a', provider: 'codex' });
+    const project = await first.createProject('Demo', ['checkout-a']);
+    const created = await first.createSession({ projectId: project.id, provider: 'codex' });
     const host = await first.host();
     expect(host.label).toBe('Laptop');
-    expect(created).toMatchObject({ version: 2, revision: 0, attachments: [{ hostId: host.id, checkoutId: 'checkout-a', role: 'primary' }] });
+    expect(created).toMatchObject({
+      version: 3,
+      revision: 0,
+      projectId: project.id,
+      repositories: [{ hostId: host.id, checkoutId: 'checkout-a', role: 'primary' }],
+    });
     expect((await first.listSessions()).map((item) => item.id)).toEqual([created.id]);
     expect(await readFile(legacyPath, 'utf8')).toBe(legacy);
 
-    const root = path.join(dataDir, 'session-store-v1');
+    const root = path.join(dataDir, 'session-store-v2');
     const sessionPath = path.join(root, 'sessions', `${created.id}.json`);
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect((await stat(path.join(root, 'sessions'))).mode & 0o777).toBe(0o700);
+    expect((await stat(path.join(root, 'projects'))).mode & 0o777).toBe(0o700);
     expect((await stat(path.join(root, 'manifest.json'))).mode & 0o777).toBe(0o600);
     expect((await stat(sessionPath)).mode & 0o777).toBe(0o600);
     await first.close();
@@ -193,7 +233,7 @@ describe('host-owned session store', () => {
     await reopened.close();
   });
 
-  it('copies a valid v1 store once with every durable field and host identity intact', async () => {
+  it('copies a valid legacy store once with every durable field and host identity intact', async () => {
     const dataDir = await directory();
     const host = { id: crypto.randomUUID(), label: 'Original host' };
     const expected = durableFixture('11111111-1111-4111-8111-111111111111', host.id);
@@ -217,7 +257,71 @@ describe('host-owned session store', () => {
     log.mockRestore();
   });
 
-  it('aborts an invalid v1 upgrade by name without leaving a partial v2 store', async () => {
+  it('copies session-store-v1 to v2 once, preserving ids, revisions, content, and the rollback store', async () => {
+    const dataDir = await directory();
+    const host = { id: crypto.randomUUID(), label: 'Existing host' };
+    const expected = durableFixture('33333333-3333-4333-8333-333333333333', host.id);
+    const original = await seedPreviousStore(dataDir, host, [expected]);
+
+    const store = new SessionStore(dataDir);
+    expect(await store.host()).toEqual(host);
+    expect(await store.getSession(expected.id)).toEqual(expected);
+    expect(await store.listProjects()).toEqual([]);
+    await store.close();
+
+    const previousRoot = path.join(dataDir, 'session-store-v1');
+    expect(await readFile(path.join(previousRoot, 'manifest.json'), 'utf8')).toBe(original.get('manifest.json'));
+    expect(await readFile(path.join(previousRoot, 'sessions', `${expected.id}.json`), 'utf8'))
+      .toBe(original.get(`${expected.id}.json`));
+  });
+
+  it('manages durable projects and revisioned session repositories without deleting sessions', async () => {
+    const dataDir = await directory();
+    const store = new SessionStore(dataDir, { hostLabel: 'Host' });
+    let project = await store.createProject('Workspace', ['checkout-a', 'checkout-b']);
+    const created = await store.createSession({ projectId: project.id, provider: 'claude' });
+    expect(created.repositories).toEqual(project.repositories);
+    expect((await store.listSessions({ projectId: project.id })).map((item) => item.id)).toEqual([created.id]);
+
+    project = await store.updateProject(project.id, { expectedRevision: 0, name: 'Renamed workspace' });
+    expect(project).toMatchObject({ revision: 1, name: 'Renamed workspace' });
+    await expect(store.updateProject(project.id, { expectedRevision: 0, name: 'Stale' }))
+      .rejects.toMatchObject({ code: 'conflict' });
+
+    const unknown = {
+      id: crypto.randomUUID(),
+      hostId: (await store.host()).id,
+      checkoutId: 'checkout-c',
+      role: 'primary' as const,
+    };
+    const repositories = [unknown, { ...created.repositories[1], role: 'reference' as const }];
+    const updated = await store.setSessionRepositories(created.id, repositories, created.revision);
+    expect(updated).toMatchObject({ revision: 1, repositories });
+    project = await store.getProject(project.id);
+    expect(project.repositories.some((repository) => repository.checkoutId === 'checkout-c')).toBe(true);
+
+    project = await store.updateProject(project.id, {
+      expectedRevision: project.revision,
+      repositories: project.repositories.filter((repository) => repository.checkoutId !== 'checkout-c'),
+    });
+    const unchanged = await store.setSessionRepositories(updated.id, repositories, updated.revision);
+    expect(unchanged).toMatchObject({ revision: updated.revision, repositories });
+    project = await store.getProject(project.id);
+    expect(project.repositories.some((repository) => repository.checkoutId === 'checkout-c')).toBe(true);
+
+    await expect(store.setSessionRepositories(created.id, [], created.revision))
+      .rejects.toMatchObject({ code: 'conflict' });
+
+    const result = await store.deleteProject(project.id, project.revision);
+    expect(result).toEqual({ detachedSessionCount: 1 });
+    const loose = await store.getSession(created.id);
+    expect(loose.projectId).toBeUndefined();
+    expect(loose.repositories).toEqual(repositories);
+    expect((await store.listSessions({ loose: true })).map((item) => item.id)).toContain(created.id);
+    await store.close();
+  });
+
+  it('aborts an invalid legacy upgrade by name without leaving a partial v2 store', async () => {
     const dataDir = await directory();
     const host = { id: crypto.randomUUID(), label: 'Original host' };
     const valid = durableFixture('11111111-1111-4111-8111-111111111111', host.id);
@@ -231,7 +335,7 @@ describe('host-owned session store', () => {
 
     const store = new SessionStore(dataDir);
     await expect(store.host()).rejects.toThrow(`${invalid.id}.json`);
-    await expect(stat(path.join(dataDir, 'session-store-v1'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(path.join(dataDir, 'session-store-v2'))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(path.join(dataDir, 'conversation-store-v1', 'manifest.json'), 'utf8'))
       .toBe(original.get('manifest.json'));
     expect(await readFile(invalidPath, 'utf8')).toBe(brokenContents);
@@ -240,7 +344,7 @@ describe('host-owned session store', () => {
   it('persists complete content with idempotent appends and atomic assistant/cursor completion', async () => {
     const dataDir = await directory();
     const store = new SessionStore(dataDir, { hostLabel: 'Host' });
-    let session = await store.createSession({ checkoutId: 'checkout-a', provider: 'claude' });
+    let session = await store.createSession({ provider: 'claude' });
     const human = session.participants.find((item) => item.kind === 'human')!;
     const agent = serverAgent(session, session.primaryAgentId)!;
     const user = userMessage(session.id, human.id, agent.id);
@@ -322,7 +426,7 @@ describe('host-owned session store', () => {
       },
     });
     const created = await store.createSession({ provider: 'claude' });
-    const filePath = path.join(dataDir, 'session-store-v1', 'sessions', `${created.id}.json`);
+    const filePath = path.join(dataDir, 'session-store-v2', 'sessions', `${created.id}.json`);
     const before = await readFile(filePath, 'utf8');
     failSessionWrite = true;
     await expect(store.addAgent(created.id, 'codex', 'reviewer', crypto.randomUUID())).rejects.toThrow('injected');
@@ -346,7 +450,7 @@ describe('host-owned session store', () => {
     const successor = new SessionStore(dataDir, { now: () => futureTime, lockStaleMs: 1, heartbeatMs: 60_000 });
     await successor.host();
     await stale.close();
-    expect(await readFile(path.join(dataDir, 'session-store-v1', 'writer.lock'), 'utf8')).toContain('2021-01-01');
+    expect(await readFile(path.join(dataDir, 'session-store-v2', 'writer.lock'), 'utf8')).toContain('2021-01-01');
     await successor.close();
   });
 
@@ -355,7 +459,7 @@ describe('host-owned session store', () => {
     const store = new SessionStore(dataDir);
     const created = await store.createSession({ provider: 'claude' });
     await store.close();
-    const manifestPath = path.join(dataDir, 'session-store-v1', 'manifest.json');
+    const manifestPath = path.join(dataDir, 'session-store-v2', 'manifest.json');
     await unlink(manifestPath);
 
     const broken = new SessionStore(dataDir);
@@ -363,10 +467,11 @@ describe('host-owned session store', () => {
     await expect(readFile(manifestPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('accepts several humans, rejects none, and validates attachment uniqueness', async () => {
+  it('accepts several humans, rejects none, and validates repository uniqueness', async () => {
     const dataDir = await directory();
     const store = new SessionStore(dataDir);
-    const session = await store.createSession({ checkoutId: 'checkout-a', provider: 'claude' });
+    const project = await store.createProject('Demo', ['checkout-a']);
+    const session = await store.createSession({ projectId: project.id, provider: 'claude' });
     const twoHumans = structuredClone(session);
     twoHumans.participants.push({ id: 'second-human', kind: 'human', displayName: 'Colleague' });
     expect(durableSessionSchema.safeParse(twoHumans).success).toBe(true);
@@ -374,9 +479,9 @@ describe('host-owned session store', () => {
     noHumans.participants = noHumans.participants.filter((item) => item.kind !== 'human');
     expect(durableSessionSchema.safeParse(noHumans).success).toBe(false);
     const duplicateCheckout = structuredClone(session);
-    duplicateCheckout.attachments.push({
+    duplicateCheckout.repositories.push({
       id: crypto.randomUUID(),
-      hostId: duplicateCheckout.attachments[0].hostId,
+      hostId: duplicateCheckout.repositories[0].hostId,
       checkoutId: 'checkout-a',
       role: 'reference',
     });
@@ -389,9 +494,9 @@ describe('browser session helpers', () => {
   it('stores only the device checkout preference and never reads the legacy browser key', () => {
     const storage = new MemoryStorage();
     storage.setItem('code-ai:web2:v1:checkout-a', '{"legacy":true}');
-    expect(loadSelectedProjectId(storage)).toBeUndefined();
-    saveSelectedProjectId('checkout-b', storage);
-    expect(loadSelectedProjectId(storage)).toBe('checkout-b');
+    expect(loadSelectedCheckoutId(storage)).toBeUndefined();
+    saveSelectedCheckoutId('checkout-b', storage);
+    expect(loadSelectedCheckoutId(storage)).toBe('checkout-b');
     expect(storage.getItem('code-ai:web2:v1:checkout-a')).toBe('{"legacy":true}');
   });
 

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { ProjectSummary, ServerProject } from '@/shared/types';
+import type { CheckoutSummary, ServerCheckout } from '@/shared/types';
 
-const PROJECT_MARKERS = [
+const REPOSITORY_MARKERS = [
   '.git', 'package.json', 'tsconfig.json', 'jsconfig.json', 'yarn.lock', 'package-lock.json',
   'pnpm-lock.yaml', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'pom.xml',
 ];
@@ -14,9 +14,9 @@ function isContained(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-async function isProject(directory: string): Promise<boolean> {
+async function isRepository(directory: string): Promise<boolean> {
   const names = new Set((await readdir(directory).catch(() => [])).map((entry) => entry.toString()));
-  return PROJECT_MARKERS.some((marker) => names.has(marker));
+  return REPOSITORY_MARKERS.some((marker) => names.has(marker));
 }
 
 async function childDirectories(directory: string): Promise<string[]> {
@@ -27,30 +27,30 @@ async function childDirectories(directory: string): Promise<string[]> {
     .sort((left, right) => left.localeCompare(right));
 }
 
-function projectId(realPath: string): string {
+function checkoutId(realPath: string): string {
   return createHash('sha256').update(realPath).digest('base64url').slice(0, 22);
 }
 
-export class ProjectRegistry {
+export class CheckoutRegistry {
   private rootRealPath?: string;
-  private projects = new Map<string, ServerProject>();
+  private checkouts = new Map<string, ServerCheckout>();
 
   constructor(
     private readonly configuredRoot: string,
     private readonly discoveryDepth = 1,
   ) {
     if (!Number.isSafeInteger(discoveryDepth) || discoveryDepth < 1 || discoveryDepth > 10) {
-      throw new Error('Project discovery depth must be an integer between 1 and 10');
+      throw new Error('Repository discovery depth must be an integer between 1 and 10');
     }
   }
 
-  async refresh(): Promise<ServerProject[]> {
+  async refresh(): Promise<ServerCheckout[]> {
     const root = await realpath(this.configuredRoot);
-    if (!(await stat(root)).isDirectory()) throw new Error('Projects root is not a directory');
+    if (!(await stat(root)).isDirectory()) throw new Error('Repositories root is not a directory');
     this.rootRealPath = root;
 
     const candidates: Array<{ realPath: string; relativePath: string }> = [];
-    if (await isProject(root)) {
+    if (await isRepository(root)) {
       candidates.push({ realPath: root, relativePath: '.' });
     } else {
       const immediateChildren = await childDirectories(root);
@@ -59,7 +59,7 @@ export class ProjectRegistry {
         const current = queue.shift()!;
         const candidate = await realpath(current.directory).catch(() => undefined);
         if (!candidate || !isContained(root, candidate)) continue;
-        if (await isProject(candidate)) {
+        if (await isRepository(candidate)) {
           candidates.push({ realPath: candidate, relativePath: path.relative(root, candidate).split(path.sep).join('/') });
         }
         if (current.depth >= this.discoveryDepth) continue;
@@ -74,43 +74,51 @@ export class ProjectRegistry {
       }
     }
 
-    this.projects.clear();
+    this.checkouts.clear();
     for (const candidate of candidates.sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
-      const project: ServerProject = {
-        id: projectId(candidate.realPath),
+      const checkout: ServerCheckout = {
+        id: checkoutId(candidate.realPath),
         name: candidate.relativePath === '.' ? path.basename(candidate.realPath) : candidate.relativePath,
         relativePath: candidate.relativePath,
         realPath: candidate.realPath,
       };
-      this.projects.set(project.id, project);
+      this.checkouts.set(checkout.id, checkout);
     }
-    return [...this.projects.values()];
+    return [...this.checkouts.values()];
   }
 
-  async list(): Promise<ProjectSummary[]> {
-    const projects = await this.refresh();
-    return projects.map(({ id, name, relativePath }) => ({ id, name, relativePath }));
+  async list(): Promise<CheckoutSummary[]> {
+    const checkouts = await this.refresh();
+    return checkouts.map(({ id, name, relativePath }) => ({ id, name, relativePath }));
   }
 
-  async resolve(id: string): Promise<ServerProject> {
+  async resolveMany(ids: string[]): Promise<ServerCheckout[]> {
     await this.refresh();
-    const project = this.projects.get(id);
-    if (!project || !this.rootRealPath) throw new Error('Unknown project');
-    const current = await realpath(project.realPath);
-    if (!isContained(this.rootRealPath, current) || current !== project.realPath) {
-      throw new Error('Project no longer resolves within the configured root');
-    }
-    return project;
+    const rootRealPath = this.rootRealPath;
+    if (!rootRealPath) throw new Error('Repositories root is unavailable');
+    return Promise.all(ids.map(async (id) => {
+      const checkout = this.checkouts.get(id);
+      if (!checkout) throw new Error('Unknown checkout');
+      const current = await realpath(checkout.realPath);
+      if (!isContained(rootRealPath, current) || current !== checkout.realPath) {
+        throw new Error('Checkout no longer resolves within the configured repositories root');
+      }
+      return checkout;
+    }));
+  }
+
+  async resolve(id: string): Promise<ServerCheckout> {
+    return (await this.resolveMany([id]))[0];
   }
 }
 
-let singleton: ProjectRegistry | undefined;
+let singleton: CheckoutRegistry | undefined;
 let singletonKey: string | undefined;
 
-export function getProjectRegistry(root: string, discoveryDepth = 1): ProjectRegistry {
+export function getCheckoutRegistry(root: string, discoveryDepth = 1): CheckoutRegistry {
   const key = `${root}\0${discoveryDepth}`;
   if (!singleton || singletonKey !== key) {
-    singleton = new ProjectRegistry(root, discoveryDepth);
+    singleton = new CheckoutRegistry(root, discoveryDepth);
     singletonKey = key;
   }
   return singleton;

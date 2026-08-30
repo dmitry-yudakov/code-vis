@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, SessionSnapshot, DiagramArtifact,
-  DiagramMessageAttachment, DrawingMark, GitWorkingTree, ProjectSummary, ProviderHealth, PublicSession,
-  ProjectsResponse, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
+  CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
+  ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import { readNdjson } from '@/features/conversation/ndjson';
 import {
@@ -16,7 +16,7 @@ import { compositePng } from '@/features/diagram/annotations/compositeExport';
 import { createUuid } from '@/shared/uuid';
 import {
   canvasTargetId, exportSession, findCanvasTarget, getSketches, hydrateSession,
-  loadSelectedProjectId, saveSelectedProjectId,
+  loadSelectedCheckoutId, saveSelectedCheckoutId,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionPicker } from '@/features/conversation/SessionPicker';
@@ -26,6 +26,7 @@ import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/compone
 import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
+import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { reconcileSessionRun } from '@/features/conversation/runRecovery';
 import { useTheme, type ThemePreference } from './useTheme';
@@ -34,7 +35,7 @@ import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
   ok: boolean;
-  projectsRootReady: boolean;
+  repositoriesRootReady: boolean;
   dataDirectoryReady: boolean;
   providers: Record<AgentProvider, ProviderHealth>;
   message?: string;
@@ -62,14 +63,18 @@ function updateArtifact(session: SessionSnapshot, id: string, update: (artifact:
 export function AppShell() {
   const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
   const [health, setHealth] = useState<Health>();
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [recentProjectIds, setRecentProjectIds] = useState<string[]>([]);
-  const [projectDiscoveryDepth, setProjectDiscoveryDepth] = useState(1);
-  const [projectId, setProjectId] = useState('');
+  const [projects, setProjects] = useState<DurableProject[]>([]);
+  const [checkouts, setCheckouts] = useState<CheckoutSummary[]>([]);
+  const [recentCheckoutIds, setRecentCheckoutIds] = useState<string[]>([]);
+  const [hostId, setHostId] = useState<string>();
+  const [projectId, setProjectId] = useState<string>();
+  const [selectedCheckoutId, setSelectedCheckoutId] = useState<string>();
+  const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
+  const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
-  const panelLayout = usePanelLayout(shellRef, Boolean(projectId));
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const [sessionId, setSessionId] = useState<string>();
+  const panelLayout = usePanelLayout(shellRef, Boolean(sessionId));
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -106,6 +111,18 @@ export function AppShell() {
 
   const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
+  const orderedCheckouts = useMemo(() => {
+    const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
+    return [...checkouts].sort((left, right) => {
+      const leftOrder = recentOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = recentOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.name.localeCompare(right.name);
+    });
+  }, [checkouts, recentCheckoutIds]);
+  const selectedCheckout = useMemo(
+    () => checkouts.find((checkout) => checkout.id === selectedCheckoutId),
+    [checkouts, selectedCheckoutId],
+  );
   const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => health?.providers[provider]?.available), [health]);
   const agents = useMemo(() => session?.participants.filter((participant): participant is AgentParticipant => participant.kind === 'agent') || [], [session]);
   const activeAgent = findAgentParticipant(agents, session?.addressedAgentId)
@@ -137,9 +154,9 @@ export function AppShell() {
       : [hydrated, ...current];
     sessionsRef.current = next;
     setSessions(next);
-    const primaryCheckoutId = snapshot.attachments.find((attachment) => attachment.role === 'primary')?.checkoutId;
+    const primaryCheckoutId = snapshot.repositories.find((repository) => repository.role === 'primary')?.checkoutId;
     if (primaryCheckoutId) {
-      setRecentProjectIds((current) => [
+      setRecentCheckoutIds((current) => [
         primaryCheckoutId,
         ...current.filter((id) => id !== primaryCheckoutId),
       ].slice(0, 5));
@@ -180,37 +197,44 @@ export function AppShell() {
     return result;
   }, [applyServerSnapshot, refreshSession]);
 
+  const refreshProjects = useCallback(async (): Promise<DurableProject[]> => {
+    const response = await fetch('/api/projects', { cache: 'no-store' });
+    const data = await response.json() as { projects?: DurableProject[]; error?: string };
+    if (!response.ok) throw new Error(data.error || 'Could not load projects.');
+    const next = data.projects || [];
+    setProjects(next);
+    return next;
+  }, []);
+
+  useEffect(() => {
+    try { setSavedCheckoutId(loadSelectedCheckoutId()); } catch { /* Device preference is optional. */ }
+  }, []);
+
   useEffect(() => {
     let current = true;
     void Promise.all([
       fetch('/api/health', { cache: 'no-store' }).then((response) => response.json() as Promise<Health>),
       fetch('/api/projects', { cache: 'no-store' }).then(async (response) => {
-        const data = await response.json() as Partial<ProjectsResponse> & { error?: string };
+        const data = await response.json() as { projects?: DurableProject[]; error?: string };
         if (!response.ok) throw new Error(data.error || 'Could not load projects.');
-        return {
-          projects: data.projects || [],
-          recentProjectIds: data.recentProjectIds || [],
-          discoveryDepth: data.discoveryDepth || 1,
-        };
+        return data.projects || [];
       }),
-    ]).then(([healthResult, projectResult]) => {
+      fetch('/api/checkouts', { cache: 'no-store' }).then(async (response) => {
+        const data = await response.json() as Partial<CheckoutsResponse> & { error?: string };
+        if (!response.ok) throw new Error(data.error || 'Could not discover repositories.');
+        return data;
+      }),
+    ]).then(([healthResult, projectResult, checkoutResult]) => {
       if (!current) return;
       setHealth(healthResult);
-      setProjects(projectResult.projects);
-      setRecentProjectIds(projectResult.recentProjectIds);
-      setProjectDiscoveryDepth(projectResult.discoveryDepth);
+      setProjects(projectResult);
+      setCheckouts(checkoutResult.checkouts || []);
+      setRecentCheckoutIds(checkoutResult.recentCheckoutIds || []);
+      setHostId(checkoutResult.hostId);
       const healthy = AGENT_PROVIDERS.filter((provider) => healthResult.providers[provider]?.available);
       setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
-      if (projectResult.projects.length) {
-        let savedProjectId: string | undefined;
-        try { savedProjectId = loadSelectedProjectId(); } catch { /* Fall back to the first available project. */ }
-        const selected = projectResult.projects.some((project) => project.id === savedProjectId)
-          ? savedProjectId!
-          : projectResult.projects[0].id;
-        setProjectId(selected);
-      } else {
-        setLoading(false);
-      }
+      setProjectId(projectResult[0]?.id);
+      setCatalogReady(true);
     }).catch((error: unknown) => {
       if (current) {
         setNotice(error instanceof Error ? error.message : 'Could not start CodeAI.');
@@ -221,9 +245,11 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!catalogReady) return;
     let current = true;
-    void fetch(`/api/sessions?checkoutId=${encodeURIComponent(projectId)}`, { cache: 'no-store' })
+    setLoading(true);
+    const query = projectId ? `projectId=${encodeURIComponent(projectId)}` : 'loose=true';
+    void fetch(`/api/sessions?${query}`, { cache: 'no-store' })
       .then(async (response) => {
         const data = await response.json() as { sessions?: PublicSession[]; error?: string };
         if (!response.ok) throw new Error(data.error || 'Could not load sessions.');
@@ -248,13 +274,29 @@ export function AppShell() {
         setLoading(false);
       });
     return () => { current = false; };
-  }, [projectId]);
+  }, [catalogReady, projectId]);
 
   useEffect(() => {
     const active = session?.activeDiagramId;
     setPendingAttachmentIds(active ? [active] : []);
     snapshotRef.current = undefined;
   }, [sessionId, session?.activeDiagramId]);
+
+  useEffect(() => {
+    if (!session || !hostId) {
+      setSelectedCheckoutId(undefined);
+      return;
+    }
+    const local = session.repositories.filter((repository) => (
+      repository.hostId === hostId && checkouts.some((checkout) => checkout.id === repository.checkoutId)
+    ));
+    const next = local.some((repository) => repository.checkoutId === selectedCheckoutId)
+      ? selectedCheckoutId
+      : local.some((repository) => repository.checkoutId === savedCheckoutId)
+        ? savedCheckoutId
+        : local.find((repository) => repository.role === 'primary')?.checkoutId || local[0]?.checkoutId;
+    setSelectedCheckoutId(next);
+  }, [checkouts, hostId, savedCheckoutId, selectedCheckoutId, session]);
 
   const mutateSession = useCallback((id: string, operation: (value: SessionSnapshot) => SessionSnapshot) => {
     setSessions((current) => {
@@ -265,13 +307,13 @@ export function AppShell() {
   }, []);
 
   const createSession = useCallback(async (requestedProvider: AgentProvider = newProvider) => {
-    if (!projectId || running) return;
+    if (running) return;
     setNotice(undefined);
     try {
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkoutId: projectId, provider: requestedProvider }),
+        body: JSON.stringify({ ...(projectId ? { projectId } : {}), provider: requestedProvider }),
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
@@ -284,10 +326,9 @@ export function AppShell() {
     }
   }, [applyServerSnapshot, newProvider, panelLayout.openConversation, projectId, running]);
 
-  const switchProject = (next: string) => {
+  const switchProject = (next?: string) => {
     if (next === projectId) return;
     if (running) abortRef.current?.abort();
-    try { saveSelectedProjectId(next); } catch { /* Project switching still works without preference persistence. */ }
     setLoading(true);
     setProjectId(next);
     sessionsRef.current = [];
@@ -299,6 +340,87 @@ export function AppShell() {
     setRepositoryTree(undefined);
     panelLayout.openRepository();
   };
+
+  const createProject = useCallback(async (name: string) => {
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, checkoutIds: [] }),
+      });
+      const data = await response.json() as { project?: DurableProject; error?: string };
+      if (!response.ok || !data.project) throw new Error(data.error || 'Could not create the project.');
+      setProjects((current) => [data.project!, ...current]);
+      switchProject(data.project.id);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not create the project.');
+    }
+  }, [projectId, running]);
+
+  const renameProject = useCallback(async (project: DurableProject, name: string) => {
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: project.revision, name }),
+      });
+      const data = await response.json() as { project?: DurableProject; error?: string };
+      if (!response.ok || !data.project) {
+        if (response.status === 409) await refreshProjects().catch(() => undefined);
+        throw new Error(data.error || 'Could not rename the project.');
+      }
+      setProjects((current) => [data.project!, ...current.filter((item) => item.id !== project.id)]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not rename the project.');
+    }
+  }, [refreshProjects]);
+
+  const deleteProject = useCallback(async (project: DurableProject) => {
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: project.revision }),
+      });
+      const data = await response.json() as { detachedSessionCount?: number; error?: string };
+      if (!response.ok) {
+        if (response.status === 409) await refreshProjects().catch(() => undefined);
+        throw new Error(data.error || 'Could not delete the project.');
+      }
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+      if (projectId === project.id) switchProject(undefined);
+      setNotice(`${data.detachedSessionCount || 0} session${data.detachedSessionCount === 1 ? '' : 's'} moved to No project.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not delete the project.');
+    }
+  }, [projectId, refreshProjects]);
+
+  const selectCheckout = useCallback((checkoutId: string) => {
+    setSelectedCheckoutId(checkoutId);
+    setSavedCheckoutId(checkoutId);
+    setRepositoryTree(undefined);
+    try { saveSelectedCheckoutId(checkoutId); } catch { /* Selection still works without persistence. */ }
+  }, []);
+
+  const updateRepositories = useCallback((update: (current: RepositoryBinding[]) => RepositoryBinding[]) => {
+    if (!session || running) return;
+    void enqueueSessionMutation(session.id, (current) => {
+      const repositories = update(current.repositories);
+      return fetch(`/api/sessions/${encodeURIComponent(session.id)}/repositories`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: current.revision, repositories }),
+      });
+    }).then((updated) => {
+      if (selectedCheckoutId && !updated.repositories.some((item) => item.checkoutId === selectedCheckoutId)) {
+        const fallback = updated.repositories.find((item) => item.role === 'primary') || updated.repositories[0];
+        setSelectedCheckoutId(fallback?.checkoutId);
+      }
+      if (updated.projectId) void refreshProjects().catch(() => undefined);
+    }).catch((error: unknown) => {
+      setNotice(error instanceof Error ? error.message : 'Could not update session repositories.');
+    });
+  }, [enqueueSessionMutation, refreshProjects, running, selectedCheckoutId, session]);
 
   const selectDiagram = useCallback((id: string) => {
     if (!sessionId) return;
@@ -587,6 +709,11 @@ export function AppShell() {
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
     if (!session || running) return;
+    if (!session.repositories.some((repository) => repository.role === 'primary')) {
+      setNotice('Attach a repository and make it primary before running an agent turn. The canvas and participant setup remain available.');
+      panelLayout.openRepository();
+      return;
+    }
     const turnAgent = findAgentParticipant(session.participants, override?.participantId) || activeAgent;
     if (!turnAgent) return;
     const selected = pendingAttachmentIds.flatMap((id) => {
@@ -743,7 +870,7 @@ export function AppShell() {
       setDecidingPermission(undefined);
       setStatus('Ready for an instruction');
     }
-  }, [activeAgent, composer, consumeStream, health, mode, mutateSession, pendingAttachmentIds, refreshSession, running, session]);
+  }, [activeAgent, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, refreshSession, running, session]);
 
   const busyRunLabel = busyRun && (
     sessions.find((item) => item.id === busyRun.sessionId)?.title
@@ -904,17 +1031,18 @@ export function AppShell() {
           <span className="breadcrumb-separator" aria-hidden="true">/</span>
           <ProjectPicker
             projects={projects}
-            recentProjectIds={recentProjectIds}
             value={projectId}
-            discoveryDepth={projectDiscoveryDepth}
             disabled={running}
             onChange={switchProject}
+            onCreate={(name) => void createProject(name)}
+            onRename={(project, name) => void renameProject(project, name)}
+            onDelete={(project) => void deleteProject(project)}
           />
           <span className="breadcrumb-separator" aria-hidden="true">/</span>
           <SessionPicker
             sessions={sessions}
             value={sessionId}
-            disabled={running || !projectId}
+            disabled={running}
             providers={selectableProviders}
             newProvider={newProvider}
             onChange={setSessionId}
@@ -926,7 +1054,7 @@ export function AppShell() {
             then the one preference — with a rule before it so four kinds of control in one row
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
-          {projectId && (
+          {session && (
             <button
               type="button"
               className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
@@ -983,11 +1111,22 @@ export function AppShell() {
         </div>
       </header>
 
-      {projectId && selectedProject && (
+      {session && (
         <div className="repository-region">
           <RepositoryPanel
-            projectId={projectId}
-            projectName={selectedProject.name}
+            checkoutId={selectedCheckout?.id}
+            repositoryName={selectedCheckout?.name || 'No repository'}
+            manager={(
+              <RepositoryManager
+                repositories={session.repositories}
+                checkouts={orderedCheckouts}
+                hostId={hostId}
+                selectedCheckoutId={selectedCheckoutId}
+                disabled={running}
+                onSelect={selectCheckout}
+                onChange={updateRepositories}
+              />
+            )}
             open={panelLayout.repositoryOpen}
             onClose={panelLayout.closeRepository}
             onTreeChange={setRepositoryTree}
@@ -1020,17 +1159,17 @@ export function AppShell() {
         </div>
       )}
 
-      {!projects.length ? (
-        <div className="fatal-empty"><span className="eyebrow">No projects found</span><h1>Point CodeAI at a project.</h1><p>Set <code>CODEAI_PROJECTS_ROOT</code> to one project or a directory containing projects, then restart the app.</p></div>
-      ) : !session ? (
+      {!session ? (
         <div className="welcome-screen">
           <div className="welcome-orbit"><span /><span /><span /><div className="brand-mark">C</div></div>
           <span className="eyebrow">Local exploration, planning, and building</span>
-          <h1>Your repository,<br />as a living map.</h1>
-          <p>Start a persistent session. Ask questions, build a diagram, draw directly on it, and use those marks in your next instruction. Switch to Plan for an approvable plan, or Agent to build behind explicit approvals.</p>
+          <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
+          <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
           <button type="button" className="primary-cta" disabled={!selectableProviders.length} onClick={() => void createSession(newProvider)}>New session <span>→</span></button>
           <small>{selectableProviders.length
-            ? `${selectableProviders.map((provider) => PROVIDER_LABELS[provider]).join(' and ')} run locally on your own login. Ask and Plan stay read-only; Agent appears only where its approval contract is verified.`
+            ? checkouts.length
+              ? `${selectableProviders.map((provider) => PROVIDER_LABELS[provider]).join(' and ')} run locally on your own login. Ask and Plan stay read-only; Agent appears only where its approval contract is verified.`
+              : 'No repositories were discovered. You can still create a repository-free session; set CODEAI_REPOSITORIES_ROOT when you need agent turns.'
             : 'Install and authenticate Claude Code or Codex to start a local session.'}</small>
         </div>
       ) : (

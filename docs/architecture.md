@@ -18,9 +18,8 @@ browser (src/features/**, server snapshots + device-only React state)
    ▼
 route handlers (src/app/api/**)
    │
-   ├── src/server/projects     project discovery under CODEAI_PROJECTS_ROOT
-   ├── src/server/repository   fixed read-only git reads, bounded context files
-   ├── src/server/storage      host session store, writer lock, per-run temp attachments
+   ├── src/server/repository   checkout discovery, fixed read-only git reads, bounded context files
+   ├── src/server/storage      durable projects/sessions, writer lock, per-run temp attachments
    ├── src/server/runs         single active run + permission broker
    └── src/server/agents       provider policy → claude / codex app-server child
                                      │
@@ -41,19 +40,20 @@ capability.
 | Transcript, Mermaid artifacts, marks, pins, roster | Host session store |
 | Focused canvas, next recipient/mode, panels, drafts | Browser memory |
 | Provider session ids and transcript cursors | Private fields in the host store |
-| Project discovery and the opaque project id | Server |
+| Projects, session membership, repository bindings | Host store |
+| Checkout discovery and opaque checkout ids | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
 | Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
 
 The browser can name a supported mode and nothing else. An unknown or unsupported mode is a 400.
 This is why the client never sends flags, prompts-with-tools, or paths outside the selected
-project: every one of those is derived server-side from `src/server/config.ts` plus the resolved
+repository: every one of those is derived server-side from `src/server/config.ts` plus the resolved
 policy in `src/server/agents/agentPolicy.ts`.
 
 ## Browser snapshots and device state
 
 `src/features/conversation/sessionStore.ts` contains pure snapshot/canvas/export helpers. It
-does not persist conversation content. `AppShell` lists snapshots by checkout with
+does not persist conversation content. `AppShell` lists snapshots by project (or **No project**) with
 `GET /api/sessions`, hydrates one complete snapshot with `GET /api/sessions/[sessionId]`, and sends
 annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
 revisions return 409 and trigger a refetch instead of silently replacing another client's work.
@@ -67,13 +67,14 @@ plus diagram and mark state — never provider session ids, credentials, or serv
 
 ## Host-owned session store
 
-`src/server/storage/sessionStore.ts` owns `CODEAI_DATA_DIR/session-store-v1` (the data-dir
+`src/server/storage/sessionStore.ts` owns `CODEAI_DATA_DIR/session-store-v2` (the data-dir
 default remains `~/.code-ai/web2`):
 
 ```text
-session-store-v1/
+session-store-v2/
   manifest.json       # version + durable host id/label
   writer.lock         # owner token, pid, hostname, heartbeat
+  projects/<uuid>.json # one durable project per file
   sessions/<uuid>.json # one complete private session per file
 ```
 
@@ -83,11 +84,13 @@ queue are pinned on `globalThis`, because Next route handlers are compiled into 
 Every session write flushes a same-directory temporary file before atomic rename. Store directories
 are `0700`; manifest, lock, and session files are `0600`.
 
-Each session has a monotonic revision and contains project attachments, participants,
+Each project and session has a monotonic revision. A project contains its repository bindings; a
+session contains an optional project id, its independent repository bindings, participants,
 messages, canvases, annotations, pins, private provider sessions, and cursors. Public snapshots
 strip session ids, host-bound session state, cursors, and idempotency keys. Missing/corrupt store
-identity fails closed; the whole `session-store-v1` directory is the backup/restore unit. A valid
-`conversation-store-v1` is copied forward once and then ignored; it is never modified. Older
+identity fails closed; the whole `session-store-v2` directory is the backup/restore unit. A valid
+`session-store-v1` is copied forward once and then ignored; it is never modified (a direct
+`conversation-store-v1` upgrade also remains supported). Older
 `threads.json` and browser records are not imported or modified.
 
 ## The streamed agent route
@@ -95,14 +98,14 @@ identity fails closed; the whole `session-store-v1` directory is the backup/rest
 `POST /api/agent/message` is the one turn-executing endpoint.
 
 1. Validate the request against `src/shared/protocol.ts`, load the canonical session, and
-   resolve its participant, primary attachment, host-bound session, and mode. The request contains
-   neither a project id nor transcript.
-2. Refuse unavailable/foreign/stale attachments and foreign-host sessions before provider spawn,
+   resolve its participant, primary repository binding, host-bound session, and mode. The request
+   contains neither a checkout id nor transcript.
+2. Refuse unavailable/foreign/stale repository bindings and foreign-host sessions before provider spawn,
    then refuse if a run is already active — `src/server/runs/runRegistry.ts` permits **one global
    active run**. This is a deliberate current constraint, not an oversight.
 3. Append the user message idempotently, then build the historical prompt delta from the canonical
    host record.
-4. Build a bounded per-run temporary directory outside the project (`code-ai-run-*`) holding
+4. Build a bounded per-run temporary directory outside the repository (`code-ai-run-*`) holding
    diagram attachments plus git status/diff snapshots from `src/server/repository/`.
 5. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
    and role contract, the historical-context JSON delta, and the current request as one JSON
@@ -138,7 +141,7 @@ read allowlist. A command matching no rule is auto-denied and shown as a denial 
 ## Repository access
 
 `src/server/repository/gitRepository.ts` runs a fixed set of read-only git invocations without a
-shell, in the selected project's directory, with bounded output
+shell, in the selected repository checkout, with bounded output
 (`CODEAI_MAX_GIT_CONTEXT_BYTES`). It backs the repository sidebar (status, changed files, diffs)
 and the per-run context snapshots. Agent mode's writes go through the provider's own tools under
 approval, not through this module.
@@ -157,17 +160,17 @@ These are real and deliberate, and they bound what can be built next:
 
 - one active agent run across the whole application;
 - one selected project and one selected session in the browser shell;
-- the shell shows one checkout and one session, while the data model accepts zero or more host-scoped
-  attachments; attachment management/rebind UI is not implemented;
+- a session may be loose and may bind zero or several repositories; the repository sidebar follows
+  a device-selected binding while turns continue to use the primary binding;
 - clients see committed host content after refetch/reload, but there is no live synchronization,
   presence, authentication, or remote-client authorization;
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The direction past the current shell — the arena, several open sessions, repository management, and
+The direction past the current shell — the arena, several open sessions, concurrency, and
 sessions spread across machines — is in [vision.md](vision.md), with the record-level engineering
 notes in [multi-project-session-environment.md](multi-project-session-environment.md) and the names
-in [vocabulary.md](vocabulary.md). None of it is implemented.
+in [vocabulary.md](vocabulary.md).
 
 ## Configuration
 

@@ -39,7 +39,7 @@ describe.sequential('CodexProcessRunner', () => {
     const runner = new CodexProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 50 });
     const result = await runner.run({
       runId: crypto.randomUUID(),
-      project: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
+      checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id: options.sessionId, action: options.action || 'start' },
       prompt: mode === 'plan' ? 'Mode: PLAN\n\n[User message]\nMake a plan' : 'Mode: ASK\n\n[User message]\nExplain this',
       attachmentDirectory: directory,
@@ -132,7 +132,7 @@ describe.sequential('CodexProcessRunner', () => {
     const runner = new CodexProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 100 });
     const base = {
       runId: crypto.randomUUID(),
-      project: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
+      checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { action: 'start' as const },
       prompt: 'wait', attachmentDirectory: cancelledDirectory,
       policy: { ...resolveAgentPolicy(getConfig(), 'ask'), timeoutMs: 1_000 },

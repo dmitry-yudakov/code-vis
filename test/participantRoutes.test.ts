@@ -12,19 +12,19 @@ vi.mock('@/server/config', () => ({
   getConfig: () => ({
     dataDir: routeState.dataDir,
     hostLabel: 'Test host',
-    projectsRoot: '/projects',
-    projectDiscoveryDepth: 1,
+    repositoriesRoot: '/repositories',
+    repositoryDiscoveryDepth: 1,
     maxDiagramAttachments: 4,
     maxTranscriptMessages: 40,
     maxTranscriptBytes: 24_000,
   }),
 }));
 
-vi.mock('@/server/projects/projectRegistry', () => ({
-  getProjectRegistry: () => ({
-    resolve: async (projectId: string) => {
-      if (projectId !== 'project-a') throw new Error('Unknown project');
-      return { id: projectId, name: 'Project', relativePath: '.', realPath: '/projects/project-a' };
+vi.mock('@/server/repository/checkoutRegistry', () => ({
+  getCheckoutRegistry: () => ({
+    resolve: async (checkoutId: string) => {
+      if (checkoutId !== 'checkout-a') throw new Error('Unknown checkout');
+      return { id: checkoutId, name: 'Repository', relativePath: '.', realPath: '/repositories/checkout-a' };
     },
   }),
 }));
@@ -49,7 +49,7 @@ describe('participant routes', () => {
 
   it('returns a session-free roster and reconciles an idempotent participant retry', async () => {
     const registry = getSessionStore(routeState.dataDir, 'Test host');
-    const session = await registry.createSession({ checkoutId: 'project-a', provider: 'claude' });
+    const session = await registry.createSession({ provider: 'claude' });
     const context = { params: Promise.resolve({ sessionId: session.id }) };
     const rosterResponse = await GET(new Request(
       `http://localhost/api/sessions/${session.id}/participants`,
@@ -81,7 +81,7 @@ describe('participant routes', () => {
     const response = await POST_SESSION(new Request('http://localhost/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checkoutId: 'project-a', provider: 'claude', role: 'reviewer' }),
+      body: JSON.stringify({ provider: 'claude', role: 'reviewer' }),
     }));
     expect(response.status).toBe(201);
     const body = await response.json();
@@ -92,7 +92,7 @@ describe('participant routes', () => {
 
   it('returns 409 before creating a participant when its provider is unhealthy', async () => {
     const registry = getSessionStore(routeState.dataDir, 'Test host');
-    const session = await registry.createSession({ checkoutId: 'project-a', provider: 'claude' });
+    const session = await registry.createSession({ provider: 'claude' });
     routeState.health = { available: false, authenticated: true, supportedModes: [] };
     const response = await POST(new Request(`http://localhost/api/sessions/${session.id}/participants`, {
       method: 'POST',
@@ -116,8 +116,8 @@ describe('participant routes', () => {
 
   it('rejects an addressed participant id owned by a different session', async () => {
     const registry = getSessionStore(routeState.dataDir, 'Test host');
-    const first = await registry.createSession({ checkoutId: 'project-a', provider: 'claude' });
-    const second = await registry.createSession({ checkoutId: 'project-a', provider: 'codex' });
+    const first = await registry.createSession({ provider: 'claude' });
+    const second = await registry.createSession({ provider: 'codex' });
     const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

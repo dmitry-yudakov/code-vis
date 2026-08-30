@@ -1,9 +1,26 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
+const WORKSPACE_NAME = `E2E workspace ${Date.now()}`;
+
 async function startSession(page: Page) {
   await page.locator('.new-session-menu summary').click();
   await page.getByRole('button', { name: 'Start session' }).click();
+}
+
+async function createWorkspace(page: Page) {
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('button', { name: 'New project' }).click();
+  await page.getByRole('textbox', { name: 'Project name' }).fill(WORKSPACE_NAME);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(page.locator('.project-search-trigger')).toContainText(WORKSPACE_NAME);
+}
+
+async function attachRepository(page: Page, name: string) {
+  const manager = page.getByRole('region', { name: 'Session repositories' });
+  await manager.getByRole('combobox', { name: 'Repository to add' }).selectOption({ label: name });
+  await manager.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(manager.locator('.repository-binding').filter({ hasText: name })).toHaveCount(1);
 }
 
 test('creates, annotates, revises, restores, and exports a canvas session', async ({ page }) => {
@@ -13,7 +30,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
     if (host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com') externalFontRequests.push(request.url());
   });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: /Your repository/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /No project/ })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.fonts.status)).toBe('loaded');
   const fontVariables = await page.evaluate(() => {
     const styles = getComputedStyle(document.documentElement);
@@ -22,18 +39,17 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   });
   expect(fontVariables.every(Boolean)).toBe(true);
   expect(externalFontRequests).toEqual([]);
-  await page.getByRole('button', { name: /alpha/ }).click();
-  await expect(page.locator('.project-search-meta')).toContainText('3 projects');
-  await expect(page.locator('.project-search-meta')).toContainText('Depth 2');
-  const projectSearch = page.getByRole('searchbox', { name: 'Search projects' });
-  await projectSearch.fill('not-a-project');
-  await expect(page.locator('.project-search-empty')).toContainText('No projects match');
-  await projectSearch.fill('DEEP');
-  const projectResults = page.getByRole('listbox', { name: 'Projects' });
-  await expect(projectResults.getByRole('option')).toHaveCount(1);
-  await projectResults.getByRole('option', { name: /packages\/deep-app/ }).click();
-  await expect(page.locator('.project-search-trigger')).toContainText('packages/deep-app');
+  await createWorkspace(page);
   await startSession(page);
+  await attachRepository(page, 'packages/deep-app');
+  await attachRepository(page, 'alpha');
+  await attachRepository(page, 'beta');
+  const repositoryManager = page.getByRole('region', { name: 'Session repositories' });
+  await expect(repositoryManager.locator('.repository-binding')).toHaveCount(3);
+  await repositoryManager.getByRole('button', { name: 'Move beta up' }).dblclick();
+  await expect(repositoryManager.locator('.repository-binding strong')).toHaveText([
+    'beta', 'packages/deep-app', 'alpha',
+  ]);
 
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
@@ -150,23 +166,14 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 2');
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('code-ai:web2:v1:')))).toEqual([]);
 
-  await page.locator('.project-search-trigger').click();
-  const recentProjects = page.getByRole('group', { name: 'Recent' });
-  await expect(recentProjects).toBeVisible();
-  await expect(recentProjects.getByRole('option').first()).toContainText('packages/deep-app');
-  await expect(page.getByRole('listbox', { name: 'Projects' }).getByRole('option')).toHaveCount(3);
-  await page.getByRole('searchbox', { name: 'Search projects' }).fill('alpha');
-  await expect(page.getByRole('group', { name: 'Recent' })).toHaveCount(0);
-  await expect(projectResults.getByRole('option')).toHaveCount(1);
-  await page.getByRole('searchbox', { name: 'Search projects' }).press('Escape');
-
-  // A separate browser context hydrates the same committed host session after selecting its checkout.
+  // A separate browser context hydrates the same committed host session after selecting its project.
   const secondContext = await page.context().browser()!.newContext();
   const secondPage = await secondContext.newPage();
   await secondPage.goto('/');
-  await secondPage.locator('.project-search-trigger').click();
-  await secondPage.getByRole('searchbox', { name: 'Search projects' }).fill('DEEP');
-  await secondPage.getByRole('option', { name: /packages\/deep-app/ }).click();
+  if (!(await secondPage.locator('.project-search-trigger').textContent())?.includes(WORKSPACE_NAME)) {
+    await secondPage.locator('.project-search-trigger').click();
+    await secondPage.getByRole('option', { name: new RegExp(WORKSPACE_NAME) }).click();
+  }
   await expect(secondPage.locator('.canvas-titleblock strong')).toHaveText('Diagram 2');
   await secondContext.close();
 
@@ -176,6 +183,29 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   expect(download.suggestedFilename()).toMatch(/^codeai-.*\.json$/);
 
   await page.screenshot({ path: 'test-results/codeai-canvas.png', fullPage: true });
+});
+
+test('keeps a repository-free loose session usable and durable', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: /No project.*Loose sessions/ }).click();
+  await startSession(page);
+  const manager = page.getByRole('region', { name: 'Session repositories' });
+  await expect(manager).toContainText('Attach a repository to enable agent turns');
+  await page.getByRole('button', { name: 'Close session' }).click();
+  await page.getByRole('button', { name: /Start a sketch/ }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Try without a repository');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.notice-banner')).toContainText('Attach a repository and make it primary');
+  await expect(page.locator('.chat-message.user')).toHaveCount(0);
+
+  await page.reload();
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: /No project.*Loose sessions/ }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
 });
 
 test('sketches a blank canvas and sends the drawing as the instruction', async ({ page }) => {

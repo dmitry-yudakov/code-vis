@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { AgentEvent } from '@/shared/types';
 import { agentMessageRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { getConfig } from '@/server/config';
-import { getProjectRegistry } from '@/server/projects/projectRegistry';
+import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import {
-  sessionStoreStatus, getSessionStore, primaryAttachment, serverAgent,
+  sessionStoreStatus, getSessionStore, primaryRepository, serverAgent,
 } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { AgentRunError } from '@/server/agents/agentRunError';
@@ -46,16 +46,16 @@ export async function POST(request: Request): Promise<Response> {
   if (!participant) {
     return safeJsonResponse({ error: 'The addressed participant is not an agent in this session.' }, { status: 400 });
   }
-  const attachment = primaryAttachment(session);
-  if (!attachment) {
+  const repository = primaryRepository(session);
+  if (!repository) {
     return safeJsonResponse({
-      error: 'This session has no working directory yet. Attachment management is not available in this version.',
+      error: 'This session has no repository yet. Attach a repository and make it primary to run an agent turn.',
     }, { status: 400 });
   }
   const host = await store.host();
-  if (attachment.hostId !== host.id) {
+  if (repository.hostId !== host.id) {
     return safeJsonResponse({
-      error: `This session's primary project belongs to another host (${attachment.hostId}) and is unavailable here.`,
+      error: `This session's primary repository belongs to another host (${repository.hostId}) and is unavailable here.`,
     }, { status: 409 });
   }
   if (participant.session.started && participant.session.hostId !== host.id) {
@@ -63,12 +63,13 @@ export async function POST(request: Request): Promise<Response> {
       error: `This provider session belongs to another host (${participant.session.hostId}) and cannot be resumed here.`,
     }, { status: 409 });
   }
-  let project;
+  let checkout;
   try {
-    project = await getProjectRegistry(config.projectsRoot, config.projectDiscoveryDepth).resolve(attachment.checkoutId);
+    checkout = await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth)
+      .resolve(repository.checkoutId);
   } catch (error) {
     return safeJsonResponse({
-      error: `This session's project attachment no longer resolves on this host. Rebinding attachments is not available yet. ${publicError(error)}`,
+      error: `This session's primary repository no longer resolves on this host. Choose another checkout or reattach it. ${publicError(error)}`,
     }, { status: 409 });
   }
   const canvases = new Map<string, { kind: CanvasKind; source: string }>();
@@ -178,7 +179,7 @@ export async function POST(request: Request): Promise<Response> {
       return runConversation({
         runId,
         request: parsed.data,
-        project,
+        checkout,
         session,
         config,
         runner,

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
-  AgentEvent, AgentMessageRequest, AgentProcessRunner, AssistantMessage, DurableSession, ServerProject,
+  AgentEvent, AgentMessageRequest, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import type { SessionStore } from '@/server/storage/sessionStore';
@@ -37,7 +37,7 @@ export async function publishCompletedAssistant(input: {
 export async function runConversation(input: {
   runId: string;
   request: AgentMessageRequest;
-  project: ServerProject;
+  checkout: ServerCheckout;
   session: DurableSession;
   config: AppConfig;
   runner: AgentProcessRunner;
@@ -47,7 +47,7 @@ export async function runConversation(input: {
   emit(event: AgentEvent): void;
   onPermissionBroker?(broker: PermissionBroker): void;
 }): Promise<void> {
-  const { runId, request, project, session, config, runner, sessionStore, transcriptDelta, signal, emit } = input;
+  const { runId, request, checkout, session, config, runner, sessionStore, transcriptDelta, signal, emit } = input;
   const startedAt = Date.now();
   const mode = request.mode || 'ask';
   let directory: string | undefined;
@@ -82,8 +82,8 @@ export async function runConversation(input: {
       maxBytes: config.maxAttachmentBytes,
       maxMermaidBytes: config.maxMermaidBytes,
     });
-    emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing project context' });
-    await writeRepositoryContext(project.realPath, directory, config.maxGitContextBytes);
+    emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing repository context' });
+    await writeRepositoryContext(checkout.realPath, directory, config.maxGitContextBytes);
     const prompt = buildConversationPrompt({
       userText: request.text,
       attachmentDirectory: directory,
@@ -96,7 +96,7 @@ export async function runConversation(input: {
     });
     const result = await runner.run({
       runId,
-      project,
+      checkout,
       session: {
         // Claude accepts a client-generated session id; Codex owns ids returned when it starts one.
         // Either way the provider id is distinct from the CodeAI session id.
@@ -140,7 +140,7 @@ export async function runConversation(input: {
     const blocks = await parseAssistantResponse(markdown, {
       sessionId: session.id,
       messageId: assistantId,
-      projectRoot: project.realPath,
+      repositoryRoot: checkout.realPath,
       derivedFromDiagramIds: request.diagramAttachments.map((item) => item.diagramId),
       maxMermaidBytes: config.maxMermaidBytes,
       maxDiagrams: config.maxDiagramsPerMessage,

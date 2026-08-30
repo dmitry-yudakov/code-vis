@@ -6,7 +6,7 @@ import { normalizeMermaidSource, validateMermaidSource } from '@/features/diagra
 interface ParseOptions {
   sessionId: string;
   messageId: string;
-  projectRoot: string;
+  repositoryRoot: string;
   derivedFromDiagramIds: string[];
   maxMermaidBytes: number;
   maxDiagrams: number;
@@ -66,7 +66,7 @@ export async function parseAssistantResponse(markdown: string, options: ParseOpt
         status: policy.ok ? 'ready' : 'policy-error',
         error: policy.error,
         derivedFromDiagramIds: [...options.derivedFromDiagramIds],
-        evidence: policy.ok ? await extractEvidence(source, options.projectRoot) : [],
+        evidence: policy.ok ? await extractEvidence(source, options.repositoryRoot) : [],
       };
       blocks.push({ kind: 'diagram', artifact });
     } else {

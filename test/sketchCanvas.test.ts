@@ -25,7 +25,7 @@ function sketch(overrides: Partial<SketchCanvas> = {}): SketchCanvas {
 
 function session(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
   return {
-    version: 2, revision: 0, id: 't1', title: 'Test', attachments: [], createdAt: now, updatedAt: now,
+    version: 3, revision: 0, id: 't1', title: 'Test', repositories: [], createdAt: now, updatedAt: now,
     participants: [
       { id: 'human-1', kind: 'human', displayName: 'You' },
       { id: 'agent-1', kind: 'agent', displayName: 'Claude', provider: 'claude', role: 'coder', defaultMode: 'ask' },
