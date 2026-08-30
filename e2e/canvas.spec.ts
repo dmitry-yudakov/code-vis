@@ -4,16 +4,29 @@ import type { Page } from '@playwright/test';
 const WORKSPACE_NAME = `E2E workspace ${Date.now()}`;
 
 async function startSession(page: Page) {
+  const openViews = page.getByRole('tab');
+  const before = await openViews.count();
   await page.locator('.new-session-menu summary').click();
   await page.getByRole('button', { name: 'Start session' }).click();
+  await expect(openViews).toHaveCount(before + 1);
+}
+
+async function ensureConversationOpen(page: Page) {
+  if (!await page.getByRole('complementary', { name: 'Conversation' }).count()) {
+    await page.getByRole('button', { name: /Open conversation/ }).click();
+  }
 }
 
 async function createWorkspace(page: Page) {
+  await createNamedProject(page, WORKSPACE_NAME);
+}
+
+async function createNamedProject(page: Page, name: string) {
   await page.locator('.project-search-trigger').click();
   await page.getByRole('button', { name: 'New project' }).click();
-  await page.getByRole('textbox', { name: 'Project name' }).fill(WORKSPACE_NAME);
+  await page.getByRole('textbox', { name: 'Project name' }).fill(name);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await expect(page.locator('.project-search-trigger')).toContainText(WORKSPACE_NAME);
+  await expect(page.locator('.project-search-trigger')).toContainText(name);
 }
 
 async function attachRepository(page: Page, name: string) {
@@ -21,6 +34,11 @@ async function attachRepository(page: Page, name: string) {
   await manager.getByRole('combobox', { name: 'Repository to add' }).selectOption({ label: name });
   await manager.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(manager.locator('.repository-binding').filter({ hasText: name })).toHaveCount(1);
+}
+
+async function ensureRepository(page: Page) {
+  const manager = page.getByRole('region', { name: 'Session repositories' });
+  if (!await manager.locator('.repository-binding').count()) await attachRepository(page, 'alpha');
 }
 
 test('creates, annotates, revises, restores, and exports a canvas session', async ({ page }) => {
@@ -120,7 +138,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:panel-widths'))).toContain(`"repositoryWidth":${repositoryWidth + 8}`);
 
   // The canvas keeps every pixel for the diagram; the composer lives in the drawer.
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
   await expect(page.locator('.instruction-composer')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Pen (P)' }).click();
@@ -133,7 +151,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await page.mouse.up();
   await openConversation.click();
   await expect(page.locator('.attachment-chip')).toContainText('1 mark');
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
 
   await page.getByRole('button', { name: 'Focus' }).click();
   await expect(page.locator('.canvas-workspace')).toHaveClass(/focus-mode/);
@@ -144,6 +162,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await revisionComposer.fill('Revise it with a context step');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByRole('button', { name: /Previous version/ })).toBeVisible();
+  await expect(conversation.locator('.attachment-chip')).toContainText('Active diagram included');
   // Artifact ordinals are response-local; the titleblock deliberately renders the stored field
   // rather than inventing a separate global revision number.
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
@@ -154,7 +173,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect(page.locator('.notice-banner')).toContainText('2 diagram results');
   await expect(page.locator('.diagram-card')).toHaveCount(4);
   await expect(page.locator('.diagram-card-svg svg')).toHaveCount(4);
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
 
   await page.getByRole('button', { name: /History/ }).click();
   await expect(page.locator('.navigator-item')).toHaveCount(4);
@@ -162,8 +181,8 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
 
   await page.reload();
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
-  // Focused canvas is device state; after reload the newest durable canvas is selected.
-  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 2');
+  // Focused canvas is persisted device state, so reload keeps the revision we were viewing.
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('code-ai:web2:v1:')))).toEqual([]);
 
   // A separate browser context hydrates the same committed host session after selecting its project.
@@ -192,7 +211,7 @@ test('keeps a repository-free loose session usable and durable', async ({ page }
   await startSession(page);
   const manager = page.getByRole('region', { name: 'Session repositories' });
   await expect(manager).toContainText('Attach a repository to enable agent turns');
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
 
@@ -208,10 +227,98 @@ test('keeps a repository-free loose session usable and durable', async ({ page }
   await expect(page.locator('.sketch-sheet')).toBeVisible();
 });
 
+test('keeps multiple session views and their device layout usable during one global turn', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.new-session-menu summary')).toBeVisible();
+  const initiallyOpen = page.locator('.workspace-tab-close');
+  while (await initiallyOpen.count()) await initiallyOpen.first().click();
+  await startSession(page);
+  const firstConversation = page.getByRole('complementary', { name: 'Conversation' });
+  await firstConversation.locator('textarea').fill('first view draft');
+
+  await startSession(page);
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  expect(await page.locator('[role="tablist"] > *').evaluateAll((children) => (
+    children.map((child) => child.getAttribute('role'))
+  ))).toEqual(['tab', 'tab']);
+  await ensureRepository(page);
+  const secondConversation = page.getByRole('complementary', { name: 'Conversation' });
+  await secondConversation.locator('textarea').fill('Wait for reload cancellation.');
+  await secondConversation.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.workspace-tab').nth(1)).toHaveClass(/working/);
+  await expect(page.locator('.tool-timeline')).toContainText('Reading README.md');
+
+  await page.getByRole('tab').nth(0).click();
+  const backgroundConversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(backgroundConversation.locator('textarea')).toHaveValue('first view draft');
+  await backgroundConversation.locator('textarea').fill('first view draft, edited while another turn runs');
+  await expect(backgroundConversation.getByRole('button', { name: 'Send' })).toBeDisabled();
+  await backgroundConversation.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await page.getByRole('button', { name: /Start a sketch/ }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  const firstViewZoom = await page.locator('.canvas-controls > span').first().textContent();
+  expect(firstViewZoom).toMatch(/%$/);
+
+  // Recovery is host-wide: the running second view reattaches even though the first view owns
+  // device focus at reload, and that focus plus its camera remain intact.
+  await page.reload();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.workspace-tab').nth(1)).toHaveClass(/working/);
+  await expect(page.locator('.canvas-controls > span').first()).toHaveText(firstViewZoom!);
+
+  await page.getByRole('tab').nth(1).click();
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.notice-banner')).toContainText('cancelled');
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('second view draft');
+
+  await page.reload();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('second view draft');
+  await page.getByRole('tab').nth(0).click();
+  await expect(page.getByRole('complementary', { name: 'Conversation' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('first view draft, edited while another turn runs');
+  await expect(page.locator('.canvas-controls > span').first()).toHaveText(firstViewZoom!);
+  await page.getByRole('tab').nth(0).press('Delete');
+  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tab')).toBeFocused();
+});
+
+test('preserves device views when the session catalog request fails', async ({ page }) => {
+  await page.goto('/');
+  await startSession(page);
+  const draft = `preserve this draft ${Date.now()}`;
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill(draft);
+  const before = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
+  expect(before).not.toBeNull();
+
+  const catalogRequest = /\/api\/sessions\?(?:projectId=|loose=true)/;
+  await page.route(catalogRequest, async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Temporary catalog failure.' }),
+    });
+  });
+  await page.reload();
+  await expect(page.locator('.notice-banner')).toContainText('Temporary catalog failure');
+  await expect(page.getByRole('button', { name: 'Continue in new session' })).toHaveCount(0);
+  const after = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
+  expect(JSON.parse(after!)).toEqual(JSON.parse(before!));
+
+  await page.unroute(catalogRequest);
+  await page.reload();
+  await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue(draft);
+});
+
 test('sketches a blank canvas and sends the drawing as the instruction', async ({ page }) => {
   await page.goto('/');
   await startSession(page);
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
 
   // A sketch is reachable before any diagram exists — that is the point of it.
   await page.getByRole('button', { name: /Start a sketch/ }).click();
@@ -234,7 +341,7 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await expect(page.locator('.chat-message.user')).toContainText('1 sketch attached');
   await expect(page.locator('.chat-message.assistant')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
   await page.reload();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
   await page.getByRole('button', { name: /History/ }).click();
@@ -249,15 +356,38 @@ test('discovers, reattaches, and cancels a turn that outlives a reload', async (
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.tool-timeline')).toContainText('Reading README.md');
 
-  const discovery = page.waitForResponse((response) => response.url().includes('/api/agent/runs?sessionId='));
+  const discovery = page.waitForResponse((response) => response.url().endsWith('/api/agent/runs'));
   await page.reload();
   expect((await (await discovery).json()).active).toHaveLength(1);
-  await expect(page.getByRole('button', { name: /Open conversation/ })).toHaveAttribute('aria-label', /Agent working/);
-  await page.getByRole('button', { name: /Open conversation/ }).click();
-  await expect(page.getByRole('button', { name: 'Cancel' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('.run-status-toggle')).toHaveAttribute('aria-label', /Agent working/);
+  await ensureConversationOpen(page);
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('.notice-banner')).toContainText('cancelled');
   await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+});
+
+test('recovers a host-wide run in its canonical project scope', async ({ page }) => {
+  const ownerProject = `ZZZ run owner ${Date.now()}`;
+  const landingProject = `AAA reload landing ${Date.now()}`;
+  await page.goto('/');
+  await createNamedProject(page, ownerProject);
+  await createNamedProject(page, landingProject);
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(ownerProject) }).click();
+  await startSession(page);
+  await ensureRepository(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await conversation.locator('textarea').fill('Wait for reload cancellation.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.tool-timeline')).toContainText('Reading README.md');
+
+  await page.reload();
+  await expect(page.locator('.project-search-trigger')).toContainText(ownerProject);
+  await expect(page.locator('.run-status-toggle')).toHaveAttribute('aria-label', /Agent working/);
+  await ensureConversationOpen(page);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.notice-banner')).toContainText('cancelled');
 });
 
 test('traces an Agent run without implying progress and shifts to wait for approval', async ({ page }) => {
@@ -324,14 +454,14 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   await expect(conversation.locator('.chat-message.user').last()).toContainText('→ @Claude Reviewer');
   await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Claude Reviewer');
 
-  // A completed retained reviewer run must not announce itself as live or rewrite device-local
-  // selection when this browser reloads. The primary coder is the hydration default.
+  // A completed retained reviewer run must not announce itself as live or rewrite the persisted
+  // device-local selection when this browser reloads.
   await conversation.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
-  const discovery = page.waitForResponse((response) => response.url().includes('/api/agent/runs?sessionId='));
+  const discovery = page.waitForResponse((response) => response.url().endsWith('/api/agent/runs'));
   await page.reload({ waitUntil: 'networkidle' });
   expect((await (await discovery).json()).active).toHaveLength(0);
   await expect(page.locator('.unread-badge')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await ensureConversationOpen(page);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('.participant-chip.active')).toContainText('Main');
   await expect(page.locator('.stream-preview')).toHaveCount(0);
   await expect(page.locator('.notice-banner')).toHaveCount(0);
@@ -408,7 +538,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   await expect(conversation.locator('.diagram-card-svg[data-mermaid-theme="dark"] svg')).toBeVisible();
   await expect(page.locator('.tool-timeline')).toHaveCount(0);
 
-  await conversation.getByRole('button', { name: 'Close session' }).click();
+  await conversation.getByRole('button', { name: 'Close conversation drawer' }).click();
   await page.getByRole('button', { name: 'Pen (P)' }).click();
   const ink = page.locator('svg.ink-layer');
   const box = await ink.boundingBox();

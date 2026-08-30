@@ -9,7 +9,7 @@ import {
 } from '@/server/storage/sessionStore';
 import { durableSessionSchema } from '@/shared/sessionSchema';
 import {
-  hydrateSession, loadSelectedCheckoutId, saveSelectedCheckoutId, serializeSessionExport,
+  getArtifacts, hydrateSession, loadSelectedCheckoutId, saveSelectedCheckoutId, serializeSessionExport,
 } from '@/features/conversation/sessionStore';
 import type { AssistantMessage, DurableSession, UserMessage } from '@/shared/types';
 
@@ -510,6 +510,40 @@ describe('browser session helpers', () => {
     const exported = serializeSessionExport({ ...hydrated, defaultMode: 'agent' }, new Date().toISOString());
     expect(exported).toMatchObject({ version: 4, session: { id: created.id } });
     expect(JSON.stringify(exported)).not.toMatch(/addressedAgentId|defaultMode.*agent-full|sessionId/);
+    await store.close();
+  });
+
+  it('keeps fresher in-memory selection ahead of an older device snapshot on refresh', async () => {
+    const dataDir = await directory();
+    const store = new SessionStore(dataDir);
+    const created = await store.createSession({ provider: 'claude' });
+    const withReviewer = await store.addAgent(created.id, 'codex', 'reviewer', crypto.randomUUID());
+    const fixture = durableFixture(created.id, crypto.randomUUID());
+    fixture.participants.push(withReviewer.participants.find((participant) => (
+      participant.kind === 'agent' && participant.id !== withReviewer.primaryAgentId
+    ))!);
+    const snapshot = publicSession(fixture);
+    const diagramId = getArtifacts(snapshot)[0].id;
+    const sketchId = snapshot.sketches[0].id;
+    const reviewerId = snapshot.participants.find((participant) => (
+      participant.kind === 'agent' && participant.id !== snapshot.primaryAgentId
+    ))!.id;
+    const prior = {
+      ...hydrateSession(snapshot),
+      activeDiagramId: sketchId,
+      addressedAgentId: reviewerId,
+      defaultMode: 'agent' as const,
+    };
+    const hydrated = hydrateSession(snapshot, prior, {
+      activeDiagramId: diagramId,
+      addressedAgentId: snapshot.primaryAgentId,
+      defaultMode: 'ask',
+    });
+    expect(hydrated).toMatchObject({
+      activeDiagramId: sketchId,
+      addressedAgentId: reviewerId,
+      defaultMode: 'agent',
+    });
     await store.close();
   });
 });

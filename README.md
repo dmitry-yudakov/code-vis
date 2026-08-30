@@ -222,9 +222,11 @@ environment of whoever starts CodeAI.**
   own independently editable repository list. A session can be loose or repository-free; the
   canvas, roster, and conversation record remain available, while a turn clearly asks for a primary
   repository.
-- The browser lists and hydrates snapshots from `/api/sessions`. It writes no transcript, canvas,
-  roster, or annotation content to `localStorage`; only the selected checkout preference is stored
-  as device state. Reloading or a second browser context sees committed host content after refetch.
+- The browser lists and hydrates snapshots from `/api/sessions`. A versioned device record in
+  `localStorage` restores open/focused session views, drafts, unread counts, active canvases,
+  addressee/mode, repository selection, canvas cameras, and per-view panels. It writes no
+  transcript, canvas, roster, annotation, project, or repository-binding content there. Reloading
+  or a second browser context sees committed host content after refetch, with its own layout.
 - Later turns resume the addressed participant's host-bound native provider session and receive
   only the bounded canonical transcript delta missed since its last complete turn. The server
   defaults to 40 entries / 24 KB and never accepts a browser-supplied transcript.

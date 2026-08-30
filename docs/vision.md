@@ -201,11 +201,12 @@ Roughly in dependency order; the engineering detail and current status of each l
    ([Story 26](../stories/STORY-20260826-loosen-project-host-bindings.md)).
 2. **Runs addressed by id** — *shipped.* Every live and retained turn discoverable and answerable by
    `runId` ([Story 27](../stories/STORY-20260826-session-keyed-host-bound-runs.md)).
-3. **Projects, and sessions without or with several repositories** — the grouping the arena lists
+3. **Projects, and sessions without or with several repositories** — *shipped.* The grouping the arena lists
    sessions under, the repository-free session, and repository surfaces that follow the selected one
    ([Story 35](../stories/STORY-20260829-projects-and-repositories.md)).
-4. **Several sessions open at once** — views and per-device layout, still one turn running globally.
-   Navigation without concurrency.
+4. **Several sessions open at once** — *shipped.* Views and per-device layout, still one turn
+   running globally; navigation without concurrency
+   ([Story 36](../stories/STORY-20260830-multi-session-workspace.md)).
 5. **Concurrent turns** — a per-machine limit, queueing, and background activity across sessions.
 6. **The arena** — the overview itself: states, the Inbox, cross-session permission answering, and
    starting a session from it.
@@ -214,8 +215,8 @@ Roughly in dependency order; the engineering detail and current status of each l
 9. **Spatial surfaces** — desktop 3D first, then WebXR.
 10. **Cloud execution** — sandboxes, subscription-in-container, joining from anywhere.
 
-Steps 1–2 shipped in August 2026 and are what makes the rest affordable. Step 3 is specified; from
-step 4 on this is direction, not a plan.
+Steps 1–4 shipped in August 2026 and are what makes the rest affordable. From step 5 on this is
+direction, not a plan.
 
 The arena comes fourth of the four near-term steps rather than first, for two reasons. It groups
 sessions **by project**, so building it before step 3 gives one flat list of everything; and its

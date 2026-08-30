@@ -237,8 +237,8 @@ repo.
 
 ## Browser state implications
 
-The current shell owns one selected project, one selected session, and one global `running` flag. A
-workspace needs state indexed by view and session instead:
+Story 36 replaces the shell's one selected-session slot with a small workspace state owner. Within
+the selected project, it keeps ordered open views and singular focus, while each view retains:
 
 - loading or failure in one view must not block navigation in another;
 - each view retains its active canvas, viewport, open panels, drafts, and unread state;
@@ -248,10 +248,11 @@ workspace needs state indexed by view and session instead:
   focused, including in immersive mode;
 - a view whose machine is unreachable is a normal state, not an error — asleep laptops are routine.
 
-This likely calls for a workspace-level state owner and smaller per-view controllers rather than
-extending the current `AppShell` with parallel arrays of state. Story 26 first removes durable
-conversation content from browser storage. `localStorage` may later persist device-specific layout,
-selection, viewport, panels, modes, or drafts, but losing it must never lose a session.
+The versioned device records now persist layout, selection, viewport, panels, modes, drafts, and
+unread counts in `localStorage`; losing them never loses a session. Canonical conversation,
+artifact, annotation, participant, project, and repository content remains in Story 26's host JSON.
+Cross-project views, durable workspace identity, and remote/offline-machine presentation remain for
+the arena and device slices.
 
 ## Agent concurrency
 
@@ -339,8 +340,10 @@ resolved on the machine that executes it, never asserted by the device that requ
    project records, repository management UI, the repository-free session, and repository surfaces
    that follow the selected one. This precedes the arena because the arena groups sessions by
    project.
-5. **Workspace shell:** open several sessions at once in the browser, persist the arrangement
-   locally, still one agent run globally. Tests navigation without taking on concurrency.
+5. **Workspace shell — shipped 2026-08-30:**
+   [Story 36](../stories/STORY-20260830-multi-session-workspace.md) opens several tabbed session
+   views within the selected project, persists their device layout locally, and keeps one agent run
+   globally. It tests navigation and host-wide reattachment without taking on concurrency.
 6. **Independent run registry:** concurrent runs keyed by provider session with a conservative
    per-machine limit, and background activity/permissions surfaced across sessions. The arena's
    states are thin until this lands.
@@ -370,8 +373,8 @@ skipped for a real headset or cloud workflow.
 1. Is a workspace automatically created per user, explicitly named, or both — and is it per user or
    per device by default?
 2. Can one session appear in several views, and can one view change its bound session?
-3. What is the smallest useful 2D presentation of the arena and of open sessions: tabs, split panes,
-   or a zoomable surface?
+3. Story 36 chose tabs for one project's open sessions. What is the smallest useful 2D
+   presentation of the arena beyond that strip: a list, cards, split panes, or a zoomable surface?
 4. What is the portable identity of a repository, who mints it, and how are two checkouts of one
    repository recognized as the same repository?
 5. When a session's repositories span machines, what may a turn on one machine do with the others?

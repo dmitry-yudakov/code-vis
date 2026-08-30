@@ -8,11 +8,12 @@ import { AGENT_MODE_HINTS, AGENT_MODE_LABELS, AGENT_MODE_TOOLTIPS } from '@/feat
 const MODES: AgentMode[] = ['ask', 'plan', 'agent'];
 
 export function InstructionComposer({
-  value, running, autoFocus, attached, activeDiagramId, markCounts, mode, unsupportedModes,
+  value, running, turnBlocked, autoFocus, attached, activeDiagramId, markCounts, mode, unsupportedModes,
   onChange, onModeChange, onSend, onCancel, onRemoveAttachment,
 }: {
   value: string;
   running: boolean;
+  turnBlocked?: boolean;
   autoFocus?: boolean;
   attached: CanvasTarget[];
   activeDiagramId?: string;
@@ -97,7 +98,7 @@ export function InstructionComposer({
           className={running ? 'cancel-button' : 'send-button'}
           aria-label={running ? 'Cancel' : 'Send'}
           title={running ? 'Cancel the running turn' : 'Send'}
-          disabled={!running && !canSend}
+          disabled={!running && (turnBlocked || !canSend)}
           onClick={running ? onCancel : onSend}
         >
           <span aria-hidden="true">{running ? '■' : '↑'}</span>

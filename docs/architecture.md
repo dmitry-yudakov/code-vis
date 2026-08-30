@@ -159,7 +159,7 @@ browser-only and produces the SVG. Annotations are vector marks held beside the 
 These are real and deliberate, and they bound what can be built next:
 
 - one active agent run across the whole application;
-- one selected project and one selected session in the browser shell;
+- one selected project, with several device-local tabbed session views and one focused view;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows
   a device-selected binding while turns continue to use the primary binding;
 - clients see committed host content after refetch/reload, but there is no live synchronization,
@@ -167,8 +167,8 @@ These are real and deliberate, and they bound what can be built next:
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The direction past the current shell — the arena, several open sessions, concurrency, and
-sessions spread across machines — is in [vision.md](vision.md), with the record-level engineering
+The direction past the current shell — concurrent turns, the arena, and sessions spread across
+machines — is in [vision.md](vision.md), with the record-level engineering
 notes in [multi-project-session-environment.md](multi-project-session-environment.md) and the names
 in [vocabulary.md](vocabulary.md).
 

@@ -39,7 +39,13 @@ export function canvasTargetId(target: CanvasTarget): string {
  * Adds ephemeral browser selection to a public host snapshot. A refetch preserves selection only
  * while the target still exists; otherwise the newest canvas becomes active.
  */
-export function hydrateSession(snapshot: PublicSession, prior?: SessionSnapshot): SessionSnapshot {
+export type SessionHydrationState = Pick<SessionSnapshot, 'addressedAgentId' | 'activeDiagramId' | 'previousDiagramId' | 'defaultMode'>;
+
+export function hydrateSession(
+  snapshot: PublicSession,
+  prior?: SessionSnapshot,
+  device?: Partial<SessionHydrationState>,
+): SessionSnapshot {
   const base = structuredClone(snapshot) as SessionSnapshot;
   const canvasIds = new Set([
     ...getArtifacts(base).map((artifact) => artifact.id),
@@ -47,18 +53,24 @@ export function hydrateSession(snapshot: PublicSession, prior?: SessionSnapshot)
   ]);
   const agents = new Set(base.participants.flatMap((participant) => participant.kind === 'agent' ? [participant.id] : []));
   const newestCanvas = [...canvasIds].at(-1);
+  const addressedAgentId = prior?.addressedAgentId && agents.has(prior.addressedAgentId)
+    ? prior.addressedAgentId
+    : device?.addressedAgentId && agents.has(device.addressedAgentId)
+      ? device.addressedAgentId
+      : undefined;
+  const activeDiagramId = prior?.activeDiagramId && canvasIds.has(prior.activeDiagramId)
+    ? prior.activeDiagramId
+    : device?.activeDiagramId && canvasIds.has(device.activeDiagramId)
+      ? device.activeDiagramId
+      : newestCanvas;
   return {
     ...base,
-    addressedAgentId: prior?.addressedAgentId && agents.has(prior.addressedAgentId)
-      ? prior.addressedAgentId
-      : base.primaryAgentId,
-    activeDiagramId: prior?.activeDiagramId && canvasIds.has(prior.activeDiagramId)
-      ? prior.activeDiagramId
-      : newestCanvas,
+    addressedAgentId: addressedAgentId || base.primaryAgentId,
+    activeDiagramId,
     previousDiagramId: prior?.previousDiagramId && canvasIds.has(prior.previousDiagramId)
       ? prior.previousDiagramId
       : undefined,
-    defaultMode: prior?.defaultMode,
+    defaultMode: prior?.defaultMode ?? device?.defaultMode,
   };
 }
 

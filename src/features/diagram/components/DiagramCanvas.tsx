@@ -14,6 +14,12 @@ interface Snapshot {
   viewBox: [number, number, number, number];
 }
 
+export interface CanvasViewState {
+  zoom: number;
+  pan: { x: number; y: number };
+  fitted: boolean;
+}
+
 /**
  * A sketch has nothing to render, so it starts from an empty SVG of the sheet's size. The same
  * markup is what the composite exporter draws the marks onto, so a sketch exports like a diagram.
@@ -51,14 +57,18 @@ export function DiagramCanvas({
   target,
   theme,
   initialMarks,
+  initialView,
   onMarksChange,
+  onViewChange,
   onSnapshot,
   onArtifactError,
 }: {
   target: CanvasTarget;
   theme: ThemeName;
   initialMarks: DrawingMark[];
+  initialView?: CanvasViewState;
   onMarksChange(marks: DrawingMark[]): void;
+  onViewChange(view: CanvasViewState): void;
   onSnapshot(snapshot?: Snapshot): void;
   onArtifactError(status: 'parse-error' | 'render-error', error: string): void;
 }) {
@@ -70,25 +80,29 @@ export function DiagramCanvas({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
-  const fittedCanvasRef = useRef<string | undefined>(undefined);
-  const viewIsFittedRef = useRef(false);
+  const fittedCanvasRef = useRef<string | undefined>(initialView ? canvasId : undefined);
+  const viewIsFittedRef = useRef(initialView?.fitted ?? false);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [renderError, setRenderError] = useState<string>();
   const [tool, setTool] = useState<DrawingTool>('pointer');
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(initialView?.zoom ?? 1);
+  const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
+  const [fitted, setFitted] = useState(initialView?.fitted ?? false);
   const [state, dispatch] = useReducer(drawingReducer, { marks: initialMarks, past: [], future: [] });
   const gesture = useRef<{ mode: DrawingTool; start: Point; panStart: Point; markId?: string } | undefined>(undefined);
   const color = '#c67139';
 
   useEffect(() => {
     dispatch({ type: 'reset', marks: initialMarks });
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-    fittedCanvasRef.current = undefined;
+    setZoom(initialView?.zoom ?? 1);
+    setPan(initialView?.pan ?? { x: 0, y: 0 });
+    setFitted(initialView?.fitted ?? false);
+    viewIsFittedRef.current = initialView?.fitted ?? false;
+    fittedCanvasRef.current = initialView ? canvasId : undefined;
   }, [canvasId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => onMarksChange(state.marks), [state.marks, onMarksChange]);
+  useEffect(() => onViewChange({ zoom, pan, fitted }), [fitted, onViewChange, pan, zoom]);
 
   const sketchSheet = sketch?.viewBox.join(' ');
   useEffect(() => {
@@ -135,6 +149,7 @@ export function DiagramCanvas({
     setZoom(Math.max(0.08, Math.min(4, Math.min(visibleWidth / snapshot.viewBox[2], visibleHeight / snapshot.viewBox[3]))));
     setPan({ x: (left - right) / 2, y: (top - bottom) / 2 });
     viewIsFittedRef.current = true;
+    setFitted(true);
   }, [snapshot]);
 
   const fitRef = useRef(fit);
@@ -242,6 +257,7 @@ export function DiagramCanvas({
     if (!current || !snapshot) return;
     if (current.mode === 'pointer' || current.mode === 'pan') {
       viewIsFittedRef.current = false;
+      setFitted(false);
       setPan({ x: event.clientX - current.panStart.x, y: event.clientY - current.panStart.y });
       return;
     }
@@ -303,6 +319,7 @@ export function DiagramCanvas({
         onWheel={(event) => {
           event.preventDefault();
           viewIsFittedRef.current = false;
+          setFitted(false);
           setZoom((value) => Math.max(0.08, Math.min(8, value * (event.deltaY > 0 ? 0.9 : 1.1))));
         }}
       >
@@ -329,11 +346,11 @@ export function DiagramCanvas({
         )}
       </div>
       <div ref={controlsRef} className="canvas-controls" aria-label="Canvas view controls">
-        <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom((value) => Math.max(0.08, value / 1.2)); }} aria-label="Zoom out">−</button>
+        <button type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom((value) => Math.max(0.08, value / 1.2)); }} aria-label="Zoom out">−</button>
         <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom((value) => Math.min(8, value * 1.2)); }} aria-label="Zoom in">+</button>
+        <button type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom((value) => Math.min(8, value * 1.2)); }} aria-label="Zoom in">+</button>
         <button type="button" onClick={fit}>Fit</button>
-        <button type="button" onClick={() => { viewIsFittedRef.current = false; setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
+        <button type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
         {/* Everything past the rule downloads a file. `.mmd` and `JSON` named the format rather
             than what they save, and sat in the same row as the view controls. */}
         <span className="control-separator" aria-hidden="true" />

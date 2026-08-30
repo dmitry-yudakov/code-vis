@@ -5,27 +5,21 @@ import {
   CANVAS_MIN_WIDTH,
   CONVERSATION_MAX_WIDTH,
   CONVERSATION_MIN_WIDTH,
-  DEFAULT_PANEL_WIDTHS,
+  DEFAULT_PANEL_LAYOUT,
   PANEL_WIDTHS_STORAGE_KEY,
+  VIEW_PANEL_LAYOUTS_STORAGE_KEY,
   REPOSITORY_MAX_WIDTH,
   REPOSITORY_MIN_WIDTH,
   clamp,
   dockCapacityForWidth,
   parsePanelWidths,
+  parseViewPanelLayouts,
+  reconcilePanelLayouts,
   resolveDockWidths,
+  storePanelLayout,
   type DockCapacity,
-  type LastOpenedPanel,
+  type PanelLayout,
 } from './panelLayout';
-
-export interface PanelLayout {
-  repositoryOpen: boolean;
-  conversationOpen: boolean;
-  historyOpen: boolean;
-  inspectorOpen: boolean;
-  focusMode: boolean;
-  repositoryWidth: number;
-  conversationWidth: number;
-}
 
 type ResizePanel = 'repository' | 'conversation';
 
@@ -48,25 +42,32 @@ export function useDockCapacity(shellRef: RefObject<HTMLElement | null>): { capa
   return measurement;
 }
 
-export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean) {
+export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean, viewId?: string) {
   const { capacity: dockCapacity, width: shellWidth } = useDockCapacity(shellRef);
-  const [layout, setLayout] = useState<PanelLayout>({
-    repositoryOpen: true,
-    conversationOpen: false,
-    historyOpen: false,
-    inspectorOpen: false,
-    focusMode: false,
-    ...DEFAULT_PANEL_WIDTHS,
-  });
-  const [lastOpened, setLastOpened] = useState<LastOpenedPanel>('repository');
+  const [layouts, setLayouts] = useState<Record<string, PanelLayout>>({});
+  const [defaultLayout, setDefaultLayout] = useState(DEFAULT_PANEL_LAYOUT);
   const [resize, setResize] = useState<{ panel: ResizePanel; startX: number; startWidth: number }>();
   const [storageReady, setStorageReady] = useState(false);
+  const layout = viewId ? layouts[viewId] || defaultLayout : defaultLayout;
+  const lastOpened = layout.lastOpened;
+  const setLayout = useCallback((update: (current: PanelLayout) => PanelLayout) => {
+    if (!viewId) {
+      setDefaultLayout(update);
+      return;
+    }
+    setLayouts((current) => {
+      const prior = current[viewId] || defaultLayout;
+      const next = update(prior);
+      return next === prior ? current : storePanelLayout(current, viewId, next);
+    });
+  }, [defaultLayout, viewId]);
   const dockOpen = layout.conversationOpen || layout.historyOpen;
 
   useEffect(() => {
     try {
       const widths = parsePanelWidths(localStorage.getItem(PANEL_WIDTHS_STORAGE_KEY));
-      setLayout((current) => ({ ...current, ...widths }));
+      setDefaultLayout((current) => ({ ...current, ...widths }));
+      setLayouts(parseViewPanelLayouts(localStorage.getItem(VIEW_PANEL_LAYOUTS_STORAGE_KEY)));
     } catch {
       // Device preferences are optional; an unavailable localStorage keeps safe defaults.
     } finally {
@@ -77,6 +78,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   useEffect(() => {
     if (!storageReady) return;
     try {
+      localStorage.setItem(VIEW_PANEL_LAYOUTS_STORAGE_KEY, JSON.stringify({ version: 1, layouts }));
       localStorage.setItem(PANEL_WIDTHS_STORAGE_KEY, JSON.stringify({
         repositoryWidth: layout.repositoryWidth,
         conversationWidth: layout.conversationWidth,
@@ -84,14 +86,14 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     } catch {
       // Resizing remains usable when preference persistence is unavailable.
     }
-  }, [layout.conversationWidth, layout.repositoryWidth, storageReady]);
+  }, [layout.conversationWidth, layout.repositoryWidth, layouts, storageReady]);
 
   useEffect(() => {
     if (dockCapacity !== 1 || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
-    setLayout((current) => lastOpened === 'dock'
+    setLayout((current) => current.lastOpened === 'dock'
       ? { ...current, repositoryOpen: false }
       : { ...current, conversationOpen: false, historyOpen: false });
-  }, [dockCapacity, dockOpen, lastOpened, layout.repositoryOpen, repositoryAvailable]);
+  }, [dockCapacity, dockOpen, layout.repositoryOpen, repositoryAvailable, setLayout]);
 
   useEffect(() => {
     if (!layout.inspectorOpen || dockCapacity !== 2 || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
@@ -99,46 +101,61 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (needed > shellWidth) {
       setLayout((current) => ({ ...current, conversationOpen: false, historyOpen: false }));
     }
-  }, [dockCapacity, dockOpen, layout.conversationWidth, layout.inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, shellWidth]);
+  }, [dockCapacity, dockOpen, layout.conversationWidth, layout.inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout, shellWidth]);
 
   const openRepository = useCallback(() => {
-    setLastOpened('repository');
     setLayout((current) => ({
       ...current,
+      lastOpened: 'repository',
       repositoryOpen: true,
       ...(dockCapacity === 1 ? { conversationOpen: false, historyOpen: false } : {}),
     }));
-  }, [dockCapacity]);
-  const closeRepository = useCallback(() => setLayout((current) => ({ ...current, repositoryOpen: false })), []);
+  }, [dockCapacity, setLayout]);
+  const closeRepository = useCallback(() => setLayout((current) => ({ ...current, repositoryOpen: false })), [setLayout]);
   const toggleRepository = useCallback(() => {
     if (layout.repositoryOpen) closeRepository();
     else openRepository();
   }, [closeRepository, layout.repositoryOpen, openRepository]);
 
   const openConversation = useCallback(() => {
-    setLastOpened('dock');
     setLayout((current) => ({
       ...current,
+      lastOpened: 'dock',
       repositoryOpen: dockCapacity === 1 ? false : current.repositoryOpen,
       conversationOpen: true,
       historyOpen: false,
     }));
-  }, [dockCapacity]);
-  const closeConversation = useCallback(() => setLayout((current) => ({ ...current, conversationOpen: false })), []);
+  }, [dockCapacity, setLayout]);
+  const openConversationFor = useCallback((targetViewId: string) => {
+    setLayouts((current) => {
+      const prior = current[targetViewId] || defaultLayout;
+      return storePanelLayout(current, targetViewId, {
+        ...prior,
+        lastOpened: 'dock',
+        repositoryOpen: dockCapacity === 1 ? false : prior.repositoryOpen,
+        conversationOpen: true,
+        historyOpen: false,
+      });
+    });
+  }, [defaultLayout, dockCapacity]);
+  const reconcile = useCallback((sessionIds: readonly string[]) => {
+    setLayouts((current) => reconcilePanelLayouts(current, sessionIds));
+  }, []);
+  const closeConversation = useCallback(() => setLayout((current) => ({ ...current, conversationOpen: false })), [setLayout]);
   const openHistory = useCallback(() => {
-    setLastOpened('dock');
     setLayout((current) => ({
       ...current,
+      lastOpened: 'dock',
       repositoryOpen: dockCapacity === 1 ? false : current.repositoryOpen,
       conversationOpen: false,
       historyOpen: true,
     }));
-  }, [dockCapacity]);
-  const closeHistory = useCallback(() => setLayout((current) => ({ ...current, historyOpen: false })), []);
+  }, [dockCapacity, setLayout]);
+  const closeHistory = useCallback(() => setLayout((current) => ({ ...current, historyOpen: false })), [setLayout]);
   const setInspectorOpen = useCallback((inspectorOpen: boolean) => {
     setLayout((current) => current.inspectorOpen === inspectorOpen ? current : { ...current, inspectorOpen });
-  }, []);
-  const toggleFocusMode = useCallback(() => setLayout((current) => ({ ...current, focusMode: !current.focusMode })), []);
+  }, [setLayout]);
+  const toggleFocusMode = useCallback(() => setLayout((current) => ({ ...current, focusMode: !current.focusMode })), [setLayout]);
 
   const panelMaximum = useCallback((panel: ResizePanel) => {
     if (dockCapacity === 0 || !shellWidth) return panel === 'repository' ? REPOSITORY_MAX_WIDTH : CONVERSATION_MAX_WIDTH;
@@ -158,7 +175,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       ...current,
       [panel === 'repository' ? 'repositoryWidth' : 'conversationWidth']: clamp(width, minimum, maximum),
     }));
-  }, [panelMaximum]);
+  }, [panelMaximum, setLayout]);
 
   useEffect(() => {
     if (!resize) return;
@@ -233,6 +250,8 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     closeRepository,
     toggleRepository,
     openConversation,
+    openConversationFor,
+    reconcile,
     closeConversation,
     openHistory,
     closeHistory,

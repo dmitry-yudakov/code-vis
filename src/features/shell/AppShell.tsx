@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import type {
   AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, SessionSnapshot, DiagramArtifact,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
@@ -20,6 +20,7 @@ import {
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionPicker } from '@/features/conversation/SessionPicker';
+import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/components/CanvasWorkspace';
@@ -31,6 +32,8 @@ import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { reconcileSessionRun } from '@/features/conversation/runRecovery';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
+import { useWorkspaceViews } from './useWorkspaceViews';
+import { replacePendingCanvasRevision } from './workspaceViews';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
@@ -68,37 +71,37 @@ export function AppShell() {
   const [recentCheckoutIds, setRecentCheckoutIds] = useState<string[]>([]);
   const [hostId, setHostId] = useState<string>();
   const [projectId, setProjectId] = useState<string>();
-  const [selectedCheckoutId, setSelectedCheckoutId] = useState<string>();
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
-  const [sessionId, setSessionId] = useState<string>();
-  const panelLayout = usePanelLayout(shellRef, Boolean(sessionId));
+  const workspace = useWorkspaceViews(projectId);
+  const sessionId = workspace.scope.focusedSessionId;
+  const view = sessionId ? workspace.scope.views[sessionId] : undefined;
+  const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [runningSessionId, setRunningSessionId] = useState<string>();
   const [status, setStatus] = useState('Ready for an instruction');
-  const [composer, setComposer] = useState('');
   const [preview, setPreview] = useState('');
   const [toolActivity, setToolActivity] = useState<ToolActivityEntry[]>([]);
   const [runFailed, setRunFailed] = useState(false);
   const [permissions, setPermissions] = useState<PendingPermission[]>([]);
   const [decidingPermission, setDecidingPermission] = useState<string>();
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
-  const [unread, setUnread] = useState(0);
-  const [pendingAttachmentIds, setPendingAttachmentIds] = useState<string[]>([]);
   const [notice, setNotice] = useState<string>();
   const [busyRun, setBusyRun] = useState<RunDescriptor>();
-  const [missingProviderSession, setMissingProviderSession] = useState(false);
+  const [missingProviderSessionId, setMissingProviderSessionId] = useState<string>();
   /** Set when a turn stopped on its turn budget: the session survives, so it can be resumed. */
   const [continueMode, setContinueMode] = useState<AgentMode>();
+  const [continueSessionId, setContinueSessionId] = useState<string>();
   const [participantBusy, setParticipantBusy] = useState(false);
   const abortRef = useRef<AbortController | undefined>(undefined);
   const runIdRef = useRef<string | undefined>(undefined);
   const toolActivityKeyRef = useRef(0);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
-  const navigationRevision = useRef(0);
+  const navigationRevisions = useRef(new Map<string, number>());
   const participantRequestIds = useRef(new Map<string, string>());
   const sessionsRef = useRef<SessionSnapshot[]>([]);
   const mutationQueues = useRef(new Map<string, Promise<void>>());
@@ -108,8 +111,44 @@ export function AppShell() {
   const runningRef = useRef(running);
   runningRef.current = running;
   sessionsRef.current = sessions;
+  const focusedSessionIdRef = useRef(sessionId);
+  focusedSessionIdRef.current = sessionId;
+
+  const composer = view?.composer || '';
+  const unread = view?.unread || 0;
+  const pendingAttachmentIds = view?.pendingAttachmentIds
+    ?? (sessions.find((item) => item.id === sessionId)?.activeDiagramId
+      ? [sessions.find((item) => item.id === sessionId)!.activeDiagramId!]
+      : []);
+  const selectedCheckoutId = view?.selectedCheckoutId;
+  const setComposer = useCallback((value: SetStateAction<string>) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => ({
+      ...current,
+      composer: typeof value === 'function' ? value(current.composer) : value,
+    }));
+  }, [sessionId, workspace.updateView]);
+  const setUnread = useCallback((value: SetStateAction<number>) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => ({
+      ...current,
+      unread: typeof value === 'function' ? value(current.unread) : value,
+    }));
+  }, [sessionId, workspace.updateView]);
+  const setPendingAttachmentIds = useCallback((value: SetStateAction<string[]>) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => {
+      const existing = current.pendingAttachmentIds ?? pendingAttachmentIds;
+      return { ...current, pendingAttachmentIds: typeof value === 'function' ? value(existing) : value };
+    });
+  }, [pendingAttachmentIds, sessionId, workspace.updateView]);
+  const setSelectedCheckoutId = useCallback((value?: string) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => ({ ...current, selectedCheckoutId: value }));
+  }, [sessionId, workspace.updateView]);
 
   const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
+  const sessionRunning = Boolean(running && sessionId && sessionId === runningSessionId);
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
@@ -148,7 +187,7 @@ export function AppShell() {
   const applyServerSnapshot = useCallback((snapshot: PublicSession): SessionSnapshot => {
     const current = sessionsRef.current;
     const prior = current.find((item) => item.id === snapshot.id);
-    const hydrated = hydrateSession(snapshot, prior);
+    const hydrated = hydrateSession(snapshot, prior, workspace.getView(snapshot.id));
     const next = prior
       ? current.map((item) => item.id === snapshot.id ? hydrated : item)
       : [hydrated, ...current];
@@ -162,7 +201,7 @@ export function AppShell() {
       ].slice(0, 5));
     }
     return hydrated;
-  }, []);
+  }, [workspace.getView]);
 
   const refreshSession = useCallback(async (targetSessionId: string): Promise<SessionSnapshot | undefined> => {
     try {
@@ -245,7 +284,7 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    if (!catalogReady) return;
+    if (!catalogReady || !workspace.ready) return;
     let current = true;
     setLoading(true);
     const query = projectId ? `projectId=${encodeURIComponent(projectId)}` : 'loose=true';
@@ -258,10 +297,11 @@ export function AppShell() {
       .then((snapshots) => {
         if (!current) return;
         const prior = new Map(sessionsRef.current.map((item) => [item.id, item]));
-        const hydrated = snapshots.map((snapshot) => hydrateSession(snapshot, prior.get(snapshot.id)));
+        const hydrated = snapshots.map((snapshot) => hydrateSession(snapshot, prior.get(snapshot.id), workspace.getView(snapshot.id)));
         sessionsRef.current = hydrated;
         setSessions(hydrated);
-        setSessionId((selected) => hydrated.some((item) => item.id === selected) ? selected : hydrated[0]?.id);
+        const retainedViewIds = workspace.reconcile(hydrated.map((item) => item.id));
+        panelLayout.reconcile(retainedViewIds);
         setNotice(undefined);
         setLoading(false);
       })
@@ -269,24 +309,18 @@ export function AppShell() {
         if (!current) return;
         sessionsRef.current = [];
         setSessions([]);
-        setSessionId(undefined);
         setNotice(error instanceof Error ? error.message : 'Sessions could not be loaded.');
         setLoading(false);
       });
     return () => { current = false; };
-  }, [catalogReady, projectId]);
+  }, [catalogReady, panelLayout.reconcile, projectId, workspace.getView, workspace.ready, workspace.reconcile]);
 
   useEffect(() => {
-    const active = session?.activeDiagramId;
-    setPendingAttachmentIds(active ? [active] : []);
     snapshotRef.current = undefined;
   }, [sessionId, session?.activeDiagramId]);
 
   useEffect(() => {
-    if (!session || !hostId) {
-      setSelectedCheckoutId(undefined);
-      return;
-    }
+    if (!session || !hostId) return;
     const local = session.repositories.filter((repository) => (
       repository.hostId === hostId && checkouts.some((checkout) => checkout.id === repository.checkoutId)
     ));
@@ -298,6 +332,27 @@ export function AppShell() {
     setSelectedCheckoutId(next);
   }, [checkouts, hostId, savedCheckoutId, selectedCheckoutId, session]);
 
+  useEffect(() => {
+    if (!session) return;
+    workspace.updateView(session.id, (current) => {
+      if (
+        current.activeDiagramId === session.activeDiagramId
+        && current.addressedAgentId === session.addressedAgentId
+        && current.defaultMode === session.defaultMode
+      ) return current;
+      return {
+        ...current,
+        activeDiagramId: session.activeDiagramId,
+        addressedAgentId: session.addressedAgentId,
+        defaultMode: session.defaultMode,
+      };
+    });
+  }, [session?.activeDiagramId, session?.addressedAgentId, session?.defaultMode, session?.id, workspace.updateView]);
+
+  useEffect(() => {
+    if (session && panelLayout.conversationOpen && unread) setUnread(0);
+  }, [panelLayout.conversationOpen, session, setUnread, unread]);
+
   const mutateSession = useCallback((id: string, operation: (value: SessionSnapshot) => SessionSnapshot) => {
     setSessions((current) => {
       const next = current.map((item) => item.id === id ? operation(item) : item);
@@ -307,7 +362,6 @@ export function AppShell() {
   }, []);
 
   const createSession = useCallback(async (requestedProvider: AgentProvider = newProvider) => {
-    if (running) return;
     setNotice(undefined);
     try {
       const response = await fetch('/api/sessions', {
@@ -318,13 +372,13 @@ export function AppShell() {
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
       const created = applyServerSnapshot(data.session);
-      setSessionId(created.id);
-      panelLayout.openConversation();
-      setMissingProviderSession(false);
+      panelLayout.openConversationFor(created.id);
+      workspace.open(created.id);
+      setMissingProviderSessionId(undefined);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
     }
-  }, [applyServerSnapshot, newProvider, panelLayout.openConversation, projectId, running]);
+  }, [applyServerSnapshot, newProvider, panelLayout.openConversationFor, projectId, workspace.open]);
 
   const switchProject = (next?: string) => {
     if (next === projectId) return;
@@ -333,12 +387,7 @@ export function AppShell() {
     setProjectId(next);
     sessionsRef.current = [];
     setSessions([]);
-    setSessionId(undefined);
-    setUnread(0);
-    panelLayout.closeConversation();
-    panelLayout.closeHistory();
     setRepositoryTree(undefined);
-    panelLayout.openRepository();
   };
 
   const createProject = useCallback(async (name: string) => {
@@ -403,7 +452,7 @@ export function AppShell() {
   }, []);
 
   const updateRepositories = useCallback((update: (current: RepositoryBinding[]) => RepositoryBinding[]) => {
-    if (!session || running) return;
+    if (!session || sessionRunning) return;
     void enqueueSessionMutation(session.id, (current) => {
       const repositories = update(current.repositories);
       return fetch(`/api/sessions/${encodeURIComponent(session.id)}/repositories`, {
@@ -420,18 +469,18 @@ export function AppShell() {
     }).catch((error: unknown) => {
       setNotice(error instanceof Error ? error.message : 'Could not update session repositories.');
     });
-  }, [enqueueSessionMutation, refreshProjects, running, selectedCheckoutId, session]);
+  }, [enqueueSessionMutation, refreshProjects, selectedCheckoutId, session, sessionRunning]);
 
   const selectDiagram = useCallback((id: string) => {
     if (!sessionId) return;
-    navigationRevision.current += 1;
+    navigationRevisions.current.set(sessionId, (navigationRevisions.current.get(sessionId) || 0) + 1);
     mutateSession(sessionId, (current) => ({ ...current, activeDiagramId: id }));
     setPendingAttachmentIds([id]);
   }, [mutateSession, sessionId]);
 
   /** A blank sheet the user can draw on before any diagram exists. */
   const createSketch = useCallback(() => {
-    if (!sessionId || running) return;
+    if (!sessionId || sessionRunning) return;
     const current = sessionsRef.current.find((item) => item.id === sessionId);
     if (!current) return;
     const sketch: SketchCanvas = {
@@ -441,7 +490,7 @@ export function AppShell() {
       createdAt: new Date().toISOString(),
       viewBox: [0, 0, 1_600, 1_000],
     };
-    navigationRevision.current += 1;
+    navigationRevisions.current.set(sessionId, (navigationRevisions.current.get(sessionId) || 0) + 1);
     void enqueueSessionMutation(sessionId, () => fetch(
       `/api/sessions/${encodeURIComponent(sessionId)}/sketches`,
       {
@@ -456,7 +505,7 @@ export function AppShell() {
     }).catch((error: unknown) => {
       setNotice(error instanceof Error ? error.message : 'Could not create the sketch.');
     });
-  }, [enqueueSessionMutation, mutateSession, running, sessionId]);
+  }, [enqueueSessionMutation, mutateSession, sessionId, sessionRunning]);
 
   const removeAttachment = (id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id));
   const toggleAttachment = (id: string) => setPendingAttachmentIds((current) => current.includes(id)
@@ -515,21 +564,35 @@ export function AppShell() {
     snapshotRef.current = value;
   }, []);
 
+  const handleCanvasViewChange = useCallback((diagramId: string, canvasView: { zoom: number; pan: { x: number; y: number }; fitted: boolean }) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => {
+      const prior = current.canvasViews[diagramId];
+      if (
+        prior?.zoom === canvasView.zoom
+        && prior.pan.x === canvasView.pan.x
+        && prior.pan.y === canvasView.pan.y
+        && prior.fitted === canvasView.fitted
+      ) return current;
+      return { ...current, canvasViews: { ...current.canvasViews, [diagramId]: canvasView } };
+    });
+  }, [sessionId, workspace.updateView]);
+
   const setMode = useCallback((next: AgentMode) => {
     if (!sessionId) return;
     mutateSession(sessionId, (current) => ({ ...current, defaultMode: next }));
   }, [mutateSession, sessionId]);
 
   const selectAgent = useCallback((participantId: string) => {
-    if (!sessionId || running) return;
+    if (!sessionId || sessionRunning) return;
     mutateSession(sessionId, (current) => {
       const participant = findAgentParticipant(current.participants, participantId);
       return participant ? { ...current, addressedAgentId: participantId } : current;
     });
-  }, [mutateSession, running, sessionId]);
+  }, [mutateSession, sessionId, sessionRunning]);
 
   const addAgent = useCallback(async (provider: AgentProvider, role: AgentRole) => {
-    if (!session || running || participantBusy) return;
+    if (!session || sessionRunning || participantBusy) return;
     setParticipantBusy(true);
     setNotice(undefined);
     const requestKey = `${session.id}:${provider}:${role}`;
@@ -554,10 +617,10 @@ export function AppShell() {
     } finally {
       setParticipantBusy(false);
     }
-  }, [enqueueSessionMutation, mutateSession, participantBusy, running, session]);
+  }, [enqueueSessionMutation, mutateSession, participantBusy, session, sessionRunning]);
 
   const setPrimaryAgent = useCallback(async (participantId: string) => {
-    if (!session || running || participantBusy) return;
+    if (!session || sessionRunning || participantBusy) return;
     setParticipantBusy(true);
     setNotice(undefined);
     try {
@@ -578,7 +641,7 @@ export function AppShell() {
     } finally {
       setParticipantBusy(false);
     }
-  }, [enqueueSessionMutation, mutateSession, participantBusy, running, session]);
+  }, [enqueueSessionMutation, mutateSession, participantBusy, session, sessionRunning]);
 
   const prefillHandoff = useCallback((participantId: string, text: string, handoffMode?: AgentMode) => {
     selectAgent(participantId);
@@ -626,6 +689,7 @@ export function AppShell() {
     for await (const event of readNdjson<AgentEvent>(response)) {
       if (event.type === 'run-started') {
         runIdRef.current = event.runId;
+        setRunningSessionId(turn.sessionId);
         userMessageId ||= event.messageId;
         mutateSession(turn.sessionId, (current) => ({ ...current, addressedAgentId: event.participantId }));
         await refreshSession(turn.sessionId);
@@ -648,7 +712,9 @@ export function AppShell() {
         };
         setPermissions((current) => current.some((item) => item.requestId === request.requestId) ? current : [...current, request]);
         setStatus(`Waiting for your approval — ${permissionLabel(request)}`);
-        if (!chatOpenRef.current) setUnread((value) => value + 1);
+        if (focusedSessionIdRef.current !== turn.sessionId || !chatOpenRef.current) {
+          workspace.updateView(turn.sessionId, (current) => ({ ...current, unread: current.unread + 1 }));
+        }
       }
       if (event.type === 'permission-resolved') {
         setPermissions((current) => current.filter((item) => item.requestId !== event.requestId));
@@ -659,8 +725,11 @@ export function AppShell() {
         streamError = event;
         setRunFailed(true);
         setNotice(event.message);
-        if (event.code === 'missing-session') setMissingProviderSession(true);
-        if (event.code === 'max-turns') setContinueMode(turn.mode);
+        if (event.code === 'missing-session') setMissingProviderSessionId(turn.sessionId);
+        if (event.code === 'max-turns') {
+          setContinueMode(turn.mode);
+          setContinueSessionId(turn.sessionId);
+        }
         mutateSession(turn.sessionId, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userMessageId && message.role === 'user'
           ? { ...message, status: event.code === 'cancelled' ? 'cancelled' : 'failed', delivery: event.delivery }
           : message) }));
@@ -669,23 +738,24 @@ export function AppShell() {
       if (event.type === 'assistant-message') {
         receivedFinal = true;
         const assistant = event.message as AssistantMessage;
-        const alreadyPresent = sessionsRef.current
-          .find((item) => item.id === turn.sessionId)
-          ?.messages.some((message) => message.id === assistant.id) ?? false;
+        const currentSession = sessionsRef.current.find((item) => item.id === turn.sessionId);
+        const alreadyPresent = currentSession?.messages.some((message) => message.id === assistant.id) ?? false;
         const ready = assistant.blocks.flatMap((block) => block.kind === 'diagram' && block.artifact.status === 'ready' ? [block.artifact] : []);
+        const revisedFromId = !alreadyPresent
+          && ready.length === 1
+          && turn.activeAtSend
+          && turn.attachmentIds?.includes(turn.activeAtSend)
+          && currentSession?.activeDiagramId === turn.activeAtSend
+          && (navigationRevisions.current.get(turn.sessionId) || 0) === turn.navigationAtSend
+          ? turn.activeAtSend
+          : undefined;
         mutateSession(turn.sessionId, (current) => {
           if (current.messages.some((message) => message.id === assistant.id)) return current;
           let activeDiagramId = current.activeDiagramId;
           let previousDiagramId = current.previousDiagramId;
           if (!activeDiagramId && ready[0]) activeDiagramId = ready[0].id;
-          else if (
-            ready.length === 1
-            && turn.activeAtSend
-            && turn.attachmentIds?.includes(turn.activeAtSend)
-            && current.activeDiagramId === turn.activeAtSend
-            && navigationRevision.current === turn.navigationAtSend
-          ) {
-            previousDiagramId = turn.activeAtSend;
+          else if (revisedFromId) {
+            previousDiagramId = revisedFromId;
             activeDiagramId = ready[0].id;
           }
           return {
@@ -698,14 +768,28 @@ export function AppShell() {
             ],
           };
         });
-        if (!alreadyPresent && !chatOpenRef.current) setUnread((value) => value + 1);
+        if (revisedFromId) {
+          workspace.updateView(turn.sessionId, (current) => {
+            const pendingAttachmentIds = replacePendingCanvasRevision(
+              current.pendingAttachmentIds,
+              revisedFromId,
+              ready[0].id,
+            );
+            return pendingAttachmentIds === current.pendingAttachmentIds
+              ? current
+              : { ...current, pendingAttachmentIds };
+          });
+        }
+        if (!alreadyPresent && (focusedSessionIdRef.current !== turn.sessionId || !chatOpenRef.current)) {
+          workspace.updateView(turn.sessionId, (current) => ({ ...current, unread: current.unread + 1 }));
+        }
         if (ready.length > 1) setNotice(`${ready.length} diagram results are ready in history. The active canvas was preserved.`);
         setPreview('');
         await refreshSession(turn.sessionId);
       }
     }
     return { receivedFinal, streamError, userMessageId };
-  }, [mutateSession, refreshSession]);
+  }, [mutateSession, refreshSession, workspace.updateView]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
     if (!session || running) return;
@@ -732,8 +816,9 @@ export function AppShell() {
     }
     setNotice(undefined);
     setBusyRun(undefined);
-    setMissingProviderSession(false);
+    setMissingProviderSessionId(undefined);
     setContinueMode(undefined);
+    setContinueSessionId(undefined);
     const attachmentPayload: DiagramMessageAttachment[] = [];
     let compositeWarning = false;
     for (const canvas of selected) {
@@ -799,7 +884,7 @@ export function AppShell() {
       mode: turnMode,
     };
     const activeAtSend = session.activeDiagramId;
-    const navigationAtSend = navigationRevision.current;
+    const navigationAtSend = navigationRevisions.current.get(session.id) || 0;
     mutateSession(session.id, (current) => ({
       ...current,
       // A sketch-only turn would otherwise title the session with the whole synthesized instruction.
@@ -813,6 +898,7 @@ export function AppShell() {
     setRunFailed(false);
     runningRef.current = true;
     setRunning(true);
+    setRunningSessionId(session.id);
     setStatus(turnMode === 'agent'
       ? `Starting ${turnAgent.displayName}`
       : `Starting read-only ${turnAgent.displayName}`);
@@ -864,6 +950,7 @@ export function AppShell() {
       runIdRef.current = undefined;
       runningRef.current = false;
       setRunning(false);
+      setRunningSessionId(undefined);
       setPreview('');
       setToolActivity([]);
       setPermissions([]);
@@ -876,6 +963,7 @@ export function AppShell() {
     sessions.find((item) => item.id === busyRun.sessionId)?.title
     || `session ${busyRun.sessionId.slice(0, 8)}`
   );
+  const unreadBySession = Object.fromEntries(Object.entries(workspace.scope.views).map(([id, state]) => [id, state.unread]));
 
   const cancelBusyRun = useCallback(async () => {
     if (!busyRun) return;
@@ -911,17 +999,17 @@ export function AppShell() {
     }
   }, []);
 
-  // Recover a turn that outlived the page: discovery selects only live work, while the canonical
-  // session remains authoritative before and after every possible completion race.
+  // Recover the one host-wide turn independently of whichever device-local view has focus.
   useEffect(() => {
-    if (!sessionId || runningRef.current) return;
+    if (loading || !workspace.ready || runningRef.current) return;
     const controller = new AbortController();
     let adoptedRunId: string | undefined;
+    let adoptedSessionId: string | undefined;
     void (async () => {
       try {
         await reconcileSessionRun<Response>({
           async discover() {
-            const response = await fetch(`/api/agent/runs?sessionId=${encodeURIComponent(sessionId)}`, {
+            const response = await fetch('/api/agent/runs', {
               cache: 'no-store',
               signal: controller.signal,
             });
@@ -933,15 +1021,40 @@ export function AppShell() {
               controller.abort();
               throw new DOMException('Run recovery was superseded by a local send.', 'AbortError');
             }
-            return data.active[0];
+            const activeRun = data.active[0];
+            if (!activeRun) return undefined;
+            let owningSession = sessionsRef.current.find((item) => item.id === activeRun.sessionId);
+            if (!owningSession) {
+              const sessionResponse = await fetch(`/api/sessions/${encodeURIComponent(activeRun.sessionId)}`, {
+                cache: 'no-store',
+                signal: controller.signal,
+              });
+              const sessionData = await sessionResponse.json().catch(() => ({})) as { session?: PublicSession; error?: string };
+              if (!sessionResponse.ok || !sessionData.session) {
+                throw new Error(sessionData.error || 'Could not locate the running session.');
+              }
+              owningSession = hydrateSession(sessionData.session);
+            }
+            if (owningSession.projectId !== projectId) {
+              setLoading(true);
+              setProjectId(owningSession.projectId);
+              sessionsRef.current = [];
+              setSessions([]);
+              setRepositoryTree(undefined);
+              return undefined;
+            }
+            return activeRun;
           },
           adopt(run) {
             adoptedRunId = run.runId;
+            adoptedSessionId = run.sessionId;
+            workspace.ensure(run.sessionId);
             runIdRef.current = run.runId;
             setRunFailed(false);
-            mutateSession(sessionId, (current) => ({ ...current, addressedAgentId: run.participantId }));
+            mutateSession(run.sessionId, (current) => ({ ...current, addressedAgentId: run.participantId }));
             runningRef.current = true;
             setRunning(true);
+            setRunningSessionId(run.sessionId);
             setStatus('Reconnecting to the running turn');
           },
           async attach(runId) {
@@ -959,15 +1072,15 @@ export function AppShell() {
             return { kind: 'stream', stream: response };
           },
           async hydrate() {
-            await refreshSession(sessionId);
+            if (adoptedSessionId) await refreshSession(adoptedSessionId);
           },
           async consume(response) {
-            await consumeStream(response, { sessionId, mode: 'agent' });
+            if (adoptedSessionId) await consumeStream(response, { sessionId: adoptedSessionId, mode: 'agent' });
           },
         });
       } catch {
         if (!controller.signal.aborted) {
-          await refreshSession(sessionId);
+          if (adoptedSessionId) await refreshSession(adoptedSessionId);
           if (adoptedRunId) {
             setRunFailed(true);
             setNotice('Lost the connection to the running turn.');
@@ -978,6 +1091,7 @@ export function AppShell() {
           if (runIdRef.current === adoptedRunId) runIdRef.current = undefined;
           runningRef.current = false;
           setRunning(false);
+          setRunningSessionId(undefined);
           setPreview('');
           setToolActivity([]);
           setPermissions([]);
@@ -991,9 +1105,10 @@ export function AppShell() {
       if (adoptedRunId) {
         runningRef.current = false;
         setRunning(false);
+        setRunningSessionId(undefined);
       }
     };
-  }, [consumeStream, mutateSession, refreshSession, sessionId]);
+  }, [consumeStream, loading, mutateSession, projectId, refreshSession, workspace.ensure, workspace.ready]);
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(session?.participants || [], participantId);
@@ -1011,7 +1126,7 @@ export function AppShell() {
     return (
       <div
         ref={shellRef}
-        className={`app-shell dock-capacity-${panelLayout.dockCapacity}`}
+        className={`app-shell workspace-loading dock-capacity-${panelLayout.dockCapacity}`}
         style={panelLayout.shellStyle}
       >
         <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>
@@ -1042,10 +1157,9 @@ export function AppShell() {
           <SessionPicker
             sessions={sessions}
             value={sessionId}
-            disabled={running}
             providers={selectableProviders}
             newProvider={newProvider}
-            onChange={setSessionId}
+            onChange={workspace.open}
             onNewProvider={setNewProvider}
             onNew={(provider) => void createSession(provider)}
           />
@@ -1067,12 +1181,14 @@ export function AppShell() {
           {session && (
             <button
               type="button"
-              className={`run-status-toggle ${running ? 'working' : ''} ${permissions.length ? 'awaiting-approval' : ''}`}
+              className={`run-status-toggle ${sessionRunning ? 'working' : ''} ${sessionRunning && permissions.length ? 'awaiting-approval' : ''}`}
               aria-pressed={panelLayout.conversationOpen}
-              aria-label={permissions.length > 0
-                ? `${permissions.length} action${permissions.length === 1 ? '' : 's'} waiting for your approval. Open conversation`
-                : running ? `Agent working: ${status}. Open conversation` : 'Open conversation'}
-              title={running || permissions.length ? status : 'Open conversation'}
+              aria-label={sessionRunning && permissions.length > 0
+                ? `${permissions.length} action${permissions.length === 1 ? '' : 's'} waiting for your approval. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
+                : sessionRunning
+                  ? `Agent working: ${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
+                  : panelLayout.conversationOpen ? 'Close conversation' : 'Open conversation'}
+              title={sessionRunning || permissions.length ? status : 'Open conversation'}
               onClick={() => {
                 if (panelLayout.conversationOpen) panelLayout.closeConversation();
                 else {
@@ -1082,8 +1198,8 @@ export function AppShell() {
               }}
             >
               <span className="run-status-dot" aria-hidden="true" />
-              <span>{permissions.length ? 'Approval needed' : running ? status : 'Conversation'}</span>
-              {permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
+              <span>{sessionRunning && permissions.length ? 'Approval needed' : sessionRunning ? status : 'Conversation'}</span>
+              {sessionRunning && permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
               {unread > 0 && <span className="unread-badge">{unread}</span>}
             </button>
           )}
@@ -1111,6 +1227,17 @@ export function AppShell() {
         </div>
       </header>
 
+      <WorkspaceTabs
+        sessions={sessions}
+        openSessionIds={workspace.scope.openSessionIds}
+        focusedSessionId={sessionId}
+        runningSessionId={runningSessionId}
+        approvalCount={permissions.length}
+        unreadBySession={unreadBySession}
+        onFocus={workspace.open}
+        onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
+      />
+
       {session && (
         <div className="repository-region">
           <RepositoryPanel
@@ -1122,7 +1249,7 @@ export function AppShell() {
                 checkouts={orderedCheckouts}
                 hostId={hostId}
                 selectedCheckoutId={selectedCheckoutId}
-                disabled={running}
+                disabled={sessionRunning}
                 onSelect={selectCheckout}
                 onChange={updateRepositories}
               />
@@ -1153,8 +1280,8 @@ export function AppShell() {
         <div className="notice-banner" role="status">
           <span>{notice}</span>
           {busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
-          {missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
-          {continueMode && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
+          {missingProviderSessionId && missingProviderSessionId === sessionId && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {continueMode && continueSessionId === sessionId && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => { setNotice(undefined); setBusyRun(undefined); }}>×</button>
         </div>
       )}
@@ -1178,11 +1305,12 @@ export function AppShell() {
             session={session}
             theme={theme}
             unread={unread}
-            pendingApprovals={permissions.length}
-            running={running}
-            runFailed={runFailed}
-            toolActivity={toolActivity}
+            pendingApprovals={sessionRunning ? permissions.length : 0}
+            running={sessionRunning}
+            runFailed={sessionRunning && runFailed}
+            toolActivity={sessionRunning ? toolActivity : []}
             focusMode={panelLayout.focusMode}
+            canvasView={session.activeDiagramId ? view?.canvasViews[session.activeDiagramId] : undefined}
             onComposer={setComposer}
             onOpenChat={() => { panelLayout.openConversation(); setUnread(0); }}
             onOpenHistory={panelLayout.openHistory}
@@ -1190,6 +1318,7 @@ export function AppShell() {
             onSelectDiagram={selectDiagram}
             onNewSketch={createSketch}
             onMarksChange={handleMarksChange}
+            onCanvasViewChange={handleCanvasViewChange}
             onSnapshot={handleSnapshot}
             onArtifactError={handleArtifactError}
           />
@@ -1202,12 +1331,13 @@ export function AppShell() {
               activeAgent={activeAgent}
               healthyProviders={selectableProviders}
               participantBusy={participantBusy}
-              preview={preview}
-              toolActivity={toolActivity}
-              permissions={permissions}
+              preview={sessionRunning ? preview : ''}
+              toolActivity={sessionRunning ? toolActivity : []}
+              permissions={sessionRunning ? permissions : []}
               decidingPermission={decidingPermission}
-              running={running}
-              status={status}
+              running={sessionRunning}
+              turnBlocked={running && !sessionRunning}
+              status={sessionRunning ? status : 'Ready for an instruction'}
               composer={composer}
               mode={mode}
               unsupportedModes={unsupportedModes}

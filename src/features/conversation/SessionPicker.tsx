@@ -4,10 +4,10 @@ import { useRef } from 'react';
 import type { AgentProvider, SessionSnapshot } from '@/shared/types';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 
-export function SessionPicker({ sessions, value, disabled, providers, newProvider, onChange, onNewProvider, onNew }: {
+export function SessionPicker({ sessions, value, newDisabled, providers, newProvider, onChange, onNewProvider, onNew }: {
   sessions: SessionSnapshot[];
   value?: string;
-  disabled?: boolean;
+  newDisabled?: boolean;
   providers: AgentProvider[];
   newProvider: AgentProvider;
   onChange(value: string): void;
@@ -15,7 +15,7 @@ export function SessionPicker({ sessions, value, disabled, providers, newProvide
   onNew(provider: AgentProvider): void;
 }) {
   const newSessionMenu = useRef<HTMLDetailsElement>(null);
-  const newSessionDisabled = Boolean(disabled || !providers.length);
+  const newSessionDisabled = Boolean(newDisabled || !providers.length);
 
   return (
     <div className="session-picker">
@@ -24,7 +24,7 @@ export function SessionPicker({ sessions, value, disabled, providers, newProvide
         <select
           aria-label="Session"
           value={value || ''}
-          disabled={disabled || !sessions.length}
+          disabled={!sessions.length}
           onChange={(event) => onChange(event.target.value)}
         >
           {!sessions.length && <option value="">No sessions yet</option>}
@@ -50,7 +50,7 @@ export function SessionPicker({ sessions, value, disabled, providers, newProvide
             <select
               aria-label="New session provider"
               value={providers.includes(newProvider) ? newProvider : ''}
-              disabled={disabled || !providers.length}
+              disabled={newDisabled || !providers.length}
               onChange={(event) => onNewProvider(event.target.value as AgentProvider)}
             >
               {!providers.length && <option value="">No provider</option>}
@@ -59,7 +59,7 @@ export function SessionPicker({ sessions, value, disabled, providers, newProvide
           </label>
           <button
             type="button"
-            disabled={disabled || !providers.length}
+            disabled={newDisabled || !providers.length}
             onClick={() => {
               onNew(newProvider);
               if (newSessionMenu.current) newSessionMenu.current.open = false;

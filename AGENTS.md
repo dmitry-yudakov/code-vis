@@ -10,8 +10,8 @@ Updated 2026-08-30. When a story ships, change the line that names it; each stor
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** several sessions open at once — views and per-device layout, still with one global turn.
-- **Then:** concurrent turns, the arena, and machine/device separation as ordered in
+- **Next:** concurrent turns — a conservative per-machine limit, queueing, and background activity.
+- **Then:** the arena and machine/device separation as ordered in
   [vision.md](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
@@ -85,8 +85,9 @@ importing file's own directory; keep `./…` for same-directory siblings.
 - Mermaid source is the canonical stored diagram artifact. Diagrams are immutable; a revision is a
   new artifact, never a patch of an old one.
 - Canonical project and session content (repository bindings, transcript, artifacts, marks, pins,
-  roster, provider sessions, cursors) lives in revisioned host JSON. Browser memory owns device-only selection, panels, mode, and drafts;
-  `localStorage` holds only the selected-checkout preference.
+  roster, provider sessions, cursors) lives in revisioned host JSON. Browser memory owns
+  device-only views, selection, panels, mode, drafts, and canvas cameras; `localStorage` persists
+  that disposable device state and never the durable session record.
 - One agent run is active at a time, application-wide (`src/server/runs/runRegistry.ts`).
 - Settings are `CODEAI_*`; every one also accepts its former `CODEAI_WEB2_*` spelling
   (`src/server/config.ts`). The neutral name wins when both carry a value.

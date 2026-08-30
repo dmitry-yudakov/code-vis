@@ -11,7 +11,7 @@ import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
-  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running,
+  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, turnBlocked,
   status, composer, mode, unsupportedModes, attached, markCounts, onClose, onSelectDiagram, onRetry, onComposer, onModeChange,
   onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
 }: {
@@ -27,6 +27,7 @@ export function ConversationDrawer({
   permissions: PendingPermission[];
   decidingPermission?: string;
   running: boolean;
+  turnBlocked?: boolean;
   status: string;
   composer: string;
   mode: AgentMode;
@@ -62,7 +63,7 @@ export function ConversationDrawer({
           <strong>{session?.title || 'New session'}</strong>
           {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
         </div>
-        <button type="button" onClick={onClose} aria-label="Close session">×</button>
+        <button type="button" onClick={onClose} aria-label="Close conversation drawer">×</button>
       </header>
       <div className="conversation-scroll">
         {session?.messages.map((message) => (
@@ -72,7 +73,7 @@ export function ConversationDrawer({
             theme={theme}
             participants={session.participants}
             activeDiagramId={session.activeDiagramId}
-            running={running}
+            running={running || Boolean(turnBlocked)}
             onSelectDiagram={onSelectDiagram}
             onRetry={onRetry}
             onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined}
@@ -122,10 +123,11 @@ export function ConversationDrawer({
           onAdd={onAddAgent}
           onHandoff={onHandoff}
         />
-        <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{status || 'Ready for an instruction'}</div>
+        <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{turnBlocked && !running ? 'Another session is running' : status || 'Ready for an instruction'}</div>
         <InstructionComposer
           value={composer}
           running={running}
+          turnBlocked={turnBlocked}
           autoFocus
           attached={attached}
           activeDiagramId={session?.activeDiagramId}

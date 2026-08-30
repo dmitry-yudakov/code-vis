@@ -5,7 +5,7 @@ import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { SessionSnapshot, DrawingMark } from '@/shared/types';
 import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
-import { DiagramCanvas } from './DiagramCanvas';
+import { DiagramCanvas, type CanvasViewState } from './DiagramCanvas';
 import { RunRibbon } from './RunRibbon';
 
 export interface CanvasSnapshot {
@@ -22,6 +22,7 @@ export function CanvasWorkspace({
   runFailed,
   toolActivity,
   focusMode,
+  canvasView,
   onComposer,
   onOpenChat,
   onOpenHistory,
@@ -29,6 +30,7 @@ export function CanvasWorkspace({
   onSelectDiagram,
   onNewSketch,
   onMarksChange,
+  onCanvasViewChange,
   onSnapshot,
   onArtifactError,
 }: {
@@ -40,6 +42,7 @@ export function CanvasWorkspace({
   runFailed: boolean;
   toolActivity: ToolActivityEntry[];
   focusMode: boolean;
+  canvasView?: CanvasViewState;
   onComposer(value: string): void;
   onOpenChat(): void;
   onOpenHistory(): void;
@@ -47,6 +50,7 @@ export function CanvasWorkspace({
   onSelectDiagram(id: string): void;
   onNewSketch(): void;
   onMarksChange(diagramId: string, marks: DrawingMark[]): void;
+  onCanvasViewChange(diagramId: string, view: CanvasViewState): void;
   onSnapshot(snapshot?: CanvasSnapshot): void;
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
 }) {
@@ -71,9 +75,12 @@ export function CanvasWorkspace({
   const handleError = useCallback((statusValue: 'parse-error' | 'render-error', error: string) => {
     if (activeId) onArtifactError(activeId, statusValue, error);
   }, [activeId, onArtifactError]);
+  const handleView = useCallback((view: CanvasViewState) => {
+    if (activeId) onCanvasViewChange(activeId, view);
+  }, [activeId, onCanvasViewChange]);
 
   return (
-    <main className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
+    <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
         <div className="canvas-top-actions">
           {session.previousDiagramId && target && (
@@ -103,7 +110,9 @@ export function CanvasWorkspace({
             target={target}
             theme={theme}
             initialMarks={marks}
+            initialView={canvasView}
             onMarksChange={handleMarks}
+            onViewChange={handleView}
             onSnapshot={handleSnapshot}
             onArtifactError={handleError}
           />
