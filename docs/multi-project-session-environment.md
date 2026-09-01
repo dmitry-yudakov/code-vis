@@ -344,9 +344,10 @@ resolved on the machine that executes it, never asserted by the device that requ
    [Story 36](../stories/STORY-20260830-multi-session-workspace.md) opens several tabbed session
    views within the selected project, persists their device layout locally, and keeps one agent run
    globally. It tests navigation and host-wide reattachment without taking on concurrency.
-6. **Independent run registry:** concurrent runs keyed by provider session with a conservative
-   per-machine limit, and background activity/permissions surfaced across sessions. The arena's
-   states are thin until this lands.
+6. **Independent run registry — specified in
+   [Story 37](../stories/STORY-20260901-concurrent-turns.md):** concurrent runs keyed by provider
+   session with a conservative per-machine limit, queueing, and background activity/permissions
+   surfaced across sessions. The arena's states are thin until this lands.
 7. **The arena:** the overview itself — session states, the Inbox, answering a permission from
    another session, and starting a session from it.
 8. **Authenticated devices to one home machine:** pair a user's laptop, phone, or headset with the

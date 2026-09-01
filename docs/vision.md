@@ -207,7 +207,8 @@ Roughly in dependency order; the engineering detail and current status of each l
 4. **Several sessions open at once** — *shipped.* Views and per-device layout, still one turn
    running globally; navigation without concurrency
    ([Story 36](../stories/STORY-20260830-multi-session-workspace.md)).
-5. **Concurrent turns** — a per-machine limit, queueing, and background activity across sessions.
+5. **Concurrent turns** — a per-machine limit, queueing, and background activity across sessions
+   ([Story 37](../stories/STORY-20260901-concurrent-turns.md)).
 6. **The arena** — the overview itself: states, the Inbox, cross-session permission answering, and
    starting a session from it.
 7. **Your own devices** — authenticated pairing to one machine; the arena on a tablet or headset.
