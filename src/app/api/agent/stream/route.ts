@@ -23,18 +23,17 @@ export async function GET(request: Request): Promise<Response> {
   return agentEventStream({
     runId: attachment.runId,
     replay: attachment.replay,
-    headers: { 'X-CodeAI-Run-Finished': String(attachment.finished) },
-    onDetach: () => runRegistry.unsubscribe(attachment.runId),
+    headers: {
+      'X-CodeAI-Run-Finished': String(attachment.finished),
+      'X-CodeAI-Replay-Events': String(attachment.replay.length),
+    },
+    onDetach: () => runRegistry.unsubscribe(attachment.runId, attachment.attachmentId),
     start(write) {
       if (attachment.finished) return Promise.resolve();
       live = write;
-      // Held open until the run emits `done`, which the client uses to close its side too.
-      return new Promise((resolve) => {
-        live = (event) => {
-          write(event);
-          if (event.type === 'done') resolve(undefined);
-        };
-      });
+      // The registry settles this when canonical terminal handling has completed and the machine
+      // slot is released. It also covers queued cancellation and terminal paths without `done`.
+      return runRegistry.wait(runId) || Promise.resolve();
     },
   });
 }

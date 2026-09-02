@@ -10,6 +10,7 @@ const MANAGED = [
   'CODEAI_CLAUDE_BIN', 'CODEAI_WEB2_CLAUDE_BIN',
   'CODEAI_CLAUDE_MODEL', 'CODEAI_WEB2_CLAUDE_MODEL',
   'CODEAI_HOST_LABEL', 'CODEAI_WEB2_HOST_LABEL',
+  'CODEAI_MAX_CONCURRENT_RUNS', 'CODEAI_WEB2_MAX_CONCURRENT_RUNS',
 ] as const;
 
 const original = new Map(MANAGED.map((name) => [name, process.env[name]]));
@@ -47,6 +48,21 @@ describe.sequential('config', () => {
     expect(getConfig().hostLabel).toBe('Desktop');
     delete process.env.CODEAI_HOST_LABEL;
     expect(getConfig().hostLabel).toBe('Legacy desktop');
+  });
+
+  it('defaults machine concurrency to two and accepts the legacy-prefixed setting', () => {
+    delete process.env.CODEAI_MAX_CONCURRENT_RUNS;
+    delete process.env.CODEAI_WEB2_MAX_CONCURRENT_RUNS;
+    expect(getConfig().maxConcurrentRuns).toBe(2);
+    process.env.CODEAI_WEB2_MAX_CONCURRENT_RUNS = '4';
+    expect(getConfig().maxConcurrentRuns).toBe(4);
+    process.env.CODEAI_MAX_CONCURRENT_RUNS = '3';
+    expect(getConfig().maxConcurrentRuns).toBe(3);
+  });
+
+  it.each(['0', '1.5', '9'])('rejects invalid machine concurrency %s', (value) => {
+    process.env.CODEAI_MAX_CONCURRENT_RUNS = value;
+    expect(() => getConfig()).toThrow('CODEAI_MAX_CONCURRENT_RUNS must be an integer between 1 and 8');
   });
 
   describe('web2 compatibility', () => {

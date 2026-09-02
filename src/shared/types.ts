@@ -285,6 +285,7 @@ export interface SessionSnapshot extends PublicSession {
 }
 
 export type AgentPhase =
+  | 'queued'
   | 'starting'
   | 'resuming'
   | 'exploring'
@@ -332,12 +333,19 @@ export type AgentEvent =
   | { type: 'done'; runId: string; durationMs: number; cancelled: boolean };
 
 /** Public, host-local identity for a live or briefly retained agent run. */
+export type RunState = 'queued' | 'running' | 'needs-you' | 'finished';
+
 export interface RunDescriptor {
   runId: string;
   sessionId: string;
   participantId: string;
-  startedAt: number;
+  state: RunState;
+  enqueuedAt: number;
+  startedAt?: number;
   finishedAt?: number;
+  /** One-based and present only while queued. */
+  queuePosition?: number;
+  pendingPermissionCount: number;
 }
 
 export interface RunDiscovery {

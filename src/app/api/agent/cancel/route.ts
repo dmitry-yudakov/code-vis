@@ -17,8 +17,14 @@ export async function POST(request: Request): Promise<Response> {
   }
   const parsed = cancelRunRequestSchema.safeParse(raw);
   if (!parsed.success) return safeJsonResponse({ error: 'Cancel request is invalid.' }, { status: 400 });
-  if (!runRegistry.cancel(parsed.data.runId)) {
+  const outcome = await runRegistry.cancel(parsed.data.runId);
+  if (outcome === 'unknown-run') {
     return safeJsonResponse({ error: 'That agent run is no longer active.' }, { status: 404 });
+  }
+  if (outcome === 'failed') {
+    return safeJsonResponse({
+      error: 'Cancellation could not be recorded. The turn remains queued; retry cancellation.',
+    }, { status: 500 });
   }
   return safeJsonResponse({ ok: true });
 }

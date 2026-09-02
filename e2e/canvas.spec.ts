@@ -3,6 +3,16 @@ import type { Page } from '@playwright/test';
 
 const WORKSPACE_NAME = `E2E workspace ${Date.now()}`;
 
+test.afterEach(async ({ request }) => {
+  const discovery = await request.get('/api/agent/runs');
+  const active = (await discovery.json() as { active?: Array<{ runId: string }> }).active || [];
+  await Promise.all(active.map((run) => request.post('/api/agent/cancel', { data: { runId: run.runId } })));
+  await expect.poll(async () => {
+    const response = await request.get('/api/agent/runs');
+    return ((await response.json() as { active?: unknown[] }).active || []).length;
+  }, { timeout: 10_000 }).toBe(0);
+});
+
 async function startSession(page: Page) {
   const openViews = page.getByRole('tab');
   const before = await openViews.count();
@@ -227,7 +237,7 @@ test('keeps a repository-free loose session usable and durable', async ({ page }
   await expect(page.locator('.sketch-sheet')).toBeVisible();
 });
 
-test('keeps multiple session views and their device layout usable during one global turn', async ({ page }) => {
+test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.new-session-menu summary')).toBeVisible();
   const initiallyOpen = page.locator('.workspace-tab-close');
@@ -252,7 +262,7 @@ test('keeps multiple session views and their device layout usable during one glo
   const backgroundConversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(backgroundConversation.locator('textarea')).toHaveValue('first view draft');
   await backgroundConversation.locator('textarea').fill('first view draft, edited while another turn runs');
-  await expect(backgroundConversation.getByRole('button', { name: 'Send' })).toBeDisabled();
+  await expect(backgroundConversation.getByRole('button', { name: 'Send' })).toBeEnabled();
   await backgroundConversation.getByRole('button', { name: 'Close conversation drawer' }).click();
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
@@ -288,6 +298,130 @@ test('keeps multiple session views and their device layout usable during one glo
   await expect(page.getByRole('tab')).toBeFocused();
 });
 
+test('runs two turns, queues a third, and recovers background approval and promotion', async ({ page }) => {
+  await page.goto('/');
+  await createNamedProject(page, `Concurrent workspace ${Date.now()}`);
+
+  await startSession(page);
+  await attachRepository(page, 'beta');
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot one');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  await startSession(page);
+  await attachRepository(page, 'packages/deep-app');
+  await page.getByRole('button', { name: 'Make packages/deep-app primary' }).click();
+  await page.getByRole('radio', { name: 'Agent' }).click();
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Request an edit approval');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
+
+  await startSession(page);
+  await attachRepository(page, 'alpha');
+  await page.getByRole('button', { name: 'Make alpha primary' }).click();
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot three');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const tabs = page.locator('.workspace-tab');
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(0)).toHaveClass(/working/);
+  await expect(tabs.nth(1)).toHaveClass(/awaiting-approval/);
+  await expect(tabs.nth(2)).toHaveClass(/queued/);
+  await expect(tabs.nth(2)).toHaveAttribute('aria-label', /Queued · position 1/);
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+
+  await page.reload();
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(0)).toHaveClass(/working/);
+  await expect(tabs.nth(1)).toHaveClass(/awaiting-approval/);
+  await expect(tabs.nth(2)).toHaveClass(/queued/);
+
+  await tabs.nth(1).click();
+  await expect(page.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
+  await page.getByRole('button', { name: 'Allow' }).click();
+  await expect(tabs.nth(2)).toHaveClass(/working/);
+  await expect(tabs.nth(2)).not.toHaveClass(/queued/);
+
+  // Clean up both delayed fixture processes; cancellation is explicit and scoped by focused run.
+  if (await tabs.nth(0).evaluate((tab) => tab.classList.contains('working'))) {
+    await tabs.nth(0).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
+  await tabs.nth(2).click();
+  if (await page.getByRole('button', { name: 'Cancel', exact: true }).isVisible()) {
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
+  await expect(tabs.nth(2)).not.toHaveClass(/working/);
+});
+
+test('separates replay from live recovery events and keeps terminal actions per session', async ({ page }) => {
+  await page.goto('/');
+  await createNamedProject(page, `Recovery outcomes ${Date.now()}`);
+
+  await startSession(page);
+  await attachRepository(page, 'beta');
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot recovery one');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  await startSession(page);
+  await attachRepository(page, 'alpha');
+  await page.getByRole('button', { name: 'Make alpha primary' }).click();
+  await page.getByRole('radio', { name: 'Plan' }).click();
+  await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot recovery two');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const firstTab = page.getByRole('tab', { name: /Concurrent slot recovery one/ });
+  const secondTab = page.getByRole('tab', { name: /Concurrent slot recovery two/ });
+  await expect(firstTab).toHaveClass(/working/);
+  await expect(secondTab).toHaveClass(/working/);
+  await firstTab.click();
+
+  await page.route(/\/api\/agent\/stream\?runId=/, async (route) => {
+    const runId = new URL(route.request().url()).searchParams.get('runId')!;
+    const frames = [
+      {
+        type: 'permission-request', runId, requestId: `replayed-${runId}`, participantId: 'recovered-agent',
+        tool: 'Edit', detail: 'replayed approval',
+      },
+      {
+        type: 'error', runId, code: 'max-turns', message: `Synthetic limit ${runId.slice(0, 8)}`,
+        retryable: true, delivery: 'possibly-sent',
+      },
+      { type: 'done', runId, durationMs: 1, cancelled: false },
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/x-ndjson',
+      headers: { 'X-CodeAI-Replay-Events': '2' },
+      body: `${frames.map((frame) => JSON.stringify(frame)).join('\n')}\n`,
+    });
+  });
+
+  await page.reload();
+  await expect(page.locator('.notice-banner')).toContainText('Synthetic limit');
+  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
+  const firstFailure = await page.locator('.notice-banner > span').textContent();
+
+  // The replayed permission does not count, while a terminal error buffered in the attachment gap
+  // restores one attention marker without duplicating an unread already persisted on this device.
+  await expect(secondTab.locator('.unread-badge')).toHaveText('1');
+  await secondTab.click();
+  await expect(page.locator('.notice-banner')).toContainText('Synthetic limit');
+  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
+  const secondFailure = await page.locator('.notice-banner > span').textContent();
+  expect(secondFailure).not.toBe(firstFailure);
+
+  const continuation = page.waitForRequest((request) => (
+    request.url().endsWith('/api/agent/message')
+      && (request.postDataJSON() as { text?: string }).text === 'Continue where you stopped.'
+  ));
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  expect((await continuation).postDataJSON()).toMatchObject({ mode: 'plan' });
+
+  await firstTab.click();
+  await expect(page.locator('.notice-banner')).toContainText(firstFailure!);
+  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
+});
+
 test('preserves device views when the session catalog request fails', async ({ page }) => {
   await page.goto('/');
   await startSession(page);
@@ -318,6 +452,7 @@ test('preserves device views when the session catalog request fails', async ({ p
 test('sketches a blank canvas and sends the drawing as the instruction', async ({ page }) => {
   await page.goto('/');
   await startSession(page);
+  await ensureRepository(page);
   await page.getByRole('button', { name: 'Close conversation drawer' }).click();
 
   // A sketch is reachable before any diagram exists — that is the point of it.

@@ -85,6 +85,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .run-status-toggle > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-status-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--idle); }
 .run-status-toggle.working .run-status-dot { background: var(--live); }
+.run-status-toggle.queued .run-status-dot { background: var(--faint); }
 .run-status-toggle.awaiting-approval { color: var(--wait); border-color: var(--wait-line-strong); background: var(--wait-wash); }
 .run-status-toggle.awaiting-approval .run-status-dot { background: var(--wait); }
 
@@ -97,9 +98,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .workspace-tab > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-tab-state { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--idle); }
 .workspace-tab.working .workspace-tab-state { background: var(--live); }
+.workspace-tab.queued .workspace-tab-state { background: var(--faint); }
+.workspace-tab.queued { color: var(--muted); background: var(--neutral-wash-strong); }
 .workspace-tab.awaiting-approval { color: var(--wait); border-color: var(--wait-line); background: var(--wait-wash); }
 .workspace-tab.awaiting-approval .workspace-tab-state { background: var(--wait); }
-.workspace-tab .approval-badge, .workspace-tab .unread-badge { min-width: 16px; height: 16px; margin-left: 0; flex: none; font-size: 8px; }
+.workspace-tab .approval-badge, .workspace-tab .unread-badge, .workspace-tab .queue-badge { min-width: 16px; height: 16px; margin-left: 0; flex: none; font-size: 8px; }
+.workspace-tab .queue-badge { display: grid; place-items: center; padding: 0 4px; border-radius: 999px; color: var(--muted); background: var(--control-wash); font-family: var(--mono); }
 .workspace-tab-close { width: 28px; height: 28px; align-self: center; border: 0; border-radius: 5px; color: var(--faint); background: transparent; font-size: 14px; }
 .workspace-tab-close:hover:not(:disabled) { color: var(--ink); background: var(--control-wash); }
 

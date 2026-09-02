@@ -8,9 +8,10 @@ import type {
 } from '@/shared/types';
 import { readNdjson } from '@/features/conversation/ndjson';
 import {
-  MAX_TOOL_ACTIVITY_ENTRIES, permissionLabel, toolActivityLabel,
-  type PendingPermission, type ToolActivityEntry,
-} from '@/features/agents/toolActivity';
+  applyRunEvent, isReplayedStreamEvent, latestRunUserMessage, runOutcomeFromError,
+  unreadAfterRunAttention, withSessionRunOutcome,
+  type RunPresentation, type SessionRunOutcome,
+} from '@/features/conversation/runPresentation';
 import { EXECUTE_PLAN_INSTRUCTION } from '@/shared/plan';
 import { compositePng } from '@/features/diagram/annotations/compositeExport';
 import { createUuid } from '@/shared/uuid';
@@ -29,7 +30,6 @@ import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
-import { reconcileSessionRun } from '@/features/conversation/runRecovery';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { useWorkspaceViews } from './useWorkspaceViews';
@@ -81,24 +81,14 @@ export function AppShell() {
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [runningSessionId, setRunningSessionId] = useState<string>();
-  const [status, setStatus] = useState('Ready for an instruction');
-  const [preview, setPreview] = useState('');
-  const [toolActivity, setToolActivity] = useState<ToolActivityEntry[]>([]);
-  const [runFailed, setRunFailed] = useState(false);
-  const [permissions, setPermissions] = useState<PendingPermission[]>([]);
-  const [decidingPermission, setDecidingPermission] = useState<string>();
+  const [runsBySession, setRunsBySession] = useState<Record<string, RunPresentation>>({});
+  const [runOutcomesBySession, setRunOutcomesBySession] = useState<Record<string, SessionRunOutcome>>({});
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
   const [notice, setNotice] = useState<string>();
   const [busyRun, setBusyRun] = useState<RunDescriptor>();
-  const [missingProviderSessionId, setMissingProviderSessionId] = useState<string>();
-  /** Set when a turn stopped on its turn budget: the session survives, so it can be resumed. */
-  const [continueMode, setContinueMode] = useState<AgentMode>();
-  const [continueSessionId, setContinueSessionId] = useState<string>();
   const [participantBusy, setParticipantBusy] = useState(false);
-  const abortRef = useRef<AbortController | undefined>(undefined);
-  const runIdRef = useRef<string | undefined>(undefined);
+  const runControllers = useRef(new Map<string, AbortController>());
+  const runsBySessionRef = useRef<Record<string, RunPresentation>>({});
   const toolActivityKeyRef = useRef(0);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
   const navigationRevisions = useRef(new Map<string, number>());
@@ -108,11 +98,34 @@ export function AppShell() {
   const annotationTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const chatOpenRef = useRef(panelLayout.conversationOpen);
   chatOpenRef.current = panelLayout.conversationOpen;
-  const runningRef = useRef(running);
-  runningRef.current = running;
   sessionsRef.current = sessions;
   const focusedSessionIdRef = useRef(sessionId);
   focusedSessionIdRef.current = sessionId;
+
+  const putRun = useCallback((run: RunPresentation) => {
+    const next = { ...runsBySessionRef.current, [run.sessionId]: run };
+    runsBySessionRef.current = next;
+    setRunsBySession(next);
+  }, []);
+  const updateRun = useCallback((targetSessionId: string, update: (run: RunPresentation) => RunPresentation) => {
+    const prior = runsBySessionRef.current[targetSessionId];
+    if (!prior) return;
+    const next = { ...runsBySessionRef.current, [targetSessionId]: update(prior) };
+    runsBySessionRef.current = next;
+    setRunsBySession(next);
+  }, []);
+  const removeRun = useCallback((targetSessionId: string, runId?: string) => {
+    const known = runsBySessionRef.current[targetSessionId];
+    if (!known || (runId && known.runId && known.runId !== runId)) return;
+    const next = { ...runsBySessionRef.current };
+    delete next[targetSessionId];
+    runsBySessionRef.current = next;
+    setRunsBySession(next);
+    runControllers.current.delete(targetSessionId);
+  }, []);
+  const setRunOutcome = useCallback((targetSessionId: string, outcome?: SessionRunOutcome) => {
+    setRunOutcomesBySession((current) => withSessionRunOutcome(current, targetSessionId, outcome));
+  }, []);
 
   const composer = view?.composer || '';
   const unread = view?.unread || 0;
@@ -148,7 +161,16 @@ export function AppShell() {
   }, [sessionId, workspace.updateView]);
 
   const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
-  const sessionRunning = Boolean(running && sessionId && sessionId === runningSessionId);
+  const focusedRun = sessionId ? runsBySession[sessionId] : undefined;
+  const focusedRunOutcome = sessionId ? runOutcomesBySession[sessionId] : undefined;
+  const sessionRunning = Boolean(focusedRun);
+  const running = Object.keys(runsBySession).length > 0;
+  const status = focusedRun?.status || 'Ready for an instruction';
+  const preview = focusedRun?.preview || '';
+  const toolActivity = focusedRun?.toolActivity || [];
+  const permissions = focusedRun?.permissions || [];
+  const runFailed = focusedRun?.runFailed || false;
+  const decidingPermission = focusedRun?.decidingPermission;
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
@@ -374,7 +396,6 @@ export function AppShell() {
       const created = applyServerSnapshot(data.session);
       panelLayout.openConversationFor(created.id);
       workspace.open(created.id);
-      setMissingProviderSessionId(undefined);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
     }
@@ -382,7 +403,6 @@ export function AppShell() {
 
   const switchProject = (next?: string) => {
     if (next === projectId) return;
-    if (running) abortRef.current?.abort();
     setLoading(true);
     setProjectId(next);
     sessionsRef.current = [];
@@ -650,9 +670,11 @@ export function AppShell() {
   }, [mutateSession, selectAgent, sessionId]);
 
   const decidePermission = useCallback(async (requestId: string, decision: 'allow' | 'deny') => {
-    const runId = runIdRef.current;
+    const targetSessionId = focusedSessionIdRef.current;
+    if (!targetSessionId) return;
+    const runId = runsBySessionRef.current[targetSessionId]?.runId;
     if (!runId) return;
-    setDecidingPermission(requestId);
+    updateRun(targetSessionId, (run) => ({ ...run, decidingPermission: requestId }));
     try {
       const response = await fetch('/api/agent/permission', {
         method: 'POST',
@@ -661,15 +683,18 @@ export function AppShell() {
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({})) as { error?: string };
-        setPermissions((current) => current.filter((item) => item.requestId !== requestId));
+        updateRun(targetSessionId, (run) => ({
+          ...run,
+          permissions: run.permissions.filter((item) => item.requestId !== requestId),
+        }));
         setNotice(data.error || 'That approval could not be delivered.');
       }
     } catch {
       setNotice('That approval could not be delivered.');
     } finally {
-      setDecidingPermission(undefined);
+      updateRun(targetSessionId, (run) => ({ ...run, decidingPermission: undefined }));
     }
-  }, []);
+  }, [updateRun]);
 
   /**
    * Drives the UI from one run's event stream. Shared by sending a message and by reattaching to a
@@ -678,6 +703,8 @@ export function AppShell() {
   const consumeStream = useCallback(async (response: Response, turn: {
     sessionId: string;
     mode: AgentMode;
+    runId?: string;
+    recovering?: boolean;
     userMessageId?: string;
     activeAtSend?: string;
     navigationAtSend?: number;
@@ -686,53 +713,51 @@ export function AppShell() {
     let receivedFinal = false;
     let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
     let userMessageId = turn.userMessageId;
+    let streamRunId = turn.runId;
+    let terminalUnreadRecorded = false;
+    const replayHeader = Number.parseInt(response.headers.get('X-CodeAI-Replay-Events') || '0', 10);
+    const replayEventCount = turn.recovering && Number.isFinite(replayHeader)
+      ? Math.max(0, replayHeader)
+      : 0;
+    let eventIndex = 0;
     for await (const event of readNdjson<AgentEvent>(response)) {
+      const replayed = isReplayedStreamEvent(eventIndex, replayEventCount);
+      eventIndex += 1;
+      if (streamRunId && event.runId !== streamRunId) continue;
+      streamRunId ||= event.runId;
+      updateRun(turn.sessionId, (run) => applyRunEvent(
+        run,
+        event,
+        event.type === 'tool-activity' ? toolActivityKeyRef.current++ : undefined,
+      ));
       if (event.type === 'run-started') {
-        runIdRef.current = event.runId;
-        setRunningSessionId(turn.sessionId);
         userMessageId ||= event.messageId;
         mutateSession(turn.sessionId, (current) => ({ ...current, addressedAgentId: event.participantId }));
         await refreshSession(turn.sessionId);
       }
-      if (event.type === 'status') setStatus(event.label);
-      if (event.type === 'tool-activity') {
-        const entry = { tool: event.tool, detail: event.detail, denied: event.denied };
-        setStatus(toolActivityLabel(entry));
-        setToolActivity((current) => [
-          ...current,
-          { ...entry, key: toolActivityKeyRef.current++ },
-        ].slice(-MAX_TOOL_ACTIVITY_ENTRIES));
-      }
       if (event.type === 'permission-request') {
-        const request: PendingPermission = {
-          requestId: event.requestId,
-          participantId: event.participantId,
-          tool: event.tool,
-          detail: event.detail,
-        };
-        setPermissions((current) => current.some((item) => item.requestId === request.requestId) ? current : [...current, request]);
-        setStatus(`Waiting for your approval — ${permissionLabel(request)}`);
-        if (focusedSessionIdRef.current !== turn.sessionId || !chatOpenRef.current) {
+        if (!replayed && (focusedSessionIdRef.current !== turn.sessionId || !chatOpenRef.current)) {
           workspace.updateView(turn.sessionId, (current) => ({ ...current, unread: current.unread + 1 }));
         }
       }
       if (event.type === 'permission-resolved') {
-        setPermissions((current) => current.filter((item) => item.requestId !== event.requestId));
-        if (event.decision === 'timeout') setNotice('An approval request expired and was denied automatically.');
+        if (event.decision === 'timeout' && focusedSessionIdRef.current === turn.sessionId) {
+          setNotice('An approval request expired and was denied automatically.');
+        }
       }
-      if (event.type === 'assistant-delta') setPreview((current) => current + event.delta);
       if (event.type === 'error') {
         streamError = event;
-        setRunFailed(true);
-        setNotice(event.message);
-        if (event.code === 'missing-session') setMissingProviderSessionId(turn.sessionId);
-        if (event.code === 'max-turns') {
-          setContinueMode(turn.mode);
-          setContinueSessionId(turn.sessionId);
-        }
+        setRunOutcome(turn.sessionId, runOutcomeFromError(event, turn.mode));
         mutateSession(turn.sessionId, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userMessageId && message.role === 'user'
           ? { ...message, status: event.code === 'cancelled' ? 'cancelled' : 'failed', delivery: event.delivery }
           : message) }));
+        if (!terminalUnreadRecorded && (focusedSessionIdRef.current !== turn.sessionId || !chatOpenRef.current)) {
+          terminalUnreadRecorded = true;
+          workspace.updateView(turn.sessionId, (current) => ({
+            ...current,
+            unread: unreadAfterRunAttention(current.unread, replayed),
+          }));
+        }
         await refreshSession(turn.sessionId);
       }
       if (event.type === 'assistant-message') {
@@ -780,19 +805,24 @@ export function AppShell() {
               : { ...current, pendingAttachmentIds };
           });
         }
-        if (!alreadyPresent && (focusedSessionIdRef.current !== turn.sessionId || !chatOpenRef.current)) {
-          workspace.updateView(turn.sessionId, (current) => ({ ...current, unread: current.unread + 1 }));
+        if (!terminalUnreadRecorded
+          && (replayed || !alreadyPresent)
+          && (focusedSessionIdRef.current !== turn.sessionId || !chatOpenRef.current)) {
+          terminalUnreadRecorded = true;
+          workspace.updateView(turn.sessionId, (current) => ({
+            ...current,
+            unread: unreadAfterRunAttention(current.unread, replayed),
+          }));
         }
         if (ready.length > 1) setNotice(`${ready.length} diagram results are ready in history. The active canvas was preserved.`);
-        setPreview('');
         await refreshSession(turn.sessionId);
       }
     }
-    return { receivedFinal, streamError, userMessageId };
-  }, [mutateSession, refreshSession, workspace.updateView]);
+    return { receivedFinal, streamError, userMessageId, runId: streamRunId };
+  }, [mutateSession, refreshSession, setRunOutcome, updateRun, workspace.updateView]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
-    if (!session || running) return;
+    if (!session || runsBySessionRef.current[session.id]) return;
     if (!session.repositories.some((repository) => repository.role === 'primary')) {
       setNotice('Attach a repository and make it primary before running an agent turn. The canvas and participant setup remain available.');
       panelLayout.openRepository();
@@ -816,9 +846,7 @@ export function AppShell() {
     }
     setNotice(undefined);
     setBusyRun(undefined);
-    setMissingProviderSessionId(undefined);
-    setContinueMode(undefined);
-    setContinueSessionId(undefined);
+    setRunOutcome(session.id);
     const attachmentPayload: DiagramMessageAttachment[] = [];
     let compositeWarning = false;
     for (const canvas of selected) {
@@ -892,19 +920,23 @@ export function AppShell() {
       messages: [...current.messages, userMessage],
     }));
     if (!override) setComposer('');
-    setPreview('');
-    setToolActivity([]);
-    setPermissions([]);
-    setRunFailed(false);
-    runningRef.current = true;
-    setRunning(true);
-    setRunningSessionId(session.id);
-    setStatus(turnMode === 'agent'
-      ? `Starting ${turnAgent.displayName}`
-      : `Starting read-only ${turnAgent.displayName}`);
+    putRun({
+      sessionId: session.id,
+      participantId: turnAgent.id,
+      mode: turnMode,
+      state: 'running',
+      status: turnMode === 'agent'
+        ? `Starting ${turnAgent.displayName}`
+        : `Starting read-only ${turnAgent.displayName}`,
+      preview: '',
+      toolActivity: [],
+      runFailed: false,
+      permissions: [],
+    });
     const controller = new AbortController();
-    abortRef.current = controller;
+    runControllers.current.set(session.id, controller);
     let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
+    let streamRunId: string | undefined;
 
     try {
       const response = await fetch('/api/agent/message', {
@@ -934,36 +966,45 @@ export function AppShell() {
         attachmentIds: pendingAttachmentIds,
       });
       streamError = outcome.streamError;
+      streamRunId = outcome.runId;
       if (!outcome.receivedFinal && !streamError) throw new Error('Agent stream ended without a final response.');
     } catch (error) {
       const cancelled = controller.signal.aborted;
       if (!streamError) {
-        if (!cancelled) setRunFailed(true);
-        setNotice(cancelled ? 'The request was cancelled. Earlier conversation and diagrams are unchanged.' : error instanceof Error ? error.message : 'Agent request failed.');
+        if (!cancelled) updateRun(session.id, (run) => ({ ...run, runFailed: true }));
+        const message = cancelled
+          ? 'The request was cancelled. Earlier conversation and diagrams are unchanged.'
+          : error instanceof Error ? error.message : 'Agent request failed.';
+        setRunOutcome(session.id, {
+          runId: streamRunId,
+          message,
+          missingProviderSession: false,
+        });
+        if (focusedSessionIdRef.current !== session.id || !chatOpenRef.current) {
+          workspace.updateView(session.id, (current) => ({ ...current, unread: current.unread + 1 }));
+        }
         mutateSession(session.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
           ? { ...message, status: cancelled ? 'cancelled' : 'failed', delivery: cancelled ? 'possibly-sent' : 'not-sent' }
           : message) }));
         await refreshSession(session.id);
       }
     } finally {
-      abortRef.current = undefined;
-      runIdRef.current = undefined;
-      runningRef.current = false;
-      setRunning(false);
-      setRunningSessionId(undefined);
-      setPreview('');
-      setToolActivity([]);
-      setPermissions([]);
-      setDecidingPermission(undefined);
-      setStatus('Ready for an instruction');
+      removeRun(session.id, streamRunId);
     }
-  }, [activeAgent, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, refreshSession, running, session]);
+  }, [activeAgent, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, putRun, refreshSession, removeRun, session, setRunOutcome, updateRun, workspace.updateView]);
 
   const busyRunLabel = busyRun && (
     sessions.find((item) => item.id === busyRun.sessionId)?.title
     || `session ${busyRun.sessionId.slice(0, 8)}`
   );
+  const displayedNotice = focusedRunOutcome?.message || notice;
   const unreadBySession = Object.fromEntries(Object.entries(workspace.scope.views).map(([id, state]) => [id, state.unread]));
+  const runTabsBySession = Object.fromEntries(Object.entries(runsBySession).map(([id, run]) => [id, {
+    state: run.state,
+    status: run.status,
+    queuePosition: run.queuePosition,
+    pendingApprovals: Math.max(run.pendingPermissionCount || 0, run.permissions.length),
+  }]));
 
   const cancelBusyRun = useCallback(async () => {
     if (!busyRun) return;
@@ -983,132 +1024,140 @@ export function AppShell() {
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
   const cancelRun = useCallback(async () => {
-    const runId = runIdRef.current;
+    const targetSessionId = focusedSessionIdRef.current;
+    if (!targetSessionId) return;
+    const runId = runsBySessionRef.current[targetSessionId]?.runId;
     if (!runId) {
-      abortRef.current?.abort();
+      runControllers.current.get(targetSessionId)?.abort();
       return;
     }
     try {
       const response = await fetch('/api/agent/cancel', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }),
       });
-      // The server answers with a cancelled error and `done`; falling back keeps the UI unstuck.
-      if (!response.ok) abortRef.current?.abort();
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        setRunOutcome(targetSessionId, {
+          runId,
+          message: data.error || 'That agent run could not be cancelled.',
+          missingProviderSession: false,
+        });
+      }
     } catch {
-      abortRef.current?.abort();
+      // Do not detach from work whose cancellation outcome is unknown. The stream remains the
+      // authority and a later terminal event can still reconcile this session normally.
+      setRunOutcome(targetSessionId, {
+        runId,
+        message: 'Cancellation could not be confirmed. The turn may still be running.',
+        missingProviderSession: false,
+      });
     }
-  }, []);
+  }, [setRunOutcome]);
 
-  // Recover the one host-wide turn independently of whichever device-local view has focus.
+  // Recover every active turn in this project's workspace. Each attachment owns its controller and
+  // presentation, so one stale or failed stream cannot disturb another session's live work.
   useEffect(() => {
-    if (loading || !workspace.ready || runningRef.current) return;
-    const controller = new AbortController();
-    let adoptedRunId: string | undefined;
-    let adoptedSessionId: string | undefined;
+    if (loading || !workspace.ready) return;
+    const discoveryController = new AbortController();
+    const attachmentControllers = new Map<string, AbortController>();
     void (async () => {
       try {
-        await reconcileSessionRun<Response>({
-          async discover() {
-            const response = await fetch('/api/agent/runs', {
-              cache: 'no-store',
-              signal: controller.signal,
-            });
-            const data = await response.json().catch(() => ({})) as RunDiscovery & { error?: string };
-            if (!response.ok) throw new Error(data.error || 'Could not discover running turns.');
-            // A send that began while discovery was in flight owns its own stream. Do not replace
-            // that subscriber or overwrite its optimistic state with recovery hydration.
-            if (runningRef.current) {
-              controller.abort();
-              throw new DOMException('Run recovery was superseded by a local send.', 'AbortError');
-            }
-            const activeRun = data.active[0];
-            if (!activeRun) return undefined;
-            let owningSession = sessionsRef.current.find((item) => item.id === activeRun.sessionId);
-            if (!owningSession) {
-              const sessionResponse = await fetch(`/api/sessions/${encodeURIComponent(activeRun.sessionId)}`, {
-                cache: 'no-store',
-                signal: controller.signal,
-              });
-              const sessionData = await sessionResponse.json().catch(() => ({})) as { session?: PublicSession; error?: string };
-              if (!sessionResponse.ok || !sessionData.session) {
-                throw new Error(sessionData.error || 'Could not locate the running session.');
-              }
-              owningSession = hydrateSession(sessionData.session);
-            }
-            if (owningSession.projectId !== projectId) {
-              setLoading(true);
-              setProjectId(owningSession.projectId);
-              sessionsRef.current = [];
-              setSessions([]);
-              setRepositoryTree(undefined);
-              return undefined;
-            }
-            return activeRun;
-          },
-          adopt(run) {
-            adoptedRunId = run.runId;
-            adoptedSessionId = run.sessionId;
-            workspace.ensure(run.sessionId);
-            runIdRef.current = run.runId;
-            setRunFailed(false);
-            mutateSession(run.sessionId, (current) => ({ ...current, addressedAgentId: run.participantId }));
-            runningRef.current = true;
-            setRunning(true);
-            setRunningSessionId(run.sessionId);
-            setStatus('Reconnecting to the running turn');
-          },
-          async attach(runId) {
-            const response = await fetch(`/api/agent/stream?runId=${encodeURIComponent(runId)}`, {
-              cache: 'no-store',
-              signal: controller.signal,
-            });
-            if (response.status === 404) return { kind: 'missing' };
-            if (!response.ok) throw new Error('Could not attach to the running turn.');
-            if (response.headers.get('X-CodeAI-Run-Finished') === 'true') {
-              await response.body?.cancel();
-              return { kind: 'finished' };
-            }
-            setNotice('Reconnected to the turn that was still running.');
-            return { kind: 'stream', stream: response };
-          },
-          async hydrate() {
-            if (adoptedSessionId) await refreshSession(adoptedSessionId);
-          },
-          async consume(response) {
-            if (adoptedSessionId) await consumeStream(response, { sessionId: adoptedSessionId, mode: 'agent' });
-          },
+        const response = await fetch('/api/agent/runs', {
+          cache: 'no-store',
+          signal: discoveryController.signal,
         });
-      } catch {
-        if (!controller.signal.aborted) {
-          if (adoptedSessionId) await refreshSession(adoptedSessionId);
-          if (adoptedRunId) {
-            setRunFailed(true);
-            setNotice('Lost the connection to the running turn.');
+        const data = await response.json().catch(() => ({})) as RunDiscovery & { error?: string };
+        if (!response.ok) throw new Error(data.error || 'Could not discover running turns.');
+
+        const relevant: Array<{ run: RunDescriptor; session: SessionSnapshot }> = [];
+        for (const run of data.active) {
+          // A local send already owns this session's response stream. Never replace its subscriber.
+          if (runsBySessionRef.current[run.sessionId]) continue;
+          let owningSession = sessionsRef.current.find((item) => item.id === run.sessionId);
+          if (!owningSession) {
+            const sessionResponse = await fetch(`/api/sessions/${encodeURIComponent(run.sessionId)}`, {
+              cache: 'no-store',
+              signal: discoveryController.signal,
+            });
+            const sessionData = await sessionResponse.json().catch(() => ({})) as { session?: PublicSession; error?: string };
+            if (!sessionResponse.ok || !sessionData.session) continue;
+            if (sessionData.session.projectId !== projectId) continue;
+            owningSession = applyServerSnapshot(sessionData.session);
           }
+          if (owningSession.projectId !== projectId) continue;
+          relevant.push({ run, session: owningSession });
         }
-      } finally {
-        if (!controller.signal.aborted) {
-          if (runIdRef.current === adoptedRunId) runIdRef.current = undefined;
-          runningRef.current = false;
-          setRunning(false);
-          setRunningSessionId(undefined);
-          setPreview('');
-          setToolActivity([]);
-          setPermissions([]);
-          setStatus('Ready for an instruction');
+
+        if (relevant.length) setNotice(`Reconnected to ${relevant.length} active turn${relevant.length === 1 ? '' : 's'}.`);
+        await Promise.allSettled(relevant.map(async ({ run, session: owningSession }) => {
+          workspace.ensure(run.sessionId);
+          setRunOutcome(run.sessionId);
+          const recoveredSession = await refreshSession(run.sessionId) || owningSession;
+          const participant = findAgentParticipant(recoveredSession.participants, run.participantId);
+          const acceptedMessage = latestRunUserMessage(recoveredSession.messages, run.participantId);
+          const recoveredMode = acceptedMessage?.mode || participant?.defaultMode || 'agent';
+          putRun({
+            runId: run.runId,
+            sessionId: run.sessionId,
+            participantId: run.participantId,
+            mode: recoveredMode,
+            state: run.state === 'finished' ? 'running' : run.state,
+            queuePosition: run.queuePosition,
+            status: run.state === 'queued'
+              ? `Queued · position ${run.queuePosition || 1}`
+              : run.state === 'needs-you' ? 'Waiting for your approval' : 'Reconnecting to the running turn',
+            preview: '',
+            toolActivity: [],
+            runFailed: false,
+            permissions: [],
+            pendingPermissionCount: run.pendingPermissionCount,
+          });
+          mutateSession(run.sessionId, (current) => ({ ...current, addressedAgentId: run.participantId }));
+          const controller = new AbortController();
+          attachmentControllers.set(run.runId, controller);
+          runControllers.current.set(run.sessionId, controller);
+          try {
+            const stream = await fetch(`/api/agent/stream?runId=${encodeURIComponent(run.runId)}`, {
+              cache: 'no-store',
+              signal: controller.signal,
+            });
+            if (stream.status === 404) return;
+            if (!stream.ok) throw new Error('Could not attach to the running turn.');
+            await consumeStream(stream, {
+              sessionId: run.sessionId,
+              runId: run.runId,
+              mode: recoveredMode,
+              recovering: true,
+              userMessageId: acceptedMessage?.id,
+            });
+          } catch {
+            if (!controller.signal.aborted) {
+              updateRun(run.sessionId, (current) => ({ ...current, runFailed: true }));
+              setRunOutcome(run.sessionId, {
+                runId: run.runId,
+                message: 'Lost the connection to a running turn. Its work continues on this machine.',
+                missingProviderSession: false,
+              });
+              if (focusedSessionIdRef.current !== run.sessionId || !chatOpenRef.current) {
+                workspace.updateView(run.sessionId, (current) => ({ ...current, unread: current.unread + 1 }));
+              }
+            }
+          } finally {
+            await refreshSession(run.sessionId);
+            removeRun(run.sessionId, run.runId);
+          }
+        }));
+      } catch (error) {
+        if (!discoveryController.signal.aborted) {
+          setNotice(error instanceof Error ? error.message : 'Could not recover running turns.');
         }
       }
     })();
     return () => {
-      controller.abort();
-      if (runIdRef.current === adoptedRunId) runIdRef.current = undefined;
-      if (adoptedRunId) {
-        runningRef.current = false;
-        setRunning(false);
-        setRunningSessionId(undefined);
-      }
+      discoveryController.abort();
+      for (const controller of attachmentControllers.values()) controller.abort();
     };
-  }, [consumeStream, loading, mutateSession, projectId, refreshSession, workspace.ensure, workspace.ready]);
+  }, [applyServerSnapshot, consumeStream, loading, mutateSession, projectId, putRun, refreshSession, removeRun, setRunOutcome, updateRun, workspace.ensure, workspace.ready, workspace.updateView]);
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(session?.participants || [], participantId);
@@ -1181,10 +1230,12 @@ export function AppShell() {
           {session && (
             <button
               type="button"
-              className={`run-status-toggle ${sessionRunning ? 'working' : ''} ${sessionRunning && permissions.length ? 'awaiting-approval' : ''}`}
+              className={`run-status-toggle ${focusedRun?.state === 'running' ? 'working' : ''} ${focusedRun?.state === 'queued' ? 'queued' : ''} ${focusedRun?.state === 'needs-you' ? 'awaiting-approval' : ''}`}
               aria-pressed={panelLayout.conversationOpen}
-              aria-label={sessionRunning && permissions.length > 0
+              aria-label={focusedRun?.state === 'needs-you'
                 ? `${permissions.length} action${permissions.length === 1 ? '' : 's'} waiting for your approval. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
+                : focusedRun?.state === 'queued'
+                  ? `${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
                 : sessionRunning
                   ? `Agent working: ${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
                   : panelLayout.conversationOpen ? 'Close conversation' : 'Open conversation'}
@@ -1198,8 +1249,8 @@ export function AppShell() {
               }}
             >
               <span className="run-status-dot" aria-hidden="true" />
-              <span>{sessionRunning && permissions.length ? 'Approval needed' : sessionRunning ? status : 'Conversation'}</span>
-              {sessionRunning && permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
+              <span>{focusedRun?.state === 'needs-you' ? 'Approval needed' : sessionRunning ? status : 'Conversation'}</span>
+              {focusedRun?.state === 'needs-you' && permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
               {unread > 0 && <span className="unread-badge">{unread}</span>}
             </button>
           )}
@@ -1231,8 +1282,7 @@ export function AppShell() {
         sessions={sessions}
         openSessionIds={workspace.scope.openSessionIds}
         focusedSessionId={sessionId}
-        runningSessionId={runningSessionId}
-        approvalCount={permissions.length}
+        runsBySession={runTabsBySession}
         unreadBySession={unreadBySession}
         onFocus={workspace.open}
         onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
@@ -1276,13 +1326,16 @@ export function AppShell() {
         </div>
       )}
 
-      {notice && (
+      {displayedNotice && (
         <div className="notice-banner" role="status">
-          <span>{notice}</span>
-          {busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
-          {missingProviderSessionId && missingProviderSessionId === sessionId && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
-          {continueMode && continueSessionId === sessionId && !running && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: continueMode })}>Continue</button>}
-          <button type="button" aria-label="Dismiss notice" onClick={() => { setNotice(undefined); setBusyRun(undefined); }}>×</button>
+          <span>{displayedNotice}</span>
+          {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
+          {focusedRunOutcome?.missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
+          <button type="button" aria-label="Dismiss notice" onClick={() => {
+            if (focusedRunOutcome && sessionId) setRunOutcome(sessionId);
+            else { setNotice(undefined); setBusyRun(undefined); }
+          }}>×</button>
         </div>
       )}
 
@@ -1336,7 +1389,8 @@ export function AppShell() {
               permissions={sessionRunning ? permissions : []}
               decidingPermission={decidingPermission}
               running={sessionRunning}
-              turnBlocked={running && !sessionRunning}
+              cancelReady={Boolean(focusedRun?.runId)}
+              turnBlocked={false}
               status={sessionRunning ? status : 'Ready for an instruction'}
               composer={composer}
               mode={mode}

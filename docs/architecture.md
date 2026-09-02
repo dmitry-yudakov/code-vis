@@ -20,7 +20,7 @@ route handlers (src/app/api/**)
    │
    ├── src/server/repository   checkout discovery, fixed read-only git reads, bounded context files
    ├── src/server/storage      durable projects/sessions, writer lock, per-run temp attachments
-   ├── src/server/runs         single active run + permission broker
+   ├── src/server/runs         bounded scheduler, checkout locks, run registry, permission brokers
    └── src/server/agents       provider policy → claude / codex app-server child
                                      │
                                      ▼
@@ -100,12 +100,15 @@ identity fails closed; the whole `session-store-v2` directory is the backup/rest
 1. Validate the request against `src/shared/protocol.ts`, load the canonical session, and
    resolve its participant, primary repository binding, host-bound session, and mode. The request
    contains neither a checkout id nor transcript.
-2. Refuse unavailable/foreign/stale repository bindings and foreign-host sessions before provider spawn,
-   then refuse if a run is already active — `src/server/runs/runRegistry.ts` permits **one global
-   active run**. This is a deliberate current constraint, not an oversight.
-3. Append the user message idempotently, then build the historical prompt delta from the canonical
-   host record.
-4. Build a bounded per-run temporary directory outside the repository (`code-ai-run-*`) holding
+2. Refuse unavailable/foreign/stale repository bindings and foreign-host sessions before provider
+   spawn. Reserve the session, provider session, checkout access, and bounded queue position in
+   `src/server/runs/runRegistry.ts`; conflicts are 409 and queue overflow is 429 before persistence.
+3. Append the user message idempotently, then activate its reservation. The machine executes up to
+   `CODEAI_MAX_CONCURRENT_RUNS` eligible turns (default 2): Ask/Plan are checkout readers, Agent is
+   an exclusive writer, and a waiting writer blocks later readers on that checkout without blocking
+   eligible work elsewhere.
+4. When the scheduler starts the turn, build the historical prompt delta from the current canonical
+   record and a bounded per-run temporary directory outside the repository (`code-ai-run-*`) holding
    diagram attachments plus git status/diff snapshots from `src/server/repository/`.
 5. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
    and role contract, the historical-context JSON delta, and the current request as one JSON
@@ -119,8 +122,9 @@ identity fails closed; the whole `session-store-v2` directory is the backup/rest
 8. Commit the assistant message, user delivery state, and participant cursor in one revision before
    emitting the durable assistant event. Remove the temporary directory, always.
 
-`GET /api/agent/stream` reattaches a detached browser to a live run; `POST /api/agent/cancel`
-ends one; `POST /api/agent/permission` resolves a pending approval card.
+`GET /api/agent/runs` discovers queued, running, needs-you, and recently finished descriptors.
+`GET /api/agent/stream` reattaches a detached browser by run id; `POST /api/agent/cancel` ends
+queued or executing work; `POST /api/agent/permission` resolves a pending approval card.
 
 **A run outlives the page that started it.** Closing the tab or reloading only detaches the
 browser. Reopening the session replays activity, any pending approval, and the answer. A
@@ -158,7 +162,9 @@ browser-only and produces the SVG. Annotations are vector marks held beside the 
 
 These are real and deliberate, and they bound what can be built next:
 
-- one active agent run across the whole application;
+- one queued or executing turn per session and per concrete provider session;
+- a bounded in-memory queue and 1–8 execution slots on this machine; no durable process/queue
+  recovery across a server restart;
 - one selected project, with several device-local tabbed session views and one focused view;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows
   a device-selected binding while turns continue to use the primary binding;
@@ -167,8 +173,8 @@ These are real and deliberate, and they bound what can be built next:
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The direction past the current shell — concurrent turns, the arena, and sessions spread across
-machines — is in [vision.md](vision.md), with the record-level engineering
+The direction past the current shell — the arena and sessions spread across machines — is in
+[vision.md](vision.md), with the record-level engineering
 notes in [multi-project-session-environment.md](multi-project-session-environment.md) and the names
 in [vocabulary.md](vocabulary.md).
 

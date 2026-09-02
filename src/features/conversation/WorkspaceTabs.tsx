@@ -1,14 +1,20 @@
 'use client';
 
 import { useRef } from 'react';
-import type { SessionSnapshot } from '@/shared/types';
+import type { RunState, SessionSnapshot } from '@/shared/types';
+
+export interface WorkspaceRunState {
+  state: Exclude<RunState, 'finished'>;
+  status: string;
+  queuePosition?: number;
+  pendingApprovals: number;
+}
 
 export function WorkspaceTabs({
   sessions,
   openSessionIds,
   focusedSessionId,
-  runningSessionId,
-  approvalCount,
+  runsBySession,
   unreadBySession,
   onFocus,
   onClose,
@@ -16,8 +22,7 @@ export function WorkspaceTabs({
   sessions: SessionSnapshot[];
   openSessionIds: string[];
   focusedSessionId?: string;
-  runningSessionId?: string;
-  approvalCount: number;
+  runsBySession: Record<string, WorkspaceRunState>;
   unreadBySession: Record<string, number>;
   onFocus(sessionId: string): void;
   onClose(sessionId: string): void;
@@ -32,20 +37,23 @@ export function WorkspaceTabs({
   if (!openSessions.length) return <div className="workspace-tabs workspace-tabs-empty" aria-hidden="true" />;
 
   const focusedSession = openSessions.find((session) => session.id === focusedSessionId);
-  const focusedRunning = focusedSession?.id === runningSessionId;
+  const focusedLive = Boolean(focusedSession && runsBySession[focusedSession.id]);
 
   return (
     <div className="workspace-tabs">
       <div className="workspace-tablist" role="tablist" aria-label="Open session views">
         {openSessions.map((session, index) => {
           const selected = session.id === focusedSessionId;
-          const running = session.id === runningSessionId;
+          const run = runsBySession[session.id];
+          const running = run?.state === 'running';
+          const queued = run?.state === 'queued';
+          const needsYou = run?.state === 'needs-you';
           const unread = unreadBySession[session.id] || 0;
           return (
             <button
               type="button"
               role="tab"
-              className={`workspace-tab ${selected ? 'active' : ''} ${running ? 'working' : ''} ${running && approvalCount ? 'awaiting-approval' : ''}`.trim()}
+              className={`workspace-tab ${selected ? 'active' : ''} ${running ? 'working' : ''} ${queued ? 'queued' : ''} ${needsYou ? 'awaiting-approval' : ''}`.trim()}
               key={session.id}
               ref={(node) => {
                 if (node) tabRefs.current.set(session.id, node);
@@ -54,10 +62,11 @@ export function WorkspaceTabs({
               aria-selected={selected}
               aria-controls="active-session-view"
               tabIndex={selected ? 0 : -1}
-              title={session.title}
+              aria-label={`${session.title}${run ? ` — ${run.status}` : ''}`}
+              title={run ? `${session.title} — ${run.status}` : session.title}
               onClick={() => onFocus(session.id)}
               onKeyDown={(event) => {
-                if (event.key === 'Delete' && !running) {
+                if (event.key === 'Delete' && !run) {
                   event.preventDefault();
                   const next = openSessions[index === openSessions.length - 1 ? index - 1 : index + 1];
                   onClose(session.id);
@@ -74,7 +83,8 @@ export function WorkspaceTabs({
             >
               <span className="workspace-tab-state" aria-hidden="true" />
               <span>{session.title}</span>
-              {running && approvalCount > 0 && <span className="approval-badge">{approvalCount}</span>}
+              {queued && <span className="queue-badge">Q{run.queuePosition || 1}</span>}
+              {needsYou && run.pendingApprovals > 0 && <span className="approval-badge">{run.pendingApprovals}</span>}
               {unread > 0 && <span className="unread-badge">{unread}</span>}
             </button>
           );
@@ -84,11 +94,11 @@ export function WorkspaceTabs({
         <button
           type="button"
           className="workspace-tab-close"
-          disabled={focusedRunning}
-          aria-label={focusedRunning
-            ? `Cannot close ${focusedSession.title} while its turn is running`
+          disabled={focusedLive}
+          aria-label={focusedLive
+            ? `Cannot close ${focusedSession.title} while its turn is active`
             : `Close ${focusedSession.title} view`}
-          title={focusedRunning ? 'This view stays open until its turn finishes' : 'Close focused view'}
+          title={focusedLive ? 'This view stays open until its turn finishes' : 'Close focused view'}
           onClick={() => onClose(focusedSession.id)}
         >×</button>
       )}

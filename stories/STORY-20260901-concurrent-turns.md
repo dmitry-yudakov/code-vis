@@ -1,6 +1,6 @@
 # Story 37 — Run independent turns concurrently on one machine
 
-**Status:** Draft · **Type:** Full-stack ·
+**Status:** Shipped · **Type:** Full-stack ·
 **Depends on:** [Story 36](STORY-20260830-multi-session-workspace.md) (several open session views,
 shipped) and [Story 27](STORY-20260826-session-keyed-host-bound-runs.md) (run-id addressing and
 host-wide discovery, shipped)
@@ -13,12 +13,12 @@ independent-run-registry delivery slice in
 
 ## Motivation
 
-Story 36 lets several sessions remain open and usable while one turn runs, but the machine still has
-one global execution slot. A long Ask turn, a build waiting for approval, or an unattended background
-session prevents every other session from starting. The open views look independent while execution
-still behaves like one shared modal operation.
+Before this story, Story 36 let several sessions remain open and usable while one turn ran, but the
+machine still had one global execution slot. A long Ask turn, a build waiting for approval, or an
+unattended background session prevented every other session from starting. The open views looked
+independent while execution still behaved like one shared modal operation.
 
-The next slice makes that independence real without turning the local application into an
+This slice makes that independence real without turning the local application into an
 unbounded process launcher. The machine admits a small number of independent turns, queues excess
 work visibly, and keeps every run's stream, approval, cancellation, and completion attached to its
 own session view. This gives the later Arena meaningful Running, Needs you, and Queued states; it
@@ -26,34 +26,32 @@ does not build the Arena itself.
 
 ---
 
-## Current behavior (where the code is)
+## Shipped implementation (where the code is)
 
-- The [run registry](../src/server/runs/runRegistry.ts#L8) fixes `MAX_CONCURRENT_RUNS = 1` and
-  [`start`](../src/server/runs/runRegistry.ts#L39) refuses the next run instead of queueing it. Its
-  maps are already keyed by `runId`, but a live record has no queue or lifecycle state.
-- The [message route](../src/app/api/agent/message/route.ts#L122) asks the registry for the one slot
-  before it appends the canonical user message. Refusal is a 409 naming the first active run; an
-  accepted route owns one response stream until that run finishes.
-- [`RunDescriptor`](../src/shared/types.ts#L335) carries ownership and timestamps only.
-  `RunDiscovery.active` can represent an array, but the browser consumes only its first entry.
-- [AppShell run state](../src/features/shell/AppShell.tsx#L84) is one group of scalar fields and
-  refs (`running`, `runningSessionId`, `runIdRef`, preview, activity, permissions, and cancel
-  controller). [`send`](../src/features/shell/AppShell.tsx#L794) exits whenever any session is
-  running, and [`consumeStream`](../src/features/shell/AppShell.tsx#L674) writes every event into
-  that one group.
-- [Reload recovery](../src/features/shell/AppShell.tsx#L1002) adopts `active[0]`, switches to its
-  project, and attaches one stream. [`reconcileSessionRun`](../src/features/conversation/runRecovery.ts#L11)
-  reconciles one descriptor at a time.
-- [`WorkspaceTabs`](../src/features/conversation/WorkspaceTabs.tsx#L6) accepts one
-  `runningSessionId` and one approval count, so only one tab can present live state. Story 36's
-  device record already keeps unread state per view; live run state deliberately is not persisted
-  there.
-- [`AppConfig`](../src/server/config.ts#L7) has timeout and output bounds but no machine concurrency
-  setting. [`.env.example`](../.env.example#L5) documents the local-agent settings.
-- [Run route tests](../test/runRoutes.test.ts#L14),
-  [recovery tests](../test/runRecovery.test.ts#L12), and
-  [multi-view browser coverage](../e2e/canvas.spec.ts#L238) prove run-id routing and navigation
-  around one live turn, not simultaneous execution or queue promotion.
+- The process-wide [run registry](../src/server/runs/runRegistry.ts#L77) owns reservations, bounded
+  capacity and queueing, checkout reader/writer eligibility, run-scoped subscribers, permissions,
+  cancellation, discovery, and retained replay. Its [scheduler](../src/server/runs/runRegistry.ts#L339)
+  promotes the oldest eligible work without lending a permission-held slot.
+- The [message route](../src/app/api/agent/message/route.ts#L129) reserves identity before the
+  canonical append and activates only after it succeeds. Queued cancellation persists the
+  cancelled/not-sent message before publishing terminal events
+  ([message/route.ts](../src/app/api/agent/message/route.ts#L223)).
+- Direct [stream attachment](../src/app/api/agent/stream/route.ts#L20) is owned by an attachment id,
+  reports its replay boundary, and cannot be detached by a competing browser stream.
+- [AppShell](../src/features/shell/AppShell.tsx#L84) owns ephemeral presentation and terminal outcome
+  state per session. Its [stream consumer](../src/features/shell/AppShell.tsx#L703) isolates every
+  event, while [recovery](../src/features/shell/AppShell.tsx#L1057) attaches every relevant active
+  run and reconciles canonical message mode, terminal replay, and unread attention.
+- Pure [run presentation helpers](../src/features/conversation/runPresentation.ts#L7) reduce events,
+  preserve per-session continuation actions, and distinguish replay from newly arriving events.
+  [WorkspaceTabs](../src/features/conversation/WorkspaceTabs.tsx#L13) renders queued, running,
+  needs-you, and unread state independently for every open view.
+- [`CODEAI_MAX_CONCURRENT_RUNS`](../src/server/config.ts#L128) defaults to two and validates 1–8.
+  Scheduler, route, presentation, and production-browser regressions live in
+  [runScheduler.test.ts](../test/runScheduler.test.ts#L35),
+  [messageSchedulerRoutes.test.ts](../test/messageSchedulerRoutes.test.ts#L119),
+  [runPresentation.test.ts](../test/runPresentation.test.ts#L20), and
+  [canvas.spec.ts](../e2e/canvas.spec.ts#L301).
 
 ---
 
@@ -210,49 +208,49 @@ submit.
 
 ## Acceptance criteria
 
-- [ ] `CODEAI_MAX_CONCURRENT_RUNS` defaults to 2, validates the range 1–8, honors the legacy-prefix
+- [x] `CODEAI_MAX_CONCURRENT_RUNS` defaults to 2, validates the range 1–8, honors the legacy-prefix
       fallback, is documented, and controls the process-wide scheduler without becoming a client
       request field.
-- [ ] The scheduler runs no more than the configured number of eligible turns, keeps at most 32
+- [x] The scheduler runs no more than the configured number of eligible turns, keeps at most 32
       queued turns, promotes the oldest eligible turn when capacity opens, and never leaves a slot
       idle solely because an older queued turn is lock-blocked.
-- [ ] Accepted queued turns have canonical user messages and discoverable `runId`s; queue overflow
+- [x] Accepted queued turns have canonical user messages and discoverable `runId`s; queue overflow
       fails with 429 before append, and every reservation/append/start failure leaves neither a
       stranded queue record nor a falsely live message.
-- [ ] A session and a provider session each have at most one queued/executing turn, enforced on the
+- [x] A session and a provider session each have at most one queued/executing turn, enforced on the
       server under racing requests; a conflict returns 409 with the existing run descriptor.
-- [ ] Ask/Plan turns may read one checkout concurrently, while an Agent turn has exclusive checkout
+- [x] Ask/Plan turns may read one checkout concurrently, while an Agent turn has exclusive checkout
       execution and queued writers are not starved by later readers.
-- [ ] A permission wait reports `needs-you`, preserves its slot and checkout lock, routes decisions
+- [x] A permission wait reports `needs-you`, preserves its slot and checkout lock, routes decisions
       only to its `runId`, and returns to running or finishes without changing another run.
-- [ ] Cancelling a queued turn starts no provider process, records cancelled/not-sent canonically,
+- [x] Cancelling a queued turn starts no provider process, records cancelled/not-sent canonically,
       emits its terminal stream events, removes it from the queue, and promotes/repositions the
       remaining work. Running cancellation retains its existing delivery semantics.
-- [ ] Run discovery reports all queued/running/needs-you records with accurate ownership, lifecycle,
+- [x] Run discovery reports all queued/running/needs-you records with accurate ownership, lifecycle,
       start/enqueue timestamps, queue position, and approval count; recent replay remains isolated by
       `runId` and expires by the existing retention policy.
-- [ ] Two simultaneous streams can interleave every `AgentEvent` variant without leaking preview,
+- [x] Two simultaneous streams can interleave every `AgentEvent` variant without leaking preview,
       tool activity, permissions, failure, continuation, cancellation, or completion into the other
       session's presentation.
-- [ ] A session with no run remains sendable while other sessions run. A session with its own live
+- [x] A session with no run remains sendable while other sessions run. A session with its own live
       or queued turn cannot send another, and route-level admission remains correct across browser
       contexts.
-- [ ] Tabs independently and accessibly expose queued, running, needs-you, failed/unread, and idle
+- [x] Tabs independently and accessibly expose queued, running, needs-you, failed/unread, and idle
       presentation; every focused view exposes only its own controls, and only queued/live views are
       protected from closing.
-- [ ] Reload with several active and queued turns attaches each relevant run, preserves canonical
+- [x] Reload with several active and queued turns attaches each relevant run, preserves canonical
       messages and per-view device state, survives per-run discovery/attachment/completion races,
       and lets queued work start later without the original request stream.
-- [ ] Provider health, host ownership, repository resolution, Ask/Plan/Agent tool boundaries,
+- [x] Provider health, host ownership, repository resolution, Ask/Plan/Agent tool boundaries,
       explicit Agent approvals, timeouts, replay bounds, and temporary-attachment cleanup retain
       their existing behavior under concurrency.
-- [ ] Unit tests cover config bounds, capacity, the queue bound, eligible FIFO promotion, session and
+- [x] Unit tests cover config bounds, capacity, the queue bound, eligible FIFO promotion, session and
       provider uniqueness, checkout reader/writer exclusion, permission-held capacity, queued/running
       cancellation, retention, and route-bundle `globalThis` sharing.
-- [ ] Client and route tests force concurrent stream interleavings and recovery races rather than
+- [x] Client and route tests force concurrent stream interleavings and recovery races rather than
       relying on timing; Playwright covers two running turns, a third queued turn, background
       approval, promotion, cancellation, navigation, and reload.
-- [ ] `npm run lint`, `npm test`, and `npm run test:e2e` pass.
+- [x] `npm run lint`, `npm test`, and `npm run test:e2e` pass.
 
 ## Out of scope
 

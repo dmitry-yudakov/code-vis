@@ -11,7 +11,7 @@ import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
-  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, turnBlocked,
+  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
   status, composer, mode, unsupportedModes, attached, markCounts, onClose, onSelectDiagram, onRetry, onComposer, onModeChange,
   onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
 }: {
@@ -27,6 +27,7 @@ export function ConversationDrawer({
   permissions: PendingPermission[];
   decidingPermission?: string;
   running: boolean;
+  cancelReady: boolean;
   turnBlocked?: boolean;
   status: string;
   composer: string;
@@ -127,6 +128,7 @@ export function ConversationDrawer({
         <InstructionComposer
           value={composer}
           running={running}
+          cancelReady={cancelReady}
           turnBlocked={turnBlocked}
           autoFocus
           attached={attached}

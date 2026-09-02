@@ -192,11 +192,11 @@ describe('session snapshot and mutation routes', () => {
     expect(stale.status).toBe(409);
   });
 
-  it('keeps the visible busy error and reports the host-wide active run descriptor', async () => {
+  it('rejects a racing turn in the same session and reports its active descriptor', async () => {
     const session = await createViaRoute('checkout-a');
     const blockingRun = {
       runId: crypto.randomUUID(),
-      sessionId: crypto.randomUUID(),
+      sessionId: session.id,
       participantId: 'agent-on-another-session',
     };
     expect(runRegistry.start({ ...blockingRun, cancel: () => undefined })).toBe(true);
@@ -206,7 +206,7 @@ describe('session snapshot and mutation routes', () => {
       }));
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({
-        error: 'Another agent turn is already running.',
+        error: 'This session already has an agent turn queued or running.',
         activeRun: expect.objectContaining({ ...blockingRun, startedAt: expect.any(Number) }),
       });
       expect(routeState.runnersCreated).toBe(0);

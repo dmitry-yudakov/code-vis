@@ -6,12 +6,12 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-08-30. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-01. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** concurrent turns — a conservative per-machine limit, queueing, and background activity.
-- **Then:** the arena and machine/device separation as ordered in
+- **Next:** the arena — session states, the Inbox, cross-session attention, and starting work.
+- **Then:** machine/device separation as ordered in
   [vision.md](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
@@ -88,7 +88,9 @@ importing file's own directory; keep `./…` for same-directory siblings.
   roster, provider sessions, cursors) lives in revisioned host JSON. Browser memory owns
   device-only views, selection, panels, mode, drafts, and canvas cameras; `localStorage` persists
   that disposable device state and never the durable session record.
-- One agent run is active at a time, application-wide (`src/server/runs/runRegistry.ts`).
+- Agent turns use the process-wide per-machine scheduler in `src/server/runs/runRegistry.ts`:
+  two eligible turns by default, a bounded queue, one turn per session/provider session, shared
+  Ask/Plan checkout reads, and exclusive Agent checkout execution.
 - Settings are `CODEAI_*`; every one also accepts its former `CODEAI_WEB2_*` spelling
   (`src/server/config.ts`). The neutral name wins when both carry a value.
 - Two identifiers keep their historical `web2` spelling: the default data directory

@@ -94,10 +94,17 @@ author-labeled JSON delta of the canonical host transcript it has missed. Failed
 undelivered instructions are excluded; ambiguous/cancelled delivery remains visibly labelled.
 Quick handoff chips prefill an
 editable recipient, prompt, and role-default mode; they never send automatically. Autonomous
-agent-to-agent relay, parallel turns, and autopilot are intentionally not implemented yet.
+agent-to-agent relay, simultaneous turns inside one session, and autopilot are intentionally not
+implemented yet.
 
 New sessions intentionally open in **Plan** because their initial participant is the `coder`
 preset.
+
+Independent sessions can execute at the same time. The machine runs two eligible turns by default
+and visibly queues additional work; `CODEAI_MAX_CONCURRENT_RUNS` sets a limit from 1–8. Ask and
+Plan turns may share a checkout, while Agent takes an exclusive checkout execution lock and keeps
+its slot while an approval is pending. Every tab owns its own status, preview, activity,
+permissions, cancellation, and reload recovery.
 
 ## Conversation modes
 
@@ -277,6 +284,7 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node);
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
 - `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
+- `CODEAI_MAX_CONCURRENT_RUNS` — machine-wide execution slots, from 1–8 (default `2`);
 - `CODEAI_AGENT_*` / `CODEAI_BUILD_*` — per-message turn and time budgets for Ask/Plan
   and for Agent respectively;
 - `CODEAI_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_MAX_TRANSCRIPT_BYTES` — server-side prompt bounds
@@ -329,8 +337,9 @@ over-capable provider is reported without making a healthy provider unusable.
 - Source excerpts and editor deep links are still outside the experiment.
 - Native provider session history remains owned by its CLI; deleting local browser data does not
   delete that history.
-- Participant removal, session transfer, editable custom-role instructions, parallel turns, and
-  autonomous multi-agent relay are not implemented.
-- One agent run is active at a time across the whole application.
+- Participant removal, session transfer, editable custom-role instructions, simultaneous turns in
+  one session, and autonomous multi-agent relay are not implemented.
+- Queues and provider processes are machine-memory state; a server restart leaves canonical
+  transcript recovery intact but does not resume queued or executing processes.
 - The real-agent experiment matrix is manual and is tracked in
   [docs/experiment-log.md](docs/experiment-log.md).

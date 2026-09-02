@@ -12,7 +12,7 @@ import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { runConversation } from '@/server/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
-import type { CanvasKind, DiagramArtifact, SketchCanvas, UserMessage } from '@/shared/types';
+import type { CanvasKind, DiagramArtifact, DurableSession, SketchCanvas, UserMessage } from '@/shared/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +35,7 @@ export async function POST(request: Request): Promise<Response> {
     return safeJsonResponse({ error: `At most ${config.maxDiagramAttachments} diagrams may be attached.` }, { status: 400 });
   }
   const store = getSessionStore(config.dataDir, config.hostLabel);
-  let session;
+  let session: DurableSession;
   try {
     session = await store.getSession(parsed.data.sessionId);
   } catch (error) {
@@ -117,24 +117,36 @@ export async function POST(request: Request): Promise<Response> {
     }, { status: 409 });
   }
 
+  const human = session.participants.find((item) => item.kind === 'human');
+  if (!human) {
+    return safeJsonResponse({ error: 'This session has no human participant.' }, { status: 400 });
+  }
   const runId = randomUUID();
   const abortController = new AbortController();
-  if (!runRegistry.start({
+  const providerKey = participant.session.started
+    ? `${host.id}:${participant.provider}:session:${participant.session.sessionId}`
+    : `${host.id}:${participant.provider}:participant:${participant.id}`;
+  const reservation = runRegistry.reserve({
     runId,
     sessionId: session.id,
     participantId: participant.id,
+    providerKey,
+    checkoutId: repository.checkoutId,
+    access: mode === 'agent' ? 'write' : 'read',
     cancel: () => abortController.abort(),
-  })) {
+  });
+  if (!reservation.accepted) {
+    if (reservation.reason === 'queue-full') {
+      return safeJsonResponse({
+        error: 'This machine already has 32 turns waiting. Cancel queued work or wait for capacity.',
+      }, { status: 429 });
+    }
     return safeJsonResponse({
-      error: 'Another agent turn is already running.',
-      activeRun: runRegistry.currentRuns[0],
+      error: reservation.reason === 'session-conflict'
+        ? 'This session already has an agent turn queued or running.'
+        : 'This provider session already has an agent turn queued or running.',
+      activeRun: reservation.activeRun,
     }, { status: 409 });
-  }
-
-  const human = session.participants.find((item) => item.kind === 'human');
-  if (!human) {
-    runRegistry.finish(runId);
-    return safeJsonResponse({ error: 'This session has no human participant.' }, { status: 400 });
   }
   const userMessage: UserMessage = {
     id: parsed.data.messageId,
@@ -151,62 +163,98 @@ export async function POST(request: Request): Promise<Response> {
     const accepted = await store.appendUserMessage(session.id, userMessage);
     session = accepted.session;
     if (!accepted.appended) {
-      runRegistry.finish(runId);
+      runRegistry.release(runId);
       return safeJsonResponse({
         error: 'This message request was already accepted. Reload the session to see its durable state.',
       }, { status: 409 });
     }
   } catch (error) {
-    runRegistry.finish(runId);
+    runRegistry.release(runId);
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
-  const currentParticipant = serverAgent(session, participant.id)!;
-  const transcriptDelta = buildTranscriptDelta(session, currentParticipant, canonicalTranscript(session.messages), {
-    maxMessages: config.maxTranscriptMessages,
-    maxBytes: config.maxTranscriptBytes,
-  }).text;
-
   // Every event goes through the registry so it is buffered for replay, then out to this stream.
   const emit = (event: AgentEvent) => runRegistry.record(runId, event);
 
-  return agentEventStream({
-    runId,
-    // A closed browser tab must not kill work the user already approved: detach, never cancel.
-    onDetach: () => runRegistry.unsubscribe(runId),
-    start(write) {
-      runRegistry.subscribe(runId, write);
-      const runner = adapter.createRunner();
-      return runConversation({
+  const execute = async () => {
+    let currentParticipant = serverAgent(session, participant.id)!;
+    try {
+      // Queued work resolves its canonical snapshot and repository context only when it actually
+      // starts, so it sees the checkout at execution time and holds no temporary directory early.
+      session = await store.getSession(session.id);
+      currentParticipant = serverAgent(session, participant.id) || currentParticipant;
+      const transcriptDelta = buildTranscriptDelta(session, currentParticipant, canonicalTranscript(session.messages), {
+        maxMessages: config.maxTranscriptMessages,
+        maxBytes: config.maxTranscriptBytes,
+      }).text;
+      await runConversation({
         runId,
         request: parsed.data,
         checkout,
         session,
         config,
-        runner,
+        runner: adapter.createRunner(),
         sessionStore: store,
         transcriptDelta,
         signal: abortController.signal,
         emit,
         onPermissionBroker: (broker) => runRegistry.attachPermissions(runId, broker),
-      }).catch(async (error: unknown) => {
-        const known = error instanceof AgentRunError ? error : undefined;
-        const delivery = known?.delivery || (abortController.signal.aborted || currentParticipant.session.started ? 'possibly-sent' : 'not-sent');
-        await store.failUserMessage(
-          session.id,
-          parsed.data.messageId,
-          known?.code === 'cancelled' || abortController.signal.aborted ? 'cancelled' : 'failed',
-          delivery,
-        ).catch(() => undefined);
-        emit({
-          type: 'error',
-          runId,
-          code: known?.code || (abortController.signal.aborted ? 'cancelled' : 'internal'),
-          message: known?.message || (abortController.signal.aborted ? 'The request was cancelled.' : publicError(error)),
-          retryable: known?.retryable ?? true,
-          delivery,
-        });
-        emit({ type: 'done', runId, durationMs: 0, cancelled: known?.code === 'cancelled' || abortController.signal.aborted });
-      }).finally(() => runRegistry.finish(runId));
+      });
+    } catch (error: unknown) {
+      const known = error instanceof AgentRunError ? error : undefined;
+      const delivery = known?.delivery || (abortController.signal.aborted || currentParticipant.session.started ? 'possibly-sent' : 'not-sent');
+      await store.failUserMessage(
+        session.id,
+        parsed.data.messageId,
+        known?.code === 'cancelled' || abortController.signal.aborted ? 'cancelled' : 'failed',
+        delivery,
+      ).catch(() => undefined);
+      emit({
+        type: 'error',
+        runId,
+        code: known?.code || (abortController.signal.aborted ? 'cancelled' : 'internal'),
+        message: known?.message || (abortController.signal.aborted ? 'The request was cancelled.' : publicError(error)),
+        retryable: known?.retryable ?? true,
+        delivery,
+      });
+      emit({ type: 'done', runId, durationMs: 0, cancelled: known?.code === 'cancelled' || abortController.signal.aborted });
+    }
+  };
+
+  const activated = runRegistry.activate(runId, {
+    execute,
+    async cancelQueued() {
+      // The terminal stream event is only truthful after the canonical user message is cancelled.
+      // A write failure rejects back to the scheduler, which parks this queue entry for retry.
+      await store.failUserMessage(session.id, parsed.data.messageId, 'cancelled', 'not-sent');
+      emit({
+        type: 'error',
+        runId,
+        code: 'cancelled',
+        message: 'The queued request was cancelled before it reached the agent.',
+        retryable: true,
+        delivery: 'not-sent',
+      });
+      emit({ type: 'done', runId, durationMs: 0, cancelled: true });
+    },
+  });
+  if (!activated) {
+    await store.failUserMessage(session.id, parsed.data.messageId, 'failed', 'not-sent').catch(() => undefined);
+    runRegistry.release(runId);
+    return safeJsonResponse({ error: 'The accepted turn could not enter the machine scheduler.' }, { status: 500 });
+  }
+
+  let attachmentId: string | undefined;
+  return agentEventStream({
+    runId,
+    // A closed browser tab must not kill work the user already approved: detach, never cancel.
+    onDetach: () => {
+      if (attachmentId) runRegistry.unsubscribe(runId, attachmentId);
+    },
+    start(write) {
+      const attachment = runRegistry.subscribe(runId, write);
+      attachmentId = attachment?.attachmentId;
+      for (const event of attachment?.replay || []) write(event);
+      return runRegistry.wait(runId) || Promise.resolve();
     },
   });
 }

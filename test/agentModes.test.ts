@@ -206,8 +206,8 @@ describe('permission broker', () => {
     expect(registry.decide(runId, 'req', 'allow')).toBe('unknown-run');
   });
 
-  it('runs one turn at a time and frees the slot when it finishes', () => {
-    const registry = new RunRegistry();
+  it('enforces its configured capacity and frees a slot when a turn finishes', () => {
+    const registry = new RunRegistry(1);
     const first = crypto.randomUUID();
     const second = crypto.randomUUID();
     expect(registry.start({ runId: first, sessionId: 't1', participantId: 'agent-1', cancel: () => undefined })).toBe(true);
@@ -220,7 +220,7 @@ describe('permission broker', () => {
     registry.finish(second);
   });
 
-  it('keeps a run alive when its browser detaches, and replays what the next one missed', () => {
+  it('keeps a run alive when its browser detaches, and replays what the next one missed', async () => {
     // A reload must not kill work the user already approved, so cancellation is explicit only.
     const registry = new RunRegistry();
     const runId = crypto.randomUUID();
@@ -228,10 +228,10 @@ describe('permission broker', () => {
     registry.start({ runId, sessionId: 'session', participantId: 'agent-1', cancel: () => { cancelled = true; } });
 
     const firstStream: AgentEvent[] = [];
-    registry.subscribe(runId, (event) => firstStream.push(event));
+    const firstAttachment = registry.subscribe(runId, (event) => firstStream.push(event));
     registry.record(runId, { type: 'status', runId, phase: 'thinking', label: 'Thinking…' });
     registry.record(runId, { type: 'assistant-delta', runId, delta: 'partial ' });
-    registry.unsubscribe(runId);
+    registry.unsubscribe(runId, firstAttachment!.attachmentId);
 
     // Work continues with nobody listening.
     registry.record(runId, { type: 'permission-request', runId, requestId: 'r1', participantId: 'agent-1', tool: 'Edit', detail: 'a.ts' });
@@ -247,11 +247,32 @@ describe('permission broker', () => {
       // Deltas are coalesced so a reattaching page rebuilds the whole preview in one event.
       { type: 'assistant-delta', runId, delta: 'partial answer' },
     ]);
-    expect(registry.cancel(runId)).toBe(true);
+    expect(await registry.cancel(runId)).toBe('accepted');
     expect(cancelled).toBe(true);
   });
 
-  it('retains finished runs independently by run id and expires them only by time', () => {
+  it('owns live subscribers by attachment so one detach cannot silence another', () => {
+    const registry = new RunRegistry();
+    const runId = crypto.randomUUID();
+    registry.start({ runId, sessionId: 'session', participantId: 'agent-1', cancel: () => undefined });
+
+    const firstStream: AgentEvent[] = [];
+    const secondStream: AgentEvent[] = [];
+    const first = registry.subscribe(runId, (event) => firstStream.push(event))!;
+    const second = registry.subscribe(runId, (event) => secondStream.push(event))!;
+    registry.record(runId, { type: 'status', runId, phase: 'thinking', label: 'First event' });
+    registry.unsubscribe(runId, first.attachmentId);
+    registry.record(runId, { type: 'status', runId, phase: 'responding', label: 'Second event' });
+
+    expect(firstStream.map((event) => event.type === 'status' ? event.label : '')).toEqual(['First event']);
+    expect(secondStream.map((event) => event.type === 'status' ? event.label : '')).toEqual([
+      'First event', 'Second event',
+    ]);
+    registry.unsubscribe(runId, second.attachmentId);
+    registry.finish(runId);
+  });
+
+  it('retains finished runs independently by run id and expires them only by time', async () => {
     const now = 2_000_000_000_000;
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
     const registry = new RunRegistry();
@@ -270,7 +291,7 @@ describe('permission broker', () => {
     ]);
     expect(registry.subscribe(first, () => undefined)).toMatchObject({ runId: first, finished: true });
     expect(registry.subscribe(second, () => undefined)?.replay).toHaveLength(1);
-    expect(registry.cancel(first)).toBe(false);
+    expect(await registry.cancel(first)).toBe('unknown-run');
 
     clock.mockReturnValue(now + 300_001);
     expect(registry.list().recent).toEqual([]);

@@ -256,21 +256,21 @@ the arena and device slices.
 
 ## Agent concurrency
 
-There are two distinct promises:
+There are two distinct promises, both now shipped for one local machine:
 
-1. **Simultaneous visibility:** several sessions stay open and usable while one agent runs.
+1. **Simultaneous visibility:** several sessions stay open and usable while agents run.
 2. **Simultaneous execution:** agents in different sessions may run at the same time.
 
 The first is a product requirement and does not require parallel child processes. The second should
 be deliberate and bounded — and bounded *per machine*, since capacity is a property of a machine, not
 of a user. A cloud machine and a laptop do not share a limit.
 
-A likely policy is:
+The current policy is:
 
-- at most one active turn per agent participant / provider session;
-- optionally several active turns across independent sessions on one machine;
-- a configurable concurrency limit per machine, based on that machine's capacity;
-- visible queued/running/needs-you states per session, with the machine named;
+- at most one queued or active turn per session and per provider session;
+- several active turns across independent sessions on one machine;
+- `CODEAI_MAX_CONCURRENT_RUNS`, default 2 and bounded from 1–8;
+- visible queued/running/needs-you states per open session view;
 - cancellation, approval, replay, and reattachment keyed by `runId` and session/participant rather
   than a global active slot;
 - no concurrent turns against the same provider session unless that provider explicitly supports it.
@@ -344,7 +344,7 @@ resolved on the machine that executes it, never asserted by the device that requ
    [Story 36](../stories/STORY-20260830-multi-session-workspace.md) opens several tabbed session
    views within the selected project, persists their device layout locally, and keeps one agent run
    globally. It tests navigation and host-wide reattachment without taking on concurrency.
-6. **Independent run registry — specified in
+6. **Independent run registry — shipped 2026-09-01 in
    [Story 37](../stories/STORY-20260901-concurrent-turns.md):** concurrent runs keyed by provider
    session with a conservative per-machine limit, queueing, and background activity/permissions
    surfaced across sessions. The arena's states are thin until this lands.

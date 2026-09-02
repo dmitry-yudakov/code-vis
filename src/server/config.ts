@@ -17,6 +17,7 @@ export interface AppConfig {
   buildTimeoutMs: number;
   buildMaxTurns: number;
   approvalTimeoutMs: number;
+  maxConcurrentRuns: number;
   dataDir: string;
   hostLabel: string;
   maxAssistantBytes: number;
@@ -122,6 +123,9 @@ export function getConfig(): AppConfig {
     buildTimeoutMs: boundedInteger('BUILD_TIMEOUT_MS', 3_600_000, 1_000, 7_200_000),
     buildMaxTurns: boundedInteger('BUILD_MAX_TURNS', 200, 1, 1_000),
     approvalTimeoutMs: boundedInteger('APPROVAL_TIMEOUT_MS', 600_000, 5_000, 3_600_000),
+    // Machine capacity is deliberately small and bounded. The scheduler owns this value; clients
+    // may observe queued work but cannot request a wider limit.
+    maxConcurrentRuns: boundedInteger('MAX_CONCURRENT_RUNS', 2, 1, 8),
     // `web2` in the default path is a persisted compatibility identifier, not branding: existing
     // session records and provider sessions live there. Renaming it needs its own data migration.
     dataDir: path.resolve(expandHome(rawSetting('DATA_DIR') || '~/.code-ai/web2')),

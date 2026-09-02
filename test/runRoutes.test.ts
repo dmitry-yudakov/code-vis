@@ -44,6 +44,7 @@ describe('run discovery and stream routes', () => {
       const replay = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
       expect(replay.status).toBe(200);
       expect(replay.headers.get('X-CodeAI-Run-Finished')).toBe('true');
+      expect(replay.headers.get('X-CodeAI-Replay-Events')).toBe('2');
       expect(events(await replay.text())).toEqual([
         { type: 'status', runId, phase: 'thinking', label: 'Thinking…' },
         { type: 'done', runId, durationMs: 10, cancelled: false },
@@ -62,12 +63,35 @@ describe('run discovery and stream routes', () => {
       expect((await GET_STREAM(new Request('http://localhost/api/agent/stream?sessionId=ignored'))).status).toBe(400);
       const response = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
       expect(response.headers.get('X-CodeAI-Run-Finished')).toBe('false');
+      expect(response.headers.get('X-CodeAI-Replay-Events')).toBe('0');
       runRegistry.record(runId, { type: 'status', runId, phase: 'responding', label: 'Responding…' });
       runRegistry.record(runId, { type: 'done', runId, durationMs: 12, cancelled: false });
       runRegistry.finish(runId);
       expect(events(await response.text())).toEqual([
         { type: 'status', runId, phase: 'responding', label: 'Responding…' },
         { type: 'done', runId, durationMs: 12, cancelled: false },
+      ]);
+    } finally {
+      runRegistry.finish(runId);
+    }
+  });
+
+  it('keeps one live stream attached when a competing attachment detaches', async () => {
+    const runId = crypto.randomUUID();
+    expect(runRegistry.start({
+      runId, sessionId: crypto.randomUUID(), participantId: 'agent-shared', cancel: () => undefined,
+    })).toBe(true);
+    try {
+      const first = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
+      const second = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
+      await first.body?.cancel();
+
+      runRegistry.record(runId, { type: 'status', runId, phase: 'responding', label: 'Still attached' });
+      runRegistry.record(runId, { type: 'done', runId, durationMs: 4, cancelled: false });
+      runRegistry.finish(runId);
+      expect(events(await second.text())).toEqual([
+        { type: 'status', runId, phase: 'responding', label: 'Still attached' },
+        { type: 'done', runId, durationMs: 4, cancelled: false },
       ]);
     } finally {
       runRegistry.finish(runId);
