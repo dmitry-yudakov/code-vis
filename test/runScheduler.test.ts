@@ -213,6 +213,13 @@ describe('machine run scheduler', () => {
       runId: first.runId,
       state: 'needs-you',
       pendingPermissionCount: 1,
+      pendingPermissions: [{
+        requestId: 'approval-a',
+        participantId: 'agent-a',
+        tool: 'Edit',
+        detail: 'src/a.ts',
+      }],
+      status: 'Waiting for approval — Edit: src/a.ts',
     }));
     expect(second.execute).not.toHaveBeenCalled();
     expect(registry.decide(first.runId, 'approval-a', 'allow')).toBe('accepted');
@@ -226,8 +233,46 @@ describe('machine run scheduler', () => {
       runId: first.runId,
       state: 'running',
       pendingPermissionCount: 0,
+      pendingPermissions: [],
+      status: 'Continuing agent turn',
     }));
     expect(second.execute).not.toHaveBeenCalled();
+  });
+
+  it('reports isolated terminal outcomes and current status without exposing transcript text', async () => {
+    const registry = new RunRegistry(2);
+    const completed = turn(registry);
+    const failed = turn(registry);
+    await scheduled();
+    registry.record(completed.runId, { type: 'status', runId: completed.runId, phase: 'thinking', label: 'Tracing callers' });
+    registry.record(completed.runId, { type: 'assistant-delta', runId: completed.runId, delta: 'private answer text' });
+    registry.record(completed.runId, { type: 'done', runId: completed.runId, durationMs: 10, cancelled: false });
+    registry.finish(completed.runId);
+    registry.record(failed.runId, {
+      type: 'error',
+      runId: failed.runId,
+      code: 'process-failed',
+      message: 'Provider exited',
+      retryable: true,
+      delivery: 'possibly-sent',
+    });
+    registry.record(failed.runId, { type: 'done', runId: failed.runId, durationMs: 11, cancelled: false });
+    registry.finish(failed.runId);
+
+    const recent = registry.list().recent;
+    expect(recent).toContainEqual(expect.objectContaining({
+      runId: completed.runId,
+      status: 'Turn completed',
+      outcome: 'completed',
+      pendingPermissions: [],
+    }));
+    expect(recent).toContainEqual(expect.objectContaining({
+      runId: failed.runId,
+      status: 'Provider exited',
+      outcome: 'failed',
+      pendingPermissions: [],
+    }));
+    expect(JSON.stringify(recent)).not.toContain('private answer text');
   });
 
   it('cancels queued work without executing it and immediately repositions later work', async () => {

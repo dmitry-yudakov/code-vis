@@ -41,6 +41,8 @@ capability.
 | Focused canvas, next recipient/mode, panels, drafts | Browser memory |
 | Provider session ids and transcript cursors | Private fields in the host store |
 | Projects, session membership, repository bindings | Host store |
+| Arena session summaries and run attention | Derived server snapshots |
+| Arena finished-item read markers | Versioned browser device state |
 | Checkout discovery and opaque checkout ids | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
 | Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
@@ -57,6 +59,12 @@ does not persist conversation content. `AppShell` lists snapshots by project (or
 `GET /api/sessions`, hydrates one complete snapshot with `GET /api/sessions/[sessionId]`, and sends
 annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
 revisions return 409 and trigger a refetch instead of silently replacing another client's work.
+
+The Arena polls one bounded `GET /api/arena` projection across all projects. It carries card fields,
+safe pending-permission details, and brief terminal run outcomes, never full transcripts or private
+provider-session handles. The browser derives card and Inbox presentation from that snapshot, keeps
+the last good response on refresh failure, and stores only bounded finished-item read ids under
+`code-ai:device:v1:arena`. Live permission obligations cannot be dismissed locally.
 
 The selected checkout preference uses `code-ai:device:v1:active-checkout`; focus, next recipient,
 mode, panels, viewport, and drafts remain React state. Legacy `code-ai:web2:v1:*` conversation keys
@@ -165,7 +173,8 @@ These are real and deliberate, and they bound what can be built next:
 - one queued or executing turn per session and per concrete provider session;
 - a bounded in-memory queue and 1–8 execution slots on this machine; no durable process/queue
   recovery across a server restart;
-- one selected project, with several device-local tabbed session views and one focused view;
+- one Arena across the machine plus one selected project, with several device-local tabbed session
+  views and one focused view;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows
   a device-selected binding while turns continue to use the primary binding;
 - clients see committed host content after refetch/reload, but there is no live synchronization,
@@ -173,7 +182,7 @@ These are real and deliberate, and they bound what can be built next:
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The direction past the current shell — the arena and sessions spread across machines — is in
+The direction past the current shell — authenticated devices and sessions spread across machines — is in
 [vision.md](vision.md), with the record-level engineering
 notes in [multi-project-session-environment.md](multi-project-session-environment.md) and the names
 in [vocabulary.md](vocabulary.md).

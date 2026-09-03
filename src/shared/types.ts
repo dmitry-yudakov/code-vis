@@ -270,6 +270,21 @@ export interface PublicSession {
   sketches: SketchCanvas[];
 }
 
+/** Bounded host snapshot for the cross-project Arena; never includes transcripts or private handles. */
+export interface ArenaSessionSummary {
+  id: string;
+  title: string;
+  projectId?: string;
+  repositoryCheckoutIds: string[];
+  agents: Array<Pick<AgentParticipant, 'id' | 'displayName' | 'provider' | 'role'>>;
+  updatedAt: string;
+  lastActivity?: {
+    messageId: string;
+    createdAt: string;
+    status: ChatMessage['status'];
+  };
+}
+
 /**
  * A public host snapshot plus device-only selection state. The optional fields are never persisted
  * as session content and can be reconstructed after a refetch.
@@ -335,6 +350,15 @@ export type AgentEvent =
 /** Public, host-local identity for a live or briefly retained agent run. */
 export type RunState = 'queued' | 'running' | 'needs-you' | 'finished';
 
+export interface RunPermissionSummary {
+  requestId: string;
+  participantId: string;
+  tool: string;
+  detail: string;
+}
+
+export type RunOutcome = 'completed' | 'failed' | 'cancelled';
+
 export interface RunDescriptor {
   runId: string;
   sessionId: string;
@@ -346,11 +370,22 @@ export interface RunDescriptor {
   /** One-based and present only while queued. */
   queuePosition?: number;
   pendingPermissionCount: number;
+  /** Safe, answerable summaries for the host-wide Inbox. */
+  pendingPermissions: RunPermissionSummary[];
+  /** The latest human-readable lifecycle line emitted by this run. */
+  status?: string;
+  /** Present only after a retained run has reached a terminal event. */
+  outcome?: RunOutcome;
 }
 
 export interface RunDiscovery {
   active: RunDescriptor[];
   recent: RunDescriptor[];
+}
+
+export interface ArenaSnapshot {
+  sessions: ArenaSessionSummary[];
+  runs: RunDiscovery;
 }
 
 export interface AgentMessageRequest {

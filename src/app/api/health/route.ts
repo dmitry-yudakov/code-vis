@@ -35,6 +35,7 @@ export async function GET(): Promise<Response> {
   const providerReady = claude.available || codex.available;
   return safeJsonResponse({
     ok: repositoriesRootReady && dataDirectoryReady && providerReady,
+    hostLabel: config.hostLabel,
     repositoriesRootReady,
     dataDirectoryReady,
     providers: { claude, codex },

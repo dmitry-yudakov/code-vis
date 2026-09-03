@@ -7,7 +7,7 @@ import {
 import path from 'node:path';
 import { z } from 'zod';
 import type {
-  AgentProvider, AgentRole, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
+  AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
   Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
@@ -171,6 +171,31 @@ export function publicSession(session: DurableSession): PublicSession {
     participants: publicParticipants(session),
   };
   return publicSessionSchema.parse(snapshot) as PublicSession;
+}
+
+/** The Arena polls this bounded projection; full transcripts stay behind the session routes. */
+export function arenaSessionSummary(session: DurableSession): ArenaSessionSummary {
+  const latest = session.messages.at(-1);
+  return {
+    id: session.id,
+    title: session.title,
+    ...(session.projectId ? { projectId: session.projectId } : {}),
+    repositoryCheckoutIds: session.repositories.map((repository) => repository.checkoutId),
+    agents: session.participants.flatMap((participant) => participant.kind === 'agent' ? [{
+      id: participant.id,
+      displayName: participant.displayName,
+      provider: participant.provider,
+      role: participant.role,
+    }] : []),
+    updatedAt: session.updatedAt,
+    ...(latest ? {
+      lastActivity: {
+        messageId: latest.id,
+        createdAt: latest.createdAt,
+        status: latest.status,
+      },
+    } : {}),
+  };
 }
 
 export function serverAgent(

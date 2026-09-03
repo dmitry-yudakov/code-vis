@@ -57,6 +57,7 @@ vi.mock('@/server/agents/providerRegistry', () => ({
 }));
 
 import { GET as GET_SESSIONS, POST as POST_SESSION } from '@/app/api/sessions/route';
+import { GET as GET_ARENA } from '@/app/api/arena/route';
 import { GET as GET_SESSION } from '@/app/api/sessions/[sessionId]/route';
 import { POST as POST_SKETCH } from '@/app/api/sessions/[sessionId]/sketches/route';
 import { PUT as PUT_ANNOTATION } from '@/app/api/sessions/[sessionId]/annotations/route';
@@ -120,6 +121,16 @@ describe('session snapshot and mutation routes', () => {
     expect((await ambiguous.json()).error).toContain('either a project or loose sessions');
     const hydrated = await GET_SESSION(new Request(`http://localhost/api/sessions/${session.id}`), context(session.id));
     expect((await hydrated.json()).session).toEqual(session);
+    const arena = await GET_ARENA();
+    const arenaBody = await arena.json();
+    expect(arena.status).toBe(200);
+    expect(arenaBody.sessions).toEqual([expect.objectContaining({
+      id: session.id,
+      repositoryCheckoutIds: ['checkout-a'],
+      agents: [expect.objectContaining({ displayName: 'Claude', provider: 'claude' })],
+    })]);
+    expect(arenaBody.runs).toEqual({ active: [], recent: [] });
+    expect(JSON.stringify(arenaBody)).not.toContain('provider-session');
 
     const sketch = {
       id: crypto.randomUUID(), sessionId: session.id, ordinal: 1,

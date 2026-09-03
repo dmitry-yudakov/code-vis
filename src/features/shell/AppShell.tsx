@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import type {
-  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, AssistantMessage, SessionSnapshot, DiagramArtifact,
+  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
   ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
@@ -22,6 +22,9 @@ import {
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
+import { Arena, type ArenaSection } from '@/features/arena/Arena';
+import { buildArenaInbox, unreadArenaAttention } from '@/features/arena/arenaModel';
+import { useArena } from '@/features/arena/useArena';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/components/CanvasWorkspace';
@@ -38,6 +41,7 @@ import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
   ok: boolean;
+  hostLabel: string;
   repositoriesRootReady: boolean;
   dataDirectoryReady: boolean;
   providers: Record<AgentProvider, ProviderHealth>;
@@ -73,9 +77,12 @@ export function AppShell() {
   const [projectId, setProjectId] = useState<string>();
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
+  const [arenaOpen, setArenaOpen] = useState(false);
+  const [arenaSection, setArenaSection] = useState<ArenaSection>('sessions');
   const shellRef = useRef<HTMLDivElement>(null);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const workspace = useWorkspaceViews(projectId);
+  const arena = useArena();
   const sessionId = workspace.scope.focusedSessionId;
   const view = sessionId ? workspace.scope.views[sessionId] : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
@@ -383,25 +390,44 @@ export function AppShell() {
     });
   }, []);
 
-  const createSession = useCallback(async (requestedProvider: AgentProvider = newProvider) => {
+  const createSession = useCallback(async (
+    requestedProvider: AgentProvider = newProvider,
+    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean } = {},
+  ): Promise<boolean> => {
     setNotice(undefined);
     try {
+      const targetProjectId = options.fromArena ? options.projectId : projectId;
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(projectId ? { projectId } : {}), provider: requestedProvider }),
+        body: JSON.stringify({ ...(targetProjectId ? { projectId: targetProjectId } : {}), provider: requestedProvider }),
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
-      const created = applyServerSnapshot(data.session);
-      panelLayout.openConversationFor(created.id);
-      workspace.open(created.id);
+      workspace.openInProject(targetProjectId, data.session.id, (current) => ({
+        ...current,
+        ...(options.mode ? { defaultMode: options.mode } : {}),
+      }));
+      if (targetProjectId === projectId) applyServerSnapshot(data.session);
+      else {
+        setLoading(true);
+        setProjectId(targetProjectId);
+        sessionsRef.current = [];
+        setSessions([]);
+        setRepositoryTree(undefined);
+      }
+      panelLayout.openConversationFor(data.session.id);
+      setArenaOpen(false);
+      void arena.refresh();
+      return true;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
+      return false;
     }
-  }, [applyServerSnapshot, newProvider, panelLayout.openConversationFor, projectId, workspace.open]);
+  }, [applyServerSnapshot, arena.refresh, newProvider, panelLayout.openConversationFor, projectId, workspace.openInProject]);
 
   const switchProject = (next?: string) => {
+    setArenaOpen(false);
     if (next === projectId) return;
     setLoading(true);
     setProjectId(next);
@@ -1005,6 +1031,39 @@ export function AppShell() {
     queuePosition: run.queuePosition,
     pendingApprovals: Math.max(run.pendingPermissionCount || 0, run.permissions.length),
   }]));
+  const arenaInbox = buildArenaInbox(projects, arena.sessions, arena.discovery, arena.deviceState);
+  const arenaUnread = unreadArenaAttention(arenaInbox);
+
+  const openArenaSession = useCallback((target: ArenaSessionSummary) => {
+    workspace.openInProject(target.projectId, target.id);
+    setArenaOpen(false);
+    if (target.projectId === projectId) return;
+    setLoading(true);
+    setProjectId(target.projectId);
+    sessionsRef.current = [];
+    setSessions([]);
+    setRepositoryTree(undefined);
+  }, [projectId, workspace.openInProject]);
+
+  const decideArenaPermission = useCallback(async (
+    runId: string,
+    requestId: string,
+    decision: 'allow' | 'deny',
+  ) => {
+    try {
+      const response = await fetch('/api/agent/permission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId, requestId, decision }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error || 'That permission could not be answered.');
+      await arena.refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That permission could not be answered.');
+      await arena.refresh();
+    }
+  }, [arena.refresh]);
 
   const cancelBusyRun = useCallback(async () => {
     if (!busyRun) return;
@@ -1186,38 +1245,54 @@ export function AppShell() {
   return (
     <div
       ref={shellRef}
-      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${panelLayout.focusMode ? 'focus-mode' : ''}`}
+      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${panelLayout.focusMode ? 'focus-mode' : ''} ${arenaOpen ? 'arena-mode' : ''}`}
       style={panelLayout.shellStyle}
     >
       <header className="app-header">
         <div className="brand"><span className="brand-mark">C</span><strong>CodeAI</strong></div>
         <nav className="header-breadcrumbs" aria-label="Current project and session">
           <span className="breadcrumb-separator" aria-hidden="true">/</span>
-          <ProjectPicker
-            projects={projects}
-            value={projectId}
-            disabled={running}
-            onChange={switchProject}
-            onCreate={(name) => void createProject(name)}
-            onRename={(project, name) => void renameProject(project, name)}
-            onDelete={(project) => void deleteProject(project)}
-          />
-          <span className="breadcrumb-separator" aria-hidden="true">/</span>
-          <SessionPicker
-            sessions={sessions}
-            value={sessionId}
-            providers={selectableProviders}
-            newProvider={newProvider}
-            onChange={workspace.open}
-            onNewProvider={setNewProvider}
-            onNew={(provider) => void createSession(provider)}
-          />
+          {arenaOpen ? <strong className="arena-breadcrumb">Arena</strong> : (
+            <>
+              <ProjectPicker
+                projects={projects}
+                value={projectId}
+                onChange={switchProject}
+                onCreate={(name) => void createProject(name)}
+                onRename={(project, name) => void renameProject(project, name)}
+                onDelete={(project) => void deleteProject(project)}
+              />
+              <span className="breadcrumb-separator" aria-hidden="true">/</span>
+              <SessionPicker
+                sessions={sessions}
+                value={sessionId}
+                providers={selectableProviders}
+                newProvider={newProvider}
+                onChange={workspace.open}
+                onNewProvider={setNewProvider}
+                onNew={(provider) => void createSession(provider)}
+              />
+            </>
+          )}
         </nav>
         {/* Grouped by what each control does: panels, then the session action, then readiness,
             then the one preference — with a rule before it so four kinds of control in one row
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
-          {session && (
+          <button
+            type="button"
+            className={arenaOpen && arenaSection === 'sessions' ? 'active' : ''}
+            aria-pressed={arenaOpen && arenaSection === 'sessions'}
+            onClick={() => { setArenaSection('sessions'); setArenaOpen(true); }}
+          >Arena</button>
+          <button
+            type="button"
+            className={`inbox-toggle ${arenaOpen && arenaSection === 'inbox' ? 'active' : ''} ${arenaUnread.length ? 'has-attention' : ''}`}
+            aria-pressed={arenaOpen && arenaSection === 'inbox'}
+            aria-label={`Inbox${arenaUnread.length ? `, ${arenaUnread.length} unread` : ''}`}
+            onClick={() => { setArenaSection('inbox'); setArenaOpen(true); }}
+          >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</button>
+          {!arenaOpen && session && (
             <button
               type="button"
               className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
@@ -1227,7 +1302,7 @@ export function AppShell() {
               Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
             </button>
           )}
-          {session && (
+          {!arenaOpen && session && (
             <button
               type="button"
               className={`run-status-toggle ${focusedRun?.state === 'running' ? 'working' : ''} ${focusedRun?.state === 'queued' ? 'queued' : ''} ${focusedRun?.state === 'needs-you' ? 'awaiting-approval' : ''}`}
@@ -1254,7 +1329,7 @@ export function AppShell() {
               {unread > 0 && <span className="unread-badge">{unread}</span>}
             </button>
           )}
-          {session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
+          {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
           <span
             className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
             title={providerHealth?.message || health?.message || 'Local readiness'}
@@ -1278,17 +1353,19 @@ export function AppShell() {
         </div>
       </header>
 
-      <WorkspaceTabs
-        sessions={sessions}
-        openSessionIds={workspace.scope.openSessionIds}
-        focusedSessionId={sessionId}
-        runsBySession={runTabsBySession}
-        unreadBySession={unreadBySession}
-        onFocus={workspace.open}
-        onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
-      />
+      {!arenaOpen && (
+        <WorkspaceTabs
+          sessions={sessions}
+          openSessionIds={workspace.scope.openSessionIds}
+          focusedSessionId={sessionId}
+          runsBySession={runTabsBySession}
+          unreadBySession={unreadBySession}
+          onFocus={workspace.open}
+          onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
+        />
+      )}
 
-      {session && (
+      {!arenaOpen && session && (
         <div className="repository-region">
           <RepositoryPanel
             checkoutId={selectedCheckout?.id}
@@ -1339,7 +1416,29 @@ export function AppShell() {
         </div>
       )}
 
-      {!session ? (
+      {arenaOpen && health ? (
+        <Arena
+          projects={projects}
+          sessions={arena.sessions}
+          discovery={arena.discovery}
+          checkouts={checkouts}
+          hostLabel={health.hostLabel || 'This machine'}
+          providerHealth={health.providers}
+          deviceState={arena.deviceState}
+          section={arenaSection}
+          refreshError={arena.refreshError}
+          onSection={setArenaSection}
+          onRefresh={() => void arena.refresh()}
+          onOpenSession={openArenaSession}
+          onCreateSession={({ projectId: targetProjectId, provider, mode: initialMode }) => createSession(provider, {
+            projectId: targetProjectId,
+            mode: initialMode,
+            fromArena: true,
+          })}
+          onDecidePermission={decideArenaPermission}
+          onAcknowledge={arena.acknowledge}
+        />
+      ) : !session ? (
         <div className="welcome-screen">
           <div className="welcome-orbit"><span /><span /><span /><div className="brand-mark">C</div></div>
           <span className="eyebrow">Local exploration, planning, and building</span>

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  SessionStore, sessionStoreStatus, getSessionStore, publicSession, serverAgent,
+  arenaSessionSummary, SessionStore, sessionStoreStatus, getSessionStore, publicSession, serverAgent,
 } from '@/server/storage/sessionStore';
 import { durableSessionSchema } from '@/shared/sessionSchema';
 import {
@@ -198,6 +198,28 @@ function userMessage(sessionId: string, humanId: string, agentId: string, text =
 }
 
 describe('host-owned session store', () => {
+  it('projects a bounded Arena summary without transcript artifacts or private provider handles', () => {
+    const session = durableFixture(
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+    );
+    session.messages[1] = {
+      ...session.messages[1],
+      rawMarkdown: `Latest result\n\n${'private detail '.repeat(40)}`,
+    } as AssistantMessage;
+    const summary = arenaSessionSummary(session);
+    expect(summary).toMatchObject({
+      id: session.id,
+      repositoryCheckoutIds: ['checkout-a'],
+      agents: [{ displayName: 'Claude', provider: 'claude', role: 'coder' }],
+      lastActivity: { status: 'complete' },
+    });
+    expect(JSON.stringify(summary)).not.toContain('Latest result private detail');
+    expect(JSON.stringify(summary)).not.toContain('provider-session');
+    expect(JSON.stringify(summary)).not.toContain('flowchart');
+    expect(JSON.stringify(summary)).not.toContain('lastObservedMessageId');
+  });
+
   it('creates a fresh private store, keeps its host identity, and leaves older prototype records unread', async () => {
     const dataDir = await directory();
     const legacyPath = path.join(dataDir, 'sessions.json');

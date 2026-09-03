@@ -79,6 +79,18 @@ Nothing else changes: same port, same commands (`yarn x` → `npm run x`), same 
 stored data. `next dev` and `next build` now use Turbopack, and `next dev` writes its output under
 `.next/dev`, which stays ignored.
 
+## Arena and Inbox
+
+The header **Arena** control opens a machine-wide overview of every session, grouped by project.
+Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
+latest activity. Use **New session** there to choose a project, provider, and initial mode before
+opening an empty session; creation never sends a prompt automatically.
+
+The header **Inbox** follows you into every session. It puts live permission requests first, then
+failed and completed turns, and lets you answer a background session's permission without opening
+it. Finished-item read markers are bounded device-only state. The Arena polls a compact host
+summary; a failed refresh leaves the last good overview usable.
+
 ## Participants, roles, and manual handoffs
 
 A new session starts with one main `coder`. The main designation is only the default
@@ -97,8 +109,8 @@ editable recipient, prompt, and role-default mode; they never send automatically
 agent-to-agent relay, simultaneous turns inside one session, and autopilot are intentionally not
 implemented yet.
 
-New sessions intentionally open in **Plan** because their initial participant is the `coder`
-preset.
+New sessions default to **Plan** because their initial participant is the `coder` preset. Arena
+creation may set another supported initial mode as device-local state before the empty session opens.
 
 Independent sessions can execute at the same time. The machine runs two eligible turns by default
 and visibly queues additional work; `CODEAI_MAX_CONCURRENT_RUNS` sets a limit from 1–8. Ask and

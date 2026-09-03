@@ -353,6 +353,86 @@ test('runs two turns, queues a third, and recovers background approval and promo
   await expect(tabs.nth(2)).not.toHaveClass(/working/);
 });
 
+test('orchestrates cross-project attention and starts configured work from the Arena', async ({ page, request }) => {
+  const alphaProject = `Arena Alpha ${Date.now()}`;
+  const betaProject = `Arena Beta ${Date.now()}`;
+  await page.goto('/');
+
+  await createNamedProject(page, alphaProject);
+  await startSession(page);
+  await attachRepository(page, 'alpha');
+
+  await createNamedProject(page, betaProject);
+  await startSession(page);
+  await attachRepository(page, 'beta');
+
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(alphaProject) }).click();
+  const alphaConversation = page.getByRole('complementary', { name: 'Conversation' });
+  await alphaConversation.getByRole('radio', { name: 'Agent' }).click();
+  await alphaConversation.locator('textarea').fill('Arena permission from Alpha');
+  await alphaConversation.getByRole('button', { name: 'Send' }).click();
+  await expect(alphaConversation.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
+
+  // Leave the blocked session. Project navigation stays available and its permission reaches the
+  // host-wide Inbox without first reopening the owning project/session.
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(betaProject) }).click();
+  await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
+  await expect(page.locator('.inbox-toggle')).toHaveAttribute('aria-label', /unread/);
+  await page.locator('.inbox-toggle').click();
+  const arena = page.getByRole('main', { name: 'Arena' });
+  await expect(arena).toBeVisible();
+  const permissionItem = arena.locator('.arena-inbox-item:has(.arena-attention-kind.permission)').filter({ hasText: 'Arena permission from Alpha' });
+  await expect(permissionItem).toContainText(alphaProject);
+  await expect(permissionItem).toContainText('Edit: README.md');
+  await permissionItem.getByRole('button', { name: 'Allow' }).click();
+  await expect(permissionItem).toHaveCount(0);
+
+  const finishedItem = arena.locator('.arena-inbox-item').filter({ hasText: 'Arena permission from Alpha' }).filter({ hasText: 'Finished' });
+  await expect(finishedItem).toBeVisible();
+  await finishedItem.getByRole('button', { name: 'Mark read' }).click();
+  await expect(finishedItem).toHaveClass(/read/);
+
+  await arena.getByRole('tab', { name: /Sessions/ }).click();
+  const alphaGroup = arena.getByRole('region', { name: alphaProject });
+  const alphaCard = alphaGroup.getByRole('button', { name: 'Open Arena permission from Alpha' });
+  await expect(alphaCard).toContainText('Idle');
+  await expect(alphaCard).toContainText('alpha');
+  await expect(alphaCard).toContainText('Claude');
+
+  // A failed refresh leaves the last good cards in place and offers a safe retry.
+  let failArenaRefresh = true;
+  await page.route('**/api/arena', async (route) => {
+    if (failArenaRefresh) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Arena unavailable' }) });
+    } else {
+      await route.continue();
+    }
+  });
+  await arena.getByRole('button', { name: 'Refresh' }).click();
+  await expect(arena.getByText(/Showing the last good overview/)).toBeVisible();
+  await expect(alphaCard).toBeVisible();
+  failArenaRefresh = false;
+  await arena.getByRole('button', { name: 'Try again' }).click();
+  await expect(arena.getByText(/Showing the last good overview/)).toHaveCount(0);
+  await page.unroute('**/api/arena');
+
+  // Starting from the overview chooses project/provider/mode, opens the resulting view, and does
+  // not itself start a provider run.
+  await arena.getByRole('button', { name: 'New session' }).click();
+  const create = arena.getByRole('region', { name: 'Create session' });
+  await create.getByLabel('Project').selectOption({ label: betaProject });
+  await create.getByLabel('Provider').selectOption('claude');
+  await create.getByRole('radio', { name: 'Plan' }).click();
+  await create.getByRole('button', { name: 'Create and open' }).click();
+  await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
+  await expect(page.getByRole('complementary', { name: 'Conversation' }).getByRole('radio', { name: 'Plan' }))
+    .toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.chat-message')).toHaveCount(0);
+  expect(((await (await request.get('/api/agent/runs')).json()) as { active: unknown[] }).active).toEqual([]);
+});
+
 test('separates replay from live recovery events and keeps terminal actions per session', async ({ page }) => {
   await page.goto('/');
   await createNamedProject(page, `Recovery outcomes ${Date.now()}`);

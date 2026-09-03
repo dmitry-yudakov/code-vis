@@ -348,8 +348,10 @@ resolved on the machine that executes it, never asserted by the device that requ
    [Story 37](../stories/STORY-20260901-concurrent-turns.md):** concurrent runs keyed by provider
    session with a conservative per-machine limit, queueing, and background activity/permissions
    surfaced across sessions. The arena's states are thin until this lands.
-7. **The arena:** the overview itself — session states, the Inbox, answering a permission from
-   another session, and starting a session from it.
+7. **The arena — shipped 2026-09-03 in
+   [Story 38](../stories/STORY-20260903-arena-and-inbox.md):** a bounded host-wide session snapshot,
+   project-grouped state cards, a device-readable Inbox, cross-session permission answers, and
+   provider/mode-aware session creation from the overview.
 8. **Authenticated devices to one home machine:** pair a user's laptop, phone, or headset with the
    machine that owns the sessions; add secure transport and authorization for reads, turns,
    cancellations, and permission decisions before leaving localhost. This delivers multi-device

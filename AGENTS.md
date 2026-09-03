@@ -6,13 +6,13 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-01. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-03. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** the arena — session states, the Inbox, cross-session attention, and starting work.
-- **Then:** machine/device separation as ordered in
-  [vision.md](docs/vision.md#sequence).
+- **Next:** your own devices — authenticated pairing to the machine that owns the sessions.
+- **Then:** a second execution machine and the rest of
+  [vision.md's sequence](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop). Naming for both:
@@ -46,6 +46,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/app/` | Next pages, layout, global CSS, and route handlers |
 | `src/features/shell/` | Application composition (`AppShell`) |
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
+| `src/features/arena/` | Host-wide session cards, Inbox derivation, polling, and device read state |
 | `src/features/conversation/` | Transcript, composer, drawer, session selection, public snapshot helpers |
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
 | `src/features/diagram/mermaid/` | Mermaid validation policy and SVG renderer |

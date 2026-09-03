@@ -209,17 +209,18 @@ Roughly in dependency order; the engineering detail and current status of each l
    ([Story 36](../stories/STORY-20260830-multi-session-workspace.md)).
 5. **Concurrent turns** — *shipped.* A per-machine limit, queueing, and background activity across sessions
    ([Story 37](../stories/STORY-20260901-concurrent-turns.md)).
-6. **The arena** — the overview itself: states, the Inbox, cross-session permission answering, and
-   starting a session from it.
+6. **The arena** — *shipped.* The project-grouped overview, states, Inbox, cross-session permission
+   answering, and configured session creation
+   ([Story 38](../stories/STORY-20260903-arena-and-inbox.md)).
 7. **Your own devices** — authenticated pairing to one machine; the arena on a tablet or headset.
 8. **A second machine** — a machine registry, remote sessions listed and streamed in one arena.
 9. **Spatial surfaces** — desktop 3D first, then WebXR.
 10. **Cloud execution** — sandboxes, subscription-in-container, joining from anywhere.
 
-Steps 1–4 shipped in August 2026 and step 5 in September 2026. From step 6 on this is
+Steps 1–4 shipped in August 2026 and steps 5–6 in September 2026. From step 7 on this is
 direction, not a plan.
 
-The arena comes fourth of the four near-term steps rather than first, for two reasons. It groups
+The arena came fourth of the four near-term steps rather than first, for two reasons. It groups
 sessions **by project**, so building it before step 3 gives one flat list of everything; and its
 states only mean something once several turns can run at once, which is step 5. Built earlier it is
 a real improvement — switching sessions without losing your place, and answering a permission from

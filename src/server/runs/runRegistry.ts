@@ -1,5 +1,7 @@
 import { getConfig } from '@/server/config';
-import type { AgentEvent, RunDescriptor, RunDiscovery, RunState } from '@/shared/types';
+import type {
+  AgentEvent, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
+} from '@/shared/types';
 import type { PermissionBroker } from './permissionBroker';
 
 export type PermissionDecisionOutcome = 'accepted' | 'unknown-run' | 'unknown-request';
@@ -32,7 +34,9 @@ interface RunRecord {
   cancelQueued?(): Promise<void>;
   execute?(): Promise<void>;
   permissions?: PermissionBroker;
-  pendingPermissionIds: Set<string>;
+  pendingPermissions: Map<string, RunPermissionSummary>;
+  status?: string;
+  outcome?: RunOutcome;
   /** Every event except assistant-delta, which is accumulated into `deltaText` instead. */
   transcript: AgentEvent[];
   deltaText: string;
@@ -113,7 +117,7 @@ export class RunRegistry {
       activated: false,
       cancelling: false,
       cancelBlocked: false,
-      pendingPermissionIds: new Set(),
+      pendingPermissions: new Map(),
       transcript: [],
       deltaText: '',
       subscribers: new Map(),
@@ -171,7 +175,7 @@ export class RunRegistry {
       activated: true,
       cancelling: false,
       cancelBlocked: false,
-      pendingPermissionIds: new Set(),
+      pendingPermissions: new Map(),
       transcript: [],
       deltaText: '',
       subscribers: new Map(),
@@ -191,11 +195,32 @@ export class RunRegistry {
     const run = this.liveByRunId.get(runId);
     if (run) {
       if (event.type === 'permission-request') {
-        run.pendingPermissionIds.add(event.requestId);
+        run.pendingPermissions.set(event.requestId, {
+          requestId: event.requestId,
+          participantId: event.participantId,
+          tool: event.tool,
+          detail: event.detail,
+        });
+        run.status = event.detail
+          ? `Waiting for approval — ${event.tool}: ${event.detail}`
+          : `Waiting for approval — ${event.tool}`;
         if (run.state === 'running') run.state = 'needs-you';
       } else if (event.type === 'permission-resolved') {
-        run.pendingPermissionIds.delete(event.requestId);
-        if (run.state === 'needs-you' && !run.pendingPermissionIds.size) run.state = 'running';
+        run.pendingPermissions.delete(event.requestId);
+        if (run.state === 'needs-you' && !run.pendingPermissions.size) {
+          run.state = 'running';
+          run.status = 'Continuing agent turn';
+        }
+      } else if (event.type === 'status') {
+        run.status = event.label;
+      } else if (event.type === 'tool-activity') {
+        run.status = event.detail ? `${event.tool}: ${event.detail}` : event.tool;
+      } else if (event.type === 'error') {
+        run.status = event.message;
+        run.outcome = event.code === 'cancelled' ? 'cancelled' : 'failed';
+      } else if (event.type === 'done') {
+        run.outcome = event.cancelled ? 'cancelled' : run.outcome || 'completed';
+        if (run.outcome === 'completed') run.status = 'Turn completed';
       }
       if (event.type === 'assistant-delta') {
         run.deltaText += event.delta;
@@ -288,7 +313,7 @@ export class RunRegistry {
     if (index >= 0) this.queue.splice(index, 1);
     run.state = 'finished';
     run.finishedAt = Date.now();
-    run.pendingPermissionIds.clear();
+    run.pendingPermissions.clear();
     run.subscribers.clear();
     this.liveByRunId.delete(runId);
     this.recentByRunId.set(runId, run);
@@ -390,7 +415,10 @@ export class RunRegistry {
       ...(run.startedAt === undefined ? {} : { startedAt: run.startedAt }),
       ...(run.finishedAt === undefined ? {} : { finishedAt: run.finishedAt }),
       ...(queuePosition && queuePosition > 0 ? { queuePosition } : {}),
-      pendingPermissionCount: run.pendingPermissionIds.size,
+      pendingPermissionCount: run.pendingPermissions.size,
+      pendingPermissions: [...run.pendingPermissions.values()],
+      ...(run.status ? { status: run.status } : {}),
+      ...(run.state === 'finished' && run.outcome ? { outcome: run.outcome } : {}),
     };
   }
 

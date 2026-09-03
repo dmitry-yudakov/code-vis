@@ -22,6 +22,7 @@ export function useWorkspaceViews(projectId?: string) {
   const [workspace, setWorkspace] = useState<DeviceWorkspace>(EMPTY_DEVICE_WORKSPACE);
   const [ready, setReady] = useState(false);
   const workspaceRef = useRef(workspace);
+  const readyRef = useRef(false);
   workspaceRef.current = workspace;
 
   useEffect(() => {
@@ -33,6 +34,7 @@ export function useWorkspaceViews(projectId?: string) {
       workspaceRef.current = EMPTY_DEVICE_WORKSPACE;
       setWorkspace(EMPTY_DEVICE_WORKSPACE);
     } finally {
+      readyRef.current = true;
       setReady(true);
     }
   }, []);
@@ -45,6 +47,11 @@ export function useWorkspaceViews(projectId?: string) {
   const commit = useCallback((update: (current: DeviceWorkspace) => DeviceWorkspace): DeviceWorkspace => {
     const next = update(workspaceRef.current);
     workspaceRef.current = next;
+    // User navigation/camera events can be followed immediately by a reload. Persist in the same
+    // turn instead of depending only on a later passive effect that the navigation may pre-empt.
+    if (readyRef.current) {
+      try { localStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional */ }
+    }
     setWorkspace(next);
     return next;
   }, []);
@@ -52,6 +59,13 @@ export function useWorkspaceViews(projectId?: string) {
   const open = useCallback((sessionId: string) => {
     commit((current) => openWorkspaceView(current, scopeId, sessionId));
   }, [commit, scopeId]);
+  const openInProject = useCallback((targetProjectId: string | undefined, sessionId: string, update?: (current: DeviceViewState) => DeviceViewState) => {
+    const targetScopeId = workspaceScopeKey(targetProjectId);
+    commit((current) => {
+      const opened = openWorkspaceView(current, targetScopeId, sessionId);
+      return update ? updateWorkspaceView(opened, targetScopeId, sessionId, update) : opened;
+    });
+  }, [commit]);
   const close = useCallback((sessionId: string) => {
     commit((current) => closeWorkspaceView(current, scopeId, sessionId));
   }, [commit, scopeId]);
@@ -70,5 +84,5 @@ export function useWorkspaceViews(projectId?: string) {
   ), [scopeId]);
 
   const scope = useMemo(() => getWorkspaceScope(workspace, scopeId), [scopeId, workspace]);
-  return { ready, scope, open, ensure, close, reconcile, updateView, getView };
+  return { ready, scope, open, openInProject, ensure, close, reconcile, updateView, getView };
 }
