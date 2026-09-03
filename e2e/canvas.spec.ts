@@ -353,6 +353,55 @@ test('runs two turns, queues a third, and recovers background approval and promo
   await expect(tabs.nth(2)).not.toHaveClass(/working/);
 });
 
+test('routes Arena views through browser history without remounting the shell', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await page.locator('.app-shell').evaluate((shell) => { shell.setAttribute('data-route-sentinel', 'preserved'); });
+
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  const arena = page.getByRole('main', { name: 'Arena' });
+  await expect(page).toHaveURL(/\/arena$/);
+  await expect(page).toHaveTitle('Arena — CodeAI');
+  await expect(arena.getByRole('tab', { name: /Active/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-route-sentinel', 'preserved');
+
+  await arena.getByRole('tab', { name: /Inbox/ }).click();
+  await expect(page).toHaveURL(/\/arena\/inbox$/);
+  await expect(page).toHaveTitle('Inbox — CodeAI');
+  await arena.getByRole('tab', { name: /Archived/ }).click();
+  await expect(page).toHaveURL(/\/arena\/archived$/);
+  await expect(page).toHaveTitle('Archived sessions — CodeAI');
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/arena\/inbox$/);
+  await expect(arena.getByRole('tab', { name: /Inbox/ })).toHaveAttribute('aria-selected', 'true');
+  await page.goBack();
+  await expect(page).toHaveURL(/\/arena$/);
+  await expect(arena.getByRole('tab', { name: /Active/ })).toHaveAttribute('aria-selected', 'true');
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('main', { name: 'Arena' })).toHaveCount(0);
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-route-sentinel', 'preserved');
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/arena$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/arena\/inbox$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/arena\/archived$/);
+
+  await page.goto('/arena/archived');
+  await expect(page.getByRole('main', { name: 'Arena' }).getByRole('tab', { name: /Archived/ }))
+    .toHaveAttribute('aria-selected', 'true');
+  await page.reload();
+  await expect(page).toHaveURL(/\/arena\/archived$/);
+  await expect(page).toHaveTitle('Archived sessions — CodeAI');
+  await expect(page.getByRole('main', { name: 'Arena' }).getByRole('tab', { name: /Archived/ }))
+    .toHaveAttribute('aria-selected', 'true');
+
+  expect((await request.get('/arena/not-a-view')).status()).toBe(404);
+});
+
 test('orchestrates cross-project attention and starts configured work from the Arena', async ({ page, request }) => {
   const alphaProject = `Arena Alpha ${Date.now()}`;
   const betaProject = `Arena Beta ${Date.now()}`;
@@ -381,6 +430,7 @@ test('orchestrates cross-project attention and starts configured work from the A
   await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
   await expect(page.locator('.inbox-toggle')).toHaveAttribute('aria-label', /unread/);
   await page.locator('.inbox-toggle').click();
+  await expect(page).toHaveURL(/\/arena\/inbox$/);
   const arena = page.getByRole('main', { name: 'Arena' });
   await expect(arena).toBeVisible();
   const permissionItem = arena.locator('.arena-inbox-item:has(.arena-attention-kind.permission)').filter({ hasText: 'Arena permission from Alpha' });
@@ -395,6 +445,7 @@ test('orchestrates cross-project attention and starts configured work from the A
   await expect(finishedItem).toHaveClass(/read/);
 
   await arena.getByRole('tab', { name: /Active/ }).click();
+  await expect(page).toHaveURL(/\/arena$/);
   const alphaGroup = arena.getByRole('region', { name: alphaProject });
   const alphaCard = alphaGroup.getByRole('button', { name: 'Open Arena permission from Alpha' });
   await expect(alphaCard).toContainText('Idle');
@@ -426,6 +477,7 @@ test('orchestrates cross-project attention and starts configured work from the A
   await create.getByLabel('Provider').selectOption('claude');
   await create.getByRole('radio', { name: 'Plan' }).click();
   await create.getByRole('button', { name: 'Create and open' }).click();
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).getByRole('radio', { name: 'Plan' }))
     .toHaveAttribute('aria-checked', 'true');
@@ -449,7 +501,8 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
 
   const openTabs = page.getByRole('tab');
   await expect(openTabs).toHaveCount(1);
-  await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  await expect(page).toHaveURL(/\/arena$/);
   const arena = page.getByRole('main', { name: 'Arena' });
   const active = arena.getByRole('tab', { name: /Active/ });
   await active.click();
@@ -471,6 +524,7 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
 
   const archived = arena.getByRole('tab', { name: /Archived/ });
   await archived.click();
+  await expect(page).toHaveURL(/\/arena\/archived$/);
   const archivedProject = arena.getByRole('region', { name: projectName });
   const archivedCard = archivedProject.locator('.arena-card');
   await expect(archivedCard).toContainText('Archived');
@@ -480,9 +534,11 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   await expect(page.getByRole('button', { name: 'Undo archive' })).toHaveCount(0);
 
   await active.click();
+  await expect(page).toHaveURL(/\/arena$/);
   const restoredProject = arena.getByRole('region', { name: projectName });
   await expect(restoredProject.locator('.arena-card')).toHaveCount(1);
   await restoredProject.getByRole('button', { name: /Open Session/ }).click();
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await expect(page.getByRole('tab')).toHaveCount(1);
 });

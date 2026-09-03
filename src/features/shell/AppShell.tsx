@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import type {
   AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
@@ -22,8 +24,9 @@ import {
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
-import { Arena, type ArenaSection } from '@/features/arena/Arena';
+import { Arena } from '@/features/arena/Arena';
 import { buildArenaInbox, unreadArenaAttention } from '@/features/arena/arenaModel';
+import { ARENA_SECTION_PATHS, arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
@@ -67,7 +70,11 @@ function updateArtifact(session: SessionSnapshot, id: string, update: (artifact:
   };
 }
 
-export function AppShell() {
+export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const arenaSection = arenaSectionForPathname(pathname);
+  const arenaOpen = arenaSection !== undefined;
   const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
   const [health, setHealth] = useState<Health>();
   const [projects, setProjects] = useState<DurableProject[]>([]);
@@ -77,8 +84,6 @@ export function AppShell() {
   const [projectId, setProjectId] = useState<string>();
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
-  const [arenaOpen, setArenaOpen] = useState(false);
-  const [arenaSection, setArenaSection] = useState<ArenaSection>('sessions');
   const shellRef = useRef<HTMLDivElement>(null);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const workspace = useWorkspaceViews(projectId);
@@ -424,17 +429,16 @@ export function AppShell() {
         setRepositoryTree(undefined);
       }
       panelLayout.openConversationFor(data.session.id);
-      setArenaOpen(false);
+      if (options.fromArena) router.push('/', { scroll: false });
       void arena.refresh();
       return true;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
       return false;
     }
-  }, [applyServerSnapshot, arena.refresh, newProvider, panelLayout.openConversationFor, projectId, workspace.openInProject]);
+  }, [applyServerSnapshot, arena.refresh, newProvider, panelLayout.openConversationFor, projectId, router, workspace.openInProject]);
 
   const switchProject = (next?: string) => {
-    setArenaOpen(false);
     if (next === projectId) return;
     setLoading(true);
     setProjectId(next);
@@ -1043,14 +1047,14 @@ export function AppShell() {
 
   const openArenaSession = useCallback((target: ArenaSessionSummary) => {
     workspace.openInProject(target.projectId, target.id);
-    setArenaOpen(false);
+    router.push('/', { scroll: false });
     if (target.projectId === projectId) return;
     setLoading(true);
     setProjectId(target.projectId);
     sessionsRef.current = [];
     setSessions([]);
     setRepositoryTree(undefined);
-  }, [projectId, workspace.openInProject]);
+  }, [projectId, router, workspace.openInProject]);
 
   const archiveArenaSession = useCallback(async (target: ArenaSessionSummary): Promise<boolean> => {
     try {
@@ -1340,19 +1344,19 @@ export function AppShell() {
             then the one preference — with a rule before it so four kinds of control in one row
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
-          <button
-            type="button"
+          <Link
+            href={ARENA_SECTION_PATHS.sessions}
+            scroll={false}
             className={arenaOpen && arenaSection !== 'inbox' ? 'active' : ''}
-            aria-pressed={arenaOpen && arenaSection !== 'inbox'}
-            onClick={() => { setArenaSection('sessions'); setArenaOpen(true); }}
-          >Arena</button>
-          <button
-            type="button"
+            aria-current={arenaSection === 'sessions' ? 'page' : undefined}
+          >Arena</Link>
+          <Link
+            href={ARENA_SECTION_PATHS.inbox}
+            scroll={false}
             className={`inbox-toggle ${arenaOpen && arenaSection === 'inbox' ? 'active' : ''} ${arenaUnread.length ? 'has-attention' : ''}`}
-            aria-pressed={arenaOpen && arenaSection === 'inbox'}
+            aria-current={arenaOpen && arenaSection === 'inbox' ? 'page' : undefined}
             aria-label={`Inbox${arenaUnread.length ? `, ${arenaUnread.length} unread` : ''}`}
-            onClick={() => { setArenaSection('inbox'); setArenaOpen(true); }}
-          >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</button>
+          >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</Link>
           {!arenaOpen && session && (
             <button
               type="button"
@@ -1490,7 +1494,6 @@ export function AppShell() {
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}
-          onSection={setArenaSection}
           onRefresh={() => void arena.refresh()}
           onOpenSession={openArenaSession}
           onCreateSession={({ projectId: targetProjectId, provider, mode: initialMode }) => createSession(provider, {
@@ -1602,6 +1605,7 @@ export function AppShell() {
           </div>
         </>
       )}
+      {children}
     </div>
   );
 }

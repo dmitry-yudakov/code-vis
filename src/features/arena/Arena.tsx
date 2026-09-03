@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { PROVIDER_LABELS } from '@/shared/participants';
@@ -11,8 +12,7 @@ import {
   buildArenaInbox, groupArenaSessions, unreadArenaAttention,
   type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
-
-export type ArenaSection = 'sessions' | 'inbox' | 'archived';
+import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 
 const STATE_LABELS = {
   idle: 'Idle',
@@ -50,7 +50,6 @@ export function Arena({
   deviceState,
   section,
   refreshError,
-  onSection,
   onRefresh,
   onOpenSession,
   onCreateSession,
@@ -69,7 +68,6 @@ export function Arena({
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
-  onSection(section: ArenaSection): void;
   onRefresh(): void;
   onOpenSession(session: ArenaSessionSummary): void;
   onCreateSession(input: { projectId?: string; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
@@ -153,15 +151,15 @@ export function Arena({
       )}
 
       <div className="arena-sections" role="tablist" aria-label="Arena views">
-        <button type="button" role="tab" aria-selected={section === 'sessions'} onClick={() => onSection('sessions')}>
+        <Link href={ARENA_SECTION_PATHS.sessions} scroll={false} role="tab" aria-selected={section === 'sessions'}>
           Active <span>{sessions.length}</span>
-        </button>
-        <button type="button" role="tab" aria-selected={section === 'inbox'} onClick={() => onSection('inbox')}>
+        </Link>
+        <Link href={ARENA_SECTION_PATHS.inbox} scroll={false} role="tab" aria-selected={section === 'inbox'}>
           Inbox {unread.length > 0 && <span className="arena-count">{unread.length}</span>}
-        </button>
-        <button type="button" role="tab" aria-selected={section === 'archived'} onClick={() => onSection('archived')}>
+        </Link>
+        <Link href={ARENA_SECTION_PATHS.archived} scroll={false} role="tab" aria-selected={section === 'archived'}>
           Archived <span>{archivedSessions.length}</span>
-        </button>
+        </Link>
       </div>
 
       {showCreate && (

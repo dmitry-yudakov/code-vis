@@ -66,12 +66,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .new-session-menu > div { position: absolute; z-index: 100; right: 0; top: calc(100% + 8px); width: 220px; display: grid; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--shell); box-shadow: var(--popover-shadow); }
 .new-session-menu label { display: grid; gap: 6px; color: var(--muted); font: 500 9px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .new-session-menu select { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-family: var(--sans); font-size: 12px; text-transform: none; }
-.new-session-menu button, .header-actions button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); font-size: 11px; font-weight: 600; }
-.new-session-menu button:hover, .header-actions button:hover { background: var(--raised); border-color: var(--line-strong); }
+.new-session-menu button, .header-actions button, .header-actions > a { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); font-size: 11px; font-weight: 600; }
+.new-session-menu button:hover, .header-actions button:hover, .header-actions > a:hover { background: var(--raised); border-color: var(--line-strong); }
 .header-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 /* One control height across the whole 48px bar. Left to their own padding these land on five
    different heights and the row reads as unaligned. */
-.header-actions > button { height: 28px; padding: 0 9px; display: inline-flex; align-items: center; }
+.header-actions > button, .header-actions > a { height: 28px; padding: 0 9px; display: inline-flex; align-items: center; color: inherit; text-decoration: none; }
 .header-divider { flex: none; width: 1px; height: 18px; margin: 0 2px; background: var(--line); }
 .theme-selector { flex: none; height: 28px; display: inline-flex; align-items: center; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); }
 .header-actions .theme-selector button { height: 22px; padding: 0 7px; border: 0; background: transparent; color: var(--muted); font-size: 10px; }
@@ -109,7 +109,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 
 .app-shell.arena-mode { grid-template-rows: 48px 0 minmax(0, 1fr); }
 .arena-breadcrumb { color: var(--ink-2); font: 600 12px/1 var(--mono); }
-.header-actions > button.active { color: var(--plot-ink); border-color: var(--plot-line-soft); background: var(--plot-wash); }
+.header-actions > :is(button, a).active { color: var(--plot-ink); border-color: var(--plot-line-soft); background: var(--plot-wash); }
 .inbox-toggle { display: inline-flex; align-items: center; gap: 5px; }
 .inbox-toggle.has-attention { color: var(--wait-ink-strong); border-color: var(--wait-line); background: var(--wait-wash); }
 .arena-unread-badge { min-width: 18px; height: 18px; margin-left: 1px; display: inline-grid; place-items: center; border-radius: 999px; color: var(--on-emphasis); background: var(--wait); font: 700 9px/1 var(--mono); }
@@ -125,10 +125,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .arena .arena-primary:hover:not(:disabled) { background: var(--plot-hover); }
 .arena-refresh-error { max-width: 1440px; margin: 20px auto 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px 10px 15px; border: 1px solid var(--wait-line); border-radius: 9px; color: var(--wait-ink-strong); background: var(--wait-wash); font-size: 11px; }
 .arena-sections { max-width: 1440px; margin: 28px auto 0; display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
-.arena-sections button { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border-color: transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; }
-.arena-sections button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--plot); background: var(--raised-backdrop); }
-.arena-sections button > span { min-width: 18px; height: 18px; display: inline-grid; place-items: center; padding: 0 5px; border-radius: 999px; color: var(--muted); background: var(--neutral-wash-strong); font: 700 9px/1 var(--mono); }
-.arena-sections button > .arena-count { color: var(--on-emphasis); background: var(--wait); }
+.arena-sections a { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; text-decoration: none; }
+.arena-sections a[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--plot); background: var(--raised-backdrop); }
+.arena-sections a > span { min-width: 18px; height: 18px; display: inline-grid; place-items: center; padding: 0 5px; border-radius: 999px; color: var(--muted); background: var(--neutral-wash-strong); font: 700 9px/1 var(--mono); }
+.arena-sections a > .arena-count { color: var(--on-emphasis); background: var(--wait); }
 
 .arena-create { max-width: 1440px; margin: 18px auto 0; display: grid; grid-template-columns: minmax(160px, 1fr) minmax(140px, .8fr) minmax(130px, .6fr) minmax(260px, 1fr) auto; align-items: end; gap: 12px; padding: 16px; border: 1px solid var(--plot-line-soft); border-radius: 12px; background: var(--plot-wash-soft); box-shadow: var(--shadow); }
 .arena-create h2 { margin: 5px 0 0; font-size: 17px; }

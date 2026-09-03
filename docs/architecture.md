@@ -54,6 +54,12 @@ policy in `src/server/agents/agentPolicy.ts`.
 
 ## Browser snapshots and device state
 
+The public client routes share `src/app/(shell)/layout.tsx`, which owns one persistent `AppShell`
+across client transitions. The shell derives its top-level destination from the pathname: `/` is
+the focused workspace, `/arena` is Active, `/arena/inbox` is Inbox, and `/arena/archived` is the
+recoverable archive. Those URLs own navigation and browser history only; project selection, open
+session views, drafts, panels, and canvases remain device state and survive route transitions.
+
 `src/features/conversation/sessionStore.ts` contains pure snapshot/canvas/export helpers. It
 does not persist conversation content. `AppShell` lists snapshots by project (or **No project**) with
 `GET /api/sessions`, hydrates one complete snapshot with `GET /api/sessions/[sessionId]`, and sends

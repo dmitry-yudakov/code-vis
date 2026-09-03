@@ -81,6 +81,11 @@ stored data. `next dev` and `next build` now use Turbopack, and `next dev` write
 
 ## Arena and Inbox
 
+The workspace lives at `/`; the Arena's canonical destinations are `/arena` for active sessions,
+`/arena/inbox`, and `/arena/archived`. Header controls and Arena tabs use client navigation, so
+refresh, bookmarks, and browser Back/Forward preserve the top-level destination without encoding
+device-local tabs, drafts, or panel state in the URL.
+
 The header **Arena** control opens a machine-wide overview of active sessions, grouped by project.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
 latest activity. An inactive session can be archived from its card and later restored intact from
