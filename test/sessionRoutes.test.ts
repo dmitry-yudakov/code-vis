@@ -63,6 +63,8 @@ import { POST as POST_SKETCH } from '@/app/api/sessions/[sessionId]/sketches/rou
 import { PUT as PUT_ANNOTATION } from '@/app/api/sessions/[sessionId]/annotations/route';
 import { PUT as PUT_PINS } from '@/app/api/sessions/[sessionId]/pins/route';
 import { PUT as PUT_REPOSITORIES } from '@/app/api/sessions/[sessionId]/repositories/route';
+import { POST as ARCHIVE_SESSION } from '@/app/api/sessions/[sessionId]/archive/route';
+import { POST as RESTORE_SESSION } from '@/app/api/sessions/[sessionId]/restore/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { SessionStore, serverAgent } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
@@ -129,6 +131,7 @@ describe('session snapshot and mutation routes', () => {
       repositoryCheckoutIds: ['checkout-a'],
       agents: [expect.objectContaining({ displayName: 'Claude', provider: 'claude' })],
     })]);
+    expect(arenaBody.archivedSessions).toEqual([]);
     expect(arenaBody.runs).toEqual({ active: [], recent: [] });
     expect(JSON.stringify(arenaBody)).not.toContain('provider-session');
 
@@ -175,6 +178,64 @@ describe('session snapshot and mutation routes', () => {
     expect(routeState.healthChecks).toBe(0);
     expect(routeState.runnersCreated).toBe(0);
     expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(200);
+  });
+
+  it('archives and restores sessions through revisioned bounded routes', async () => {
+    const session = await createViaRoute('checkout-a');
+    const archivedResponse = await ARCHIVE_SESSION(new Request('http://localhost', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: session.revision }),
+    }), context(session.id));
+    expect(archivedResponse.status).toBe(200);
+    const archived = (await archivedResponse.json()).session;
+    expect(archived).toMatchObject({ id: session.id, revision: 1, archivedAt: expect.any(String) });
+    expect(JSON.stringify(archived)).not.toContain('provider-session');
+    expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(404);
+    expect((await (await GET_SESSIONS(new Request('http://localhost/api/sessions'))).json()).sessions).toEqual([]);
+    const arena = await (await GET_ARENA()).json();
+    expect(arena.sessions).toEqual([]);
+    expect(arena.archivedSessions).toEqual([expect.objectContaining({ id: session.id, revision: 1 })]);
+
+    const staleRestore = await RESTORE_SESSION(new Request('http://localhost', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: session.revision }),
+    }), context(session.id));
+    expect(staleRestore.status).toBe(409);
+
+    const restoredResponse = await RESTORE_SESSION(new Request('http://localhost', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: archived.revision }),
+    }), context(session.id));
+    expect(restoredResponse.status).toBe(200);
+    expect((await restoredResponse.json()).session).toMatchObject({ id: session.id, revision: 2 });
+    expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(200);
+  });
+
+  it('rejects archiving during the hidden run-reservation window', async () => {
+    const session = await createViaRoute('checkout-a');
+    const runId = crypto.randomUUID();
+    const reservation = runRegistry.reserve({
+      runId,
+      sessionId: session.id,
+      participantId: session.primaryAgentId,
+      providerKey: `test:${runId}`,
+      checkoutId: 'checkout-a',
+      access: 'read',
+      cancel: () => undefined,
+    });
+    expect(reservation).toMatchObject({ accepted: true });
+    try {
+      expect(runRegistry.list(session.id).active).toEqual([]);
+      const response = await ARCHIVE_SESSION(new Request('http://localhost', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: session.revision }),
+      }), context(session.id));
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toContain('reserved');
+      expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(200);
+    } finally {
+      runRegistry.release(runId);
+    }
   });
 
   it('updates repository order and primary role with revision conflicts enforced', async () => {

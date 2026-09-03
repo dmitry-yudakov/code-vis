@@ -91,7 +91,8 @@ export function groupArenaSessions(
   const active = activeBySession(discovery);
   const grouped = new Map<string, ArenaProjectGroup>();
 
-  for (const session of [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))) {
+  const lifecycleAt = (session: ArenaSessionSummary) => session.archivedAt || session.updatedAt;
+  for (const session of [...sessions].sort((left, right) => lifecycleAt(right).localeCompare(lifecycleAt(left)))) {
     const groupId = session.projectId || 'none';
     const projectName = session.projectId ? projectNames.get(session.projectId) || 'Unknown project' : 'No project';
     const run = active.get(session.id);
@@ -99,7 +100,7 @@ export function groupArenaSessions(
       id: groupId,
       name: projectName,
       sessions: [],
-      updatedAt: session.updatedAt,
+      updatedAt: lifecycleAt(session),
     };
     group.sessions.push({
       session,
@@ -108,7 +109,7 @@ export function groupArenaSessions(
       activity: arenaSessionActivity(session, run),
       ...(run ? { run } : {}),
     });
-    if (session.updatedAt > group.updatedAt) group.updatedAt = session.updatedAt;
+    if (lifecycleAt(session) > group.updatedAt) group.updatedAt = lifecycleAt(session);
     grouped.set(groupId, group);
   }
 

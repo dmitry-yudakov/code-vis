@@ -60,11 +60,13 @@ does not persist conversation content. `AppShell` lists snapshots by project (or
 annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
 revisions return 409 and trigger a refetch instead of silently replacing another client's work.
 
-The Arena polls one bounded `GET /api/arena` projection across all projects. It carries card fields,
-safe pending-permission details, and brief terminal run outcomes, never full transcripts or private
-provider-session handles. The browser derives card and Inbox presentation from that snapshot, keeps
-the last good response on refresh failure, and stores only bounded finished-item read ids under
-`code-ai:device:v1:arena`. Live permission obligations cannot be dismissed locally.
+The Arena polls one bounded `GET /api/arena` projection across all projects. It carries separate
+active and archived card summaries, safe pending-permission details, and brief terminal run
+outcomes, never full transcripts or private provider-session handles. The browser derives card and
+Inbox presentation from that snapshot, keeps the last good response on refresh failure, and stores
+only bounded finished-item read ids under `code-ai:device:v1:arena`. Live permission obligations
+cannot be dismissed locally. Revisioned archive/restore routes reject every live run reservation,
+including the pre-activation interval hidden from normal discovery.
 
 The selected checkout preference uses `code-ai:device:v1:active-checkout`; focus, next recipient,
 mode, panels, viewport, and drafts remain React state. Legacy `code-ai:web2:v1:*` conversation keys
@@ -84,13 +86,16 @@ session-store-v2/
   writer.lock         # owner token, pid, hostname, heartbeat
   projects/<uuid>.json # one durable project per file
   sessions/<uuid>.json # one complete private session per file
+  archived-sessions/<uuid>.json # one recoverable archived session per file
 ```
 
 The store opens lazily. A live lock excludes a second process; stale takeover uses an owner token
 so the old process cannot remove its successor's lock. The process-wide instance and mutation
 queue are pinned on `globalThis`, because Next route handlers are compiled into separate bundles.
-Every session write flushes a same-directory temporary file before atomic rename. Store directories
-are `0700`; manifest, lock, and session files are `0600`.
+Every session write flushes a same-directory temporary file before atomic rename. Archive and
+restore first persist their lifecycle marker, then atomically rename the record between sibling
+directories; startup finishes a transition interrupted between those steps. Store directories are
+`0700`; manifest, lock, and session files are `0600`.
 
 Each project and session has a monotonic revision. A project contains its repository bindings; a
 session contains an optional project id, its independent repository bindings, participants,

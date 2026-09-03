@@ -104,6 +104,8 @@ export interface DurableSession {
   revision: number;
   id: string;
   title: string;
+  /** Present only while the record lives in the host's archived-sessions directory. */
+  archivedAt?: string;
   projectId?: string;
   repositories: RepositoryBinding[];
   createdAt: string;
@@ -258,6 +260,7 @@ export interface PublicSession {
   revision: number;
   id: string;
   title: string;
+  archivedAt?: string;
   projectId?: string;
   repositories: RepositoryBinding[];
   createdAt: string;
@@ -273,7 +276,9 @@ export interface PublicSession {
 /** Bounded host snapshot for the cross-project Arena; never includes transcripts or private handles. */
 export interface ArenaSessionSummary {
   id: string;
+  revision: number;
   title: string;
+  archivedAt?: string;
   projectId?: string;
   repositoryCheckoutIds: string[];
   agents: Array<Pick<AgentParticipant, 'id' | 'displayName' | 'provider' | 'role'>>;
@@ -385,6 +390,7 @@ export interface RunDiscovery {
 
 export interface ArenaSnapshot {
   sessions: ArenaSessionSummary[];
+  archivedSessions: ArenaSessionSummary[];
   runs: RunDiscovery;
 }
 

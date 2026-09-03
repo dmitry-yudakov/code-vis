@@ -12,6 +12,7 @@ const POLL_INTERVAL_MS = 2_000;
 
 export function useArena() {
   const [sessions, setSessions] = useState<ArenaSessionSummary[]>([]);
+  const [archivedSessions, setArchivedSessions] = useState<ArenaSessionSummary[]>([]);
   const [discovery, setDiscovery] = useState<RunDiscovery>(EMPTY_DISCOVERY);
   const [refreshError, setRefreshError] = useState<string>();
   const [deviceState, setDeviceState] = useState<DeviceArenaState>(EMPTY_DEVICE_ARENA_STATE);
@@ -48,6 +49,7 @@ export function useArena() {
       if (!response.ok) throw new Error(data.error || 'Could not refresh the Arena.');
       if (!mounted.current) return;
       setSessions(data.sessions || []);
+      setArchivedSessions(data.archivedSessions || []);
       setDiscovery({ active: data.runs?.active || [], recent: data.runs?.recent || [] });
       setRefreshError(undefined);
     } catch (error) {
@@ -69,6 +71,7 @@ export function useArena() {
 
   return {
     sessions,
+    archivedSessions,
     discovery,
     refreshError,
     deviceState,

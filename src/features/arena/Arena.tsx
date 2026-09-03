@@ -12,7 +12,7 @@ import {
   type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
 
-export type ArenaSection = 'sessions' | 'inbox';
+export type ArenaSection = 'sessions' | 'inbox' | 'archived';
 
 const STATE_LABELS = {
   idle: 'Idle',
@@ -42,6 +42,7 @@ function AttentionKind({ item }: { item: ArenaAttentionItem }) {
 export function Arena({
   projects,
   sessions,
+  archivedSessions,
   discovery,
   checkouts,
   hostLabel,
@@ -53,11 +54,14 @@ export function Arena({
   onRefresh,
   onOpenSession,
   onCreateSession,
+  onArchiveSession,
+  onRestoreSession,
   onDecidePermission,
   onAcknowledge,
 }: {
   projects: DurableProject[];
   sessions: ArenaSessionSummary[];
+  archivedSessions: ArenaSessionSummary[];
   discovery: RunDiscovery;
   checkouts: CheckoutSummary[];
   hostLabel: string;
@@ -69,10 +73,16 @@ export function Arena({
   onRefresh(): void;
   onOpenSession(session: ArenaSessionSummary): void;
   onCreateSession(input: { projectId?: string; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
+  onArchiveSession(session: ArenaSessionSummary): Promise<boolean>;
+  onRestoreSession(session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
   onAcknowledge(itemIds: string[]): void;
 }) {
   const groups = useMemo(() => groupArenaSessions(projects, sessions, discovery), [discovery, projects, sessions]);
+  const archivedGroups = useMemo(
+    () => groupArenaSessions(projects, archivedSessions, { active: [], recent: [] }),
+    [archivedSessions, projects],
+  );
   const inbox = useMemo(
     () => buildArenaInbox(projects, sessions, discovery, deviceState),
     [deviceState, discovery, projects, sessions],
@@ -88,6 +98,8 @@ export function Arena({
   const supportedModes = providerHealth[provider]?.supportedModes || [];
   const [mode, setMode] = useState<AgentMode>(supportedModes[0] || 'ask');
   const [deciding, setDeciding] = useState<string>();
+  const [archiving, setArchiving] = useState<string>();
+  const [restoring, setRestoring] = useState<string>();
 
   useEffect(() => {
     if (projectId !== 'none' && !projects.some((project) => project.id === projectId)) {
@@ -105,6 +117,17 @@ export function Arena({
   }, [mode, provider, providerHealth]);
 
   const terminalUnreadIds = unread.filter((item) => item.kind !== 'permission').map((item) => item.id);
+
+  const archive = (session: ArenaSessionSummary) => {
+    if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
+    setArchiving(session.id);
+    void onArchiveSession(session).finally(() => setArchiving(undefined));
+  };
+
+  const restore = (session: ArenaSessionSummary) => {
+    setRestoring(session.id);
+    void onRestoreSession(session).finally(() => setRestoring(undefined));
+  };
 
   return (
     <main className="arena" aria-label="Arena">
@@ -131,10 +154,13 @@ export function Arena({
 
       <div className="arena-sections" role="tablist" aria-label="Arena views">
         <button type="button" role="tab" aria-selected={section === 'sessions'} onClick={() => onSection('sessions')}>
-          Sessions <span>{sessions.length}</span>
+          Active <span>{sessions.length}</span>
         </button>
         <button type="button" role="tab" aria-selected={section === 'inbox'} onClick={() => onSection('inbox')}>
           Inbox {unread.length > 0 && <span className="arena-count">{unread.length}</span>}
+        </button>
+        <button type="button" role="tab" aria-selected={section === 'archived'} onClick={() => onSection('archived')}>
+          Archived <span>{archivedSessions.length}</span>
         </button>
       </div>
 
@@ -201,8 +227,8 @@ export function Arena({
         <div className="arena-groups" role="tabpanel">
           {!groups.length && (
             <div className="arena-empty">
-              <h2>No projects or sessions yet</h2>
-              <p>Create a repository-free session or add a project when you are ready.</p>
+              <h2>No active sessions</h2>
+              <p>Start a new session or restore archived work when you are ready.</p>
             </div>
           )}
           {groups.map((group) => (
@@ -218,7 +244,7 @@ export function Arena({
                   const attention = unread.filter((item) => item.sessionId === card.session.id).length;
                   return (
                     <article className={`arena-card state-${card.state}`} key={card.session.id}>
-                      <button type="button" onClick={() => onOpenSession(card.session)} aria-label={`Open ${card.session.title}`}>
+                      <button className="arena-card-open" type="button" onClick={() => onOpenSession(card.session)} aria-label={`Open ${card.session.title}`}>
                         <span className={`arena-state state-${card.state}`}><i aria-hidden="true" />{STATE_LABELS[card.state]}</span>
                         <strong>{card.session.title}</strong>
                         <span className="arena-card-activity">{card.activity}</span>
@@ -229,6 +255,19 @@ export function Arena({
                           {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
                         </span>
                       </button>
+                      <details className="arena-card-menu">
+                        <summary aria-label={`Actions for ${card.session.title}`}>•••</summary>
+                        <div>
+                          <button
+                            type="button"
+                            disabled={Boolean(card.run) || archiving === card.session.id}
+                            title={card.run ? 'Wait for the current turn to finish before archiving.' : undefined}
+                            onClick={() => archive(card.session)}
+                          >
+                            {archiving === card.session.id ? 'Archiving…' : 'Archive session'}
+                          </button>
+                        </div>
+                      </details>
                     </article>
                   );
                 })}
@@ -236,7 +275,7 @@ export function Arena({
             </section>
           ))}
         </div>
-      ) : (
+      ) : section === 'inbox' ? (
         <section className="arena-inbox" role="tabpanel" aria-label="Inbox">
           <header>
             <div>
@@ -272,6 +311,16 @@ export function Arena({
                   ) : !item.read ? (
                     <button type="button" onClick={() => onAcknowledge([item.id])}>Mark read</button>
                   ) : null}
+                  {item.kind !== 'permission' && (
+                    <button
+                      type="button"
+                      disabled={Boolean(discovery.active.find((run) => run.sessionId === item.sessionId)) || archiving === item.sessionId}
+                      onClick={() => {
+                        const target = sessions.find((session) => session.id === item.sessionId);
+                        if (target) archive(target);
+                      }}
+                    >Archive</button>
+                  )}
                   <button type="button" onClick={() => {
                     if (item.kind !== 'permission' && !item.read) onAcknowledge([item.id]);
                     onOpenSession(sessions.find((session) => session.id === item.sessionId)!);
@@ -281,6 +330,46 @@ export function Arena({
             ))}
           </div>
         </section>
+      ) : (
+        <div className="arena-groups" role="tabpanel">
+          {!archivedGroups.length && (
+            <div className="arena-empty">
+              <h2>No archived sessions</h2>
+              <p>Archived work stays recoverable here until permanent cleanup is added.</p>
+            </div>
+          )}
+          {archivedGroups.map((group) => (
+            <section className="arena-group" aria-labelledby={`arena-archive-project-${group.id}`} key={group.id}>
+              <header>
+                <div>
+                  <h2 id={`arena-archive-project-${group.id}`}>{group.name}</h2>
+                  <span>{group.sessions.length} archived</span>
+                </div>
+              </header>
+              <div className="arena-card-grid">
+                {group.sessions.map((card) => (
+                  <article className="arena-card archived" key={card.session.id}>
+                    <div className="arena-card-content">
+                      <span className="arena-state state-archived"><i aria-hidden="true" />Archived</span>
+                      <strong>{card.session.title}</strong>
+                      <span className="arena-card-activity">
+                        Archived {new Date(card.session.archivedAt || card.session.updatedAt).toLocaleString()}
+                      </span>
+                      <span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span>
+                      <span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span>
+                      <span className="arena-card-footer"><span>{hostLabel}</span></span>
+                    </div>
+                    <div className="arena-card-restore">
+                      <button type="button" disabled={restoring === card.session.id} onClick={() => restore(card.session)}>
+                        {restoring === card.session.id ? 'Restoring…' : 'Restore'}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
     </main>
   );

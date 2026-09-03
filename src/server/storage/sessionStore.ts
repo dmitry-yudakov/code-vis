@@ -178,7 +178,9 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
   const latest = session.messages.at(-1);
   return {
     id: session.id,
+    revision: session.revision,
     title: session.title,
+    ...(session.archivedAt ? { archivedAt: session.archivedAt } : {}),
     ...(session.projectId ? { projectId: session.projectId } : {}),
     repositoryCheckoutIds: session.repositories.map((repository) => repository.checkoutId),
     agents: session.participants.flatMap((participant) => participant.kind === 'agent' ? [{
@@ -215,6 +217,7 @@ export function primaryRepository(
 export class SessionStore {
   readonly storeDirectory: string;
   readonly sessionsDirectory: string;
+  readonly archivedSessionsDirectory: string;
   readonly projectsDirectory: string;
   readonly manifestPath: string;
   readonly lockPath: string;
@@ -236,6 +239,7 @@ export class SessionStore {
   constructor(readonly dataDirectory: string, options: SessionStoreOptions = {}) {
     this.storeDirectory = path.join(dataDirectory, STORE_DIRECTORY);
     this.sessionsDirectory = path.join(this.storeDirectory, 'sessions');
+    this.archivedSessionsDirectory = path.join(this.storeDirectory, 'archived-sessions');
     this.projectsDirectory = path.join(this.storeDirectory, 'projects');
     this.manifestPath = path.join(this.storeDirectory, 'manifest.json');
     this.lockPath = path.join(this.storeDirectory, 'writer.lock');
@@ -333,7 +337,11 @@ export class SessionStore {
     return this.enqueue(async () => {
       const project = await this.getProject(id);
       this.expectProjectRevision(project, expectedRevision);
-      const sessions = (await this.listSessions()).filter((session) => session.projectId === id);
+      const [activeSessions, archivedSessions] = await Promise.all([
+        this.listSessions(),
+        this.listArchivedSessions(),
+      ]);
+      const sessions = [...activeSessions, ...archivedSessions].filter((session) => session.projectId === id);
       const updatedAt = this.now().toISOString();
       for (const session of sessions) {
         delete session.projectId;
@@ -341,7 +349,10 @@ export class SessionStore {
         session.updatedAt = updatedAt;
         durableSessionSchema.parse(session);
       }
-      for (const session of sessions) await this.writeSession(session);
+      for (const session of sessions) {
+        if (session.archivedAt) await this.writeArchivedSession(session);
+        else await this.writeSession(session);
+      }
       await unlink(this.projectPath(id));
       await syncDirectory(this.projectsDirectory);
       return { detachedSessionCount: sessions.length };
@@ -350,15 +361,7 @@ export class SessionStore {
 
   async listSessions(filter: { projectId?: string; loose?: boolean } = {}): Promise<DurableSession[]> {
     await this.openStore();
-    const entries = await readdir(this.sessionsDirectory, { withFileTypes: true });
-    const names = entries
-      .filter((entry) => entry.isFile() && /^[0-9a-f-]{36}\.json$/i.test(entry.name))
-      .map((entry) => entry.name)
-      .sort();
-    if (names.length > MAX_SESSIONS) {
-      throw new SessionStoreError('corrupt', `Session store exceeds its ${MAX_SESSIONS}-file safety bound.`);
-    }
-    const sessions = await Promise.all(names.map((name) => this.readSessionFile(path.join(this.sessionsDirectory, name))));
+    const sessions = await this.listSessionDirectory(this.sessionsDirectory, false);
     return sessions
       .filter((session) => (
         filter.loose ? !session.projectId : !filter.projectId || session.projectId === filter.projectId
@@ -366,15 +369,88 @@ export class SessionStore {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  async listArchivedSessions(filter: { projectId?: string; loose?: boolean } = {}): Promise<DurableSession[]> {
+    await this.openStore();
+    const sessions = await this.listSessionDirectory(this.archivedSessionsDirectory, true);
+    return sessions
+      .filter((session) => (
+        filter.loose ? !session.projectId : !filter.projectId || session.projectId === filter.projectId
+      ))
+      .sort((left, right) => (
+        (right.archivedAt || right.updatedAt).localeCompare(left.archivedAt || left.updatedAt)
+      ));
+  }
+
   async getSession(id: string): Promise<DurableSession> {
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new SessionStoreError('unknown', 'Unknown session');
     await this.openStore();
     try {
-      return await this.readSessionFile(this.sessionPath(id));
+      const session = await this.readSessionFile(this.sessionPath(id));
+      if (session.archivedAt) throw new SessionStoreError('unknown', 'Unknown session');
+      return session;
     } catch (error) {
       if (isMissing(error)) throw new SessionStoreError('unknown', 'Unknown session');
       throw error;
     }
+  }
+
+  async getArchivedSession(id: string): Promise<DurableSession> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new SessionStoreError('unknown', 'Unknown archived session');
+    await this.openStore();
+    try {
+      const session = await this.readSessionFile(this.archivedSessionPath(id));
+      if (!session.archivedAt) throw new SessionStoreError('unknown', 'Unknown archived session');
+      return session;
+    } catch (error) {
+      if (isMissing(error)) throw new SessionStoreError('unknown', 'Unknown archived session');
+      throw error;
+    }
+  }
+
+  async archiveSession(id: string, expectedRevision: number): Promise<DurableSession> {
+    return this.enqueue(async () => {
+      const session = await this.getSession(id);
+      this.expectRevision(session, expectedRevision);
+      await this.expectNoSessionAt(this.archivedSessionPath(id), 'Archive already contains this session.');
+      const archived = structuredClone(session);
+      archived.archivedAt = this.now().toISOString();
+      archived.updatedAt = archived.archivedAt;
+      archived.revision += 1;
+      durableSessionSchema.parse(archived);
+      // The marker is written before the move so startup can finish an interrupted transition.
+      await atomicWrite(this.sessionPath(id), archived, this.beforeRename);
+      try {
+        await rename(this.sessionPath(id), this.archivedSessionPath(id));
+      } catch (error) {
+        await atomicWrite(this.sessionPath(id), session, this.beforeRename).catch(() => undefined);
+        throw error;
+      }
+      await Promise.all([syncDirectory(this.sessionsDirectory), syncDirectory(this.archivedSessionsDirectory)]);
+      return structuredClone(archived);
+    });
+  }
+
+  async restoreSession(id: string, expectedRevision: number): Promise<DurableSession> {
+    return this.enqueue(async () => {
+      const session = await this.getArchivedSession(id);
+      this.expectRevision(session, expectedRevision);
+      await this.expectNoSessionAt(this.sessionPath(id), 'Active sessions already contain this session.');
+      const restored = structuredClone(session);
+      delete restored.archivedAt;
+      restored.updatedAt = this.now().toISOString();
+      restored.revision += 1;
+      durableSessionSchema.parse(restored);
+      // Clearing the marker first lets startup finish an interrupted restore in the safe direction.
+      await atomicWrite(this.archivedSessionPath(id), restored, this.beforeRename);
+      try {
+        await rename(this.archivedSessionPath(id), this.sessionPath(id));
+      } catch (error) {
+        await atomicWrite(this.archivedSessionPath(id), session, this.beforeRename).catch(() => undefined);
+        throw error;
+      }
+      await Promise.all([syncDirectory(this.archivedSessionsDirectory), syncDirectory(this.sessionsDirectory)]);
+      return structuredClone(restored);
+    });
   }
 
   async createSession(input: {
@@ -384,8 +460,10 @@ export class SessionStore {
   }): Promise<DurableSession> {
     return this.enqueue(async () => {
       await this.openStore();
-      const currentCount = (await readdir(this.sessionsDirectory, { withFileTypes: true }))
-        .filter((entry) => entry.isFile() && entry.name.endsWith('.json')).length;
+      const currentCount = (await Promise.all([
+        this.sessionFileNames(this.sessionsDirectory),
+        this.sessionFileNames(this.archivedSessionsDirectory),
+      ])).reduce((total, names) => total + names.length, 0);
       if (currentCount >= MAX_SESSIONS) throw new Error(`A host can contain at most ${MAX_SESSIONS} sessions.`);
       const now = this.now().toISOString();
       const id = randomUUID();
@@ -669,6 +747,10 @@ export class SessionStore {
     return path.join(this.sessionsDirectory, `${id}.json`);
   }
 
+  private archivedSessionPath(id: string): string {
+    return path.join(this.archivedSessionsDirectory, `${id}.json`);
+  }
+
   private projectPath(id: string): string {
     return path.join(this.projectsDirectory, `${id}.json`);
   }
@@ -736,6 +818,41 @@ export class SessionStore {
   private async writeSession(session: DurableSession): Promise<void> {
     durableSessionSchema.parse(session);
     await atomicWrite(this.sessionPath(session.id), session, this.beforeRename);
+  }
+
+  private async writeArchivedSession(session: DurableSession): Promise<void> {
+    durableSessionSchema.parse(session);
+    if (!session.archivedAt) throw new SessionStoreError('corrupt', 'An archived session requires archivedAt.');
+    await atomicWrite(this.archivedSessionPath(session.id), session, this.beforeRename);
+  }
+
+  private async expectNoSessionAt(filePath: string, message: string): Promise<void> {
+    const existing = await stat(filePath).catch((error: unknown) => {
+      if (isMissing(error)) return undefined;
+      throw error;
+    });
+    if (existing) throw new SessionStoreError('corrupt', message);
+  }
+
+  private async sessionFileNames(directory: string): Promise<string[]> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && /^[0-9a-f-]{36}\.json$/i.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  }
+
+  private async listSessionDirectory(directory: string, archived: boolean): Promise<DurableSession[]> {
+    const [activeNames, archivedNames] = await Promise.all([
+      this.sessionFileNames(this.sessionsDirectory),
+      this.sessionFileNames(this.archivedSessionsDirectory),
+    ]);
+    if (activeNames.length + archivedNames.length > MAX_SESSIONS) {
+      throw new SessionStoreError('corrupt', `Session store exceeds its ${MAX_SESSIONS}-file safety bound.`);
+    }
+    const names = directory === this.sessionsDirectory ? activeNames : archivedNames;
+    const sessions = await Promise.all(names.map((name) => this.readSessionFile(path.join(directory, name))));
+    return sessions.filter((session) => archived ? Boolean(session.archivedAt) : !session.archivedAt);
   }
 
   private async writeProject(project: DurableProject): Promise<void> {
@@ -819,6 +936,7 @@ export class SessionStore {
         host: { id: randomUUID(), label: this.hostLabel },
       };
       await mkdir(this.sessionsDirectory, { mode: 0o700 });
+      await mkdir(this.archivedSessionsDirectory, { mode: 0o700 });
       await mkdir(this.projectsDirectory, { mode: 0o700 });
       await atomicWrite(this.manifestPath, manifest, this.beforeRename);
       this.manifest = manifest;
@@ -855,6 +973,7 @@ export class SessionStore {
     }
 
     await mkdir(this.sessionsDirectory, { mode: 0o700 });
+    await mkdir(this.archivedSessionsDirectory, { mode: 0o700 });
     await mkdir(this.projectsDirectory, { mode: 0o700 });
     for (const name of names) {
       let parsed: unknown;
@@ -897,9 +1016,35 @@ export class SessionStore {
     }
     this.manifest = manifest.data as StoreManifest;
     await mkdir(this.sessionsDirectory, { recursive: true, mode: 0o700 });
+    await mkdir(this.archivedSessionsDirectory, { recursive: true, mode: 0o700 });
     await mkdir(this.projectsDirectory, { recursive: true, mode: 0o700 });
     await chmod(this.sessionsDirectory, 0o700);
+    await chmod(this.archivedSessionsDirectory, 0o700);
     await chmod(this.projectsDirectory, 0o700);
+    await this.finishInterruptedSessionTransitions();
+  }
+
+  private async finishInterruptedSessionTransitions(): Promise<void> {
+    const [activeNames, archivedNames] = await Promise.all([
+      this.sessionFileNames(this.sessionsDirectory),
+      this.sessionFileNames(this.archivedSessionsDirectory),
+    ]);
+    if (activeNames.length + archivedNames.length > MAX_SESSIONS) {
+      throw new SessionStoreError('corrupt', `Session store exceeds its ${MAX_SESSIONS}-file safety bound.`);
+    }
+    const duplicate = activeNames.find((name) => archivedNames.includes(name));
+    if (duplicate) {
+      throw new SessionStoreError('corrupt', `Session exists in both active and archived storage (${duplicate}).`);
+    }
+    for (const name of activeNames) {
+      const session = await this.readSessionFile(path.join(this.sessionsDirectory, name));
+      if (session.archivedAt) await rename(this.sessionPath(session.id), this.archivedSessionPath(session.id));
+    }
+    for (const name of archivedNames) {
+      const session = await this.readSessionFile(path.join(this.archivedSessionsDirectory, name));
+      if (!session.archivedAt) await rename(this.archivedSessionPath(session.id), this.sessionPath(session.id));
+    }
+    await Promise.all([syncDirectory(this.sessionsDirectory), syncDirectory(this.archivedSessionsDirectory)]);
   }
 
   private lockRecord(): WriterLock {

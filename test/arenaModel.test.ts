@@ -19,6 +19,7 @@ function project(id: string, name: string, updatedAt: string): DurableProject {
 function session(id: string, updatedAt: string, projectId?: string, status: 'complete' | 'failed' = 'complete'): ArenaSessionSummary {
   return {
     id,
+    revision: 0,
     title: `Session ${id[0].toUpperCase()}`,
     ...(projectId ? { projectId } : {}),
     repositoryCheckoutIds: [],
@@ -68,6 +69,23 @@ describe('Arena presentation model', () => {
     );
     expect(groups.map((group) => group.name)).toEqual(['Beta', 'Alpha']);
     expect(groups[1].sessions.map((card) => card.session.id)).toEqual([SESSION_C, SESSION_A]);
+  });
+
+  it('orders archived cards by archive time even when later metadata changed updatedAt', () => {
+    const olderArchive = {
+      ...session(SESSION_A, '2026-09-03T15:00:00.000Z', PROJECT_A),
+      archivedAt: '2026-09-03T10:00:00.000Z',
+    };
+    const newerArchive = {
+      ...session(SESSION_B, '2026-09-03T12:00:00.000Z', PROJECT_A),
+      archivedAt: '2026-09-03T11:00:00.000Z',
+    };
+    const groups = groupArenaSessions(
+      [project(PROJECT_A, 'Alpha', '2026-09-01T00:00:00.000Z')],
+      [olderArchive, newerArchive],
+      { active: [], recent: [] },
+    );
+    expect(groups[0].sessions.map((card) => card.session.id)).toEqual([SESSION_B, SESSION_A]);
   });
 
   it('orders permissions before failures before completions and never lets read state hide live approval', () => {

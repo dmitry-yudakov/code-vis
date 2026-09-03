@@ -202,6 +202,7 @@ const sessionBase = {
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(200),
+  archivedAt: dateTime.optional(),
   projectId: z.string().uuid().optional(),
   repositories: z.array(repositoryBindingSchema).max(32),
   createdAt: dateTime,

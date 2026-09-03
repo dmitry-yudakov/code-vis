@@ -69,6 +69,9 @@ export function useWorkspaceViews(projectId?: string) {
   const close = useCallback((sessionId: string) => {
     commit((current) => closeWorkspaceView(current, scopeId, sessionId));
   }, [commit, scopeId]);
+  const closeInProject = useCallback((targetProjectId: string | undefined, sessionId: string) => {
+    commit((current) => closeWorkspaceView(current, workspaceScopeKey(targetProjectId), sessionId));
+  }, [commit]);
   const ensure = useCallback((sessionId: string) => {
     commit((current) => ensureWorkspaceView(current, scopeId, sessionId));
   }, [commit, scopeId]);
@@ -84,5 +87,5 @@ export function useWorkspaceViews(projectId?: string) {
   ), [scopeId]);
 
   const scope = useMemo(() => getWorkspaceScope(workspace, scopeId), [scopeId, workspace]);
-  return { ready, scope, open, openInProject, ensure, close, reconcile, updateView, getView };
+  return { ready, scope, open, openInProject, ensure, close, closeInProject, reconcile, updateView, getView };
 }

@@ -92,6 +92,7 @@ export function AppShell() {
   const [runOutcomesBySession, setRunOutcomesBySession] = useState<Record<string, SessionRunOutcome>>({});
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
   const [notice, setNotice] = useState<string>();
+  const [archiveUndo, setArchiveUndo] = useState<ArenaSessionSummary>();
   const [busyRun, setBusyRun] = useState<RunDescriptor>();
   const [participantBusy, setParticipantBusy] = useState(false);
   const runControllers = useRef(new Map<string, AbortController>());
@@ -277,6 +278,12 @@ export function AppShell() {
   useEffect(() => {
     try { setSavedCheckoutId(loadSelectedCheckoutId()); } catch { /* Device preference is optional. */ }
   }, []);
+
+  useEffect(() => {
+    if (!archiveUndo) return;
+    const timer = window.setTimeout(() => setArchiveUndo(undefined), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [archiveUndo]);
 
   useEffect(() => {
     let current = true;
@@ -1045,6 +1052,60 @@ export function AppShell() {
     setRepositoryTree(undefined);
   }, [projectId, workspace.openInProject]);
 
+  const archiveArenaSession = useCallback(async (target: ArenaSessionSummary): Promise<boolean> => {
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(target.id)}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: target.revision }),
+      });
+      const data = await response.json().catch(() => ({})) as { session?: ArenaSessionSummary; error?: string };
+      if (!response.ok || !data.session) {
+        await arena.refresh();
+        throw new Error(data.error || 'Could not archive the session.');
+      }
+      workspace.closeInProject(target.projectId, target.id);
+      if (target.projectId === projectId) {
+        const next = sessionsRef.current.filter((item) => item.id !== target.id);
+        sessionsRef.current = next;
+        setSessions(next);
+        if (focusedSessionIdRef.current === target.id) setRepositoryTree(undefined);
+      }
+      removeRun(target.id);
+      setRunOutcome(target.id);
+      setArchiveUndo(data.session);
+      setNotice(`Archived “${target.title}”. You can restore it from the Arena archive.`);
+      await arena.refresh();
+      return true;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not archive the session.');
+      return false;
+    }
+  }, [arena.refresh, projectId, removeRun, setRunOutcome, workspace.closeInProject]);
+
+  const restoreArenaSession = useCallback(async (target: ArenaSessionSummary): Promise<boolean> => {
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(target.id)}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: target.revision }),
+      });
+      const data = await response.json().catch(() => ({})) as { session?: ArenaSessionSummary; error?: string };
+      if (!response.ok || !data.session) {
+        await arena.refresh();
+        throw new Error(data.error || 'Could not restore the session.');
+      }
+      if (data.session.projectId === projectId) await refreshSession(data.session.id);
+      setArchiveUndo((current) => current?.id === target.id ? undefined : current);
+      setNotice(`Restored “${data.session.title}”.`);
+      await arena.refresh();
+      return true;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not restore the session.');
+      return false;
+    }
+  }, [arena.refresh, projectId, refreshSession]);
+
   const decideArenaPermission = useCallback(async (
     runId: string,
     requestId: string,
@@ -1281,8 +1342,8 @@ export function AppShell() {
         <div className="header-actions">
           <button
             type="button"
-            className={arenaOpen && arenaSection === 'sessions' ? 'active' : ''}
-            aria-pressed={arenaOpen && arenaSection === 'sessions'}
+            className={arenaOpen && arenaSection !== 'inbox' ? 'active' : ''}
+            aria-pressed={arenaOpen && arenaSection !== 'inbox'}
             onClick={() => { setArenaSection('sessions'); setArenaOpen(true); }}
           >Arena</button>
           <button
@@ -1406,12 +1467,13 @@ export function AppShell() {
       {displayedNotice && (
         <div className="notice-banner" role="status">
           <span>{displayedNotice}</span>
+          {archiveUndo && <button type="button" onClick={() => void restoreArenaSession(archiveUndo)}>Undo archive</button>}
           {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
           {focusedRunOutcome?.missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => {
             if (focusedRunOutcome && sessionId) setRunOutcome(sessionId);
-            else { setNotice(undefined); setBusyRun(undefined); }
+            else { setNotice(undefined); setBusyRun(undefined); setArchiveUndo(undefined); }
           }}>×</button>
         </div>
       )}
@@ -1420,6 +1482,7 @@ export function AppShell() {
         <Arena
           projects={projects}
           sessions={arena.sessions}
+          archivedSessions={arena.archivedSessions}
           discovery={arena.discovery}
           checkouts={checkouts}
           hostLabel={health.hostLabel || 'This machine'}
@@ -1435,6 +1498,8 @@ export function AppShell() {
             mode: initialMode,
             fromArena: true,
           })}
+          onArchiveSession={archiveArenaSession}
+          onRestoreSession={restoreArenaSession}
           onDecidePermission={decideArenaPermission}
           onAcknowledge={arena.acknowledge}
         />

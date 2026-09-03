@@ -149,12 +149,23 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .arena-group h2, .arena-inbox h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
 .arena-group > header span { color: var(--faint); font: 9px/1 var(--mono); text-transform: uppercase; }
 .arena-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(310px, 100%), 1fr)); gap: 10px; }
-.arena-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--sheet-backdrop); box-shadow: 0 1px 2px var(--component-shadow); }
+.arena-card { min-width: 0; position: relative; border: 1px solid var(--line); border-radius: 11px; background: var(--sheet-backdrop); box-shadow: 0 1px 2px var(--component-shadow); }
 .arena-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow); }
 .arena-card.state-needs-you { border-color: var(--wait-line-strong); background: var(--wait-backdrop); }
 .arena-card.state-failed { border-color: var(--stop-line); }
-.arena-card > button { width: 100%; min-height: 210px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 0; border-radius: 0; text-align: left; background: transparent; }
-.arena-card > button > strong { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.arena-card-open, .arena-card-content { width: 100%; min-height: 210px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 0 !important; border-radius: 11px !important; text-align: left; background: transparent !important; }
+.arena-card-open > strong, .arena-card-content > strong { width: calc(100% - 34px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.arena-card-menu { position: absolute; z-index: 2; top: 10px; right: 10px; }
+.arena-card-menu summary { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: var(--raised-backdrop); cursor: pointer; list-style: none; font: 700 11px/1 var(--mono); }
+.arena-card-menu summary::-webkit-details-marker { display: none; }
+.arena-card-menu[open] summary { border-color: var(--line); background: var(--raised); }
+.arena-card-menu > div { position: absolute; top: calc(100% + 5px); right: 0; width: 150px; padding: 5px; border: 1px solid var(--line); border-radius: 8px; background: var(--shell); box-shadow: var(--popover-shadow); }
+.arena-card-menu button { width: 100%; min-height: 31px; padding: 0 9px; text-align: left; font-size: 10px; font-weight: 700; }
+.arena-card.archived { overflow: hidden; }
+.arena-state.state-archived { color: var(--muted); background: var(--neutral-wash-strong); }
+.arena-state.state-archived i { background: var(--faint); }
+.arena-card-restore { display: flex; justify-content: flex-end; padding: 0 16px 16px; }
+.arena-card-restore button { min-height: 32px; padding: 0 12px; font-size: 10px; font-weight: 700; }
 .arena-state { display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px; border-radius: 999px; color: var(--muted); background: var(--neutral-wash-strong); font: 700 9px/1 var(--mono); text-transform: uppercase; }
 .arena-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
 .arena-state.state-running { color: var(--live-ink); background: var(--live-wash); }

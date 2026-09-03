@@ -61,6 +61,10 @@ export const createSessionRequestSchema = z.object({
   role: agentRoleSchema.optional(),
 }).strict();
 
+export const sessionLifecycleRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+}).strict();
+
 export const createProjectRequestSchema = z.object({
   name: z.string().trim().min(1).max(200),
   checkoutIds: z.array(z.string().trim().min(1).max(128)).max(32).default([]),

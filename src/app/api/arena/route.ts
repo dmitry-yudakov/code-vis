@@ -12,9 +12,14 @@ export const dynamic = 'force-dynamic';
 export async function GET(): Promise<Response> {
   try {
     const config = getConfig();
-    const sessions = await getSessionStore(config.dataDir, config.hostLabel).listSessions();
+    const store = getSessionStore(config.dataDir, config.hostLabel);
+    const [sessions, archivedSessions] = await Promise.all([
+      store.listSessions(),
+      store.listArchivedSessions(),
+    ]);
     return safeJsonResponse({
       sessions: sessions.map(arenaSessionSummary),
+      archivedSessions: archivedSessions.map(arenaSessionSummary),
       runs: runRegistry.list(),
     });
   } catch (error) {

@@ -81,9 +81,11 @@ stored data. `next dev` and `next build` now use Turbopack, and `next dev` write
 
 ## Arena and Inbox
 
-The header **Arena** control opens a machine-wide overview of every session, grouped by project.
+The header **Arena** control opens a machine-wide overview of active sessions, grouped by project.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
-latest activity. Use **New session** there to choose a project, provider, and initial mode before
+latest activity. An inactive session can be archived from its card and later restored intact from
+the **Archived** view; a session with a reserved, queued, executing, or permission-blocked turn
+cannot be archived. Use **New session** there to choose a project, provider, and initial mode before
 opening an empty session; creation never sends a prompt automatically.
 
 The header **Inbox** follows you into every session. It puts live permission requests first, then
@@ -233,6 +235,8 @@ environment of whoever starts CodeAI.**
   host id and label; projects and sessions are separate validated, revisioned JSON records containing repository bindings,
   roster, messages, Mermaid artifacts, sketches, annotations, and pins. Provider session ids and
   transcript cursors live in the same private record but are removed from every route response.
+  Active session files live under `sessions/`; recoverable archived records move atomically to
+  `archived-sessions/` with an archive timestamp.
 - Writes are operation-level and serialized. A process-owned `writer.lock` excludes a second
   CodeAI process from the same data directory; session files are flushed and atomically renamed with
   user-only permissions. Revision-bearing overwrite operations reject stale clients with 409,

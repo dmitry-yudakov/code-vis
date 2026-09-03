@@ -394,7 +394,7 @@ test('orchestrates cross-project attention and starts configured work from the A
   await finishedItem.getByRole('button', { name: 'Mark read' }).click();
   await expect(finishedItem).toHaveClass(/read/);
 
-  await arena.getByRole('tab', { name: /Sessions/ }).click();
+  await arena.getByRole('tab', { name: /Active/ }).click();
   const alphaGroup = arena.getByRole('region', { name: alphaProject });
   const alphaCard = alphaGroup.getByRole('button', { name: 'Open Arena permission from Alpha' });
   await expect(alphaCard).toContainText('Idle');
@@ -431,6 +431,60 @@ test('orchestrates cross-project attention and starts configured work from the A
     .toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.chat-message')).toHaveCount(0);
   expect(((await (await request.get('/api/agent/runs')).json()) as { active: unknown[] }).active).toEqual([]);
+});
+
+test('archives and restores an idle session from the Arena', async ({ page, request }) => {
+  const projectName = `Arena archive ${Date.now()}`;
+  await page.goto('/');
+  await createNamedProject(page, projectName);
+  await startSession(page);
+  const projects = (await (await request.get('/api/projects')).json()) as {
+    projects: Array<{ id: string; name: string }>;
+  };
+  const projectId = projects.projects.find((project) => project.name === projectName)!.id;
+  const catalog = (await (await request.get(`/api/sessions?projectId=${projectId}`)).json()) as {
+    sessions: Array<{ id: string }>;
+  };
+  const archivedSessionId = catalog.sessions[0].id;
+
+  const openTabs = page.getByRole('tab');
+  await expect(openTabs).toHaveCount(1);
+  await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  const arena = page.getByRole('main', { name: 'Arena' });
+  const active = arena.getByRole('tab', { name: /Active/ });
+  await active.click();
+  const project = arena.getByRole('region', { name: projectName });
+  const card = project.locator('.arena-card');
+  await expect(card).toHaveCount(1);
+
+  await card.locator('.arena-card-menu summary').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await card.getByRole('button', { name: 'Archive session' }).click();
+  await expect(project).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
+  expect(await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem('code-ai:device:v1:workspace') || '{}') as {
+      scopes?: Record<string, { openSessionIds?: string[] }>;
+    };
+    return Object.values(stored.scopes || {}).flatMap((scope) => scope.openSessionIds || []);
+  })).not.toContain(archivedSessionId);
+
+  const archived = arena.getByRole('tab', { name: /Archived/ });
+  await archived.click();
+  const archivedProject = arena.getByRole('region', { name: projectName });
+  const archivedCard = archivedProject.locator('.arena-card');
+  await expect(archivedCard).toContainText('Archived');
+  await expect(archivedCard).toContainText('Claude');
+  await archivedCard.getByRole('button', { name: 'Restore' }).click();
+  await expect(archivedProject).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Undo archive' })).toHaveCount(0);
+
+  await active.click();
+  const restoredProject = arena.getByRole('region', { name: projectName });
+  await expect(restoredProject.locator('.arena-card')).toHaveCount(1);
+  await restoredProject.getByRole('button', { name: /Open Session/ }).click();
+  await expect(page.locator('.project-search-trigger')).toContainText(projectName);
+  await expect(page.getByRole('tab')).toHaveCount(1);
 });
 
 test('separates replay from live recovery events and keeps terminal actions per session', async ({ page }) => {

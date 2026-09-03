@@ -244,6 +244,7 @@ describe('host-owned session store', () => {
     const sessionPath = path.join(root, 'sessions', `${created.id}.json`);
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect((await stat(path.join(root, 'sessions'))).mode & 0o777).toBe(0o700);
+    expect((await stat(path.join(root, 'archived-sessions'))).mode & 0o777).toBe(0o700);
     expect((await stat(path.join(root, 'projects'))).mode & 0o777).toBe(0o700);
     expect((await stat(path.join(root, 'manifest.json'))).mode & 0o777).toBe(0o600);
     expect((await stat(sessionPath)).mode & 0o777).toBe(0o600);
@@ -340,6 +341,116 @@ describe('host-owned session store', () => {
     expect(loose.projectId).toBeUndefined();
     expect(loose.repositories).toEqual(repositories);
     expect((await store.listSessions({ loose: true })).map((item) => item.id)).toContain(created.id);
+    await store.close();
+  });
+
+  it('archives and restores a complete session with revision conflicts and private file permissions', async () => {
+    const dataDir = await directory();
+    let currentTime = new Date('2026-09-03T10:00:00.000Z');
+    const store = new SessionStore(dataDir, { hostLabel: 'Host', now: () => currentTime });
+    const created = await store.createSession({ provider: 'claude' });
+    const activePath = path.join(dataDir, 'session-store-v2', 'sessions', `${created.id}.json`);
+    const archivedPath = path.join(dataDir, 'session-store-v2', 'archived-sessions', `${created.id}.json`);
+
+    currentTime = new Date('2026-09-03T11:00:00.000Z');
+    const archived = await store.archiveSession(created.id, created.revision);
+    expect(archived).toEqual({
+      ...created,
+      revision: 1,
+      updatedAt: '2026-09-03T11:00:00.000Z',
+      archivedAt: '2026-09-03T11:00:00.000Z',
+    });
+    expect(await store.listSessions()).toEqual([]);
+    expect(await store.listArchivedSessions()).toEqual([archived]);
+    await expect(store.getSession(created.id)).rejects.toMatchObject({ code: 'unknown' });
+    expect(await store.getArchivedSession(created.id)).toEqual(archived);
+    expect((await stat(archivedPath)).mode & 0o777).toBe(0o600);
+    await expect(stat(activePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(store.restoreSession(created.id, created.revision)).rejects.toMatchObject({ code: 'conflict' });
+
+    currentTime = new Date('2026-09-03T12:00:00.000Z');
+    const restored = await store.restoreSession(created.id, archived.revision);
+    expect(restored).toEqual({
+      ...created,
+      revision: 2,
+      updatedAt: '2026-09-03T12:00:00.000Z',
+    });
+    expect(await store.listArchivedSessions()).toEqual([]);
+    expect(await store.getSession(created.id)).toEqual(restored);
+    await expect(store.getArchivedSession(created.id)).rejects.toMatchObject({ code: 'unknown' });
+    expect((await stat(activePath)).mode & 0o777).toBe(0o600);
+    await expect(stat(archivedPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await store.close();
+  });
+
+  it('preserves transcript, canvas, annotations, roster, and private provider continuation through archive', async () => {
+    const dataDir = await directory();
+    const bootstrap = new SessionStore(dataDir, { hostLabel: 'Host' });
+    const host = await bootstrap.host();
+    await bootstrap.close();
+    const original = durableFixture(crypto.randomUUID(), host.id, 'Rich archive');
+    const activePath = path.join(dataDir, 'session-store-v2', 'sessions', `${original.id}.json`);
+    await writeFile(activePath, `${JSON.stringify(original, null, 2)}\n`);
+
+    const store = new SessionStore(dataDir, {
+      hostLabel: 'Host', now: () => new Date('2026-09-03T14:00:00.000Z'),
+    });
+    const archived = await store.archiveSession(original.id, original.revision);
+    expect(archived).toEqual({
+      ...original,
+      revision: original.revision + 1,
+      updatedAt: '2026-09-03T14:00:00.000Z',
+      archivedAt: '2026-09-03T14:00:00.000Z',
+    });
+    expect(serverAgent(archived, archived.primaryAgentId)?.session).toEqual({
+      provider: 'claude', started: true, sessionId: 'provider-session', hostId: host.id,
+    });
+    expect(archived.messages).toEqual(original.messages);
+    expect(archived.sketches).toEqual(original.sketches);
+    expect(archived.annotations).toEqual(original.annotations);
+    await store.close();
+  });
+
+  it('finishes interrupted archive and restore transitions when reopening the store', async () => {
+    const dataDir = await directory();
+    const first = new SessionStore(dataDir, { hostLabel: 'Host' });
+    const created = await first.createSession({ provider: 'claude' });
+    await first.close();
+
+    const activePath = path.join(dataDir, 'session-store-v2', 'sessions', `${created.id}.json`);
+    const archivedPath = path.join(dataDir, 'session-store-v2', 'archived-sessions', `${created.id}.json`);
+    const interruptedArchive = { ...created, revision: 1, archivedAt: '2026-09-03T11:00:00.000Z' };
+    await writeFile(activePath, `${JSON.stringify(interruptedArchive, null, 2)}\n`);
+
+    const afterArchive = new SessionStore(dataDir, { hostLabel: 'Host' });
+    expect(await afterArchive.getArchivedSession(created.id)).toEqual(interruptedArchive);
+    await afterArchive.close();
+    await expect(stat(activePath)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const interruptedRestore = structuredClone(interruptedArchive) as DurableSession;
+    delete interruptedRestore.archivedAt;
+    interruptedRestore.revision = 2;
+    await writeFile(archivedPath, `${JSON.stringify(interruptedRestore, null, 2)}\n`);
+
+    const afterRestore = new SessionStore(dataDir, { hostLabel: 'Host' });
+    expect(await afterRestore.getSession(created.id)).toEqual(interruptedRestore);
+    await afterRestore.close();
+    await expect(stat(archivedPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('detaches active and archived sessions together when their project is deleted', async () => {
+    const dataDir = await directory();
+    const store = new SessionStore(dataDir, { hostLabel: 'Host' });
+    const project = await store.createProject('Workspace', ['checkout-a']);
+    const active = await store.createSession({ projectId: project.id, provider: 'claude' });
+    const toArchive = await store.createSession({ projectId: project.id, provider: 'codex' });
+    const archived = await store.archiveSession(toArchive.id, toArchive.revision);
+
+    expect(await store.deleteProject(project.id, project.revision)).toEqual({ detachedSessionCount: 2 });
+    expect((await store.getSession(active.id)).projectId).toBeUndefined();
+    const detachedArchived = await store.getArchivedSession(archived.id);
+    expect(detachedArchived).toMatchObject({ revision: archived.revision + 1, archivedAt: archived.archivedAt });
+    expect(detachedArchived.projectId).toBeUndefined();
     await store.close();
   });
 

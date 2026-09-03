@@ -333,6 +333,12 @@ export class RunRegistry {
     };
   }
 
+  /** Includes the pre-activation reservation window, which normal discovery intentionally hides. */
+  hasLiveSession(sessionId: string): boolean {
+    this.evictExpired();
+    return [...this.liveByRunId.values()].some((run) => run.sessionId === sessionId);
+  }
+
   get currentRuns(): readonly RunDescriptor[] {
     return this.list().active;
   }
