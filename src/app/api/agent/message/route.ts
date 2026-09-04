@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentEvent } from '@/shared/types';
 import { agentMessageRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { getConfig } from '@/server/config';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import {
   sessionStoreStatus, getSessionStore, primaryRepository, serverAgent,
@@ -18,6 +19,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (contentLength > 6_000_000) return safeJsonResponse({ error: 'Request body is too large.' }, { status: 413 });
 

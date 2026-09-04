@@ -35,6 +35,7 @@ import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
+import { DeviceMenu } from '@/features/devices/DeviceMenu';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
@@ -1401,6 +1402,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
           </span>
+          <DeviceMenu />
           <span className="header-divider" aria-hidden="true" />
           <div className="theme-selector" role="group" aria-label="Theme">
             {THEME_PREFERENCES.map((choice) => (

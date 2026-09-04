@@ -3,11 +3,14 @@ import {
   sessionStoreStatus, getSessionStore, publicSession,
 } from '@/server/storage/sessionStore';
 import { createSessionRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   const query = new URL(request.url).searchParams;
   const projectId = query.get('projectId') || undefined;
   const loose = query.get('loose') === 'true';
@@ -27,6 +30,8 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = createSessionRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'A valid project, provider, and role are required.' }, { status: 400 });

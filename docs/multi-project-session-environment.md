@@ -161,9 +161,9 @@ foundation-first half: the changes that buy the broader scope without building r
    `attachments: ProjectAttachment[]` ([types.ts:91](../src/shared/types.ts#L91)); `checkoutId` stays
    honestly machine-scoped.
 3. **Repository match is no longer session identity.** The paired `get(id, projectId)` lookups and
-   the old project-match locality guard are gone; agent routes remain inside the
-   trusted localhost boundary because there is no user authorization yet, not because a path hash
-   authenticates anything.
+   the old project-match locality guard are gone. At that slice the agent routes remained inside
+   the trusted localhost boundary; Story 41 now authorizes remote personal devices independently.
+   A path hash never authenticates anything.
 4. **The machine is named.** `hostId` rides on the records that persist provider sessions and
    checkouts ([types.ts:52](../src/shared/types.ts#L52)), minted once and never silently replaced,
    even though there is only ever one machine and the value is constant.
@@ -196,10 +196,10 @@ and repository management); Story 34's vocabulary prerequisite is shipped:
    directory, a stale checkout, and a foreign-machine provider session are distinct conditions; none
    of them should make a session disappear.
 
-Deliberately **not** now: live multi-device sync, a coordinator service, sandboxing, presence, and
-any UI for more than one open view. Capability boundaries survive, but there is not yet an
-authenticated remote-user boundary: permission decisions remain inside the trusted local
-application, and nothing shipped so far authorizes LAN or cloud exposure.
+Deliberately **still not now:** live multi-device synchronization, a coordinator service,
+sandboxing, presence, or a UI for several humans. Story 41's authenticated boundary authorizes one
+person's paired devices over its explicit HTTPS listener; it does not authorize Internet or team
+hosting, another execution machine, or cloud exposure.
 
 ## Mermaid across 2D and 3D
 
@@ -352,9 +352,11 @@ resolved on the machine that executes it, never asserted by the device that requ
    [Story 38](../stories/STORY-20260903-arena-and-inbox.md):** a bounded host-wide session snapshot,
    project-grouped state cards, a device-readable Inbox, cross-session permission answers, and
    provider/mode-aware session creation from the overview.
-8. **Authenticated devices to one home machine:** pair a user's laptop, phone, or headset with the
-   machine that owns the sessions; add secure transport and authorization for reads, turns,
-   cancellations, and permission decisions before leaving localhost. This delivers multi-device
+8. **Authenticated devices to one home machine — shipped 2026-09-04 in
+   [Story 41](../stories/STORY-20260904-authenticated-devices.md):** pair a user's laptop, phone, or
+   headset with the machine that owns the sessions through an explicit HTTPS listener, a
+   terminal-issued one-time code, hashed revocable device credentials, and per-route authorization
+   for reads, turns, cancellations, streams, and permission decisions. This delivers multi-device
    viewing without adding a second execution machine or a second human.
 9. **Second execution machine:** a machine registry, authenticated attachment to another executor,
    and sessions listed and streamed across machines in one workspace. This is where machine
@@ -396,13 +398,13 @@ skipped for a real headset or cloud workflow.
 15. What interaction moves a view versus a node inside its active spatial diagram?
 16. How does the user notice a completed turn, failed run, or permission request elsewhere in a large
     2D/3D arena — or on another machine — without creating notification noise?
-17. What authentication and pairing model is sufficient for one user's own devices before any
-    team-hosting design exists, and what may leave the local machine for a cloud machine?
+17. How should the shipped personal-device identity migrate into a coordinator or team identity,
+    and what may leave the local machine for a cloud machine?
 
 ## Non-decisions
 
-This document does not select a state library, database, synchronization protocol, transport, hosting
-topology, identity provider, 3D layout algorithm, Mermaid parser implementation, WebXR interaction
-toolkit, or team deployment model. Those choices belong in executable stories once the first arena
-journey and its constraints are selected. Its only near-term claim is that the loosening slice is
-cheaper now than after more data is written in the current shapes.
+Beyond the shipped one-home-machine HTTPS and pairing slice, this document does not select a state
+library, database, synchronization protocol, coordinator transport or hosting topology, identity
+provider, 3D layout algorithm, Mermaid parser implementation, WebXR interaction toolkit, or team
+deployment model. Those choices belong in executable stories once their journey and constraints
+are selected.

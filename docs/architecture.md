@@ -14,9 +14,13 @@ child processes and read the selected repository with fixed git invocations.
 
 ```text
 browser (src/features/**, server snapshots + device-only React state)
+   │  paired HTTPS + HttpOnly device credential (remote mode)
    │  fetch / NDJSON stream
    ▼
-route handlers (src/app/api/**)
+device authorization at every route handler (src/server/devices)
+   │
+   ▼
+route domain operations (src/app/api/**)
    │
    ├── src/server/repository   checkout discovery, fixed read-only git reads, bounded context files
    ├── src/server/storage      durable projects/sessions, writer lock, per-run temp attachments
@@ -46,6 +50,7 @@ capability.
 | Checkout discovery and opaque checkout ids | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
 | Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
+| Pairing challenges and device credential digests | Separate host device-auth record |
 
 The browser can name a supported mode and nothing else. An unknown or unsupported mode is a 400.
 This is why the client never sends flags, prompts-with-tools, or paths outside the selected
@@ -78,8 +83,34 @@ The selected checkout preference uses `code-ai:device:v1:active-checkout`; focus
 mode, panels, viewport, and drafts remain React state. Legacy `code-ai:web2:v1:*` conversation keys
 are untouched and unread.
 
+In paired mode, `DeviceAccessGate` checks the bounded `/api/auth/status` bootstrap route before it
+mounts `AppShell`, preventing catalog and Arena polls from starting on an unpaired browser. The
+credential itself is a host-only HttpOnly cookie and therefore is neither browser device state nor
+available to client JavaScript. An authenticated header menu lists public device summaries and can
+revoke a device or sign out the current one.
+
 Export (`codeai-<session>.json`) includes the roster and per-entry author/provider/role metadata
 plus diagram and mark state — never provider session ids, credentials, or server paths.
+
+## Personal-device trust boundary
+
+`local` remains the default access mode. `paired` requires an exact HTTPS public origin and the
+dedicated `start:remote` custom server, which terminates TLS, rejects another Host, and stamps every
+request with a process-random internal transport marker. Thus accidentally running ordinary
+`next start` with paired configuration fails closed instead of treating HTTP as remote transport.
+Mutation routes additionally require the browser `Origin` to equal the configured public origin.
+
+`src/server/devices/deviceAuthStore.ts` owns `CODEAI_DATA_DIR/device-auth-v1.json`, independently of
+canonical project/session records. `device:pair` writes one salted digest for an 80-bit,
+ten-minute, single-use challenge. A successful exchange consumes it and creates a one-year opaque
+device credential; the record stores only the device id/label, timestamps, salt, and digest. The
+file is atomically replaced as `0600`, the data directory is `0700`, failed guesses are bounded,
+and malformed state fails closed. The one personal owner has one authorization scope.
+
+Every private route handler calls the same durable authorization check before parsing request data
+or touching repositories, sessions, providers, or the run registry. This includes read snapshots,
+NDJSON reattachment, new turns, cancellations, and permission decisions. Only bounded auth status
+and pairing-code exchange are unauthenticated; neither returns challenges, cookies, or digests.
 
 ## Host-owned session store
 
@@ -188,12 +219,12 @@ These are real and deliberate, and they bound what can be built next:
   views and one focused view;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows
   a device-selected binding while turns continue to use the primary binding;
-- clients see committed host content after refetch/reload, but there is no live synchronization,
-  presence, authentication, or remote-client authorization;
+- paired personal devices see committed host content after refetch/reload, but there is no live
+  multi-view synchronization or presence;
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The direction past the current shell — authenticated devices and sessions spread across machines — is in
+The direction past the current shell — sessions spread across execution machines — is in
 [vision.md](vision.md), with the record-level engineering
 notes in [multi-project-session-environment.md](multi-project-session-environment.md) and the names
 in [vocabulary.md](vocabulary.md).

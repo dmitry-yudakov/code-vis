@@ -7,13 +7,16 @@ import {
 } from '@/shared/protocol';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { AGENT_ROLE_DEFAULT_MODES } from '@/shared/participants';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ sessionId: string }> };
 
-export async function GET(_request: Request, context: RouteContext): Promise<Response> {
+export async function GET(request: Request, context: RouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const { sessionId } = await context.params;
     const config = getConfig();
@@ -25,6 +28,8 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = addParticipantRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'A valid provider, role, and request id are required.' }, { status: 400 });
@@ -47,6 +52,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
 }
 
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = setPrimaryAgentRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'A valid main agent and expected revision are required.' }, { status: 400 });

@@ -3,13 +3,16 @@ import {
   sessionStoreStatus, getSessionStore, publicSession,
 } from '@/server/storage/sessionStore';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type SessionRouteContext = { params: Promise<{ sessionId: string }> };
 
-export async function GET(_request: Request, context: SessionRouteContext): Promise<Response> {
+export async function GET(request: Request, context: SessionRouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const { sessionId } = await context.params;
     const config = getConfig();

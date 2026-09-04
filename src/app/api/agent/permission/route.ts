@@ -1,10 +1,13 @@
 import { permissionDecisionRequestSchema, safeJsonResponse } from '@/shared/protocol';
 import { runRegistry } from '@/server/runs/runRegistry';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   let raw: unknown;
   try {
     raw = await request.json();

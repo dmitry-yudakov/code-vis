@@ -2,11 +2,14 @@ import { getConfig } from '@/server/config';
 import { findChangedFile, readFileDiff, readWorkingTree } from '@/server/repository/gitRepository';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const query = new URL(request.url).searchParams;
     const checkoutId = query.get('checkoutId') || '';

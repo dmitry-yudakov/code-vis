@@ -6,12 +6,12 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-03. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-04. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** your own devices — authenticated pairing to the machine that owns the sessions.
-- **Then:** a second execution machine and the rest of
+- **Next:** a second execution machine — a machine registry and remote sessions in one Arena.
+- **Then:** spatial surfaces and the rest of
   [vision.md's sequence](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
@@ -25,6 +25,8 @@ All commands run from the repository root.
 ```sh
 npm run dev        # Next.js dev server on 3023 (Turbopack, output in .next/dev)
 npm start          # production server on 3023, after npm run build
+npm run start:remote # paired personal-device HTTPS server, after npm run build
+npm run device:pair # issue a ten-minute, single-use pairing code
 npm run build      # production build (Turbopack)
 npm run lint       # strict TypeScript check (tsc --noEmit) — there is no ESLint/Biome setup
 npm test           # Vitest suite, offline, with fake Claude/Codex executables
@@ -47,6 +49,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/features/shell/` | Application composition (`AppShell`) |
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
 | `src/features/arena/` | Host-wide session cards, Inbox derivation, polling, and device read state |
+| `src/features/devices/` | Personal-device pairing gate and paired-device management UI |
 | `src/features/conversation/` | Transcript, composer, drawer, session selection, public snapshot helpers |
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
 | `src/features/diagram/mermaid/` | Mermaid validation policy and SVG renderer |
@@ -59,6 +62,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/server/runs/` | Run lifecycle and permission broker |
 | `src/server/storage/` | Project/session store, durable server records, per-run temp attachments |
 | `src/server/config.ts` | Environment resolution and limits |
+| `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
 | `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
 | `test/`, `e2e/` | Vitest suite and Playwright suite |
 
@@ -78,6 +82,8 @@ importing file's own directory; keep `./…` for same-directory siblings.
   server. An unknown or unsupported mode is a 400.
 - Agent mode edits the real working tree after explicit per-action approval. There is no worktree
   isolation and no OS/container boundary — this runs as the desktop user.
+- Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
+  device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode.
 - Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is
   ignored and must stay untracked.
 

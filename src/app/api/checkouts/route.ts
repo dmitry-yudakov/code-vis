@@ -3,11 +3,14 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { recentCheckoutIds } from '@/server/repository/recentCheckouts';
 import { getSessionStore } from '@/server/storage/sessionStore';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request = new Request('http://localhost/api/checkouts')): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const config = getConfig();
     const store = getSessionStore(config.dataDir, config.hostLabel);

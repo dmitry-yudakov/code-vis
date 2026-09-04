@@ -4,13 +4,16 @@ import { getSessionStore, sessionStoreStatus } from '@/server/storage/sessionSto
 import {
   deleteProjectRequestSchema, publicError, safeJsonResponse, updateProjectRequestSchema,
 } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type ProjectRouteContext = { params: Promise<{ projectId: string }> };
 
-export async function GET(_request: Request, context: ProjectRouteContext): Promise<Response> {
+export async function GET(request: Request, context: ProjectRouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const { projectId } = await context.params;
     const config = getConfig();
@@ -22,6 +25,8 @@ export async function GET(_request: Request, context: ProjectRouteContext): Prom
 }
 
 export async function PATCH(request: Request, context: ProjectRouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = updateProjectRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'A valid revision and project update are required.' }, { status: 400 });
@@ -43,6 +48,8 @@ export async function PATCH(request: Request, context: ProjectRouteContext): Pro
 }
 
 export async function DELETE(request: Request, context: ProjectRouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = deleteProjectRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'A valid project revision is required.' }, { status: 400 });

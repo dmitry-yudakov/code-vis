@@ -41,12 +41,83 @@ Useful commands, all run from the repository root:
 ```sh
 npm run dev       # Next.js development server on 3023
 npm start         # production server on 3023, after npm run build
+npm run start:remote # paired personal-device HTTPS server, after npm run build
+npm run device:pair # print a ten-minute, single-use personal-device pairing code
 npm test          # offline suite with fake Claude and Codex executables
 npm run test:watch # the same suite in watch mode
 npm run lint      # strict TypeScript check
 npm run build     # production build
 npm run test:e2e  # production build + Playwright/installed Chrome canvas workflow
 ```
+
+## Personal devices
+
+Normal development and production startup remain local and need no sign-in. To open the same
+machine-owned Arena from your own tablet, phone, laptop, or headset, opt into paired HTTPS access.
+CodeAI terminates TLS itself in this mode; the certificate must name the configured host and must
+already be trusted by every device. Certificate creation and trust distribution are deliberately
+operator-owned—do not commit the private key (`.cert/` is ignored).
+
+### Create a trusted LAN certificate with `mkcert`
+
+After [installing `mkcert`](https://github.com/FiloSottile/mkcert#installation), create a local
+certificate authority and a certificate for every name or address devices will use to reach the
+home machine. Replace the example hostname and IP with yours:
+
+```sh
+mkdir -p .cert
+mkcert -install
+mkcert \
+  -cert-file .cert/codeai-cert.pem \
+  -key-file .cert/codeai-key.pem \
+  codeai.home.example 192.168.1.50 localhost 127.0.0.1 ::1
+mkcert -CAROOT
+```
+
+`mkcert -CAROOT` prints the directory containing `rootCA.pem`. Securely copy **only** that file to
+each tablet, phone, laptop, or headset and install it as a trusted certificate authority using that
+device's certificate settings. Never copy `rootCA-key.pem` or `.cert/codeai-key.pem` to another
+device. The LAN hostname must resolve to the home machine; alternatively, use the included LAN IP
+as `CODEAI_PUBLIC_ORIGIN`. Some managed devices do not permit user-installed certificate
+authorities and therefore cannot use this direct home-machine topology.
+
+Set these values in `.env.local` (all also accept the former `CODEAI_WEB2_*` spelling):
+
+```sh
+CODEAI_REMOTE_ACCESS=paired
+CODEAI_PUBLIC_ORIGIN=https://codeai.home.example:3023
+CODEAI_TLS_CERT=/absolute/path/to/codeai-cert.pem
+CODEAI_TLS_KEY=/absolute/path/to/codeai-key.pem
+CODEAI_BIND_PORT=3023
+# CODEAI_BIND_HOST=0.0.0.0 is the default for the dedicated remote server
+```
+
+The public origin must be one exact `https://` origin with no path. Its port and
+`CODEAI_BIND_PORT` must describe the same listener (when the origin omits a port, the default is
+443). Then build and start the dedicated server:
+
+```sh
+npm run build
+npm run start:remote
+```
+
+On the home machine, in another terminal using the same `.env.local`, issue a code and enter it on
+the remote device's pairing screen:
+
+```sh
+npm run device:pair
+```
+
+The code has 80 bits of randomness, expires after ten minutes, works once, and is replaced when a
+new code is issued. Five failed attempts invalidate it. Pairing creates a one-year opaque device
+credential in a host-only `HttpOnly`, `Secure`, `SameSite=Strict` cookie; only its salted digest is
+stored in `CODEAI_DATA_DIR/device-auth-v1.json`. Use **Devices** in the header to see paired-device
+summaries, revoke another device, or sign out this one. Revocation is checked on every API request.
+
+Paired mode protects every repository, session, Arena, run, stream, turn, cancellation, and
+permission endpoint. It rejects ordinary `npm start`, HTTP, the wrong host, cross-origin mutations,
+and missing or revoked credentials before domain work. It is a one-person, one-home-machine LAN or
+private-network topology—not an Internet hosting, team-account, relay, or second-executor model.
 
 ### Upgrading from the `web2/` layout
 
@@ -223,8 +294,8 @@ the turn.
 This is a capability restriction, **not a separate operating-system or container boundary**. The
 selected CLI still runs as your desktop user, and in Agent mode it changes real files once you
 approve. Use CodeAI
-only with repositories you trust. It is not designed for remote hosting, multi-user use, or
-untrusted repositories.
+only with repositories you trust. Paired access is for your own devices over trusted HTTPS; CodeAI
+is not designed for Internet-facing hosting, multi-user use, or untrusted repositories.
 
 ## Authentication and billing (bring your own)
 
@@ -304,6 +375,10 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_CODEX_AGENT` — explicit Codex Agent release gate; unset means Ask/Plan only;
 - `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node);
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
+- `CODEAI_REMOTE_ACCESS` / `CODEAI_PUBLIC_ORIGIN` — opt into paired personal-device access at one
+  exact HTTPS origin;
+- `CODEAI_TLS_CERT` / `CODEAI_TLS_KEY` and optional `CODEAI_BIND_*` — dedicated `start:remote`
+  listener configuration;
 - `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
 - `CODEAI_MAX_CONCURRENT_RUNS` — machine-wide execution slots, from 1–8 (default `2`);
 - `CODEAI_AGENT_*` / `CODEAI_BUILD_*` — per-message turn and time budgets for Ask/Plan

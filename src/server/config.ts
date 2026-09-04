@@ -5,6 +5,8 @@ import {
 } from '@/shared/limits';
 
 export interface AppConfig {
+  remoteAccess: 'local' | 'paired';
+  publicOrigin?: string;
   repositoriesRoot: string;
   repositoryDiscoveryDepth: number;
   claudeBin: string;
@@ -93,6 +95,35 @@ function flag(suffix: string): boolean {
   return /^(1|true|yes)$/i.test(rawSetting(suffix) || '');
 }
 
+function remoteAccess(): Pick<AppConfig, 'remoteAccess' | 'publicOrigin'> {
+  const mode = rawSetting('REMOTE_ACCESS') || 'local';
+  if (mode !== 'local' && mode !== 'paired') {
+    throw new Error('CODEAI_REMOTE_ACCESS must be either local or paired');
+  }
+  const rawOrigin = rawSetting('PUBLIC_ORIGIN');
+  if (mode === 'local') return { remoteAccess: mode };
+  if (!rawOrigin) {
+    throw new Error('CODEAI_PUBLIC_ORIGIN is required when CODEAI_REMOTE_ACCESS=paired');
+  }
+  let origin: URL;
+  try {
+    origin = new URL(rawOrigin);
+  } catch {
+    throw new Error('CODEAI_PUBLIC_ORIGIN must be an exact HTTPS origin');
+  }
+  if (
+    origin.protocol !== 'https:'
+    || origin.username
+    || origin.password
+    || origin.pathname !== '/'
+    || origin.search
+    || origin.hash
+  ) {
+    throw new Error('CODEAI_PUBLIC_ORIGIN must be an exact HTTPS origin');
+  }
+  return { remoteAccess: mode, publicOrigin: origin.origin };
+}
+
 function expandHome(value: string): string {
   if (value === '~') return os.homedir();
   return value.startsWith('~/') ? path.join(os.homedir(), value.slice(2)) : value;
@@ -100,6 +131,7 @@ function expandHome(value: string): string {
 
 export function getConfig(): AppConfig {
   return {
+    ...remoteAccess(),
     repositoriesRoot: path.resolve(expandHome(
       compatibleSetting('REPOSITORIES_ROOT', 'PROJECTS_ROOT').raw || process.cwd(),
     )),

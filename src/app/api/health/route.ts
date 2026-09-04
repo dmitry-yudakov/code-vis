@@ -3,11 +3,14 @@ import { constants } from 'node:fs';
 import { getConfig } from '@/server/config';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { safeJsonResponse } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   const config = getConfig();
   let repositoriesRootReady = false;
   let dataDirectoryReady = false;

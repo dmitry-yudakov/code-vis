@@ -5,6 +5,7 @@ import {
 import {
   publicError, safeJsonResponse, sessionLifecycleRequestSchema,
 } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic';
 type RouteContext = { params: Promise<{ sessionId: string }> };
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = sessionLifecycleRequestSchema.safeParse(await request.json());
     if (!parsed.success) {

@@ -11,6 +11,8 @@ const MANAGED = [
   'CODEAI_CLAUDE_MODEL', 'CODEAI_WEB2_CLAUDE_MODEL',
   'CODEAI_HOST_LABEL', 'CODEAI_WEB2_HOST_LABEL',
   'CODEAI_MAX_CONCURRENT_RUNS', 'CODEAI_WEB2_MAX_CONCURRENT_RUNS',
+  'CODEAI_REMOTE_ACCESS', 'CODEAI_WEB2_REMOTE_ACCESS',
+  'CODEAI_PUBLIC_ORIGIN', 'CODEAI_WEB2_PUBLIC_ORIGIN',
 ] as const;
 
 const original = new Map(MANAGED.map((name) => [name, process.env[name]]));
@@ -63,6 +65,26 @@ describe.sequential('config', () => {
   it.each(['0', '1.5', '9'])('rejects invalid machine concurrency %s', (value) => {
     process.env.CODEAI_MAX_CONCURRENT_RUNS = value;
     expect(() => getConfig()).toThrow('CODEAI_MAX_CONCURRENT_RUNS must be an integer between 1 and 8');
+  });
+
+  it('keeps local access as the default and validates an exact HTTPS paired origin', () => {
+    delete process.env.CODEAI_REMOTE_ACCESS;
+    delete process.env.CODEAI_WEB2_REMOTE_ACCESS;
+    delete process.env.CODEAI_PUBLIC_ORIGIN;
+    delete process.env.CODEAI_WEB2_PUBLIC_ORIGIN;
+    expect(getConfig().remoteAccess).toBe('local');
+    expect(getConfig().publicOrigin).toBeUndefined();
+
+    process.env.CODEAI_REMOTE_ACCESS = 'paired';
+    expect(() => getConfig()).toThrow('CODEAI_PUBLIC_ORIGIN is required');
+    process.env.CODEAI_PUBLIC_ORIGIN = 'http://codeai.test:3023';
+    expect(() => getConfig()).toThrow('exact HTTPS origin');
+    process.env.CODEAI_PUBLIC_ORIGIN = 'https://codeai.test:3023/path';
+    expect(() => getConfig()).toThrow('exact HTTPS origin');
+    process.env.CODEAI_PUBLIC_ORIGIN = 'https://codeai.test:3023';
+    expect(getConfig()).toMatchObject({
+      remoteAccess: 'paired', publicOrigin: 'https://codeai.test:3023',
+    });
   });
 
   describe('web2 compatibility', () => {

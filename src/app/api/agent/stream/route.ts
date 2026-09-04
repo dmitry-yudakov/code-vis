@@ -2,6 +2,7 @@ import type { AgentEvent } from '@/shared/types';
 import { safeJsonResponse } from '@/shared/protocol';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { agentEventStream } from '../eventStream';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,8 @@ export const dynamic = 'force-dynamic';
  * discovery first and selects only a live run; retained replay remains available for diagnostics.
  */
 export async function GET(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   const runId = new URL(request.url).searchParams.get('runId') || '';
   if (!/^[0-9a-f-]{36}$/i.test(runId)) {
     return safeJsonResponse({ error: 'A run id is required.' }, { status: 400 });

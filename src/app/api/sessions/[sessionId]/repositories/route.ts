@@ -2,6 +2,7 @@ import { getConfig } from '@/server/config';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getSessionStore, publicSession, sessionStoreStatus } from '@/server/storage/sessionStore';
 import { publicError, safeJsonResponse, setSessionRepositoriesRequestSchema } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic';
 type SessionRouteContext = { params: Promise<{ sessionId: string }> };
 
 export async function PUT(request: Request, context: SessionRouteContext): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = setSessionRepositoriesRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'Valid repositories and a session revision are required.' }, { status: 400 });

@@ -212,13 +212,15 @@ Roughly in dependency order; the engineering detail and current status of each l
 6. **The arena** — *shipped.* The project-grouped overview, states, Inbox, cross-session permission
    answering, and configured session creation
    ([Story 38](../stories/STORY-20260903-arena-and-inbox.md)).
-7. **Your own devices** — authenticated pairing to one machine; the arena on a tablet or headset.
+7. **Your own devices** — *shipped.* Authenticated pairing to one home machine over explicit HTTPS;
+   the Arena on a tablet or headset
+   ([Story 41](../stories/STORY-20260904-authenticated-devices.md)).
 8. **A second machine** — a machine registry, remote sessions listed and streamed in one arena.
 9. **Spatial surfaces** — desktop 3D first, then WebXR.
 10. **Cloud execution** — sandboxes, subscription-in-container, joining from anywhere.
 
-Steps 1–4 shipped in August 2026 and steps 5–6 in September 2026. From step 7 on this is
-direction, not a plan.
+Steps 1–4 shipped in August 2026 and steps 5–7 in September 2026. From step 8 on this is direction,
+not a plan.
 
 The arena came fourth of the four near-term steps rather than first, for two reasons. It groups
 sessions **by project**, so building it before step 3 gives one flat list of everything; and its
@@ -257,6 +259,6 @@ rename before step 3, so every story after it is written once in the settled nou
 7. Where does a repository-free session's file output go, and can it later be promoted into a repo?
 8. What is the default and maximum concurrency per machine, and does a waiting permission hold a
    slot?
-9. What authentication is sufficient for one person's own devices, before any team model exists?
+9. How should today's paired-device identity migrate into a coordinator or later team identity?
 10. In a spatial arena, what does a session look like at rest, and what interaction moves a session
     versus a node inside its diagram?

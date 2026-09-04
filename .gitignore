@@ -14,6 +14,7 @@ playwright-report/
 .env
 .env.*
 !.env.example
+.cert/
 
 # Legacy runtime build output (see legacy/README.md)
 !legacy/extension/out/public/index.html

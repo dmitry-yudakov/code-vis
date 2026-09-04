@@ -55,6 +55,13 @@ export const permissionDecisionRequestSchema = z.object({
 
 export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 
+export const pairDeviceRequestSchema = z.object({
+  label: z.string().trim().min(1).max(64),
+  code: z.string().trim().min(16).max(32),
+}).strict();
+
+export const revokeDeviceRequestSchema = z.object({ deviceId: z.string().uuid() }).strict();
+
 export const createSessionRequestSchema = z.object({
   projectId: z.string().uuid().optional(),
   provider: agentProviderSchema,
@@ -113,9 +120,11 @@ export const setSessionRepositoriesRequestSchema = z.object({
 }).strict();
 
 export function safeJsonResponse(data: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers);
+  headers.set('Cache-Control', 'no-store');
   return Response.json(data, {
     ...init,
-    headers: { 'Cache-Control': 'no-store', ...init?.headers },
+    headers,
   });
 }
 

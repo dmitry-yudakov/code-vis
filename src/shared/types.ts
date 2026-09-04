@@ -125,6 +125,22 @@ export interface ProviderHealth {
   message?: string;
 }
 
+export interface DeviceAuthStatus {
+  mode: 'local' | 'paired';
+  authenticated: boolean;
+  transportSecure: boolean;
+  hostLabel: string;
+  device?: { id: string; label: string };
+}
+
+export interface PairedDeviceSummary {
+  id: string;
+  label: string;
+  pairedAt: string;
+  expiresAt: string;
+  current: boolean;
+}
+
 export type DrawingTool = 'pointer' | 'pan' | 'pen' | 'rectangle' | 'arrow' | 'text' | 'eraser';
 export type Point = { x: number; y: number; pressure?: number };
 

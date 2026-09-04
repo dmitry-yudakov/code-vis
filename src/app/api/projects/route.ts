@@ -2,11 +2,14 @@ import { getConfig } from '@/server/config';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getSessionStore } from '@/server/storage/sessionStore';
 import { createProjectRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
+import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request = new Request('http://localhost/api/projects')): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const config = getConfig();
     const projects = await getSessionStore(config.dataDir, config.hostLabel).listProjects();
@@ -17,6 +20,8 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const denied = await authorizeDeviceRequest(request);
+  if (denied) return denied;
   try {
     const parsed = createProjectRequestSchema.safeParse(await request.json());
     if (!parsed.success) return safeJsonResponse({ error: 'A valid project name and repositories are required.' }, { status: 400 });
