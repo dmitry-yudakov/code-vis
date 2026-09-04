@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { SessionSnapshot, DrawingMark } from '@/shared/types';
 import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 import { DiagramCanvas, type CanvasViewState } from './DiagramCanvas';
 import { RunRibbon } from './RunRibbon';
+import { SpatialBoundary } from '@/features/diagram/spatial/SpatialBoundary';
+import type { CanvasSurface, SpatialViewState } from '@/features/shell/workspaceViews';
 
 export interface CanvasSnapshot {
   svg: string;
@@ -23,6 +25,8 @@ export function CanvasWorkspace({
   toolActivity,
   focusMode,
   canvasView,
+  surface,
+  spatial,
   onComposer,
   onOpenChat,
   onOpenHistory,
@@ -31,6 +35,9 @@ export function CanvasWorkspace({
   onNewSketch,
   onMarksChange,
   onCanvasViewChange,
+  onSurfaceChange,
+  onSpatialChange,
+  onResetSpatial,
   onSnapshot,
   onArtifactError,
 }: {
@@ -43,6 +50,8 @@ export function CanvasWorkspace({
   toolActivity: ToolActivityEntry[];
   focusMode: boolean;
   canvasView?: CanvasViewState;
+  surface: CanvasSurface;
+  spatial?: SpatialViewState;
   onComposer(value: string): void;
   onOpenChat(): void;
   onOpenHistory(): void;
@@ -51,6 +60,9 @@ export function CanvasWorkspace({
   onNewSketch(): void;
   onMarksChange(diagramId: string, marks: DrawingMark[]): void;
   onCanvasViewChange(diagramId: string, view: CanvasViewState): void;
+  onSurfaceChange(surface: CanvasSurface): void;
+  onSpatialChange(spatial: SpatialViewState): void;
+  onResetSpatial(): void;
   onSnapshot(snapshot?: CanvasSnapshot): void;
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
 }) {
@@ -79,9 +91,19 @@ export function CanvasWorkspace({
     if (activeId) onCanvasViewChange(activeId, view);
   }, [activeId, onCanvasViewChange]);
 
+  useEffect(() => {
+    if (surface === 'spatial') onSnapshot(undefined);
+  }, [onSnapshot, surface]);
+
   return (
     <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
+        {target && (
+          <div className="canvas-surface-control" role="group" aria-label="Canvas surface">
+            <button type="button" aria-pressed={surface === 'flat'} onClick={() => onSurfaceChange('flat')}>Flat</button>
+            <button type="button" aria-pressed={surface === 'spatial'} onClick={() => onSurfaceChange('spatial')}>Spatial</button>
+          </div>
+        )}
         <div className="canvas-top-actions">
           {session.previousDiagramId && target && (
             <button type="button" onClick={() => onSelectDiagram(session.previousDiagramId!)}>← Previous version</button>
@@ -104,7 +126,19 @@ export function CanvasWorkspace({
           pendingApprovals={pendingApprovals}
           activity={toolActivity}
         />
-        {target ? (
+        {target && activeId && surface === 'spatial' ? (
+          <SpatialBoundary
+            session={session}
+            theme={theme}
+            activeId={activeId}
+            spatial={spatial}
+            onSelect={onSelectDiagram}
+            onOpenFlat={() => onSurfaceChange('flat')}
+            onViewChange={onSpatialChange}
+            onReset={onResetSpatial}
+            onFailure={() => undefined}
+          />
+        ) : target ? (
           <DiagramCanvas
             key={activeId}
             target={target}

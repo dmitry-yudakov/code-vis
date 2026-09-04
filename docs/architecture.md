@@ -48,7 +48,7 @@ capability.
 | Concern | Owner |
 |---|---|
 | Transcript, Mermaid artifacts, marks, pins, roster | Host session store |
-| Focused canvas, next recipient/mode, panels, drafts | Browser memory |
+| Focused canvas, next recipient/mode, panels, drafts, Flat/Spatial layout | Browser memory |
 | Provider session ids and transcript cursors | Private fields in the host store |
 | Projects, session membership, repository bindings | Host store |
 | Arena session summaries and run attention | Derived server snapshots |
@@ -90,8 +90,10 @@ live permission locally. Revisioned archive/restore routes reject every live run
 including the pre-activation interval hidden from normal discovery.
 
 The selected checkout preference and loose-session workspace scopes are machine-qualified under
-the `code-ai:device:v1:*` records; focus, next recipient, mode, panels, viewport, and drafts remain
-React state. Canonical project and session records do not gain a home-machine routing field. Legacy
+the `code-ai:device:v1:*` records; focus, next recipient, mode, panels, flat viewport, Spatial
+surface/camera/placements, and drafts remain React state. Spatial coordinates are finite, clamped,
+count-bounded, and reconciled against live canvas ids. Canonical project and session records do not
+gain layout or a home-machine routing field. Legacy
 `code-ai:web2:v1:*` conversation keys are untouched and unread.
 
 In paired mode, `DeviceAccessGate` checks the bounded `/api/auth/status` bootstrap route before it
@@ -241,6 +243,17 @@ artifact, never a patch. `mermaidPolicy.ts` normalizes and validates source on b
 boundary (the browser before storing, the server before accepting); `mermaidRenderer.ts` is
 browser-only and produces the SVG. Annotations are vector marks held beside the artifact in
 `src/features/diagram/annotations/`, exported as a composite PNG only for attachment.
+
+`CanvasWorkspace` keeps Flat as the default and mounts
+`src/features/diagram/spatial/SpatialBoundary.tsx` only after Spatial is selected. That lightweight
+client boundary checks WebGL and contains dynamic-import/context failures; the R3F, drei, Three.js,
+SVG rasterization, and scene modules stay in a separate client-only chunk. The room projects at
+most twelve canonical diagrams/sketches as panels. Each current-theme preview is capped at a
+2,048-pixel long edge and two million texels; the active texture plus one common peer downscale is
+bounded to sixteen million base-level texels, with mipmaps disabled and labelled placeholders for
+smaller results. A module-owned ledger disposes object URLs, textures, materials, and geometry on
+replacement or unmount. `frameloop="demand"` keeps the settled room idle. None of these derived
+pixels or layouts enters the session export or the stable light attachment renderer.
 
 ## Current constraints
 

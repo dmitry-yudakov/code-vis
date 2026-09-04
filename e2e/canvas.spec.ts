@@ -16,8 +16,20 @@ test.afterEach(async ({ request }) => {
 async function startSession(page: Page) {
   const openViews = page.getByRole('tab');
   const before = await openViews.count();
+  const dismissNotice = page.getByRole('button', { name: 'Dismiss notice' });
   await page.locator('.new-session-menu summary').click();
-  await page.getByRole('button', { name: 'Start session' }).click();
+  const start = page.getByRole('button', { name: 'Start session' });
+  let clicked = false;
+  for (let attempt = 0; attempt < 10 && !clicked; attempt += 1) {
+    if (await dismissNotice.isVisible()) await dismissNotice.click();
+    try {
+      await start.click({ timeout: 500 });
+      clicked = true;
+    } catch {
+      await page.waitForTimeout(100);
+    }
+  }
+  expect(clicked).toBe(true);
   await expect(openViews).toHaveCount(before + 1);
 }
 
@@ -235,6 +247,148 @@ test('keeps a repository-free loose session usable and durable', async ({ page }
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: /No project.*Loose sessions/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
+});
+
+test('loads the bounded spatial room on demand and restores its device-only layout', async ({ page }) => {
+  const name = `E2E spatial ${Date.now()}`;
+  const scripts: string[] = [];
+  const externalRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.resourceType() === 'script') scripts.push(request.url());
+    if (request.url().startsWith('http') && new URL(request.url()).hostname !== '127.0.0.1') externalRequests.push(request.url());
+  });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await createNamedProject(page, name);
+  await startSession(page);
+  await ensureRepository(page);
+
+  const composer = page.getByPlaceholder(/Ask anything about this project/);
+  await composer.fill('Spatial fixture');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.diagram-card')).toHaveCount(8);
+  await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+
+  for (let ordinal = 1; ordinal <= 5; ordinal += 1) {
+    await page.getByRole('button', { name: 'New sketch' }).click();
+    await expect(page.locator('.canvas-titleblock strong')).toHaveText(`Sketch ${ordinal}`);
+  }
+  await page.getByRole('button', { name: /History/ }).click();
+  const badDiagram = page.locator('.navigator-item').filter({ hasText: 'Diagram 4' });
+  await badDiagram.locator('.navigator-select').click();
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 4');
+  const fixtureNotice = page.getByRole('button', { name: 'Dismiss notice' });
+  if (await fixtureNotice.isVisible()) await fixtureNotice.click();
+
+  const scriptsBeforeEntry = [...scripts];
+  expect(await page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__)).toBeUndefined();
+  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
+  const panelList = page.getByRole('listbox', { name: 'Panels in chronological room order' });
+  await expect(panelList).toBeVisible();
+  await expect(panelList.getByRole('option')).toHaveCount(12);
+  await expect(page.locator('.spatial-omitted')).toContainText('1 older target is omitted');
+  await expect(panelList.getByRole('option', { name: /Diagram 4/ })).toContainText('Preview error');
+  expect(await page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.moduleEvaluations)).toBe(1);
+  expect(scripts.slice(scriptsBeforeEntry.length).some((url) => url.includes('/_next/static/chunks/'))).toBe(true);
+  expect(externalRequests).toEqual([]);
+
+  const readyOption = panelList.getByRole('option', { name: /Sketch 5/ });
+  await readyOption.click();
+  await expect(readyOption).toHaveAttribute('aria-selected', 'true');
+  await panelList.focus();
+  await panelList.press('ArrowUp');
+  await expect(readyOption).toHaveAttribute('aria-selected', 'false');
+  await panelList.press('Enter');
+  await readyOption.click();
+  await page.getByRole('button', { name: 'Focus selected' }).click();
+  for (const cameraControl of [
+    'Orbit left', 'Orbit right', 'Orbit up', 'Orbit down', 'Pan left', 'Pan right',
+    'Pan up', 'Pan down', 'Dolly in', 'Dolly out',
+  ]) await page.getByRole('button', { name: cameraControl, exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Arrange selected panel' }).check();
+  for (const panelControl of [
+    'Left', 'Right', 'Up', 'Down', 'Forward', 'Back', 'Rotate left', 'Rotate right',
+  ]) await page.getByRole('button', { name: panelControl, exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'))).toContain('"surface":"spatial"');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'))).toContain('"placements"');
+
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.objectUrls)).toBe(0);
+  await expect.poll(async () => {
+    const before = await page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__!.frames);
+    await page.waitForTimeout(200);
+    const after = await page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__!.frames);
+    return after - before;
+  }).toBe(0);
+  const live = await page.evaluate(() => ({ ...window.__CODEAI_SPATIAL_INSTRUMENTATION__! }));
+  expect(live.textures).toBeGreaterThan(0);
+  expect(live.logicalTexturePixels).toBeLessThanOrEqual(16_000_000);
+
+  const layoutBeforeTheme = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
+  const failureId = await readyOption.getAttribute('data-canvas-id');
+  await page.evaluate((id) => { window.__CODEAI_SPATIAL_TEST__ = { failTextureId: id || undefined }; }, failureId);
+  await page.getByRole('button', { name: 'Dark', exact: true }).click();
+  await expect(readyOption).toContainText('Preview error');
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.objectUrls)).toBe(0);
+  const layoutAfterTheme = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
+  expect(layoutAfterTheme).toBe(layoutBeforeTheme);
+  await page.evaluate(() => { window.__CODEAI_SPATIAL_TEST__ = {}; });
+
+  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Repository' })).toBeHidden();
+  await page.getByRole('button', { name: 'Exit focus' }).click();
+  await page.getByRole('button', { name: 'Open in Flat' }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Sketch 5/ })).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.textures || 0)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Reset room' }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem('code-ai:device:v1:workspace') || '{}') as {
+      scopes?: Record<string, { views?: Record<string, { surface?: string; spatial?: { camera?: unknown; placements?: Record<string, unknown> } }> }>;
+    };
+    const spatialView = Object.values(stored.scopes || {}).flatMap((scope) => Object.values(scope.views || {}))
+      .find((view) => view.surface === 'spatial');
+    return spatialView?.spatial;
+  })).toEqual({ placements: {} });
+  await page.locator('.spatial-viewport canvas').dispatchEvent('webglcontextlost');
+  await expect(page.locator('.spatial-fallback')).toContainText('WebGL context was lost');
+  await page.getByRole('button', { name: 'Return to Flat' }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.textures || 0)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.materials || 0)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.geometries || 0)).toBe(0);
+
+  await page.evaluate(() => { window.__CODEAI_SPATIAL_TEST__ = { forceUnsupported: true }; });
+  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
+  await expect(page.locator('.spatial-fallback')).toContainText('does not provide a usable WebGL context');
+  await page.getByRole('button', { name: 'Return to Flat' }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+
+  const secondContext = await page.context().browser()!.newContext();
+  const secondPage = await secondContext.newPage();
+  await secondPage.goto('/');
+  await secondPage.locator('.project-search-trigger').click();
+  await secondPage.getByRole('option', { name: new RegExp(name) }).click();
+  await expect(secondPage.getByRole('button', { name: 'Flat', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(await secondPage.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__)).toBeUndefined();
+  let abortedSpatialChunk = false;
+  await secondPage.route('**/_next/static/chunks/**', async (route) => {
+    abortedSpatialChunk = true;
+    await route.abort();
+  });
+  await secondPage.getByRole('button', { name: 'Spatial', exact: true }).click();
+  await expect(secondPage.locator('.spatial-fallback')).toContainText('Spatial is unavailable');
+  expect(abortedSpatialChunk).toBe(true);
+  await secondPage.unroute('**/_next/static/chunks/**');
+  await secondPage.getByRole('button', { name: 'Return to Flat' }).click();
+  await expect(secondPage.locator('.sketch-sheet')).toBeVisible();
+  await secondContext.close();
 });
 
 test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {

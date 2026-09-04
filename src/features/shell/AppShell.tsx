@@ -18,7 +18,7 @@ import { EXECUTE_PLAN_INSTRUCTION } from '@/shared/plan';
 import { compositePng } from '@/features/diagram/annotations/compositeExport';
 import { createUuid } from '@/shared/uuid';
 import {
-  canvasTargetId, exportSession, findCanvasTarget, getSketches, hydrateSession,
+  canvasTargetId, exportSession, findCanvasTarget, getArtifacts, getSketches, hydrateSession,
   loadSelectedCheckoutId, saveSelectedCheckoutId,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
@@ -41,7 +41,10 @@ import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { useWorkspaceViews } from './useWorkspaceViews';
-import { replacePendingCanvasRevision } from './workspaceViews';
+import {
+  parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView,
+  type CanvasSurface, type SpatialViewState,
+} from './workspaceViews';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
@@ -393,6 +396,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [checkouts, hostId, savedCheckoutId, selectedCheckoutId, session]);
 
   useEffect(() => {
+    if (!session?.id) return;
+    const canvasIds = [
+      ...getArtifacts(session).map((artifact) => artifact.id),
+      ...getSketches(session).map((sketch) => sketch.id),
+    ];
+    workspace.updateView(session.id, (current) => {
+      const spatial = reconcileSpatialView(current.spatial, canvasIds);
+      return spatial === current.spatial ? current : { ...current, spatial };
+    });
+  }, [session, workspace.updateView]);
+
+  useEffect(() => {
     if (!session) return;
     workspace.updateView(session.id, (current) => {
       if (
@@ -681,6 +696,28 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) return current;
       return { ...current, canvasViews: { ...current.canvasViews, [diagramId]: canvasView } };
     });
+  }, [sessionId, workspace.updateView]);
+
+  const handleSurfaceChange = useCallback((surface: CanvasSurface) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => {
+      if (surface === 'flat') {
+        if (!current.surface) return current;
+        const { surface: _surface, ...rest } = current;
+        return rest;
+      }
+      return current.surface === surface ? current : { ...current, surface };
+    });
+  }, [sessionId, workspace.updateView]);
+
+  const handleSpatialChange = useCallback((spatial: SpatialViewState) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => ({ ...current, spatial: parseSpatialView(spatial) || resetSpatialView() }));
+  }, [sessionId, workspace.updateView]);
+
+  const handleResetSpatial = useCallback(() => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => ({ ...current, spatial: resetSpatialView() }));
   }, [sessionId, workspace.updateView]);
 
   const setMode = useCallback((next: AgentMode) => {
@@ -1581,6 +1618,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             toolActivity={sessionRunning ? toolActivity : []}
             focusMode={panelLayout.focusMode}
             canvasView={session.activeDiagramId ? view?.canvasViews[session.activeDiagramId] : undefined}
+            surface={view?.surface || 'flat'}
+            spatial={view?.spatial}
             onComposer={setComposer}
             onOpenChat={() => { panelLayout.openConversation(); setUnread(0); }}
             onOpenHistory={panelLayout.openHistory}
@@ -1589,6 +1628,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             onNewSketch={createSketch}
             onMarksChange={handleMarksChange}
             onCanvasViewChange={handleCanvasViewChange}
+            onSurfaceChange={handleSurfaceChange}
+            onSpatialChange={handleSpatialChange}
+            onResetSpatial={handleResetSpatial}
             onSnapshot={handleSnapshot}
             onArtifactError={handleArtifactError}
           />

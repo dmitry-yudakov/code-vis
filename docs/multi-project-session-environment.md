@@ -219,9 +219,11 @@ The derived structure is not a second user document and must be disposable. User
 need to round-trip to Mermaid source or be represented as explicit annotations rather than silently
 diverging from it.
 
-A pragmatic spatial rollout could be:
+A pragmatic spatial rollout is:
 
-1. Place any valid Mermaid diagram as an SVG surface in the 3D environment.
+1. **Shipped in [Story 43](../stories/STORY-20260904-desktop-spatial-surface.md):** place the active
+   and newest Mermaid/sketch canvases as bounded, current-theme SVG surfaces in a desktop 3D room.
+   Layout stays device-owned and the surface does not invent graph entities.
 2. Render a supported subset—likely flowcharts first—as real spatial nodes, edges, and groups.
 3. Fall back to an SVG surface for unsupported diagram types or syntax.
 4. Expand the parser/layout vocabulary and later use it for a more beautiful, interactive 2D
@@ -368,8 +370,9 @@ resolved on the machine that executes it, never asserted by the device that requ
    machine-qualified device state, and cached Offline cards.
 10. **Durable workspace and coordinator continuity:** persist workspace/view identity and support the
     selected home-machine or coordinator topology when no single device owns navigation.
-11. **Desktop spatial renderer:** place canvases and sessions in R3F with orbit/select/focus and SVG
-    fallback.
+11. **Desktop spatial renderer — shipped 2026-09-04 in
+    [Story 43](../stories/STORY-20260904-desktop-spatial-surface.md):** project up to twelve session
+    canvases into an R3F room with orbit/select/focus, bounded device placement, and SVG panels.
 12. **Immersive WebXR:** controller interaction, room-scale placement, performance limits, secure
     headset access, and restoration of saved spatial views.
 13. **Cloud execution:** sandboxed machines running `claude`/`codex` or provider APIs, joinable from

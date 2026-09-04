@@ -144,7 +144,12 @@ while (true) {
       emit({ method: 'item/started', params: { threadId, turnId, item: { type: 'reasoning', id: 'reason-1', summary: [], content: [] } } });
       emit({ method: 'item/started', params: { threadId, turnId, item: command } });
       const prompt = message.params.input?.find((item) => item.type === 'text')?.text || '';
-      completeTurn(prompt.includes('Mode: PLAN')
+      const spatialFixture = Array.from({ length: 8 }, (_, index) => (
+        `\`\`\`mermaid\nflowchart LR\n  Panel${index + 1}[Panel ${index + 1}] --> Room[Spatial room]${index === 3 ? '\n  click Room "https://example.test"' : ''}\n\`\`\``
+      )).join('\n\n');
+      completeTurn(prompt.includes(`"text":${JSON.stringify('Spatial fixture')}`)
+        ? `Eight spatial fixture panels; panel four is deliberately non-ready.\n\n${spatialFixture}`
+        : prompt.includes('Mode: PLAN')
         ? 'Notes.\n<!-- cartograph:plan:start -->\n## Codex plan\n1. Verify it.\n<!-- cartograph:plan:end -->'
         : message.params.threadId === 'codex-thread-resume' ? 'Resumed Codex thread.' : 'Codex answer.');
     }

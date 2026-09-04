@@ -135,7 +135,12 @@ else {
   // The current request reaches the child as one JSON value, so match its `text` field rather
   // than the bracketed framing the prompt used before the historical-context encoding landed.
   const asked = (value) => prompt.includes(`"text":${JSON.stringify(value)}`);
-  const text = asked('Draw a simple architecture')
+  const spatialFixture = Array.from({ length: 8 }, (_, index) => (
+    `\`\`\`mermaid\nflowchart LR\n  Panel${index + 1}[Panel ${index + 1}] --> Room[Spatial room]${index === 3 ? '\n  click Room "https://example.test"' : ''}\n\`\`\``
+  )).join('\n\n');
+  const text = asked('Spatial fixture')
+    ? `Eight spatial fixture panels; panel four is deliberately non-ready.\n\n${spatialFixture}`
+    : asked('Draw a simple architecture')
     ? 'Here is one architecture map.\n\n```mermaid\nflowchart LR\n  UI["`.claude/settings.local.json`<br/>M · +3 / −0"] --> API[Agent API]\n  API --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'
     : asked('Revise it with a context step')
       ? 'I used the attached diagram and marks as context.\n\n```mermaid\nflowchart LR\n  UI[Canvas UI] --> API[Agent API]\n  API --> Context[Bounded context]\n  Context --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'

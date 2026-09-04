@@ -24,16 +24,34 @@ export function marksToSvg(marks: DrawingMark[]): string {
   }).join('');
 }
 
-export async function compositePng(svgMarkup: string, marks: DrawingMark[], viewBox: [number, number, number, number]): Promise<string> {
+export function composeSvgMarkup(
+  svgMarkup: string,
+  marks: DrawingMark[],
+  viewBox: [number, number, number, number],
+  background?: string,
+): string {
   const documentSvg = new DOMParser().parseFromString(svgMarkup, 'image/svg+xml').documentElement;
   documentSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   documentSvg.setAttribute('viewBox', viewBox.join(' '));
-  documentSvg.setAttribute('width', String(Math.min(4096, Math.max(1, viewBox[2]))));
-  documentSvg.setAttribute('height', String(Math.min(4096, Math.max(1, viewBox[3]))));
+  documentSvg.setAttribute('width', String(Math.max(1, viewBox[2])));
+  documentSvg.setAttribute('height', String(Math.max(1, viewBox[3])));
+  if (background) {
+    const sheet = documentSvg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    sheet.setAttribute('x', String(viewBox[0]));
+    sheet.setAttribute('y', String(viewBox[1]));
+    sheet.setAttribute('width', String(viewBox[2]));
+    sheet.setAttribute('height', String(viewBox[3]));
+    sheet.setAttribute('fill', background);
+    documentSvg.prepend(sheet);
+  }
   const overlay = documentSvg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
   overlay.innerHTML = marksToSvg(marks);
   documentSvg.append(overlay);
-  const serialized = new XMLSerializer().serializeToString(documentSvg);
+  return new XMLSerializer().serializeToString(documentSvg);
+}
+
+export async function compositePng(svgMarkup: string, marks: DrawingMark[], viewBox: [number, number, number, number]): Promise<string> {
+  const serialized = composeSvgMarkup(svgMarkup, marks, viewBox);
   const url = URL.createObjectURL(new Blob([serialized], { type: 'image/svg+xml' }));
   try {
     const image = new Image();

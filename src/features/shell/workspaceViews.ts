@@ -5,7 +5,13 @@ export const LOOSE_WORKSPACE_SCOPE = 'project:none';
 
 const MAX_SCOPES = 100;
 const MAX_SESSIONS_PER_SCOPE = 200;
-const MAX_CANVAS_VIEWS = 200;
+export const MAX_CANVAS_VIEWS = 200;
+export const SPATIAL_ROOM_BOUNDS = {
+  x: [-32, 32],
+  y: [-12, 16],
+  z: [-24, 24],
+} as const;
+const SPATIAL_CAMERA_BOUNDS = 64;
 const SESSION_ID = /^[0-9a-f-]{36}$/i;
 const AGENT_MODES = new Set<AgentMode>(['ask', 'plan', 'agent']);
 
@@ -13,6 +19,23 @@ export interface CanvasViewState {
   zoom: number;
   pan: { x: number; y: number };
   fitted: boolean;
+}
+
+export type CanvasSurface = 'flat' | 'spatial';
+
+export interface SpatialPose {
+  position: [number, number, number];
+  rotationY: number;
+}
+
+export interface SpatialCameraState {
+  position: [number, number, number];
+  target: [number, number, number];
+}
+
+export interface SpatialViewState {
+  camera?: SpatialCameraState;
+  placements: Record<string, SpatialPose>;
 }
 
 export interface DeviceViewState {
@@ -24,6 +47,8 @@ export interface DeviceViewState {
   addressedAgentId?: string;
   defaultMode?: AgentMode;
   canvasViews: Record<string, CanvasViewState>;
+  surface?: CanvasSurface;
+  spatial?: SpatialViewState;
 }
 
 export interface DeviceWorkspaceScope {
@@ -93,6 +118,66 @@ function parseCanvasViews(value: unknown): Record<string, CanvasViewState> {
   return result;
 }
 
+function clamp(value: number, lower: number, upper: number): number {
+  return Math.max(lower, Math.min(upper, value));
+}
+
+function parseTuple(value: unknown, bounds: readonly [number, number] | number): [number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(finite)) return undefined;
+  const coordinateBounds = typeof bounds === 'number'
+    ? [[-bounds, bounds], [-bounds, bounds], [-bounds, bounds]] as const
+    : [bounds, bounds, bounds] as const;
+  return value.map((coordinate, index) => (
+    clamp(coordinate as number, coordinateBounds[index][0], coordinateBounds[index][1])
+  )) as [number, number, number];
+}
+
+function parseRoomPosition(value: unknown): [number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(finite)) return undefined;
+  return [
+    clamp(value[0], ...SPATIAL_ROOM_BOUNDS.x),
+    clamp(value[1], ...SPATIAL_ROOM_BOUNDS.y),
+    clamp(value[2], ...SPATIAL_ROOM_BOUNDS.z),
+  ];
+}
+
+export function parseSpatialView(value: unknown): SpatialViewState | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const candidate = value as { camera?: unknown; placements?: unknown };
+  let camera: SpatialCameraState | undefined;
+  if (candidate.camera && typeof candidate.camera === 'object' && !Array.isArray(candidate.camera)) {
+    const raw = candidate.camera as { position?: unknown; target?: unknown };
+    const position = parseTuple(raw.position, SPATIAL_CAMERA_BOUNDS);
+    const target = parseRoomPosition(raw.target);
+    if (position && target) camera = { position, target };
+  }
+  const placements: Record<string, SpatialPose> = {};
+  if (candidate.placements && typeof candidate.placements === 'object' && !Array.isArray(candidate.placements)) {
+    for (const [canvasId, value] of Object.entries(candidate.placements).slice(0, MAX_CANVAS_VIEWS)) {
+      if (!SESSION_ID.test(canvasId) || !value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const raw = value as { position?: unknown; rotationY?: unknown };
+      const position = parseRoomPosition(raw.position);
+      if (!position || !finite(raw.rotationY)) continue;
+      placements[canvasId] = { position, rotationY: clamp(raw.rotationY, -Math.PI, Math.PI) };
+    }
+  }
+  return { ...(camera ? { camera } : {}), placements };
+}
+
+export function reconcileSpatialView(spatial: SpatialViewState | undefined, canvasIds: readonly string[]): SpatialViewState | undefined {
+  if (!spatial) return undefined;
+  const available = new Set(canvasIds);
+  const placements = Object.fromEntries(
+    Object.entries(spatial.placements).filter(([id]) => available.has(id)).slice(0, MAX_CANVAS_VIEWS),
+  );
+  if (Object.keys(placements).length === Object.keys(spatial.placements).length) return spatial;
+  return { ...(spatial.camera ? { camera: spatial.camera } : {}), placements };
+}
+
+export function resetSpatialView(): SpatialViewState {
+  return { placements: {} };
+}
+
 function parseView(value: unknown): DeviceViewState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return emptyDeviceView();
   const candidate = value as Partial<DeviceViewState>;
@@ -100,6 +185,8 @@ function parseView(value: unknown): DeviceViewState {
   const mode = typeof candidate.defaultMode === 'string' && AGENT_MODES.has(candidate.defaultMode as AgentMode)
     ? candidate.defaultMode as AgentMode
     : undefined;
+  const surface = candidate.surface === 'flat' || candidate.surface === 'spatial' ? candidate.surface : undefined;
+  const spatial = parseSpatialView(candidate.spatial);
   return {
     composer: typeof candidate.composer === 'string' ? candidate.composer.slice(0, 8_000) : '',
     ...(pending === undefined ? {} : { pendingAttachmentIds: pending }),
@@ -109,6 +196,8 @@ function parseView(value: unknown): DeviceViewState {
     ...(optionalId(candidate.addressedAgentId) ? { addressedAgentId: candidate.addressedAgentId } : {}),
     ...(mode ? { defaultMode: mode } : {}),
     canvasViews: parseCanvasViews(candidate.canvasViews),
+    ...(surface ? { surface } : {}),
+    ...(spatial ? { spatial } : {}),
   };
 }
 

@@ -10,7 +10,7 @@ Updated 2026-09-04. When a story ships, change the line that names it; each stor
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** spatial surfaces and the rest of
+- **Next:** model-native spatial depth, WebXR, and the rest of
   [vision.md's sequence](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for

@@ -9,6 +9,8 @@ import {
   parseDeviceWorkspace,
   reconcileWorkspaceScope,
   replacePendingCanvasRevision,
+  reconcileSpatialView,
+  resetSpatialView,
   updateWorkspaceView,
   workspaceScopeKey,
 } from '@/features/shell/workspaceViews';
@@ -143,5 +145,50 @@ describe('device workspace views', () => {
   it('falls back safely for malformed or unsupported storage', () => {
     expect(parseDeviceWorkspace('{broken')).toEqual(EMPTY_DEVICE_WORKSPACE);
     expect(parseDeviceWorkspace('{"version":2,"scopes":{}}')).toEqual(EMPTY_DEVICE_WORKSPACE);
+  });
+
+  it('parses spatial state independently and keeps Flat as the compatible default', () => {
+    const parsed = parseDeviceWorkspace(JSON.stringify({
+      version: 1,
+      scopes: {
+        [scopeId]: {
+          openSessionIds: [SESSION_A],
+          views: {
+            [SESSION_A]: {
+              composer: 'still valid', unread: 0, canvasViews: {}, surface: 'immersive',
+              spatial: {
+                camera: { position: [999, 2, -999], target: [80, -80, 4] },
+                placements: {
+                  [CANVAS]: { position: [-99, 99, 4], rotationY: 99 },
+                  [OTHER_CANVAS]: { position: ['bad', 0, 0], rotationY: 0 },
+                },
+              },
+            },
+          },
+        },
+      },
+    }));
+    const view = getWorkspaceScope(parsed, scopeId).views[SESSION_A];
+    expect(view.surface).toBeUndefined();
+    expect(view.composer).toBe('still valid');
+    expect(view.spatial).toEqual({
+      camera: { position: [64, 2, -64], target: [32, -12, 4] },
+      placements: { [CANVAS]: { position: [-32, 16, 4], rotationY: Math.PI } },
+    });
+  });
+
+  it('reconciles only missing placement ids and reset drops the camera and every placement', () => {
+    const spatial = {
+      camera: { position: [0, 1, 8] as [number, number, number], target: [0, 0, 0] as [number, number, number] },
+      placements: {
+        [CANVAS]: { position: [1, 2, 3] as [number, number, number], rotationY: 0 },
+        [OTHER_CANVAS]: { position: [4, 5, 6] as [number, number, number], rotationY: 0.2 },
+      },
+    };
+    expect(reconcileSpatialView(spatial, [OTHER_CANVAS])).toEqual({
+      camera: spatial.camera,
+      placements: { [OTHER_CANVAS]: spatial.placements[OTHER_CANVAS] },
+    });
+    expect(resetSpatialView()).toEqual({ placements: {} });
   });
 });

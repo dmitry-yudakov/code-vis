@@ -1,7 +1,7 @@
 # CodeAI
 
 A local-first Next.js application for working on a repository through a persistent local-agent
-conversation and a large Mermaid canvas. Choose Claude Code or Codex as the first main agent, then
+conversation and a canvas with Flat and desktop Spatial projections. Choose Claude Code or Codex as the first main agent, then
 add more provider/role participants to the same session. Conversation is the command/history
 channel, and once a diagram exists the canvas becomes the primary workspace. Each message runs in
 one of three modes — **Ask**, **Plan**, or **Agent** — subject to the selected provider's supported
@@ -63,6 +63,18 @@ machine-owned Arena from your own tablet, phone, laptop, or headset, opt into pa
 CodeAI terminates TLS itself in this mode; the certificate must name the configured host and must
 already be trusted by every device. Certificate creation and trust distribution are deliberately
 operator-owned—do not commit the private key (`.cert/` is ignored).
+
+For a temporary development preview on a trusted LAN, allow the hostname or IP used in the remote
+browser and restart the dev server:
+
+```sh
+CODEAI_ALLOWED_DEV_ORIGINS=192.168.100.10 npm run dev
+```
+
+The value is a comma-separated list of hostnames or IP addresses, without schemes or ports. When
+`CODEAI_PUBLIC_ORIGIN` is already configured, its hostname is allowed automatically. This setting
+only satisfies Next.js's development asset/HMR origin guard; it does not add pairing, HTTPS, or a
+WebXR secure context. Use the paired `start:remote` path below for normal personal-device access.
 
 ### Create a trusted LAN certificate with `mkcert`
 
@@ -380,7 +392,8 @@ environment of whoever starts CodeAI.**
   repository.
 - The browser lists and hydrates snapshots from `/api/sessions`. A versioned device record in
   `localStorage` restores open/focused session views, drafts, unread counts, active canvases,
-  addressee/mode, repository selection, canvas cameras, and per-view panels. It writes no
+  addressee/mode, repository selection, flat and spatial cameras, spatial panel placements, and
+  per-view panels. It writes no
   transcript, canvas, roster, annotation, project, or repository-binding content there. Reloading
   or a second browser context sees committed host content after refetch, with its own layout.
 - Later turns resume the addressed participant's host-bound native provider session and receive
@@ -404,6 +417,15 @@ The canvas supports pan, wheel/buttons zoom, fit/reset, pen, rectangle, arrow, t
 50-step undo/redo, confirmed clear, Mermaid source export (diagrams only), and canvas/marks JSON
 export. Chat and canvas history are drawers. Focus mode fills the application viewport while
 retaining tools, status, and the instruction composer.
+
+Once a diagram or sketch exists, **Flat / Spatial** switches between two projections of the same
+session artifacts. Spatial lazily loads a local WebGL room containing the active canvas plus the
+newest canvases, up to twelve, in chronological order. It is a view-only comparison surface:
+select, focus, orbit, pan, dolly, or arrange panels there, then use **Open in Flat** to draw. Its
+camera, chosen surface, and bounded placements are disposable per-device view state; canonical
+Mermaid, sketches, and marks are unchanged. Unsupported WebGL and context loss return safely to
+Flat. This is an SVG-panel desktop projection, not the model-native 3D graph or WebXR surface
+described by the later roadmap stories.
 
 **Start a sketch** opens a blank sheet with the same drawing tools — available before any diagram
 exists, so a drawing can be the very first thing in a conversation. A sketch has no Mermaid source:
@@ -434,6 +456,8 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
 - `CODEAI_REMOTE_ACCESS` / `CODEAI_PUBLIC_ORIGIN` — opt into paired personal-device access at one
   exact HTTPS origin;
+- `CODEAI_ALLOWED_DEV_ORIGINS` — opt specific LAN hostnames or IP addresses into Next.js's
+  development-only asset/HMR origin guard;
 - `CODEAI_TLS_CERT` / `CODEAI_TLS_KEY` and optional `CODEAI_BIND_*` — dedicated `start:remote`
   listener configuration;
 - `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
