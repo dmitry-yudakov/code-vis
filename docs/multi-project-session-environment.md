@@ -17,8 +17,8 @@ build all of that — it is to stop the current data shapes from forbidding it.
 
 **Vocabulary note.** This document uses the vocabulary of [vocabulary.md](vocabulary.md) — *session*,
 *machine*, *device*, *view*, *repository*, *checkout*. Story 34 aligned the session names in code;
-`hostId`, `ProjectAttachment`, and `projectId` remain until the machine UI and Story 35's
-project/repository split give them their final shapes.
+`hostId` and `ProjectAttachment` remain compatibility names inside otherwise machine-explicit
+records; Story 35 shipped the project/repository split and Story 42 shipped the machine UI.
 
 ## Three loosened boundaries
 
@@ -31,8 +31,9 @@ requiring two disconnected conversations.
 **Sessions run on machines; people watch from devices.** The machine that executes an agent and
 touches files is not the same thing as the screen the user is looking at. One user has several
 machines (laptop, desktop, cloud) and several devices (browsers, a headset), and any device should be
-able to see and address any reachable machine's sessions. Today the two are fused: the browser talks
-to the one Next.js server on `localhost`, which is also the only executor.
+able to see and address any reachable machine's sessions. Story 42 now delivers that through a
+direct home hub: the browser talks to one authenticated home origin, which attaches explicit HTTPS
+executors without taking ownership of their canonical records.
 
 **A session may hold more than one person.** Already anticipated by
 [Story 21](../stories/STORY-20260806-web2-team-environment.md), and the real cost sits there —
@@ -134,16 +135,15 @@ One rule covers most of what would otherwise need reworking later:
   and storage services may deliberately be pinned on `globalThis` so Next route bundles share them;
 - no browser-local storage holding anything another device must see.
 
-Two of the four are now obeyed. Stories 26, 27, and 34 shipped: canonical session state is a
+Three of the four are now obeyed. Stories 26, 27, 34, 35, and 42 shipped: canonical session state is a
 machine-owned JSON record with repository bindings and a `hostId`
 ([sessionStore.ts](../src/server/storage/sessionStore.ts)), and runs are keyed by `runId`
 in live and recent maps rather than one global active slot
 ([runRegistry.ts:36](../src/server/runs/runRegistry.ts#L36)) — the process-wide registry itself stays
 pinned on `globalThis` deliberately, so Next route bundles share it.
 
-What still breaks the rule: a repository's id is a machine-local path hash, and the single
-configured projects root plus "the working directory is the project" assumption remains throughout
-the shell and the agent routes.
+What still breaks the rule is portable repository identity: every executor's checkout id remains a
+machine-local path hash, so two checkouts cannot yet assert that they are the same repository.
 
 ## What was loosened, and what is left
 
@@ -166,7 +166,7 @@ foundation-first half: the changes that buy the broader scope without building r
    A path hash never authenticates anything.
 4. **The machine is named.** `hostId` rides on the records that persist provider sessions and
    checkouts ([types.ts:52](../src/shared/types.ts#L52)), minted once and never silently replaced,
-   even though there is only ever one machine and the value is constant.
+   while transient Arena routing names the executor that owns each projection.
 5. **"Exactly one human" is gone.** The schema now requires *at least* one human
    ([sessionSchema.ts:218](../src/shared/sessionSchema.ts#L218)). This does not build the
    team surface — Story 21 still owns identity, authorization, live sync, and multi-writer policy —
@@ -197,9 +197,9 @@ and repository management); Story 34's vocabulary prerequisite is shipped:
    of them should make a session disappear.
 
 Deliberately **still not now:** live multi-device synchronization, a coordinator service,
-sandboxing, presence, or a UI for several humans. Story 41's authenticated boundary authorizes one
-person's paired devices over its explicit HTTPS listener; it does not authorize Internet or team
-hosting, another execution machine, or cloud exposure.
+sandboxing, presence, or a UI for several humans. Stories 41 and 42 authorize one person's devices
+and direct execution machines over explicit HTTPS; they do not authorize Internet/team hosting,
+relay, automatic traversal, or cloud exposure.
 
 ## Mermaid across 2D and 3D
 
@@ -251,12 +251,12 @@ the selected project, it keeps ordered open views and singular focus, while each
 The versioned device records now persist layout, selection, viewport, panels, modes, drafts, and
 unread counts in `localStorage`; losing them never loses a session. Canonical conversation,
 artifact, annotation, participant, project, and repository content remains in Story 26's host JSON.
-Cross-project views, durable workspace identity, and remote/offline-machine presentation remain for
-the arena and device slices.
+Cross-project views and durable workspace identity remain future work. Story 42 adds
+machine-qualified loose views and cached Offline Arena presentation, but not offline transcripts.
 
 ## Agent concurrency
 
-There are two distinct promises, both now shipped for one local machine:
+There are two distinct promises, both now shipped independently on every reachable execution machine:
 
 1. **Simultaneous visibility:** several sessions stay open and usable while agents run.
 2. **Simultaneous execution:** agents in different sessions may run at the same time.
@@ -268,7 +268,7 @@ of a user. A cloud machine and a laptop do not share a limit.
 The current policy is:
 
 - at most one queued or active turn per session and per provider session;
-- several active turns across independent sessions on one machine;
+- several active turns across independent sessions on each machine;
 - `CODEAI_MAX_CONCURRENT_RUNS`, default 2 and bounded from 1–8;
 - visible queued/running/needs-you states per open session view;
 - cancellation, approval, replay, and reattachment keyed by `runId` and session/participant rather
@@ -282,21 +282,25 @@ another session's permission request.
 
 Browser-local conversation storage was enough for one desktop prototype but cannot give a second
 device the same session. Story 26 moves session, transcript, artifact, and annotation state to
-machine-owned JSON behind domain operations. Continuity across devices later adds durable workspace
-and saved-view records plus authenticated transport. Three eventual topologies, in increasing cost:
+machine-owned JSON behind domain operations. Stories 41 and 42 add authenticated transport and a
+direct home hub; durable workspace and saved-view records still require continuity beyond it.
+The topology choices, in increasing cost, are:
 
 - **Home machine.** One machine — usually the desktop — owns the records; other devices are clients
   of it. Cheapest, reuses today's server, and fails exactly when that machine is asleep or
   off-network.
+- **Direct home hub — current.** The home presents one Arena while every attached executor retains
+  its own records and provider sessions. It needs inbound trusted HTTPS and degrades to cached cards
+  when an executor sleeps; there is no replication or transitive discovery.
 - **Coordinator.** A small always-on service owns identity, workspaces, sessions, and transcripts;
   machines and devices both connect outward to it, so no machine needs an inbound port. Best fit for
   a laptop + desktop + cloud mix, and the most work.
 - **Replication.** Records sync peer-to-peer between machines. Attractive on paper; conflict
   resolution over a live transcript with concurrent agent writes is the most expensive of the three.
 
-No pick is needed yet, and the choice stays cheap as long as the records obey [the rule
-above](#durable-records-never-assume-here) — a home machine upgrades into a coordinator when every
-record already names its machine and carries its own ids.
+Story 42 deliberately picks the direct home hub for the current slice, without deciding the later
+coordinator-versus-replication question. That upgrade stays tractable while records obey [the rule
+above](#durable-records-never-assume-here) and carry their own machine identity.
 
 Camera pose, controller pose, hover, and other high-frequency presentation state should remain local.
 Deliberately saved spatial placement and named viewpoints may be durable. The system should avoid
@@ -358,9 +362,10 @@ resolved on the machine that executes it, never asserted by the device that requ
    terminal-issued one-time code, hashed revocable device credentials, and per-route authorization
    for reads, turns, cancellations, streams, and permission decisions. This delivers multi-device
    viewing without adding a second execution machine or a second human.
-9. **Second execution machine:** a machine registry, authenticated attachment to another executor,
-   and sessions listed and streamed across machines in one workspace. This is where machine
-   selection, offline-machine state, and remote routing become real.
+9. **Second execution machine — shipped 2026-09-04 in
+   [Story 42](../stories/STORY-20260904-second-execution-machine.md):** a bounded machine registry,
+   authenticated direct attachment, remote sessions listed and streamed through one Arena,
+   machine-qualified device state, and cached Offline cards.
 10. **Durable workspace and coordinator continuity:** persist workspace/view identity and support the
     selected home-machine or coordinator topology when no single device owns navigation.
 11. **Desktop spatial renderer:** place canvases and sessions in R3F with orbit/select/focus and SVG
@@ -378,8 +383,8 @@ skipped for a real headset or cloud workflow.
 1. Is a workspace automatically created per user, explicitly named, or both — and is it per user or
    per device by default?
 2. Can one session appear in several views, and can one view change its bound session?
-3. Story 36 chose tabs for one project's open sessions. What is the smallest useful 2D
-   presentation of the arena beyond that strip: a list, cards, split panes, or a zoomable surface?
+3. Story 38 chose machine/project-grouped cards. What spatial navigation should replace or augment
+   them without losing the fast 2D Arena and Inbox?
 4. What is the portable identity of a repository, who mints it, and how are two checkouts of one
    repository recognized as the same repository?
 5. When a session's repositories span machines, what may a turn on one machine do with the others?
@@ -387,12 +392,12 @@ skipped for a real headset or cloud workflow.
    policy?
 7. Can a session move between machines at all, given that provider sessions cannot?
 8. Where does a repository-free session's file output go, and can it later be promoted into a repo?
-9. What does a view show when its machine is offline: hidden, ghosted, or read-only from the cached
-   transcript?
+9. If coordinator continuity later caches full session records, which transcript/canvas operations
+   are safe while the owning executor is offline?
 10. Are cross-repository Mermaid edges/annotations allowed, and if so, where do they belong?
 11. Can artifacts be copied or referenced across sessions without copying conversation history?
-12. What is the default and maximum agent concurrency per machine, and does a waiting permission
-    occupy a slot?
+12. Should different machine classes choose different concurrency defaults beyond today's bounded
+    `CODEAI_MAX_CONCURRENT_RUNS`, and how should the Arena explain their capacity?
 13. Which workspace state is local, durable, synchronized live, or saved only on request?
 14. How are unsupported Mermaid types presented in immersive mode beyond the SVG-panel fallback?
 15. What interaction moves a view versus a node inside its active spatial diagram?
@@ -403,8 +408,8 @@ skipped for a real headset or cloud workflow.
 
 ## Non-decisions
 
-Beyond the shipped one-home-machine HTTPS and pairing slice, this document does not select a state
-library, database, synchronization protocol, coordinator transport or hosting topology, identity
-provider, 3D layout algorithm, Mermaid parser implementation, WebXR interaction toolkit, or team
-deployment model. Those choices belong in executable stories once their journey and constraints
-are selected.
+Beyond the shipped paired HTTPS and direct home-hub executor slice, this document does not select a
+state library, database, synchronization protocol, coordinator transport or hosting topology,
+identity provider, 3D layout algorithm, Mermaid parser implementation, WebXR interaction toolkit,
+or team deployment model. Those choices belong in executable stories once their journey and
+constraints are selected.

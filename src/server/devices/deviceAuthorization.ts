@@ -1,6 +1,8 @@
 import { timingSafeEqual } from 'node:crypto';
 import { getConfig, type AppConfig } from '@/server/config';
 import { getDeviceAuthStore } from './deviceAuthStore';
+import { getMachineAuthStore, type AuthenticatedMachine } from '@/server/machines/machineAuthStore';
+import { machineRequestAllowed } from '@/server/machines/machineRoutePolicy';
 import { safeJsonResponse } from '@/shared/protocol';
 import type { DeviceAuthStatus, PairedDeviceSummary } from '@/shared/types';
 
@@ -74,7 +76,33 @@ export async function authenticatedDevice(request: Request): Promise<PairedDevic
   return getDeviceAuthStore(config.dataDir).authenticate(cookieValue(request, DEVICE_COOKIE_NAME));
 }
 
-export async function authorizeDeviceRequest(request: Request): Promise<Response | undefined> {
+function bearerCredential(request: Request): string | undefined {
+  const authorization = request.headers.get('authorization');
+  if (!authorization?.startsWith('Bearer ')) return undefined;
+  const credential = authorization.slice('Bearer '.length);
+  return credential && !credential.includes(' ') ? credential : undefined;
+}
+
+/** Machine credentials are valid only on the explicit TLS listener and do not use browser Origin. */
+export async function authenticatedMachineRequest(request: Request): Promise<AuthenticatedMachine | undefined> {
+  const config = getConfig();
+  if (config.remoteAccess !== 'paired' || !requestHasSecureTransport(request, config)) return undefined;
+  return getMachineAuthStore(config.dataDir).authenticate(bearerCredential(request));
+}
+
+export async function authorizeMachineRequest(request: Request): Promise<Response | undefined> {
+  const config = getConfig();
+  if (config.remoteAccess !== 'paired' || !requestHasSecureTransport(request, config)) {
+    return safeJsonResponse({ error: 'Machine access requires the configured CodeAI HTTPS server.' }, { status: 426 });
+  }
+  if (!await authenticatedMachineRequest(request)) {
+    return safeJsonResponse({ error: 'This machine is not attached.' }, { status: 401 });
+  }
+  return undefined;
+}
+
+/** Authorizes only the human-facing browser, never a server-to-server machine bearer. */
+export async function authorizePersonalDeviceRequest(request: Request): Promise<Response | undefined> {
   const config = getConfig();
   if (config.remoteAccess !== 'paired') return undefined;
   if (!requestHasSecureTransport(request, config)) {
@@ -87,6 +115,19 @@ export async function authorizeDeviceRequest(request: Request): Promise<Response
     .authenticate(cookieValue(request, DEVICE_COOKIE_NAME));
   if (!device) return safeJsonResponse({ error: 'Pair this device to continue.' }, { status: 401 });
   return undefined;
+}
+
+/** Domain routes accept either the personal browser or a directly attached home machine. */
+export async function authorizeDeviceRequest(request: Request): Promise<Response | undefined> {
+  const config = getConfig();
+  if (config.remoteAccess !== 'paired') return undefined;
+  if (!requestHasSecureTransport(request, config)) {
+    return safeJsonResponse({ error: 'Paired access requires the configured CodeAI HTTPS server.' }, { status: 426 });
+  }
+  // A peer executor has already authenticated through a bearer credential and is not a browser,
+  // so it deliberately has no browser Origin. The domain route still resolves capability locally.
+  if (machineRequestAllowed(request) && await authenticatedMachineRequest(request)) return undefined;
+  return authorizePersonalDeviceRequest(request);
 }
 
 export function deviceCredentialCookie(credential: string, expiresAt: string): string {

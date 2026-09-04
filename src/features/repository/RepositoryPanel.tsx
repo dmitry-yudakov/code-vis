@@ -12,16 +12,17 @@ import { useRepositoryChanges } from './useRepositoryChanges';
  * Repository-view composition point. A future file-tree view belongs here beside `changes`,
  * while the sidebar chrome and each view's data controller remain independent.
  */
-export function RepositoryPanel({ checkoutId, repositoryName, manager, open, onClose, onTreeChange, onInspectorOpenChange }: {
+export function RepositoryPanel({ checkoutId, repositoryName, manager, apiBase, open, onClose, onTreeChange, onInspectorOpenChange }: {
   checkoutId?: string;
   repositoryName: string;
   manager?: ReactNode;
+  apiBase?: string;
   open: boolean;
   onClose(): void;
   onTreeChange(tree?: GitWorkingTree): void;
   onInspectorOpenChange(open: boolean): void;
 }) {
-  const changes = useRepositoryChanges(checkoutId || '', onTreeChange);
+  const changes = useRepositoryChanges(checkoutId || '', onTreeChange, apiBase);
 
   useEffect(() => {
     onInspectorOpenChange(Boolean(changes.selectedFile));
@@ -39,6 +40,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, open, onC
           checkoutId={checkoutId}
           file={changes.selectedFile}
           revision={changes.revision}
+          apiBase={apiBase}
           onClose={changes.closeInspector}
           onRetry={changes.refresh}
         />

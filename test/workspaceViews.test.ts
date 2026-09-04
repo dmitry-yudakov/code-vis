@@ -73,6 +73,25 @@ describe('device workspace views', () => {
     expect(getWorkspaceViewIds(workspace)).toEqual([SESSION_B]);
   });
 
+  it('keeps loose and project scopes independent across execution machines', () => {
+    const machineA = '33333333-3333-4333-8333-333333333333';
+    const machineB = '44444444-4444-4444-8444-444444444444';
+    const looseA = workspaceScopeKey(undefined, machineA);
+    const looseB = workspaceScopeKey(undefined, machineB);
+    const projectA = workspaceScopeKey(PROJECT, machineA);
+    expect(looseA).not.toBe(looseB);
+    expect(projectA).not.toBe(scopeId);
+    const parsed = parseDeviceWorkspace(JSON.stringify({
+      version: 1,
+      scopes: {
+        [looseA]: { openSessionIds: [SESSION_A], focusedSessionId: SESSION_A, views: {} },
+        [looseB]: { openSessionIds: [SESSION_B], focusedSessionId: SESSION_B, views: {} },
+      },
+    }));
+    expect(getWorkspaceScope(parsed, looseA).openSessionIds).toEqual([SESSION_A]);
+    expect(getWorkspaceScope(parsed, looseB).openSessionIds).toEqual([SESSION_B]);
+  });
+
   it('replaces an automatically revised attachment without discarding explicit extras', () => {
     expect(replacePendingCanvasRevision([CANVAS, OTHER_CANVAS], CANVAS, REVISION)).toEqual([
       REVISION,

@@ -24,6 +24,7 @@ vi.mock('@/server/config', () => ({
 
 vi.mock('@/server/repository/checkoutRegistry', () => ({
   getCheckoutRegistry: () => ({
+    list: async () => ['checkout-a', 'checkout-b'].map((id) => ({ id, name: 'Repository', relativePath: id })),
     resolve: async (checkoutId: string) => {
       if (!routeState.checkoutAvailable || !['checkout-a', 'checkout-b'].includes(checkoutId)) throw new Error('Unknown checkout');
       return { id: checkoutId, name: 'Repository', relativePath: '.', realPath: `/repositories/${checkoutId}` };
@@ -126,13 +127,15 @@ describe('session snapshot and mutation routes', () => {
     const arena = await GET_ARENA();
     const arenaBody = await arena.json();
     expect(arena.status).toBe(200);
-    expect(arenaBody.sessions).toEqual([expect.objectContaining({
+    expect(arenaBody.machines).toHaveLength(1);
+    expect(arenaBody.machines[0].machine).toMatchObject({ label: 'Route host', kind: 'local', state: 'online' });
+    expect(arenaBody.machines[0].sessions).toEqual([expect.objectContaining({
       id: session.id,
       repositoryCheckoutIds: ['checkout-a'],
       agents: [expect.objectContaining({ displayName: 'Claude', provider: 'claude' })],
     })]);
-    expect(arenaBody.archivedSessions).toEqual([]);
-    expect(arenaBody.runs).toEqual({ active: [], recent: [] });
+    expect(arenaBody.machines[0].archivedSessions).toEqual([]);
+    expect(arenaBody.machines[0].runs).toEqual({ active: [], recent: [] });
     expect(JSON.stringify(arenaBody)).not.toContain('provider-session');
 
     const sketch = {
@@ -193,8 +196,8 @@ describe('session snapshot and mutation routes', () => {
     expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(404);
     expect((await (await GET_SESSIONS(new Request('http://localhost/api/sessions'))).json()).sessions).toEqual([]);
     const arena = await (await GET_ARENA()).json();
-    expect(arena.sessions).toEqual([]);
-    expect(arena.archivedSessions).toEqual([expect.objectContaining({ id: session.id, revision: 1 })]);
+    expect(arena.machines[0].sessions).toEqual([]);
+    expect(arena.machines[0].archivedSessions).toEqual([expect.objectContaining({ id: session.id, revision: 1 })]);
 
     const staleRestore = await RESTORE_SESSION(new Request('http://localhost', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -1,6 +1,6 @@
 import { getConfig } from '@/server/config';
 import {
-  authenticatedDevice, authorizeDeviceRequest, clearDeviceCredentialCookie,
+  authenticatedDevice, authorizePersonalDeviceRequest, clearDeviceCredentialCookie,
 } from '@/server/devices/deviceAuthorization';
 import { getDeviceAuthStore } from '@/server/devices/deviceAuthStore';
 import { publicError, revokeDeviceRequestSchema, safeJsonResponse } from '@/shared/protocol';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const denied = await authorizeDeviceRequest(request);
+    const denied = await authorizePersonalDeviceRequest(request);
     if (denied) return denied;
     const config = getConfig();
     if (config.remoteAccess !== 'paired') return safeJsonResponse({ devices: [] });
@@ -24,7 +24,7 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function DELETE(request: Request): Promise<Response> {
   try {
-    const denied = await authorizeDeviceRequest(request);
+    const denied = await authorizePersonalDeviceRequest(request);
     if (denied) return denied;
     const parsed = revokeDeviceRequestSchema.safeParse(await request.json().catch(() => undefined));
     if (!parsed.success) return safeJsonResponse({ error: 'A valid device id is required.' }, { status: 400 });

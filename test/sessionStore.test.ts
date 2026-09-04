@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  arenaSessionSummary, SessionStore, sessionStoreStatus, getSessionStore, publicSession, serverAgent,
+  arenaSessionSummary, SessionStore, sessionStoreStatus, getSessionStore, publicSession,
+  readStoredMachineIdentity, serverAgent,
 } from '@/server/storage/sessionStore';
 import { durableSessionSchema } from '@/shared/sessionSchema';
 import {
@@ -231,6 +232,7 @@ describe('host-owned session store', () => {
     const created = await first.createSession({ projectId: project.id, provider: 'codex' });
     const host = await first.host();
     expect(host.label).toBe('Laptop');
+    expect(await readStoredMachineIdentity(dataDir)).toEqual(host);
     expect(created).toMatchObject({
       version: 3,
       revision: 0,
@@ -629,6 +631,9 @@ describe('browser session helpers', () => {
     storage.setItem('code-ai:web2:v1:checkout-a', '{"legacy":true}');
     expect(loadSelectedCheckoutId(storage)).toBeUndefined();
     saveSelectedCheckoutId('checkout-b', storage);
+    expect(loadSelectedCheckoutId(storage)).toBe('checkout-b');
+    saveSelectedCheckoutId('remote-checkout', storage, '11111111-1111-4111-8111-111111111111');
+    expect(loadSelectedCheckoutId(storage, '11111111-1111-4111-8111-111111111111')).toBe('remote-checkout');
     expect(loadSelectedCheckoutId(storage)).toBe('checkout-b');
     expect(storage.getItem('code-ai:web2:v1:checkout-a')).toBe('{"legacy":true}');
   });

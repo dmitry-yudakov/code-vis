@@ -5,11 +5,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type {
-  AgentMode, AgentProvider, ArenaSessionSummary, CheckoutSummary, DurableProject, ProviderHealth,
-  RunDiscovery,
+  AgentMode, AgentProvider, ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
 } from '@/shared/types';
 import {
-  buildArenaInbox, groupArenaSessions, unreadArenaAttention,
+  buildMultiMachineInbox, groupArenaSessions, unreadArenaAttention,
   type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
@@ -20,6 +19,7 @@ const STATE_LABELS = {
   'needs-you': 'Needs you',
   queued: 'Queued',
   failed: 'Failed',
+  offline: 'Offline',
 } as const;
 
 function participantNames(session: ArenaSessionSummary): string {
@@ -39,14 +39,14 @@ function AttentionKind({ item }: { item: ArenaAttentionItem }) {
   );
 }
 
+function machineTime(machine: ArenaMachineSnapshot): string {
+  if (machine.machine.state === 'online') return machine.machine.kind === 'local' ? 'This machine' : 'Online';
+  if (!machine.machine.lastSeenAt) return 'Offline · never reached';
+  return `Offline · last seen ${new Date(machine.machine.lastSeenAt).toLocaleString()}`;
+}
+
 export function Arena({
-  projects,
-  sessions,
-  archivedSessions,
-  discovery,
-  checkouts,
-  hostLabel,
-  providerHealth,
+  machines,
   deviceState,
   section,
   refreshError,
@@ -58,86 +58,92 @@ export function Arena({
   onDecidePermission,
   onAcknowledge,
 }: {
-  projects: DurableProject[];
-  sessions: ArenaSessionSummary[];
-  archivedSessions: ArenaSessionSummary[];
-  discovery: RunDiscovery;
-  checkouts: CheckoutSummary[];
-  hostLabel: string;
-  providerHealth: Record<AgentProvider, ProviderHealth>;
+  machines: ArenaMachineSnapshot[];
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
   onRefresh(): void;
-  onOpenSession(session: ArenaSessionSummary): void;
-  onCreateSession(input: { projectId?: string; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
-  onArchiveSession(session: ArenaSessionSummary): Promise<boolean>;
-  onRestoreSession(session: ArenaSessionSummary): Promise<boolean>;
-  onDecidePermission(runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
+  onOpenSession(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): void;
+  onCreateSession(input: { machineId: string; projectId?: string; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
+  onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
+  onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
+  onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
   onAcknowledge(itemIds: string[]): void;
 }) {
-  const groups = useMemo(() => groupArenaSessions(projects, sessions, discovery), [discovery, projects, sessions]);
-  const archivedGroups = useMemo(
-    () => groupArenaSessions(projects, archivedSessions, { active: [], recent: [] }),
-    [archivedSessions, projects],
-  );
-  const inbox = useMemo(
-    () => buildArenaInbox(projects, sessions, discovery, deviceState),
-    [deviceState, discovery, projects, sessions],
-  );
+  const inbox = useMemo(() => buildMultiMachineInbox(machines, deviceState), [deviceState, machines]);
   const unread = unreadArenaAttention(inbox);
-  const checkoutById = useMemo(() => new Map(checkouts.map((checkout) => [checkout.id, checkout])), [checkouts]);
-  const availableProviders = (Object.keys(providerHealth) as AgentProvider[])
-    .filter((provider) => providerHealth[provider].available && providerHealth[provider].supportedModes.length);
+  const sessions = machines.flatMap((machine) => machine.sessions);
+  const archivedSessions = machines.flatMap((machine) => machine.archivedSessions);
+  const onlineMachines = machines.filter((machine) => machine.machine.state === 'online');
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const [projectId, setProjectId] = useState(projects[0]?.id || 'none');
+  const [machineId, setMachineId] = useState(onlineMachines[0]?.machine.id || '');
+  const selectedMachine = machines.find((machine) => machine.machine.id === machineId && machine.machine.state === 'online')
+    || onlineMachines[0];
+  const availableProviders = selectedMachine
+    ? (Object.keys(selectedMachine.providers) as AgentProvider[]).filter((provider) => (
+      selectedMachine.providers[provider].available && selectedMachine.providers[provider].supportedModes.length
+    ))
+    : [];
+  const [projectId, setProjectId] = useState(selectedMachine?.projects[0]?.id || 'none');
   const [provider, setProvider] = useState<AgentProvider>(availableProviders[0] || 'claude');
-  const supportedModes = providerHealth[provider]?.supportedModes || [];
+  const supportedModes = selectedMachine?.providers[provider]?.supportedModes || [];
   const [mode, setMode] = useState<AgentMode>(supportedModes[0] || 'ask');
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
   const [restoring, setRestoring] = useState<string>();
 
   useEffect(() => {
-    if (projectId !== 'none' && !projects.some((project) => project.id === projectId)) {
-      setProjectId(projects[0]?.id || 'none');
+    if (!selectedMachine) return;
+    if (machineId !== selectedMachine.machine.id) setMachineId(selectedMachine.machine.id);
+  }, [machineId, selectedMachine]);
+
+  useEffect(() => {
+    if (!selectedMachine) return;
+    if (projectId !== 'none' && !selectedMachine.projects.some((project) => project.id === projectId)) {
+      setProjectId(selectedMachine.projects[0]?.id || 'none');
     }
-  }, [projectId, projects]);
+  }, [projectId, selectedMachine]);
 
   useEffect(() => {
     if (!availableProviders.includes(provider)) setProvider(availableProviders[0] || 'claude');
   }, [availableProviders, provider]);
 
   useEffect(() => {
-    const availableModes = providerHealth[provider]?.supportedModes || [];
+    const availableModes = selectedMachine?.providers[provider]?.supportedModes || [];
     if (!availableModes.includes(mode)) setMode(availableModes[0] || 'ask');
-  }, [mode, provider, providerHealth]);
+  }, [mode, provider, selectedMachine]);
 
   const terminalUnreadIds = unread.filter((item) => item.kind !== 'permission').map((item) => item.id);
+  const actionKey = (targetMachineId: string, sessionId: string) => `${targetMachineId}:${sessionId}`;
 
-  const archive = (session: ArenaSessionSummary) => {
+  const archive = (targetMachineId: string, session: ArenaSessionSummary) => {
     if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
-    setArchiving(session.id);
-    void onArchiveSession(session).finally(() => setArchiving(undefined));
+    const key = actionKey(targetMachineId, session.id);
+    setArchiving(key);
+    void onArchiveSession(targetMachineId, session).finally(() => setArchiving(undefined));
   };
 
-  const restore = (session: ArenaSessionSummary) => {
-    setRestoring(session.id);
-    void onRestoreSession(session).finally(() => setRestoring(undefined));
+  const restore = (targetMachineId: string, session: ArenaSessionSummary) => {
+    const key = actionKey(targetMachineId, session.id);
+    setRestoring(key);
+    void onRestoreSession(targetMachineId, session).finally(() => setRestoring(undefined));
   };
 
   return (
     <main className="arena" aria-label="Arena">
       <header className="arena-heading">
         <div>
-          <span className="eyebrow">This machine · {hostLabel}</span>
+          <span className="eyebrow">
+            {machines.length} {machines.length === 1 ? 'machine' : 'machines'}
+            {machines.some((machine) => machine.machine.state === 'offline') ? ` · ${machines.filter((machine) => machine.machine.state === 'offline').length} offline` : ''}
+          </span>
           <h1>Your arena</h1>
-          <p>See every local session, answer what is blocked, and start the next piece of work.</p>
+          <p>See every session across your execution machines, answer what is blocked, and start the next piece of work.</p>
         </div>
         <div className="arena-heading-actions">
           <button type="button" onClick={onRefresh}>Refresh</button>
-          <button type="button" className="arena-primary" disabled={!availableProviders.length} onClick={() => setShowCreate(true)}>
+          <button type="button" className="arena-primary" disabled={!onlineMachines.length} onClick={() => setShowCreate(true)}>
             New session
           </button>
         </div>
@@ -162,17 +168,29 @@ export function Arena({
         </Link>
       </div>
 
-      {showCreate && (
+      {showCreate && selectedMachine && (
         <section className="arena-create" aria-label="Create session">
           <div>
             <span className="eyebrow">Start work</span>
             <h2>New session</h2>
           </div>
           <label>
+            <span>Machine</span>
+            <select value={selectedMachine.machine.id} onChange={(event) => {
+              const next = machines.find((machine) => machine.machine.id === event.target.value);
+              setMachineId(event.target.value);
+              setProjectId(next?.projects[0]?.id || 'none');
+            }}>
+              {onlineMachines.map((machine) => (
+                <option value={machine.machine.id} key={machine.machine.id}>{machine.machine.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
             <span>Project</span>
             <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
               <option value="none">No project</option>
-              {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+              {selectedMachine.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select>
           </label>
           <label>
@@ -209,6 +227,7 @@ export function Arena({
               onClick={() => {
                 setCreating(true);
                 void onCreateSession({
+                  machineId: selectedMachine.machine.id,
                   ...(projectId === 'none' ? {} : { projectId }),
                   provider,
                   mode,
@@ -223,150 +242,108 @@ export function Arena({
 
       {section === 'sessions' ? (
         <div className="arena-groups" role="tabpanel">
-          {!groups.length && (
-            <div className="arena-empty">
-              <h2>No active sessions</h2>
-              <p>Start a new session or restore archived work when you are ready.</p>
-            </div>
-          )}
-          {groups.map((group) => (
-            <section className="arena-group" aria-labelledby={`arena-project-${group.id}`} key={group.id}>
-              <header>
-                <div>
-                  <h2 id={`arena-project-${group.id}`}>{group.name}</h2>
-                  <span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
-                </div>
-              </header>
-              <div className="arena-card-grid">
-                {group.sessions.map((card) => {
-                  const attention = unread.filter((item) => item.sessionId === card.session.id).length;
-                  return (
-                    <article className={`arena-card state-${card.state}`} key={card.session.id}>
-                      <button className="arena-card-open" type="button" onClick={() => onOpenSession(card.session)} aria-label={`Open ${card.session.title}`}>
-                        <span className={`arena-state state-${card.state}`}><i aria-hidden="true" />{STATE_LABELS[card.state]}</span>
-                        <strong>{card.session.title}</strong>
-                        <span className="arena-card-activity">{card.activity}</span>
-                        <span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span>
-                        <span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span>
-                        <span className="arena-card-footer">
-                          <span>{hostLabel}</span>
-                          {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
-                        </span>
-                      </button>
-                      <details className="arena-card-menu">
-                        <summary aria-label={`Actions for ${card.session.title}`}>•••</summary>
-                        <div>
-                          <button
-                            type="button"
-                            disabled={Boolean(card.run) || archiving === card.session.id}
-                            title={card.run ? 'Wait for the current turn to finish before archiving.' : undefined}
-                            onClick={() => archive(card.session)}
-                          >
-                            {archiving === card.session.id ? 'Archiving…' : 'Archive session'}
-                          </button>
-                        </div>
-                      </details>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+          {!sessions.length && <div className="arena-empty"><h2>No active sessions</h2><p>Start a new session when you are ready.</p></div>}
+          {machines.map((machine) => {
+            const online = machine.machine.state === 'online';
+            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online);
+            const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
+            return (
+              <section className={`arena-machine ${online ? 'online' : 'offline'}`} aria-labelledby={`arena-machine-${machine.machine.id}`} key={machine.machine.id}>
+                <header className="arena-machine-heading">
+                  <div><h2 id={`arena-machine-${machine.machine.id}`}>{machine.machine.label}</h2><span>{machineTime(machine)}</span></div>
+                  <span className={`arena-machine-state ${machine.machine.state}`}>{online ? 'Online' : 'Offline'}</span>
+                </header>
+                {!groups.length && <div className="arena-machine-empty">No active sessions on this machine.</div>}
+                {groups.map((group) => (
+                  <section className="arena-group" aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
+                    <header><div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span></div></header>
+                    <div className="arena-card-grid">
+                      {group.sessions.map((card) => {
+                        const attention = unread.filter((item) => item.machineId === machine.machine.id && item.sessionId === card.session.id).length;
+                        const key = actionKey(machine.machine.id, card.session.id);
+                        return (
+                          <article className={`arena-card state-${card.state}`} key={card.session.id}>
+                            <button className="arena-card-open" type="button" disabled={!online} onClick={() => onOpenSession(machine, card.session)} aria-label={`Open ${card.session.title}`}>
+                              <span className={`arena-state state-${card.state}`}><i aria-hidden="true" />{STATE_LABELS[card.state]}</span>
+                              <strong>{card.session.title}</strong>
+                              <span className="arena-card-activity">{card.activity}</span>
+                              <span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span>
+                              <span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span>
+                              <span className="arena-card-footer"><span>{machine.machine.label}</span>{attention > 0 && <span className="arena-card-attention">{attention} unread</span>}</span>
+                            </button>
+                            <details className="arena-card-menu">
+                              <summary aria-label={`Actions for ${card.session.title}`}>•••</summary>
+                              <div><button type="button" disabled={!online || Boolean(card.run) || archiving === key} title={!online ? 'This execution machine is offline.' : card.run ? 'Wait for the current turn to finish before archiving.' : undefined} onClick={() => archive(machine.machine.id, card.session)}>{archiving === key ? 'Archiving…' : 'Archive session'}</button></div>
+                            </details>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </section>
+            );
+          })}
         </div>
       ) : section === 'inbox' ? (
         <section className="arena-inbox" role="tabpanel" aria-label="Inbox">
-          <header>
-            <div>
-              <h2>Inbox</h2>
-              <p>Permissions interrupt; finished work waits quietly until you read it.</p>
-            </div>
-            <button type="button" disabled={!terminalUnreadIds.length} onClick={() => onAcknowledge(terminalUnreadIds)}>
-              Mark all read
-            </button>
-          </header>
+          <header><div><h2>Inbox</h2><p>Permissions interrupt; finished work waits quietly until you read it.</p></div><button type="button" disabled={!terminalUnreadIds.length} onClick={() => onAcknowledge(terminalUnreadIds)}>Mark all read</button></header>
           {!inbox.length && <div className="arena-empty"><h3>Nothing needs your attention</h3><p>Running and idle sessions stay quiet.</p></div>}
           <div className="arena-inbox-list">
-            {inbox.map((item) => (
-              <article className={`arena-inbox-item ${item.read ? 'read' : ''}`} key={item.id}>
-                <AttentionKind item={item} />
-                <div>
-                  <strong>{item.sessionTitle}</strong>
-                  <small>{item.projectName} · {new Date(item.createdAt).toLocaleString()}</small>
-                  <p>{item.reason}</p>
-                </div>
-                <div className="arena-inbox-actions">
-                  {item.kind === 'permission' && item.runId && item.requestId ? (
-                    <>
-                      <button type="button" disabled={deciding === item.id} onClick={() => {
-                        setDeciding(item.id);
-                        void onDecidePermission(item.runId!, item.requestId!, 'deny').finally(() => setDeciding(undefined));
-                      }}>Deny</button>
-                      <button type="button" className="arena-primary" disabled={deciding === item.id} onClick={() => {
-                        setDeciding(item.id);
-                        void onDecidePermission(item.runId!, item.requestId!, 'allow').finally(() => setDeciding(undefined));
-                      }}>Allow</button>
-                    </>
-                  ) : !item.read ? (
-                    <button type="button" onClick={() => onAcknowledge([item.id])}>Mark read</button>
-                  ) : null}
-                  {item.kind !== 'permission' && (
-                    <button
-                      type="button"
-                      disabled={Boolean(discovery.active.find((run) => run.sessionId === item.sessionId)) || archiving === item.sessionId}
-                      onClick={() => {
-                        const target = sessions.find((session) => session.id === item.sessionId);
-                        if (target) archive(target);
-                      }}
-                    >Archive</button>
-                  )}
-                  <button type="button" onClick={() => {
-                    if (item.kind !== 'permission' && !item.read) onAcknowledge([item.id]);
-                    onOpenSession(sessions.find((session) => session.id === item.sessionId)!);
-                  }}>Open session</button>
-                </div>
-              </article>
-            ))}
+            {inbox.map((item) => {
+              const machine = machines.find((entry) => entry.machine.id === item.machineId);
+              const target = machine?.sessions.find((session) => session.id === item.sessionId);
+              const active = machine?.runs.active.find((run) => run.sessionId === item.sessionId);
+              const key = `${item.machineId}:${item.id}`;
+              return (
+                <article className={`arena-inbox-item ${item.read ? 'read' : ''}`} key={key}>
+                  <AttentionKind item={item} />
+                  <div><strong>{item.sessionTitle}</strong><small>{item.projectName} · {item.machineLabel} · {new Date(item.createdAt).toLocaleString()}</small><p>{item.reason}</p></div>
+                  <div className="arena-inbox-actions">
+                    {item.kind === 'permission' && item.runId && item.requestId && item.machineId ? (
+                      <>
+                        <button type="button" disabled={!item.machineOnline || deciding === key} onClick={() => { setDeciding(key); void onDecidePermission(item.machineId!, item.runId!, item.requestId!, 'deny').finally(() => setDeciding(undefined)); }}>Deny</button>
+                        <button type="button" className="arena-primary" disabled={!item.machineOnline || deciding === key} onClick={() => { setDeciding(key); void onDecidePermission(item.machineId!, item.runId!, item.requestId!, 'allow').finally(() => setDeciding(undefined)); }}>Allow</button>
+                      </>
+                    ) : !item.read ? <button type="button" onClick={() => onAcknowledge([item.id])}>Mark read</button> : null}
+                    {item.kind !== 'permission' && target && machine && <button type="button" disabled={!item.machineOnline || Boolean(active) || archiving === actionKey(machine.machine.id, item.sessionId)} onClick={() => archive(machine.machine.id, target)}>Archive</button>}
+                    <button type="button" disabled={!item.machineOnline || !machine || !target} onClick={() => { if (item.kind !== 'permission' && !item.read) onAcknowledge([item.id]); if (machine && target) onOpenSession(machine, target); }}>Open session</button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       ) : (
         <div className="arena-groups" role="tabpanel">
-          {!archivedGroups.length && (
-            <div className="arena-empty">
-              <h2>No archived sessions</h2>
-              <p>Archived work stays recoverable here until permanent cleanup is added.</p>
-            </div>
-          )}
-          {archivedGroups.map((group) => (
-            <section className="arena-group" aria-labelledby={`arena-archive-project-${group.id}`} key={group.id}>
-              <header>
-                <div>
-                  <h2 id={`arena-archive-project-${group.id}`}>{group.name}</h2>
-                  <span>{group.sessions.length} archived</span>
-                </div>
-              </header>
-              <div className="arena-card-grid">
-                {group.sessions.map((card) => (
-                  <article className="arena-card archived" key={card.session.id}>
-                    <div className="arena-card-content">
-                      <span className="arena-state state-archived"><i aria-hidden="true" />Archived</span>
-                      <strong>{card.session.title}</strong>
-                      <span className="arena-card-activity">
-                        Archived {new Date(card.session.archivedAt || card.session.updatedAt).toLocaleString()}
-                      </span>
-                      <span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span>
-                      <span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span>
-                      <span className="arena-card-footer"><span>{hostLabel}</span></span>
+          {!archivedSessions.length && <div className="arena-empty"><h2>No archived sessions</h2><p>Archived work stays recoverable here until permanent cleanup is added.</p></div>}
+          {machines.map((machine) => {
+            const online = machine.machine.state === 'online';
+            const groups = groupArenaSessions(machine.projects, machine.archivedSessions, { active: [], recent: [] }, online);
+            const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
+            if (!groups.length) return null;
+            return (
+              <section className={`arena-machine ${online ? 'online' : 'offline'}`} aria-labelledby={`arena-archive-machine-${machine.machine.id}`} key={machine.machine.id}>
+                <header className="arena-machine-heading"><div><h2 id={`arena-archive-machine-${machine.machine.id}`}>{machine.machine.label}</h2><span>{machineTime(machine)}</span></div><span className={`arena-machine-state ${machine.machine.state}`}>{online ? 'Online' : 'Offline'}</span></header>
+                {groups.map((group) => (
+                  <section className="arena-group" aria-labelledby={`arena-archive-project-${machine.machine.id}-${group.id}`} key={group.id}>
+                    <header><div><h3 id={`arena-archive-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} archived</span></div></header>
+                    <div className="arena-card-grid">
+                      {group.sessions.map((card) => {
+                        const key = actionKey(machine.machine.id, card.session.id);
+                        return (
+                          <article className="arena-card archived" key={card.session.id}>
+                            <div className="arena-card-content"><span className={`arena-state ${online ? 'state-archived' : 'state-offline'}`}><i aria-hidden="true" />{online ? 'Archived' : 'Offline'}</span><strong>{card.session.title}</strong><span className="arena-card-activity">Archived {new Date(card.session.archivedAt || card.session.updatedAt).toLocaleString()}</span><span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span><span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span><span className="arena-card-footer"><span>{machine.machine.label}</span></span></div>
+                            <div className="arena-card-restore"><button type="button" disabled={!online || restoring === key} onClick={() => restore(machine.machine.id, card.session)}>{restoring === key ? 'Restoring…' : 'Restore'}</button></div>
+                          </article>
+                        );
+                      })}
                     </div>
-                    <div className="arena-card-restore">
-                      <button type="button" disabled={restoring === card.session.id} onClick={() => restore(card.session)}>
-                        {restoring === card.session.id ? 'Restoring…' : 'Restore'}
-                      </button>
-                    </div>
-                  </article>
+                  </section>
                 ))}
-              </div>
-            </section>
-          ))}
+              </section>
+            );
+          })}
         </div>
       )}
     </main>

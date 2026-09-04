@@ -22,10 +22,11 @@ function Patch({ source }: { source?: string }) {
   );
 }
 
-export function RepositoryDiffInspector({ checkoutId, file, revision, onClose, onRetry }: {
+export function RepositoryDiffInspector({ checkoutId, file, revision, apiBase = '/api', onClose, onRetry }: {
   checkoutId: string;
   file: GitChangedFile;
   revision: number;
+  apiBase?: string;
   onClose(): void;
   onRetry(): void;
 }) {
@@ -39,7 +40,7 @@ export function RepositoryDiffInspector({ checkoutId, file, revision, onClose, o
     setLoading(true);
     setError(undefined);
     const query = new URLSearchParams({ checkoutId, path: file.path });
-    void fetch(`/api/repository/diff?${query}`, { cache: 'no-store', signal: controller.signal })
+    void fetch(`${apiBase}/repository/diff?${query}`, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const data = await response.json() as { diff?: GitFileDiff; error?: string };
         if (!response.ok || !data.diff) throw new Error(data.error || 'Could not load this diff.');
@@ -50,7 +51,7 @@ export function RepositoryDiffInspector({ checkoutId, file, revision, onClose, o
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [checkoutId, file.path, revision]);
+  }, [apiBase, checkoutId, file.path, revision]);
 
   return (
     <section className="repository-inspector diff-inspector" aria-label={`Changes in ${file.path}`}>

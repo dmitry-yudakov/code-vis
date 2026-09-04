@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { GitWorkingTree } from '@/shared/types';
 
 /** Git-specific state remains outside the reusable repository shell and presentation views. */
-export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: GitWorkingTree) => void) {
+export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: GitWorkingTree) => void, apiBase = '/api') {
   const [tree, setTree] = useState<GitWorkingTree>();
   const [selectedPath, setSelectedPath] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -23,7 +23,7 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
-    void fetch(`/api/repository/status?checkoutId=${encodeURIComponent(checkoutId)}`, {
+    void fetch(`${apiBase}/repository/status?checkoutId=${encodeURIComponent(checkoutId)}`, {
       cache: 'no-store', signal: controller.signal,
     }).then(async (response) => {
       const data = await response.json() as { tree?: GitWorkingTree; error?: string };
@@ -40,7 +40,7 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [checkoutId, onTreeChange, revision]);
+  }, [apiBase, checkoutId, onTreeChange, revision]);
 
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   return {

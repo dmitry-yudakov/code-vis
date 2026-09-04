@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import type {
-  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact,
+  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaMachineSnapshot, ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
   ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
@@ -25,7 +25,7 @@ import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { Arena } from '@/features/arena/Arena';
-import { buildArenaInbox, unreadArenaAttention } from '@/features/arena/arenaModel';
+import { buildMultiMachineInbox, unreadArenaAttention } from '@/features/arena/arenaModel';
 import { ARENA_SECTION_PATHS, arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
@@ -36,6 +36,7 @@ import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { DeviceMenu } from '@/features/devices/DeviceMenu';
+import { machineApiBase, machineApiPath } from '@/features/machines/routes';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
@@ -82,13 +83,21 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [checkouts, setCheckouts] = useState<CheckoutSummary[]>([]);
   const [recentCheckoutIds, setRecentCheckoutIds] = useState<string[]>([]);
   const [hostId, setHostId] = useState<string>();
+  const [localMachineId, setLocalMachineId] = useState<string>();
+  const [machineId, setMachineId] = useState<string>();
   const [projectId, setProjectId] = useState<string>();
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
-  const workspace = useWorkspaceViews(projectId);
+  const workspaceMachineId = machineId && localMachineId && machineId !== localMachineId ? machineId : undefined;
+  const workspace = useWorkspaceViews(projectId, workspaceMachineId);
   const arena = useArena();
+  const apiPath = useCallback(
+    (path: string) => machineApiPath(path, machineId, localMachineId),
+    [localMachineId, machineId],
+  );
+  const repositoryApiBase = machineApiBase(machineId, localMachineId);
   const sessionId = workspace.scope.focusedSessionId;
   const view = sessionId ? workspace.scope.views[sessionId] : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
@@ -108,6 +117,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigationRevisions = useRef(new Map<string, number>());
   const participantRequestIds = useRef(new Map<string, string>());
   const sessionsRef = useRef<SessionSnapshot[]>([]);
+  const machineIdRef = useRef(machineId);
+  machineIdRef.current = machineId;
   const mutationQueues = useRef(new Map<string, Promise<void>>());
   const annotationTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const chatOpenRef = useRef(panelLayout.conversationOpen);
@@ -220,10 +231,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [session, pendingAttachmentIds]);
 
-  const applyServerSnapshot = useCallback((snapshot: PublicSession): SessionSnapshot => {
+  const applyServerSnapshot = useCallback((snapshot: PublicSession, sourceMachineId = machineIdRef.current): SessionSnapshot => {
     const current = sessionsRef.current;
     const prior = current.find((item) => item.id === snapshot.id);
-    const hydrated = hydrateSession(snapshot, prior, workspace.getView(snapshot.id));
+    const hydrated = { ...hydrateSession(snapshot, prior, workspace.getView(snapshot.id)), machineId: sourceMachineId };
+    if (sourceMachineId !== machineIdRef.current) return hydrated;
     const next = prior
       ? current.map((item) => item.id === snapshot.id ? hydrated : item)
       : [hydrated, ...current];
@@ -240,15 +252,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [workspace.getView]);
 
   const refreshSession = useCallback(async (targetSessionId: string): Promise<SessionSnapshot | undefined> => {
+    const sourceMachineId = machineId;
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}`, { cache: 'no-store' });
+      const response = await fetch(apiPath(`/api/sessions/${encodeURIComponent(targetSessionId)}`), { cache: 'no-store' });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) return undefined;
-      return applyServerSnapshot(data.session);
+      return applyServerSnapshot(data.session, sourceMachineId);
     } catch {
       return undefined;
     }
-  }, [applyServerSnapshot]);
+  }, [apiPath, applyServerSnapshot, machineId]);
 
   const enqueueSessionMutation = useCallback((
     targetSessionId: string,
@@ -273,17 +286,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [applyServerSnapshot, refreshSession]);
 
   const refreshProjects = useCallback(async (): Promise<DurableProject[]> => {
-    const response = await fetch('/api/projects', { cache: 'no-store' });
+    const response = await fetch(apiPath('/api/projects'), { cache: 'no-store' });
     const data = await response.json() as { projects?: DurableProject[]; error?: string };
     if (!response.ok) throw new Error(data.error || 'Could not load projects.');
     const next = data.projects || [];
     setProjects(next);
     return next;
-  }, []);
+  }, [apiPath]);
 
   useEffect(() => {
-    try { setSavedCheckoutId(loadSelectedCheckoutId()); } catch { /* Device preference is optional. */ }
-  }, []);
+    try { setSavedCheckoutId(loadSelectedCheckoutId(localStorage, workspaceMachineId)); } catch { /* Device preference is optional. */ }
+  }, [workspaceMachineId]);
 
   useEffect(() => {
     if (!archiveUndo) return;
@@ -312,6 +325,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       setCheckouts(checkoutResult.checkouts || []);
       setRecentCheckoutIds(checkoutResult.recentCheckoutIds || []);
       setHostId(checkoutResult.hostId);
+      setLocalMachineId(checkoutResult.hostId);
+      setMachineId(checkoutResult.hostId);
       const healthy = AGENT_PROVIDERS.filter((provider) => healthResult.providers[provider]?.available);
       setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
       setProjectId(projectResult[0]?.id);
@@ -330,7 +345,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     let current = true;
     setLoading(true);
     const query = projectId ? `projectId=${encodeURIComponent(projectId)}` : 'loose=true';
-    void fetch(`/api/sessions?${query}`, { cache: 'no-store' })
+    void fetch(apiPath(`/api/sessions?${query}`), { cache: 'no-store' })
       .then(async (response) => {
         const data = await response.json() as { sessions?: PublicSession[]; error?: string };
         if (!response.ok) throw new Error(data.error || 'Could not load sessions.');
@@ -339,7 +354,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       .then((snapshots) => {
         if (!current) return;
         const prior = new Map(sessionsRef.current.map((item) => [item.id, item]));
-        const hydrated = snapshots.map((snapshot) => hydrateSession(snapshot, prior.get(snapshot.id), workspace.getView(snapshot.id)));
+        const hydrated = snapshots.map((snapshot) => ({
+          ...hydrateSession(snapshot, prior.get(snapshot.id), workspace.getView(snapshot.id)),
+          machineId,
+        }));
         sessionsRef.current = hydrated;
         setSessions(hydrated);
         const retainedViewIds = workspace.reconcile(hydrated.map((item) => item.id));
@@ -355,7 +373,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         setLoading(false);
       });
     return () => { current = false; };
-  }, [catalogReady, panelLayout.reconcile, projectId, workspace.getView, workspace.ready, workspace.reconcile]);
+  }, [apiPath, catalogReady, machineId, panelLayout.reconcile, projectId, workspace.getView, workspace.ready, workspace.reconcile]);
 
   useEffect(() => {
     snapshotRef.current = undefined;
@@ -403,25 +421,54 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const selectMachineCatalog = useCallback((target: ArenaMachineSnapshot) => {
+    if (target.machine.state !== 'online') throw new Error(`${target.machine.label} is offline.`);
+    machineIdRef.current = target.machine.id;
+    setMachineId(target.machine.id);
+    setHostId(target.machine.id);
+    setProjects(target.projects);
+    setCheckouts(target.checkouts);
+    setRecentCheckoutIds(target.recentCheckoutIds);
+    setBusyRun(undefined);
+    setHealth({
+      ok: Object.values(target.providers).some((provider) => provider.available),
+      hostLabel: target.machine.label,
+      repositoriesRootReady: true,
+      dataDirectoryReady: true,
+      providers: target.providers,
+    });
+    const healthy = AGENT_PROVIDERS.filter((provider) => target.providers[provider]?.available);
+    setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
+  }, []);
+
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
-    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean } = {},
+    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; machineId?: string } = {},
   ): Promise<boolean> => {
     setNotice(undefined);
     try {
       const targetProjectId = options.fromArena ? options.projectId : projectId;
-      const response = await fetch('/api/sessions', {
+      const targetMachineId = options.machineId || machineId;
+      const targetMachine = options.fromArena
+        ? arena.machines.find((entry) => entry.machine.id === targetMachineId)
+        : undefined;
+      if (options.fromArena && (!targetMachine || targetMachine.machine.state !== 'online')) {
+        throw new Error('That execution machine is offline.');
+      }
+      const response = await fetch(machineApiPath('/api/sessions', targetMachineId, localMachineId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...(targetProjectId ? { projectId: targetProjectId } : {}), provider: requestedProvider }),
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
+      const targetWorkspaceMachineId = targetMachineId && targetMachineId !== localMachineId ? targetMachineId : undefined;
       workspace.openInProject(targetProjectId, data.session.id, (current) => ({
         ...current,
         ...(options.mode ? { defaultMode: options.mode } : {}),
-      }));
-      if (targetProjectId === projectId) applyServerSnapshot(data.session);
+      }), targetWorkspaceMachineId);
+      if (targetMachine && targetMachineId !== machineId) selectMachineCatalog(targetMachine);
+      if (targetMachineId === machineId && targetProjectId === projectId) applyServerSnapshot(data.session);
       else {
         setLoading(true);
         setProjectId(targetProjectId);
@@ -437,7 +484,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
       return false;
     }
-  }, [applyServerSnapshot, arena.refresh, newProvider, panelLayout.openConversationFor, projectId, router, workspace.openInProject]);
+  }, [applyServerSnapshot, arena.machines, arena.refresh, localMachineId, machineId, newProvider, panelLayout.openConversationFor, projectId, router, selectMachineCatalog, workspace.openInProject]);
 
   const switchProject = (next?: string) => {
     if (next === projectId) return;
@@ -450,7 +497,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const createProject = useCallback(async (name: string) => {
     try {
-      const response = await fetch('/api/projects', {
+      const response = await fetch(apiPath('/api/projects'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, checkoutIds: [] }),
@@ -462,11 +509,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create the project.');
     }
-  }, [projectId, running]);
+  }, [apiPath, projectId, running]);
 
   const renameProject = useCallback(async (project: DurableProject, name: string) => {
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, {
+      const response = await fetch(apiPath(`/api/projects/${encodeURIComponent(project.id)}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision: project.revision, name }),
@@ -480,11 +527,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not rename the project.');
     }
-  }, [refreshProjects]);
+  }, [apiPath, refreshProjects]);
 
   const deleteProject = useCallback(async (project: DurableProject) => {
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, {
+      const response = await fetch(apiPath(`/api/projects/${encodeURIComponent(project.id)}`), {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision: project.revision }),
@@ -500,20 +547,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not delete the project.');
     }
-  }, [projectId, refreshProjects]);
+  }, [apiPath, projectId, refreshProjects]);
 
   const selectCheckout = useCallback((checkoutId: string) => {
     setSelectedCheckoutId(checkoutId);
     setSavedCheckoutId(checkoutId);
     setRepositoryTree(undefined);
-    try { saveSelectedCheckoutId(checkoutId); } catch { /* Selection still works without persistence. */ }
-  }, []);
+    try { saveSelectedCheckoutId(checkoutId, localStorage, workspaceMachineId); } catch { /* Selection still works without persistence. */ }
+  }, [workspaceMachineId]);
 
   const updateRepositories = useCallback((update: (current: RepositoryBinding[]) => RepositoryBinding[]) => {
     if (!session || sessionRunning) return;
     void enqueueSessionMutation(session.id, (current) => {
       const repositories = update(current.repositories);
-      return fetch(`/api/sessions/${encodeURIComponent(session.id)}/repositories`, {
+      return fetch(apiPath(`/api/sessions/${encodeURIComponent(session.id)}/repositories`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision: current.revision, repositories }),
@@ -527,7 +574,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     }).catch((error: unknown) => {
       setNotice(error instanceof Error ? error.message : 'Could not update session repositories.');
     });
-  }, [enqueueSessionMutation, refreshProjects, selectedCheckoutId, session, sessionRunning]);
+  }, [apiPath, enqueueSessionMutation, refreshProjects, selectedCheckoutId, session, sessionRunning]);
 
   const selectDiagram = useCallback((id: string) => {
     if (!sessionId) return;
@@ -550,7 +597,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
     navigationRevisions.current.set(sessionId, (navigationRevisions.current.get(sessionId) || 0) + 1);
     void enqueueSessionMutation(sessionId, () => fetch(
-      `/api/sessions/${encodeURIComponent(sessionId)}/sketches`,
+      apiPath(`/api/sessions/${encodeURIComponent(sessionId)}/sketches`),
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -563,7 +610,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     }).catch((error: unknown) => {
       setNotice(error instanceof Error ? error.message : 'Could not create the sketch.');
     });
-  }, [enqueueSessionMutation, mutateSession, sessionId, sessionRunning]);
+  }, [apiPath, enqueueSessionMutation, mutateSession, sessionId, sessionRunning]);
 
   const removeAttachment = (id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id));
   const toggleAttachment = (id: string) => setPendingAttachmentIds((current) => current.includes(id)
@@ -576,7 +623,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       const pinnedDiagramIds = current.pinnedDiagramIds.includes(canvasId)
         ? current.pinnedDiagramIds.filter((item) => item !== canvasId)
         : [...current.pinnedDiagramIds, canvasId];
-      return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/pins`, {
+      return fetch(apiPath(`/api/sessions/${encodeURIComponent(sessionId)}/pins`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision: current.revision, pinnedDiagramIds }),
@@ -584,7 +631,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     }).catch((error: unknown) => {
       setNotice(error instanceof Error ? error.message : 'Could not update the pinned canvases.');
     });
-  }, [enqueueSessionMutation, sessionId]);
+  }, [apiPath, enqueueSessionMutation, sessionId]);
 
   const handleMarksChange = useCallback((diagramId: string, marks: DrawingMark[]) => {
     if (!sessionId) return;
@@ -602,7 +649,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     annotationTimers.current.set(key, setTimeout(() => {
       annotationTimers.current.delete(key);
       void enqueueSessionMutation(sessionId, (current) => {
-        return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/annotations`, {
+        return fetch(apiPath(`/api/sessions/${encodeURIComponent(sessionId)}/annotations`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ expectedRevision: current.revision, annotation }),
@@ -611,7 +658,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         setNotice(error instanceof Error ? error.message : 'Could not save the drawing.');
       });
     }, 250));
-  }, [enqueueSessionMutation, mutateSession, sessionId]);
+  }, [apiPath, enqueueSessionMutation, mutateSession, sessionId]);
 
   const handleArtifactError = useCallback((diagramId: string, artifactStatus: 'parse-error' | 'render-error', error: string) => {
     if (!sessionId) return;
@@ -658,7 +705,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     participantRequestIds.current.set(requestKey, requestId);
     try {
       const updated = await enqueueSessionMutation(session.id, () => fetch(
-        `/api/sessions/${encodeURIComponent(session.id)}/participants`,
+        apiPath(`/api/sessions/${encodeURIComponent(session.id)}/participants`),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -675,7 +722,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } finally {
       setParticipantBusy(false);
     }
-  }, [enqueueSessionMutation, mutateSession, participantBusy, session, sessionRunning]);
+  }, [apiPath, enqueueSessionMutation, mutateSession, participantBusy, session, sessionRunning]);
 
   const setPrimaryAgent = useCallback(async (participantId: string) => {
     if (!session || sessionRunning || participantBusy) return;
@@ -683,7 +730,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setNotice(undefined);
     try {
       await enqueueSessionMutation(session.id, (current) => fetch(
-        `/api/sessions/${encodeURIComponent(session.id)}/participants`,
+        apiPath(`/api/sessions/${encodeURIComponent(session.id)}/participants`),
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -699,7 +746,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } finally {
       setParticipantBusy(false);
     }
-  }, [enqueueSessionMutation, mutateSession, participantBusy, session, sessionRunning]);
+  }, [apiPath, enqueueSessionMutation, mutateSession, participantBusy, session, sessionRunning]);
 
   const prefillHandoff = useCallback((participantId: string, text: string, handoffMode?: AgentMode) => {
     selectAgent(participantId);
@@ -714,7 +761,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!runId) return;
     updateRun(targetSessionId, (run) => ({ ...run, decidingPermission: requestId }));
     try {
-      const response = await fetch('/api/agent/permission', {
+      const response = await fetch(apiPath('/api/agent/permission'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId, requestId, decision }),
@@ -732,7 +779,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } finally {
       updateRun(targetSessionId, (run) => ({ ...run, decidingPermission: undefined }));
     }
-  }, [updateRun]);
+  }, [apiPath, updateRun]);
 
   /**
    * Drives the UI from one run's event stream. Shared by sending a message and by reattaching to a
@@ -977,7 +1024,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     let streamRunId: string | undefined;
 
     try {
-      const response = await fetch('/api/agent/message', {
+      const response = await fetch(apiPath('/api/agent/message'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1029,7 +1076,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } finally {
       removeRun(session.id, streamRunId);
     }
-  }, [activeAgent, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, putRun, refreshSession, removeRun, session, setRunOutcome, updateRun, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, putRun, refreshSession, removeRun, session, setRunOutcome, updateRun, workspace.updateView]);
 
   const busyRunLabel = busyRun && (
     sessions.find((item) => item.id === busyRun.sessionId)?.title
@@ -1043,23 +1090,26 @@ export function AppShell({ children }: { children: ReactNode }) {
     queuePosition: run.queuePosition,
     pendingApprovals: Math.max(run.pendingPermissionCount || 0, run.permissions.length),
   }]));
-  const arenaInbox = buildArenaInbox(projects, arena.sessions, arena.discovery, arena.deviceState);
+  const arenaInbox = buildMultiMachineInbox(arena.machines, arena.deviceState);
   const arenaUnread = unreadArenaAttention(arenaInbox);
 
-  const openArenaSession = useCallback((target: ArenaSessionSummary) => {
-    workspace.openInProject(target.projectId, target.id);
+  const openArenaSession = useCallback((targetMachine: ArenaMachineSnapshot, target: ArenaSessionSummary) => {
+    if (targetMachine.machine.state !== 'online') return;
+    const targetWorkspaceMachineId = targetMachine.machine.id !== localMachineId ? targetMachine.machine.id : undefined;
+    workspace.openInProject(target.projectId, target.id, undefined, targetWorkspaceMachineId);
     router.push('/', { scroll: false });
-    if (target.projectId === projectId) return;
+    if (targetMachine.machine.id === machineId && target.projectId === projectId) return;
+    selectMachineCatalog(targetMachine);
     setLoading(true);
     setProjectId(target.projectId);
     sessionsRef.current = [];
     setSessions([]);
     setRepositoryTree(undefined);
-  }, [projectId, router, workspace.openInProject]);
+  }, [localMachineId, machineId, projectId, router, selectMachineCatalog, workspace.openInProject]);
 
-  const archiveArenaSession = useCallback(async (target: ArenaSessionSummary): Promise<boolean> => {
+  const archiveArenaSession = useCallback(async (targetMachineId: string, target: ArenaSessionSummary): Promise<boolean> => {
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(target.id)}/archive`, {
+      const response = await fetch(machineApiPath(`/api/sessions/${encodeURIComponent(target.id)}/archive`, targetMachineId, localMachineId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision: target.revision }),
@@ -1069,8 +1119,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         await arena.refresh();
         throw new Error(data.error || 'Could not archive the session.');
       }
-      workspace.closeInProject(target.projectId, target.id);
-      if (target.projectId === projectId) {
+      const targetWorkspaceMachineId = targetMachineId !== localMachineId ? targetMachineId : undefined;
+      workspace.closeInProject(target.projectId, target.id, targetWorkspaceMachineId);
+      if (targetMachineId === machineId && target.projectId === projectId) {
         const next = sessionsRef.current.filter((item) => item.id !== target.id);
         sessionsRef.current = next;
         setSessions(next);
@@ -1078,7 +1129,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       removeRun(target.id);
       setRunOutcome(target.id);
-      setArchiveUndo(data.session);
+      setArchiveUndo({ ...data.session, machineId: targetMachineId });
       setNotice(`Archived “${target.title}”. You can restore it from the Arena archive.`);
       await arena.refresh();
       return true;
@@ -1086,11 +1137,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNotice(error instanceof Error ? error.message : 'Could not archive the session.');
       return false;
     }
-  }, [arena.refresh, projectId, removeRun, setRunOutcome, workspace.closeInProject]);
+  }, [arena.refresh, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject]);
 
-  const restoreArenaSession = useCallback(async (target: ArenaSessionSummary): Promise<boolean> => {
+  const restoreArenaSession = useCallback(async (targetMachineId: string, target: ArenaSessionSummary): Promise<boolean> => {
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(target.id)}/restore`, {
+      const response = await fetch(machineApiPath(`/api/sessions/${encodeURIComponent(target.id)}/restore`, targetMachineId, localMachineId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision: target.revision }),
@@ -1100,7 +1151,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         await arena.refresh();
         throw new Error(data.error || 'Could not restore the session.');
       }
-      if (data.session.projectId === projectId) await refreshSession(data.session.id);
+      if (targetMachineId === machineId && data.session.projectId === projectId) await refreshSession(data.session.id);
       setArchiveUndo((current) => current?.id === target.id ? undefined : current);
       setNotice(`Restored “${data.session.title}”.`);
       await arena.refresh();
@@ -1109,15 +1160,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNotice(error instanceof Error ? error.message : 'Could not restore the session.');
       return false;
     }
-  }, [arena.refresh, projectId, refreshSession]);
+  }, [arena.refresh, localMachineId, machineId, projectId, refreshSession]);
 
   const decideArenaPermission = useCallback(async (
+    targetMachineId: string,
     runId: string,
     requestId: string,
     decision: 'allow' | 'deny',
   ) => {
     try {
-      const response = await fetch('/api/agent/permission', {
+      const response = await fetch(machineApiPath('/api/agent/permission', targetMachineId, localMachineId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId, requestId, decision }),
@@ -1129,12 +1181,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNotice(error instanceof Error ? error.message : 'That permission could not be answered.');
       await arena.refresh();
     }
-  }, [arena.refresh]);
+  }, [arena.refresh, localMachineId]);
 
   const cancelBusyRun = useCallback(async () => {
     if (!busyRun) return;
     try {
-      const response = await fetch('/api/agent/cancel', {
+      const response = await fetch(apiPath('/api/agent/cancel'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: busyRun.runId }),
       });
       const data = await response.json().catch(() => ({})) as { error?: string };
@@ -1145,7 +1197,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That agent run could not be cancelled.');
     }
-  }, [busyRun, busyRunLabel]);
+  }, [apiPath, busyRun, busyRunLabel]);
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
   const cancelRun = useCallback(async () => {
@@ -1157,7 +1209,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const response = await fetch('/api/agent/cancel', {
+      const response = await fetch(apiPath('/api/agent/cancel'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }),
       });
       if (!response.ok) {
@@ -1177,7 +1229,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         missingProviderSession: false,
       });
     }
-  }, [setRunOutcome]);
+  }, [apiPath, setRunOutcome]);
 
   // Recover every active turn in this project's workspace. Each attachment owns its controller and
   // presentation, so one stale or failed stream cannot disturb another session's live work.
@@ -1187,7 +1239,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const attachmentControllers = new Map<string, AbortController>();
     void (async () => {
       try {
-        const response = await fetch('/api/agent/runs', {
+        const response = await fetch(apiPath('/api/agent/runs'), {
           cache: 'no-store',
           signal: discoveryController.signal,
         });
@@ -1200,7 +1252,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           if (runsBySessionRef.current[run.sessionId]) continue;
           let owningSession = sessionsRef.current.find((item) => item.id === run.sessionId);
           if (!owningSession) {
-            const sessionResponse = await fetch(`/api/sessions/${encodeURIComponent(run.sessionId)}`, {
+            const sessionResponse = await fetch(apiPath(`/api/sessions/${encodeURIComponent(run.sessionId)}`), {
               cache: 'no-store',
               signal: discoveryController.signal,
             });
@@ -1242,7 +1294,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           attachmentControllers.set(run.runId, controller);
           runControllers.current.set(run.sessionId, controller);
           try {
-            const stream = await fetch(`/api/agent/stream?runId=${encodeURIComponent(run.runId)}`, {
+            const stream = await fetch(apiPath(`/api/agent/stream?runId=${encodeURIComponent(run.runId)}`), {
               cache: 'no-store',
               signal: controller.signal,
             });
@@ -1282,7 +1334,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       discoveryController.abort();
       for (const controller of attachmentControllers.values()) controller.abort();
     };
-  }, [applyServerSnapshot, consumeStream, loading, mutateSession, projectId, putRun, refreshSession, removeRun, setRunOutcome, updateRun, workspace.ensure, workspace.ready, workspace.updateView]);
+  }, [apiPath, applyServerSnapshot, consumeStream, loading, mutateSession, projectId, putRun, refreshSession, removeRun, setRunOutcome, updateRun, workspace.ensure, workspace.ready, workspace.updateView]);
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(session?.participants || [], participantId);
@@ -1437,6 +1489,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <RepositoryPanel
             checkoutId={selectedCheckout?.id}
             repositoryName={selectedCheckout?.name || 'No repository'}
+            apiBase={repositoryApiBase}
             manager={(
               <RepositoryManager
                 repositories={session.repositories}
@@ -1473,7 +1526,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {displayedNotice && (
         <div className="notice-banner" role="status">
           <span>{displayedNotice}</span>
-          {archiveUndo && <button type="button" onClick={() => void restoreArenaSession(archiveUndo)}>Undo archive</button>}
+          {archiveUndo?.machineId && <button type="button" onClick={() => void restoreArenaSession(archiveUndo.machineId!, archiveUndo)}>Undo archive</button>}
           {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
           {focusedRunOutcome?.missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
@@ -1486,19 +1539,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {arenaOpen && health ? (
         <Arena
-          projects={projects}
-          sessions={arena.sessions}
-          archivedSessions={arena.archivedSessions}
-          discovery={arena.discovery}
-          checkouts={checkouts}
-          hostLabel={health.hostLabel || 'This machine'}
-          providerHealth={health.providers}
+          machines={arena.machines}
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}
           onRefresh={() => void arena.refresh()}
           onOpenSession={openArenaSession}
-          onCreateSession={({ projectId: targetProjectId, provider, mode: initialMode }) => createSession(provider, {
+          onCreateSession={({ machineId: targetMachineId, projectId: targetProjectId, provider, mode: initialMode }) => createSession(provider, {
+            machineId: targetMachineId,
             projectId: targetProjectId,
             mode: initialMode,
             fromArena: true,

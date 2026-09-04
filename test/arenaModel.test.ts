@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  acknowledgeAttention, arenaSessionState, buildArenaInbox, EMPTY_DEVICE_ARENA_STATE,
+  acknowledgeAttention, arenaSessionState, buildArenaInbox, buildMultiMachineInbox, EMPTY_DEVICE_ARENA_STATE,
   groupArenaSessions, parseDeviceArenaState, unreadArenaAttention,
 } from '@/features/arena/arenaModel';
-import type { ArenaSessionSummary, DurableProject, RunDescriptor, RunDiscovery } from '@/shared/types';
+import type { ArenaMachineSnapshot, ArenaSessionSummary, DurableProject, RunDescriptor, RunDiscovery } from '@/shared/types';
 
 const PROJECT_A = '11111111-1111-4111-8111-111111111111';
 const PROJECT_B = '22222222-2222-4222-8222-222222222222';
@@ -137,5 +137,31 @@ describe('Arena presentation model', () => {
     }));
     expect(parsed.acknowledgedIds).toHaveLength(500);
     expect(parsed.acknowledgedIds.at(-1)).toBe('run:599');
+  });
+
+  it('marks cached machine cards offline and keeps Inbox routing bound to the owner', () => {
+    const machine: ArenaMachineSnapshot = {
+      machine: { id: PROJECT_B, label: 'Laptop', kind: 'remote', state: 'offline', lastSeenAt: '2026-09-03T12:00:00.000Z' },
+      projects: [project(PROJECT_A, 'Alpha', '2026-09-01T00:00:00.000Z')],
+      checkouts: [], recentCheckoutIds: [],
+      providers: {
+        claude: { available: false, authenticated: 'unknown', supportedModes: [] },
+        codex: { available: false, authenticated: 'unknown', supportedModes: [] },
+      },
+      sessions: [session(SESSION_A, '2026-09-03T10:00:00.000Z', PROJECT_A, 'failed')],
+      archivedSessions: [], runs: { active: [], recent: [] },
+    };
+    expect(groupArenaSessions(machine.projects, machine.sessions, machine.runs, false)[0].sessions[0])
+      .toMatchObject({ state: 'offline', activity: 'Execution machine is offline' });
+    const attention = buildMultiMachineInbox([machine], EMPTY_DEVICE_ARENA_STATE)[0];
+    expect(attention).toMatchObject({
+      id: `machine:${PROJECT_B}:failure:${SESSION_A}:${machine.sessions[0].lastActivity!.messageId}`,
+      machineId: PROJECT_B,
+      machineLabel: 'Laptop',
+      machineOnline: false,
+      read: false,
+    });
+    const acknowledged = acknowledgeAttention(EMPTY_DEVICE_ARENA_STATE, [attention.id]);
+    expect(buildMultiMachineInbox([machine], acknowledged)[0].read).toBe(true);
   });
 });

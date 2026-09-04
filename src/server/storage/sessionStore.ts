@@ -90,6 +90,27 @@ interface MutationResult<T> {
   changed: boolean;
 }
 
+/** Reads only the stable machine identity without acquiring the store's exclusive writer lock. */
+export async function readStoredMachineIdentity(
+  dataDirectory: string,
+): Promise<Readonly<StoreManifest['host']> | undefined> {
+  const manifestPath = path.join(dataDirectory, STORE_DIRECTORY, 'manifest.json');
+  let raw: string;
+  try { raw = await readFile(manifestPath, 'utf8'); } catch (error) {
+    if (isMissing(error)) return undefined;
+    throw error;
+  }
+  if (Buffer.byteLength(raw) > 16_384) {
+    throw new SessionStoreError('corrupt', `Session store manifest is invalid. Restore the whole ${STORE_DIRECTORY} directory from backup.`);
+  }
+  try {
+    const manifest = manifestSchema.parse(JSON.parse(raw)) as StoreManifest;
+    return { ...manifest.host };
+  } catch {
+    throw new SessionStoreError('corrupt', `Session store manifest is invalid. Restore the whole ${STORE_DIRECTORY} directory from backup.`);
+  }
+}
+
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }

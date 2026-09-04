@@ -39,8 +39,9 @@ export interface DeviceWorkspace {
 
 export const EMPTY_DEVICE_WORKSPACE: DeviceWorkspace = { version: 1, scopes: {} };
 
-export function workspaceScopeKey(projectId?: string): string {
-  return projectId ? `project:${projectId}` : LOOSE_WORKSPACE_SCOPE;
+export function workspaceScopeKey(projectId?: string, machineId?: string): string {
+  const project = projectId || 'none';
+  return machineId ? `machine:${machineId}:project:${project}` : `project:${project}`;
 }
 
 export function emptyDeviceView(): DeviceViewState {
@@ -120,7 +121,7 @@ export function parseDeviceWorkspace(value: string | null): DeviceWorkspace {
     }
     const scopes: Record<string, DeviceWorkspaceScope> = {};
     for (const [scopeId, rawScope] of Object.entries(parsed.scopes).slice(0, MAX_SCOPES)) {
-      if (!/^project:(none|[0-9a-f-]{36})$/i.test(scopeId) || !rawScope || typeof rawScope !== 'object' || Array.isArray(rawScope)) continue;
+      if (!/^(?:machine:[0-9a-f-]{36}:)?project:(none|[0-9a-f-]{36})$/i.test(scopeId) || !rawScope || typeof rawScope !== 'object' || Array.isArray(rawScope)) continue;
       const candidate = rawScope as Partial<DeviceWorkspaceScope>;
       const openSessionIds = ids(candidate.openSessionIds);
       const views: Record<string, DeviceViewState> = {};

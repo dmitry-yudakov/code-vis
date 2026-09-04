@@ -10,8 +10,7 @@ Updated 2026-09-04. When a story ships, change the line that names it; each stor
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** nothing.
-- **Next:** a second execution machine — a machine registry and remote sessions in one Arena.
-- **Then:** spatial surfaces and the rest of
+- **Next:** spatial surfaces and the rest of
   [vision.md's sequence](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
@@ -27,6 +26,12 @@ npm run dev        # Next.js dev server on 3023 (Turbopack, output in .next/dev)
 npm start          # production server on 3023, after npm run build
 npm run start:remote # paired personal-device HTTPS server, after npm run build
 npm run device:pair # issue a ten-minute, single-use pairing code
+npm run machine:pair # issue a ten-minute, single-use executor pairing code
+npm run machine:attach -- ORIGIN CODE # attach an executor from the home machine
+npm run machine:list # list attached executors
+npm run machine:detach -- MACHINE_ID # detach one executor
+npm run machine:peers # list homes authorized by this executor
+npm run machine:revoke -- HOME_MACHINE_ID # revoke one home on this executor
 npm run build      # production build (Turbopack)
 npm run lint       # strict TypeScript check (tsc --noEmit) — there is no ESLint/Biome setup
 npm test           # Vitest suite, offline, with fake Claude/Codex executables
@@ -63,6 +68,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/server/storage/` | Project/session store, durable server records, per-run temp attachments |
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
+| `src/server/machines/` | Machine pairing, registry, snapshot collection, and allowlisted gateway |
 | `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
 | `test/`, `e2e/` | Vitest suite and Playwright suite |
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ArenaSessionSummary, ArenaSnapshot, RunDiscovery } from '@/shared/types';
+import type { ArenaMachineSnapshot, ArenaSnapshot, RunDiscovery } from '@/shared/types';
 import {
   acknowledgeAttention, DEVICE_ARENA_STORAGE_KEY, EMPTY_DEVICE_ARENA_STATE,
   parseDeviceArenaState, type DeviceArenaState,
@@ -11,9 +11,7 @@ const EMPTY_DISCOVERY: RunDiscovery = { active: [], recent: [] };
 const POLL_INTERVAL_MS = 2_000;
 
 export function useArena() {
-  const [sessions, setSessions] = useState<ArenaSessionSummary[]>([]);
-  const [archivedSessions, setArchivedSessions] = useState<ArenaSessionSummary[]>([]);
-  const [discovery, setDiscovery] = useState<RunDiscovery>(EMPTY_DISCOVERY);
+  const [machines, setMachines] = useState<ArenaMachineSnapshot[]>([]);
   const [refreshError, setRefreshError] = useState<string>();
   const [deviceState, setDeviceState] = useState<DeviceArenaState>(EMPTY_DEVICE_ARENA_STATE);
   const [deviceReady, setDeviceReady] = useState(false);
@@ -48,9 +46,7 @@ export function useArena() {
       const data = await response.json().catch(() => ({})) as ArenaSnapshot & { error?: string };
       if (!response.ok) throw new Error(data.error || 'Could not refresh the Arena.');
       if (!mounted.current) return;
-      setSessions(data.sessions || []);
-      setArchivedSessions(data.archivedSessions || []);
-      setDiscovery({ active: data.runs?.active || [], recent: data.runs?.recent || [] });
+      setMachines(data.machines || []);
       setRefreshError(undefined);
     } catch (error) {
       if (mounted.current) setRefreshError(error instanceof Error ? error.message : 'Could not refresh the Arena.');
@@ -69,7 +65,19 @@ export function useArena() {
     setDeviceState((current) => acknowledgeAttention(current, itemIds));
   }, []);
 
+  const sessions = machines.flatMap((entry) => entry.sessions.map((session) => ({
+    ...session, machineId: entry.machine.id,
+  })));
+  const archivedSessions = machines.flatMap((entry) => entry.archivedSessions.map((session) => ({
+    ...session, machineId: entry.machine.id,
+  })));
+  const discovery: RunDiscovery = {
+    active: machines.flatMap((entry) => entry.runs.active.map((run) => ({ ...run, machineId: entry.machine.id }))),
+    recent: machines.flatMap((entry) => entry.runs.recent.map((run) => ({ ...run, machineId: entry.machine.id }))),
+  };
+
   return {
+    machines,
     sessions,
     archivedSessions,
     discovery,

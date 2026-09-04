@@ -25,7 +25,13 @@ route domain operations (src/app/api/**)
    ├── src/server/repository   checkout discovery, fixed read-only git reads, bounded context files
    ├── src/server/storage      durable projects/sessions, writer lock, per-run temp attachments
    ├── src/server/runs         bounded scheduler, checkout locks, run registry, permission brokers
-   └── src/server/agents       provider policy → claude / codex app-server child
+   ├── src/server/agents       provider policy → claude / codex app-server child
+   └── src/server/machines     bounded registry + allowlisted same-origin gateway
+              │               opaque bearer over separately trusted HTTPS
+              ▼
+       attached CodeAI executor route handlers (never its transitive registry)
+              │
+              └── its own storage, repository, scheduler, policy, and provider process
                                      │
                                      ▼
                           local agent CLI, user's own login
@@ -46,11 +52,13 @@ capability.
 | Provider session ids and transcript cursors | Private fields in the host store |
 | Projects, session membership, repository bindings | Host store |
 | Arena session summaries and run attention | Derived server snapshots |
+| Attached executor identity, credential, and cached Arena projection | Home machine registry |
 | Arena finished-item read markers | Versioned browser device state |
 | Checkout discovery and opaque checkout ids | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
 | Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
 | Pairing challenges and device credential digests | Separate host device-auth record |
+| Machine challenge and inbound credential digests | Separate executor machine-auth record |
 
 The browser can name a supported mode and nothing else. An unknown or unsupported mode is a 400.
 This is why the client never sends flags, prompts-with-tools, or paths outside the selected
@@ -71,17 +79,20 @@ does not persist conversation content. `AppShell` lists snapshots by project (or
 annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
 revisions return 409 and trigger a refetch instead of silently replacing another client's work.
 
-The Arena polls one bounded `GET /api/arena` projection across all projects. It carries separate
-active and archived card summaries, safe pending-permission details, and brief terminal run
-outcomes, never full transcripts or private provider-session handles. The browser derives card and
-Inbox presentation from that snapshot, keeps the last good response on refresh failure, and stores
-only bounded finished-item read ids under `code-ai:device:v1:arena`. Live permission obligations
-cannot be dismissed locally. Revisioned archive/restore routes reject every live run reservation,
+The Arena polls one bounded `GET /api/arena` projection containing the local machine and every
+explicitly attached executor. Remote projections are fetched concurrently with a 1.5-second
+timeout. They carry separate active and archived card summaries, safe pending-permission details,
+and brief terminal run outcomes, never full transcripts or private provider-session handles. A
+validated projection is cached in the home registry; failure produces cached Offline cards with
+live runs and actions removed. The browser derives cross-machine card and Inbox presentation,
+stores only bounded finished-item read ids under `code-ai:device:v1:arena`, and cannot dismiss a
+live permission locally. Revisioned archive/restore routes reject every live run reservation,
 including the pre-activation interval hidden from normal discovery.
 
-The selected checkout preference uses `code-ai:device:v1:active-checkout`; focus, next recipient,
-mode, panels, viewport, and drafts remain React state. Legacy `code-ai:web2:v1:*` conversation keys
-are untouched and unread.
+The selected checkout preference and loose-session workspace scopes are machine-qualified under
+the `code-ai:device:v1:*` records; focus, next recipient, mode, panels, viewport, and drafts remain
+React state. Canonical project and session records do not gain a home-machine routing field. Legacy
+`code-ai:web2:v1:*` conversation keys are untouched and unread.
 
 In paired mode, `DeviceAccessGate` checks the bounded `/api/auth/status` bootstrap route before it
 mounts `AppShell`, preventing catalog and Arena polls from starting on an unpaired browser. The
@@ -111,6 +122,29 @@ Every private route handler calls the same durable authorization check before pa
 or touching repositories, sessions, providers, or the run registry. This includes read snapshots,
 NDJSON reattachment, new turns, cancellations, and permission decisions. Only bounded auth status
 and pairing-code exchange are unauthenticated; neither returns challenges, cookies, or digests.
+
+## Execution-machine trust boundary
+
+An executor uses the same explicit `paired` HTTPS listener, but machine authorization is separate
+from browser-device authorization. `machine:pair` creates a ten-minute, single-use challenge in
+`machine-auth-v1.json`. The pairing route accepts a bounded identity exchange only through the
+listener's internal TLS marker and returns a one-year opaque credential once; the executor stores
+only its salt and digest. Attached-machine credentials can authenticate the shared allowlist of
+executor domain routes without a browser `Origin`, but only through that verified transport;
+browser auth, the Arena aggregator, and another gateway stay personal-device-only.
+
+The home stores at most eight exact HTTPS origins and outbound credentials in
+`machine-registry-v1.json`. It fetches only `/api/machine/snapshot`; that projection cannot expose
+the executor's own attachments. Browser operations use `/api/machines/<id>/…`, whose gateway admits
+an explicit project/session/repository/run/stream/permission matrix, strips cookies, origins and
+authority-bearing response headers, rejects redirects, bounds buffered bodies, and streams NDJSON
+without buffering. The credential and origin stay server-side. Remote domain routes then resolve
+their own checkout, provider policy, capability set and scheduler exactly as a direct local call
+would.
+
+Both records are atomically replaced as `0600` beneath a `0700` data directory and malformed state
+fails closed. A clean home-side detach revokes the executor digest; executor-local `machine:peers`
+and `machine:revoke` cover a home that removed an attachment while the executor was unreachable.
 
 ## Host-owned session store
 
@@ -213,21 +247,25 @@ browser-only and produces the SVG. Annotations are vector marks held beside the 
 These are real and deliberate, and they bound what can be built next:
 
 - one queued or executing turn per session and per concrete provider session;
-- a bounded in-memory queue and 1–8 execution slots on this machine; no durable process/queue
+- a bounded in-memory queue and 1–8 execution slots on each machine; no durable process/queue
   recovery across a server restart;
-- one Arena across the machine plus one selected project, with several device-local tabbed session
-  views and one focused view;
+- one Arena across the home and up to eight direct attached executors, while the focused shell uses
+  one machine catalog and several machine-qualified device-local tabbed views;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows
   a device-selected binding while turns continue to use the primary binding;
 - paired personal devices see committed host content after refetch/reload, but there is no live
   multi-view synchronization or presence;
+- Offline executors retain only cached Arena cards, not transcripts/canvases or actionable run
+  state; sessions and projects are neither moved nor replicated between machines;
+- attachment is direct: there is no discovery, relay, NAT traversal, transitive federation, or
+  coordinator-owned continuity;
 - Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
-The direction past the current shell — sessions spread across execution machines — is in
-[vision.md](vision.md), with the record-level engineering
-notes in [multi-project-session-environment.md](multi-project-session-environment.md) and the names
-in [vocabulary.md](vocabulary.md).
+The direction past this direct home/executor topology — durable continuity and spatial surfaces —
+is in [vision.md](vision.md), with record-level engineering notes in
+[multi-project-session-environment.md](multi-project-session-environment.md) and the names in
+[vocabulary.md](vocabulary.md).
 
 ## Configuration
 

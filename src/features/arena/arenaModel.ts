@@ -1,12 +1,12 @@
 import type {
-  ArenaSessionSummary, DurableProject, RunDescriptor, RunDiscovery,
+  ArenaMachineSnapshot, ArenaSessionSummary, DurableProject, RunDescriptor, RunDiscovery,
 } from '@/shared/types';
 
 export const DEVICE_ARENA_STORAGE_KEY = 'code-ai:device:v1:arena';
 const MAX_ACKNOWLEDGED_ITEMS = 500;
 const SAFE_ATTENTION_ID = /^[^\u0000-\u001f]{1,240}$/;
 
-export type ArenaSessionState = 'idle' | 'running' | 'needs-you' | 'queued' | 'failed';
+export type ArenaSessionState = 'idle' | 'running' | 'needs-you' | 'queued' | 'failed' | 'offline';
 export type ArenaAttentionKind = 'permission' | 'failed' | 'completed';
 
 export interface DeviceArenaState {
@@ -41,6 +41,9 @@ export interface ArenaAttentionItem {
   runId?: string;
   requestId?: string;
   read: boolean;
+  machineId?: string;
+  machineLabel?: string;
+  machineOnline?: boolean;
 }
 
 export const EMPTY_DEVICE_ARENA_STATE: DeviceArenaState = { version: 1, acknowledgedIds: [] };
@@ -86,6 +89,7 @@ export function groupArenaSessions(
   projects: readonly DurableProject[],
   sessions: readonly ArenaSessionSummary[],
   discovery: RunDiscovery,
+  machineOnline = true,
 ): ArenaProjectGroup[] {
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const active = activeBySession(discovery);
@@ -105,8 +109,8 @@ export function groupArenaSessions(
     group.sessions.push({
       session,
       projectName,
-      state: arenaSessionState(session, run),
-      activity: arenaSessionActivity(session, run),
+      state: machineOnline ? arenaSessionState(session, run) : 'offline',
+      activity: machineOnline ? arenaSessionActivity(session, run) : 'Execution machine is offline',
       ...(run ? { run } : {}),
     });
     if (lifecycleAt(session) > group.updatedAt) group.updatedAt = lifecycleAt(session);
@@ -156,6 +160,7 @@ export function buildArenaInbox(
   sessions: readonly ArenaSessionSummary[],
   discovery: RunDiscovery,
   deviceState: DeviceArenaState,
+  machine?: { id: string; label: string; online: boolean },
 ): ArenaAttentionItem[] {
   const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const projectsById = new Map(projects.map((project) => [project.id, project.name]));
@@ -178,6 +183,7 @@ export function buildArenaInbox(
         runId: run.runId,
         requestId: permission.requestId,
         read: false,
+        ...(machine ? { machineId: machine.id, machineLabel: machine.label, machineOnline: machine.online } : {}),
       });
     }
   }
@@ -200,6 +206,7 @@ export function buildArenaInbox(
       createdAt: run.finishedAt || run.startedAt || run.enqueuedAt,
       runId: run.runId,
       read: acknowledged.has(id),
+      ...(machine ? { machineId: machine.id, machineLabel: machine.label, machineOnline: machine.online } : {}),
     });
   }
 
@@ -218,9 +225,35 @@ export function buildArenaInbox(
       reason: 'The last turn failed',
       createdAt: Date.parse(failure.createdAt) || Date.parse(session.updatedAt) || 0,
       read: acknowledged.has(id),
+      ...(machine ? { machineId: machine.id, machineLabel: machine.label, machineOnline: machine.online } : {}),
     });
   }
 
+  const priority: Record<ArenaAttentionKind, number> = { permission: 0, failed: 1, completed: 2 };
+  return items.sort((left, right) => (
+    priority[left.kind] - priority[right.kind] || right.createdAt - left.createdAt
+  ));
+}
+
+export function buildMultiMachineInbox(
+  machines: readonly ArenaMachineSnapshot[],
+  deviceState: DeviceArenaState,
+): ArenaAttentionItem[] {
+  const acknowledged = new Set(deviceState.acknowledgedIds);
+  const items = machines.flatMap((entry) => buildArenaInbox(
+    entry.projects,
+    entry.sessions,
+    entry.runs,
+    EMPTY_DEVICE_ARENA_STATE,
+    { id: entry.machine.id, label: entry.machine.label, online: entry.machine.state === 'online' },
+  ).map((item) => {
+    const id = `machine:${entry.machine.id}:${item.id}`;
+    // Preserve local read markers written before the Arena became machine-qualified.
+    const read = item.kind !== 'permission' && (
+      acknowledged.has(id) || (entry.machine.kind === 'local' && acknowledged.has(item.id))
+    );
+    return { ...item, id, read };
+  }));
   const priority: Record<ArenaAttentionKind, number> = { permission: 0, failed: 1, completed: 2 };
   return items.sort((left, right) => (
     priority[left.kind] - priority[right.kind] || right.createdAt - left.createdAt

@@ -4,12 +4,16 @@ import type {
 
 const ACTIVE_CHECKOUT_KEY = 'code-ai:device:v1:active-checkout';
 
-export function loadSelectedCheckoutId(storage: Storage = localStorage): string | undefined {
-  return storage.getItem(ACTIVE_CHECKOUT_KEY) || undefined;
+function activeCheckoutKey(machineId?: string): string {
+  return machineId ? `${ACTIVE_CHECKOUT_KEY}:machine:${machineId}` : ACTIVE_CHECKOUT_KEY;
 }
 
-export function saveSelectedCheckoutId(checkoutId: string, storage: Storage = localStorage): void {
-  storage.setItem(ACTIVE_CHECKOUT_KEY, checkoutId);
+export function loadSelectedCheckoutId(storage: Storage = localStorage, machineId?: string): string | undefined {
+  return storage.getItem(activeCheckoutKey(machineId)) || undefined;
+}
+
+export function saveSelectedCheckoutId(checkoutId: string, storage: Storage = localStorage, machineId?: string): void {
+  storage.setItem(activeCheckoutKey(machineId), checkoutId);
 }
 
 export function getArtifacts(session: Pick<SessionSnapshot, 'messages'>): DiagramArtifact[] {
@@ -77,6 +81,7 @@ export function hydrateSession(
 export function serializeSessionExport(session: SessionSnapshot, exportedAt = new Date().toISOString()) {
   const participantById = new Map(session.participants.map((participant) => [participant.id, participant]));
   const {
+    machineId: _machineId,
     addressedAgentId: _addressedAgentId,
     activeDiagramId: _activeDiagramId,
     previousDiagramId: _previousDiagramId,

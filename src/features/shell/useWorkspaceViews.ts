@@ -17,8 +17,8 @@ import {
   type DeviceWorkspace,
 } from './workspaceViews';
 
-export function useWorkspaceViews(projectId?: string) {
-  const scopeId = workspaceScopeKey(projectId);
+export function useWorkspaceViews(projectId?: string, machineId?: string) {
+  const scopeId = workspaceScopeKey(projectId, machineId);
   const [workspace, setWorkspace] = useState<DeviceWorkspace>(EMPTY_DEVICE_WORKSPACE);
   const [ready, setReady] = useState(false);
   const workspaceRef = useRef(workspace);
@@ -59,8 +59,8 @@ export function useWorkspaceViews(projectId?: string) {
   const open = useCallback((sessionId: string) => {
     commit((current) => openWorkspaceView(current, scopeId, sessionId));
   }, [commit, scopeId]);
-  const openInProject = useCallback((targetProjectId: string | undefined, sessionId: string, update?: (current: DeviceViewState) => DeviceViewState) => {
-    const targetScopeId = workspaceScopeKey(targetProjectId);
+  const openInProject = useCallback((targetProjectId: string | undefined, sessionId: string, update?: (current: DeviceViewState) => DeviceViewState, targetMachineId?: string) => {
+    const targetScopeId = workspaceScopeKey(targetProjectId, targetMachineId);
     commit((current) => {
       const opened = openWorkspaceView(current, targetScopeId, sessionId);
       return update ? updateWorkspaceView(opened, targetScopeId, sessionId, update) : opened;
@@ -69,8 +69,8 @@ export function useWorkspaceViews(projectId?: string) {
   const close = useCallback((sessionId: string) => {
     commit((current) => closeWorkspaceView(current, scopeId, sessionId));
   }, [commit, scopeId]);
-  const closeInProject = useCallback((targetProjectId: string | undefined, sessionId: string) => {
-    commit((current) => closeWorkspaceView(current, workspaceScopeKey(targetProjectId), sessionId));
+  const closeInProject = useCallback((targetProjectId: string | undefined, sessionId: string, targetMachineId?: string) => {
+    commit((current) => closeWorkspaceView(current, workspaceScopeKey(targetProjectId, targetMachineId), sessionId));
   }, [commit]);
   const ensure = useCallback((sessionId: string) => {
     commit((current) => ensureWorkspaceView(current, scopeId, sessionId));

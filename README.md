@@ -43,6 +43,12 @@ npm run dev       # Next.js development server on 3023
 npm start         # production server on 3023, after npm run build
 npm run start:remote # paired personal-device HTTPS server, after npm run build
 npm run device:pair # print a ten-minute, single-use personal-device pairing code
+npm run machine:pair # print a ten-minute, single-use execution-machine pairing code
+npm run machine:attach -- https://executor.example:3023 CODE # attach from the home machine
+npm run machine:list # list attached executors and their last-seen time
+npm run machine:detach -- MACHINE_ID # detach and revoke an executor credential
+npm run machine:peers # on an executor, list authorized home machines
+npm run machine:revoke -- HOME_MACHINE_ID # on an executor, revoke a home machine
 npm test          # offline suite with fake Claude and Codex executables
 npm run test:watch # the same suite in watch mode
 npm run lint      # strict TypeScript check
@@ -116,8 +122,56 @@ summaries, revoke another device, or sign out this one. Revocation is checked on
 
 Paired mode protects every repository, session, Arena, run, stream, turn, cancellation, and
 permission endpoint. It rejects ordinary `npm start`, HTTP, the wrong host, cross-origin mutations,
-and missing or revoked credentials before domain work. It is a one-person, one-home-machine LAN or
-private-network topology—not an Internet hosting, team-account, relay, or second-executor model.
+and missing or revoked credentials before domain work. It is a one-person LAN or private-network
+topology—not Internet hosting, a team account, or a relay.
+
+## Execution machines
+
+One home machine can attach up to eight other CodeAI executors and show all of their sessions in
+one Arena. Each installation keeps its own projects, sessions, repositories, provider login, and
+per-machine run scheduler. The browser talks only to the home origin; that server polls and proxies
+explicitly allowed operations to the executor that owns the session.
+
+Use distinct `CODEAI_DATA_DIR` values. Run the executor in paired mode at an exact, trusted HTTPS
+origin as described above; the home may stay in local mode when its browser is local, or use paired
+mode for personal-device access. On the executor, issue a single-use code:
+
+```sh
+npm run machine:pair
+```
+
+On the home machine, exchange it for an attachment using the origin printed by that command:
+
+```sh
+npm run machine:attach -- https://codeai-laptop.example:3023 ABCD-EFGH-JKLM-NPQR
+npm run machine:list
+```
+
+The home Node.js process must trust the executor's certificate. With a private CA, install its root
+in the operating-system trust store or launch the attach command and home server with
+`NODE_EXTRA_CA_CERTS=/absolute/path/to/rootCA.pem`. Do not bypass TLS verification. Both servers
+must remain reachable at their configured origins; attachment does not add discovery, NAT
+traversal, or a relay.
+
+The executor stores only a salted digest in `CODEAI_DATA_DIR/machine-auth-v1.json`. The home stores
+the opaque outbound credential and the last valid bounded Arena snapshot in
+`CODEAI_DATA_DIR/machine-registry-v1.json`; both records are atomically written as `0600`, so the
+home data directory and backups are security-sensitive. Credentials and executor origins never
+enter browser state or API responses.
+
+If an executor sleeps, its cached cards remain visible as **Offline** with live actions disabled;
+full transcript/canvas reads require it to reconnect. The next successful Arena poll restores it
+without re-pairing. Detach by id from the home machine:
+
+```sh
+npm run machine:detach -- 01234567-89ab-4def-8123-456789abcdef
+```
+
+When reachable, detach also revokes the credential on the executor. If it is offline, the local
+attachment is still removed and the remote credential expires automatically; after bringing the
+executor back, use `npm run machine:peers` and `npm run machine:revoke -- <home-machine-id>` there
+before attaching again. Attachments are direct and non-transitive, and sessions are not moved or
+replicated between machines.
 
 ### Upgrading from the `web2/` layout
 
@@ -157,17 +211,20 @@ The workspace lives at `/`; the Arena's canonical destinations are `/arena` for 
 refresh, bookmarks, and browser Back/Forward preserve the top-level destination without encoding
 device-local tabs, drafts, or panel state in the URL.
 
-The header **Arena** control opens a machine-wide overview of active sessions, grouped by project.
+The header **Arena** control opens an overview of active sessions, grouped first by execution
+machine and then by project.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
 latest activity. An inactive session can be archived from its card and later restored intact from
 the **Archived** view; a session with a reserved, queued, executing, or permission-blocked turn
 cannot be archived. Use **New session** there to choose a project, provider, and initial mode before
 opening an empty session; creation never sends a prompt automatically.
 
-The header **Inbox** follows you into every session. It puts live permission requests first, then
+The header **Inbox** follows you into every session and aggregates all online attached machines. It
+puts live permission requests first, then
 failed and completed turns, and lets you answer a background session's permission without opening
-it. Finished-item read markers are bounded device-only state. The Arena polls a compact host
-summary; a failed refresh leaves the last good overview usable.
+it. Finished-item read markers are bounded device-only state. The Arena polls compact, bounded
+executor summaries in parallel; a failed remote refresh leaves its last good cards visible as
+Offline, without claiming that cached run or permission state is live.
 
 ## Participants, roles, and manual handoffs
 
@@ -190,7 +247,7 @@ implemented yet.
 New sessions default to **Plan** because their initial participant is the `coder` preset. Arena
 creation may set another supported initial mode as device-local state before the empty session opens.
 
-Independent sessions can execute at the same time. The machine runs two eligible turns by default
+Independent sessions can execute at the same time. Each machine runs two eligible turns by default
 and visibly queues additional work; `CODEAI_MAX_CONCURRENT_RUNS` sets a limit from 1–8. Ask and
 Plan turns may share a checkout, while Agent takes an exclusive checkout execution lock and keeps
 its slot while an approval is pending. Every tab owns its own status, preview, activity,

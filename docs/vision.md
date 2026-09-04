@@ -113,9 +113,9 @@ laptop and a desktop hold two checkouts of one repository, and the product must 
 
 ## Machines and devices
 
-**Work happens on a machine; you watch from a device.** Today those are fused — one Next.js process
-on `localhost` is both the executor and the only screen. Separating them is what makes the rest of
-the vision possible:
+**Work happens on a machine; you watch from a device.** The direct home topology now separates
+them: authenticated personal devices use one home origin, and that home can attach explicit CodeAI
+executors. This is the foundation for the broader shape:
 
 - one person has several machines (laptop, desktop, later a cloud sandbox) and several devices
   (browsers, a tablet, a headset);
@@ -123,7 +123,8 @@ the vision possible:
 - concurrency is a property of a **machine**, not of a person — a cloud sandbox and a laptop do not
   share a limit;
 - an agent turn runs on one machine and may only act on that machine's checkouts;
-- a session whose machine is asleep is *Offline*, not broken: its transcript and canvas still read.
+- a session whose machine is asleep is *Offline*, not broken. Today its cached Arena card remains;
+  durable offline transcript and canvas reads belong to coordinator continuity.
 
 The step ladder is: one machine that owns the records → your own devices authenticated to it →
 a second execution machine → a coordinator that no single device owns. The engineering shape of
@@ -215,11 +216,13 @@ Roughly in dependency order; the engineering detail and current status of each l
 7. **Your own devices** — *shipped.* Authenticated pairing to one home machine over explicit HTTPS;
    the Arena on a tablet or headset
    ([Story 41](../stories/STORY-20260904-authenticated-devices.md)).
-8. **A second machine** — a machine registry, remote sessions listed and streamed in one arena.
+8. **A second machine** — *shipped.* A bounded registry, cached Offline cards, and remote sessions
+   listed, opened, and streamed through one Arena
+   ([Story 42](../stories/STORY-20260904-second-execution-machine.md)).
 9. **Spatial surfaces** — desktop 3D first, then WebXR.
 10. **Cloud execution** — sandboxes, subscription-in-container, joining from anywhere.
 
-Steps 1–4 shipped in August 2026 and steps 5–7 in September 2026. From step 8 on this is direction,
+Steps 1–4 shipped in August 2026 and steps 5–8 in September 2026. From step 9 on this is direction,
 not a plan.
 
 The arena came fourth of the four near-term steps rather than first, for two reasons. It groups
@@ -237,11 +240,11 @@ rename before step 3, so every story after it is written once in the settled nou
 ## Not now
 
 - Real-time multi-writer collaboration inside one session.
-- A coordinator service, sandboxing, or any inbound network exposure.
+- A coordinator service, sandboxing, Internet exposure, relay, or automatic NAT traversal.
 - Portable repository identity across machines (the checkout/identity split is prepared, not built).
 - Autonomous apply: a change is previewed and verified before it is written.
-- Anything that makes the single-machine, single-person product worse in order to be ready for the
-  multi-machine one.
+- Anything that makes the direct, single-person product worse in order to prepare for coordinator
+  or multi-person operation.
 
 ---
 

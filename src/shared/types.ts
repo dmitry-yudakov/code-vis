@@ -141,6 +141,25 @@ export interface PairedDeviceSummary {
   current: boolean;
 }
 
+export type MachineConnectionState = 'online' | 'offline';
+
+export interface MachineIdentity {
+  id: string;
+  label: string;
+}
+
+export interface ArenaMachineIdentity extends MachineIdentity {
+  kind: 'local' | 'remote';
+  state: MachineConnectionState;
+  lastSeenAt?: string;
+}
+
+/** Public summary of an executor that has authenticated to this machine. */
+export interface AttachedMachineSummary extends MachineIdentity {
+  pairedAt: string;
+  expiresAt: string;
+}
+
 export type DrawingTool = 'pointer' | 'pan' | 'pen' | 'rectangle' | 'arrow' | 'text' | 'eraser';
 export type Point = { x: number; y: number; pressure?: number };
 
@@ -291,6 +310,8 @@ export interface PublicSession {
 
 /** Bounded host snapshot for the cross-project Arena; never includes transcripts or private handles. */
 export interface ArenaSessionSummary {
+  /** Added by the Arena client when flattening machine projections; never stored canonically. */
+  machineId?: string;
   id: string;
   revision: number;
   title: string;
@@ -311,6 +332,8 @@ export interface ArenaSessionSummary {
  * as session content and can be reconstructed after a refetch.
  */
 export interface SessionSnapshot extends PublicSession {
+  /** Executor selected by this browser view; never persisted in the canonical session. */
+  machineId?: string;
   /** Recipient selected for the next turn. Falls back to `primaryAgentId`. */
   addressedAgentId?: string;
   /** Points at a diagram artifact or a sketch — both share one canvas id space. */
@@ -381,6 +404,8 @@ export interface RunPermissionSummary {
 export type RunOutcome = 'completed' | 'failed' | 'cancelled';
 
 export interface RunDescriptor {
+  /** Added by the Arena client when flattening machine projections; never stored by a run registry. */
+  machineId?: string;
   runId: string;
   sessionId: string;
   participantId: string;
@@ -405,9 +430,24 @@ export interface RunDiscovery {
 }
 
 export interface ArenaSnapshot {
+  machines: ArenaMachineSnapshot[];
+}
+
+/** A machine-owned projection. It never includes transcripts, provider handles, absolute paths, or credentials. */
+export interface ExecutorSnapshot {
+  machine: MachineIdentity;
+  projects: DurableProject[];
+  checkouts: CheckoutSummary[];
+  recentCheckoutIds: string[];
+  providers: Record<AgentProvider, ProviderHealth>;
   sessions: ArenaSessionSummary[];
   archivedSessions: ArenaSessionSummary[];
   runs: RunDiscovery;
+}
+
+/** One executor as observed by the home Arena. Offline entries carry the last valid cached data. */
+export interface ArenaMachineSnapshot extends Omit<ExecutorSnapshot, 'machine'> {
+  machine: ArenaMachineIdentity;
 }
 
 export interface AgentMessageRequest {
