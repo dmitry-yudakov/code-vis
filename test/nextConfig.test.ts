@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAllowedDevOrigins } from '../next.config';
+import nextConfig, { resolveAllowedDevOrigins, XR_PERMISSIONS_POLICY } from '../next.config';
 
 describe('Next.js development origins', () => {
   it('keeps additional development origins opt-in', () => {
@@ -22,5 +22,15 @@ describe('Next.js development origins', () => {
 
   it('does not fail development config loading for an invalid optional public origin', () => {
     expect(resolveAllowedDevOrigins({ CODEAI_PUBLIC_ORIGIN: 'not a URL' })).toBeUndefined();
+  });
+
+  it('grants XR spatial tracking only to the same origin on every production response', async () => {
+    const rules = await nextConfig.headers!();
+    const policy = rules.flatMap((rule) => rule.headers)
+      .find((header) => header.key.toLowerCase() === 'permissions-policy');
+    expect(policy?.value).toBe(XR_PERMISSIONS_POLICY);
+    expect(policy?.value).toBe('xr-spatial-tracking=(self)');
+    expect(policy?.value).not.toContain('*');
+    expect(policy?.value).not.toMatch(/https?:/);
   });
 });

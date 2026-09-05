@@ -69,6 +69,7 @@ async function main() {
     }
     request.headers['x-codeai-internal-transport'] = transportMarker;
     response.setHeader('Strict-Transport-Security', 'max-age=31536000');
+    response.setHeader('Permissions-Policy', 'xr-spatial-tracking=(self)');
     void handle(request, response);
   });
   server.on('error', (error) => {

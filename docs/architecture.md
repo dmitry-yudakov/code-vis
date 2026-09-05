@@ -48,7 +48,7 @@ capability.
 | Concern | Owner |
 |---|---|
 | Transcript, Mermaid artifacts, marks, pins, roster | Host session store |
-| Focused canvas, next recipient/mode, panels, drafts, Flat/Spatial layout | Browser memory |
+| Focused canvas, next recipient/mode, panels, drafts, Flat/Spatial layout, transient XR state | Browser memory |
 | Provider session ids and transcript cursors | Private fields in the host store |
 | Projects, session membership, repository bindings | Host store |
 | Arena session summaries and run attention | Derived server snapshots |
@@ -93,7 +93,9 @@ The selected checkout preference and loose-session workspace scopes are machine-
 the `code-ai:device:v1:*` records; focus, next recipient, mode, panels, flat viewport, Spatial
 surface/camera/placements, and drafts remain React state. Spatial coordinates are finite, clamped,
 count-bounded, and reconciled against live canvas ids. Canonical project and session records do not
-gain layout or a home-machine routing field. Legacy
+gain layout or a home-machine routing field. An immersive session, head/controller poses, temporary
+diagram scale, and transcript page are still more ephemeral: they are never written to
+`localStorage`, restored after reload, or added to a wire record. Legacy
 `code-ai:web2:v1:*` conversation keys are untouched and unread.
 
 In paired mode, `DeviceAccessGate` checks the bounded `/api/auth/status` bootstrap route before it
@@ -254,6 +256,23 @@ bounded to sixteen million base-level texels, with mipmaps disabled and labelled
 smaller results. A module-owned ledger disposes object URLs, textures, materials, and geometry on
 replacement or unmount. `frameloop="demand"` keeps the settled room idle. None of these derived
 pixels or layouts enters the session export or the stable light attachment renderer.
+
+Inside a non-empty Spatial view, `SpatialRoom` performs the asynchronous secure-context,
+authorization, and `immersive-vr` capability probe. Only a successful result mounts the separately
+dynamic `ImmersiveBridge` chunk and exposes explicit user-gesture entry. The bridge uses one
+`@react-three/xr` store with controller ray pointers, requests `local-floor` with a `local` fallback,
+and replaces the desktop scene during the session. It projects only the active canonical canvas,
+one bounded read-only transcript texture, and small labelled controls. Generated XR UI has a
+4,194,304-pixel aggregate cap, 2,048-pixel edge cap, disabled mipmaps, a separate resource ledger,
+and frame-time/live-resource instrumentation. System end, visibility loss, controller loss,
+session/view teardown, WebGL loss, rejection, or renderer failure ends that layer and restores the
+unchanged desktop view; XR pose, scale, and paging are not persisted.
+
+The response policy `xr-spatial-tracking=(self)` grants only the same origin. On a personal device,
+the shell passes immersive authorization only after the existing pairing and secure-transport gate,
+so XR adds no route, credential, or access around the home server. The paired trusted-HTTPS
+`start:remote` origin is the supported headset transport; an allowed development hostname over HTTP
+does not qualify.
 
 ## Current constraints
 

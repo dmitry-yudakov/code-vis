@@ -6,6 +6,11 @@ export interface SpatialRoomProps {
   session: SessionSnapshot;
   theme: ThemeName;
   activeId: string;
+  immersiveAuthorized: boolean;
+  preview: string;
+  runStatus: string;
+  pendingApprovals: number;
+  unread: number;
   spatial?: SpatialViewState;
   onSelect(id: string): void;
   onOpenFlat(): void;

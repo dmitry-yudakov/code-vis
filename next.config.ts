@@ -37,6 +37,7 @@ export function resolveAllowedDevOrigins(environment: DevOriginEnvironment): str
 }
 
 const allowedDevOrigins = resolveAllowedDevOrigins(process.env);
+export const XR_PERMISSIONS_POLICY = 'xr-spatial-tracking=(self)';
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -46,6 +47,12 @@ const nextConfig: NextConfig = {
   // Neutral name first; the former web2 name stays accepted for one migration.
   distDir: process.env.CODEAI_DIST_DIR || process.env.CODEAI_WEB2_DIST_DIR || '.next',
   ...(allowedDevOrigins ? { allowedDevOrigins } : {}),
+  async headers() {
+    return [{
+      source: '/:path*',
+      headers: [{ key: 'Permissions-Policy', value: XR_PERMISSIONS_POLICY }],
+    }];
+  },
 };
 
 export default nextConfig;

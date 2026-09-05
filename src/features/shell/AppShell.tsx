@@ -36,6 +36,7 @@ import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { DeviceMenu } from '@/features/devices/DeviceMenu';
+import { useDeviceAccess } from '@/features/devices/DeviceAccess';
 import { machineApiBase, machineApiPath } from '@/features/machines/routes';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { useTheme, type ThemePreference } from './useTheme';
@@ -80,6 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const arenaSection = arenaSectionForPathname(pathname);
   const arenaOpen = arenaSection !== undefined;
+  const { status: deviceAccess } = useDeviceAccess();
   const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
   const [health, setHealth] = useState<Health>();
   const [projects, setProjects] = useState<DurableProject[]>([]);
@@ -198,6 +200,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const toolActivity = focusedRun?.toolActivity || [];
   const permissions = focusedRun?.permissions || [];
   const runFailed = focusedRun?.runFailed || false;
+  const immersiveRunStatus = permissions.length
+    ? `Waiting for approval · ${status}`
+    : sessionRunning
+      ? status
+      : focusedRunOutcome
+        ? `Failed · ${focusedRunOutcome.message}`
+        : session?.messages.at(-1)?.role === 'assistant'
+          ? 'Completed'
+          : 'Ready';
   const decidingPermission = focusedRun?.decidingPermission;
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const orderedCheckouts = useMemo(() => {
@@ -1615,6 +1626,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             pendingApprovals={sessionRunning ? permissions.length : 0}
             running={sessionRunning}
             runFailed={sessionRunning && runFailed}
+            preview={preview}
+            runStatus={immersiveRunStatus}
+            immersiveAuthorized={deviceAccess.authenticated && deviceAccess.transportSecure}
             toolActivity={sessionRunning ? toolActivity : []}
             focusMode={panelLayout.focusMode}
             canvasView={session.activeDiagramId ? view?.canvasViews[session.activeDiagramId] : undefined}

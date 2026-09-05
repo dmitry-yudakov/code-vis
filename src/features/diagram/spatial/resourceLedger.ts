@@ -1,3 +1,5 @@
+import { MAX_IMMERSIVE_TEXTURE_PIXELS, type ImmersiveInstrumentation } from './immersiveTypes';
+
 export interface SpatialInstrumentation {
   moduleEvaluations: number;
   frames: number;
@@ -28,6 +30,15 @@ const instrumentation: SpatialInstrumentation = {
   logicalTexturePixels: 0,
 };
 
+const immersiveInstrumentation: ImmersiveInstrumentation = {
+  sessionActive: false,
+  frames: 0,
+  logicalTexturePixels: 0,
+  liveResources: 0,
+};
+const immersiveFrameTimes: number[] = [];
+const MAX_FRAME_TIME_SAMPLES = 9_000;
+
 declare global {
   interface Window {
     __CODEAI_SPATIAL_INSTRUMENTATION__?: SpatialInstrumentation;
@@ -35,7 +46,10 @@ declare global {
 }
 
 function publish(): void {
-  if (typeof window !== 'undefined') window.__CODEAI_SPATIAL_INSTRUMENTATION__ = instrumentation;
+  if (typeof window !== 'undefined') {
+    window.__CODEAI_SPATIAL_INSTRUMENTATION__ = instrumentation;
+    window.__CODEAI_IMMERSIVE_INSTRUMENTATION__ = immersiveInstrumentation;
+  }
 }
 
 publish();
@@ -49,6 +63,43 @@ export function recordSpatialFrame(): void {
   publish();
 }
 
+export function getImmersiveInstrumentation(): Readonly<ImmersiveInstrumentation> {
+  return immersiveInstrumentation;
+}
+
+export function setImmersiveSessionActive(active: boolean): void {
+  if (immersiveInstrumentation.sessionActive === active) return;
+  immersiveInstrumentation.sessionActive = active;
+  if (active) {
+    immersiveInstrumentation.frames = 0;
+    immersiveInstrumentation.medianFrameMs = undefined;
+    immersiveInstrumentation.p95FrameMs = undefined;
+    immersiveFrameTimes.length = 0;
+  }
+  publish();
+}
+
+export function recordImmersiveFrame(frameMs: number): void {
+  if (!immersiveInstrumentation.sessionActive || !Number.isFinite(frameMs) || frameMs <= 0) return;
+  immersiveInstrumentation.frames += 1;
+  immersiveFrameTimes.push(frameMs);
+  if (immersiveFrameTimes.length > MAX_FRAME_TIME_SAMPLES) immersiveFrameTimes.shift();
+  if (immersiveInstrumentation.frames % 30 === 0) {
+    const sorted = [...immersiveFrameTimes].sort((left, right) => left - right);
+    immersiveInstrumentation.medianFrameMs = sorted[Math.floor((sorted.length - 1) * 0.5)];
+    immersiveInstrumentation.p95FrameMs = sorted[Math.floor((sorted.length - 1) * 0.95)];
+  }
+  publish();
+}
+
+type ResourceOwner = 'desktop' | 'immersive';
+
+function updateImmersiveResources(resources: number, pixels = 0): void {
+  immersiveInstrumentation.liveResources += resources;
+  immersiveInstrumentation.logicalTexturePixels += pixels;
+  publish();
+}
+
 export class SpatialResourceLedger {
   private disposed = false;
   private readonly textures = new Map<Disposable, number>();
@@ -56,15 +107,23 @@ export class SpatialResourceLedger {
   private readonly geometries = new Set<Disposable>();
   private readonly objectUrls = new Map<string, ImageResource | undefined>();
 
+  constructor(private readonly owner: ResourceOwner = 'desktop') {}
+
   trackTexture<T extends Disposable>(texture: T, pixels: number): T {
     if (this.disposed) {
       texture.dispose();
       return texture;
     }
     if (!this.textures.has(texture)) {
+      if (this.owner === 'immersive'
+        && immersiveInstrumentation.logicalTexturePixels + pixels > MAX_IMMERSIVE_TEXTURE_PIXELS) {
+        texture.dispose();
+        throw new Error('Immersive texture allocation exceeded the 4,194,304-pixel budget.');
+      }
       this.textures.set(texture, pixels);
       instrumentation.textures += 1;
       instrumentation.logicalTexturePixels += pixels;
+      if (this.owner === 'immersive') updateImmersiveResources(1, pixels);
       publish();
     }
     return texture;
@@ -86,6 +145,7 @@ export class SpatialResourceLedger {
     if (!this.objectUrls.has(url)) {
       this.objectUrls.set(url, image);
       instrumentation.objectUrls += 1;
+      if (this.owner === 'immersive') updateImmersiveResources(1);
       publish();
     }
     return url;
@@ -97,6 +157,7 @@ export class SpatialResourceLedger {
     this.objectUrls.delete(url);
     this.cleanupObjectUrl(url, image);
     instrumentation.objectUrls -= 1;
+    if (this.owner === 'immersive') updateImmersiveResources(-1);
     publish();
   }
 
@@ -105,18 +166,22 @@ export class SpatialResourceLedger {
     this.disposed = true;
     for (const [url, image] of this.objectUrls) this.cleanupObjectUrl(url, image);
     instrumentation.objectUrls -= this.objectUrls.size;
+    if (this.owner === 'immersive') updateImmersiveResources(-this.objectUrls.size);
     this.objectUrls.clear();
     for (const [texture, pixels] of this.textures) {
       texture.dispose();
       instrumentation.textures -= 1;
       instrumentation.logicalTexturePixels -= pixels;
+      if (this.owner === 'immersive') updateImmersiveResources(-1, -pixels);
     }
     this.textures.clear();
     for (const material of this.materials) material.dispose();
     instrumentation.materials -= this.materials.size;
+    if (this.owner === 'immersive') updateImmersiveResources(-this.materials.size);
     this.materials.clear();
     for (const geometry of this.geometries) geometry.dispose();
     instrumentation.geometries -= this.geometries.size;
+    if (this.owner === 'immersive') updateImmersiveResources(-this.geometries.size);
     this.geometries.clear();
     publish();
   }
@@ -133,6 +198,7 @@ export class SpatialResourceLedger {
     if (!resources.has(resource)) {
       resources.add(resource);
       instrumentation[key] += 1;
+      if (this.owner === 'immersive') updateImmersiveResources(1);
       publish();
     }
     return resource;

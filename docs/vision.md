@@ -219,14 +219,18 @@ Roughly in dependency order; the engineering detail and current status of each l
 8. **A second machine** — *shipped.* A bounded registry, cached Offline cards, and remote sessions
    listed, opened, and streamed through one Arena
    ([Story 42](../stories/STORY-20260904-second-execution-machine.md)).
-9. **Spatial surfaces** — *desktop 3D projection shipped.* A bounded room projects the same Mermaid
-   and sketch artifacts without adding a document format
-   ([Story 43](../stories/STORY-20260904-desktop-spatial-surface.md)); model-native 3D and WebXR
-   remain later slices.
+9. **Spatial surfaces** — *desktop 3D shipped; first immersive projection implemented, headset
+   acceptance pending.* A bounded room projects the same Mermaid and sketch artifacts without adding
+   a document format ([Story 43](../stories/STORY-20260904-desktop-spatial-surface.md)). Its WebXR
+   layer takes the active artifact and bounded live conversation into a paired Quest-class headset
+   without changing the canonical model
+   ([Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md)); model-native 3D remains a
+   later slice.
 10. **Cloud execution** — sandboxes, subscription-in-container, joining from anywhere.
 
-Steps 1–4 shipped in August 2026 and steps 5–9's desktop slice in September 2026. Model-native
-spatial work, WebXR, and step 10 remain direction, not a plan.
+Steps 1–4 shipped in August 2026 and steps 5–9's desktop slice in September 2026. Step 9's first
+WebXR layer is implemented with physical-headset acceptance still open. Model-native spatial work
+and step 10 remain direction, not a plan.
 
 The arena came fourth of the four near-term steps rather than first, for two reasons. It groups
 sessions **by project**, so building it before step 3 gives one flat list of everything; and its

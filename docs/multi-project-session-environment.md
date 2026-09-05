@@ -224,9 +224,12 @@ A pragmatic spatial rollout is:
 1. **Shipped in [Story 43](../stories/STORY-20260904-desktop-spatial-surface.md):** place the active
    and newest Mermaid/sketch canvases as bounded, current-theme SVG surfaces in a desktop 3D room.
    Layout stays device-owned and the surface does not invent graph entities.
-2. Render a supported subset—likely flowcharts first—as real spatial nodes, edges, and groups.
-3. Fall back to an SVG surface for unsupported diagram types or syntax.
-4. Expand the parser/layout vocabulary and later use it for a more beautiful, interactive 2D
+2. **Implemented in [Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md), with Quest
+   acceptance pending:** project the active SVG surface and a bounded live conversation into an
+   explicitly entered WebXR session over the paired trusted-HTTPS path.
+3. Render a supported subset—likely flowcharts first—as real spatial nodes, edges, and groups.
+4. Fall back to an SVG surface for unsupported diagram types or syntax.
+5. Expand the parser/layout vocabulary and later use it for a more beautiful, interactive 2D
    renderer as well.
 
 Stable Mermaid node IDs become important once annotations, selection, evidence, or spatial placement
@@ -253,7 +256,9 @@ the selected project, it keeps ordered open views and singular focus, while each
 The versioned device records now persist layout, selection, viewport, panels, modes, drafts, and
 unread counts in `localStorage`; losing them never loses a session. Canonical conversation,
 artifact, annotation, participant, project, and repository content remains in Story 26's host JSON.
-Cross-project views and durable workspace identity remain future work. Story 42 adds
+The immersive session, head/controller pose, temporary scale, and transcript page are intentionally
+not persisted; a headset reload always requires a new entry gesture. Cross-project views and durable
+workspace identity remain future work. Story 42 adds
 machine-qualified loose views and cached Offline Arena presentation, but not offline transcripts.
 
 ## Agent concurrency
@@ -373,8 +378,11 @@ resolved on the machine that executes it, never asserted by the device that requ
 11. **Desktop spatial renderer — shipped 2026-09-04 in
     [Story 43](../stories/STORY-20260904-desktop-spatial-surface.md):** project up to twelve session
     canvases into an R3F room with orbit/select/focus, bounded device placement, and SVG panels.
-12. **Immersive WebXR:** controller interaction, room-scale placement, performance limits, secure
-    headset access, and restoration of saved spatial views.
+12. **Immersive WebXR — implemented 2026-09-04 in
+    [Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md), Quest acceptance pending:**
+    paired-HTTPS headset entry, controller rays, a bounded active canvas and conversation, strict
+    resource limits, and restoration of the unchanged desktop view. Room-scale placement,
+    teleportation, and model-native geometry remain later work.
 13. **Cloud execution:** sandboxed machines running `claude`/`codex` or provider APIs, joinable from
     anywhere.
 

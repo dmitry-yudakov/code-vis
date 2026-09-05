@@ -9,8 +9,9 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 Updated 2026-09-04. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
-- **In flight:** nothing.
-- **Next:** model-native spatial depth, WebXR, and the rest of
+- **In flight:** [Story 44](stories/STORY-20260904-immersive-webxr-workspace.md) — implementation and
+  automated verification complete; Quest 3 acceptance is pending.
+- **Next:** model-native spatial depth and the rest of
   [vision.md's sequence](docs/vision.md#sequence).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for

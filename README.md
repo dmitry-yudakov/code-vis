@@ -1,11 +1,11 @@
 # CodeAI
 
 A local-first Next.js application for working on a repository through a persistent local-agent
-conversation and a canvas with Flat and desktop Spatial projections. Choose Claude Code or Codex as the first main agent, then
-add more provider/role participants to the same session. Conversation is the command/history
-channel, and once a diagram exists the canvas becomes the primary workspace. Each message runs in
-one of three modes — **Ask**, **Plan**, or **Agent** — subject to the selected provider's supported
-modes.
+conversation and a canvas with Flat, desktop Spatial, and immersive WebXR projections. Choose
+Claude Code or Codex as the first main agent, then add more provider/role participants to the same
+session. Conversation is the command/history channel, and once a diagram exists the canvas becomes
+the primary workspace. Each message runs in one of three modes — **Ask**, **Plan**, or **Agent** —
+subject to the selected provider's supported modes.
 
 **CodeAI** is the working product name until a naming decision replaces it. The superseded
 static-analysis server, React Flow client, and VS Code extension are archived under
@@ -136,6 +136,26 @@ Paired mode protects every repository, session, Arena, run, stream, turn, cancel
 permission endpoint. It rejects ordinary `npm start`, HTTP, the wrong host, cross-origin mutations,
 and missing or revoked credentials before domain work. It is a one-person LAN or private-network
 topology—not Internet hosting, a team account, or a relay.
+
+### Quest and immersive WebXR
+
+The supported headset path is a paired, exact `https://` `start:remote` origin whose certificate is
+trusted by the headset. In a Quest-class browser with immersive VR support, open a session that has
+a diagram or sketch, select **Spatial**, and use **Enter VR**. Plain LAN HTTP is not a WebXR secure
+context; `CODEAI_ALLOWED_DEV_ORIGINS` does not change that.
+
+The immersive workspace places the active marked canvas in front of the viewer and a bounded,
+read-only live conversation panel nearby. Controller rays operate Exit VR, previous/next canvas,
+diagram larger/smaller/reset, and older/newer conversation pages; a compatible thumbstick can page
+the conversation too. Run, unread/new-activity, and pending-approval status remain visible. Exit VR
+to compose, send, cancel, manage agents or attachments, or answer a permission request.
+
+XR entry is always a fresh user gesture. Head/controller pose, XR-only scale, and conversation page
+are never saved, while the underlying selection and desktop Spatial camera/placements remain
+unchanged. This first slice has no AR/passthrough, room boundary, walking/teleportation, hand
+tracking, or model-native graph geometry. A headset can view home-owned and proxied executor
+sessions through the same Arena because authentication and provider credentials remain at the home
+server boundary.
 
 ## Execution machines
 
@@ -424,8 +444,12 @@ newest canvases, up to twelve, in chronological order. It is a view-only compari
 select, focus, orbit, pan, dolly, or arrange panels there, then use **Open in Flat** to draw. Its
 camera, chosen surface, and bounded placements are disposable per-device view state; canonical
 Mermaid, sketches, and marks are unchanged. Unsupported WebGL and context loss return safely to
-Flat. This is an SVG-panel desktop projection, not the model-native 3D graph or WebXR surface
-described by the later roadmap stories.
+Flat. This remains an SVG-panel projection rather than the later model-native 3D graph.
+
+On an authorized secure browser with `immersive-vr` support, Spatial additionally exposes **Enter
+VR** and lazily loads the XR renderer. The headset receives only the active canvas texture, bounded
+conversation text, and labelled controls; it does not upload all twelve room panels. Unsupported,
+denied, interrupted, or failed XR entry leaves desktop Spatial and Flat available.
 
 **Start a sketch** opens a blank sheet with the same drawing tools — available before any diagram
 exists, so a drawing can be the very first thing in a conversation. A sketch has no Mermaid source:
