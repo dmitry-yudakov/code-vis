@@ -2,7 +2,7 @@
 
 **Status:** Active · **Owns:** the *depth* half of [the vision](../docs/vision.md) — the software
 model, lenses, arrangement, and the change loop, as specified in
-[software-model.md](../docs/software-model.md) · **Updated:** August 29, 2026 ·
+[software-model.md](../docs/software-model.md) · **Updated:** September 5, 2026 ·
 **Rewritten:** August 29, 2026, after the analyzer archive and the arena vision
 
 This is the plan of record for making CodeAI *understand* software, not just converse about it. The
@@ -107,7 +107,7 @@ stable even as the content is rescoped.
 | 10 | Saved views and notes | 9, (7 for durability) |
 | 11 | Model-as-tools MCP server, and agent write-back | 6, (7 amortizes it) |
 | 12 | 3D renderer inside the root app — react-three-fiber | 9 |
-| 13 | Immersive mode — WebXR on Quest, same root app | 12 |
+| 13 | Integrate the model-native renderer into the immersive workspace | 12, immersive shell (45) |
 | 14 | Change loop v1 — intent → agent → proposed overlay | 11, 17 |
 | 15 | Draw-over-diagram — sketch anchors | 14, 17, (12 for spatial input) |
 | 16 | Shareable views — the async half of the team surface | 10 |
@@ -125,7 +125,8 @@ graph LR
   S9 --> S10
   S9 --> S12[12 r3f 3D surface]
   S9 --> S17[17 plan preview]
-  S12 --> S13[13 WebXR Quest]
+  S12 --> S13[13 immersive model renderer]
+  S45[45 immersive application shell] --> S13
   S11 --> S14[14 change loop v1]
   S17 -.overlay rendering.-> S14
   S14 --> S15[15 sketch anchors]
@@ -183,24 +184,31 @@ it; a plan verifiable on the map before code exists.
 
 ### Phase C — Surfaces and memory (parallel; can start during Phase B)
 
-Everything here consumes model, lens, and arrangement output and touches no producer code.
+Everything here consumes model, lens, and arrangement output and touches no producer code. General
+VR workspace delivery is now owned by the
+[immersive workspace epic](EPIC-20260905-immersive-workspace.md), not gated on Phase C: Stories
+43–44 established artifact projections, and Stories 45–51 plan a complete session on Quest 3S with
+panels, real spatial Mermaid flowcharts, controllers, and voice. Story 52 adds the VR Arena later.
+Reserved Stories 12–13 below own the later **model-native** renderer and its immersive integration.
 
 - **Story 12 — 3D renderer (react-three-fiber).** A code-split spatial renderer inside the root
   application, rendering the same artifact the 2D canvas does: entities as nodes, regions as
   volumes, provenance as material (solid = static, translucent = suggested). Desktop browser first.
   The third dimension is budget for what the 2D map crowds — depth for layers, elevation for change
   overlays.
-- **Story 13 — Immersive mode (WebXR, Quest).** `@react-three/xr` as a further mode of the same
-  application, opened in the headset browser, no store app. Quest 2 performance is the design
-  constraint, and the mitigation is editorial: the same visibility discipline that makes a 2D map
-  readable makes a 3D one renderable. This is also where the arena's spatial form
-  ([vision.md step 9](../docs/vision.md#sequence)) gets its renderer.
+- **Story 13 — Model-native rendering in immersive VR.** Integrate Story 12's model, lenses,
+  arrangement, and provenance into the persistent application XR shell from Story 45. The initial
+  headset workflow, input, and Arena do not wait for this integration. Quest 3S is the confirmed
+  reference device for the workspace track; measure its combined-scene readability and performance
+  rather than imposing the earlier Quest 2 target or extrapolating from Quest 3 alone. Keep
+  visibility bounded without removing information from the canonical model.
 - **Story 10 — Saved views and notes.** A view = lens + scope + arrangement + viewport + notes,
   serialized; notes attach to entities, regions, or the view. Cheap because the arrangement is a spec
   rather than pixels. A restored view doubles as an agent context pack through Story 11's tools, and
   the viewport includes the 3D camera, so a saved view restores in the headset too.
 
-**Exit:** the map is bookmarkable and annotatable; the product demos in a headset.
+**Exit:** the model map is bookmarkable and annotatable, and its lenses/provenance work inside the
+immersive workspace. Full headset work-loop acceptance belongs to the immersive epic's Story 51.
 
 ### Phase D — Acting (the bidirectional loop)
 
@@ -227,7 +235,8 @@ Everything here consumes model, lens, and arrangement output and touches no prod
   problem and is deferred there too.
 - **Per-language static analyzers** beyond JS/TS — the agent is the breadth path.
 - **A native 2D diagram renderer** replacing Mermaid — allowed by principle 4, not planned.
-- **Voice input** — after sketch anchors prove the structured-intent path.
+- **Voice-first model commands** — after sketch anchors prove the structured-intent path. Ordinary
+  voice dictation/correction in the VR composer belongs to Story 47 and does not wait for anchors.
 
 ## Risks to watch
 
@@ -243,8 +252,8 @@ Everything here consumes model, lens, and arrangement output and touches no prod
    principle. Until the static floor lands, the rendering must lean visibly editorial.
 4. **MCP surface sprawl** (Story 11) — a few sharp tools beat a generic graph API nobody can prompt
    against.
-5. **Quest performance** (Story 13) — cap immersive mode to Quest 3-class devices before compromising
-   the model.
+5. **Quest performance** (Story 13) — validate the model scene on the workspace track's Quest 3S
+   reference, using bounded visible detail before compromising the canonical model.
 6. **Plan-preview anchoring is too noisy** (Story 17) — validation rejects nonexistent anchors, not
    wrong-but-existing ones. Ship suggested-only; if precision stays low it degrades to unanchored
    proposed nodes grouped by region, which is still a useful shared sketch.

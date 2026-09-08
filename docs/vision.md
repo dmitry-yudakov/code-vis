@@ -1,7 +1,7 @@
 # Vision — the arena
 
 **Status:** Main vision. Aspirational — this is where the product is going, not what exists today
-([architecture.md](architecture.md) is the current reality). · **Updated:** August 29, 2026
+([architecture.md](architecture.md) is the current reality). · **Updated:** September 5, 2026
 
 Its vocabulary is fixed in [vocabulary.md](vocabulary.md). Its two chapters are
 [software-model.md](software-model.md) (understanding and changing code visually) and
@@ -140,11 +140,30 @@ Each device keeps its own layout, and losing a layout never loses work.
 - **Web / desktop** — the arena as cards or a zoomable surface; a session as panels around a canvas.
 - **Tablet / phone** — mostly the arena and the Inbox: answer a permission, read what happened,
   redirect an agent. Touch-drawing on a canvas is a natural fit.
-- **VR / AR** — sessions arranged as tables, walls, or rooms, with diagrams rendered as real spatial
-  nodes and edges rather than flat images. Watching six agents work is a genuinely spatial problem,
-  and no adjacent tool has a credible spatial surface — which is why it is a differentiator rather
-  than a curiosity. Mermaid stays the canonical source; renderers derive what they need
+- **VR** — enter an immersive presentation of the whole application. Conversation, canvas,
+  repository evidence, navigation, and permission controls remain usable inside the headset, with
+  movable work panels and diagrams rendered as real spatial nodes and edges. Entry does not depend
+  on a non-empty canvas or selecting desktop Spatial. Mermaid stays the canonical source; renderers
+  derive what they need
   ([Mermaid across 2D and 3D](multi-project-session-environment.md#mermaid-across-2d-and-3d)).
+- **AR / passthrough — future option.** Explore the same work panels and spatial diagrams alongside
+  the physical surroundings. The user explicitly wants to retain this direction. A first feasibility
+  slice can be scoped separately from room-aware placement, persistent anchors, and occlusion;
+  the device support and usable interaction need validation before a release is planned.
+
+The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns this delivery.
+The user confirmed on September 5: **one fully usable session first, the multi-session Arena later**;
+**movable panels plus real 3D diagrams**; **Quest 3S with controllers and voice**. A physical keyboard
+is an optional convenience; hand tracking and a virtual keyboard may follow. The first milestone
+lets the user create/open a session, dictate and correct instructions, choose agents/modes,
+approve/deny/cancel, read diffs, explore a spatial diagram, and send annotated corrections without
+leaving VR. The second arranges several sessions around them with cross-session Inbox actions.
+AR/passthrough is retained as a future option beyond these VR milestones; room-scale navigation
+remains a separate later direction.
+
+Story 44 is an initial viewer with read-only chat and an active artifact panel. Its pending headset
+check does not establish that full work loop. A persistent immersive shell and usable input are
+required independently of the future model-native renderer.
 
 ---
 
@@ -219,18 +238,20 @@ Roughly in dependency order; the engineering detail and current status of each l
 8. **A second machine** — *shipped.* A bounded registry, cached Offline cards, and remote sessions
    listed, opened, and streamed through one Arena
    ([Story 42](../stories/STORY-20260904-second-execution-machine.md)).
-9. **Spatial surfaces** — *desktop 3D shipped; first immersive projection implemented, headset
+9. **Spatial surfaces** — *desktop 3D shipped; immersive viewer implemented, headset
    acceptance pending.* A bounded room projects the same Mermaid and sketch artifacts without adding
    a document format ([Story 43](../stories/STORY-20260904-desktop-spatial-surface.md)). Its WebXR
-   layer takes the active artifact and bounded live conversation into a paired Quest-class headset
-   without changing the canonical model
-   ([Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md)); model-native 3D remains a
-   later slice.
+   layer takes the active artifact and bounded read-only conversation into a paired headset
+   ([Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md)). The
+   [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) expands this through
+   Stories 45–51 into one complete Quest 3S session with panels, spatial diagrams, controllers, and
+   voice. Story 52 adds the VR Arena afterward. Model-native depth remains with the software-model
+   epic and is not a prerequisite for the first usable VR release.
 10. **Cloud execution** — sandboxes, subscription-in-container, joining from anywhere.
 
 Steps 1–4 shipped in August 2026 and steps 5–9's desktop slice in September 2026. Step 9's first
-WebXR layer is implemented with physical-headset acceptance still open. Model-native spatial work
-and step 10 remain direction, not a plan.
+WebXR viewer is implemented with physical-headset acceptance still open. The complete immersive
+workspace has draft stories; model-native spatial work and step 10 remain later direction.
 
 The arena came fourth of the four near-term steps rather than first, for two reasons. It groups
 sessions **by project**, so building it before step 3 gives one flat list of everything; and its

@@ -1,12 +1,20 @@
-# Story 44 — Enter the session workspace in immersive WebXR
+# Story 44 — View the active diagram and conversation in immersive WebXR
 
 **Status:** In progress · **Type:** Full-stack (XR client + transport headers) ·
 **Depends on:** [Story 43](STORY-20260904-desktop-spatial-surface.md) (the bounded desktop spatial
 renderer) and [Story 41](STORY-20260904-authenticated-devices.md) (paired personal-device HTTPS)
 
+**Scope review — 2026-09-05:** This implements an immersive **viewer**, not the full VR workspace
+the user intended. Entry is nested under a non-empty Spatial canvas; conversation is read-only;
+session navigation ends XR; composing, approvals, the Arena, and repository review remain outside
+the headset presentation. These are limitations of this slice, not limits on the product vision.
+The [immersive workspace epic](EPIC-20260905-immersive-workspace.md) owns the complete experience
+and its follow-up stories. Keep this implementation and verification record as the foundation;
+physical Quest acceptance remains open, and its completion alone does not deliver that epic.
+
 **Vision slice:** [vision.md step 9](../docs/vision.md#sequence),
 [multi-device delivery slice 12](../docs/multi-project-session-environment.md#possible-delivery-slices),
-and the artifact-backed first realization of the north-star roadmap's
+and an artifact-backed foundation for the north-star roadmap's later model-native
 [Phase C / reserved Story 13](EPIC-20260705-north-star-roadmap.md#phase-c--surfaces-and-memory-parallel-can-start-during-phase-b).
 This story does not wait for the model-native 3D renderer: it takes the Mermaid/sketch room Story 43
 actually shipped into a Quest-class headset, while preserving the future renderer boundary.
@@ -21,9 +29,10 @@ it after trying the room from a Quest headset:
 
 > I want to be able to switch to VR mode and see the diagram and chat in full screen in 3D.
 
-That is the smallest immersive workspace worth shipping. Entering VR should replace the browser
-chrome and desktop rails with a readable active diagram and a nearby live conversation, not merely
-stretch the current canvas across the headset display. The first slice must also respect the hard
+This story interpreted that request as a small immersive viewing slice. The 2026-09-05 review
+clarified that the intended experience is using the whole system in VR. For this slice, entering
+VR presents a readable active diagram and a nearby live conversation in world space. The first
+slice must also respect the hard
 parts Story 43 deliberately deferred: explicit user entry, secure transport, controller input,
 stereoscopic resource budgets, session cleanup, and a useful fallback when WebXR is unavailable.
 
@@ -85,7 +94,7 @@ stereoscopic resource budgets, session cleanup, and a useful fallback when WebXR
 
 ## Desired behavior
 
-### A. VR is a third presentation state inside Spatial, not another artifact mode
+### A. This initial viewer enters VR from Spatial
 
 1. When Spatial is active, the browser is a secure context, and
    `navigator.xr.isSessionSupported('immersive-vr')` resolves true, the spatial controls expose one
@@ -263,6 +272,11 @@ persisted.
 - [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass.
 
 ## Out of scope
+
+The operational omissions below are assigned to
+[Stories 45–49](EPIC-20260905-immersive-workspace.md#story-map); real spatial diagram geometry is
+assigned to Story 50 and the later Arena to Story 52. They must not be carried forward as
+requirements for the full workspace.
 
 - Model-native entities, relations, regions, provenance materials, lenses, or change overlays. The
   future north-star Story 12 renderer can replace the artifact panel behind this XR boundary.

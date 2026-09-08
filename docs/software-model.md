@@ -472,12 +472,16 @@ The model and its API are the durable core; surfaces plug into them.
 - **Surfaces:** web desktop (exists), phone/tablet (touch-draw is a natural fit), an
   **immersive 3D/VR surface** (react-three-fiber → WebXR on Quest-class headsets, in the
   headset browser — no store app), and — further out — voice-first. The VR surface is
-  deliberately more than a curiosity: none of the adjacent tools (editor + agent CLIs, classic
-  diagram tools) have a credible spatial surface, so it is a **differentiator**, staged as its
-  own parallel track in the [roadmap epic](../stories/EPIC-20260705-north-star-roadmap.md).
+  delivered through the [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md):
+  one complete session on Quest 3S first, with movable tools, controllers/voice, and real spatial
+  flowcharts; the VR Arena follows. That work need not wait for this chapter's persistent model.
+  Model-native 3D lenses and provenance remain in the
+  [roadmap epic](../stories/EPIC-20260705-north-star-roadmap.md), consuming this chapter's records.
   None of these should require changing the model; protecting that boundary now is what makes
-  them possible later — and is exactly why the VR track can run in parallel: it consumes the
-  same model / lens / arrangement JSON as the 2D map.
+  them possible later. The eventual model renderer consumes the same model/lens/arrangement JSON
+  as the 2D map; the initial Mermaid geometry remains a disposable artifact projection. Voice
+  dictation in the VR composer is near-term input, independent of later voice-first model commands
+  or sketch-anchored intent.
 
 ---
 

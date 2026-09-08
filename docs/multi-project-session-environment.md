@@ -112,8 +112,8 @@ that is conceptually clean, but it complicates focus, repository selection, and 
 
 ## Repository identity is not a path
 
-`projectRegistry.ts` mints an id as a truncated hash of the checkout's real path
-([projectRegistry.ts:30](../src/server/projects/projectRegistry.ts#L30)), and repositories must live
+`checkoutRegistry.ts` mints an id as a truncated hash of the checkout's real path
+([checkoutRegistry.ts:30](../src/server/repository/checkoutRegistry.ts#L30)), and repositories must live
 under one configured root. That is a perfectly good *checkout* id and a poor *repository* identity:
 the same repository on the laptop and the desktop produces two unrelated ids, so nothing durable can
 be said about "the same repository" across machines.
@@ -227,10 +227,20 @@ A pragmatic spatial rollout is:
 2. **Implemented in [Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md), with Quest
    acceptance pending:** project the active SVG surface and a bounded live conversation into an
    explicitly entered WebXR session over the paired trusted-HTTPS path.
-3. Render a supported subset—likely flowcharts first—as real spatial nodes, edges, and groups.
-4. Fall back to an SVG surface for unsupported diagram types or syntax.
+3. **Planned in the [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md),
+   Stories 45–51:** move XR lifetime to the application shell and complete one session in VR:
+   movable work panels, controller/voice input, permissions, diffs, and annotations. Target the
+   user's Quest 3S. The same first release includes a supported Mermaid flowchart subset rendered
+   as real spatial nodes, edges, and groups, with an in-headset SVG fallback for unsupported syntax.
+4. **Later, Story 52:** add surrounding session summaries, the Arena, and cross-session Inbox
+   actions, retaining one immersive session while switching work across projects and machines.
 5. Expand the parser/layout vocabulary and later use it for a more beautiful, interactive 2D
    renderer as well.
+
+An immersive application and a model-native graph are separate deliverables. The full work loop
+must not wait for persistent code entities or lenses; derived Mermaid geometry in Story 50 is not
+that software model. A canvas-owned XR session and read-only transcript do not satisfy the broader
+VR vision, even if they fill the headset display.
 
 Stable Mermaid node IDs become important once annotations, selection, evidence, or spatial placement
 attach to individual elements. Diagrams without explicit stable IDs may need warnings or generated
@@ -260,6 +270,11 @@ The immersive session, head/controller pose, temporary scale, and transcript pag
 not persisted; a headset reload always requires a new entry gesture. Cross-project views and durable
 workspace identity remain future work. Story 42 adds
 machine-qualified loose views and cached Offline Arena presentation, but not offline transcripts.
+
+The planned immersive shell keeps one XR lifetime above session/canvas navigation. Deliberate panel
+placement becomes versioned device layout, separate from desktop Spatial state and raw head/controller
+tracking. Start with one complete session; simultaneous detailed views across projects/machines and
+their resource/subscription ownership belong to Story 52, after the Quest 3S work loop is accepted.
 
 ## Agent concurrency
 
@@ -378,11 +393,14 @@ resolved on the machine that executes it, never asserted by the device that requ
 11. **Desktop spatial renderer — shipped 2026-09-04 in
     [Story 43](../stories/STORY-20260904-desktop-spatial-surface.md):** project up to twelve session
     canvases into an R3F room with orbit/select/focus, bounded device placement, and SVG panels.
-12. **Immersive WebXR — implemented 2026-09-04 in
-    [Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md), Quest acceptance pending:**
-    paired-HTTPS headset entry, controller rays, a bounded active canvas and conversation, strict
-    resource limits, and restoration of the unchanged desktop view. Room-scale placement,
-    teleportation, and model-native geometry remain later work.
+12. **Immersive workspace — viewer implemented, complete workspace planned:**
+    [Story 44](../stories/STORY-20260904-immersive-webxr-workspace.md) implements paired-HTTPS entry,
+    controller rays, a bounded active artifact/read-only conversation, resource limits, and desktop
+    return; its Quest check is pending. The
+    [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) adds a complete
+    single-session workflow on Quest 3S with controllers/voice, movable panels, and real spatial
+    flowcharts (45–51), followed by the VR Arena/Inbox (52). Room-scale navigation and model-native
+    code geometry remain later work; neither is required for the initial work loop.
 13. **Cloud execution:** sandboxed machines running `claude`/`codex` or provider APIs, joinable from
     anywhere.
 

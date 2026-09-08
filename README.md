@@ -139,12 +139,18 @@ topology—not Internet hosting, a team account, or a relay.
 
 ### Quest and immersive WebXR
 
+The current implementation is Story 44's **immersive viewer**, with physical Quest acceptance still
+pending. The planned full workspace is tracked in the
+[immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md): first one complete session
+on Quest 3S with movable panels, real 3D diagrams, controllers, and voice; then the multi-session
+Arena. Those operational VR features are not implemented by the viewer described below.
+
 The supported headset path is a paired, exact `https://` `start:remote` origin whose certificate is
 trusted by the headset. In a Quest-class browser with immersive VR support, open a session that has
 a diagram or sketch, select **Spatial**, and use **Enter VR**. Plain LAN HTTP is not a WebXR secure
 context; `CODEAI_ALLOWED_DEV_ORIGINS` does not change that.
 
-The immersive workspace places the active marked canvas in front of the viewer and a bounded,
+The current immersive viewer places the active marked canvas in front of the viewer and a bounded,
 read-only live conversation panel nearby. Controller rays operate Exit VR, previous/next canvas,
 diagram larger/smaller/reset, and older/newer conversation pages; a compatible thumbstick can page
 the conversation too. Run, unread/new-activity, and pending-approval status remain visible. Exit VR

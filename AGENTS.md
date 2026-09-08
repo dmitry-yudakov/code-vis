@@ -6,16 +6,18 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-04. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-05. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
-- **In flight:** [Story 44](stories/STORY-20260904-immersive-webxr-workspace.md) — implementation and
-  automated verification complete; Quest 3 acceptance is pending.
-- **Next:** model-native spatial depth and the rest of
-  [vision.md's sequence](docs/vision.md#sequence).
+- **In flight:** [Story 44](stories/STORY-20260904-immersive-webxr-workspace.md) — immersive viewer
+  implementation and automated verification complete; its Quest 3 acceptance is pending.
+- **Next:** [Story 45](stories/STORY-20260905-application-vr-shell.md), starting the
+  [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md): a complete session on
+  Quest 3S with movable panels, real 3D diagrams, controllers, and voice; the VR Arena follows later.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
-  depth (the model, lenses, and the change loop). Naming for both:
+  depth (the model, lenses, and the change loop), and the
+  [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) for VR delivery. Naming:
   [vocabulary.md](docs/vocabulary.md).
 
 ## Commands

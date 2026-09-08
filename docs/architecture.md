@@ -274,6 +274,27 @@ so XR adds no route, credential, or access around the home server. The paired tr
 `start:remote` origin is the supported headset transport; an allowed development hostname over HTTP
 does not qualify.
 
+### Planned immersive workspace boundary
+
+The implementation above is Story 44's viewer; physical headset acceptance remains pending. The
+[immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) specifies the next
+boundary, not an existing runtime: the application shell owns one XR session across navigation,
+and DOM/VR consume the same client state and commands. Canvas renderers become content within that
+shell rather than owners of immersion. Entry works from the Arena or an empty session; a failed
+diagram leaves navigation, conversation, permission controls, and Exit available.
+
+The first release targets one complete session on Quest 3S: movable tools, controller/voice input,
+permission decisions, repository diffs and marks, and derived spatial Mermaid flowcharts. Voice
+capture/transcription and correction need an explicit validated path; there is no existing speech
+service implied by this plan. Device panel layout remains separate from desktop camera state and
+canonical records. Story 52 adds the multi-session VR Arena after that work loop is accepted.
+Model-native geometry, lenses, and provenance remain owned by the software-model track.
+
+AR/passthrough is a retained future option in the epic. Keep the virtual environment/background
+separate from reusable panels, diagram content, and session commands so that this option remains
+open. No AR runtime, room mapping, or anchor persistence is required by the current VR milestones;
+those need their own feasibility and interaction scope.
+
 ## Current constraints
 
 These are real and deliberate, and they bound what can be built next:

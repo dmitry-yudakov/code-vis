@@ -27,6 +27,12 @@ Stories 14–15 (intent → agent → proposed change, plan preview); Story 20 t
 across providers; Story 23's roles and hand-offs inform the same; Story 21 is the experimental
 cousin of roadmap Story 16 (team surface). Nothing here imports the archived `legacy/` runtime.
 
+**VR delivery — September 5, 2026:** The
+[immersive workspace epic](EPIC-20260905-immersive-workspace.md) owns the immersive presentation of
+these operational capabilities. The confirmed order is one complete session on Quest 3S first
+(controllers/voice, movable panels, real 3D diagrams), then the spatial Arena/Inbox. It reuses this
+track's session/run/permission actions and machine authorization, without a separate execution model.
+
 **Invariants** (hold across every story in this epic):
 
 1. **Local-first, single trusted user until Story 21.** No multi-user or multi-tenant assumptions
