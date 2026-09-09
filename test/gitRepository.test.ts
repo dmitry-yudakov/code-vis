@@ -1,12 +1,24 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { findChangedFile, parseGitStatus, readFileDiff, readWorkingTree } from '@/server/repository/gitRepository';
 
 const execute = promisify(execFile);
+let dataDir: string;
+
+beforeAll(async () => {
+  dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-git-data-'));
+  vi.stubEnv('CODEAI_DATA_DIR', dataDir);
+  vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false');
+});
+
+afterAll(async () => {
+  vi.unstubAllEnvs();
+  await rm(dataDir, { recursive: true, force: true });
+});
 
 describe('Git repository status', () => {
   it('distinguishes a non-Git directory from a clean repository', async () => {

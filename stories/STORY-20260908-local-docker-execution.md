@@ -15,7 +15,8 @@
 - Keep CodeAI outside the worker. Enforce a pinned image, non-root execution, limited mounts,
   resource limits, and controlled network access. Protect host Git reads from agent-modified
   metadata; public npm downloads go through a GET/HEAD gateway.
-- Use provider-owned login and isolated participant storage. Preserve native history, streaming,
+- Use provider-owned login and persistent provider storage (shared by new conversations since
+  [Story 44](STORY-20260909-docker-session-friction.md)). Preserve native history, streaming,
   checkout locks, and recovery; cancellation must stop every container process before reuse.
 - **Mounted files and credentials remain exposed inside the container.** This is for trusted
   personal repositories. Multiple repositories, cloud execution, remote integrations, and
@@ -144,9 +145,11 @@ Host and Linux dependencies may require reinstalling when switching execution en
    container over stdio and retains the current event stream and response parser. Reuse protocol
    handling; do not create a second conversation service or expose a provider listener port.
 7. At most one worker container is active per CodeAI session. Create it for each turn and remove
-   it after all its processes stop. Persist the addressed participant's provider-owned home
-   between turns in its own Docker volume. Another participant's
-   home, another session's state, and CodeAI's data directory are never mounted.
+   it after all its processes stop. [Story 44](STORY-20260909-docker-session-friction.md) simplifies
+   persistence: new participants share one provider-owned Docker home per installation/provider.
+   Existing participant homes remain in place. Other providers' homes and CodeAI's data directory
+   are never mounted; same-provider Docker conversations deliberately share file access to history,
+   settings and login.
 8. Use a server-pinned Linux image containing both provider CLIs, Git, Node/npm, and the supported
    project toolchain. Build/provision it explicitly outside a turn; do not build a repository's
    Dockerfile or interpret its devcontainer/Compose configuration on the host. Pin tested CLI/image
@@ -200,17 +203,19 @@ Host and Linux dependencies may require reinstalling when switching execution en
     not bypass the policy. A proxy environment variable alone is insufficient. Agents must reach
     the model, so “network disabled” must not accidentally disable provider inference. Report
     blocked requests as bounded failures; never retry them on the host or widen the policy.
-14. The owner signs in with the provider's own CLI in a dedicated setup container for the addressed
-    participant. A documented terminal helper selects the same image, isolated home volume, and
+14. The owner signs in with the provider's own CLI in a dedicated setup container, once per provider
+    for new Docker conversations. A documented terminal helper selects the same image, provider home, and
     network policy as execution, without mounting a repository. CodeAI manages volume identities
     and readiness only: it never reads, copies, logs, or stores credential contents, imports the
     host's provider configuration, or forwards its host environment. Credentials and native
     session files are written only by the provider in its volume. Setup output stays in the
     owner's interactive terminal; no login secrets enter API responses, transcripts, or debug logs.
-    Setup containers take the same exclusive participant-volume lease used by turns and cleanup;
-    setup cannot overlap an executing turn or deletion of that home. Treat setup containers as
+    Setup retains a home-admission lease and refuses mounted homes; ordinary turns release that
+    lease after mounting, permitting concurrent conversations. Legacy cleanup holds the exclusive
+    session lease and never removes shared homes. Setup cannot overlap an executing turn using
+    that home. Treat setup containers as
     owned resources during recovery, with explicit labels and no automatic restart policy.
-15. Reuse that participant's authenticated provider home across turns and application restarts.
+15. Reuse the selected authenticated provider home across turns and application restarts.
     Missing/expired login produces actionable setup guidance. Missing native session state fails
     visibly and offers a new provider session without silently replaying a possibly delivered turn.
     Record only opaque volume ownership and provider-session identity in server metadata.
@@ -312,7 +317,8 @@ records; preserve revision/idempotency semantics and existing compatibility iden
       GET/HEAD gateway; prohibited methods, direct registry access, redirects, DNS/IP/IPv6 bypasses,
       host APIs, and other workers stay blocked.
 - [ ] Provider-owned login/history persists across turns/restarts without CodeAI reading or copying
-      credentials; participant storage is isolated and missing authentication/history is explicit.
+      credentials; provider storage is separate per installation/provider, legacy homes remain
+      intact, and missing authentication/history is explicit.
 - [ ] Claude and Codex Docker Agent edit and run tests without individual approval cards;
       Ask/Plan cannot mutate the checkout, including after an Agent turn. Unsupported integrations
       and boundary escalation fail closed. The local Codex gate remains separate.
@@ -364,8 +370,9 @@ records; preserve revision/idempotency semantics and existing compatibility iden
    permission cards. Verify the host diff, image/canvas input, usage/activity stream, and a later
    Ask/Plan write denial. Record image digest, CLI versions, OS/runtime versions, and outcomes in
    `docs/experiment-log.md`, without credential contents.
-5. Resume both providers after turn-container replacement and application restart. Exercise a
-   second participant's isolated state, expired authentication, missing native history, and
+5. Resume both providers after turn-container replacement and application restart. Exercise
+   separate provider-native conversation identities within a shared provider home, retained legacy
+   homes, expired authentication, missing native history, and
    incompatible CLI/profile state. None may resume another participant or repeat a delivered turn.
    Attempt setup/turn/cleanup overlap on one participant home and verify mutual exclusion; on Linux,
    verify generated file ownership and rejection of an inaccessible checkout without host chmod/chown.

@@ -191,8 +191,14 @@ export function Arena({
           {docker.enabled && !docker.providers.claude.available && (
             <div className="arena-docker-setup">
               <p>{docker.providers.claude.message}</p>
-              <p>Start Docker, then run <code>npm run docker:provision</code> in your installed CodeAI directory for first-time setup. Provider sign-in follows session creation.</p>
+              <p>Start Docker, then run <code>npm run docker:provision</code> in your installed CodeAI directory for first-time setup.</p>
               <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Checking…' : 'Check again'}</button>
+            </div>
+          )}
+          {docker.enabled && (
+            <div className="arena-docker-setup">
+              <p>Sign in once for each provider you use: <code>npm run docker:login -- claude</code> or <code>npm run docker:login -- codex</code>.</p>
+              <p>New Docker conversations share that provider’s login, settings and history in persistent Docker storage. Your host provider setup stays separate.</p>
             </div>
           )}
           {dockerError && <p role="alert">{dockerError}</p>}

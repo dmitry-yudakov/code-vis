@@ -5,8 +5,9 @@ import { loadEnvConfig } from '@next/env';
 import { getConfig } from '../src/server/config';
 import { dockerCommand, dockerEnvironment, localDockerEndpoint } from '../src/server/execution/dockerCommand';
 import { DockerRuntime, saveDockerProvision } from '../src/server/execution/dockerRuntime';
-import { DOCKER_LABEL, DOCKER_PROFILE, DOCKER_VERSIONS, containerSecurity, participantVolume } from '../src/server/execution/dockerProfile';
+import { DOCKER_PROFILE, DOCKER_VERSIONS, containerSecurity } from '../src/server/execution/dockerProfile';
 import { durableSessionSchema } from '../src/shared/sessionSchema';
+import type { AgentProvider } from '../src/shared/types';
 
 function interactive(args: string[]) {
   return new Promise<void>((resolve, reject) => {
@@ -16,10 +17,10 @@ function interactive(args: string[]) {
   });
 }
 
-async function main() {
+export async function dockerMain(args: string[] = process.argv.slice(2)) {
   loadEnvConfig(process.cwd());
   const config = getConfig();
-  const operation = process.argv[2];
+  const [operation, ...targets] = args;
   const endpoint = await localDockerEndpoint();
   const command = (args: string[]) => dockerCommand(['--host', endpoint, ...args]);
   if (operation === 'provision') {
@@ -31,57 +32,53 @@ async function main() {
       if (!result.includes(DOCKER_VERSIONS[provider])) throw new Error(`The pinned ${provider} CLI is incompatible.`);
     }
     await saveDockerProvision(config.dataDir, image);
-    process.stdout.write(`Provisioned ${DOCKER_PROFILE}: ${image}\nTurn on Enable Docker in Arena, then refresh readiness.\n`);
+    process.stdout.write(`Provisioned ${DOCKER_PROFILE}: ${image}\nEnable Docker in Arena, then sign in once with npm run docker:login -- claude or npm run docker:login -- codex. New Docker conversations reuse that login.\n`);
     return;
   }
-  const [sessionId, participantId] = process.argv.slice(3);
-  if (!['login', 'cleanup'].includes(operation) || !/^[a-f0-9-]{36}$/i.test(sessionId || '') || !/^[a-f0-9-]{36}$/i.test(participantId || '')) {
-    throw new Error('Usage: npm run docker:login -- <session-id> <participant-id>, or docker:cleanup with the same ids.');
+  let [sessionId, participantId] = targets;
+  let provider: AgentProvider;
+  if (operation === 'login' && targets.length === 1 && (targets[0] === 'claude' || targets[0] === 'codex')) {
+    provider = targets[0];
+    sessionId = crypto.randomUUID();
+    participantId = crypto.randomUUID();
+  } else {
+    if (!['login', 'cleanup'].includes(operation) || targets.length !== 2
+      || !/^[a-f0-9-]{36}$/i.test(sessionId || '') || !/^[a-f0-9-]{36}$/i.test(participantId || '')) {
+      throw new Error('Usage: npm run docker:login -- claude|codex. Legacy participant login or docker:cleanup accepts <session-id> <participant-id>.');
+    }
+    const store = path.join(config.dataDir, 'session-store-v2');
+    const raw = await readFile(path.join(store, 'sessions', `${sessionId}.json`), 'utf8').catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return readFile(path.join(store, 'archived-sessions', `${sessionId}.json`), 'utf8');
+    });
+    const session = durableSessionSchema.parse(JSON.parse(raw));
+    const participant = session.participants.find((item) => item.id === participantId && item.kind === 'agent');
+    if (session.execution !== 'docker' || participant?.kind !== 'agent') throw new Error('Choose an agent in a Docker session.');
+    provider = participant.provider;
   }
-  const store = path.join(config.dataDir, 'session-store-v2');
-  const raw = await readFile(path.join(store, 'sessions', `${sessionId}.json`), 'utf8').catch(async (error: NodeJS.ErrnoException) => {
-    if (error.code !== 'ENOENT') throw error;
-    return readFile(path.join(store, 'archived-sessions', `${sessionId}.json`), 'utf8');
-  });
-  const session = durableSessionSchema.parse(JSON.parse(raw));
-  const participant = session.participants.find((item) => item.id === participantId && item.kind === 'agent');
-  if (session.execution !== 'docker' || participant?.kind !== 'agent') throw new Error('Choose an agent in a Docker session.');
   const runtime = new DockerRuntime(config);
-  const identity = { sessionId, participantId, runId: crypto.randomUUID(), provider: participant.provider };
+  const identity = { sessionId, participantId, runId: crypto.randomUUID(), provider };
   if (operation === 'login') {
     if (!process.stdin.isTTY) throw new Error('Provider login requires the owner’s interactive terminal.');
     const worker = await runtime.createWorker(identity, { mode: 'ask', setup: true });
     try {
-      await interactive(['--host', worker.endpoint, 'exec', '-it', worker.worker, participant.provider,
-        ...(participant.provider === 'claude' ? ['auth', 'login'] : ['login', '--device-auth'])]);
+      await interactive(['--host', worker.endpoint, 'exec', '-it', worker.worker, provider,
+        ...(provider === 'claude' ? ['auth', 'login'] : ['login', '--device-auth'])]);
     } finally { await worker.stop(); }
+    process.stdout.write(targets.length === 1
+      ? `Docker ${provider} login complete. New conversations share this provider home; existing legacy conversations keep their own storage.\n`
+      : `Docker ${provider} participant login complete. Existing legacy participant storage is retained.\n`);
     return;
   }
-  const profile = await runtime.profile();
-  // Same fixed name as setup and turns: creation fails if any session participant is active.
-  const lease = (await command(['create', '--name', `codeai-${runtime.owner}-${sessionId}`,
-    ...runtime.labels('cleanup', identity), ...containerSecurity(1000, 1000), '--network', 'none', profile.image, 'true'])).trim();
-  try {
-    // Include dependency-cache volumes left by the initial prerelease profile.
-    for (const kind of ['cache', 'home'] as const) {
-      const volume = participantVolume(runtime.owner, sessionId, participantId, kind);
-      const existing = (await command(['volume', 'ls', '-q', '--filter', `name=^${volume}$`, '--filter', `label=${DOCKER_LABEL}.owner=${runtime.owner}`])).trim();
-      if (!existing) continue;
-      const users = (await command(['container', 'ls', '-aq', '--filter', `volume=${volume}`])).trim().split('\n').filter(Boolean);
-      for (const id of users) {
-        const labels = JSON.parse(await command(['inspect', id, '--format', '{{json .Config.Labels}}'])) as Record<string, string>;
-        if (labels[`${DOCKER_LABEL}.owner`] !== runtime.owner || labels[`${DOCKER_LABEL}.kind`] !== 'cache') {
-          throw new Error('Participant storage is active; cleanup refused.');
-        }
-        await runtime.removeContainer(command, id);
-      }
-      await command(['volume', 'rm', volume]);
-    }
-    process.stdout.write('Removed inactive Docker participant storage. Source files are intact. Native history is gone: create a new provider participant/session and sign in again.\n');
-  } finally { await runtime.removeContainer(command, lease); }
+  const result = await runtime.cleanupParticipant(identity);
+  process.stdout.write(result.homeRemoved
+    ? 'Removed legacy Docker participant storage. Native history is gone: create a new participant/session. Shared provider storage and source files are intact.\n'
+    : 'No legacy participant home to remove. Shared provider storage and source files are intact.\n');
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : 'Docker operation failed.'}\n`);
-  process.exitCode = 1;
-});
+if (typeof require !== 'undefined' && require.main === module) {
+  dockerMain().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : 'Docker operation failed.'}\n`);
+    process.exitCode = 1;
+  });
+}

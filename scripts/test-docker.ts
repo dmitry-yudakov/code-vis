@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { getConfig } from '../src/server/config';
 import { DockerRuntime, getDockerRuntime, saveDockerProvision } from '../src/server/execution/dockerRuntime';
 import { dockerCommand, dockerEnvironment, localDockerEndpoint } from '../src/server/execution/dockerCommand';
-import { containerSecurity, DOCKER_LABEL, DOCKER_VERSIONS, validateDockerCheckout } from '../src/server/execution/dockerProfile';
+import { containerSecurity, DOCKER_LABEL, DOCKER_PROFILE, DOCKER_VERSIONS, validateDockerCheckout } from '../src/server/execution/dockerProfile';
 import { readWorkingTree, readFileDiff } from '../src/server/repository/gitRepository';
 import { writeRepositoryContext } from '../src/server/repository/repositoryContext';
 
@@ -24,7 +24,7 @@ async function main() {
   const runtime = getDockerRuntime(config);
   const endpoint = await localDockerEndpoint();
   const command = (args: string[]) => dockerCommand(['--host', endpoint, ...args]);
-  const image = (await command(['image', 'inspect', 'codeai-worker:20260908', '--format', '{{.Id}}'])).trim();
+  const image = (await command(['image', 'inspect', `codeai-worker:${DOCKER_PROFILE}`, '--format', '{{.Id}}'])).trim();
   await saveDockerProvision(dataDir, image);
   const identity = { sessionId: crypto.randomUUID(), participantId: crypto.randomUUID(), runId: crypto.randomUUID(), provider: 'codex' as const };
   let worker: Awaited<ReturnType<DockerRuntime['createWorker']>> | undefined;
@@ -96,7 +96,13 @@ async function main() {
     await assert.rejects(shell('mount -o remount,rw /workspace'));
     await assert.rejects(worker.authenticate(), /not signed in/);
     await assert.rejects(runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { mode: 'ask', setup: true }));
-    process.stdout.write('PASS read-only mounts, non-root/capabilities, limits, outside-path denial, participant authentication and lease\n');
+    await assert.rejects(runtime.createWorker({ ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() }, { mode: 'ask', setup: true }), /storage is active/);
+    await shell('echo shared-provider-state > /home/agent/shared-fixture');
+    const sameProvider = await runtime.createWorker({ ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() }, { mode: 'ask' });
+    try {
+      assert.equal((await command(['exec', sameProvider.worker, 'cat', '/home/agent/shared-fixture'])).trim(), 'shared-provider-state');
+    } finally { await sameProvider.stop(); }
+    process.stdout.write('PASS read-only mounts, non-root/capabilities, limits, outside-path denial, shared provider storage, authentication and setup exclusion\n');
     const metadata = await shell('curl -fsS --max-time 15 --noproxy "*" http://egress:8081/is-number');
     assert.match(metadata, /http:\/\/egress:8081\/is-number\/-\//);
     assert.match(await shell('curl -sS --max-time 20 -o /dev/null -w "%{http_code}" https://api.openai.com/v1/models'), /^(401|403)$/);
@@ -129,7 +135,15 @@ async function main() {
       assert.match(await command(['exec', other.worker, 'curl', '-sS', '--max-time', '20', '-o', '/dev/null', '-w', '%{http_code}', 'https://api.anthropic.com/v1/messages']), /^[1-5]\d\d$/);
     } finally { await other.stop(); }
     await worker.stop(); worker = undefined;
-    process.stdout.write('PASS npm metadata gateway and denied methods, direct registry, IPv4/IPv6, proxy bypass, private/host/other-worker destinations and isolated participant homes\n');
+    process.stdout.write('PASS npm metadata gateway and denied methods, direct registry, IPv4/IPv6, proxy bypass, private/host/other-worker destinations and separate provider homes\n');
+    const setup = await runtime.createWorker({ ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() }, { mode: 'ask', setup: true });
+    try {
+      const replacement = new DockerRuntime(config);
+      assert.deepEqual(await replacement.reconcile(), []);
+      assert.equal((await command(['exec', setup.worker, 'cat', '/home/agent/shared-fixture'])).trim(), 'shared-provider-state');
+      await assert.rejects(replacement.createWorker(identity, { mode: 'ask' }), /setup is active/);
+    } finally { await setup.stop(); }
+    process.stdout.write('PASS live provider setup survives server reconciliation and excludes affected turns\n');
     const beforeAgent = (await readdir(checkout)).sort();
     worker = await runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { checkout, context, mode: 'agent' });
     assert.deepEqual((await readdir(checkout)).sort(), beforeAgent, 'Agent preparation must not create checkout directories');

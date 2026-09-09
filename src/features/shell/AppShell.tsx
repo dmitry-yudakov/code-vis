@@ -22,7 +22,7 @@ import {
   loadSelectedCheckoutId, saveSelectedCheckoutId,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
-import { SessionPicker } from '@/features/conversation/SessionPicker';
+import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { Arena } from '@/features/arena/Arena';
 import { buildArenaInbox, unreadArenaAttention } from '@/features/arena/arenaModel';
@@ -94,6 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const view = sessionId ? workspace.scope.views[sessionId] : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
+  const [creatingSession, setCreatingSession] = useState(false);
   const [loading, setLoading] = useState(true);
   const [runsBySession, setRunsBySession] = useState<Record<string, RunPresentation>>({});
   const [runOutcomesBySession, setRunOutcomesBySession] = useState<Record<string, SessionRunOutcome>>({});
@@ -205,6 +206,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const activeAgent = findAgentParticipant(agents, session?.addressedAgentId)
     || findAgentParticipant(agents, session?.primaryAgentId);
   const activeProvider = activeAgent?.provider || newProvider;
+  const continuationExecution = session?.execution === 'docker' ? 'local' : 'docker';
+  const continuationHealth = continuationExecution === 'docker' ? health?.executions?.docker.providers[activeProvider]
+    : health?.executions?.local.providers[activeProvider] || health?.providers[activeProvider];
+  const continuationUnavailable = sessionRunning ? 'Wait for this turn to finish.'
+    : continuationExecution === 'docker' && !health?.executions?.docker.enabled ? 'Enable Docker in Arena to continue there.'
+    : !continuationHealth?.available || !continuationHealth.supportedModes.length ? `${PROVIDER_LABELS[activeProvider]} needs ${continuationExecution === 'docker' ? 'Docker' : 'Local'} setup.`
+    : continuationExecution === 'docker' && (session?.repositories.length !== 1 || session.repositories[0].role !== 'primary'
+      || session.repositories[0].hostId !== hostId || !checkouts.some((checkout) => checkout.id === session.repositories[0].checkoutId))
+      ? 'Docker needs exactly one primary repository on this machine.' : undefined;
   const providerHealth = executionProviders?.[activeProvider];
   const unsupportedModes = useMemo(() => health
     ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
@@ -437,22 +447,26 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
-    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; execution?: AgentExecution; checkoutId?: string } = {},
+    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
   ): Promise<boolean> => {
     setNotice(undefined);
+    setCreatingSession(true);
     try {
-      const targetProjectId = options.fromArena ? options.projectId : projectId;
+      const requestedProjectId = options.fromArena ? options.projectId : projectId;
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(targetProjectId ? { projectId: targetProjectId } : {}), provider: requestedProvider,
-          ...(options.execution ? { execution: options.execution } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }),
+        body: JSON.stringify({ provider: requestedProvider, ...(options.execution ? { execution: options.execution } : {}),
+          ...(options.sourceSessionId ? { sourceSessionId: options.sourceSessionId }
+            : { ...(requestedProjectId ? { projectId: requestedProjectId } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }) }),
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
+      const targetProjectId = data.session.projectId;
       workspace.openInProject(targetProjectId, data.session.id, (current) => ({
         ...current,
         ...(options.mode ? { defaultMode: options.mode } : {}),
+        ...(options.initialComposer !== undefined ? { composer: options.initialComposer } : {}),
       }));
       if (targetProjectId === projectId) applyServerSnapshot(data.session);
       else {
@@ -469,8 +483,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
       return false;
+    } finally {
+      setCreatingSession(false);
     }
   }, [applyServerSnapshot, arena.refresh, newProvider, panelLayout.openConversationFor, projectId, router, workspace.openInProject]);
+
+  const continueSession = (execution: AgentExecution) => {
+    if (!session || sessionRunning || creatingSession) return;
+    const recap = session.messages.slice(-6).map((message) => {
+      const author = session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role;
+      const text = message.role === 'user' ? message.text : message.rawMarkdown;
+      return `${author}: ${text.slice(0, 900)}${text.length > 900 ? '…' : ''}`;
+    }).join('\n\n');
+    const initialComposer = `Continue from “${session.title.slice(0, 200)}” (${session.execution === 'docker' ? 'Docker' : 'Local'} session ${session.id}). This is a fresh provider session using the same repositories.\n\nRecent visible conversation (may be incomplete):\n${recap || 'No messages yet.'}${composer.trim() ? `\n\nUnsent draft:\n${composer.slice(0, 1_400)}` : ''}\n\nPlease continue from this context.`.slice(0, 7_600);
+    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode });
+  };
 
   const switchProject = (next?: string) => {
     if (next === projectId) return;
@@ -1365,11 +1392,18 @@ export function AppShell({ children }: { children: ReactNode }) {
               <SessionPicker
                 sessions={sessions}
                 value={sessionId}
-                providers={selectableProviders}
+                initialExecution={session?.execution}
+                executionHealth={health?.executions}
+                providerHealth={health?.providers}
+                project={selectedProject}
+                checkouts={orderedCheckouts}
+                hostId={hostId}
+                creating={creatingSession}
+                error={notice}
                 newProvider={newProvider}
                 onChange={workspace.open}
                 onNewProvider={setNewProvider}
-                onNew={(provider) => void createSession(provider)}
+                onNew={createSession}
               />
             </>
           )}
@@ -1508,7 +1542,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>{displayedNotice}</span>
           {archiveUndo && <button type="button" onClick={() => void restoreArenaSession(archiveUndo)}>Undo archive</button>}
           {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
-          {focusedRunOutcome?.missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider, { execution: session?.execution, ...(session?.execution === 'docker' && !session.projectId ? { checkoutId: session.repositories[0]?.checkoutId } : {}) }); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {focusedRunOutcome?.missingProviderSession && <button type="button" disabled={sessionRunning || creatingSession} onClick={() => continueSession(session?.execution || 'local')}>Continue in new session</button>}
           {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => {
             if (focusedRunOutcome && sessionId) setRunOutcome(sessionId);
@@ -1552,12 +1586,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="eyebrow">Local exploration, planning, and building</span>
           <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
           <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
-          <button type="button" className="primary-cta" disabled={!selectableProviders.length} onClick={() => void createSession(newProvider)}>New session <span>→</span></button>
-          <small>{selectableProviders.length
-            ? checkouts.length
-              ? `${selectableProviders.map((provider) => PROVIDER_LABELS[provider]).join(' and ')} run locally on your own login. Ask and Plan stay read-only; Agent appears only where its approval contract is verified.`
-              : 'No repositories were discovered. You can still create a repository-free session; set CODEAI_REPOSITORIES_ROOT when you need agent turns.'
-            : 'Install and authenticate Claude Code or Codex to start a local session.'}</small>
+          <SessionCreationForm
+            key={projectId || 'loose'}
+            submitLabel="Create and open"
+            executionHealth={health?.executions}
+            providerHealth={health?.providers}
+            project={selectedProject}
+            checkouts={orderedCheckouts}
+            hostId={hostId}
+            newProvider={newProvider}
+            creating={creatingSession}
+            error={notice}
+            onNewProvider={setNewProvider}
+            onNew={createSession}
+          />
         </div>
       ) : (
         <>
@@ -1597,6 +1639,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               decidingPermission={decidingPermission}
               running={sessionRunning}
               cancelReady={Boolean(focusedRun?.runId)}
+              continuing={creatingSession}
+              continuationUnavailable={continuationUnavailable}
+              onContinue={() => continueSession(continuationExecution)}
               turnBlocked={false}
               status={sessionRunning ? status : 'Ready for an instruction'}
               composer={composer}

@@ -14,6 +14,7 @@ export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
   status, composer, mode, unsupportedModes, attached, markCounts, onClose, onSelectDiagram, onRetry, onComposer, onModeChange,
   onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
+  continuing, continuationUnavailable, onContinue,
 }: {
   open: boolean;
   session?: SessionSnapshot;
@@ -28,6 +29,8 @@ export function ConversationDrawer({
   decidingPermission?: string;
   running: boolean;
   cancelReady: boolean;
+  continuing: boolean;
+  continuationUnavailable?: string;
   turnBlocked?: boolean;
   status: string;
   composer: string;
@@ -49,6 +52,7 @@ export function ConversationDrawer({
   onRemoveAttachment(id: string): void;
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
   onExecutePlan(participantId: string): void;
+  onContinue(): void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -62,7 +66,15 @@ export function ConversationDrawer({
         <div>
           <span className="eyebrow">Conversation</span>
           <strong>{session?.title || 'New session'}</strong>
-          {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]} · {session?.execution === 'docker' ? 'Docker' : 'Local'}</span>}
+          <div className="conversation-badges">
+            {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
+            <span className={`execution-badge execution-${session?.execution || 'local'}`} aria-label="Session execution">{session?.execution === 'docker' ? 'Docker' : 'Local'}</span>
+          </div>
+          <button className="continue-execution" type="button" disabled={continuing || Boolean(continuationUnavailable)}
+            title={continuationUnavailable || 'Open a new session with an editable recap. Review it before sending.'} onClick={onContinue}>
+            {continuing ? 'Creating…' : `Continue in ${session?.execution === 'docker' ? 'Local' : 'Docker'}`}
+          </button>
+          {continuationUnavailable && <span className="continuation-unavailable">{continuationUnavailable}</span>}
         </div>
         <button type="button" onClick={onClose} aria-label="Close conversation drawer">×</button>
       </header>

@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppConfig } from '@/server/config';
+import type { AgentProvider } from '@/shared/types';
 
 export const DOCKER_PROFILE = 'codeai-docker-v1';
 export const DOCKER_VERSIONS = { claude: '2.1.226', codex: '0.152.0', node: '22.22.0' } as const;
@@ -37,6 +38,10 @@ export function dockerOwner(dataDirectory: string): string {
 export function participantVolume(owner: string, sessionId: string, participantId: string, kind: 'home' | 'cache'): string {
   const identity = createHash('sha256').update(`${sessionId}\0${participantId}`).digest('hex').slice(0, 24);
   return `codeai-${owner}-${identity}-${kind}`;
+}
+
+export function providerVolume(owner: string, provider: AgentProvider): string {
+  return `codeai-${owner}-${provider}-home`;
 }
 
 /** Recheck immediately before every bind. Docker never resolves another mount through a symlink. */

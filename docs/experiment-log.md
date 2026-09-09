@@ -4,6 +4,36 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
+## Story 44 — Shared Docker login and direct session creation (2026-09-09 UTC)
+
+**Outcome:** shared storage, continuation, and UI checks pass. Story 44 is shipped; Story 42's
+signed-in provider release matrix remains incomplete.
+
+- Host: Ubuntu 26.04.1 LTS, Docker Engine 28.5.2, Linux amd64, kernel 7.0.0-31-generic,
+  containerd 1.7.29, runc 1.3.3. Used the existing provisioned worker image
+  `sha256:a801adb601e0d1ba9d512f2c21446d676e3ccc296c1c4fd3c02d7485e3943593`, tagged
+  `codeai-worker:codeai-docker-v1`; actual CLI checks matched Claude 2.1.226 and Codex 0.152.0.
+- `npm run test:docker` passed against a disposable repository, context and data directory. New
+  participants using the same provider share home state; Claude/Codex homes remain separate.
+  Setup refuses active shared homes, blocks competing turns and survives server reconciliation.
+  Worker replacement retains synthetic home state; restart recovery removes owned orphan writers.
+- The full boundary suite also passed checkout read-only/write transitions, network allowlist and
+  denied destinations/methods, npm installation, credential-free Git attack probes, background
+  process termination, and actual memory/process/tmpfs enforcement. Fixture containers, networks,
+  volumes and files were removed by the probe's ownership-scoped cleanup.
+- `npm test`: **287 tests in 42 files pass**. The offline Git suites now have their own data
+  directories, so the owner's Docker provisioning cannot change their execution path.
+  `npm run lint` and the production build pass. Next regenerated stale route validators through
+  `npx next typegen`; no generated validator was manually edited.
+- Seven Docker Playwright flows pass, covering project/empty-state creation without host CLIs,
+  execution selection and badges, disabled/unavailable setup, failed creation, and both
+  continuation directions with source bindings/drafts preserved and no automatic send.
+  Screenshots were inspected. Browser provider/Docker readiness uses fixtures; actual container
+  behavior is established separately by the real Docker suite above.
+- No host provider folders were mounted, credential contents inspected, or signed-in provider turns
+  sent. This run establishes Linux container/storage behavior with synthetic state. Actual login,
+  native-provider concurrent resume, and macOS checks for the shared-home change remain outstanding.
+
 ## Story 42 — Direct checkout mounts (2026-09-09 UTC)
 
 **Outcome:** the checkout mount simplification passes offline checks and a focused macOS Docker

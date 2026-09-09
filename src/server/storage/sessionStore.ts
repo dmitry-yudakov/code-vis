@@ -456,6 +456,8 @@ export class SessionStore {
 
   async createSession(input: {
     execution?: AgentExecution;
+    sourceSessionId?: string;
+    expectedSourceRevision?: number;
     checkoutId?: string;
     projectId?: string;
     provider: AgentProvider;
@@ -472,9 +474,17 @@ export class SessionStore {
       const id = randomUUID();
       const agentId = randomUUID();
       const role = input.role || 'coder';
+      const source = input.sourceSessionId ? await this.getSession(input.sourceSessionId) : undefined;
+      if (source && (input.projectId || input.checkoutId || !input.execution)) {
+        throw new Error('A continuation requires an execution and inherits its source session bindings.');
+      }
+      if (source && input.expectedSourceRevision !== undefined && source.revision !== input.expectedSourceRevision) {
+        throw new SessionStoreError('conflict', 'The source session changed. Refetch and retry the continuation.');
+      }
       const project = input.projectId ? await this.getProject(input.projectId) : undefined;
+      const projectId = source?.projectId || project?.id;
       if (project && input.checkoutId) throw new Error('Choose a project or a checkout, not both.');
-      const repositories = structuredClone(project?.repositories || (input.checkoutId ? [{
+      const repositories = structuredClone(source?.repositories || project?.repositories || (input.checkoutId ? [{
         id: randomUUID(), hostId: this.manifest!.host.id, checkoutId: input.checkoutId, role: 'primary' as const,
       }] : []));
       if (input.execution === 'docker' && (repositories.length !== 1
@@ -487,7 +497,7 @@ export class SessionStore {
         revision: 0,
         id,
         title: `Session ${currentCount + 1}`,
-        ...(project ? { projectId: project.id } : {}),
+        ...(projectId ? { projectId } : {}),
         repositories,
         createdAt: now,
         updatedAt: now,

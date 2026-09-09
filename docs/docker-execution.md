@@ -27,8 +27,17 @@ is explicit and cannot occur as a side effect of a turn. An existing profile is 
 In **Arena**, turn on **Enable Docker**. The choice is saved on this machine and takes effect
 immediately, including after browser reloads and CodeAI restarts. The control shows **Off**,
 **Setup needed**, or **Ready**; use **Check again** after starting Docker or provisioning the worker.
-Enabling can precede provisioning, but Docker sessions require a ready worker. Provider login
-remains a separate step for each participant.
+Enabling can precede provisioning, but Docker sessions require a ready worker. Sign in once for
+each provider you use, before or after creating your first session:
+
+```sh
+npm run docker:login -- claude
+npm run docker:login -- codex
+```
+
+Run only the command for the provider you want. New Docker conversations on this CodeAI installation
+reuse that provider's login and persistent home. Login waits for ordinary admissions and refuses
+while a turn is using that home; finish those turns before signing in again.
 
 The saved boolean lives in `<CODEAI_DATA_DIR>/docker/settings.json` and overrides
 `CODEAI_DOCKER_ENABLED` (or its `CODEAI_WEB2_DOCKER_ENABLED` alias). Without a saved UI choice,
@@ -37,20 +46,27 @@ saved settings disable Docker; saving from Arena repairs the record if the direc
 Disabling blocks subsequent Docker session and turn requests. Already accepted running or queued
 turns retain their configuration; use their existing Cancel control to stop them.
 
-In Arena, create a session with **Docker** execution and exactly one primary repository
-on this machine. Local is the default. A project must itself have one primary binding; otherwise
-create a loose Docker session and select its repository. Execution and that session's binding are
-fixed. Adding participants does not share their provider home.
+Choose **Docker** in **New session** inside your project, on the empty project screen, or in Arena.
+A project needs exactly one primary repository on this machine; loose Docker sessions offer a
+repository selector. New session creation starts with Local, or the current conversation's execution
+when opening its New session menu. Provider availability follows the selected execution, so a host
+provider installation is not required for Docker.
 
-A Docker session can exist before provider login. Sending a turn without that participant's
-authentication returns a terminal command containing its session and participant IDs:
+The conversation header has a distinct **Local** or **Docker** badge. **Continue in Docker/Local**
+creates a new session in the other execution with the source session's project and exact repository
+bindings. A bounded recap and unsent draft appear in its composer for you to edit and send. The
+source conversation and its draft remain intact. Execution and Docker checkout bindings stay fixed;
+provider-native history is not moved between environments or automatically replayed.
+
+Docker participants created before shared provider storage retain their existing individual volumes,
+history and login in place. Their login errors continue to give the legacy command:
 
 ```sh
 npm run docker:login -- <session-id> <participant-id>
 ```
 
-Run this in your own interactive terminal. It starts the provider's own CLI login in the pinned
-image with the participant's home and the execution network policy, and **no repository**.
+Run login in your own interactive terminal. It starts the provider's own CLI login in the pinned
+image with the appropriate provider home and the execution network policy, and **no repository**.
 Browser/device authentication steps belong to that provider. All setup output stays in your
 terminal. CodeAI does not import your host login, read provider credential files, forward provider
 environment variables, or include setup output in API responses or transcripts.
@@ -59,7 +75,12 @@ environment variables, or include setup output in API responses or transcripts.
 
 Docker Agent edits the real checkout at `/workspace` and runs its commands without individual
 approval cards. Ask/Plan use a read-only bind; their scratch space and provider home remain
-writable. Every turn gets a new worker; native history stays in an isolated participant volume.
+writable. Every turn gets a new worker. New participants share one persistent provider-home volume
+per CodeAI installation and provider; Claude and Codex have separate homes. Each participant still
+resumes its own native conversation ID, but its tools can read and modify other conversations,
+settings and login in that shared provider home. Changing the provider account affects all new
+conversations using that home. Host provider storage remains separate. Older participant volumes
+remain in use until explicitly cleaned up; their contents are never read or copied by CodeAI.
 Missing native history fails visibly and requires a new provider participant/session, without
 automatic replay. Local sessions retain their existing policies and separate Codex Agent gate.
 
@@ -118,23 +139,26 @@ limit bind-mount disk growth. Cancellation is not rollback. Host editors, watche
 later execution of changed code are outside CodeAI's container and scheduler and can run changes
 as your desktop user.
 
-Archiving retains history and provider homes. To explicitly remove an inactive participant's home:
+Archiving retains history and provider homes. To explicitly remove an inactive **legacy**
+participant's individual home:
 
 ```sh
 npm run docker:cleanup -- <session-id> <participant-id>
 ```
 
 Cleanup takes the same exclusive session lease as setup/turns, refuses active or unowned resources,
-and never deletes source files. It removes native history and login: add a new participant or create
-a new Docker session and sign in again. It leaves the Git isolation profile intact. Unrelated
-Docker resources are never selected for cleanup. Cleanup also removes that participant's obsolete
-dependency-cache volume if it was created by the earlier prerelease implementation.
+and never deletes source files or the shared provider home. It removes the legacy participant's
+native history and login: add a new participant or create a new Docker session to use the shared
+provider login. Running the command for a participant using shared storage leaves that storage
+intact. It leaves the Git isolation profile intact. Unrelated Docker resources are never selected
+for cleanup. Cleanup also removes that participant's obsolete dependency-cache volume if it was
+created by the earlier prerelease implementation.
 
 ## Verification
 
 ```sh
 npm test
-docker build --load --tag codeai-worker:20260908 docker
+docker build --load --tag codeai-worker:codeai-docker-v1 docker
 npm run test:docker
 npm run lint
 npm run build

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout } from 'node:timers/promises';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -7,7 +8,7 @@ import type { AgentMode, AgentProvider, ProviderHealth } from '@/shared/types';
 import { atomicWrite } from '@/server/storage/sessionStore';
 import { dockerCommand, localDockerEndpoint, spawnDocker } from './dockerCommand';
 import {
-  containerSecurity, dockerOwner, participantVolume, validateDockerCheckout,
+  containerSecurity, dockerOwner, participantVolume, providerVolume, validateDockerCheckout,
   DOCKER_CONTEXT, DOCKER_HOME, DOCKER_LABEL, DOCKER_PATH, DOCKER_PROFILE,
 } from './dockerProfile';
 
@@ -16,6 +17,7 @@ const provisionSchema = z.object({
   engineId: z.string().regex(/^[a-zA-Z0-9:.-]{1,200}$/),
 }).strict();
 type WorkerIdentity = { sessionId: string; participantId: string; runId: string; provider: AgentProvider };
+type DockerCommand = (args: string[]) => Promise<string>;
 
 export class DockerTerminationError extends Error {
   constructor(readonly stop: () => Promise<void>) {
@@ -75,9 +77,80 @@ export class DockerRuntime {
   labels(kind: string, identity?: WorkerIdentity): string[] {
     const values: Record<string, string> = {
       owner: this.owner, instance: this.instance, kind, pid: String(process.pid),
-      ...(identity ? { session: identity.sessionId, participant: identity.participantId, run: identity.runId } : {}),
+      ...(identity ? { session: identity.sessionId, participant: identity.participantId, run: identity.runId, provider: identity.provider } : {}),
     };
     return Object.entries(values).flatMap(([key, value]) => ['--label', `${DOCKER_LABEL}.${key}=${value}`]);
+  }
+
+  private async volumeLabels(command: DockerCommand, volume: string): Promise<Record<string, string> | undefined> {
+    if (!(await command(['volume', 'ls', '-q', '--filter', `name=^${volume}$`])).trim()) return undefined;
+    return JSON.parse(await command(['volume', 'inspect', volume, '--format', '{{json .Labels}}'])) || {};
+  }
+
+  private checkParticipantVolume(labels: Record<string, string>, identity: WorkerIdentity) {
+    if (labels[`${DOCKER_LABEL}.owner`] !== this.owner || labels[`${DOCKER_LABEL}.participant`] !== identity.participantId
+      || labels[`${DOCKER_LABEL}.session`] !== identity.sessionId) {
+      throw new Error('Docker volume ownership does not match this participant.');
+    }
+  }
+
+  /** Docker names arbitrate across the server and independent owner-terminal processes. */
+  private async acquireHome(command: DockerCommand, image: string, identity: WorkerIdentity, home: string,
+    uid: number, gid: number, setup: boolean): Promise<string> {
+    const name = `${home}-admission`;
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      try {
+        return (await command(['create', '--name', name, ...this.labels(setup ? 'setup' : 'admission', identity),
+          '--label', `${DOCKER_LABEL}.home=${home}`, ...containerSecurity(uid, gid), '--network', 'none', image, 'true'])).trim();
+      } catch (error) {
+        const existing = (await command(['container', 'ls', '-aq', '--filter', `name=^/${name}$`])).trim();
+        if (existing) {
+          let labels: Record<string, string> | null;
+          try { labels = JSON.parse(await command(['inspect', '--format', '{{json .Config.Labels}}', existing])); }
+          catch (inspectionError) {
+            // Admission may finish between its name conflict and our inspection.
+            if ((await command(['container', 'ls', '-aq', '--filter', `id=${existing}`])).trim()) throw inspectionError;
+            labels = null;
+          }
+          if (labels) {
+            if (labels[`${DOCKER_LABEL}.owner`] !== this.owner || labels[`${DOCKER_LABEL}.home`] !== home) throw error;
+            if (labels[`${DOCKER_LABEL}.kind`] !== 'admission') {
+              throw new Error('Docker provider setup is active. Finish the login command in your terminal before starting another turn.');
+            }
+          }
+        }
+        if (Date.now() >= deadline) throw new Error('Docker provider admission is busy. Try again when the starting turn is ready.');
+        await setTimeout(100);
+      }
+    }
+  }
+
+  /** Legacy cleanup deliberately names only participant volumes, never the shared provider home. */
+  async cleanupParticipant(identity: WorkerIdentity): Promise<{ homeRemoved: boolean }> {
+    const { command, image } = await this.profile();
+    const lease = (await command(['create', '--name', `codeai-${this.owner}-${identity.sessionId}`,
+      ...this.labels('cleanup', identity), ...containerSecurity(1000, 1000), '--network', 'none', image, 'true'])).trim();
+    let homeRemoved = false;
+    try {
+      for (const kind of ['cache', 'home'] as const) {
+        const volume = participantVolume(this.owner, identity.sessionId, identity.participantId, kind);
+        const labels = await this.volumeLabels(command, volume);
+        if (!labels) continue;
+        this.checkParticipantVolume(labels, identity);
+        const users = (await command(['container', 'ls', '-aq', '--filter', `volume=${volume}`])).trim().split('\n').filter(Boolean);
+        for (const id of users) {
+          const userLabels = JSON.parse(await command(['inspect', '--format', '{{json .Config.Labels}}', id])) as Record<string, string> | null;
+          if (userLabels?.[`${DOCKER_LABEL}.owner`] !== this.owner || userLabels[`${DOCKER_LABEL}.kind`] !== 'cache') {
+            throw new Error('Participant storage is active; cleanup refused.');
+          }
+          await this.removeContainer(command, id);
+        }
+        await command(['volume', 'rm', volume]);
+        if (kind === 'home') homeRemoved = true;
+      }
+      return { homeRemoved };
+    } finally { await this.removeContainer(command, lease); }
   }
 
   /** A failed inspection is not proof of absence. rm success plus an empty owned inventory is. */
@@ -168,7 +241,8 @@ export class DockerRuntime {
     if (options.context && (await realpath(options.context) !== options.context || /[,\n\r\0]/.test(options.context))) {
       throw new Error('The prepared Docker context path is invalid.');
     }
-    const home = participantVolume(this.owner, identity.sessionId, identity.participantId, 'home');
+    let home = providerVolume(this.owner, identity.provider);
+    let legacyHome = false;
     const name = `codeai-${this.owner}-${identity.sessionId}`;
     const network = `${name}-${identity.runId.slice(0, 8)}`;
     const resources: string[] = [];
@@ -190,6 +264,14 @@ export class DockerRuntime {
         ...containerSecurity(uid, gid), '--network', 'none', image, 'sleep', 'infinity',
       ])).trim();
       resources.push(lease);
+      // Session admission excludes legacy cleanup while choosing and mounting its old home.
+      const legacy = participantVolume(this.owner, identity.sessionId, identity.participantId, 'home');
+      const legacyLabels = await this.volumeLabels(command, legacy);
+      if (legacyLabels) {
+        this.checkParticipantVolume(legacyLabels, identity);
+        home = legacy;
+        legacyHome = true;
+      }
       if (options.checkout) {
         const preparer = (await command([
           'create', ...this.labels('prepare', identity), ...containerSecurity(uid, gid), '--network', 'none',
@@ -203,13 +285,19 @@ export class DockerRuntime {
         }
         await this.removeContainer(command, preparer);
       }
-      const existingHome = (await command(['volume', 'ls', '-q', '--filter', `name=^${home}$`])).trim();
-      if (existingHome) {
-        const labels = JSON.parse(await command(['volume', 'inspect', home, '--format', '{{json .Labels}}'])) as Record<string, string>;
-        if (labels?.[`${DOCKER_LABEL}.owner`] !== this.owner || labels?.[`${DOCKER_LABEL}.participant`] !== identity.participantId) {
-          throw new Error('Docker volume ownership does not match this participant.');
+      const admission = await this.acquireHome(command, image, identity, home, uid, gid, !!options.setup);
+      resources.push(admission);
+      if (options.setup && (await command(['container', 'ls', '-aq', '--filter', `volume=${home}`])).trim()) {
+        throw new Error('Docker provider storage is active. Wait for its turns to finish before signing in.');
+      }
+      const homeLabels = await this.volumeLabels(command, home);
+      if (homeLabels) {
+        if (legacyHome) this.checkParticipantVolume(homeLabels, identity);
+        else if (homeLabels[`${DOCKER_LABEL}.owner`] !== this.owner || homeLabels[`${DOCKER_LABEL}.provider`] !== identity.provider
+          || homeLabels[`${DOCKER_LABEL}.kind`] !== 'provider-home') {
+          throw new Error('Docker volume ownership does not match this provider.');
         }
-      } else await command(['volume', 'create', ...this.labels('home', identity), home]);
+      } else await command(['volume', 'create', ...this.labels('provider-home'), '--label', `${DOCKER_LABEL}.provider=${identity.provider}`, home]);
       await command(['network', 'create', '--internal', '--driver', 'bridge',
         '--opt', 'com.docker.network.bridge.gateway_mode_ipv4=isolated',
         '--opt', 'com.docker.network.bridge.gateway_mode_ipv6=isolated',
@@ -249,6 +337,11 @@ export class DockerRuntime {
         try { await command(['exec', worker, 'node', '/opt/codeai/worker.mjs', 'access', options.mode]); }
         catch { throw new Error('The non-root Docker worker cannot access this checkout. Check owner permissions; CodeAI does not change host ownership.'); }
       }
+      // Once the mount is visible, setup can detect this worker. Independent turns share the home.
+      if (!options.setup) {
+        await this.removeContainer(command, admission);
+        resources.splice(resources.indexOf(admission), 1);
+      }
       return {
         worker, endpoint, stop,
         spawn: (binary: string, args: string[]) => spawnDocker(endpoint, ['exec', '-i', worker, binary, ...args]),
@@ -256,7 +349,8 @@ export class DockerRuntime {
           try {
             await command(['exec', worker, identity.provider, ...(identity.provider === 'claude' ? ['auth', 'status'] : ['login', 'status'])]);
           } catch {
-            throw new Error(`This Docker participant is not signed in. Run npm run docker:login -- ${identity.sessionId} ${identity.participantId} in your terminal.`);
+            const target = legacyHome ? `${identity.sessionId} ${identity.participantId}` : identity.provider;
+            throw new Error(`Docker ${identity.provider} is not signed in. Run npm run docker:login -- ${target} in your terminal.`);
           }
         },
       };

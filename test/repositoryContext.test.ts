@@ -1,12 +1,24 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { writeRepositoryContext } from '@/server/repository/repositoryContext';
 
 const exec = promisify(execFile);
+let dataDir: string;
+
+beforeAll(async () => {
+  dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-context-data-'));
+  vi.stubEnv('CODEAI_DATA_DIR', dataDir);
+  vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false');
+});
+
+afterAll(async () => {
+  vi.unstubAllEnvs();
+  await rm(dataDir, { recursive: true, force: true });
+});
 
 describe('writeRepositoryContext', () => {
   it('writes bounded, read-only git snapshots and a manifest', async () => {

@@ -268,7 +268,13 @@ looking read-only, they are arbitrary command execution.
 Optional **Docker** execution is being implemented in Story 42. Turn on **Enable Docker** in Arena
 to save this machine's preference without restarting; the UI shows when setup is still needed. See the
 [Docker setup and verification guide](docs/docker-execution.md) for its release status, provider-owned
-login, direct-edit scope, network restrictions, and cleanup. Docker sessions persist execution and
+login, direct-edit scope, network restrictions, and cleanup. Select Local or Docker directly when
+creating a session in a project or Arena. Sign in once with `npm run docker:login -- claude` or
+`npm run docker:login -- codex`; new Docker conversations share that provider's login, settings and
+history in persistent Docker storage, separate from the host provider setup. Existing individual
+Docker homes retain their history in place. The conversation shows an execution badge and offers
+**Continue in Docker/Local**, opening a fresh session on the same repositories with a recap ready
+to review and send. Docker sessions persist execution and
 one fixed primary checkout. Agent is autonomous inside the container; its dependency installs and
 build outputs also change the host checkout. Ask/Plan mount the entire checkout read-only.
 Dependencies may need reinstalling when switching between macOS and Linux. The Local contract

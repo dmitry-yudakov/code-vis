@@ -10,6 +10,7 @@ Updated 2026-09-04. When a story ships, change the line that names it; each stor
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md).
+- **Latest:** [Docker session creation and shared provider login](stories/STORY-20260909-docker-session-friction.md).
 - **Next:** a second execution machine — a machine registry and remote sessions in one Arena.
 - **Then:** spatial surfaces and the rest of
   [vision.md's sequence](docs/vision.md#sequence).
@@ -83,7 +84,8 @@ importing file's own directory; keep `./…` for same-directory siblings.
 - Local Agent edits the real working tree after per-action approval and runs as the desktop user.
   Optional Docker execution (Story 42, release verification pending) uses a pinned non-root worker:
   Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
-  separate working copy or rollback. Never mount the running CodeAI installation or provider host
+  separate working copy or rollback. New Docker participants share a persistent provider home per
+  installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host
   storage; see [the Docker execution contract](docs/docker-execution.md).
 - Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
   device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode.

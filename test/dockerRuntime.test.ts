@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getConfig } from '@/server/config';
 import { DockerRuntime } from '@/server/execution/dockerRuntime';
-import { DOCKER_HOME, DOCKER_LABEL, DOCKER_PROFILE, participantVolume } from '@/server/execution/dockerProfile';
+import { DOCKER_HOME, DOCKER_LABEL, DOCKER_PROFILE, participantVolume, providerVolume } from '@/server/execution/dockerProfile';
 
 const mocks = vi.hoisted(() => ({ command: vi.fn() }));
 vi.mock('@/server/execution/dockerCommand', () => ({
@@ -116,28 +116,46 @@ async function workerFixture() {
   const context = path.join(dataDir, 'context');
   await mkdir(context);
   const identity = { sessionId: crypto.randomUUID(), participantId: crypto.randomUUID(), runId: crypto.randomUUID(), provider: 'codex' as const };
-  const home = participantVolume(runtime.owner, identity.sessionId, identity.participantId, 'home');
+  const home = providerVolume(runtime.owner, identity.provider);
+  const legacyHome = participantVolume(runtime.owner, identity.sessionId, identity.participantId, 'home');
   const containers = new Map<string, string[]>();
   const networks = new Set<string>();
-  const state = { homeLabels: undefined as Record<string, string> | undefined, failAccess: false, failPrepare: false };
+  const volumes = new Map<string, Record<string, string>>();
+  const state = { failAccess: false, failPrepare: false, failAuth: false };
+  const labels = (args: string[]) => Object.fromEntries(args.filter((_, index) => args[index - 1] === '--label').map((label) => {
+    const separator = label.indexOf('=');
+    return [label.slice(0, separator), label.slice(separator + 1)];
+  }));
   let sequence = 0;
   const command = vi.fn(async (args: string[]) => {
     if (args[0] === 'info') return 'engine-original';
     if (args[0] === 'version') return JSON.stringify({ Version: '28.0.0', Os: 'linux' });
     if (args[0] === 'image') return JSON.stringify({ Id: `sha256:${'a'.repeat(64)}`, Config: { Labels: { [`${DOCKER_LABEL}.profile`]: DOCKER_PROFILE } } });
     if (args[0] === 'create') {
+      const nameIndex = args.indexOf('--name');
+      if (nameIndex !== -1 && [...containers.values()].some((container) => container.includes(args[nameIndex + 1]))) throw new Error('Container name already in use');
       const id = `container-${++sequence}`;
       containers.set(id, args);
       return id;
     }
     if (args[0] === 'container' && args[1] === 'ls') {
-      expect(args).toContain(`label=${DOCKER_LABEL}.owner=${runtime.owner}`);
-      return [...containers.keys()].join('\n');
+      const filters = args.filter((_, index) => args[index - 1] === '--filter');
+      return [...containers.entries()].filter(([, container]) => filters.every((filter) => {
+        if (filter.startsWith('label=')) return container.includes(filter.slice(6));
+        if (filter.startsWith('volume=')) return mounts(container).some((mount) => mount.includes(`src=${filter.slice(7)},`));
+        if (filter.startsWith('name=')) return new RegExp(filter.slice(5)).test(`/${container[container.indexOf('--name') + 1]}`);
+        throw new Error(`Unexpected filter ${filter}`);
+      })).map(([id]) => id).join('\n');
     }
     if (args[0] === 'container' && args[1] === 'rm') { containers.delete(args.at(-1)!); return ''; }
-    if (args[0] === 'volume' && args[1] === 'ls') return state.homeLabels ? home : '';
-    if (args[0] === 'volume' && args[1] === 'inspect') return JSON.stringify(state.homeLabels);
-    if (args[0] === 'volume' && args[1] === 'create') return args.at(-1)!;
+    if (args[0] === 'inspect') return JSON.stringify(labels(containers.get(args.at(-1)!)!));
+    if (args[0] === 'volume' && args[1] === 'ls') {
+      const name = args.find((arg) => arg.startsWith('name='))!;
+      return [...volumes.keys()].filter((volume) => new RegExp(name.slice(5)).test(volume)).join('\n');
+    }
+    if (args[0] === 'volume' && args[1] === 'inspect') return JSON.stringify(volumes.get(args[2]));
+    if (args[0] === 'volume' && args[1] === 'create') { volumes.set(args.at(-1)!, labels(args)); return args.at(-1)!; }
+    if (args[0] === 'volume' && args[1] === 'rm') { volumes.delete(args[2]); return ''; }
     if (args[0] === 'network' && args[1] === 'create') { networks.add(args.at(-1)!); return args.at(-1)!; }
     if (args[0] === 'network' && args[1] === 'ls') return [...networks].join('\n');
     if (args[0] === 'network' && args[1] === 'rm') { networks.delete(args.at(-1)!); return ''; }
@@ -150,10 +168,14 @@ async function workerFixture() {
       if (state.failAccess) throw new Error('Permission denied');
       return '';
     }
+    if (args[0] === 'exec' && ['claude', 'codex'].includes(args[2])) {
+      if (state.failAuth) throw new Error('Signed out');
+      return '';
+    }
     throw new Error(`Unexpected worker command: ${args.join(' ')}`);
   });
   mocks.command.mockImplementation((args: string[]) => command(args.slice(2)));
-  return { runtime, identity, home, checkout, context, command, containers, networks, state };
+  return { runtime, identity, home, legacyHome, checkout, context, command, containers, networks, volumes, state };
 }
 
 function mounts(args: string[]) {
@@ -187,9 +209,9 @@ describe('Docker checkout mounts', () => {
     expect(command.mock.calls.some(([args]) => args[0] === 'volume' && args[1] === 'rm')).toBe(false);
   });
 
-  it('reuses the owned participant home for interactive setup without exposing a checkout', async () => {
-    const { runtime, identity, home, command, containers, state } = await workerFixture();
-    state.homeLabels = { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId };
+  it('reuses the owned legacy participant home for interactive setup without exposing a checkout', async () => {
+    const { runtime, identity, legacyHome: home, command, containers, volumes } = await workerFixture();
+    volumes.set(home, { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId, [`${DOCKER_LABEL}.session`]: identity.sessionId });
     const worker = await runtime.createWorker(identity, { mode: 'ask', setup: true });
     const launch = containers.get(worker.worker)!;
     expect(mounts(launch)).toEqual([`type=volume,src=${home},dst=${DOCKER_HOME}`]);
@@ -198,9 +220,9 @@ describe('Docker checkout mounts', () => {
     await worker.stop();
   });
 
-  it.each(['owner', 'participant'])('rejects an existing provider home with a different %s and releases the session lease', async (field) => {
-    const { runtime, identity, containers, networks, state } = await workerFixture();
-    state.homeLabels = { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId, [`${DOCKER_LABEL}.${field}`]: 'different' };
+  it.each(['owner', 'participant', 'session'])('rejects an existing provider home with a different %s and releases the session lease', async (field) => {
+    const { runtime, identity, legacyHome, containers, networks, volumes } = await workerFixture();
+    volumes.set(legacyHome, { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId, [`${DOCKER_LABEL}.session`]: identity.sessionId, [`${DOCKER_LABEL}.${field}`]: 'different' });
     await expect(runtime.createWorker(identity, { mode: 'ask', setup: true })).rejects.toThrow('ownership');
     expect(containers.size).toBe(0);
     expect(networks.size).toBe(0);
@@ -212,5 +234,130 @@ describe('Docker checkout mounts', () => {
     await expect(runtime.createWorker(identity, { checkout, mode: 'agent' })).rejects.toThrow(failure === 'failPrepare' ? 'Git metadata' : 'cannot access');
     expect(containers.size).toBe(0);
     expect(networks.size).toBe(0);
+  });
+});
+
+describe('shared Docker provider storage', () => {
+  it('reuses one owned home across sessions and runtime restarts, keeping providers and installations separate', async () => {
+    const { runtime, identity, home, containers, volumes } = await workerFixture();
+    const first = await runtime.createWorker(identity, { mode: 'ask' });
+    await first.stop();
+    const restarted = new DockerRuntime(runtime.config);
+    const nextIdentity = { ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID(), runId: crypto.randomUUID() };
+    const next = await restarted.createWorker(nextIdentity, { mode: 'ask' });
+    expect(mounts(containers.get(next.worker)!)).toEqual([`type=volume,src=${home},dst=${DOCKER_HOME}`]);
+    const claude = await restarted.createWorker({ ...nextIdentity, sessionId: crypto.randomUUID(), provider: 'claude' }, { mode: 'ask' });
+    const claudeHome = providerVolume(runtime.owner, 'claude');
+    expect(mounts(containers.get(claude.worker)!)).toEqual([`type=volume,src=${claudeHome},dst=${DOCKER_HOME}`]);
+    expect([...volumes.keys()]).toEqual([home, claudeHome]);
+    expect(providerVolume('another-installation', identity.provider)).not.toBe(home);
+    expect(volumes.get(home)).toMatchObject({ [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.provider`]: 'codex' });
+    expect(volumes.get(home)).not.toHaveProperty(`${DOCKER_LABEL}.participant`);
+    await next.stop();
+    await claude.stop();
+  });
+
+  it.each(['owner', 'provider', 'kind'])('refuses shared storage with a mismatched %s label', async (field) => {
+    const { runtime, identity, home, containers, volumes } = await workerFixture();
+    volumes.set(home, { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.provider`]: identity.provider,
+      [`${DOCKER_LABEL}.kind`]: 'provider-home', [`${DOCKER_LABEL}.${field}`]: 'wrong' });
+    await expect(runtime.createWorker(identity, { mode: 'ask' })).rejects.toThrow('ownership');
+    expect(containers.size).toBe(0);
+    expect(volumes.has(home)).toBe(true);
+  });
+
+  it('admits concurrent independent sessions without retaining their shared admission gate', async () => {
+    const { runtime, identity, containers } = await workerFixture();
+    const secondRuntime = new DockerRuntime(runtime.config);
+    const workers = await Promise.all([
+      runtime.createWorker(identity, { mode: 'ask' }),
+      secondRuntime.createWorker({ ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() }, { mode: 'ask' }),
+    ]);
+    expect(workers.every((worker) => containers.has(worker.worker))).toBe(true);
+    expect([...containers.values()].some((args) => args.includes(`${DOCKER_LABEL}.kind=admission`))).toBe(false);
+    await Promise.all(workers.map((worker) => worker.stop()));
+  });
+
+  it('excludes setup while any session uses its home, and excludes turns and other setup until login stops', async () => {
+    const { runtime, identity, containers } = await workerFixture();
+    const otherRuntime = new DockerRuntime(runtime.config);
+    const setupIdentity = { ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() };
+    const turn = await runtime.createWorker(identity, { mode: 'ask' });
+    await expect(otherRuntime.createWorker(setupIdentity, { mode: 'ask', setup: true })).rejects.toThrow('storage is active');
+    expect(containers.has(turn.worker)).toBe(true);
+    await turn.stop();
+    const setup = await otherRuntime.createWorker(setupIdentity, { mode: 'ask', setup: true });
+    await expect(runtime.createWorker(identity, { mode: 'ask' })).rejects.toThrow('setup is active');
+    await expect(runtime.createWorker(identity, { mode: 'ask', setup: true })).rejects.toThrow('setup is active');
+    const differentProvider = await runtime.createWorker({ ...identity, provider: 'claude' }, { mode: 'ask' });
+    await differentProvider.stop();
+    await setup.stop();
+    const resumed = await runtime.createWorker(identity, { mode: 'ask' });
+    await resumed.stop();
+    expect(containers.size).toBe(0);
+  });
+
+  it('preserves every live setup resource through server reconciliation', async () => {
+    const { runtime, identity, containers } = await workerFixture();
+    const setup = await runtime.createWorker(identity, { mode: 'ask', setup: true });
+    const before = [...containers.keys()];
+    const replacement = new DockerRuntime(runtime.config);
+    const command = mocks.command.getMockImplementation()!;
+    mocks.command.mockImplementation((input: string[]) => input[2] === 'network' && input[3] === 'inspect' ? Promise.resolve('{"setup-worker":{}}') : command(input));
+    expect(await replacement.reconcile()).toEqual([]);
+    expect([...containers.keys()]).toEqual(before);
+    expect([...containers.values()].some((args) => args.includes(`${DOCKER_LABEL}.home=${providerVolume(runtime.owner, 'codex')}`))).toBe(true);
+    await setup.stop();
+  });
+
+  it('uses short login guidance for shared homes and ID guidance for legacy homes', async () => {
+    const { runtime, identity, legacyHome, volumes, state } = await workerFixture();
+    state.failAuth = true;
+    const shared = await runtime.createWorker(identity, { mode: 'ask' });
+    await expect(shared.authenticate()).rejects.toThrow('npm run docker:login -- codex in your terminal');
+    await shared.stop();
+    volumes.set(legacyHome, { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId, [`${DOCKER_LABEL}.session`]: identity.sessionId });
+    const legacy = await runtime.createWorker(identity, { mode: 'ask' });
+    await expect(legacy.authenticate()).rejects.toThrow(`npm run docker:login -- ${identity.sessionId} ${identity.participantId}`);
+    await legacy.stop();
+  });
+});
+
+describe('legacy Docker participant cleanup', () => {
+  it('retains shared storage, including while another session uses it', async () => {
+    const { runtime, identity, home, volumes, command } = await workerFixture();
+    const worker = await runtime.createWorker(identity, { mode: 'ask' });
+    const cleanupIdentity = { ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() };
+    expect(await runtime.cleanupParticipant(cleanupIdentity)).toEqual({ homeRemoved: false });
+    expect(volumes.has(home)).toBe(true);
+    expect(command.mock.calls.some(([args]) => args[0] === 'volume' && args[1] === 'rm')).toBe(false);
+    await worker.stop();
+  });
+
+  it('removes only owned legacy storage after its turn or login has stopped', async () => {
+    const { runtime, identity, legacyHome, volumes, containers } = await workerFixture();
+    const labels = { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId, [`${DOCKER_LABEL}.session`]: identity.sessionId };
+    volumes.set(legacyHome, labels);
+    const cache = participantVolume(runtime.owner, identity.sessionId, identity.participantId, 'cache');
+    volumes.set(cache, labels);
+    const worker = await runtime.createWorker(identity, { mode: 'ask', setup: true });
+    await expect(runtime.cleanupParticipant(identity)).rejects.toThrow('name already in use');
+    expect(volumes.has(legacyHome)).toBe(true);
+    await worker.stop();
+    expect(await runtime.cleanupParticipant(identity)).toEqual({ homeRemoved: true });
+    expect(volumes.size).toBe(0);
+    expect(containers.size).toBe(0);
+  });
+
+  it('refuses legacy volume ownership mismatches and containers outside its session lease', async () => {
+    const { runtime, identity, legacyHome, volumes, containers } = await workerFixture();
+    const labels = { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId, [`${DOCKER_LABEL}.session`]: identity.sessionId };
+    volumes.set(legacyHome, { ...labels, [`${DOCKER_LABEL}.owner`]: 'other' });
+    await expect(runtime.cleanupParticipant(identity)).rejects.toThrow('ownership');
+    volumes.set(legacyHome, labels);
+    containers.set('external', ['create', '--label', `${DOCKER_LABEL}.owner=${runtime.owner}`, '--label', `${DOCKER_LABEL}.kind=worker`, '--mount', `type=volume,src=${legacyHome},dst=${DOCKER_HOME}`]);
+    await expect(runtime.cleanupParticipant(identity)).rejects.toThrow('storage is active');
+    expect(volumes.has(legacyHome)).toBe(true);
+    expect([...containers.keys()]).toEqual(['external']);
   });
 });
