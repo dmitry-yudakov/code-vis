@@ -110,6 +110,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .health-pill { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 10px; white-space: nowrap; }
 .health-pill > span { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
 .health-pill.ready > span { background: var(--live); }
+.health-pill.notice > span { background: var(--wait); }
 .health-pill.warning { color: var(--wait); background: var(--wait-wash); border-color: var(--wait-line); }
 .run-status-toggle { min-width: 0; max-width: 220px; display: inline-flex; align-items: center; gap: 6px; }
 .run-status-toggle > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1430,7 +1430,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
           {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
           <span
-            className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
+            className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}${providerHealth?.available && providerHealth.message ? ' notice' : ''}`}
             title={providerHealth?.message || health?.message || 'Local readiness'}
           >
             <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
