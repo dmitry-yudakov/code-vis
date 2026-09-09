@@ -71,10 +71,12 @@ browser and restart the dev server:
 CODEAI_ALLOWED_DEV_ORIGINS=192.168.100.10 npm run dev
 ```
 
-The value is a comma-separated list of hostnames or IP addresses, without schemes or ports. When
-`CODEAI_PUBLIC_ORIGIN` is already configured, its hostname is allowed automatically. This setting
-only satisfies Next.js's development asset/HMR origin guard; it does not add pairing, HTTPS, or a
-WebXR secure context. Use the paired `start:remote` path below for normal personal-device access.
+The value is a comma-separated list of hostnames or IP addresses, without schemes, ports, brackets,
+or quotes. When `CODEAI_PUBLIC_ORIGIN` is already configured, its hostname is allowed automatically.
+This setting only satisfies Next.js's development asset/HMR origin guard; it does not add pairing,
+HTTPS, or a WebXR secure context. Use the paired `start:remote` path below for normal
+personal-device access, or [Develop against a headset](#develop-against-a-headset) for a secure
+development loop without a build or pairing.
 
 ### Create a trusted LAN certificate with `mkcert`
 
@@ -147,7 +149,8 @@ movable panels, real 3D diagrams, controllers, and voice, followed later by the 
 Use a paired, exact `https://` `start:remote` origin whose certificate the headset trusts. On a
 supported browser, **Enter VR** appears in the application header, including in Arena, Inbox,
 Flat, Spatial, and empty sessions. Plain LAN HTTP is not a WebXR secure context;
-`CODEAI_ALLOWED_DEV_ORIGINS` does not change that.
+`CODEAI_ALLOWED_DEV_ORIGINS` does not change that. To iterate with hot reload instead, see
+[Develop against a headset](#develop-against-a-headset).
 
 The shell presents a paged session launcher across projects and machines, session status, the active
 marked canvas (or an empty state), and a bounded read-only live conversation panel. Controller rays
@@ -162,6 +165,49 @@ never saved. Entry preserves the chosen desktop canvas surface, drafts, cameras,
 exit returns to the focused work. Desktop Spatial resources pause while immersive. This foundation
 has no AR/passthrough, locomotion, hand tracking, or spatial graph geometry. Authentication and
 execution continue through the same paired home origin and existing authorized executor routes.
+
+### Develop against a headset
+
+Two development paths give the headset browser a WebXR secure context without `npm run build` or
+pairing, and both keep hot reload. The development server runs in local mode, so no device
+credential is needed. Both need ADB: enable Developer Mode for the headset in the Meta Horizon
+app, connect it over USB, and accept the USB debugging prompt inside the headset.
+
+**Forward the port over ADB.** Browsers treat `localhost` as secure even over HTTP:
+
+```sh
+adb devices                     # the headset must show as "device", not "unauthorized"
+adb reverse tcp:3023 tcp:3023   # the headset's localhost:3023 reaches this machine
+npm run dev
+```
+
+Open `http://localhost:3023` in the headset browser. The mapping lasts as long as the ADB
+connection; repeat `adb reverse` after the cable or headset restarts (`adb reverse --list` shows
+it). For a cable-free loop after the first USB connection, run `adb tcpip 5555`, unplug, then
+`adb connect <headset-ip>:5555` before `adb reverse`.
+
+**Serve the development server over HTTPS.** Create the certificate as in
+[Create a trusted LAN certificate with `mkcert`](#create-a-trusted-lan-certificate-with-mkcert),
+naming this machine's LAN address, and allow that address for development. With explicit key and
+certificate paths Next.js uses them directly and never prompts for a password:
+
+```sh
+CODEAI_ALLOWED_DEV_ORIGINS=192.168.1.50 npm run dev -- --experimental-https \
+  --experimental-https-key .cert/codeai-key.pem \
+  --experimental-https-cert .cert/codeai-cert.pem
+```
+
+Push only the public root certificate to the headset and open Android's hidden security settings:
+
+```sh
+adb push "$(mkcert -CAROOT)/rootCA.pem" /sdcard/Download/mkcert-rootCA.crt
+adb shell am start -a android.settings.SECURITY_SETTINGS
+```
+
+In the headset choose **Encryption & credentials**, **Install a certificate**, **CA certificate**,
+confirm, and pick the file from Downloads; menu names vary slightly between Horizon OS versions.
+Then open `https://192.168.1.50:3023`. Both devices must share the Wi-Fi network and the desktop
+firewall must allow port 3023.
 
 ## Execution machines
 
