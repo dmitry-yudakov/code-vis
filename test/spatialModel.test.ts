@@ -68,6 +68,9 @@ describe('spatial room model', () => {
     expect(active.pixels).toBeLessThanOrEqual(MAX_TEXTURE_TEXELS);
     expect(allocations.reduce((sum, allocation) => sum + allocation.pixels, 0)).toBeLessThanOrEqual(MAX_SPATIAL_TEXTURE_TEXELS);
     expect(active.width).toBeGreaterThan(allocations[1].width);
+    const immersive = allocateTexturePixels(candidates.slice(0, 1), 'panel-0', 1_600_000)[0];
+    expect(immersive.pixels).toBeLessThanOrEqual(1_600_000);
+    expect(immersive.pixels).toBeLessThan(active.pixels);
   });
 });
 

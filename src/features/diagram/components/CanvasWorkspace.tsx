@@ -22,11 +22,9 @@ export function CanvasWorkspace({
   pendingApprovals,
   running,
   runFailed,
-  preview,
-  runStatus,
-  immersiveAuthorized,
   toolActivity,
   focusMode,
+  immersiveActive,
   canvasView,
   surface,
   spatial,
@@ -50,11 +48,9 @@ export function CanvasWorkspace({
   pendingApprovals: number;
   running: boolean;
   runFailed: boolean;
-  preview: string;
-  runStatus: string;
-  immersiveAuthorized: boolean;
   toolActivity: ToolActivityEntry[];
   focusMode: boolean;
+  immersiveActive: boolean;
   canvasView?: CanvasViewState;
   surface: CanvasSurface;
   spatial?: SpatialViewState;
@@ -133,15 +129,10 @@ export function CanvasWorkspace({
           activity={toolActivity}
         />
         {target && activeId && surface === 'spatial' ? (
-          <SpatialBoundary
+          immersiveActive ? <div className="spatial-status">Canvas open in VR</div> : <SpatialBoundary
             session={session}
             theme={theme}
             activeId={activeId}
-            immersiveAuthorized={immersiveAuthorized}
-            preview={preview}
-            runStatus={runStatus}
-            pendingApprovals={pendingApprovals}
-            unread={unread}
             spatial={spatial}
             onSelect={onSelectDiagram}
             onOpenFlat={() => onSurfaceChange('flat')}

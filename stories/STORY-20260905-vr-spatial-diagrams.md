@@ -16,7 +16,7 @@ on a plane has spatial placement but does not let the user select and explore no
 ## Current behavior (where the code is)
 
 - [panelResources.ts:98](../src/features/diagram/spatial/panelResources.ts#L98) rasterizes the whole
-  artifact; [ImmersiveBridge.tsx:224](../src/features/diagram/spatial/ImmersiveBridge.tsx#L224) draws
+  artifact; [ImmersiveWorkspace.tsx:249](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L249) draws
   that panel geometry. No node/edge-level spatial renderer exists in the root application.
 - [mermaidPolicy.ts:87](../src/features/diagram/mermaid/mermaidPolicy.ts#L87) validates canonical
   source; [mermaidRenderer.ts:43](../src/features/diagram/mermaid/mermaidRenderer.ts#L43) renders SVG.

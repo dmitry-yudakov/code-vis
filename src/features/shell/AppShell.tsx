@@ -46,6 +46,8 @@ import {
   parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView,
   type CanvasSurface, type SpatialViewState,
 } from './workspaceViews';
+import { ImmersiveBoundary } from './immersive/ImmersiveBoundary';
+import type { ImmersiveSessionChoice } from '@/features/diagram/spatial/immersiveTypes';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
@@ -108,6 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [loading, setLoading] = useState(true);
+  const [immersiveActive, setImmersiveActive] = useState(false);
   const [runsBySession, setRunsBySession] = useState<Record<string, RunPresentation>>({});
   const [runOutcomesBySession, setRunOutcomesBySession] = useState<Record<string, SessionRunOutcome>>({});
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
@@ -1394,19 +1397,31 @@ export function AppShell({ children }: { children: ReactNode }) {
     void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent', participantId });
   }, [health, send, session?.participants]);
 
-  // Keep the loading surface in the named canvas area. Rendering the interactive header only
-  // after hydration also lets its device-owned theme controls reflect the pre-paint preference.
-  if (loading) {
-    return (
-      <div
-        ref={shellRef}
-        className={`app-shell workspace-loading dock-capacity-${panelLayout.dockCapacity}`}
-        style={panelLayout.shellStyle}
-      >
-        <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>
-      </div>
-    );
-  }
+  const immersiveChoices: ImmersiveSessionChoice[] = arena.machines.flatMap((entry) => entry.sessions.map((item) => ({
+    machineId: entry.machine.id,
+    projectId: item.projectId,
+    sessionId: item.id,
+    title: item.title,
+    detail: `${entry.projects.find((project) => project.id === item.projectId)?.name || 'No project'} · ${entry.machine.label} · ${entry.machine.state === 'online' ? 'Online' : 'Offline'}`,
+  })));
+  const openImmersiveSession = (choice: ImmersiveSessionChoice) => {
+    const targetMachine = arena.machines.find((entry) => entry.machine.id === choice.machineId);
+    const target = targetMachine?.sessions.find((item) => item.id === choice.sessionId && item.projectId === choice.projectId);
+    if (!targetMachine || targetMachine.machine.state !== 'online') {
+      setNotice(`${targetMachine?.machine.label || 'Machine'} is Offline. Choose another session or reconnect the machine.`);
+      return;
+    }
+    if (!target) {
+      setNotice('That session is unavailable. Choose another session.');
+      return;
+    }
+    setNotice(undefined);
+    openArenaSession(targetMachine, target);
+  };
+  const immersiveMachine = arena.machines.find((entry) => entry.machine.id === machineId);
+  const immersiveStatus = loading ? 'Loading session…'
+    : immersiveMachine && immersiveMachine.machine.state !== 'online' ? `${immersiveMachine.machine.label} is Offline`
+      : notice || (session ? immersiveRunStatus : arena.refreshError || 'Choose a session to open');
 
   return (
     <div
@@ -1417,110 +1432,123 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="app-header">
         <div className="brand"><span className="brand-mark">C</span><strong>CodeAI</strong></div>
         <nav className="header-breadcrumbs" aria-label="Current project and session">
-          <span className="breadcrumb-separator" aria-hidden="true">/</span>
-          {arenaOpen ? <strong className="arena-breadcrumb">Arena</strong> : (
-            <>
-              <ProjectPicker
-                projects={projects}
-                value={projectId}
-                onChange={switchProject}
-                onCreate={(name) => void createProject(name)}
-                onRename={(project, name) => void renameProject(project, name)}
-                onDelete={(project) => void deleteProject(project)}
-              />
-              <span className="breadcrumb-separator" aria-hidden="true">/</span>
-              <SessionPicker
-                sessions={sessions}
-                value={sessionId}
-                providers={selectableProviders}
-                newProvider={newProvider}
-                onChange={workspace.open}
-                onNewProvider={setNewProvider}
-                onNew={(provider) => void createSession(provider)}
-              />
-            </>
-          )}
+          {!loading && <>
+            <span className="breadcrumb-separator" aria-hidden="true">/</span>
+            {arenaOpen ? <strong className="arena-breadcrumb">Arena</strong> : (
+              <>
+                <ProjectPicker
+                  projects={projects}
+                  value={projectId}
+                  onChange={switchProject}
+                  onCreate={(name) => void createProject(name)}
+                  onRename={(project, name) => void renameProject(project, name)}
+                  onDelete={(project) => void deleteProject(project)}
+                />
+                <span className="breadcrumb-separator" aria-hidden="true">/</span>
+                <SessionPicker
+                  sessions={sessions}
+                  value={sessionId}
+                  providers={selectableProviders}
+                  newProvider={newProvider}
+                  onChange={workspace.open}
+                  onNewProvider={setNewProvider}
+                  onNew={(provider) => void createSession(provider)}
+                />
+              </>
+            )}
+          </>}
         </nav>
         {/* Grouped by what each control does: panels, then the session action, then readiness,
             then the one preference — with a rule before it so four kinds of control in one row
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
-          <Link
-            href={ARENA_SECTION_PATHS.sessions}
-            scroll={false}
-            className={arenaOpen && arenaSection !== 'inbox' ? 'active' : ''}
-            aria-current={arenaSection === 'sessions' ? 'page' : undefined}
-          >Arena</Link>
-          <Link
-            href={ARENA_SECTION_PATHS.inbox}
-            scroll={false}
-            className={`inbox-toggle ${arenaOpen && arenaSection === 'inbox' ? 'active' : ''} ${arenaUnread.length ? 'has-attention' : ''}`}
-            aria-current={arenaOpen && arenaSection === 'inbox' ? 'page' : undefined}
-            aria-label={`Inbox${arenaUnread.length ? `, ${arenaUnread.length} unread` : ''}`}
-          >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</Link>
-          {!arenaOpen && session && (
-            <button
-              type="button"
-              className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
-              aria-pressed={panelLayout.repositoryOpen}
-              onClick={panelLayout.toggleRepository}
-            >
-              Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
-            </button>
-          )}
-          {!arenaOpen && session && (
-            <button
-              type="button"
-              className={`run-status-toggle ${focusedRun?.state === 'running' ? 'working' : ''} ${focusedRun?.state === 'queued' ? 'queued' : ''} ${focusedRun?.state === 'needs-you' ? 'awaiting-approval' : ''}`}
-              aria-pressed={panelLayout.conversationOpen}
-              aria-label={focusedRun?.state === 'needs-you'
-                ? `${permissions.length} action${permissions.length === 1 ? '' : 's'} waiting for your approval. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
-                : focusedRun?.state === 'queued'
-                  ? `${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
-                : sessionRunning
-                  ? `Agent working: ${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
-                  : panelLayout.conversationOpen ? 'Close conversation' : 'Open conversation'}
-              title={sessionRunning || permissions.length ? status : 'Open conversation'}
-              onClick={() => {
-                if (panelLayout.conversationOpen) panelLayout.closeConversation();
-                else {
-                  panelLayout.openConversation();
-                  setUnread(0);
-                }
-              }}
-            >
-              <span className="run-status-dot" aria-hidden="true" />
-              <span>{focusedRun?.state === 'needs-you' ? 'Approval needed' : sessionRunning ? status : 'Conversation'}</span>
-              {focusedRun?.state === 'needs-you' && permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
-              {unread > 0 && <span className="unread-badge">{unread}</span>}
-            </button>
-          )}
-          {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
-          <span
-            className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
-            title={providerHealth?.message || health?.message || 'Local readiness'}
-          >
-            <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
-          </span>
-          <DeviceMenu />
-          <span className="header-divider" aria-hidden="true" />
-          <div className="theme-selector" role="group" aria-label="Theme">
-            {THEME_PREFERENCES.map((choice) => (
+          <ImmersiveBoundary
+            authorized={deviceAccess.authenticated && deviceAccess.transportSecure}
+            session={loading ? undefined : session}
+            theme={theme} preview={preview} runStatus={immersiveRunStatus}
+            pendingApprovals={permissions.length} unread={unread}
+            choices={immersiveChoices} workspaceStatus={immersiveStatus}
+            onOpenSession={openImmersiveSession} onSelectCanvas={selectDiagram}
+            onActiveChange={setImmersiveActive}
+          />
+          {!loading && <>
+            <Link
+              href={ARENA_SECTION_PATHS.sessions}
+              scroll={false}
+              className={arenaOpen && arenaSection !== 'inbox' ? 'active' : ''}
+              aria-current={arenaSection === 'sessions' ? 'page' : undefined}
+            >Arena</Link>
+            <Link
+              href={ARENA_SECTION_PATHS.inbox}
+              scroll={false}
+              className={`inbox-toggle ${arenaOpen && arenaSection === 'inbox' ? 'active' : ''} ${arenaUnread.length ? 'has-attention' : ''}`}
+              aria-current={arenaOpen && arenaSection === 'inbox' ? 'page' : undefined}
+              aria-label={`Inbox${arenaUnread.length ? `, ${arenaUnread.length} unread` : ''}`}
+            >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</Link>
+            {!arenaOpen && session && (
               <button
-                key={choice}
                 type="button"
-                className={themePreference === choice ? 'active' : ''}
-                aria-pressed={themePreference === choice}
-                onClick={() => setThemePreference(choice)}
+                className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
+                aria-pressed={panelLayout.repositoryOpen}
+                onClick={panelLayout.toggleRepository}
               >
-                {choice[0].toUpperCase() + choice.slice(1)}
+                Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
               </button>
-            ))}
-          </div>
+            )}
+            {!arenaOpen && session && (
+              <button
+                type="button"
+                className={`run-status-toggle ${focusedRun?.state === 'running' ? 'working' : ''} ${focusedRun?.state === 'queued' ? 'queued' : ''} ${focusedRun?.state === 'needs-you' ? 'awaiting-approval' : ''}`}
+                aria-pressed={panelLayout.conversationOpen}
+                aria-label={focusedRun?.state === 'needs-you'
+                  ? `${permissions.length} action${permissions.length === 1 ? '' : 's'} waiting for your approval. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
+                  : focusedRun?.state === 'queued'
+                    ? `${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
+                  : sessionRunning
+                    ? `Agent working: ${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
+                    : panelLayout.conversationOpen ? 'Close conversation' : 'Open conversation'}
+                title={sessionRunning || permissions.length ? status : 'Open conversation'}
+                onClick={() => {
+                  if (panelLayout.conversationOpen) panelLayout.closeConversation();
+                  else {
+                    panelLayout.openConversation();
+                    setUnread(0);
+                  }
+                }}
+              >
+                <span className="run-status-dot" aria-hidden="true" />
+                <span>{focusedRun?.state === 'needs-you' ? 'Approval needed' : sessionRunning ? status : 'Conversation'}</span>
+                {focusedRun?.state === 'needs-you' && permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
+                {unread > 0 && <span className="unread-badge">{unread}</span>}
+              </button>
+            )}
+            {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
+            <span
+              className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
+              title={providerHealth?.message || health?.message || 'Local readiness'}
+            >
+              <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
+            </span>
+            <DeviceMenu />
+            <span className="header-divider" aria-hidden="true" />
+            <div className="theme-selector" role="group" aria-label="Theme">
+              {THEME_PREFERENCES.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  className={themePreference === choice ? 'active' : ''}
+                  aria-pressed={themePreference === choice}
+                  onClick={() => setThemePreference(choice)}
+                >
+                  {choice[0].toUpperCase() + choice.slice(1)}
+                </button>
+              ))}
+            </div>
+          </>}
         </div>
       </header>
 
-      {!arenaOpen && (
+      {!loading && !arenaOpen && (
         <WorkspaceTabs
           sessions={sessions}
           openSessionIds={workspace.scope.openSessionIds}
@@ -1532,7 +1560,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       )}
 
-      {!arenaOpen && session && (
+      {!loading && !arenaOpen && session && (
         <div className="repository-region">
           <RepositoryPanel
             checkoutId={selectedCheckout?.id}
@@ -1571,7 +1599,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      {displayedNotice && (
+      {!loading && displayedNotice && (
         <div className="notice-banner" role="status">
           <span>{displayedNotice}</span>
           {archiveUndo?.machineId && <button type="button" onClick={() => void restoreArenaSession(archiveUndo.machineId!, archiveUndo)}>Undo archive</button>}
@@ -1585,7 +1613,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      {arenaOpen && health ? (
+      {loading ? (
+        <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>
+      ) : arenaOpen && health ? (
         <Arena
           machines={arena.machines}
           deviceState={arena.deviceState}
@@ -1626,9 +1656,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             pendingApprovals={sessionRunning ? permissions.length : 0}
             running={sessionRunning}
             runFailed={sessionRunning && runFailed}
-            preview={preview}
-            runStatus={immersiveRunStatus}
-            immersiveAuthorized={deviceAccess.authenticated && deviceAccess.transportSecure}
+            immersiveActive={immersiveActive}
             toolActivity={sessionRunning ? toolActivity : []}
             focusMode={panelLayout.focusMode}
             canvasView={session.activeDiagramId ? view?.canvasViews[session.activeDiagramId] : undefined}

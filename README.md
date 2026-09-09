@@ -139,29 +139,29 @@ topology—not Internet hosting, a team account, or a relay.
 
 ### Quest and immersive WebXR
 
-The current implementation is Story 44's **immersive viewer**, with physical Quest acceptance still
-pending. The planned full workspace is tracked in the
-[immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md): first one complete session
-on Quest 3S with movable panels, real 3D diagrams, controllers, and voice; then the multi-session
-Arena. Those operational VR features are not implemented by the viewer described below.
+[Story 45](stories/STORY-20260905-application-vr-shell.md) adds an application-level immersive shell.
+Physical Quest 3S entry/navigation verification remains pending. The
+[immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) tracks the full work loop:
+movable panels, real 3D diagrams, controllers, and voice, followed later by the multi-session Arena.
 
-The supported headset path is a paired, exact `https://` `start:remote` origin whose certificate is
-trusted by the headset. In a Quest-class browser with immersive VR support, open a session that has
-a diagram or sketch, select **Spatial**, and use **Enter VR**. Plain LAN HTTP is not a WebXR secure
-context; `CODEAI_ALLOWED_DEV_ORIGINS` does not change that.
+Use a paired, exact `https://` `start:remote` origin whose certificate the headset trusts. On a
+supported browser, **Enter VR** appears in the application header, including in Arena, Inbox,
+Flat, Spatial, and empty sessions. Plain LAN HTTP is not a WebXR secure context;
+`CODEAI_ALLOWED_DEV_ORIGINS` does not change that.
 
-The current immersive viewer places the active marked canvas in front of the viewer and a bounded,
-read-only live conversation panel nearby. Controller rays operate Exit VR, previous/next canvas,
-diagram larger/smaller/reset, and older/newer conversation pages; a compatible thumbstick can page
-the conversation too. Run, unread/new-activity, and pending-approval status remain visible. Exit VR
-to compose, send, cancel, manage agents or attachments, or answer a permission request.
+The shell presents a paged session launcher across projects and machines, session status, the active
+marked canvas (or an empty state), and a bounded read-only live conversation panel. Controller rays
+open sessions, select previous/next canvases, resize/reset the canvas, page the conversation, and
+exit VR. Ordinary session and shell-route navigation retains the same XR session. Loading failures
+and Offline machines have visible status; a broken canvas or transcript leaves navigation and Exit
+usable. Exit VR to compose, send, cancel, manage agents or attachments, or answer permissions;
+those operations arrive in later stories.
 
-XR entry is always a fresh user gesture. Head/controller pose, XR-only scale, and conversation page
-are never saved, while the underlying selection and desktop Spatial camera/placements remain
-unchanged. This first slice has no AR/passthrough, room boundary, walking/teleportation, hand
-tracking, or model-native graph geometry. A headset can view home-owned and proxied executor
-sessions through the same Arena because authentication and provider credentials remain at the home
-server boundary.
+Entry always requires a fresh gesture. Head/controller pose, XR scale, and transcript paging are
+never saved. Entry preserves the chosen desktop canvas surface, drafts, cameras, and placements;
+exit returns to the focused work. Desktop Spatial resources pause while immersive. This foundation
+has no AR/passthrough, locomotion, hand tracking, or spatial graph geometry. Authentication and
+execution continue through the same paired home origin and existing authorized executor routes.
 
 ## Execution machines
 
@@ -452,10 +452,10 @@ camera, chosen surface, and bounded placements are disposable per-device view st
 Mermaid, sketches, and marks are unchanged. Unsupported WebGL and context loss return safely to
 Flat. This remains an SVG-panel projection rather than the later model-native 3D graph.
 
-On an authorized secure browser with `immersive-vr` support, Spatial additionally exposes **Enter
-VR** and lazily loads the XR renderer. The headset receives only the active canvas texture, bounded
-conversation text, and labelled controls; it does not upload all twelve room panels. Unsupported,
-denied, interrupted, or failed XR entry leaves desktop Spatial and Flat available.
+On an authorized secure browser with `immersive-vr` support, the application header exposes **Enter
+VR** independently of the canvas. The shell lazily prepares its renderer and uploads only the active
+canvas, bounded conversation text, the session launcher, and labelled controls. Unsupported, denied,
+interrupted, or failed XR entry leaves the desktop workspace available.
 
 **Start a sketch** opens a blank sheet with the same drawing tools — available before any diagram
 exists, so a drawing can be the very first thing in a conversation. A sketch has no Mermaid source:

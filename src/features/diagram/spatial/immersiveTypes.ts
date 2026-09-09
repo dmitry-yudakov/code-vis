@@ -1,6 +1,5 @@
 import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, SessionSnapshot } from '@/shared/types';
-import type { PanelResource } from './panelResources';
 
 export const MAX_IMMERSIVE_CHAT_ENTRIES = 12;
 export const MAX_IMMERSIVE_CHAT_CHARS = 12_000;
@@ -60,6 +59,8 @@ export interface ImmersiveXRAdapter {
 
 export type ImmersiveSemanticAction =
   | 'exit'
+  | 'previous-sessions'
+  | 'next-sessions'
   | 'previous-canvas'
   | 'next-canvas'
   | 'larger'
@@ -74,11 +75,23 @@ export interface ImmersiveController {
   perform(action: ImmersiveSemanticAction): void;
 }
 
+export interface ImmersiveSessionChoice {
+  machineId: string;
+  projectId?: string;
+  sessionId: string;
+  title: string;
+  detail: string;
+}
+
 export interface ImmersiveWorkspaceProps {
-  session: SessionSnapshot;
+  session?: SessionSnapshot;
+  choices: ImmersiveSessionChoice[];
+  launcherPage: number;
+  workspaceStatus: string;
+  onOpenSession(choice: ImmersiveSessionChoice): void;
+  onLauncherPage(page: number): void;
   theme: ThemeName;
-  activeTarget: CanvasTarget;
-  activeResource?: PanelResource;
+  activeTarget?: CanvasTarget;
   preview: string;
   runStatus: string;
   pendingApprovals: number;

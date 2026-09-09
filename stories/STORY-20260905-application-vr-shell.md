@@ -1,6 +1,6 @@
 # Story 45 — Enter VR across the application
 
-**Status:** Draft · **Type:** Frontend-only · **Depends on:** Story 44's implemented XR foundation
+**Status:** In progress · **Type:** Frontend-only · **Depends on:** Story 44's implemented XR foundation
 and [Story 41](STORY-20260904-authenticated-devices.md).
 
 **Vision slice:** [immersive workspace epic](EPIC-20260905-immersive-workspace.md),
@@ -11,17 +11,25 @@ and [Story 41](STORY-20260904-authenticated-devices.md).
 The current VR button requires a diagram and the Spatial canvas, and changing sessions ends XR.
 The user wants to enter CodeAI in VR and stay there while moving between work.
 
-## Current behavior (where the code is)
+## Implementation (where the code is)
 
-- [CanvasWorkspace.tsx:107](../src/features/diagram/components/CanvasWorkspace.tsx#L107) and
-  [135](../src/features/diagram/components/CanvasWorkspace.tsx#L135) gate Spatial and XR on a target.
-- [ImmersiveBridge.tsx:256](../src/features/diagram/spatial/ImmersiveBridge.tsx#L256) owns the XR
-  store/session under the diagram renderer, including cleanup on unmount.
-- [AppShell.tsx:1144](../src/features/shell/AppShell.tsx#L1144) opens sessions across projects and
-  machines; [shell layout:4](../src/app/(shell)/layout.tsx#L4) persists AppShell across shell routes.
-- [immersiveCapability.ts:18](../src/features/diagram/spatial/immersiveCapability.ts#L18) provides
-  existing capability checks. [workspaceViews.ts:24](../src/features/shell/workspaceViews.ts#L24)
-  defines the independent Flat/Spatial canvas choice.
+- [AppShell.tsx:1465](../src/features/shell/AppShell.tsx#L1465) keeps the immersive boundary mounted
+  inside the persistent authenticated shell, including while its desktop content loads.
+- [ImmersiveBoundary.tsx:38](../src/features/shell/immersive/ImmersiveBoundary.tsx#L38) owns capability,
+  lazy preparation, entry/status controls, and disposable transcript/launcher paging.
+- [ImmersiveBridge.tsx:33](../src/features/shell/immersive/ImmersiveBridge.tsx#L33) owns the persistent
+  XR store, explicit entry, and idempotent cleanup, including late entry after unmount/departure.
+- [ImmersiveWorkspace.tsx:115](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L115) renders
+  the launcher, status, active canvas/empty state, conversation, reset, and exit in world space.
+  [ImmersiveEnvironment.tsx:4](../src/features/shell/immersive/ImmersiveEnvironment.tsx#L4) keeps the
+  opaque VR background independent of the work tools.
+- [AppShell.tsx:1400](../src/features/shell/AppShell.tsx#L1400) derives launcher choices from the
+  existing Arena polling owner and resolves machine/project/session identity before calling the
+  shared [navigation action:1147](../src/features/shell/AppShell.tsx#L1147).
+- [CanvasWorkspace.tsx:131](../src/features/diagram/components/CanvasWorkspace.tsx#L131) suspends
+  desktop Spatial resources while immersive without changing the saved surface or camera.
+- [e2e/immersive.spec.ts:102](../e2e/immersive.spec.ts#L102) verifies application entry, navigation
+  races, failures, resource cleanup, and fresh-gesture re-entry through the injected adapter.
 
 ## Desired behavior
 
@@ -49,16 +57,23 @@ The user wants to enter CodeAI in VR and stay there while moving between work.
 
 ## Acceptance criteria
 
-- [ ] One entry action works from Arena, Inbox, Flat, Spatial, and a session with no artifacts.
-- [ ] Navigation across two projects and two machine identities retains the same XR session/store,
+Implementation scope (September 8): keep AppShell as the state/action owner and add a persistent,
+lazy immersive boundary beside its desktop presentation, including during catalog loading. Reuse
+the existing world-space texture controls and diagram resource budget. A paged session launcher
+consumes the existing Arena snapshots and calls the shell's explicitly addressed navigation action.
+Keep the XR renderer independent of both desktop canvas surfaces; suspend desktop Spatial resources
+while immersive. Physical Quest 3S evidence remains a separate, required verification step.
+
+- [x] One entry action works from Arena, Inbox, Flat, Spatial, and a session with no artifacts.
+- [x] Navigation across two projects and two machine identities retains the same XR session/store,
   including an empty session, a loading failure, and an Offline machine.
-- [ ] There is one state/action/polling owner; no canonical record or provider policy is duplicated.
-- [ ] A broken diagram leaves navigation, status, reset, and exit available in the headset.
-- [ ] Exit, rejection, auth loss, unmount, and system end clean up once and preserve desktop context.
-- [ ] XR stays lazy on ordinary desktop use; fake-adapter tests assert the new entry and navigation
+- [x] There is one state/action/polling owner; no canonical record or provider policy is duplicated.
+- [x] A broken diagram leaves navigation, status, reset, and exit available in the headset.
+- [x] Exit, rejection, auth loss, unmount, and system end clean up once and preserve desktop context.
+- [x] XR stays lazy on ordinary desktop use; fake-adapter tests assert the new entry and navigation
   contract, replacing Story 44's non-empty-Spatial-only expectations.
-- [ ] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass; a Quest 3S smoke check
-  records genuine immersive entry and navigation continuity.
+- [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass.
+- [ ] A Quest 3S smoke check records genuine immersive entry and navigation continuity.
 
 ## Out of scope
 
@@ -79,4 +94,21 @@ storage schema, or automatic XR restoration is needed.
 
 ## Verification record
 
-Pending implementation and headset verification.
+September 8, 2026:
+
+- The 10 focused Chrome XR tests pass using the real R3F workspace and injected session adapter.
+  Entry from all five locations preserves desktop state; navigation across two projects/machine
+  identities, a delayed response after focus changes, Arena/Inbox/history, loading failure, and an
+  Offline executor retains one entry and zero session ends/store destructions until deliberate exit.
+- Rejection, broken canvas/transcript rasterization, system end, WebGL loss, authorization revocation,
+  and pending entry during unmount/page departure are covered. Resource/listener counts return to
+  baseline, and reloading never enters automatically. The existing streaming/paging regression
+  remains in `e2e/canvas.spec.ts`.
+- `npm run lint` passed; `npm test` passed all **255 tests in 45 files**; `npm run build` passed;
+  `npm run test:e2e` passed all **30 Chrome tests**. The full browser run caught and verified fixes
+  for hidden-canvas pointer interception and desktop menu/catalog loading regressions. The build
+  required network access for the project's existing Google Fonts after the sandboxed fetch failed.
+- **Pending physical verification:** paired Quest 3S, controller entry from Arena and an empty
+  session, navigation across projects/machines, reset, exit, and re-entry. No headset is accessible
+  in this execution environment. This story remains In progress until that smoke check is recorded;
+  the foundation does not claim the epic's full voice/controller work loop.

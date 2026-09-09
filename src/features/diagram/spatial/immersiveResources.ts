@@ -17,6 +17,8 @@ export type ImmersiveAction = ImmersiveSemanticAction;
 
 export const IMMERSIVE_ACTION_LABELS: Readonly<Record<ImmersiveAction, string>> = {
   exit: 'Exit VR',
+  'previous-sessions': 'Previous sessions',
+  'next-sessions': 'Next sessions',
   'previous-canvas': 'Previous canvas',
   'next-canvas': 'Next canvas',
   larger: 'Larger',
@@ -57,7 +59,7 @@ function trackedTexture(canvas: HTMLCanvasElement, ledger: SpatialResourceLedger
   return ledger.trackTexture(texture, canvas.width * canvas.height);
 }
 
-function texturePanel(
+export function texturePanel(
   canvas: HTMLCanvasElement,
   worldSize: readonly [number, number],
   ledger: SpatialResourceLedger,

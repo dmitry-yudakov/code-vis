@@ -1,13 +1,11 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
-  Component, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
-  type ErrorInfo, type ReactNode,
+  forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from 'react';
 import { palette } from '@/shared/design/tokens';
 import type { CanvasTarget } from '@/shared/types';
@@ -20,37 +18,6 @@ import {
 import type { SpatialRoomProps, SpatialSceneHandle } from './spatialTypes';
 import { createPanelResources, type PanelResource } from './panelResources';
 import { recordSpatialFrame, SpatialResourceLedger } from './resourceLedger';
-import { probeImmersiveCapability } from './immersiveCapability';
-import { immersiveConversationVersion } from './immersiveTranscript';
-import type {
-  ImmersiveAvailability, ImmersiveController, ImmersiveSemanticAction,
-} from './immersiveTypes';
-
-const ImmersiveBridge = dynamic(
-  () => {
-    if (typeof window !== 'undefined' && window.__CODEAI_XR_TEST__?.failXRImport) {
-      return Promise.reject(new Error('Injected immersive bundle failure.'));
-    }
-    return import('./ImmersiveBridge').then((module) => module.ImmersiveBridge);
-  },
-  { ssr: false, loading: () => null },
-);
-
-class ImmersiveImportBoundary extends Component<{
-  children: ReactNode;
-  onError(message: string): void;
-}, { failed: boolean }> {
-  state = { failed: false };
-
-  static getDerivedStateFromError() { return { failed: true }; }
-
-  componentDidCatch(error: unknown, _info: ErrorInfo) {
-    this.props.onError(error instanceof Error ? error.message : 'The immersive renderer could not load.');
-  }
-
-  render() { return this.state.failed ? null : this.props.children; }
-}
-
 function allTargets(session: SpatialRoomProps['session']): CanvasTarget[] {
   return [
     ...getArtifacts(session).map((artifact) => ({ kind: 'diagram' as const, artifact })),
@@ -82,7 +49,6 @@ function usePanelResources(
   session: SpatialRoomProps['session'],
   activeId: string,
   theme: SpatialRoomProps['theme'],
-  owner: 'desktop' | 'immersive' = 'desktop',
 ) {
   const [resources, setResources] = useState<Record<string, PanelResource>>({});
   const [loading, setLoading] = useState(true);
@@ -97,7 +63,7 @@ function usePanelResources(
     setResources({});
     setLoading(true);
     generationRef.current?.dispose();
-    const generation = new SpatialResourceLedger(owner);
+    const generation = new SpatialResourceLedger();
     generationRef.current = generation;
     void createPanelResources(targets, session.annotations, activeId, theme, generation).then((next) => {
       if (generationRef.current !== generation || generation.isDisposed()) return;
@@ -108,7 +74,7 @@ function usePanelResources(
       if (generationRef.current === generation) generationRef.current = undefined;
       generation.dispose();
     };
-  }, [activeId, annotationKey, owner, session.annotations, targetKey, targets, theme]);
+  }, [activeId, annotationKey, session.annotations, targetKey, targets, theme]);
 
   return { resources, loading };
 }
@@ -383,20 +349,9 @@ const PANEL_NUDGES: Array<[string, SpatialPose]> = [
 ];
 
 export function SpatialRoom({
-  session, theme, activeId, immersiveAuthorized, preview, runStatus, pendingApprovals, unread,
+  session, theme, activeId,
   spatial, onSelect, onOpenFlat, onViewChange, onReset, onFailure,
 }: SpatialRoomProps) {
-  const [immersiveAvailability, setImmersiveAvailability] = useState<ImmersiveAvailability>('checking');
-  const [immersiveReason, setImmersiveReason] = useState<string>();
-  const [xrBundleEnabled, setXrBundleEnabled] = useState(false);
-  const [xrController, setXrController] = useState<ImmersiveController>();
-  const [pageFromNewest, setPageFromNewest] = useState(0);
-  const [pageCount, setPageCount] = useState(1);
-  const [newActivity, setNewActivity] = useState(false);
-  const conversationVersion = immersiveConversationVersion(session, preview);
-  const observedConversationVersion = useRef(conversationVersion);
-  const xrActive = immersiveAvailability === 'active';
-
   const targets = useMemo(() => allTargets(session), [session]);
   const selection = useMemo(() => selectSpatialTargets(targets, activeId), [activeId, targets]);
   const selectedIds = selection.targets.map(canvasTargetId).join(':');
@@ -406,11 +361,6 @@ export function SpatialRoom({
   const selectedTargets = useMemo(
     () => selection.targets,
     [selectedContent, selectedIds], // eslint-disable-line react-hooks/exhaustive-deps
-  );
-  const activeTarget = selectedTargets.find((target) => canvasTargetId(target) === activeId);
-  const resourceTargets = useMemo(
-    () => xrActive && activeTarget ? [activeTarget] : selectedTargets,
-    [activeTarget, selectedTargets, xrActive],
   );
   const defaultArrangement = useMemo(() => defaultSpatialArrangement(selectedTargets), [selectedTargets]);
   const arrangement = useMemo(
@@ -427,57 +377,14 @@ export function SpatialRoom({
   );
   const cameraState = spatial?.camera || initialCamera;
   const { resources, loading } = usePanelResources(
-    resourceTargets,
+    selectedTargets,
     session,
     activeId,
     theme,
-    xrActive ? 'immersive' : 'desktop',
   );
   const sceneRef = useRef<SpatialSceneHandle>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [arranging, setArranging] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setImmersiveAvailability('checking');
-    setImmersiveReason(undefined);
-    setXrBundleEnabled(false);
-    void probeImmersiveCapability({ authorized: immersiveAuthorized }).then((result) => {
-      if (cancelled) return;
-      setImmersiveAvailability(result.availability);
-      setImmersiveReason(result.reason);
-      setXrBundleEnabled(result.availability === 'available');
-    });
-    return () => { cancelled = true; };
-  }, [immersiveAuthorized, session.id]);
-
-  useEffect(() => {
-    if (observedConversationVersion.current !== conversationVersion && pageFromNewest > 0) {
-      setNewActivity(true);
-    }
-    observedConversationVersion.current = conversationVersion;
-  }, [conversationVersion, pageFromNewest]);
-
-  useEffect(() => {
-    if (immersiveAvailability === 'active' || immersiveAvailability === 'entering') return;
-    setPageFromNewest(0);
-    setNewActivity(false);
-  }, [immersiveAvailability]);
-
-  const handleImmersiveAvailability = useCallback((availability: ImmersiveAvailability, reason?: string) => {
-    setImmersiveAvailability(availability);
-    setImmersiveReason(reason);
-  }, []);
-  const handlePageCount = useCallback((count: number) => {
-    setPageCount(count);
-    setPageFromNewest((current) => Math.max(0, Math.min(current, count - 1)));
-  }, []);
-  const older = useCallback(() => setPageFromNewest((current) => Math.min(pageCount - 1, current + 1)), [pageCount]);
-  const newer = useCallback(() => setPageFromNewest((current) => {
-    const next = Math.max(0, current - 1);
-    if (next === 0) setNewActivity(false);
-    return next;
-  }), []);
 
   const updateCamera = useCallback((camera: SpatialCameraState) => {
     onViewChange({ camera, placements: spatial?.placements || {} });
@@ -540,7 +447,7 @@ export function SpatialRoom({
         <Canvas
           aria-label="Spatial room containing session diagrams and sketches"
           role="img"
-          frameloop={xrActive ? 'always' : 'demand'}
+          frameloop="demand"
           dpr={[1, 2]}
           camera={{ position: cameraState.position, fov: 46, near: 0.1, far: 120 }}
           gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
@@ -550,54 +457,22 @@ export function SpatialRoom({
           }}
           onPointerMissed={() => setArranging(false)}
         >
-          {!xrActive && (
-            <SpatialScene
-              ref={sceneRef}
-              targets={selectedTargets}
-              resources={resources}
-              activeId={activeId}
-              arrangement={arrangement}
-              cameraState={cameraState}
-              defaultCamera={resetCamera}
-              arranging={arranging}
-              theme={theme}
-              annotations={session.annotations}
-              onSelect={onSelect}
-              onCameraChange={updateCamera}
-              onPoseChange={updatePose}
-              onFailure={onFailure}
-            />
-          )}
-          {xrBundleEnabled && activeTarget && (
-            <ImmersiveImportBoundary
-              onError={(message) => handleImmersiveAvailability(
-                'failed',
-                `The immersive renderer could not load: ${message}. Desktop Spatial remains available.`,
-              )}
-            >
-              <ImmersiveBridge
-                active={xrActive}
-                session={session}
-                theme={theme}
-                activeTarget={activeTarget}
-                activeResource={resources[activeId]}
-                preview={preview}
-                runStatus={runStatus}
-                pendingApprovals={pendingApprovals}
-                unread={unread}
-                pageFromNewest={pageFromNewest}
-                newActivity={newActivity}
-                onOlder={older}
-                onNewer={newer}
-                onPreviousCanvas={() => selectRelative(-1)}
-                onNextCanvas={() => selectRelative(1)}
-                onExit={() => undefined}
-                onPageCount={handlePageCount}
-                onController={setXrController}
-                onAvailability={handleImmersiveAvailability}
-              />
-            </ImmersiveImportBoundary>
-          )}
+          <SpatialScene
+            ref={sceneRef}
+            targets={selectedTargets}
+            resources={resources}
+            activeId={activeId}
+            arrangement={arrangement}
+            cameraState={cameraState}
+            defaultCamera={resetCamera}
+            arranging={arranging}
+            theme={theme}
+            annotations={session.annotations}
+            onSelect={onSelect}
+            onCameraChange={updateCamera}
+            onPoseChange={updatePose}
+            onFailure={onFailure}
+          />
         </Canvas>
         {loading && <div className="spatial-preparing" role="status">Preparing panel previews…</div>}
         <p className="spatial-instructions">Drag the background to orbit; wheel or pinch to dolly. F focuses, 0 resets, Alt+arrows orbit, Shift+arrows pan, and +/− dollies. In Arrange, drag to move, Shift-drag to rotate, or Alt-drag for depth.</p>
@@ -608,44 +483,6 @@ export function SpatialRoom({
           <div><strong>Room panels</strong><span>{selectedTargets.length} shown{selection.omitted ? ` · ${selection.omitted} omitted` : ''}</span></div>
           <button type="button" onClick={onOpenFlat}>Open in Flat</button>
         </header>
-        <div className={`immersive-entry ${immersiveAvailability}`} aria-live="polite">
-          {immersiveAvailability === 'checking' && <span>Checking this browser for immersive VR…</span>}
-          {(immersiveAvailability === 'available' || immersiveAvailability === 'failed' || immersiveAvailability === 'entering') && (
-            <button
-              type="button"
-              className="immersive-enter"
-              disabled={!xrController || immersiveAvailability === 'entering'}
-              onClick={() => void xrController?.enter()}
-            >
-              {immersiveAvailability === 'entering' ? 'Entering VR…' : 'Enter VR'}
-            </button>
-          )}
-          {immersiveAvailability === 'active' && <strong>Immersive workspace active</strong>}
-          {immersiveReason && <span role={immersiveAvailability === 'failed' ? 'alert' : undefined}>{immersiveReason}</span>}
-        </div>
-        {xrActive && (
-          <div className="immersive-semantic-controls" role="group" aria-label="Immersive workspace controls">
-            {newActivity && <strong className="immersive-new-activity">New activity</strong>}
-            {([
-              ['exit', 'Exit VR'],
-              ['previous-canvas', 'Previous canvas'],
-              ['next-canvas', 'Next canvas'],
-              ['larger', 'Larger'],
-              ['smaller', 'Smaller'],
-              ['reset-view', 'Reset view'],
-              ['older', 'Older'],
-              ['newer', 'Newer'],
-            ] as Array<[ImmersiveSemanticAction, string]>).map(([action, label]) => (
-              <button
-                key={action}
-                type="button"
-                data-immersive-action={action}
-                disabled={(action === 'older' && pageFromNewest >= pageCount - 1) || (action === 'newer' && pageFromNewest === 0)}
-                onClick={() => xrController?.perform(action)}
-              >{label}</button>
-            ))}
-          </div>
-        )}
         <div
           ref={listRef}
           className="spatial-panel-list"

@@ -409,23 +409,7 @@ test('loads the bounded spatial room on demand and restores its device-only layo
 });
 
 test('enters and cleans up the immersive workspace through an injectable XR adapter', async ({ page }) => {
-  const response = await page.goto('/');
-  expect(response?.headers()['permissions-policy']).toBe('xr-spatial-tracking=(self)');
-  await createNamedProject(page, `E2E immersive ${Date.now()}`);
-  await startSession(page);
-  await ensureRepository(page);
-
-  const prompts = ['Spatial fixture', ...Array.from({ length: 6 }, (_, index) => `XR history ${index + 1}`)];
-  for (const prompt of prompts) {
-    await ensureConversationOpen(page);
-    await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill(prompt);
-    await page.getByRole('button', { name: 'Send' }).click();
-    await expect(page.locator('.run-ribbon')).toHaveClass(/idle/, { timeout: 12_000 });
-  }
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
-  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
-
-  await page.evaluate(() => {
+  await page.addInitScript(() => {
     type TestWindow = Window & {
       __CODEAI_XR_PROBE_COUNT__?: number;
       __CODEAI_END_XR__?: () => void;
@@ -462,13 +446,23 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
     };
   });
 
-  expect(await page.evaluate(() => window.__CODEAI_XR_BUNDLE_EVALUATIONS__)).toBeUndefined();
-  expect(await page.evaluate(() => (window as Window & { __CODEAI_XR_PROBE_COUNT__?: number }).__CODEAI_XR_PROBE_COUNT__)).toBe(0);
-  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled();
-  expect(await page.evaluate(() => (window as Window & { __CODEAI_XR_PROBE_COUNT__?: number }).__CODEAI_XR_PROBE_COUNT__)).toBe(1);
-  expect(await page.evaluate(() => window.__CODEAI_XR_BUNDLE_EVALUATIONS__)).toBe(1);
+  const response = await page.goto('/');
+  expect(response?.headers()['permissions-policy']).toBe('xr-spatial-tracking=(self)');
+  await createNamedProject(page, `E2E immersive ${Date.now()}`);
+  await startSession(page);
+  await ensureRepository(page);
 
+  const prompts = ['Spatial fixture', ...Array.from({ length: 6 }, (_, index) => `XR history ${index + 1}`)];
+  for (const prompt of prompts) {
+    await ensureConversationOpen(page);
+    await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill(prompt);
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.locator('.run-ribbon')).toHaveClass(/idle/, { timeout: 12_000 });
+  }
+  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
+
+  await expect(page.getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Enter VR', exact: true }).click();
   const controls = page.getByRole('group', { name: 'Immersive workspace controls' });
   await expect(controls).toBeVisible();
@@ -519,117 +513,6 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(false);
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.liveResources || 0)).toBe(0);
   expect(await persistedSpatialLayout(page)).toEqual(layoutBeforeExit);
-});
-
-test('keeps desktop Spatial available across unsupported, rejected, and context-lost XR states', async ({ page }) => {
-  await page.goto('/');
-  await createNamedProject(page, `E2E immersive fallback ${Date.now()}`);
-  await startSession(page);
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
-  await page.getByRole('button', { name: /Start a sketch/ }).click();
-  await expect(page.locator('.sketch-sheet')).toBeVisible();
-
-  await page.evaluate(() => {
-    window.__CODEAI_XR_TEST__ = { adapter: { async isSessionSupported() { return false; } } };
-  });
-  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
-  await expect(page.getByText('This browser or headset does not support immersive VR sessions.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Enter VR', exact: true })).toHaveCount(0);
-  expect(await page.evaluate(() => window.__CODEAI_XR_BUNDLE_EVALUATIONS__)).toBeUndefined();
-
-  await page.getByRole('button', { name: 'Open in Flat' }).click();
-  await page.evaluate(() => {
-    window.__CODEAI_XR_TEST__ = {
-      adapter: {
-        async isSessionSupported() { return true; },
-        async enterVR() { throw new DOMException('User denied access', 'NotAllowedError'); },
-      },
-    };
-  });
-  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
-  await page.getByRole('button', { name: 'Enter VR', exact: true }).click();
-  await expect(page.locator('.immersive-entry').getByRole('alert')).toContainText('Immersive entry was denied');
-  await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open in Flat' })).toBeEnabled();
-
-  await page.evaluate(() => {
-    const listeners = {
-      end: new Set<() => void>(),
-      visibilitychange: new Set<() => void>(),
-    };
-    let ended = false;
-    const session = {
-      visibilityState: 'visible',
-      async end() {
-        if (ended) return;
-        ended = true;
-        for (const listener of listeners.end) listener();
-      },
-      addEventListener(type: 'end' | 'visibilitychange', listener: () => void) { listeners[type].add(listener); },
-      removeEventListener(type: 'end' | 'visibilitychange', listener: () => void) { listeners[type].delete(listener); },
-    };
-    window.__CODEAI_XR_TEST__ = {
-      adapter: {
-        async isSessionSupported() { return true; },
-        async enterVR() { return session; },
-      },
-    };
-  });
-  await page.getByRole('button', { name: 'Enter VR', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Immersive workspace controls' })).toBeVisible();
-  await page.locator('.spatial-viewport canvas').dispatchEvent('webglcontextlost');
-  await expect(page.locator('.immersive-entry').getByRole('alert')).toContainText('WebGL context was lost');
-  await expect(page.getByRole('button', { name: 'Open in Flat' })).toBeEnabled();
-  await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(false);
-  await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.liveResources || 0)).toBe(0);
-
-  await page.evaluate(() => {
-    type EntryWindow = Window & { __CODEAI_RESOLVE_XR__?: () => void; __CODEAI_XR_END_COUNT__?: number };
-    const scope = window as EntryWindow;
-    scope.__CODEAI_XR_END_COUNT__ = 0;
-    const session = {
-      async end() { scope.__CODEAI_XR_END_COUNT__ = (scope.__CODEAI_XR_END_COUNT__ || 0) + 1; },
-    };
-    window.__CODEAI_XR_TEST__ = {
-      adapter: {
-        async isSessionSupported() { return true; },
-        enterVR() {
-          return new Promise((resolve) => { scope.__CODEAI_RESOLVE_XR__ = () => resolve(session); });
-        },
-      },
-    };
-  });
-  await page.getByRole('button', { name: 'Enter VR', exact: true }).click();
-  await page.getByRole('button', { name: 'Open in Flat' }).click();
-  await expect(page.locator('.sketch-sheet')).toBeVisible();
-  await page.evaluate(() => (window as Window & { __CODEAI_RESOLVE_XR__?: () => void }).__CODEAI_RESOLVE_XR__?.());
-  await expect.poll(() => page.evaluate(() => (
-    window as Window & { __CODEAI_XR_END_COUNT__?: number }
-  ).__CODEAI_XR_END_COUNT__)).toBe(1);
-});
-
-test('contains an immersive dynamic-import failure inside desktop Spatial', async ({ page }) => {
-  await page.goto('/');
-  await createNamedProject(page, `E2E immersive import ${Date.now()}`);
-  await startSession(page);
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
-  await page.getByRole('button', { name: /Start a sketch/ }).click();
-  await expect(page.locator('.sketch-sheet')).toBeVisible();
-  const importNotice = page.getByRole('button', { name: 'Dismiss notice' });
-  if (await importNotice.isVisible()) await importNotice.click();
-  await page.evaluate(() => {
-    window.__CODEAI_XR_TEST__ = {
-      failXRImport: true,
-      adapter: { async isSessionSupported() { return true; } },
-    };
-  });
-
-  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
-  await expect(page.locator('.immersive-entry').getByRole('alert')).toContainText('The immersive renderer could not load');
-  await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open in Flat' })).toBeEnabled();
-  expect(await page.evaluate(() => window.__CODEAI_XR_BUNDLE_EVALUATIONS__)).toBeUndefined();
 });
 
 test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {

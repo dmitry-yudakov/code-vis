@@ -101,6 +101,7 @@ export async function createPanelResources(
   activeId: string,
   theme: ThemeName,
   ledger: SpatialResourceLedger,
+  maxTexturePixels?: number,
 ): Promise<Record<string, PanelResource>> {
   const snapshots = new Map<string, PanelSnapshot>();
   const errors = new Map<string, string>();
@@ -116,6 +117,7 @@ export async function createPanelResources(
   const allocations = new Map(allocateTexturePixels(
     [...snapshots.values()].map(({ id, viewBox }) => ({ id, viewBox })),
     activeId,
+    maxTexturePixels,
   ).map((allocation) => [allocation.id, allocation]));
   const resources: Record<string, PanelResource> = {};
   for (const target of targets) {

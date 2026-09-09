@@ -1,6 +1,6 @@
 # EPIC — Use CodeAI as an immersive workspace
 
-**Status:** Draft · **Updated:** September 5, 2026 · **Owns:** the full VR presentation and working
+**Status:** In progress · **Updated:** September 8, 2026 · **Owns:** the full VR presentation and working
 journey across the Arena and sessions, under [vision.md step 9](../docs/vision.md#sequence).
 The [software-model epic](EPIC-20260705-north-star-roadmap.md) continues to own model identity,
 provenance, lenses, and the change loop. [Vocabulary](../docs/vocabulary.md) remains authoritative:
@@ -21,13 +21,13 @@ Flat work panels are useful for prose and code. A canvas may also contain real s
 nodes and edges. Those are two choices within the immersive workspace; neither makes VR entry
 depend on selecting a diagram or on implementing the future software model.
 
-## Review of the current plan
+## Gaps identified before implementation
 
 | Gap | Evidence | Consequence and owner |
 |---|---|---|
 | VR entry belongs to a non-empty canvas | [CanvasWorkspace.tsx:107](../src/features/diagram/components/CanvasWorkspace.tsx#L107), [135](../src/features/diagram/components/CanvasWorkspace.tsx#L135); Story 44 A.1 | Cannot enter from the Arena, an empty session, or Flat. Story 45 moves ownership to the shell. |
 | Reading replaces working | [immersiveTypes.ts:61](../src/features/diagram/spatial/immersiveTypes.ts#L61); Story 44 C.15 | No send, cancel, participant changes, or approval decisions. Stories 47–48 complete the active-session work loop. |
-| Only one artifact and a fixed companion panel | [ImmersiveBridge.tsx:219](../src/features/diagram/spatial/ImmersiveBridge.tsx#L219); Story 44 B.6–10 | Cannot arrange tools or watch several sessions. Story 46 provides layout; the later Story 52 adds the Arena. |
+| Only one artifact and a fixed companion panel | [ImmersiveWorkspace.tsx:244](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L244); Story 44 B.6–10 | Cannot arrange tools or watch several sessions. Story 46 provides layout; the later Story 52 adds the Arena. |
 | Session navigation ends immersion | Story 44 A.5; [AppShell.tsx:1144](../src/features/shell/AppShell.tsx#L1144) changes the active session/project | The XR lifetime must survive ordinary navigation. Story 45 establishes this boundary. |
 | No repository evidence or drawing workflow | Story 44's world-space action set and out-of-scope list | The user must exit to understand or redirect a change. Story 49 owns review and canvas attachments. |
 | Automated entry is treated as almost complete | Story 44 verification uses an injected adapter; actual Quest acceptance is pending | Browser tests cannot establish readability, text input, comfort, or sustained work. Story 51 gates the complete release on physical use. |
@@ -113,7 +113,9 @@ The second milestone adds surrounding session summaries and the Arena: notice an
 
 ## Story map
 
-Each linked story is a Draft with code anchors, acceptance checkboxes, and verification steps.
+Each linked story carries code anchors, acceptance checkboxes, and verification steps. Story 45
+is in progress; its automated shell/navigation implementation is complete and Quest 3S verification
+is pending. The remaining stories are Drafts.
 Existing Stories 43–44 remain useful foundations and retain their own status.
 
 | Story | Outcome | Depends on |

@@ -257,16 +257,26 @@ smaller results. A module-owned ledger disposes object URLs, textures, materials
 replacement or unmount. `frameloop="demand"` keeps the settled room idle. None of these derived
 pixels or layouts enters the session export or the stable light attachment renderer.
 
-Inside a non-empty Spatial view, `SpatialRoom` performs the asynchronous secure-context,
-authorization, and `immersive-vr` capability probe. Only a successful result mounts the separately
-dynamic `ImmersiveBridge` chunk and exposes explicit user-gesture entry. The bridge uses one
-`@react-three/xr` store with controller ray pointers, requests `local-floor` with a `local` fallback,
-and replaces the desktop scene during the session. It projects only the active canonical canvas,
-one bounded read-only transcript texture, and small labelled controls. Generated XR UI has a
-4,194,304-pixel aggregate cap, 2,048-pixel edge cap, disabled mipmaps, a separate resource ledger,
-and frame-time/live-resource instrumentation. System end, visibility loss, controller loss,
-session/view teardown, WebGL loss, rejection, or renderer failure ends that layer and restores the
-unchanged desktop view; XR pose, scale, and paging are not persisted.
+`AppShell` keeps `src/features/shell/immersive/ImmersiveBoundary.tsx` mounted during catalog loading
+and across the persistent shell routes. This lightweight boundary probes secure context, device
+authorization, and `immersive-vr` support without importing Three.js. A successful probe lazily
+prepares a separate R3F renderer and `ImmersiveBridge`, so the explicit Enter VR gesture can request
+a session immediately. Flat/Spatial selection is independent; desktop Spatial resources are
+suspended while immersive and restored from their existing device state on exit.
+
+The bridge owns one `@react-three/xr` store with controller rays and `local-floor`/`local` reference
+space handling. Normal project/machine/session and Arena/Inbox navigation does not replace it.
+AppShell supplies records, loading/error status, and explicitly addressed session-opening commands
+from its existing Arena polling owner. The paged launcher has four visible session rows. Canvas
+rendering stays in the diagram feature and failures remain local; the opaque environment is a
+separate presentation component. Conversation remains a read-only projection at this milestone.
+
+The XR resource ledger enforces a 4,194,304-pixel aggregate cap and 2,048-pixel edge cap, with mipmaps
+disabled. The active canvas is capped at 1.6 million texels to reserve space for transcript, launcher,
+status, and controls. Hidden/replaced content releases its resources. System end, visibility loss,
+controller loss, authorization/unmount, page departure, and WebGL loss end immersion; a late entry
+result after departure or unmount is also ended. Ordinary focus changes preserve the XR session.
+No XR pose, scale, paging, or resource enters canonical records or desktop layouts.
 
 The response policy `xr-spatial-tracking=(self)` grants only the same origin. On a personal device,
 the shell passes immersive authorization only after the existing pairing and secure-transport gate,
@@ -274,14 +284,11 @@ so XR adds no route, credential, or access around the home server. The paired tr
 `start:remote` origin is the supported headset transport; an allowed development hostname over HTTP
 does not qualify.
 
-### Planned immersive workspace boundary
+### Remaining immersive workspace work
 
-The implementation above is Story 44's viewer; physical headset acceptance remains pending. The
-[immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) specifies the next
-boundary, not an existing runtime: the application shell owns one XR session across navigation,
-and DOM/VR consume the same client state and commands. Canvas renderers become content within that
-shell rather than owners of immersion. Entry works from the Arena or an empty session; a failed
-diagram leaves navigation, conversation, permission controls, and Exit available.
+Story 45 establishes shell ownership and navigation; physical Quest 3S verification remains pending.
+The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns the remaining
+working surfaces and headset acceptance.
 
 The first release targets one complete session on Quest 3S: movable tools, controller/voice input,
 permission decisions, repository diffs and marks, and derived spatial Mermaid flowcharts. Voice

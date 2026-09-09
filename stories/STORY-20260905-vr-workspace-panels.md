@@ -15,7 +15,7 @@ initial implementation default, tested on Quest 3S.
 
 ## Current behavior (where the code is)
 
-- [ImmersiveBridge.tsx:219](../src/features/diagram/spatial/ImmersiveBridge.tsx#L219) fixes diagram
+- [ImmersiveWorkspace.tsx:244](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L244) fixes diagram
   and conversation positions; its reset/scale controls do not arrange the whole workspace.
 - [workspaceViews.ts:36](../src/features/shell/workspaceViews.ts#L36) stores bounded desktop
   Spatial state; [useWorkspaceViews.ts:20](../src/features/shell/useWorkspaceViews.ts#L20) persists

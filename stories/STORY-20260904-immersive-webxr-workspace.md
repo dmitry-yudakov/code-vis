@@ -12,6 +12,12 @@ The [immersive workspace epic](EPIC-20260905-immersive-workspace.md) owns the co
 and its follow-up stories. Keep this implementation and verification record as the foundation;
 physical Quest acceptance remains open, and its completion alone does not deliver that epic.
 
+**Implementation update — 2026-09-08:** [Story 45](STORY-20260905-application-vr-shell.md) now
+supersedes this story's diagram-owned entry/lifetime. The reusable XR bridge moved to
+[`shell/immersive/ImmersiveBridge.tsx`](../src/features/shell/immersive/ImmersiveBridge.tsx#L33),
+and shell entry/navigation is automated. The original acceptance and physical-headset record below
+remains historical evidence; its pending headset checks have not been completed.
+
 **Vision slice:** [vision.md step 9](../docs/vision.md#sequence),
 [multi-device delivery slice 12](../docs/multi-project-session-environment.md#possible-delivery-slices),
 and an artifact-backed foundation for the north-star roadmap's later model-native
@@ -53,7 +59,7 @@ stereoscopic resource budgets, session cleanup, and a useful fallback when WebXR
 - [immersiveCapability.ts](../src/features/diagram/spatial/immersiveCapability.ts#L8) contains the
   secure-context, authenticated-device, API, and asynchronous `immersive-vr` support checks plus the
   injectable test adapter.
-- [ImmersiveBridge.tsx](../src/features/diagram/spatial/ImmersiveBridge.tsx#L231) owns the one
+- [ImmersiveBridge.tsx](../src/features/shell/immersive/ImmersiveBridge.tsx#L33) owns the one
   `@react-three/xr` store, explicit `enterVR()` call, local-floor/local reference space, controller
   rays and thumbstick paging, world-space scene, frame recording, and idempotent end/error cleanup.
 - [immersiveTranscript.ts](../src/features/diagram/spatial/immersiveTranscript.ts#L117) turns the
