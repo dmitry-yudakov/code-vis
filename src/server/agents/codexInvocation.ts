@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AgentMode } from '@/shared/types';
+import type { AgentExecution, AgentMode } from '@/shared/types';
 
 /**
  * App Server inherits the user's login, but CodeAI owns the capability surface. These
@@ -36,7 +36,12 @@ export function codexSupportedModes(agentEnabled: boolean): readonly AgentMode[]
   return agentEnabled ? [...CODEX_BASE_MODES, 'agent'] : CODEX_BASE_MODES;
 }
 
-export function codexTurnSecurity(mode: AgentMode) {
+export function codexTurnSecurity(mode: AgentMode, execution: AgentExecution = 'local') {
+  if (execution === 'docker') return {
+    approvalPolicy: 'never' as const,
+    sandboxPolicy: { type: 'externalSandbox' as const, networkAccess: 'restricted' as const },
+    sandbox: 'danger-full-access' as const,
+  };
   if (mode === 'agent') {
     // Read-only is deliberate: a write or command escalation must cross App Server's approval
     // protocol before it can affect the working tree. An accepted request is one-shot.
@@ -102,11 +107,14 @@ export function codexThreadPolicyIssue(
   value: unknown,
   cwd: string,
   approvalPolicy: 'never' | 'on-request',
+  execution: AgentExecution = 'local',
 ): string | undefined {
   const response = record(value);
   const sandbox = record(response?.sandbox);
   if (response?.cwd !== cwd || response?.approvalPolicy !== approvalPolicy
-    || sandbox?.type !== 'readOnly' || sandbox.networkAccess !== false) {
+    || (execution === 'docker'
+      ? sandbox?.type !== 'dangerFullAccess'
+      : sandbox?.type !== 'readOnly' || sandbox.networkAccess !== false)) {
     return 'Codex did not apply CodeAI\'s required provider-session sandbox and approval policy.';
   }
   if (!Array.isArray(response.instructionSources)) {

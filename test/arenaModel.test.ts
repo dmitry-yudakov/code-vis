@@ -22,6 +22,7 @@ function session(id: string, updatedAt: string, projectId?: string, status: 'com
     revision: 0,
     title: `Session ${id[0].toUpperCase()}`,
     ...(projectId ? { projectId } : {}),
+    execution: 'local',
     repositoryCheckoutIds: [],
     agents: [{ id: AGENT, displayName: 'Claude', provider: 'claude', role: 'coder' }],
     updatedAt,

@@ -14,6 +14,7 @@ export interface AppConfig {
   codexBin: string;
   codexModel?: string;
   codexAgentEnabled: boolean;
+  dockerEnabled: boolean;
   agentTimeoutMs: number;
   agentMaxTurns: number;
   buildTimeoutMs: number;
@@ -95,6 +96,19 @@ function flag(suffix: string): boolean {
   return /^(1|true|yes)$/i.test(rawSetting(suffix) || '');
 }
 
+function dockerEnabled(): boolean {
+  for (const name of Object.keys(process.env)) {
+    if (/^CODEAI_(?:WEB2_)?DOCKER_/.test(name) && !/^CODEAI_(?:WEB2_)?DOCKER_ENABLED$/.test(name)) {
+      throw new Error(`Unsupported Docker setting: ${name}. The Docker profile is server-owned.`);
+    }
+  }
+  const value = rawSetting('DOCKER_ENABLED') || 'false';
+  if (!/^(0|1|true|false|yes|no)$/i.test(value)) {
+    throw new Error('CODEAI_DOCKER_ENABLED must be a boolean');
+  }
+  return /^(1|true|yes)$/i.test(value);
+}
+
 function remoteAccess(): Pick<AppConfig, 'remoteAccess' | 'publicOrigin'> {
   const mode = rawSetting('REMOTE_ACCESS') || 'local';
   if (mode !== 'local' && mode !== 'paired') {
@@ -145,6 +159,7 @@ export function getConfig(): AppConfig {
     // The adapter implements approvals, but advertising build mode remains an explicit release
     // gate until the real installed CLI passes the write/command/network parity matrix.
     codexAgentEnabled: flag('CODEX_AGENT'),
+    dockerEnabled: dockerEnabled(),
     // Answering is read-only, but a real question still spends several thinking-and-tool cycles on
     // repository research before the first word of the reply; five minutes cut those turns off
     // mid-investigation with nothing to show for them.

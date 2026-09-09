@@ -1,4 +1,4 @@
-import type { AgentMode, ResolvedAgentPolicy } from '@/shared/types';
+import type { AgentExecution, AgentMode, ResolvedAgentPolicy } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 
 /**
@@ -21,7 +21,17 @@ export const GIT_READ_ALLOWLIST: readonly string[] = Object.freeze([
 
 const READONLY_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep', 'Bash']);
 
-export function resolveAgentPolicy(config: AppConfig, mode: AgentMode = 'ask'): ResolvedAgentPolicy {
+export function resolveAgentPolicy(config: AppConfig, mode: AgentMode = 'ask', execution: AgentExecution = 'local'): ResolvedAgentPolicy {
+  if (execution === 'docker') {
+    return Object.freeze({
+      execution, mode, profile: mode === 'agent' ? 'agent-full' : mode === 'plan' ? 'plan-readonly' : 'ask-readonly',
+      tools: ['Read', 'Glob', 'Grep', 'Bash', ...(mode === 'agent' ? ['Edit', 'Write', 'NotebookEdit'] : [])],
+      allowedTools: [], permissionMode: 'bypassPermissions', interactivePermissions: false,
+      safeMode: true, sessionPersistence: true,
+      maxTurns: mode === 'agent' ? config.buildMaxTurns : config.agentMaxTurns,
+      timeoutMs: mode === 'agent' ? config.buildTimeoutMs : config.agentTimeoutMs,
+    });
+  }
   const shared = {
     mode,
     allowedTools: GIT_READ_ALLOWLIST,

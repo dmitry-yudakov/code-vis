@@ -6,12 +6,15 @@ import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
 } from '@/shared/types';
 import { AgentRunError } from './agentRunError';
+import type { ProcessTransport } from '@/server/execution/processTransport';
 import {
   buildCodexAppServerArgs, CODEX_DEVELOPER_INSTRUCTIONS, codexIsolationIssue,
   codexMcpServerNames, codexThreadConfig, codexThreadPolicyIssue, codexTurnSecurity,
 } from './codexInvocation';
 
 interface RunnerOptions {
+  transport?: ProcessTransport;
+  imagePaths?: string[];
   binary: string;
   model?: string;
   maxOutputBytes: number;
@@ -96,10 +99,13 @@ export class CodexProcessRunner implements AgentProcessRunner {
   constructor(private readonly options: RunnerOptions) {}
 
   async run(input: AgentProcessRun): Promise<AgentProcessResult> {
+    if (input.policy.execution === 'docker' && !this.options.transport) {
+      throw new AgentRunError('unsupported-flags', 'Docker requires its verified container transport.', 'not-sent', false);
+    }
     if (input.session.action === 'resume' && !input.session.id) {
       throw new AgentRunError('missing-session', 'The native Codex provider session id is missing. Continue in a new provider session.', 'not-sent');
     }
-    const imagePaths = (await readdir(input.attachmentDirectory))
+    const imagePaths = this.options.imagePaths ?? (await readdir(input.attachmentDirectory))
       .filter((name) => name.endsWith('.png'))
       .map((name) => path.join(input.attachmentDirectory, name));
     const startedAt = Date.now();
@@ -110,7 +116,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
     log?.(`spawn ${path.basename(this.options.binary)} ${args.join(' ')} (prompt ${Buffer.byteLength(input.prompt)}B)`);
 
     return new Promise<AgentProcessResult>((resolve, reject) => {
-      const child = spawn(this.options.binary, args, {
+      const child = this.options.transport?.spawn(this.options.binary, args) ?? spawn(this.options.binary, args, {
         cwd: input.checkout.realPath,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -254,6 +260,11 @@ export class CodexProcessRunner implements AgentProcessRunner {
         const method = String(message.method);
         const rpcId = message.id;
         if ((typeof rpcId !== 'string' && typeof rpcId !== 'number') || !method.includes('/requestApproval')) return;
+        if (input.policy.execution === 'docker') {
+          respondUnsupported(rpcId);
+          stopWith(new AgentRunError('unsupported-flags', 'This escalation is unsupported by the Docker profile.'));
+          return;
+        }
         const params = record(message.params);
         const correlated = params?.threadId === sessionId && (!turnId || params.turnId === turnId);
         const isCommand = method === 'item/commandExecution/requestApproval';
@@ -482,7 +493,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
               false,
             );
           }
-          const security = codexTurnSecurity(input.policy.mode);
+          const security = codexTurnSecurity(input.policy.mode, input.policy.execution);
           const common = {
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
@@ -505,7 +516,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             throw new AgentRunError('missing-session', 'Codex resumed an unexpected native provider session.', 'not-sent');
           }
           sessionId = providerThread.id;
-          const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security.approvalPolicy);
+          const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security.approvalPolicy, input.policy.execution);
           if (policyIssue) {
             throw new AgentRunError('unsupported-flags', policyIssue, 'not-sent', false);
           }

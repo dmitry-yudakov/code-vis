@@ -48,6 +48,7 @@ export interface GitFileDiff {
 }
 
 export type AgentProvider = 'claude' | 'codex';
+export type AgentExecution = 'local' | 'docker';
 export type AgentRole = 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom';
 
 export type ProviderSessionRef =
@@ -100,7 +101,8 @@ export interface ServerAgentParticipant extends AgentParticipant {
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
 export interface DurableSession {
-  version: 3;
+  version: 4;
+  execution: AgentExecution;
   revision: number;
   id: string;
   title: string;
@@ -124,6 +126,11 @@ export interface ProviderHealth {
   supportedModes: AgentMode[];
   message?: string;
 }
+
+export type ExecutionHealth = Record<AgentExecution, {
+  enabled: boolean;
+  providers: Record<AgentProvider, ProviderHealth>;
+}>;
 
 export interface DeviceAuthStatus {
   mode: 'local' | 'paired';
@@ -272,7 +279,8 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3;
+  version: 4;
+  execution: AgentExecution;
   revision: number;
   id: string;
   title: string;
@@ -291,6 +299,7 @@ export interface PublicSession {
 
 /** Bounded host snapshot for the cross-project Arena; never includes transcripts or private handles. */
 export interface ArenaSessionSummary {
+  execution: AgentExecution;
   id: string;
   revision: number;
   title: string;
@@ -437,13 +446,14 @@ export interface PermissionDecisionRequest {
 }
 
 export interface ResolvedAgentPolicy {
+  execution?: AgentExecution;
   profile: 'ask-readonly' | 'plan-readonly' | 'agent-full';
   mode: AgentMode;
   /** Undefined means the CLI default toolset (agent mode). */
   tools?: readonly string[];
   /** Server-owned permission rules, e.g. `Bash(git log:*)`. Never browser-configurable. */
   allowedTools: readonly string[];
-  permissionMode: 'plan' | 'default';
+  permissionMode: 'plan' | 'default' | 'bypassPermissions';
   interactivePermissions: boolean;
   safeMode: true;
   sessionPersistence: true;

@@ -9,7 +9,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 Updated 2026-09-04. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
-- **In flight:** nothing.
+- **In flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md).
 - **Next:** a second execution machine — a machine registry and remote sessions in one Arena.
 - **Then:** spatial surfaces and the rest of
   [vision.md's sequence](docs/vision.md#sequence).
@@ -80,8 +80,11 @@ importing file's own directory; keep `./…` for same-directory siblings.
 - Provider capability is server-owned. The browser names a supported mode and nothing else; the
   executable, tool list, allowlist, permission mode, sandbox, and model flags are resolved on the
   server. An unknown or unsupported mode is a 400.
-- Agent mode edits the real working tree after explicit per-action approval. There is no worktree
-  isolation and no OS/container boundary — this runs as the desktop user.
+- Local Agent edits the real working tree after per-action approval and runs as the desktop user.
+  Optional Docker execution (Story 42, release verification pending) uses a pinned non-root worker:
+  Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
+  separate working copy or rollback. Never mount the running CodeAI installation or provider host
+  storage; see [the Docker execution contract](docs/docker-execution.md).
 - Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
   device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode.
 - Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is

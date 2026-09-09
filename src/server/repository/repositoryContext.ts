@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { runGitRead } from './gitRead';
 
 interface ContextRecord {
   file: string;
@@ -14,9 +11,9 @@ interface ContextRecord {
 
 const COMMANDS: Array<{ file: string; args: string[] }> = [
   { file: 'git-status.txt', args: ['status', '--short'] },
-  { file: 'working.diff', args: ['diff', '--no-ext-diff', '--'] },
-  { file: 'staged.diff', args: ['diff', '--cached', '--no-ext-diff', '--'] },
-  { file: 'last-commit.diff', args: ['diff', '--no-ext-diff', 'HEAD^..HEAD', '--'] },
+  { file: 'working.diff', args: ['diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', '--'] },
+  { file: 'staged.diff', args: ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', '--'] },
+  { file: 'last-commit.diff', args: ['diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', 'HEAD^..HEAD', '--'] },
 ];
 
 function bounded(value: string, limit: number): { content: string; truncated: boolean } {
@@ -35,12 +32,9 @@ export async function writeRepositoryContext(
   const records: ContextRecord[] = [];
   for (const command of COMMANDS) {
     try {
-      const { stdout } = await execFileAsync('git', command.args, {
-        cwd: repositoryRoot,
-        encoding: 'utf8',
+      const stdout = await runGitRead(repositoryRoot, command.args, {
         maxBuffer: Math.max(perFileLimit * 2, 1_048_576),
         timeout: 15_000,
-        windowsHide: true,
       });
       const snapshot = bounded(stdout, perFileLimit);
       // `directory` is a per-run temp directory, never a repository path; no build tracing is needed.

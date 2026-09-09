@@ -7,6 +7,7 @@ import {
   publicError, safeJsonResponse, sessionLifecycleRequestSchema,
 } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       }, { status: 409 });
     }
     const config = getConfig();
+    await recoverDockerExecution(config);
     const session = await getSessionStore(config.dataDir, config.hostLabel)
       .archiveSession(sessionId, parsed.data.expectedRevision);
     return safeJsonResponse({ session: arenaSessionSummary(session) });

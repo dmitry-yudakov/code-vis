@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
+import Link from 'next/link';
 import type { AgentProvider, SessionSnapshot } from '@/shared/types';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 
@@ -30,7 +31,7 @@ export function SessionPicker({ sessions, value, newDisabled, providers, newProv
           {!sessions.length && <option value="">No sessions yet</option>}
           {sessions.map((session) => (
             <option value={session.id} key={session.id}>
-              {findAgentParticipant(session.participants, session.primaryAgentId)?.displayName || 'Agent'} · {session.title}
+              {findAgentParticipant(session.participants, session.primaryAgentId)?.displayName || 'Agent'} · {session.title} · {session.execution === 'docker' ? 'Docker' : 'Local'}
             </option>
           ))}
         </select>
@@ -67,6 +68,7 @@ export function SessionPicker({ sessions, value, newDisabled, providers, newProv
           >
             Start session
           </button>
+          <Link href="/arena">Choose execution in Arena</Link>
         </div>
       </details>
     </div>

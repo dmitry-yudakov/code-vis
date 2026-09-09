@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AgentMode } from '@/shared/types';
+import type { AgentExecution, AgentMode } from '@/shared/types';
 import { PLAN_END_MARKER, PLAN_START_MARKER } from '@/shared/plan';
 
 export const PROMPT_CONTRACT_VERSION = 3;
@@ -32,6 +32,7 @@ Every side effect (Edit, Write, non-allowlisted Bash, …) raises an approval ca
 };
 
 export function buildConversationPrompt(input: {
+  execution?: AgentExecution;
   userText: string;
   attachmentDirectory: string;
   attachedCanvasNames: string[];
@@ -43,6 +44,15 @@ export function buildConversationPrompt(input: {
 }): string {
   const mode = input.mode || 'ask';
   const directory = input.attachmentDirectory;
+  const modeContract = input.execution === 'docker'
+    ? `Execution: Docker. The repository is at /workspace and prepared context is at /context.
+${mode === 'agent'
+  ? 'Mode: AGENT. Edit the real repository and run its commands, tests, and builds autonomously inside this container. No individual approval is required. Changes affect the host checkout directly; cancellation is not rollback.'
+  : `Mode: ${mode.toUpperCase()}. The repository is mounted read-only. Inspect it and run read-only commands; use writable scratch space only outside the repository. Do not attempt to change repository files.`}
+The entire checkout is shared with the host, including existing dependencies and build outputs. Agent installs and generated files change that checkout. Native dependencies may need reinstalling for Linux; Ask/Plan cannot install dependencies or write build outputs inside the checkout.
+Only built-in file and shell tools are available. Public npm downloads use the configured registry gateway. Other network access, integrations, hooks, plugins, custom commands, and subagents are unsupported. Do not alter the container profile or execute anything on the host.
+${mode === 'plan' ? `Wrap the proposed implementation plan between ${PLAN_START_MARKER} and ${PLAN_END_MARKER} on their own lines.` : ''}`
+    : MODE_CONTRACT[mode];
   const sketchNote = input.hasSketchAttachment
     ? ` A sketch is a blank canvas the user drew on: it has no Mermaid source, so its marks and PNG are the entire content — read them as the user's own drawing, and ask before inventing structure they did not draw.`
     : '';
@@ -64,7 +74,7 @@ export function buildConversationPrompt(input: {
 
   return `[CodeAI conversation contract v${PROMPT_CONTRACT_VERSION}]
 ${identity}
-${MODE_CONTRACT[mode]}
+${modeContract}
 
 Return normal Markdown. Include fenced Mermaid only when a diagram materially helps. Zero, one, or multiple Mermaid blocks are valid. Choose the diagram type that communicates the subject best. When revising an attached active diagram, prefer one coherent complete diagram, preserve useful labels and ids where practical, and do not return a patch. Use multiple diagrams only when the user requests alternatives/views or distinct concerns would be confusing in one diagram. Keep large diagrams readable with meaningful subgraphs and stable ids.
 

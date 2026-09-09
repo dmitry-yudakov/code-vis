@@ -62,7 +62,7 @@ export function ConversationDrawer({
         <div>
           <span className="eyebrow">Conversation</span>
           <strong>{session?.title || 'New session'}</strong>
-          {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
+          {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]} · {session?.execution === 'docker' ? 'Docker' : 'Local'}</span>}
         </div>
         <button type="button" onClick={onClose} aria-label="Close conversation drawer">×</button>
       </header>
@@ -126,6 +126,7 @@ export function ConversationDrawer({
         />
         <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{turnBlocked && !running ? 'Another session is running' : status || 'Ready for an instruction'}</div>
         <InstructionComposer
+          execution={session?.execution}
           value={composer}
           running={running}
           cancelReady={cancelReady}

@@ -45,6 +45,10 @@ export async function extractEvidence(source: string, repositoryRoot: string): P
         results.push({ elementId, location, path: relativePath, status: 'outside-repository', message: 'Evidence is not a regular repository file.' });
         continue;
       }
+      if (details.size > 2 * 1024 * 1024) {
+        results.push({ elementId, location, path: relativePath, status: 'invalid', message: 'Evidence file exceeds the verification size limit.' });
+        continue;
+      }
       const content = await readFile(filePath, 'utf8');
       const lineCount = content === '' ? 0 : content.split(/\r?\n/).length;
       if (endLine > lineCount) {

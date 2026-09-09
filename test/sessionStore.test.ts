@@ -39,7 +39,7 @@ function durableFixture(id: string, hostId: string, title = 'Migrated session'):
   const diagramId = crypto.randomUUID();
   const sketchId = crypto.randomUUID();
   return durableSessionSchema.parse({
-    version: 3,
+    version: 4, execution: 'local',
     revision: 9,
     id,
     title,
@@ -232,7 +232,7 @@ describe('host-owned session store', () => {
     const host = await first.host();
     expect(host.label).toBe('Laptop');
     expect(created).toMatchObject({
-      version: 3,
+      version: 4, execution: 'local',
       revision: 0,
       projectId: project.id,
       repositories: [{ hostId: host.id, checkoutId: 'checkout-a', role: 'primary' }],

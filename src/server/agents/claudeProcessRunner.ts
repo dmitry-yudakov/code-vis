@@ -7,10 +7,12 @@ import type {
 } from '@/shared/types';
 import { buildClaudeArgs } from './claudeInvocation';
 import { AgentRunError } from './agentRunError';
+import type { ProcessTransport } from '@/server/execution/processTransport';
 
 export { AgentRunError } from './agentRunError';
 
 interface RunnerOptions {
+  transport?: ProcessTransport;
   binary: string;
   model?: string;
   maxOutputBytes: number;
@@ -109,6 +111,9 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
   constructor(private readonly options: RunnerOptions) {}
 
   async run(input: AgentProcessRun): Promise<AgentProcessResult> {
+    if (input.policy.execution === 'docker' && !this.options.transport) {
+      throw new AgentRunError('unsupported-flags', 'Docker requires its verified container transport.', 'not-sent', false);
+    }
     const startedAt = Date.now();
     const providerSessionId = input.session.id;
     if (!providerSessionId) {
@@ -128,7 +133,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
     return new Promise<AgentProcessResult>((resolve, reject) => {
       // The environment is inherited untouched: whatever login, base URL, or token the user's own
       // Claude Code uses applies here too. CodeAI adds no provider variables of its own.
-      const child = spawn(this.options.binary, args, {
+      const child = this.options.transport?.spawn(this.options.binary, args) ?? spawn(this.options.binary, args, {
         cwd: input.checkout.realPath,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -203,6 +208,9 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         const request = event.request as Record<string, unknown> | undefined;
         const cliRequestId = typeof event.request_id === 'string' ? event.request_id : undefined;
         if (!cliRequestId || request?.subtype !== 'can_use_tool') return;
+        if (input.policy.execution === 'docker') {
+          throw new AgentRunError('unsupported-flags', 'This action requires an escalation unsupported by the Docker profile.');
+        }
         const tool = typeof request.tool_name === 'string' ? request.tool_name : 'tool';
         const toolInput = request.input && typeof request.input === 'object' ? request.input as Record<string, unknown> : undefined;
         const described = describeToolUse(tool, toolInput, input.checkout.realPath, input.attachmentDirectory);

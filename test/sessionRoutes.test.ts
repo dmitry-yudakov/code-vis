@@ -111,7 +111,7 @@ describe('session snapshot and mutation routes', () => {
 
   it('lists and hydrates public host snapshots, then applies revisioned canvas operations', async () => {
     let session = await createViaRoute('checkout-a');
-    expect(session).toMatchObject({ version: 3, revision: 0, repositories: [{ checkoutId: 'checkout-a', role: 'primary' }] });
+    expect(session).toMatchObject({ version: 4, execution: 'local', revision: 0, repositories: [{ checkoutId: 'checkout-a', role: 'primary' }] });
     expect(session.participants.some((participant) => 'session' in participant)).toBe(false);
     expect(JSON.stringify(session)).not.toMatch(/lastObserved/);
 

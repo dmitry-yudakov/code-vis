@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import type {
-  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact,
+  AgentEvent, AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact, ExecutionHealth,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
   ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
@@ -49,6 +49,7 @@ interface Health {
   repositoriesRootReady: boolean;
   dataDirectoryReady: boolean;
   providers: Record<AgentProvider, ProviderHealth>;
+  executions?: ExecutionHealth;
   message?: string;
 }
 
@@ -198,12 +199,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => checkouts.find((checkout) => checkout.id === selectedCheckoutId),
     [checkouts, selectedCheckoutId],
   );
-  const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => health?.providers[provider]?.available), [health]);
+  const executionProviders = health?.executions?.[session?.execution || 'local'].providers || health?.providers;
+  const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => executionProviders?.[provider]?.available), [executionProviders]);
   const agents = useMemo(() => session?.participants.filter((participant): participant is AgentParticipant => participant.kind === 'agent') || [], [session]);
   const activeAgent = findAgentParticipant(agents, session?.addressedAgentId)
     || findAgentParticipant(agents, session?.primaryAgentId);
   const activeProvider = activeAgent?.provider || newProvider;
-  const providerHealth = health?.providers[activeProvider];
+  const providerHealth = executionProviders?.[activeProvider];
   const unsupportedModes = useMemo(() => health
     ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
     : [], [health, providerHealth]);
@@ -405,7 +407,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
-    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean } = {},
+    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; execution?: AgentExecution; checkoutId?: string } = {},
   ): Promise<boolean> => {
     setNotice(undefined);
     try {
@@ -413,7 +415,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(targetProjectId ? { projectId: targetProjectId } : {}), provider: requestedProvider }),
+        body: JSON.stringify({ ...(targetProjectId ? { projectId: targetProjectId } : {}), provider: requestedProvider,
+          ...(options.execution ? { execution: options.execution } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }),
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
@@ -877,7 +880,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
-    const turnProviderHealth = health?.providers[turnAgent.provider];
+    const turnProviderHealth = executionProviders?.[turnAgent.provider];
     if (!turnProviderHealth?.available || !turnProviderHealth.supportedModes.includes(turnMode)) {
       setNotice(turnProviderHealth?.message || `${PROVIDER_LABELS[turnAgent.provider]} is not available for ${turnMode} mode.`);
       return;
@@ -1286,7 +1289,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(session?.participants || [], participantId);
-    const planHealth = planAgent && health?.providers[planAgent.provider];
+    const planHealth = planAgent && executionProviders?.[planAgent.provider];
     if (!planAgent || !planHealth?.supportedModes.includes('agent')) {
       setNotice(planHealth?.message || 'That agent cannot execute in Agent mode.');
       return;
@@ -1443,7 +1446,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 checkouts={orderedCheckouts}
                 hostId={hostId}
                 selectedCheckoutId={selectedCheckoutId}
-                disabled={sessionRunning}
+                disabled={sessionRunning || session.execution === 'docker'}
                 onSelect={selectCheckout}
                 onChange={updateRepositories}
               />
@@ -1475,7 +1478,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>{displayedNotice}</span>
           {archiveUndo && <button type="button" onClick={() => void restoreArenaSession(archiveUndo)}>Undo archive</button>}
           {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
-          {focusedRunOutcome?.missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {focusedRunOutcome?.missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider, { execution: session?.execution, ...(session?.execution === 'docker' && !session.projectId ? { checkoutId: session.repositories[0]?.checkoutId } : {}) }); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
           {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => {
             if (focusedRunOutcome && sessionId) setRunOutcome(sessionId);
@@ -1492,16 +1495,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           discovery={arena.discovery}
           checkouts={checkouts}
           hostLabel={health.hostLabel || 'This machine'}
+          hostId={hostId}
           providerHealth={health.providers}
+          executionHealth={health.executions}
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}
           onRefresh={() => void arena.refresh()}
           onOpenSession={openArenaSession}
-          onCreateSession={({ projectId: targetProjectId, provider, mode: initialMode }) => createSession(provider, {
+          onCreateSession={({ projectId: targetProjectId, provider, mode: initialMode, execution, checkoutId }) => createSession(provider, {
             projectId: targetProjectId,
             mode: initialMode,
             fromArena: true,
+            execution,
+            checkoutId,
           })}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}

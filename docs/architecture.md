@@ -8,6 +8,19 @@ React Flow client, and VS Code extension are archived and documented separately 
 
 ## Shape
 
+Story 42 adds an opt-in Docker transport in `src/server/execution/`; its release verification is
+tracked in [docker-execution.md](docker-execution.md). Version 4 session records persist Local/Docker
+execution, migrating active and archived version 3 records to Local without changing revisions.
+Provider protocol parsers, conversation orchestration, canonical records, device authorization,
+and checkout scheduling remain on the host. Worker stdio replaces the local process transport.
+Docker workers, credential-free Git readers and egress gateways have
+separate roles and ownership labels. Setup/turn/cleanup use the same exclusive session lease.
+Workers bind the whole selected checkout directly, read-only for Ask/Plan and writable for Agent.
+Dependency installs and build outputs are checkout changes; no nested mounts hide repository paths.
+Only provider homes persist in participant volumes; npm downloads use disposable worker scratch.
+Public health keeps the Local `providers` fields and adds execution-scoped capability health;
+participant authentication is checked in its own worker before any prompt.
+
 One private npm package, one Next.js 16 App Router application, no separate backend process.
 Route handlers under `src/app/api/` are the only server surface; they spawn local agent CLIs as
 child processes and read the selected repository with fixed git invocations.

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type {
-  AgentMode, AgentProvider, ArenaSessionSummary, CheckoutSummary, DurableProject, ProviderHealth,
+  AgentExecution, AgentMode, AgentProvider, ArenaSessionSummary, CheckoutSummary, DurableProject, ExecutionHealth, ProviderHealth,
   RunDiscovery,
 } from '@/shared/types';
 import {
@@ -46,7 +46,9 @@ export function Arena({
   discovery,
   checkouts,
   hostLabel,
+  hostId,
   providerHealth,
+  executionHealth,
   deviceState,
   section,
   refreshError,
@@ -64,13 +66,15 @@ export function Arena({
   discovery: RunDiscovery;
   checkouts: CheckoutSummary[];
   hostLabel: string;
+  hostId?: string;
   providerHealth: Record<AgentProvider, ProviderHealth>;
+  executionHealth?: ExecutionHealth;
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
   onRefresh(): void;
   onOpenSession(session: ArenaSessionSummary): void;
-  onCreateSession(input: { projectId?: string; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
+  onCreateSession(input: { projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
   onArchiveSession(session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
@@ -87,13 +91,19 @@ export function Arena({
   );
   const unread = unreadArenaAttention(inbox);
   const checkoutById = useMemo(() => new Map(checkouts.map((checkout) => [checkout.id, checkout])), [checkouts]);
-  const availableProviders = (Object.keys(providerHealth) as AgentProvider[])
-    .filter((provider) => providerHealth[provider].available && providerHealth[provider].supportedModes.length);
+  const [execution, setExecution] = useState<AgentExecution>('local');
+  const [checkoutId, setCheckoutId] = useState(checkouts[0]?.id || '');
+  const selectedHealth = executionHealth?.[execution].providers || providerHealth;
+  const availableProviders = (Object.keys(selectedHealth) as AgentProvider[])
+    .filter((provider) => selectedHealth[provider].available && selectedHealth[provider].supportedModes.length);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [projectId, setProjectId] = useState(projects[0]?.id || 'none');
+  const bindings = projects.find((project) => project.id === projectId)?.repositories || [];
+  const invalidDockerBinding = execution === 'docker' && (projectId === 'none' ? !checkoutId
+    : bindings.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== hostId);
   const [provider, setProvider] = useState<AgentProvider>(availableProviders[0] || 'claude');
-  const supportedModes = providerHealth[provider]?.supportedModes || [];
+  const supportedModes = selectedHealth[provider]?.supportedModes || [];
   const [mode, setMode] = useState<AgentMode>(supportedModes[0] || 'ask');
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
@@ -110,9 +120,9 @@ export function Arena({
   }, [availableProviders, provider]);
 
   useEffect(() => {
-    const availableModes = providerHealth[provider]?.supportedModes || [];
+    const availableModes = selectedHealth[provider]?.supportedModes || [];
     if (!availableModes.includes(mode)) setMode(availableModes[0] || 'ask');
-  }, [mode, provider, providerHealth]);
+  }, [mode, provider, selectedHealth]);
 
   const terminalUnreadIds = unread.filter((item) => item.kind !== 'permission').map((item) => item.id);
 
@@ -137,7 +147,7 @@ export function Arena({
         </div>
         <div className="arena-heading-actions">
           <button type="button" onClick={onRefresh}>Refresh</button>
-          <button type="button" className="arena-primary" disabled={!availableProviders.length} onClick={() => setShowCreate(true)}>
+          <button type="button" className="arena-primary" onClick={() => setShowCreate(true)}>
             New session
           </button>
         </div>
@@ -166,8 +176,20 @@ export function Arena({
         <section className="arena-create" aria-label="Create session">
           <div>
             <span className="eyebrow">Start work</span>
-            <h2>New session</h2>
+          <h2>New session</h2>
           </div>
+          {executionHealth?.docker.enabled && (
+            <label>
+              <span>Execution</span>
+              <select value={execution} onChange={(event) => setExecution(event.target.value as AgentExecution)}>
+                <option value="local">Local</option>
+                <option value="docker">Docker</option>
+              </select>
+            </label>
+          )}
+          {execution === 'docker' && (
+            <p>Agent edits this repository directly and runs commands without individual approvals. Mounted files, including ignored files, are accessible.</p>
+          )}
           <label>
             <span>Project</span>
             <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
@@ -175,6 +197,17 @@ export function Arena({
               {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select>
           </label>
+          {execution === 'docker' && projectId === 'none' && (
+            <label>
+              <span>Repository</span>
+              <select value={checkoutId} onChange={(event) => setCheckoutId(event.target.value)}>
+                <option value="">Choose one repository</option>
+                {checkouts.map((checkout) => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
+              </select>
+            </label>
+          )}
+          {execution === 'docker' && !availableProviders.length && <p role="status">{selectedHealth.claude.message}</p>}
+          {invalidDockerBinding && <p role="status">Docker requires exactly one primary repository on this machine. Select a repository or a project with that binding.</p>}
           <label>
             <span>Provider</span>
             <select value={availableProviders.includes(provider) ? provider : ''} disabled={!availableProviders.length} onChange={(event) => setProvider(event.target.value as AgentProvider)}>
@@ -205,12 +238,15 @@ export function Arena({
             <button
               type="button"
               className="arena-primary"
-              disabled={creating || !availableProviders.includes(provider) || !supportedModes.includes(mode)}
+              disabled={creating || !availableProviders.includes(provider) || !supportedModes.includes(mode)
+                || invalidDockerBinding}
               onClick={() => {
                 setCreating(true);
                 void onCreateSession({
                   ...(projectId === 'none' ? {} : { projectId }),
                   provider,
+                  execution,
+                  ...(execution === 'docker' && projectId === 'none' ? { checkoutId } : {}),
                   mode,
                 }).then((created) => { if (created) setShowCreate(false); }).finally(() => setCreating(false));
               }}
@@ -249,7 +285,7 @@ export function Arena({
                         <span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span>
                         <span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span>
                         <span className="arena-card-footer">
-                          <span>{hostLabel}</span>
+                          <span>{hostLabel} · {card.session.execution === 'docker' ? 'Docker' : 'Local'}</span>
                           {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
                         </span>
                       </button>
@@ -355,7 +391,7 @@ export function Arena({
                       </span>
                       <span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span>
                       <span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span>
-                      <span className="arena-card-footer"><span>{hostLabel}</span></span>
+                      <span className="arena-card-footer"><span>{hostLabel} · {card.session.execution === 'docker' ? 'Docker' : 'Local'}</span></span>
                     </div>
                     <div className="arena-card-restore">
                       <button type="button" disabled={restoring === card.session.id} onClick={() => restore(card.session)}>

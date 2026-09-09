@@ -198,7 +198,8 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 const sessionBase = {
-  version: z.literal(3),
+  version: z.literal(4),
+  execution: z.enum(['local', 'docker']),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(200),
@@ -217,6 +218,7 @@ const sessionBase = {
 function validateSession(
   value: {
     id: string;
+    execution: 'local' | 'docker';
     repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
     primaryAgentId: string;
@@ -228,6 +230,10 @@ function validateSession(
   ctx: z.RefinementCtx,
 ): void {
   validateRepositoryBindings(value.repositories, ctx);
+  if (value.execution === 'docker'
+    && (value.repositories.length !== 1 || value.repositories[0].role !== 'primary')) {
+    ctx.addIssue({ code: 'custom', message: 'Docker requires exactly one primary repository.', path: ['repositories'] });
+  }
 
   const participantIds = value.participants.map((participant) => participant.id);
   const participantNames = value.participants.map((participant) => participant.displayName);
@@ -367,13 +373,23 @@ function migrateEvidenceStatuses(messages: unknown): unknown {
 }
 
 function migrateBindings(source: Record<string, unknown>): Record<string, unknown> {
-  const migrated: Record<string, unknown> = { ...source, version: 3, repositories: source.attachments };
+  const migrated: Record<string, unknown> = { ...source, version: 4, execution: 'local', repositories: source.attachments };
   delete migrated.attachments;
   delete migrated.projectId;
   return migrated;
 }
 
-/** Validates a v2 durable record while returning its exact v3 session equivalent. */
+/** Version 3 introduced project bindings; existing provider history belongs to Local. */
+export const versionThreeDurableSessionSchema = z.unknown().transform((value, ctx) => {
+  const source = record(value);
+  if (!source || source.version !== 3 || Object.hasOwn(source, 'execution')) {
+    ctx.addIssue({ code: 'custom', message: 'Expected a version 3 session without execution.', path: ['version'] });
+    return z.NEVER;
+  }
+  return { ...source, version: 4, execution: 'local' };
+}).pipe(durableSessionSchema);
+
+/** Validates a v2 durable record while returning its current Local session equivalent. */
 export const previousDurableSessionSchema = z.unknown().transform((value, ctx) => {
   const source = record(value);
   if (!source || source.version !== 2) {
@@ -383,7 +399,7 @@ export const previousDurableSessionSchema = z.unknown().transform((value, ctx) =
   return { ...migrateBindings(source), messages: migrateEvidenceStatuses(source.messages) };
 }).pipe(durableSessionSchema);
 
-/** Validates a v1 durable record while returning its exact v3 session equivalent. */
+/** Validates a v1 durable record while returning its current Local session equivalent. */
 export const legacyDurableSessionSchema = z.unknown().transform((value, ctx) => {
   const source = record(value);
   if (!source || source.version !== 1) {

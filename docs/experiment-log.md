@@ -4,6 +4,95 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
+## Story 42 — Direct checkout mounts (2026-09-09 UTC)
+
+**Outcome:** the checkout mount simplification passes offline checks and a focused macOS Docker
+probe. Story 42 remains **In progress** for its broader release matrix.
+
+- Removed recursive dependency/build masks, generated mount targets, dependency-cache volumes,
+  and keeper creation. Workers use one checkout bind, a read-only context bind, their isolated
+  participant home, and disposable `/tmp/npm` scratch. Existing obsolete cache keepers are
+  removed during recovery; explicit participant cleanup still handles obsolete cache volumes.
+- Rebuilt worker image:
+  `sha256:d3b456a51204c4447e56336ea61c02a43ab5f76e73ebb3b2b66f5eb577050fd5`.
+- `npm test`: **250 tests in 39 files pass**, including all three launch modes, read-only
+  preparation, home ownership/reuse, failure cleanup, and obsolete keeper removal.
+  `npm run lint`, `npm run build`, and whitespace checks pass.
+- A disposable real-Docker Ask → Agent → Plan probe confirms that `src/build`, existing
+  dependencies and build outputs remain visible without nested mounts. Agent writes reach the
+  host; Ask/Plan reject checkout writes; context stays read-only; synthetic provider-home state
+  survives worker replacement. Every probe worker, network, volume and fixture was removed.
+- The updated full `npm run test:docker` reached successful network probes, an Agent npm install
+  visible in the host checkout, and host-visible build output. It then failed writing Git context
+  when the host reported `ENOSPC`; Docker became unavailable during cleanup. After the owner
+  restarted Docker, the interrupted fixture's three containers, network and two volumes were
+  removed, and the focused mount probe above passed. This interrupted full run does not establish
+  a complete boundary-suite pass for the new image.
+- No host provider folders were mounted and no signed-in provider turns were sent. The broader
+  Linux, signed-in provider, and lifecycle/resource release evidence remains outstanding.
+
+## Story 42 — Local Docker execution (2026-09-08 UTC)
+
+**Outcome:** implementation and macOS boundary checks pass; release verification is incomplete.
+The owner explicitly deferred signed-in Claude/Codex verification. No host provider credentials
+were imported, and no authenticated model turn was sent. Story 42 remains **In progress**.
+
+- Host: macOS 26.6.2. Docker Desktop 4.90.0 (238679), Engine 29.7.2, Linux amd64,
+  kernel 7.0.12-linuxkit, containerd 2.3.3, runc 1.4.3.
+- Worker image: `sha256:7484074e7af124b3dbda0b709958278954a84728001ce1d04e7ab421acb63479`.
+  Digest-pinned Node 22.22.0 Debian base; actual container CLI version checks pass for Claude
+  2.1.226 and Codex 0.152.0. Provisioning records the immutable image and engine identity.
+- Commands: `docker build --load --tag codeai-worker:20260908 docker`, then
+  `npm run test:docker`. Fixtures use temporary repositories, synthetic secrets, separate provider
+  homes and ownership-scoped cleanup. They never mount personal provider state.
+- Filesystem/privileges: Ask and Plan deny direct writes; Agent changes the actual checkout.
+  Non-root identity, no effective capabilities, no-new-privileges, remount denial, read-only image,
+  absent Docker socket and inaccessible outside symlinks pass. Host dependency directories remain
+  empty while installed Linux dependencies are usable inside the participant cache.
+- Network: allowed npm metadata/tarball downloads and `is-number@7.0.0` installation pass.
+  PUT/POST, arbitrary provider-proxy destinations, direct registry TLS/CONNECT, proxy bypass,
+  private/host/metadata addresses, IPv6, external DNS and another live worker are denied.
+  Both provider API hosts complete TLS and return an HTTP response without authentication.
+  This establishes connectivity, **not authenticated inference or login**.
+- Git: status, diff and context execute in read-only, credential-free helpers. Planted fsmonitor
+  and textconv commands do not create an outside execution sentinel. External `core.worktree`,
+  config includes, a replaced `.git` symlink and an outside file symlink cannot expose the
+  synthetic host secret. Isolation remains after Docker turns are disabled for later Local reads.
+- Lifecycle/resources: a conflicting setup lease is refused; different participant homes are
+  isolated; synthetic native-home state survives turn replacement; Agent-to-Plan is read-only.
+  Cancellation stops a delayed background writer. A replacement server-instance reconciliation
+  removes an orphan before its delayed write and retains source changes without replay.
+  Actual process exhaustion, tmpfs exhaustion and an observed cgroup OOM kill enforce the pinned
+  limits. CPU quota and memory/process limits also match the running cgroup values.
+- Automated app checks: `npm run lint` passes; `npm test` passes **242 tests in 39 files**;
+  production builds pass. `npm run test:e2e -- --grep 'Docker|Arena|arena' --workers 1` passes
+  **5 tests**, including creation disclosure/defaults, unavailable Docker, Arena navigation,
+  approval flow and archiving. Offline recovery tests preserve the interrupted-delivery ledger
+  across a second crash, retain active setup/cache resources, and reject unconfirmed termination
+  or a changed engine. Gateway tests use controlled upstream responses to verify redirect limits,
+  alternate-origin rejection, DNS rebinding denial and credential stripping. Resource ownership is
+  stable through canonical data-directory aliases. The scheduler tests include overlapping
+  parent/child checkouts.
+- Final boundary rerun: all probes pass, including synthetic Docker-client proxy credentials
+  excluded from workers and helpers; the production build passes after that profile change.
+
+Findings fixed during verification: Claude's pinned npm package needs its explicit native-binary
+installation step even when other package scripts are disabled. Historical npm tarball URLs need
+gateway rewriting, and npm must bypass the provider proxy when contacting the internal registry
+gateway. The initial Docker Desktop 4.62.0 / Engine 29.2.1 became unresponsive; the owner updated
+and restarted Docker before the passing runs. Earlier failed probes are not release evidence.
+An additional test-only cleanup run was interrupted by a macOS temporary-path alias; canonical
+ownership handling fixed the alias issue, and inactive fixtures were cleaned before verification
+was rerun. Container flags also explicitly override Docker-client proxy configuration, which can
+otherwise carry host proxy credentials into containers.
+
+**Remaining release evidence:** a separate Linux-host run (including owner UID/GID and inaccessible
+checkout behavior); the signed-in Claude/Codex Ask/Plan/Agent, image, stream, native-resume and
+expired/missing-history matrix; real upstream redirect probes; and the complete application
+death/daemon-loss/timeout/output-overflow and operator setup/cleanup matrix from the story.
+Existing fake-provider tests and synthetic container probes do not substitute for those outcomes.
+The setup guide documents both the available implementation and these release limits.
+
 ## Story 20 — Codex provider smoke (2026-08-18)
 
 **Outcome:** Passed for the shipped Ask/Plan surface. Ask, Plan, post-Plan cross-restart resume, and

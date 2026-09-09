@@ -1,4 +1,5 @@
 import { getConfig } from '@/server/config';
+import path from 'node:path';
 import type {
   AgentEvent, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
 } from '@/shared/types';
@@ -21,6 +22,7 @@ interface RunRecord {
   participantId: string;
   providerKey: string;
   checkoutId: string;
+  checkoutPath?: string;
   access: RunAccess;
   state: RunState;
   enqueuedAt: number;
@@ -64,6 +66,7 @@ export interface ReserveRunInput {
   participantId: string;
   providerKey: string;
   checkoutId: string;
+  checkoutPath?: string;
   access: RunAccess;
   cancel(): void;
 }
@@ -79,6 +82,7 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
  * reloads mid-run only detaches its stream; provider execution and queued work continue here.
  */
 export class RunRegistry {
+  private readonly checkoutReaders = new Map<symbol, string>();
   private readonly liveByRunId = new Map<string, RunRecord>();
   private readonly recentByRunId = new Map<string, RunRecord>();
   private readonly queue: string[] = [];
@@ -87,6 +91,19 @@ export class RunRegistry {
     if (!Number.isSafeInteger(maxConcurrentRuns) || maxConcurrentRuns < 1 || maxConcurrentRuns > 8) {
       throw new Error('maxConcurrentRuns must be an integer between 1 and 8');
     }
+  }
+
+  /** Protect a helper's bind source from an Agent in an enclosing checkout renaming it.
+   * An existing writer at the exact root cannot rename its own mounted root; UI Git reads
+   * can still observe that checkout while it runs. New overlapping writers wait for this read.
+   */
+  acquireCheckoutRead(checkoutPath: string): (() => void) | undefined {
+    if ([...this.liveByRunId.values()].some((run) => run.access === 'write'
+      && (run.state === 'running' || run.state === 'needs-you') && run.checkoutPath
+      && run.checkoutPath !== checkoutPath && pathContains(run.checkoutPath, checkoutPath))) return undefined;
+    const token = Symbol();
+    this.checkoutReaders.set(token, checkoutPath);
+    return () => { this.checkoutReaders.delete(token); this.schedule(); };
   }
 
   /**
@@ -350,18 +367,22 @@ export class RunRegistry {
   }
 
   private eligible(candidate: RunRecord): boolean {
+    if (candidate.access === 'write' && candidate.checkoutPath
+      && [...this.checkoutReaders.values()].some((reader) => pathsOverlap(candidate.checkoutPath!, reader))) return false;
+    const sameCheckout = (other: RunRecord) => other.checkoutId === candidate.checkoutId
+      || Boolean(candidate.checkoutPath && other.checkoutPath && pathsOverlap(candidate.checkoutPath, other.checkoutPath));
     const running = [...this.liveByRunId.values()].filter((run) => (
       run.runId !== candidate.runId && (run.state === 'running' || run.state === 'needs-you')
     ));
     if (candidate.access === 'write') {
-      return !running.some((run) => run.checkoutId === candidate.checkoutId);
+      return !running.some(sameCheckout);
     }
-    if (running.some((run) => run.checkoutId === candidate.checkoutId && run.access === 'write')) return false;
+    if (running.some((run) => sameCheckout(run) && run.access === 'write')) return false;
     // Once a writer waits, later readers on that checkout wait behind it instead of starving it.
     const candidateIndex = this.queue.indexOf(candidate.runId);
     return !this.queue.slice(0, candidateIndex).some((runId) => {
       const earlier = this.liveByRunId.get(runId);
-      return earlier?.checkoutId === candidate.checkoutId
+      return earlier && sameCheckout(earlier)
         && earlier.access === 'write'
         && !earlier.cancelBlocked;
     });
@@ -434,6 +455,15 @@ export class RunRegistry {
       if ((run.finishedAt ?? 0) < cutoff) this.recentByRunId.delete(runId);
     }
   }
+}
+
+function pathContains(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  return pathContains(left, right) || pathContains(right, left);
 }
 
 /**

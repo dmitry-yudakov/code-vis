@@ -265,6 +265,14 @@ looking read-only, they are arbitrary command execution.
 
 ## Safety model
 
+Optional **Docker** execution is being implemented in Story 42. See the
+[Docker setup and verification guide](docs/docker-execution.md) for its release status, provider-owned
+login, direct-edit scope, network restrictions, and cleanup. Docker sessions persist execution and
+one fixed primary checkout. Agent is autonomous inside the container; its dependency installs and
+build outputs also change the host checkout. Ask/Plan mount the entire checkout read-only.
+Dependencies may need reinstalling when switching between macOS and Linux. The Local contract
+below and its Codex Agent gate remain in force for Local sessions.
+
 Every run uses a server-owned provider profile. The browser can name a supported mode and nothing
 else: provider, executable, tool list, allowlist, permission mode, model flags, environment
 variables, sandbox, and settings all stay server-owned. An unknown or unsupported mode is a 400.
@@ -299,7 +307,7 @@ is not designed for Internet-facing hosting, multi-user use, or untrusted reposi
 
 ## Authentication and billing (bring your own)
 
-The spawned process inherits the environment of whatever started CodeAI, unchanged. Whatever the
+The Local process inherits the environment of whatever started CodeAI, unchanged. Whatever the
 selected local CLI already uses — a subscription login, compatible endpoint environment, or API
 key — applies to CodeAI runs exactly as it does in the terminal. CodeAI adds no provider
 credentials or endpoint variables and never persists any. **Billing follows the login and

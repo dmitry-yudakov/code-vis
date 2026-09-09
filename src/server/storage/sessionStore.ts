@@ -7,19 +7,19 @@ import {
 import path from 'node:path';
 import { z } from 'zod';
 import type {
-  AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
+  AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
   Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
   durableProjectSchema, durableSessionSchema, legacyDurableSessionSchema,
-  previousDurableSessionSchema, publicSessionSchema,
+  previousDurableSessionSchema, publicSessionSchema, versionThreeDurableSessionSchema,
 } from '@/shared/sessionSchema';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
 
 const STORE_FORMAT_VERSION = 1;
-const SESSION_RECORD_VERSION = 3;
+const SESSION_RECORD_VERSION = 4;
 const PROJECT_RECORD_VERSION = 1;
 const STORE_DIRECTORY = 'session-store-v2';
 const PREVIOUS_STORE_DIRECTORY = 'session-store-v1';
@@ -125,7 +125,7 @@ async function syncDirectory(directory: string): Promise<void> {
   }
 }
 
-async function atomicWrite(
+export async function atomicWrite(
   targetPath: string,
   value: unknown,
   beforeRename?: SessionStoreOptions['beforeRename'],
@@ -177,6 +177,7 @@ export function publicSession(session: DurableSession): PublicSession {
 export function arenaSessionSummary(session: DurableSession): ArenaSessionSummary {
   const latest = session.messages.at(-1);
   return {
+    execution: session.execution,
     id: session.id,
     revision: session.revision,
     title: session.title,
@@ -454,6 +455,8 @@ export class SessionStore {
   }
 
   async createSession(input: {
+    execution?: AgentExecution;
+    checkoutId?: string;
     projectId?: string;
     provider: AgentProvider;
     role?: AgentRole;
@@ -470,13 +473,22 @@ export class SessionStore {
       const agentId = randomUUID();
       const role = input.role || 'coder';
       const project = input.projectId ? await this.getProject(input.projectId) : undefined;
+      if (project && input.checkoutId) throw new Error('Choose a project or a checkout, not both.');
+      const repositories = structuredClone(project?.repositories || (input.checkoutId ? [{
+        id: randomUUID(), hostId: this.manifest!.host.id, checkoutId: input.checkoutId, role: 'primary' as const,
+      }] : []));
+      if (input.execution === 'docker' && (repositories.length !== 1
+        || repositories[0].role !== 'primary' || repositories[0].hostId !== this.manifest!.host.id)) {
+        throw new Error('Docker requires exactly one primary repository on this machine.');
+      }
       const session: DurableSession = {
         version: SESSION_RECORD_VERSION,
+        execution: input.execution || 'local',
         revision: 0,
         id,
         title: `Session ${currentCount + 1}`,
         ...(project ? { projectId: project.id } : {}),
-        repositories: structuredClone(project?.repositories || []),
+        repositories,
         createdAt: now,
         updatedAt: now,
         primaryAgentId: agentId,
@@ -665,6 +677,9 @@ export class SessionStore {
       const session = await this.getSession(id);
       this.expectRevision(session, expectedRevision);
       const repositoriesChanged = !same(session.repositories, repositories);
+      if (repositoriesChanged && session.execution === 'docker') {
+        throw new Error('A Docker session’s repository binding is fixed. Create a new session to change it.');
+      }
       const updatedAt = this.now().toISOString();
 
       let nextProject: DurableProject | undefined;
@@ -805,13 +820,17 @@ export class SessionStore {
         `Session store contains an unreadable session file (${path.basename(filePath)}). Restore the whole ${STORE_DIRECTORY} directory from backup.`,
       );
     }
-    const result = durableSessionSchema.safeParse(parsed);
+    const oldRecord = (parsed as { version?: unknown })?.version === 3;
+    const result = oldRecord
+      ? versionThreeDurableSessionSchema.safeParse(parsed)
+      : durableSessionSchema.safeParse(parsed);
     if (!result.success) {
       throw new SessionStoreError(
         'corrupt',
         `Session store contains an invalid session file (${path.basename(filePath)}). Restore the whole ${STORE_DIRECTORY} directory from backup.`,
       );
     }
+    if (oldRecord) await atomicWrite(filePath, result.data, this.beforeRename);
     return result.data as DurableSession;
   }
 
