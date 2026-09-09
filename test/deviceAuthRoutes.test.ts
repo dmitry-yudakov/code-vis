@@ -25,6 +25,7 @@ import { GET as GET_RUNS } from '@/app/api/agent/runs/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { POST as POST_CANCEL } from '@/app/api/agent/cancel/route';
 import { POST as POST_PERMISSION } from '@/app/api/agent/permission/route';
+import { PATCH as PATCH_DOCKER } from '@/app/api/execution/docker/route';
 import { DeviceAuthStore } from '@/server/devices/deviceAuthStore';
 
 const MARKER = 'test-tls-marker';
@@ -88,6 +89,7 @@ describe.sequential('paired device route boundary', () => {
     expect((await POST_MESSAGE(request('/api/agent/message', { method: 'POST' }))).status).toBe(401);
     expect((await POST_CANCEL(request('/api/agent/cancel', { method: 'POST' }))).status).toBe(401);
     expect((await POST_PERMISSION(request('/api/agent/permission', { method: 'POST' }))).status).toBe(401);
+    expect((await PATCH_DOCKER(request('/api/execution/docker', { method: 'PATCH' }))).status).toBe(401);
   });
 
   it('pairs once, authenticates without exposing secrets, and rejects cross-origin actions', async () => {
@@ -108,6 +110,9 @@ describe.sequential('paired device route boundary', () => {
     const wrongOrigin = request('/api/agent/cancel', { method: 'POST' }, paired.credential);
     wrongOrigin.headers.set('Origin', 'https://attacker.test');
     expect((await POST_CANCEL(wrongOrigin)).status).toBe(403);
+    const dockerOrigin = request('/api/execution/docker', { method: 'PATCH' }, paired.credential);
+    dockerOrigin.headers.set('Origin', 'https://attacker.test');
+    expect((await PATCH_DOCKER(dockerOrigin)).status).toBe(403);
 
     const devices = await GET_DEVICES(request('/api/auth/devices', {}, paired.credential));
     const body = await devices.json();

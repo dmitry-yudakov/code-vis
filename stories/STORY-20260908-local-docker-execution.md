@@ -111,8 +111,10 @@ Host and Linux dependencies may require reinstalling when switching execution en
 
 ### A. Choose execution explicitly and persist it
 
-1. Add an opt-in local Docker backend, enabled by server setting `CODEAI_DOCKER_ENABLED` (default
-   false; accept the usual `CODEAI_WEB2_*` alias). Use only a locally configured Docker daemon;
+1. Add an opt-in local Docker backend. [Story 43](STORY-20260909-docker-ui-enablement.md) adds a
+   saved **Enable Docker** choice in Arena; without a saved choice, server setting
+   `CODEAI_DOCKER_ENABLED` supplies the default (false; accept the usual `CODEAI_WEB2_*` alias).
+   Use only a locally configured Docker daemon;
    remote Docker contexts, cloud orchestration, and a general runtime plugin system are outside
    this story. Support Docker Desktop on macOS and Docker Engine on Linux through the same profile.
 2. When enabled, session creation offers **Local** and **Docker** execution, with Local the default.

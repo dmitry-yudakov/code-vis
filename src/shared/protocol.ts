@@ -62,6 +62,8 @@ export const pairDeviceRequestSchema = z.object({
 
 export const revokeDeviceRequestSchema = z.object({ deviceId: z.string().uuid() }).strict();
 
+export const dockerSettingsSchema = z.object({ enabled: z.boolean() }).strict();
+
 export const createSessionRequestSchema = z.object({
   execution: z.enum(['local', 'docker']).optional(),
   checkoutId: z.string().trim().min(1).max(128).optional(),

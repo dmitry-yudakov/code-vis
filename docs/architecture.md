@@ -20,6 +20,11 @@ Dependency installs and build outputs are checkout changes; no nested mounts hid
 Only provider homes persist in participant volumes; npm downloads use disposable worker scratch.
 Public health keeps the Local `providers` fields and adds execution-scoped capability health;
 participant authentication is checked in its own worker before any prompt.
+Arena's Docker toggle writes only a boolean through the device-authorized, same-origin
+`PATCH /api/execution/docker`. The private `docker/settings.json` record in the data directory
+overrides the environment default on every config read, so new requests see changes without a
+restart. Accepted turns retain their original configuration. Provisioning and login remain terminal
+operations; the browser cannot alter the container profile.
 
 One private npm package, one Next.js 16 App Router application, no separate backend process.
 Route handlers under `src/app/api/` are the only server surface; they spawn local agent CLIs as

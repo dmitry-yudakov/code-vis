@@ -265,7 +265,8 @@ looking read-only, they are arbitrary command execution.
 
 ## Safety model
 
-Optional **Docker** execution is being implemented in Story 42. See the
+Optional **Docker** execution is being implemented in Story 42. Turn on **Enable Docker** in Arena
+to save this machine's preference without restarting; the UI shows when setup is still needed. See the
 [Docker setup and verification guide](docs/docker-execution.md) for its release status, provider-owned
 login, direct-edit scope, network restrictions, and cleanup. Docker sessions persist execution and
 one fixed primary checkout. Agent is autonomous inside the container; its dependency installs and

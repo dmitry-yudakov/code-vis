@@ -53,6 +53,7 @@ export function Arena({
   section,
   refreshError,
   onRefresh,
+  onSetDockerEnabled,
   onOpenSession,
   onCreateSession,
   onArchiveSession,
@@ -72,7 +73,8 @@ export function Arena({
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
-  onRefresh(): void;
+  onRefresh(): Promise<void>;
+  onSetDockerEnabled(enabled: boolean): Promise<void>;
   onOpenSession(session: ArenaSessionSummary): void;
   onCreateSession(input: { projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
   onArchiveSession(session: ArenaSessionSummary): Promise<boolean>;
@@ -92,6 +94,10 @@ export function Arena({
   const unread = unreadArenaAttention(inbox);
   const checkoutById = useMemo(() => new Map(checkouts.map((checkout) => [checkout.id, checkout])), [checkouts]);
   const [execution, setExecution] = useState<AgentExecution>('local');
+  const [savingDocker, setSavingDocker] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dockerError, setDockerError] = useState<string>();
+  const docker = executionHealth?.docker;
   const [checkoutId, setCheckoutId] = useState(checkouts[0]?.id || '');
   const selectedHealth = executionHealth?.[execution].providers || providerHealth;
   const availableProviders = (Object.keys(selectedHealth) as AgentProvider[])
@@ -110,6 +116,10 @@ export function Arena({
   const [restoring, setRestoring] = useState<string>();
 
   useEffect(() => {
+    if (!docker?.enabled) setExecution('local');
+  }, [docker?.enabled]);
+
+  useEffect(() => {
     if (projectId !== 'none' && !projects.some((project) => project.id === projectId)) {
       setProjectId(projects[0]?.id || 'none');
     }
@@ -125,6 +135,11 @@ export function Arena({
   }, [mode, provider, selectedHealth]);
 
   const terminalUnreadIds = unread.filter((item) => item.kind !== 'permission').map((item) => item.id);
+
+  const refresh = () => {
+    setRefreshing(true);
+    void onRefresh().finally(() => setRefreshing(false));
+  };
 
   const archive = (session: ArenaSessionSummary) => {
     if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
@@ -146,17 +161,48 @@ export function Arena({
           <p>See every local session, answer what is blocked, and start the next piece of work.</p>
         </div>
         <div className="arena-heading-actions">
-          <button type="button" onClick={onRefresh}>Refresh</button>
+          <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
           <button type="button" className="arena-primary" onClick={() => setShowCreate(true)}>
             New session
           </button>
         </div>
       </header>
 
+      {docker && (
+        <section className="arena-docker-settings" aria-label="Docker execution">
+          <div className="arena-docker-setting">
+            <div>
+              <strong>Docker execution</strong>
+              <span role="status">{savingDocker ? 'Saving…' : !docker.enabled ? 'Off'
+                : docker.providers.claude.available ? 'Ready' : 'Setup needed'}</span>
+            </div>
+            <label>
+              <input type="checkbox" checked={docker.enabled} disabled={savingDocker || refreshing} onChange={(event) => {
+                setSavingDocker(true);
+                setDockerError(undefined);
+                void onSetDockerEnabled(event.target.checked).catch((error: unknown) => {
+                  setDockerError(error instanceof Error ? error.message : 'Could not save Docker settings.');
+                }).finally(() => setSavingDocker(false));
+              }} />
+              Enable Docker
+            </label>
+          </div>
+          <p>Make Docker available for new sessions on this machine. Local remains the default.</p>
+          {docker.enabled && !docker.providers.claude.available && (
+            <div className="arena-docker-setup">
+              <p>{docker.providers.claude.message}</p>
+              <p>Start Docker, then run <code>npm run docker:provision</code> in your installed CodeAI directory for first-time setup. Provider sign-in follows session creation.</p>
+              <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Checking…' : 'Check again'}</button>
+            </div>
+          )}
+          {dockerError && <p role="alert">{dockerError}</p>}
+        </section>
+      )}
+
       {refreshError && (
         <div className="arena-refresh-error" role="status">
           <span>{refreshError} Showing the last good overview.</span>
-          <button type="button" onClick={onRefresh}>Try again</button>
+          <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>Try again</button>
         </div>
       )}
 

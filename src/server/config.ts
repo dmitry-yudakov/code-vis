@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { savedDockerEnabled } from '@/server/execution/dockerSettings';
 import {
   DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES, MAX_WIRE_TRANSCRIPT_MESSAGES,
 } from '@/shared/limits';
@@ -96,7 +97,7 @@ function flag(suffix: string): boolean {
   return /^(1|true|yes)$/i.test(rawSetting(suffix) || '');
 }
 
-function dockerEnabled(): boolean {
+function dockerEnabled(dataDir: string): boolean {
   for (const name of Object.keys(process.env)) {
     if (/^CODEAI_(?:WEB2_)?DOCKER_/.test(name) && !/^CODEAI_(?:WEB2_)?DOCKER_ENABLED$/.test(name)) {
       throw new Error(`Unsupported Docker setting: ${name}. The Docker profile is server-owned.`);
@@ -106,7 +107,7 @@ function dockerEnabled(): boolean {
   if (!/^(0|1|true|false|yes|no)$/i.test(value)) {
     throw new Error('CODEAI_DOCKER_ENABLED must be a boolean');
   }
-  return /^(1|true|yes)$/i.test(value);
+  return savedDockerEnabled(dataDir) ?? /^(1|true|yes)$/i.test(value);
 }
 
 function remoteAccess(): Pick<AppConfig, 'remoteAccess' | 'publicOrigin'> {
@@ -144,6 +145,8 @@ function expandHome(value: string): string {
 }
 
 export function getConfig(): AppConfig {
+  // `web2` is a persisted compatibility identifier; changing it needs a data migration.
+  const dataDir = path.resolve(expandHome(rawSetting('DATA_DIR') || '~/.code-ai/web2'));
   return {
     ...remoteAccess(),
     repositoriesRoot: path.resolve(expandHome(
@@ -159,7 +162,7 @@ export function getConfig(): AppConfig {
     // The adapter implements approvals, but advertising build mode remains an explicit release
     // gate until the real installed CLI passes the write/command/network parity matrix.
     codexAgentEnabled: flag('CODEX_AGENT'),
-    dockerEnabled: dockerEnabled(),
+    dockerEnabled: dockerEnabled(dataDir),
     // Answering is read-only, but a real question still spends several thinking-and-tool cycles on
     // repository research before the first word of the reply; five minutes cut those turns off
     // mid-investigation with nothing to show for them.
@@ -173,9 +176,7 @@ export function getConfig(): AppConfig {
     // Machine capacity is deliberately small and bounded. The scheduler owns this value; clients
     // may observe queued work but cannot request a wider limit.
     maxConcurrentRuns: boundedInteger('MAX_CONCURRENT_RUNS', 2, 1, 8),
-    // `web2` in the default path is a persisted compatibility identifier, not branding: existing
-    // session records and provider sessions live there. Renaming it needs its own data migration.
-    dataDir: path.resolve(expandHome(rawSetting('DATA_DIR') || '~/.code-ai/web2')),
+    dataDir,
     hostLabel: rawSetting('HOST_LABEL') || os.hostname(),
     maxAssistantBytes: boundedInteger('MAX_ASSISTANT_BYTES', 1_048_576, 1_024, 10_485_760),
     maxMermaidBytes: boundedInteger('MAX_MERMAID_BYTES', 100_000, 128, 1_048_576),

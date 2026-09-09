@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getConfig } from '@/server/config';
 import { SessionStore, publicSession, arenaSessionSummary } from '@/server/storage/sessionStore';
 import { createSessionRequestSchema } from '@/shared/protocol';
@@ -21,6 +21,8 @@ async function directory() { return realpath(await mkdtemp(path.join(os.tmpdir()
 describe('Docker execution contract', () => {
   const names = ['CODEAI_DOCKER_ENABLED', 'CODEAI_WEB2_DOCKER_ENABLED'] as const;
   const original = names.map((name) => process.env[name]);
+  beforeEach(async () => { vi.stubEnv('CODEAI_DATA_DIR', await directory()); });
+  afterEach(() => vi.unstubAllEnvs());
   afterEach(() => names.forEach((name, index) => {
     if (original[index] === undefined) delete process.env[name]; else process.env[name] = original[index];
   }));

@@ -31,7 +31,7 @@ async function main() {
       if (!result.includes(DOCKER_VERSIONS[provider])) throw new Error(`The pinned ${provider} CLI is incompatible.`);
     }
     await saveDockerProvision(config.dataDir, image);
-    process.stdout.write(`Provisioned ${DOCKER_PROFILE}: ${image}\nEnable CODEAI_DOCKER_ENABLED=true and restart CodeAI.\n`);
+    process.stdout.write(`Provisioned ${DOCKER_PROFILE}: ${image}\nTurn on Enable Docker in Arena, then refresh readiness.\n`);
     return;
   }
   const [sessionId, participantId] = process.argv.slice(3);

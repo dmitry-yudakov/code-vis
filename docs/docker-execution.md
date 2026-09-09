@@ -24,8 +24,20 @@ engine fails closed: CodeAI cannot assume a worker on the previous engine stoppe
 devcontainer configuration, dependency script or host provider configuration is used. Provisioning
 is explicit and cannot occur as a side effect of a turn. An existing profile is not overwritten.
 
-Set `CODEAI_DOCKER_ENABLED=true` (the `CODEAI_WEB2_DOCKER_ENABLED` alias also works), then restart
-CodeAI. In Arena, create a session with **Docker** execution and exactly one primary repository
+In **Arena**, turn on **Enable Docker**. The choice is saved on this machine and takes effect
+immediately, including after browser reloads and CodeAI restarts. The control shows **Off**,
+**Setup needed**, or **Ready**; use **Check again** after starting Docker or provisioning the worker.
+Enabling can precede provisioning, but Docker sessions require a ready worker. Provider login
+remains a separate step for each participant.
+
+The saved boolean lives in `<CODEAI_DATA_DIR>/docker/settings.json` and overrides
+`CODEAI_DOCKER_ENABLED` (or its `CODEAI_WEB2_DOCKER_ENABLED` alias). Without a saved UI choice,
+the environment flag supplies the initial value, defaulting to false. Invalid or unreadable
+saved settings disable Docker; saving from Arena repairs the record if the directory is writable.
+Disabling blocks subsequent Docker session and turn requests. Already accepted running or queued
+turns retain their configuration; use their existing Cancel control to stop them.
+
+In Arena, create a session with **Docker** execution and exactly one primary repository
 on this machine. Local is the default. A project must itself have one primary binding; otherwise
 create a loose Docker session and select its repository. Execution and that session's binding are
 fixed. Adding participants does not share their provider home.

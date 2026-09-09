@@ -38,7 +38,7 @@ export class DockerRuntime {
   }
 
   async profile() {
-    if (!this.config.dockerEnabled) throw new Error('Docker execution is disabled. Enable CODEAI_DOCKER_ENABLED on this machine.');
+    if (!this.config.dockerEnabled) throw new Error('Docker execution is disabled. Enable Docker in Arena on this machine.');
     const profile = await this.provision();
     const endpoint = await localDockerEndpoint();
     const command = (args: string[]) => dockerCommand(['--host', endpoint, ...args]);

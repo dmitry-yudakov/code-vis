@@ -293,6 +293,36 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [archiveUndo]);
 
+  const setDockerEnabled = async (enabled: boolean) => {
+    const response = await fetch('/api/execution/docker', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    const docker = await response.json() as ExecutionHealth['docker'] & { error?: string };
+    if (!response.ok) throw new Error(docker.error || 'Could not save Docker settings.');
+    setHealth((current) => current && ({
+      ...current,
+      executions: {
+        local: current.executions?.local || { enabled: true, providers: current.providers },
+        docker,
+      },
+    }));
+  };
+
+  const refreshArena = async () => {
+    try {
+      const [response] = await Promise.all([
+        fetch('/api/health', { cache: 'no-store' }),
+        arena.refresh(),
+      ]);
+      if (!response.ok) throw new Error('Could not refresh machine readiness.');
+      setHealth(await response.json() as Health);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not refresh machine readiness.');
+    }
+  };
+
   useEffect(() => {
     let current = true;
     void Promise.all([
@@ -1501,7 +1531,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}
-          onRefresh={() => void arena.refresh()}
+          onRefresh={refreshArena}
+          onSetDockerEnabled={setDockerEnabled}
           onOpenSession={openArenaSession}
           onCreateSession={({ projectId: targetProjectId, provider, mode: initialMode, execution, checkoutId }) => createSession(provider, {
             projectId: targetProjectId,
