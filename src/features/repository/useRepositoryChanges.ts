@@ -6,6 +6,8 @@ import type { GitWorkingTree } from '@/shared/types';
 /** Git-specific state remains outside the reusable repository shell and presentation views. */
 export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: GitWorkingTree) => void, apiBase = '/api') {
   const [tree, setTree] = useState<GitWorkingTree>();
+  const identity = JSON.stringify([apiBase, checkoutId]);
+  const [loadedIdentity, setLoadedIdentity] = useState<string>();
   const [selectedPath, setSelectedPath] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -15,8 +17,10 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
     setTree(undefined);
     setSelectedPath(undefined);
     setError(undefined);
+    setLoading(false);
+    setLoadedIdentity(undefined);
     onTreeChange(undefined);
-  }, [checkoutId, onTreeChange]);
+  }, [identity, onTreeChange]);
 
   useEffect(() => {
     if (!checkoutId) return;
@@ -27,12 +31,15 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
       cache: 'no-store', signal: controller.signal,
     }).then(async (response) => {
       const data = await response.json() as { tree?: GitWorkingTree; error?: string };
+      if (controller.signal.aborted) return;
       if (!response.ok || !data.tree) throw new Error(data.error || 'Could not load repository status.');
+      setLoadedIdentity(identity);
       setTree(data.tree);
       onTreeChange(data.tree);
       setSelectedPath((current) => current && data.tree!.files.some((file) => file.path === current) ? current : undefined);
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return;
+      setLoadedIdentity(identity);
       setTree(undefined);
       onTreeChange(undefined);
       setError(reason instanceof Error ? reason.message : 'Could not load repository status.');
@@ -40,15 +47,16 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [apiBase, checkoutId, onTreeChange, revision]);
+  }, [apiBase, checkoutId, onTreeChange, revision, identity]);
 
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
+  const current = loadedIdentity === identity;
   return {
-    tree,
-    selectedPath,
-    selectedFile: tree?.files.find((file) => file.path === selectedPath),
-    loading,
-    error,
+    tree: current ? tree : undefined,
+    selectedPath: current ? selectedPath : undefined,
+    selectedFile: current ? tree?.files.find((file) => file.path === selectedPath) : undefined,
+    loading: Boolean(checkoutId && (loading || !current)),
+    error: current ? error : undefined,
     revision,
     refresh,
     selectPath: setSelectedPath,

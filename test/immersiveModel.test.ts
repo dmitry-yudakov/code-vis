@@ -107,7 +107,7 @@ describe('immersive transcript projection', () => {
     expect(projected.projection.addressedAgent).toBe('Codex');
     expect(projected.projection.entries.find((entry) => entry.id === 'assistant-1')?.text)
       .toContain('[Diagram 1 is available on the canvas]');
-    expect(projected.projection.entries.find((entry) => entry.id === 'user-0')?.text)
+    expect(buildImmersiveTranscriptPages(fixture).flat().find((entry) => entry.id === 'user-0')?.text)
       .toContain('Attachments: diagram with 1 mark.');
     expect(immersiveProjectionCharacters(projected.projection)).toBeLessThanOrEqual(MAX_IMMERSIVE_CHAT_CHARS);
   });

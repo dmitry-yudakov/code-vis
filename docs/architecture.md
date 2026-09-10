@@ -181,6 +181,12 @@ identity fails closed; the whole `session-store-v2` directory is the backup/rest
 `conversation-store-v1` upgrade also remains supported). Older
 `threads.json` and browser records are not imported or modified.
 
+Session records accept version 3 (implicit local execution) and version 4 (required `execution:
+'local' | 'docker'`). Reads do not migrate either format; mutations, public snapshots, and exports
+preserve the version and execution metadata. New sessions remain version 3. Docker sessions keep
+their fixed single-primary-repository binding and are readable here, but the message route
+rejects their turns before provider work because this checkout has no Docker runtime.
+
 ## The streamed agent route
 
 `POST /api/agent/message` is the one turn-executing endpoint.
@@ -272,11 +278,33 @@ rendering stays in the diagram feature and failures remain local; the opaque env
 separate presentation component. Conversation remains a read-only projection at this milestone.
 
 The XR resource ledger enforces a 4,194,304-pixel aggregate cap and 2,048-pixel edge cap, with mipmaps
-disabled. The active canvas is capped at 1.6 million texels to reserve space for transcript, launcher,
-status, and controls. Hidden/replaced content releases its resources. System end, visibility loss,
+disabled. Story 46 reserves at most 1.1 million texels for the active canvas, 1,048,576 for the
+conversation, 786,432 for evidence, and bounded textures for launcher rows, panel chrome, and the
+protected tool/status strip. The maximum steady allocation is 4,031,456 texels; even temporary text
+fallbacks fit below the hard cap. Closed panels and panels showing the size menu unmount their content;
+dragging keeps content visible with its actions disabled. Hidden/replaced content releases its resources. System end, visibility loss,
 controller loss, authorization/unmount, page departure, and WebGL loss end immersion; a late entry
 result after departure or unmount is also ended. Ordinary focus changes preserve the XR session.
 No XR pose, scale, paging, or resource enters canonical records or desktop layouts.
+
+`workspaceLayout.ts` validates continuous forward angles, bounded distance/height, and four size
+presets. `useImmersiveLayout` stores version 2 disposable device views at the existing
+`code-ai:device:v1:immersive-layout` key, keyed by machine/project/session; version 1 slot placements
+migrate to angles and the closest size preset. `WorkspacePanel` owns an icon strip below the frame
+with a captured drag handle, Size menu, Close action, and non-interactive ray-hover tooltips.
+Toolbar, icon, and tooltip textures are shared across the four panels. `usePanelDrag` follows the
+controller ray and converts the result to workspace coordinates; physical push/pull receives 4×
+depth gain over 2.0–4.5 m without amplifying lateral or vertical motion.
+Drag previews stay in memory, release commits
+once, and cancellation discards the preview. Live content does not change focus or placement.
+Re-entry and reset place the workspace origin
+at the current eye position and horizontal viewing direction, without storing tracking or moving
+the camera. The nearer tool/status strip stays outside every closable panel.
+
+AppShell owns the shared repository status/selection and diff hooks. DOM and immersive Evidence
+consume the same read-only result and refresh/select actions; no fetch occurs inside the renderer.
+Responses are scoped to API origin, checkout, and file, and abandoned requests are ignored.
+Conversation and diff raster pages wrap monospace text to the available line/column budget.
 
 The response policy `xr-spatial-tracking=(self)` grants only the same origin. On a personal device,
 the shell passes immersive authorization only after the existing pairing and secure-transport gate,
@@ -286,7 +314,8 @@ does not qualify.
 
 ### Remaining immersive workspace work
 
-Story 45 establishes shell ownership and navigation; physical Quest 3S verification remains pending.
+Story 45 establishes shell ownership and navigation; Story 46 implements bounded movable panels.
+Physical Quest 3S entry, readability, controller use, and comfort verification remain pending.
 The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns the remaining
 working surfaces and headset acceptance.
 

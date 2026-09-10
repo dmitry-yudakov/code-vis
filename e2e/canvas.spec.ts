@@ -475,19 +475,22 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
   await expect(page.locator('.canvas-titleblock strong')).not.toHaveText(activeBeforeNavigation!);
   await controls.getByRole('button', { name: 'Next canvas' }).click();
   await expect(page.locator('.canvas-titleblock strong')).toHaveText(activeBeforeNavigation!);
-  await controls.getByRole('button', { name: 'Larger' }).click();
+  await controls.getByRole('button', { name: 'Larger', exact: true }).click();
   await controls.getByRole('button', { name: 'Reset view' }).click();
-  await controls.getByRole('button', { name: 'Smaller' }).click();
+  await controls.getByRole('button', { name: 'Smaller', exact: true }).click();
   await expect(controls.getByRole('button', { name: 'Older' })).toBeEnabled();
   await controls.getByRole('button', { name: 'Older' }).click();
   await expect(controls.getByRole('button', { name: 'Newer' })).toBeEnabled();
 
+  await controls.locator('[data-immersive-action="panel:conversation:focus"]').click();
+  const immersiveLayoutBeforeStream = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'));
   await page.getByRole('button', { name: /Chat/ }).click();
   const immersiveComposer = page.getByRole('complementary', { name: 'Conversation' }).locator('textarea');
   await immersiveComposer.fill('Live immersive update');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/, { timeout: 12_000 });
   await expect(controls).toContainText('New activity');
+  expect(await page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'))).toBe(immersiveLayoutBeforeStream);
   await controls.getByRole('button', { name: 'Newer' }).click();
   await expect(controls).not.toContainText('New activity');
   await page.getByRole('button', { name: 'Close conversation drawer' }).click();

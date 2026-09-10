@@ -44,6 +44,11 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
+  if (session.execution === 'docker') {
+    return safeJsonResponse({
+      error: 'This CodeAI checkout cannot run Docker sessions. Open this session in a checkout with Docker execution support.',
+    }, { status: 409 });
+  }
   const mode = parsed.data.mode || 'ask';
   const participant = serverAgent(session, parsed.data.participantId);
   if (!participant) {

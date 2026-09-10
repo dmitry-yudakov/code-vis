@@ -58,6 +58,7 @@ vi.mock('@/server/agents/providerRegistry', () => ({
 }));
 
 import { GET as GET_SESSIONS, POST as POST_SESSION } from '@/app/api/sessions/route';
+import { GET as GET_PROJECTS } from '@/app/api/projects/route';
 import { GET as GET_ARENA } from '@/app/api/arena/route';
 import { GET as GET_SESSION } from '@/app/api/sessions/[sessionId]/route';
 import { POST as POST_SKETCH } from '@/app/api/sessions/[sessionId]/sketches/route';
@@ -67,7 +68,7 @@ import { PUT as PUT_REPOSITORIES } from '@/app/api/sessions/[sessionId]/reposito
 import { POST as ARCHIVE_SESSION } from '@/app/api/sessions/[sessionId]/archive/route';
 import { POST as RESTORE_SESSION } from '@/app/api/sessions/[sessionId]/restore/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
-import { SessionStore, serverAgent } from '@/server/storage/sessionStore';
+import { SessionStore, publicSession, serverAgent } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
 import type { DurableSession, PublicSession } from '@/shared/types';
 
@@ -102,6 +103,16 @@ async function createViaRoute(checkoutId?: string): Promise<PublicSession> {
   return (await response.json()).session as PublicSession;
 }
 
+async function seedVersionFourSession(execution: 'local' | 'docker'): Promise<DurableSession> {
+  const store = new SessionStore(routeState.dataDir, { hostLabel: 'Route host' });
+  const project = await store.createProject('Shared project', ['checkout-a']);
+  const created = await store.createSession({ projectId: project.id, provider: 'claude' });
+  await store.close();
+  const session: DurableSession = { ...created, version: 4, execution };
+  await writeFile(path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`), JSON.stringify(session));
+  return session;
+}
+
 describe('session snapshot and mutation routes', () => {
   beforeEach(async () => {
     routeState.dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-session-routes-'));
@@ -110,12 +121,15 @@ describe('session snapshot and mutation routes', () => {
     routeState.runnersCreated = 0;
   });
 
-  it('lists and hydrates public host snapshots, then applies revisioned canvas operations', async () => {
-    let session = await createViaRoute('checkout-a');
-    expect(session).toMatchObject({ version: 3, revision: 0, repositories: [{ checkoutId: 'checkout-a', role: 'primary' }] });
+  it.each([3, 4] as const)('lists and hydrates version %i public snapshots, then applies revisioned canvas operations', async (version) => {
+    let session = version === 3 ? await createViaRoute('checkout-a') : publicSession(await seedVersionFourSession('local'));
+    expect(session).toMatchObject({ version, revision: 0, repositories: [{ checkoutId: 'checkout-a', role: 'primary' }] });
     expect(session.participants.some((participant) => 'session' in participant)).toBe(false);
     expect(JSON.stringify(session)).not.toMatch(/lastObserved/);
 
+    const projects = await GET_PROJECTS();
+    expect(projects.status).toBe(200);
+    expect((await projects.json()).projects).toEqual([expect.objectContaining({ id: session.projectId })]);
     const list = await GET_SESSIONS(new Request(`http://localhost/api/sessions?projectId=${session.projectId}`));
     expect(list.status).toBe(200);
     expect((await list.json()).sessions).toEqual([session]);
@@ -161,7 +175,8 @@ describe('session snapshot and mutation routes', () => {
       body: JSON.stringify({ expectedRevision: session.revision, pinnedDiagramIds: [sketch.id] }),
     }), context(session.id));
     session = (await pinsResponse.json()).session;
-    expect(session).toMatchObject({ revision: 3, pinnedDiagramIds: [sketch.id] });
+    expect(session).toMatchObject({ version, revision: 3, pinnedDiagramIds: [sketch.id] });
+    expect(session.execution).toBe(version === 4 ? 'local' : undefined);
 
     const stale = await PUT_PINS(new Request(`http://localhost/api/sessions/${session.id}/pins`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -169,6 +184,36 @@ describe('session snapshot and mutation routes', () => {
     }), context(session.id));
     expect(stale.status).toBe(409);
     expect((await stale.json()).error).toContain('Refetch and retry');
+  });
+
+  it('keeps Docker history readable but rejects local turns and repository changes without modifying history', async () => {
+    const session = await seedVersionFourSession('docker');
+    const sessionPath = path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`);
+    const projectPath = path.join(routeState.dataDir, 'session-store-v2', 'projects', `${session.projectId}.json`);
+    const originals = await Promise.all([sessionPath, projectPath].map((file) => readFile(file, 'utf8')));
+    const loaded = await GET_SESSION(new Request('http://localhost'), context(session.id));
+    expect(loaded.status).toBe(200);
+    expect((await loaded.json()).session).toMatchObject({ id: session.id, version: 4, execution: 'docker' });
+
+    const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(publicSession(session))),
+    }));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain('cannot run Docker sessions');
+    expect(routeState.healthChecks).toBe(0);
+    expect(routeState.runnersCreated).toBe(0);
+    expect(runRegistry.currentRuns).toEqual([]);
+
+    const rebind = await PUT_REPOSITORIES(new Request('http://localhost', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedRevision: session.revision,
+        repositories: [{ ...session.repositories[0], id: crypto.randomUUID(), checkoutId: 'checkout-b' }],
+      }),
+    }), context(session.id));
+    expect(rebind.status).toBe(400);
+    expect((await rebind.json()).error).toContain('repository binding is fixed');
+    expect(await Promise.all([sessionPath, projectPath].map((file) => readFile(file, 'utf8')))).toEqual(originals);
   });
 
   it('keeps repository-free sessions readable and rejects their turns before provider work', async () => {

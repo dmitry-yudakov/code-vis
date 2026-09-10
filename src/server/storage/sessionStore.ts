@@ -686,6 +686,9 @@ export class SessionStore {
       const session = await this.getSession(id);
       this.expectRevision(session, expectedRevision);
       const repositoriesChanged = !same(session.repositories, repositories);
+      if (repositoriesChanged && session.execution === 'docker') {
+        throw new Error('A Docker session’s repository binding is fixed. Create a new session to change it.');
+      }
       const updatedAt = this.now().toISOString();
 
       let nextProject: DurableProject | undefined;

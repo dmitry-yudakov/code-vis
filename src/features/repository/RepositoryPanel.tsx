@@ -2,27 +2,26 @@
 
 import { useEffect, type ReactNode } from 'react';
 
-import type { GitWorkingTree } from '@/shared/types';
 import { RepositoryChangesView } from './RepositoryChangesView';
 import { RepositoryDiffInspector } from './RepositoryDiffInspector';
 import { RepositorySidebar } from './RepositorySidebar';
-import { useRepositoryChanges } from './useRepositoryChanges';
+import type { useRepositoryChanges } from './useRepositoryChanges';
+import type { RepositoryDiffState } from './useRepositoryDiff';
 
 /**
  * Repository-view composition point. A future file-tree view belongs here beside `changes`,
  * while the sidebar chrome and each view's data controller remain independent.
  */
-export function RepositoryPanel({ checkoutId, repositoryName, manager, apiBase, open, onClose, onTreeChange, onInspectorOpenChange }: {
+export function RepositoryPanel({ checkoutId, repositoryName, manager, changes, diffState, open, onClose, onInspectorOpenChange }: {
   checkoutId?: string;
   repositoryName: string;
   manager?: ReactNode;
-  apiBase?: string;
+  changes: ReturnType<typeof useRepositoryChanges>;
+  diffState: RepositoryDiffState;
   open: boolean;
   onClose(): void;
-  onTreeChange(tree?: GitWorkingTree): void;
   onInspectorOpenChange(open: boolean): void;
 }) {
-  const changes = useRepositoryChanges(checkoutId || '', onTreeChange, apiBase);
 
   useEffect(() => {
     onInspectorOpenChange(Boolean(changes.selectedFile));
@@ -37,10 +36,8 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, apiBase, 
       actions={<button className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh Git status" disabled={changes.loading} onClick={changes.refresh}>↻</button>}
       inspector={checkoutId && changes.selectedFile ? (
         <RepositoryDiffInspector
-          checkoutId={checkoutId}
           file={changes.selectedFile}
-          revision={changes.revision}
-          apiBase={apiBase}
+          state={diffState}
           onClose={changes.closeInspector}
           onRetry={changes.refresh}
         />

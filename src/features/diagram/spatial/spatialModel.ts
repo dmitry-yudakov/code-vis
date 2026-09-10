@@ -90,11 +90,11 @@ export interface TextureAllocation {
   omitted: boolean;
 }
 
-function cappedTextureSize(viewBox: readonly [number, number, number, number], maxPixels: number): [number, number] {
+function cappedTextureSize(viewBox: readonly [number, number, number, number], maxPixels: number, active: boolean): [number, number] {
   const width = Math.max(1, viewBox[2]);
   const height = Math.max(1, viewBox[3]);
   const scale = Math.min(
-    1,
+    active ? Math.max(1, MIN_TEXTURE_SHORT_EDGE / Math.min(width, height)) : 1,
     MAX_TEXTURE_LONG_EDGE / Math.max(width, height),
     Math.sqrt(maxPixels / (width * height)),
   );
@@ -103,7 +103,7 @@ function cappedTextureSize(viewBox: readonly [number, number, number, number], m
 
 export function allocateTexturePixels(candidates: readonly TextureCandidate[], activeId?: string, maxPixels = MAX_TEXTURE_TEXELS): TextureAllocation[] {
   const capped = candidates.map((candidate) => {
-    const [width, height] = cappedTextureSize(candidate.viewBox, maxPixels);
+    const [width, height] = cappedTextureSize(candidate.viewBox, maxPixels, candidate.id === activeId);
     return { id: candidate.id, width, height, pixels: width * height };
   });
   const activePixels = capped.find((candidate) => candidate.id === activeId)?.pixels || 0;

@@ -33,6 +33,9 @@ import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator
 import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/components/CanvasWorkspace';
 import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
+import { useRepositoryChanges } from '@/features/repository/useRepositoryChanges';
+import { useRepositoryDiff } from '@/features/repository/useRepositoryDiff';
+import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { DeviceMenu } from '@/features/devices/DeviceMenu';
@@ -226,6 +229,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => checkouts.find((checkout) => checkout.id === selectedCheckoutId),
     [checkouts, selectedCheckoutId],
   );
+  const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
+  const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
+
   const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => health?.providers[provider]?.available), [health]);
   const agents = useMemo(() => session?.participants.filter((participant): participant is AgentParticipant => participant.kind === 'agent') || [], [session]);
   const activeAgent = findAgentParticipant(agents, session?.addressedAgentId)
@@ -1465,6 +1471,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <ImmersiveBoundary
             authorized={deviceAccess.authenticated && deviceAccess.transportSecure}
             session={loading ? undefined : session}
+            viewKey={immersiveViewKey(machineId || localMachineId, projectId, sessionId)}
+            evidence={{ ...repositoryDiff, tree: repositoryChanges.tree, selectedPath: repositoryChanges.selectedPath,
+              status: loading ? 'Loading session…' : !selectedCheckout ? 'No repository attached' : repositoryChanges.error
+                || (repositoryChanges.loading ? 'Reading changes…' : repositoryChanges.tree?.isRepository === false ? 'Not a Git repository' : 'Choose a changed file'),
+              onSelectPath: repositoryChanges.selectPath, onRefresh: repositoryChanges.refresh }}
             theme={theme} preview={preview} runStatus={immersiveRunStatus}
             pendingApprovals={permissions.length} unread={unread}
             choices={immersiveChoices} workspaceStatus={immersiveStatus}
@@ -1565,7 +1576,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <RepositoryPanel
             checkoutId={selectedCheckout?.id}
             repositoryName={selectedCheckout?.name || 'No repository'}
-            apiBase={repositoryApiBase}
+            changes={repositoryChanges}
+            diffState={repositoryDiff}
             manager={(
               <RepositoryManager
                 repositories={session.repositories}
@@ -1579,7 +1591,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
             open={panelLayout.repositoryOpen}
             onClose={panelLayout.closeRepository}
-            onTreeChange={setRepositoryTree}
             onInspectorOpenChange={panelLayout.setInspectorOpen}
           />
           {panelLayout.repositoryOpen && (

@@ -199,6 +199,78 @@ function userMessage(sessionId: string, humanId: string, agentId: string, text =
 }
 
 describe('host-owned session store', () => {
+  it('reads mixed version 3/4 history unchanged and preserves version 4 through edits and archive/restore', async () => {
+    const dataDir = await directory();
+    const seed = new SessionStore(dataDir);
+    const project = await seed.createProject('Shared history', ['checkout-a']);
+    const host = await seed.host();
+    await seed.close();
+
+    const legacy = { ...durableFixture(crypto.randomUUID(), host.id), projectId: project.id };
+    const current: DurableSession = {
+      ...durableFixture(crypto.randomUUID(), host.id), projectId: project.id, version: 4, execution: 'local',
+    };
+    const archived: DurableSession = {
+      ...durableFixture(crypto.randomUUID(), host.id), projectId: project.id, version: 4, execution: 'local',
+      archivedAt: '2026-09-09T10:00:00.000Z',
+    };
+    const root = path.join(dataDir, 'session-store-v2');
+    const originals = new Map<string, string>();
+    for (const session of [legacy, current, archived]) {
+      const file = path.join(root, session.archivedAt ? 'archived-sessions' : 'sessions', `${session.id}.json`);
+      const contents = JSON.stringify(session, null, 2);
+      originals.set(file, contents);
+      await writeFile(file, contents);
+    }
+
+    const store = new SessionStore(dataDir);
+    expect(await store.listProjects()).toEqual([project]);
+    expect(await store.listSessions({ projectId: project.id })).toEqual(expect.arrayContaining([legacy, current]));
+    expect(await store.listArchivedSessions({ projectId: project.id })).toEqual([archived]);
+    for (const [file, contents] of originals) expect(await readFile(file, 'utf8')).toBe(contents);
+
+    const exported = serializeSessionExport(hydrateSession(publicSession(current)));
+    expect(exported.session).toMatchObject({ version: 4, execution: 'local', messages: current.messages });
+    expect(JSON.stringify(exported)).not.toMatch(/provider-session|lastObservedMessageId/);
+    const updated = await store.setPins(current.id, [], current.revision);
+    const moved = await store.archiveSession(current.id, updated.revision);
+    const restored = await store.restoreSession(current.id, moved.revision);
+    expect(restored).toEqual({
+      ...current, revision: current.revision + 3, updatedAt: expect.any(String), pinnedDiagramIds: [],
+    });
+    expect(JSON.parse(await readFile(path.join(root, 'sessions', `${current.id}.json`), 'utf8'))).toEqual(restored);
+    expect(await readFile(path.join(root, 'sessions', `${legacy.id}.json`), 'utf8'))
+      .toBe(originals.get(path.join(root, 'sessions', `${legacy.id}.json`)));
+    await store.close();
+
+    const reopened = new SessionStore(dataDir);
+    expect(await reopened.getSession(current.id)).toEqual(restored);
+    await reopened.close();
+  });
+
+  it('rejects invalid version/execution combinations and retains strict content validation', () => {
+    const session = durableFixture(crypto.randomUUID(), crypto.randomUUID());
+    expect(durableSessionSchema.safeParse(session).success).toBe(true);
+    for (const execution of ['local', 'docker'] as const) {
+      const current = { ...session, version: 4, execution };
+      expect(durableSessionSchema.safeParse(current).success).toBe(true);
+      expect(durableSessionSchema.safeParse({ ...current, messages: [{ role: 'user' }] }).success).toBe(false);
+      expect(durableSessionSchema.safeParse({ ...current, unknownField: true }).success).toBe(false);
+    }
+    for (const invalid of [
+      { ...session, execution: 'local' },
+      { ...session, execution: undefined },
+      { ...session, version: 4 },
+      { ...session, version: 4, execution: 'unknown' },
+      { ...session, version: 5, execution: 'local' },
+      { ...session, version: 4, execution: 'docker', repositories: [] },
+      { ...session, version: 4, execution: 'docker', repositories: [
+        session.repositories[0],
+        { ...session.repositories[0], id: crypto.randomUUID(), checkoutId: 'checkout-b', role: 'reference' },
+      ] },
+    ]) expect(durableSessionSchema.safeParse(invalid).success).toBe(false);
+  });
+
   it('projects a bounded Arena summary without transcript artifacts or private provider handles', () => {
     const session = durableFixture(
       '11111111-1111-4111-8111-111111111111',

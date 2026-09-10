@@ -1,5 +1,7 @@
 import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, SessionSnapshot } from '@/shared/types';
+import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
+import type { ImmersiveLayout, PanelAction, PanelCommand, PanelEditing, PanelPlacement, WorkspacePanelId } from '@/features/shell/immersive/workspaceLayout';
 
 export const MAX_IMMERSIVE_CHAT_ENTRIES = 12;
 export const MAX_IMMERSIVE_CHAT_CHARS = 12_000;
@@ -58,7 +60,14 @@ export interface ImmersiveXRAdapter {
 }
 
 export type ImmersiveSemanticAction =
+  | PanelAction
   | 'exit'
+  | 'reset-workspace'
+  | 'previous-file'
+  | 'next-file'
+  | 'previous-evidence'
+  | 'next-evidence'
+  | 'refresh-evidence'
   | 'previous-sessions'
   | 'next-sessions'
   | 'previous-canvas'
@@ -84,6 +93,22 @@ export interface ImmersiveSessionChoice {
 }
 
 export interface ImmersiveWorkspaceProps {
+  viewKey: string;
+  layout: ImmersiveLayout;
+  editing?: PanelEditing;
+  onPanelAction(id: WorkspacePanelId, command: PanelCommand): void;
+  onPanelPlacement(id: WorkspacePanelId, placement: PanelPlacement): void;
+  onResetWorkspace(): void;
+  evidence: {
+    tree?: GitWorkingTree;
+    selectedPath?: string;
+    diff?: GitFileDiff;
+    loading: boolean;
+    error?: string;
+    status: string;
+    onSelectPath(path: string): void;
+    onRefresh(): void;
+  };
   session?: SessionSnapshot;
   choices: ImmersiveSessionChoice[];
   launcherPage: number;
@@ -108,6 +133,7 @@ export interface ImmersiveWorkspaceProps {
 
 export interface ImmersiveTestHooks {
   adapter?: ImmersiveXRAdapter;
+  onWorkspace?(state?: import('@react-three/fiber').RootState): void;
   failTranscript?: boolean;
   failXRImport?: boolean;
 }

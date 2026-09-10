@@ -142,7 +142,8 @@ topology—not Internet hosting, a team account, or a relay.
 ### Quest and immersive WebXR
 
 [Story 45](stories/STORY-20260905-application-vr-shell.md) adds an application-level immersive shell.
-Physical Quest 3S entry/navigation verification remains pending. The
+[Story 46](stories/STORY-20260905-vr-workspace-panels.md) adds movable panels and a read-only diff surface.
+Physical Quest 3S entry, navigation, readability, and comfort verification remain pending. The
 [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) tracks the full work loop:
 movable panels, real 3D diagrams, controllers, and voice, followed later by the multi-session Arena.
 
@@ -152,16 +153,24 @@ Flat, Spatial, and empty sessions. Plain LAN HTTP is not a WebXR secure context;
 `CODEAI_ALLOWED_DEV_ORIGINS` does not change that. To iterate with hot reload instead, see
 [Develop against a headset](#develop-against-a-headset).
 
-The shell presents a paged session launcher across projects and machines, session status, the active
-marked canvas (or an empty state), and a bounded read-only live conversation panel. Controller rays
-open sessions, select previous/next canvases, resize/reset the canvas, page the conversation, and
-exit VR. Ordinary session and shell-route navigation retains the same XR session. Loading failures
+The shell presents four panels: Sessions, Conversation, Canvas, and Evidence. A compact strip
+below each panel holds grip, size, and close icons; point at an icon to see its tooltip. Hold the
+controller trigger on the grip, then move your hand to reposition the panel. Push or pull to place
+it farther away or closer, with 4× depth movement over a 2.0–4.5 m range. Release to save the placement.
+The size icon opens a menu with Small,
+Medium, Large, and Extra large presets. Panels stay visible while dragging, with content actions
+paused until release. Close and the tool list hide and recover panels.
+The always-accessible tool strip shows session/approval status, **Reset workspace**, and **Exit VR**.
+Conversation and repository diffs are paged; Evidence shares the desktop's selected changed file
+and refresh action. Canvas sizing is separate from panel placement. Ordinary session and shell-route navigation retains the same XR session. Loading failures
 and Offline machines have visible status; a broken canvas or transcript leaves navigation and Exit
 usable. Exit VR to compose, send, cancel, manage agents or attachments, or answer permissions;
 those operations arrive in later stories.
 
-Entry always requires a fresh gesture. Head/controller pose, XR scale, and transcript paging are
-never saved. Entry preserves the chosen desktop canvas surface, drafts, cameras, and placements;
+Entry always requires a fresh gesture. Deliberate panel placement, size, visibility, and focus
+are saved on this device per machine/project/session, separately from desktop layouts. Re-entry
+places the layout in front of the current viewer at eye height; **Reset workspace** restores defaults.
+Head/controller poses, temporary canvas scale, and transcript paging are never saved. Entry preserves the chosen desktop canvas surface, drafts, cameras, and placements;
 exit returns to the focused work. Desktop Spatial resources pause while immersive. This foundation
 has no AR/passthrough, locomotion, hand tracking, or spatial graph geometry. Authentication and
 execution continue through the same paired home origin and existing authorized executor routes.
@@ -270,6 +279,12 @@ npm install
 The current host store lives under `~/.code-ai/web2/session-store-v2`. On first open it copies a
 valid `session-store-v1` into that store and leaves the old directory untouched as a rollback (a
 direct upgrade from `conversation-store-v1` is also supported).
+Checkouts using the same `CODEAI_DATA_DIR` share their projects and conversations. This checkout
+reads both version 3 sessions and version 4 sessions written by Docker-capable checkouts,
+preserving their format on reads and edits. Version 4 local conversations can continue here;
+Docker conversations are readable but require a checkout with Docker execution support to run.
+After updating an already-running server for this compatibility fix, restart it to load the new
+store reader, then refresh the browser.
 The older `threads.json` prototype and browser keys under `code-ai:web2:v1:` are still deliberately
 left untouched and are not imported. Environment variables were renamed from `CODEAI_WEB2_*` to
 `CODEAI_*`, and **the old names continue to work** — see [Configuration](#configuration).
@@ -500,7 +515,7 @@ Flat. This remains an SVG-panel projection rather than the later model-native 3D
 
 On an authorized secure browser with `immersive-vr` support, the application header exposes **Enter
 VR** independently of the canvas. The shell lazily prepares its renderer and uploads only the active
-canvas, bounded conversation text, the session launcher, and labelled controls. Unsupported, denied,
+canvas, bounded conversation/diff pages, the session launcher, and labelled controls for open panels. Unsupported, denied,
 interrupted, or failed XR entry leaves the desktop workspace available.
 
 **Start a sketch** opens a blank sheet with the same drawing tools — available before any diagram

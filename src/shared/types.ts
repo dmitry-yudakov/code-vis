@@ -100,7 +100,9 @@ export interface ServerAgentParticipant extends AgentParticipant {
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
 export interface DurableSession {
-  version: 3;
+  version: 3 | 4;
+  /** Required in version 4; absent in version 3, whose execution is always local. */
+  execution?: 'local' | 'docker';
   revision: number;
   id: string;
   title: string;
@@ -291,7 +293,9 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3;
+  version: 3 | 4;
+  /** Required in version 4; absent in version 3, whose execution is always local. */
+  execution?: 'local' | 'docker';
   revision: number;
   id: string;
   title: string;

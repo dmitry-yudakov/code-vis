@@ -1,6 +1,7 @@
+import { workspaceTextLines } from '@/features/shell/immersive/workspaceText';
 import type { AgentParticipant, ChatMessage, SessionSnapshot } from '@/shared/types';
 import {
-  MAX_IMMERSIVE_CHAT_CHARS, MAX_IMMERSIVE_CHAT_ENTRIES,
+  MAX_IMMERSIVE_CHAT_CHARS,
   type ImmersiveConversationProjection, type ImmersiveTranscriptEntry,
 } from './immersiveTypes';
 
@@ -80,54 +81,25 @@ function messageEntry(
   };
 }
 
-function fitEntry(entry: ImmersiveTranscriptEntry, limit: number): ImmersiveTranscriptEntry {
-  if (immersiveEntryCharacters(entry) <= limit) return entry;
-  const fixed = immersiveDisplayLength(entry.author) + immersiveDisplayLength(entry.meta)
-    + immersiveDisplayLength(entry.state || '');
-  if (fixed < limit) return { ...entry, text: truncateImmersiveText(entry.text, limit - fixed) };
-  const state = truncateImmersiveText(entry.state || '', Math.max(0, Math.floor(limit * 0.1)));
-  const author = truncateImmersiveText(entry.author, Math.max(1, Math.floor(limit * 0.25)));
-  const remaining = Math.max(0, limit - immersiveDisplayLength(state) - immersiveDisplayLength(author));
-  return { ...entry, author, meta: truncateImmersiveText(entry.meta, remaining), text: '', state };
-}
-
-function takeNewestPage(
-  entries: readonly ImmersiveTranscriptEntry[],
-  endExclusive: number,
-  characterLimit: number,
-): { entries: ImmersiveTranscriptEntry[]; nextEnd: number } {
-  const page: ImmersiveTranscriptEntry[] = [];
-  let characters = 0;
-  let cursor = endExclusive;
-  while (cursor > 0 && page.length < MAX_IMMERSIVE_CHAT_ENTRIES) {
-    const source = entries[cursor - 1];
-    const remaining = characterLimit - characters;
-    if (remaining <= 0) break;
-    const fitted = fitEntry(source, remaining);
-    const count = immersiveEntryCharacters(fitted);
-    if (count <= 0) break;
-    page.unshift(fitted);
-    characters += count;
-    cursor -= 1;
-    if (count === remaining || immersiveEntryCharacters(source) > remaining) break;
-  }
-  return { entries: page, nextEnd: cursor };
-}
-
 export function buildImmersiveTranscriptPages(
   session: Pick<SessionSnapshot, 'messages' | 'participants'>,
   newestPageCharacterLimit = MAX_IMMERSIVE_CHAT_CHARS,
+  newestPageLineLimit = 22,
 ): ImmersiveTranscriptEntry[][] {
   const participants = new Map(session.participants.map((participant) => [participant.id, participant]));
   const entries = session.messages.map((message) => messageEntry(message, participants));
-  if (entries.length === 0) return [[]];
-  const pages: ImmersiveTranscriptEntry[][] = [];
-  let cursor = entries.length;
-  while (cursor > 0) {
-    const limit = pages.length === 0 ? newestPageCharacterLimit : MAX_IMMERSIVE_CHAT_CHARS;
-    const page = takeNewestPage(entries, cursor, Math.max(1, limit));
-    pages.push(page.entries);
-    cursor = page.nextEnd;
+  const pages: ImmersiveTranscriptEntry[][] = [[]];
+  let remaining = Math.max(4, Math.min(22, newestPageLineLimit, Math.floor(newestPageCharacterLimit / 56)));
+  for (const entry of entries.reverse()) {
+    const lines = workspaceTextLines(entry.text);
+    let end = lines.length;
+    while (end > 0) {
+      if (remaining < 4) { pages.push([]); remaining = 22; }
+      const start = Math.max(0, end - (remaining - 3));
+      pages[pages.length - 1].unshift({ ...entry, text: lines.slice(start, end).join('\n') });
+      remaining -= end - start + 3;
+      end = start;
+    }
   }
   return pages;
 }
@@ -147,9 +119,9 @@ export function projectImmersiveConversation({
   unread: number;
   pageFromNewest?: number;
 }): ImmersiveConversationPage {
-  const boundedPreview = truncateImmersiveText(preview, Math.min(4_000, MAX_IMMERSIVE_CHAT_CHARS));
+  const boundedPreview = workspaceTextLines(truncateImmersiveText(preview, 4_000)).slice(-8).join('\n');
   const newestLimit = Math.max(1, MAX_IMMERSIVE_CHAT_CHARS - immersiveDisplayLength(boundedPreview));
-  const pages = buildImmersiveTranscriptPages(session, newestLimit);
+  const pages = buildImmersiveTranscriptPages(session, newestLimit, 22 - (boundedPreview ? workspaceTextLines(boundedPreview).length + 3 : 0));
   const resolvedPage = Math.max(0, Math.min(pageFromNewest, pages.length - 1));
   const agent = session.participants.find((participant): participant is AgentParticipant => (
     participant.kind === 'agent' && participant.id === (session.addressedAgentId || session.primaryAgentId)

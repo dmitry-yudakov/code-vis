@@ -1,3 +1,5 @@
+import type { RootState } from '@react-three/fiber';
+import type { Mesh } from 'three';
 import { expect, test, type Page } from '@playwright/test';
 import type { ArenaMachineSnapshot, DurableProject, PublicSession } from '../src/shared/types';
 
@@ -12,6 +14,7 @@ const NOW = '2026-09-08T12:00:00.000Z';
 
 declare global {
   interface Window {
+    xrScene?: RootState;
     xrFixture: {
       entries: number; ends: number; destroys: number; listeners: number;
       reject: boolean; pending: boolean; resolve?: () => void; systemEnd?: () => void;
@@ -24,6 +27,7 @@ async function installAdapter(page: Page, options: { supported?: boolean; failIm
     const stats = window.xrFixture = { entries: 0, ends: 0, destroys: 0, listeners: 0, reject: false, pending: false } as Window['xrFixture'];
     window.__CODEAI_XR_TEST__ = {
       failXRImport: failImport,
+      onWorkspace(state) { window.xrScene = state; },
       adapter: {
         async isSessionSupported() { return supported !== false; },
         async enterVR() {
@@ -45,8 +49,8 @@ async function installAdapter(page: Page, options: { supported?: boolean; failIm
   }, options);
 }
 
-async function workspaceFixture(page: Page) {
-  const state = { online: true, failLoad: false, authenticated: true, holdLoad: undefined as Promise<void> | undefined };
+async function workspaceFixture(page: Page, withRepository = false) {
+  const state = { annotationWrites: 0, diffReads: 0, statusReads: 0, holdDiff: undefined as Promise<void> | undefined, online: true, failLoad: false, authenticated: true, holdLoad: undefined as Promise<void> | undefined };
   const project = (id: string, name: string): DurableProject => ({ version: 1, revision: 0, id, name, repositories: [], createdAt: NOW, updatedAt: NOW });
   const session = (id: string, projectId: string, title: string): PublicSession => ({
     version: 3, revision: 0, id, projectId, title, repositories: [], createdAt: NOW, updatedAt: NOW,
@@ -57,6 +61,14 @@ async function workspaceFixture(page: Page) {
     primaryAgentId: AGENT, messages: [], annotations: {}, sketches: [], pinnedDiagramIds: [],
   });
   const local = session(SESSION, PROJECT, 'Canvas session');
+  if (withRepository) {
+    local.repositories = [{ id: 'binding', hostId: LOCAL, checkoutId: 'checkout', role: 'primary' }];
+    local.messages = [{ id: 'reading-fixture', role: 'assistant', authorId: AGENT, createdAt: NOW, status: 'complete', rawMarkdown: '', blocks: [
+      { kind: 'markdown', markdown: 'Reading fixture: keep the conversation, diagram, and repository evidence beside one another. Compare the result, then arrange the panels from your seat.' },
+      { kind: 'code', language: 'ts', source: 'function resetWorkspace() {\n  return panels.map(panel => ({ ...panel, open: true }));\n}' },
+      { kind: 'diagram', artifact: { id: 'reading-diagram', sessionId: SESSION, messageId: 'reading-fixture', ordinal: 1, source: 'flowchart LR\n A[Conversation] --> B[Canvas] --> C[Evidence]', createdAt: NOW, status: 'ready', derivedFromDiagramIds: [], evidence: [] } },
+    ] }];
+  }
   local.sketches = [{ id: 'sketch-fixture', ordinal: 1, sessionId: SESSION, createdAt: NOW, viewBox: [0, 0, 1600, 1000] }];
   const remote = session(EMPTY, REMOTE_PROJECT, 'Empty remote session');
   const snapshot = (id: string, name: string, item: PublicSession): ArenaMachineSnapshot => ({
@@ -69,10 +81,14 @@ async function workspaceFixture(page: Page) {
   });
   await page.route('**/api/auth/status', (route) => route.fulfill({ json: { mode: 'paired', authenticated: state.authenticated, transportSecure: true, hostLabel: 'Home' } }));
   await page.route('**/api/projects', (route) => route.fulfill({ json: { projects: [project(PROJECT, 'Local project')] } }));
-  await page.route('**/api/checkouts', (route) => route.fulfill({ json: { hostId: LOCAL, checkouts: [], recentCheckoutIds: [] } }));
+  await page.route('**/api/checkouts', (route) => route.fulfill({ json: { hostId: LOCAL, checkouts: withRepository ? [{ id: 'checkout', name: 'Fixture', relativePath: 'fixture' }] : [], recentCheckoutIds: [] } }));
   await page.route('**/api/arena', (route) => route.fulfill({ json: { machines: [snapshot(LOCAL, 'Home', local), snapshot(REMOTE, 'Laptop', remote)] } }));
   await page.route('**/api/agent/runs*', (route) => route.fulfill({ json: { active: [], recent: [] } }));
   await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [local] } }));
+  await page.route(`**/api/sessions/${SESSION}/annotations`, (route) => {
+    state.annotationWrites++;
+    return route.fulfill({ json: { session: local } });
+  });
   await page.route(`**/api/sessions/${SESSION}`, (route) => route.fulfill({ json: { session: local } }));
   await page.route(`**/api/machines/${REMOTE}/**`, async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -81,6 +97,20 @@ async function workspaceFixture(page: Page) {
       await route.fulfill(state.failLoad ? { status: 503, json: { error: 'Remote session loading failed' } } : { json: { sessions: [remote] } });
     } else if (path.endsWith(`/sessions/${EMPTY}`)) await route.fulfill({ json: { session: remote } });
     else await route.fulfill({ json: { active: [], recent: [] } });
+  });
+  await page.route('**/api/repository/status?*', (route) => {
+    state.statusReads++;
+    return route.fulfill({ json: { tree: { isRepository: true, files: [
+      { path: 'fixture.ts', status: 'modified', staged: true, unstaged: true },
+      { path: 'other.ts', status: 'modified', staged: false, unstaged: true },
+    ] } } });
+  });
+  await page.route('**/api/repository/diff?*', async (route) => {
+    state.diffReads++;
+    await state.holdDiff;
+    const path = new URL(route.request().url()).searchParams.get('path');
+    return route.fulfill({ json: { diff: { path, staged: '@@ staged @@\n+  first change',
+      unstaged: Array.from({ length: 60 }, (_, i) => `+  ${path} line ${i}`).join('\n') } } });
   });
   return state;
 }
@@ -235,3 +265,328 @@ for (const failImport of [false, true]) {
     await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
   });
 }
+
+const panel = (page: Page, id: string) => controls(page).locator(`[data-immersive-panel="${id}"]`);
+const panelAction = (page: Page, id: string, command: string) => controls(page).locator(`[data-immersive-action="panel:${id}:${command}"]`).click();
+const storedLayout = (page: Page) => page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'));
+const livePanelIds = (page: Page) => page.evaluate(() => {
+  const ids: string[] = [];
+  window.xrScene?.scene.traverse((object) => { if (object.userData.workspacePanel) ids.push(object.userData.workspacePanel); });
+  return ids.sort();
+});
+
+async function pointAtAction(page: Page, action: string) {
+  await expect.poll(() => page.evaluate((action) => {
+    let target: Mesh | undefined;
+    window.xrScene?.scene.traverse((object) => { if (object.userData.immersiveAction === action) target = object as Mesh; });
+    if (!target || !window.xrScene) return false;
+    const { camera, scene } = window.xrScene;
+    scene.updateMatrixWorld(true);
+    // Aim inside a triangle: the exact center lies on the quad's shared edge and can
+    // miss both triangles through floating-point rounding at some camera angles.
+    camera.lookAt(target.localToWorld(camera.position.clone().set(0.01, 0.005, 0)));
+    camera.updateMatrixWorld(true);
+    return true;
+  }, action)).toBe(true);
+  await page.locator('.immersive-viewport').evaluate((element: HTMLElement) => {
+    element.style.opacity = '1'; element.style.zIndex = '200'; element.style.pointerEvents = 'auto';
+    element.querySelector('canvas')!.style.pointerEvents = 'auto';
+  });
+  const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
+  // Camera rotation alone does not emit a desktop pointer event. Move off the last
+  // screen coordinate before pointing at the new target to refresh the hover ray.
+  await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2 + 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+async function showPanel(page: Page, id: string) {
+  await pointAtAction(page, `panel:${id}:focus`);
+  await page.evaluate((id) => {
+    const { scene, camera } = window.xrScene!;
+    const object = scene.getObjectByName(`${id[0].toUpperCase()}${id.slice(1)} panel`)!;
+    camera.lookAt(object.getWorldPosition(camera.position.clone()));
+    camera.updateMatrixWorld(true);
+  }, id);
+}
+async function hideProjection(page: Page) {
+  await page.locator('.immersive-viewport').evaluate((element: HTMLElement) => {
+    element.style.opacity = '0'; element.style.zIndex = ''; element.style.pointerEvents = 'none';
+    element.querySelector('canvas')!.style.pointerEvents = 'none';
+  });
+}
+
+async function moveHeldPanel(page: Page) {
+  // Translating the ray origin exercises the same push/pull math as a tracked controller.
+  await page.evaluate(() => {
+    const { camera } = window.xrScene!;
+    const direction = camera.getWorldDirection(camera.position.clone());
+    direction.y = 0;
+    camera.position.addScaledVector(direction.normalize(), -0.2);
+    camera.position.x += 0.03; camera.position.y += 0.12;
+    camera.updateMatrixWorld(true);
+  });
+  const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2, { steps: 3 });
+}
+
+test('arranges every panel, isolates content actions, recovers tools and restores device layouts', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page);
+  await page.goto('/');
+  await expect(page.locator('.app-loading')).toHaveCount(0);
+  await expect.poll(() => fixture.annotationWrites).toBe(1);
+  const desktop = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
+  const record = await page.evaluate(async (id) => (await fetch(`/api/sessions/${id}`)).text(), SESSION);
+  let writes = 0;
+  page.on('request', (request) => { if (request.method() !== 'GET' && request.url().includes('/api/')) writes++; });
+  await enter(page);
+  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation', 'evidence', 'sessions']);
+  for (const id of ['canvas', 'conversation', 'evidence', 'sessions']) {
+    await panelAction(page, id, 'focus');
+    await expect(panel(page, id)).toHaveAttribute('data-focused', 'true');
+    const before = JSON.parse((await panel(page, id).getAttribute('data-layout'))!);
+    const savedBeforeDrag = await storedLayout(page);
+    await expect.poll(() => page.evaluate((id) => {
+      const { scene, camera } = window.xrScene!;
+      const title = id[0].toUpperCase() + id.slice(1);
+      const panel = scene.getObjectByName(`${title} panel`)!;
+      const toolbar = scene.getObjectByName(`${title} toolbar`);
+      if (!toolbar) return false;
+      scene.updateMatrixWorld(true);
+      const icons: Mesh[] = [];
+      toolbar.traverse((object) => { if (object.userData.immersiveAction) icons.push(object as Mesh); });
+      return icons.length === 3 && icons.every((icon) => {
+        const position = panel.worldToLocal(icon.getWorldPosition(camera.position.clone()));
+        const size = (icon.geometry as import('three').PlaneGeometry).parameters;
+        return position.y + size.height / 2 < -0.92 && size.width === size.height;
+      });
+    }, id)).toBe(true);
+    for (const [command, label] of [['resize', 'Size'], ['close', 'Close'], ['drag', 'Drag']]) {
+      await pointAtAction(page, `panel:${id}:${command}`);
+      await expect.poll(() => page.evaluate(({ id, label }) =>
+        window.xrScene?.scene.getObjectByName(`${label} ${id[0].toUpperCase()}${id.slice(1)} tooltip`)?.visible,
+      { id, label })).toBe(true);
+      expect(await storedLayout(page)).toBe(savedBeforeDrag);
+    }
+    await pointAtAction(page, `panel:${id}:focus`);
+    await expect.poll(() => page.evaluate((id) =>
+      window.xrScene?.scene.getObjectByName(`Drag ${id[0].toUpperCase()}${id.slice(1)} tooltip`)?.visible, id)).toBe(false);
+    await pointAtAction(page, `panel:${id}:drag`);
+    await page.mouse.down();
+    await moveHeldPanel(page);
+    await expect.poll(() => page.evaluate((id) => window.xrScene?.scene.getObjectByName(`${id[0].toUpperCase()}${id.slice(1)} content`)?.pointerEvents, id)).toBe('none');
+    expect(await storedLayout(page)).toBe(savedBeforeDrag);
+    await page.mouse.up();
+    await pointAtAction(page, `panel:${id}:resize`);
+    await page.mouse.down(); await page.mouse.up();
+    await pointAtAction(page, `panel:${id}:extra-large`);
+    await page.mouse.down(); await page.mouse.up();
+    await hideProjection(page);
+    const moved = JSON.parse((await panel(page, id).getAttribute('data-layout'))!);
+    expect(moved.height).toBeGreaterThan(before.height);
+    expect(moved.distance).toBeLessThan(before.distance);
+    expect(moved.angle).not.toBe(before.angle);
+    expect(moved.size).toBe('extra-large');
+    await pointAtAction(page, `panel:${id}:close`);
+    await page.mouse.down(); await page.mouse.up();
+    await hideProjection(page);
+    await expect.poll(() => livePanelIds(page)).not.toContain(id);
+    await panelAction(page, id, 'open');
+    await expect(panel(page, id)).toHaveAttribute('data-layout', JSON.stringify(moved));
+  }
+  const saved = await storedLayout(page);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+  expect(await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'))).toBe(desktop);
+  expect(writes).toBe(0);
+  expect(await page.evaluate(async (id) => (await fetch(`/api/sessions/${id}`)).text(), SESSION)).toBe(record);
+  await page.reload();
+  await enter(page);
+  expect(await storedLayout(page)).toBe(saved);
+  await openSession(page, EMPTY);
+  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 19, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await openSession(page, SESSION);
+  await expect(panel(page, 'canvas')).not.toHaveAttribute('data-layout', JSON.stringify({ angle: 19, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await controls(page).getByRole('button', { name: 'Reset workspace', exact: true }).click();
+  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 19, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
+test('selects real world controls by ray, ignores hover and recenters restored panels on re-entry', async ({ page }) => {
+  await installAdapter(page);
+  await page.addInitScript(() => localStorage.setItem('code-ai:device:v1:immersive-layout', '{corrupt'));
+  await workspaceFixture(page);
+  await page.goto('/');
+  await enter(page);
+  await pointAtAction(page, 'panel:conversation:focus');
+  await expect(panel(page, 'canvas')).toHaveAttribute('data-focused', 'true');
+  await page.mouse.down(); await page.mouse.up();
+  await expect(panel(page, 'conversation')).toHaveAttribute('data-focused', 'true');
+  await pointAtAction(page, 'panel:conversation:drag');
+  await page.mouse.down();
+  await moveHeldPanel(page);
+  await page.mouse.up();
+  expect(JSON.parse((await panel(page, 'conversation').getAttribute('data-layout'))!).angle).not.toBe(-19);
+  await hideProjection(page);
+  await page.evaluate(() => { window.xrScene!.camera.position.set(1, 1.6, 2); window.xrScene!.camera.rotation.set(0, Math.PI / 2, 0); });
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+  const saved = await storedLayout(page);
+  await enter(page);
+  await expect.poll(() => page.evaluate(() => {
+    const origin = window.xrScene?.scene.getObjectByName('Workspace origin');
+    return origin ? { position: origin.position.toArray(), yaw: Math.round(origin.rotation.y * 1e8) / 1e8 } : undefined;
+  })).toEqual({ position: [1, 1.6, 2], yaw: Math.round(Math.PI / 2 * 1e8) / 1e8 });
+  expect(await storedLayout(page)).toBe(saved);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
+test('cancels captured drags safely and chooses every size preset through the world menu', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true);
+  await page.goto('/');
+  await enter(page);
+  await panelAction(page, 'canvas', 'focus');
+  const saved = await storedLayout(page);
+  await pointAtAction(page, 'panel:canvas:drag');
+  await page.mouse.down();
+  await moveHeldPanel(page);
+  // Leave the panel completely: capture must keep the preview moving without a content click.
+  await page.mouse.move(1, 1);
+  expect(await storedLayout(page)).toBe(saved);
+  await page.locator('.immersive-viewport canvas').dispatchEvent('pointercancel', { pointerId: 1, button: 0 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Canvas panel')?.userData.editing)).toBeUndefined();
+  expect(await storedLayout(page)).toBe(saved);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.internal.capturedMap.size)).toBe(0);
+
+  await pointAtAction(page, 'panel:evidence:drag');
+  await page.mouse.down();
+  await moveHeldPanel(page);
+  await hideProjection(page);
+  const reads = fixture.diffReads;
+  // Programmatic click represents another controller trying a content action during the drag.
+  await controls(page).locator('[data-immersive-action="next-file"]').evaluate((button: HTMLButtonElement) => button.click());
+  expect(fixture.diffReads).toBe(reads);
+  await controls(page).locator('[data-immersive-action="reset-workspace"]').evaluate((button: HTMLButtonElement) => button.click());
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.internal.capturedMap.size)).toBe(0);
+
+  for (const [size, scale] of [['small', 0.85], ['medium', 1], ['large', 1.15], ['extra-large', 1.3]] as const) {
+    await pointAtAction(page, 'panel:canvas:resize');
+    await page.mouse.down(); await page.mouse.up();
+    await pointAtAction(page, `panel:canvas:${size}`);
+    await page.mouse.down(); await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Canvas panel')?.scale.x)).toBe(scale);
+  }
+  await pointAtAction(page, 'panel:canvas:resize');
+  await page.screenshot({ path: 'test-results/vr-panel-toolbar.png' });
+  await page.mouse.down(); await page.mouse.up();
+  await showPanel(page, 'canvas');
+  await page.screenshot({ path: 'test-results/vr-panel-size-menu.png' });
+  await pointAtAction(page, 'panel:canvas:drag');
+  await page.mouse.down();
+  await moveHeldPanel(page);
+  const beforeExit = await storedLayout(page);
+  await page.evaluate(() => window.xrFixture.systemEnd?.());
+  await page.mouse.up();
+  await released(page);
+  await hideProjection(page);
+  await enter(page);
+  expect(await storedLayout(page)).toBe(beforeExit);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Canvas panel')?.userData.editing)).toBeUndefined();
+  await pointAtAction(page, 'panel:canvas:drag');
+  await page.mouse.down();
+  await moveHeldPanel(page);
+  await hideProjection(page);
+  await controls(page).locator(`[data-immersive-session="${EMPTY}"]`).evaluate((button: HTMLButtonElement) => button.click());
+  await expect(controls(page).locator('strong').first()).toHaveText('Empty remote session');
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.internal.capturedMap.size)).toBe(0);
+  expect(await storedLayout(page)).toBe(beforeExit);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
+test('shares a paged diff with desktop and bounds resources across twenty open/close/reset cycles', async ({ page }) => {
+  test.setTimeout(120_000);
+  await installAdapter(page);
+  const state = await workspaceFixture(page, true);
+  await page.goto('/');
+  await enter(page);
+  await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();
+  await expect.poll(() => state.diffReads).toBe(1);
+  await expect(page.getByRole('region', { name: 'Changes in fixture.ts' })).toBeAttached();
+  await expect.poll(() => page.evaluate(() => {
+    let ready = false;
+    window.xrScene?.scene.getObjectByName('Evidence content')?.traverse((object) => {
+      const mesh = object as Mesh;
+      const material = mesh.material as { map?: { image?: HTMLCanvasElement } } | undefined;
+      if (material?.map?.image?.width === 1024 && material.map.image.height === 768) ready = true;
+    });
+    return ready;
+  })).toBe(true);
+  await controls(page).getByRole('button', { name: 'Next page', exact: true }).click();
+  expect(state.diffReads).toBe(1);
+  await panelAction(page, 'evidence', 'resize');
+  await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();
+  expect(state.diffReads).toBe(1);
+  await panelAction(page, 'evidence', 'done');
+  await controls(page).getByRole('button', { name: 'Next canvas', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Active canvas')?.userData)).toMatchObject({ canvasTarget: 'reading-diagram', canvasStatus: 'ready' });
+  const aspect = await page.evaluate(() => {
+    const { scene, camera } = window.xrScene!;
+    scene.updateMatrixWorld(true);
+    const mesh = scene.getObjectByName('Active canvas') as Mesh;
+    const scale = mesh.getWorldScale(camera.position.clone());
+    const size = (mesh.geometry as import('three').PlaneGeometry).parameters;
+    const image = (mesh.material as import('three').MeshBasicMaterial).map!.image as HTMLCanvasElement;
+    return { world: size.width * scale.x / (size.height * scale.y), raster: image.width / image.height };
+  });
+  expect(aspect.world).toBeCloseTo(aspect.raster, 1);
+  await showPanel(page, 'conversation');
+  await page.screenshot({ path: 'test-results/vr-conversation-panel.png' });
+  await showPanel(page, 'evidence');
+  await page.screenshot({ path: 'test-results/vr-evidence-panel.png' });
+  await showPanel(page, 'canvas');
+  await page.screenshot({ path: 'test-results/vr-canvas-panel.png' });
+  await hideProjection(page);
+  const baseline = await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources);
+  for (let cycle = 0; cycle < 20; cycle++) {
+    for (const id of ['canvas', 'conversation', 'evidence', 'sessions']) await panelAction(page, id, 'close');
+    await expect.poll(() => livePanelIds(page)).toEqual([]);
+    await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThan(800_000);
+    await controls(page).getByRole('button', { name: 'Reset workspace', exact: true }).click();
+    await expect.poll(() => livePanelIds(page)).toHaveLength(4);
+    expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  }
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources)).toBeLessThanOrEqual(baseline + 12);
+  expect(state.diffReads).toBe(1);
+  await test.info().attach('vr-resource-budget', { body: JSON.stringify(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__), null, 2), contentType: 'application/json' });
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
+test('ignores a delayed diff after navigating to another machine and keeps recovery controls available', async ({ page }) => {
+  await installAdapter(page);
+  const state = await workspaceFixture(page, true);
+  await page.goto('/');
+  await enter(page);
+  await expect.poll(() => state.statusReads).toBeGreaterThan(0);
+  let resolveDiff!: () => void;
+  state.holdDiff = new Promise<void>((resolve) => { resolveDiff = resolve; });
+  await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();
+  await expect.poll(() => state.diffReads).toBe(1);
+  await openSession(page, EMPTY);
+  await expect(controls(page).locator('strong').first()).toHaveText('Empty remote session');
+  resolveDiff();
+  state.holdDiff = undefined;
+  await expect(page.getByRole('region', { name: 'Changes in fixture.ts' })).toHaveCount(0);
+  await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();
+  expect(state.diffReads).toBe(1);
+  await pointAtAction(page, 'exit');
+  await page.mouse.down(); await page.mouse.up();
+  await released(page);
+});

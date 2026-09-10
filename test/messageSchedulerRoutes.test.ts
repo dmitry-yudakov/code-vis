@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -83,7 +83,7 @@ import { runRegistry } from '@/server/runs/runRegistry';
 import { getSessionStore, SessionStore } from '@/server/storage/sessionStore';
 import type { DurableSession } from '@/shared/types';
 
-async function createSessions(count: number): Promise<DurableSession[]> {
+async function createSessions(count: number, version: 3 | 4 = 3): Promise<DurableSession[]> {
   const store = new SessionStore(routeState.dataDir, { hostLabel: 'Scheduler route host' });
   const project = await store.createProject('Scheduler project', ['checkout-a']);
   const sessions: DurableSession[] = [];
@@ -91,6 +91,13 @@ async function createSessions(count: number): Promise<DurableSession[]> {
     sessions.push(await store.createSession({ projectId: project.id, provider: 'claude' }));
   }
   await store.close();
+  if (version === 4) {
+    for (const session of sessions) {
+      session.version = 4;
+      session.execution = 'local';
+      await writeFile(path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`), JSON.stringify(session));
+    }
+  }
   return sessions;
 }
 
@@ -134,8 +141,8 @@ describe('message route scheduler integration', () => {
     routeState.resolvers.clear();
   });
 
-  it('accepts a canonical queued request and promotes it after one running response finishes', async () => {
-    const sessions = await createSessions(3);
+  it.each([3, 4] as const)('accepts a version %i session request and promotes it after one running response finishes', async (version) => {
+    const sessions = await createSessions(3, version);
     const responses = await Promise.all(sessions.map((session) => POST_MESSAGE(messageRequest(session))));
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
     await vi.waitFor(() => expect(routeState.started).toHaveLength(2));
@@ -149,6 +156,9 @@ describe('message route scheduler integration', () => {
     expect((await store.getSession(queued!.sessionId)).messages).toContainEqual(expect.objectContaining({
       role: 'user', status: 'sending',
     }));
+    const queuedSession = await store.getSession(queued!.sessionId);
+    expect(queuedSession.version).toBe(version);
+    expect(queuedSession.execution).toBe(version === 4 ? 'local' : undefined);
 
     routeState.resolvers.get(discovery.active[0].runId)?.();
     await vi.waitFor(() => expect(routeState.started).toContain(queued!.runId));

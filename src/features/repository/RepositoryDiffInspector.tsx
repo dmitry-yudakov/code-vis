@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { GitChangedFile, GitFileDiff } from '@/shared/types';
+import type { GitChangedFile } from '@/shared/types';
+import type { RepositoryDiffState } from './useRepositoryDiff';
 
 function patchLineClass(line: string): string {
   if (line.startsWith('@@')) return 'hunk';
@@ -22,36 +22,13 @@ function Patch({ source }: { source?: string }) {
   );
 }
 
-export function RepositoryDiffInspector({ checkoutId, file, revision, apiBase = '/api', onClose, onRetry }: {
-  checkoutId: string;
+export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
   file: GitChangedFile;
-  revision: number;
-  apiBase?: string;
+  state: RepositoryDiffState;
   onClose(): void;
   onRetry(): void;
 }) {
-  const [diff, setDiff] = useState<GitFileDiff>();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setDiff(undefined);
-    setLoading(true);
-    setError(undefined);
-    const query = new URLSearchParams({ checkoutId, path: file.path });
-    void fetch(`${apiBase}/repository/diff?${query}`, { cache: 'no-store', signal: controller.signal })
-      .then(async (response) => {
-        const data = await response.json() as { diff?: GitFileDiff; error?: string };
-        if (!response.ok || !data.diff) throw new Error(data.error || 'Could not load this diff.');
-        setDiff(data.diff);
-      }).catch((reason: unknown) => {
-        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Could not load this diff.');
-      }).finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [apiBase, checkoutId, file.path, revision]);
+  const { diff, loading, error } = state;
 
   return (
     <section className="repository-inspector diff-inspector" aria-label={`Changes in ${file.path}`}>

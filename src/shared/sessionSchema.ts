@@ -198,7 +198,8 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 const sessionBase = {
-  version: z.literal(3),
+  version: z.union([z.literal(3), z.literal(4)]),
+  execution: z.enum(['local', 'docker']).optional(),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(200),
@@ -216,6 +217,8 @@ const sessionBase = {
 
 function validateSession(
   value: {
+    version: 3 | 4;
+    execution?: 'local' | 'docker';
     id: string;
     repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
@@ -227,7 +230,17 @@ function validateSession(
   },
   ctx: z.RefinementCtx,
 ): void {
+  if (value.version === 3 ? Object.hasOwn(value, 'execution') : value.execution === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Version 3 has no execution field; version 4 requires an execution environment.',
+      path: ['execution'],
+    });
+  }
   validateRepositoryBindings(value.repositories, ctx);
+  if (value.execution === 'docker' && (value.repositories.length !== 1 || value.repositories[0].role !== 'primary')) {
+    ctx.addIssue({ code: 'custom', message: 'A Docker session requires exactly one primary repository.', path: ['repositories'] });
+  }
 
   const participantIds = value.participants.map((participant) => participant.id);
   const participantNames = value.participants.map((participant) => participant.displayName);

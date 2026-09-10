@@ -1,22 +1,27 @@
 import * as THREE from 'three';
+import { workspaceTextLines } from '@/features/shell/immersive/workspaceText';
 import { palette } from '@/shared/design/tokens';
 import type { ThemeName } from '@/shared/design/tokens';
-import { spatialTargetLabel } from './spatialModel';
 import {
   MAX_IMMERSIVE_TEXTURE_EDGE,
   type ImmersiveConversationProjection, type ImmersiveSemanticAction,
 } from './immersiveTypes';
-import type { CanvasTarget } from '@/shared/types';
 import { SpatialResourceLedger } from './resourceLedger';
 
-const CHAT_TEXTURE_SIZE = 1_280;
-const CONTROL_TEXTURE_WIDTH = 384;
-const CONTROL_TEXTURE_HEIGHT = 96;
+const CHAT_TEXTURE_SIZE = 1_024;
+const CONTROL_TEXTURE_WIDTH = 256;
+const CONTROL_TEXTURE_HEIGHT = 64;
 
-export type ImmersiveAction = ImmersiveSemanticAction;
+export type ImmersiveAction = Exclude<ImmersiveSemanticAction, `panel:${string}`>;
 
 export const IMMERSIVE_ACTION_LABELS: Readonly<Record<ImmersiveAction, string>> = {
   exit: 'Exit VR',
+  'reset-workspace': 'Reset workspace',
+  'previous-file': 'Previous file',
+  'next-file': 'Next file',
+  'previous-evidence': 'Previous page',
+  'next-evidence': 'Next page',
+  'refresh-evidence': 'Refresh changes',
   'previous-sessions': 'Previous sessions',
   'next-sessions': 'Next sessions',
   'previous-canvas': 'Previous canvas',
@@ -138,7 +143,7 @@ function drawTextLines(
   lineHeight: number,
   bottom: number,
 ): number {
-  for (const line of wrappedLines(context, value, maxWidth)) {
+  for (const line of (lineHeight === 44 ? workspaceTextLines(value) : wrappedLines(context, value, maxWidth))) {
     if (y + lineHeight > bottom) return bottom;
     context.fillText(line, x, y);
     y += lineHeight;
@@ -153,11 +158,12 @@ function drawConversation(
   pageLabel: string,
   newActivity: boolean,
 ): void {
+  context.scale(CHAT_TEXTURE_SIZE / 1_280, CHAT_TEXTURE_SIZE / 1_280);
   const colors = palette[theme];
   context.fillStyle = colors.raised;
-  context.fillRect(0, 0, CHAT_TEXTURE_SIZE, CHAT_TEXTURE_SIZE);
+  context.fillRect(0, 0, 1_280, 1_280);
   context.fillStyle = colors.plot;
-  context.fillRect(0, 0, CHAT_TEXTURE_SIZE, 18);
+  context.fillRect(0, 0, 1_280, 18);
   context.fillStyle = colors.ink;
   context.font = '700 48px system-ui, sans-serif';
   context.fillText(projection.sessionTitle, 54, 82, 800);
@@ -191,8 +197,8 @@ function drawConversation(
     context.textAlign = 'left';
     y += 34;
     context.fillStyle = colors.ink2;
-    context.font = '24px ui-monospace, monospace';
-    y = drawTextLines(context, entry.text, 56, y, 1_168, 31, bottom - 26);
+    context.font = '34px ui-monospace, monospace';
+    y = drawTextLines(context, entry.text, 56, y, 1_168, 44, bottom - 26);
     y += 27;
   }
   if (projection.preview && y < bottom) {
@@ -201,11 +207,11 @@ function drawConversation(
     context.fillText('STREAMING', 56, y);
     y += 32;
     context.fillStyle = colors.ink2;
-    context.font = '24px ui-monospace, monospace';
-    drawTextLines(context, projection.preview, 56, y, 1_168, 31, bottom);
+    context.font = '34px ui-monospace, monospace';
+    drawTextLines(context, projection.preview, 56, y, 1_168, 44, bottom);
   }
   context.strokeStyle = colors.line;
-  context.strokeRect(1, 1, CHAT_TEXTURE_SIZE - 2, CHAT_TEXTURE_SIZE - 2);
+  context.strokeRect(1, 1, 1_278, 1_278);
 }
 
 export function createImmersiveConversationResource(
@@ -247,30 +253,8 @@ export function createImmersiveControlResources(
     context.fillStyle = action === 'exit' ? palette[theme].stopInk : palette[theme].plotInkDeep;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.font = '700 28px system-ui, sans-serif';
+    context.font = '700 22px system-ui, sans-serif';
     context.fillText(label, canvas.width / 2, canvas.height / 2 + 1, canvas.width - 34);
-    return [action, texturePanel(canvas, [0.84, 0.21], ledger)];
+    return [action, texturePanel(canvas, [0.62, 0.155], ledger)];
   })) as Record<ImmersiveAction, ImmersiveTexturePanel>;
-}
-
-export function createImmersiveDiagramLabel(
-  target: CanvasTarget,
-  status: 'ready' | 'omitted' | 'error',
-  detail: string | undefined,
-  theme: ThemeName,
-  ledger: SpatialResourceLedger,
-): ImmersiveTexturePanel {
-  const { canvas, context } = canvas2d(CONTROL_TEXTURE_WIDTH, CONTROL_TEXTURE_HEIGHT);
-  context.fillStyle = status === 'error' ? palette[theme].stopWash : palette[theme].raised;
-  context.strokeStyle = status === 'error' ? palette[theme].stop : palette[theme].plot;
-  context.lineWidth = 4;
-  roundedRect(context, 2, 2, canvas.width - 4, canvas.height - 4, 14);
-  context.fillStyle = status === 'error' ? palette[theme].stopInk : palette[theme].ink;
-  context.font = '700 25px system-ui, sans-serif';
-  context.textAlign = 'center';
-  context.fillText(status === 'ready' ? spatialTargetLabel(target) : `${spatialTargetLabel(target)} unavailable`, canvas.width / 2, 38, canvas.width - 22);
-  context.fillStyle = palette[theme].muted;
-  context.font = '18px ui-monospace, monospace';
-  context.fillText(status === 'ready' ? 'Active canvas' : (detail || status), canvas.width / 2, 69, canvas.width - 22);
-  return texturePanel(canvas, [1.2, 0.3], ledger, status === 'error' ? 'error' : 'ready', detail);
 }
