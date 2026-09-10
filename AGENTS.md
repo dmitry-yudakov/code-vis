@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-09. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-10. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 46](stories/STORY-20260905-vr-workspace-panels.md) — movable, recoverable
@@ -14,6 +14,8 @@ Updated 2026-09-09. When a story ships, change the line that names it; each stor
   Physical Quest 3S acceptance remains pending for Stories 44–46.
 - **Next:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — voice dictation/correction,
   sending messages, agent/mode selection, and cancellation before the later VR Arena.
+- **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
+  controller/visibility interruptions and retain device-local exit diagnostics.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the

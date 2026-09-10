@@ -175,6 +175,43 @@ exit returns to the focused work. Desktop Spatial resources pause while immersiv
 has no AR/passthrough, locomotion, hand tracking, or spatial graph geometry. Authentication and
 execution continue through the same paired home origin and existing authorized executor routes.
 
+Controller disconnection and temporary headset visibility loss leave VR open. Reconnect the
+controller or return to the session to resume. A real browser/headset session end still requires
+**Enter VR** again; graphics failures display an explanation beside that button.
+
+### Investigate an unexpected VR exit
+
+Connect the headset with USB debugging enabled and authorized (`adb devices` must list it).
+Open `chrome://inspect/#devices` in desktop Chrome and inspect the CodeAI tab in Quest Browser,
+following [Meta's remote-debugging guide](https://developers.meta.com/horizon/documentation/web/browser-remote-debugging/).
+Enable **Preserve log** in the Console, then reproduce the exit. Capture the original browser
+exception or graphics error there. For development builds, also check whether a hot reload or
+server restart replaced the document; repeat against `start:remote` to exclude development reloads.
+
+In that tab's remote Console, inspect or copy CodeAI's retained report:
+
+```js
+console.table(window.__CODEAI_VR_DIAGNOSTICS__().events)
+copy(JSON.stringify(window.__CODEAI_VR_DIAGNOSTICS__(), null, 2))
+```
+
+The last 120 events include entry, controller/visibility changes, explicit exit, session end,
+page departure, renderer errors, and WebGL loss/restoration. Every ten seconds while a session is
+bound, a sample records frame timing, application resource counts, renderer texture/geometry/program
+counts, and JS heap bytes when the browser exposes them. The report also identifies the browser.
+The device-local history survives reloads when storage is available; it records no conversation,
+repository content, credentials, poses, or exception messages. Use one CodeAI tab for a reproduction.
+
+An `exit-requested`, `pagehide`, `renderer-unmounted`, or `webgl-context-lost` before `session-ended`
+helps explain an application-initiated exit. An end without those triggers points to the browser
+or headset. Controller/visibility changes alone should leave the session running. A new
+`pageStartedAt` without an earlier end is evidence of an interrupted document, **not proof of a
+crash**: abrupt reloads and process termination can both omit final events. For an actual browser
+crash, capture Android Logcat around the failure as described in
+[Meta's Android debugging guide](https://developers.meta.com/horizon/documentation/native/android/book-anddebug/).
+Frame/resource trends can guide investigation, but these counts and optional JS heap measurements
+do not measure total GPU/native memory or prove an out-of-memory failure.
+
 ### Develop against a headset
 
 Two development paths give the headset browser a WebXR secure context without `npm run build` or

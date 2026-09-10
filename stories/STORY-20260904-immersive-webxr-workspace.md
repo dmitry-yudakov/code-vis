@@ -116,9 +116,11 @@ stereoscopic resource budgets, session cleanup, and a useful fallback when WebXR
 4. XR is another renderer state of the existing Spatial projection, not a new `CanvasSurface` value.
    The durable diagram/sketch, active selection, annotations, transcript, participants, and run
    records remain the same objects used by Flat and desktop Spatial.
-5. Ending the session from an in-world **Exit VR** control, the headset system UI, visibility loss,
-   route/session change, component unmount, or error resolves exactly once. It releases XR-owned
+5. Ending the session from an in-world **Exit VR** control, the headset system UI,
+   component unmount, or error resolves exactly once. It releases XR-owned
    resources and returns to the same desktop Spatial selection, camera, and placements.
+   Story 45 preserves XR across route/session changes; [Story 53](STORY-20260910-vr-session-resilience.md)
+   also preserves it through temporary visibility loss and controller disconnection.
 
 ### B. The immersive workspace contains one primary diagram and one live chat panel
 
@@ -194,9 +196,11 @@ stereoscopic resource budgets, session cleanup, and a useful fallback when WebXR
 23. A paired headset may open a home-owned or proxied remote-machine session through the existing
     Arena. XR never receives provider credentials, machine credentials, TLS keys, or a capability to
     bypass the home server's authorization routes.
-24. Context loss, session rejection, controller disconnect, transcript raster failure, or a failed
+24. Context loss, session rejection, or a failed
     dynamic import ends only the immersive layer. The user gets an actionable desktop Spatial
     fallback, and Flat remains available through Story 43's existing boundary.
+    Story 45 contains transcript raster failure within its panel; Story 53 retains the session
+    through controller disconnection and records bounded device-local exit diagnostics.
 
 ---
 

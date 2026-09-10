@@ -419,17 +419,18 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
       const listeners = {
         end: new Set<() => void>(),
         visibilitychange: new Set<() => void>(),
+        inputsourceschange: new Set<() => void>(),
       };
       let ended = false;
       const session = {
-        visibilityState: 'visible',
+        visibilityState: 'visible' as const,
         async end() {
           if (ended) return;
           ended = true;
           for (const listener of listeners.end) listener();
         },
-        addEventListener(type: 'end' | 'visibilitychange', listener: () => void) { listeners[type].add(listener); },
-        removeEventListener(type: 'end' | 'visibilitychange', listener: () => void) { listeners[type].delete(listener); },
+        addEventListener(type: keyof typeof listeners, listener: () => void) { listeners[type].add(listener); },
+        removeEventListener(type: keyof typeof listeners, listener: () => void) { listeners[type].delete(listener); },
       };
       scope.__CODEAI_END_XR__ = () => { for (const listener of listeners.end) listener(); };
       return session;

@@ -46,10 +46,11 @@ export interface ImmersiveInstrumentation {
 
 /** The deliberately small surface required by automated XR adapters. */
 export interface ImmersiveSessionAdapter {
-  readonly visibilityState?: string;
+  readonly visibilityState?: XRVisibilityState;
+  readonly inputSources?: Iterable<Pick<XRInputSource, 'targetRayMode' | 'hand'>>;
   end(): Promise<void>;
-  addEventListener?(type: 'end' | 'visibilitychange', listener: () => void): void;
-  removeEventListener?(type: 'end' | 'visibilitychange', listener: () => void): void;
+  addEventListener?(type: 'end' | 'visibilitychange' | 'inputsourceschange', listener: () => void): void;
+  removeEventListener?(type: 'end' | 'visibilitychange' | 'inputsourceschange', listener: () => void): void;
 }
 
 export interface ImmersiveXRAdapter {
@@ -133,6 +134,7 @@ export interface ImmersiveWorkspaceProps {
 
 export interface ImmersiveTestHooks {
   adapter?: ImmersiveXRAdapter;
+  onStore?(store?: import('@react-three/xr').XRStore): void;
   onWorkspace?(state?: import('@react-three/fiber').RootState): void;
   failTranscript?: boolean;
   failXRImport?: boolean;

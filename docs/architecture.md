@@ -282,10 +282,19 @@ disabled. Story 46 reserves at most 1.1 million texels for the active canvas, 1,
 conversation, 786,432 for evidence, and bounded textures for launcher rows, panel chrome, and the
 protected tool/status strip. The maximum steady allocation is 4,031,456 texels; even temporary text
 fallbacks fit below the hard cap. Closed panels and panels showing the size menu unmount their content;
-dragging keeps content visible with its actions disabled. Hidden/replaced content releases its resources. System end, visibility loss,
-controller loss, authorization/unmount, page departure, and WebGL loss end immersion; a late entry
-result after departure or unmount is also ended. Ordinary focus changes preserve the XR session.
+dragging keeps content visible with its actions disabled. Hidden/replaced content releases its resources. System end,
+authorization/unmount, page departure, and WebGL loss end immersion; a late entry
+result after departure or unmount is also ended. Controller removal/reconnection and temporary
+hidden/blurred visibility preserve the XR session; the runtime pauses/resumes rendering and input.
 No XR pose, scale, paging, or resource enters canonical records or desktop layouts.
+
+`immersiveDiagnostics.ts` retains up to 120 device-local lifecycle events and ten-second samples
+at `code-ai:device:v1:immersive-diagnostics`, best-effort across reloads. The remote console can read
+`window.__CODEAI_VR_DIAGNOSTICS__()`. Samples include application counters, renderer allocation
+counts, visibility/controller count, and optional browser heap usage. Page start times distinguish
+documents. It records neither content/poses nor arbitrary error messages; native error details
+remain in DevTools. Sampling and error listeners are removed when the session finishes. Storage
+failure falls back to memory. This adds no Three.js import to the non-lazy boundary.
 
 `workspaceLayout.ts` validates continuous forward angles, bounded distance/height, and four size
 presets. `useImmersiveLayout` stores version 2 disposable device views at the existing

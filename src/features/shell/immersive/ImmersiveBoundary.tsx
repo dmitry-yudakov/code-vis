@@ -8,6 +8,7 @@ import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/f
 import { probeImmersiveCapability } from '@/features/diagram/spatial/immersiveCapability';
 import { immersiveConversationVersion } from '@/features/diagram/spatial/immersiveTranscript';
 import type { ImmersiveAvailability, ImmersiveController, ImmersiveSemanticAction, ImmersiveWorkspaceProps } from '@/features/diagram/spatial/immersiveTypes';
+import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 
 const ImmersiveRenderer = dynamic(() => {
   if (window.__CODEAI_XR_TEST__?.failXRImport) return Promise.reject(new Error('Injected immersive bundle failure.'));
@@ -18,6 +19,7 @@ class RendererBoundary extends Component<{ children: ReactNode; onError(message:
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(error: unknown) {
+    recordImmersiveDiagnostic('renderer-error');
     this.props.onError(error instanceof Error ? error.message : 'The immersive renderer could not load.');
   }
   render() { return this.state.failed ? null : this.props.children; }
@@ -53,6 +55,8 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
   const version = props.session ? immersiveConversationVersion(props.session, props.preview) : '';
   const observedVersion = useRef(version);
   const activeTarget = useMemo(() => props.session && findCanvasTarget(props.session, props.session.activeDiagramId), [props.session]);
+
+  useEffect(() => { recordImmersiveDiagnostic('page-ready'); }, []);
 
   useEffect(() => {
     let cancelled = false;

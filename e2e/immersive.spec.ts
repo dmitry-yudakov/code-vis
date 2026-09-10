@@ -1,4 +1,5 @@
 import type { RootState } from '@react-three/fiber';
+import type { XRStore } from '@react-three/xr';
 import type { Mesh } from 'three';
 import { expect, test, type Page } from '@playwright/test';
 import type { ArenaMachineSnapshot, DurableProject, PublicSession } from '../src/shared/types';
@@ -15,9 +16,12 @@ const NOW = '2026-09-08T12:00:00.000Z';
 declare global {
   interface Window {
     xrScene?: RootState;
+    xrStore?: XRStore;
     xrFixture: {
       entries: number; ends: number; destroys: number; listeners: number;
       reject: boolean; pending: boolean; resolve?: () => void; systemEnd?: () => void;
+      setVisibility?: (visibility: XRVisibilityState) => void;
+      setControllers?: (count: number) => void;
     };
   }
 }
@@ -27,19 +31,36 @@ async function installAdapter(page: Page, options: { supported?: boolean; failIm
     const stats = window.xrFixture = { entries: 0, ends: 0, destroys: 0, listeners: 0, reject: false, pending: false } as Window['xrFixture'];
     window.__CODEAI_XR_TEST__ = {
       failXRImport: failImport,
+      onStore(store) { window.xrStore = store; },
       onWorkspace(state) { window.xrScene = state; },
       adapter: {
         async isSessionSupported() { return supported !== false; },
         async enterVR() {
           stats.entries++;
           if (stats.reject) throw new DOMException('User denied access', 'NotAllowedError');
-          const listeners = { end: new Set<() => void>(), visibilitychange: new Set<() => void>() };
+          const listeners = { end: new Set<() => void>(), visibilitychange: new Set<() => void>(), inputsourceschange: new Set<() => void>() };
           const session = {
+            visibilityState: 'visible' as XRVisibilityState,
+            // Native XRInputSourceArray is iterable, not an Array with filter().
+            inputSources: new Set<Pick<XRInputSource, 'targetRayMode' | 'hand'>>(),
             async end() { stats.ends++; for (const listener of listeners.end) listener(); },
-            addEventListener(type: 'end' | 'visibilitychange', listener: () => void) { listeners[type].add(listener); stats.listeners++; },
-            removeEventListener(type: 'end' | 'visibilitychange', listener: () => void) { if (listeners[type].delete(listener)) stats.listeners--; },
+            addEventListener(type: keyof typeof listeners, listener: () => void) { listeners[type].add(listener); stats.listeners++; },
+            removeEventListener(type: keyof typeof listeners, listener: () => void) { if (listeners[type].delete(listener)) stats.listeners--; },
           };
           stats.systemEnd = () => { for (const listener of listeners.end) listener(); };
+          stats.setVisibility = (visibility) => {
+            session.visibilityState = visibility;
+            for (const listener of listeners.visibilitychange) listener();
+          };
+          stats.setControllers = (count) => {
+            session.inputSources = new Set(Array.from({ length: count }, () => ({ targetRayMode: 'tracked-pointer' as const })));
+            // Exercise the actual store subscription path that previously ended VR. Native
+            // controller rendering stays inactive in this adapter without a reference space.
+            window.xrStore?.setState({ inputSourceStates: Array.from({ length: count }, () => ({
+              type: 'controller', gamepad: {},
+            })) as unknown as ReturnType<XRStore['getState']>['inputSourceStates'] });
+            for (const listener of listeners.inputsourceschange) listener();
+          };
           if (stats.pending) await new Promise<void>((resolve) => { stats.resolve = resolve; });
           return session;
         },
@@ -194,6 +215,83 @@ test('retains one XR store across machine/project navigation, loading races, his
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('Keep this local draft');
 });
 
+test('keeps VR and panel state through controller removal, reconnection and visibility interruptions', async ({ page }) => {
+  await installAdapter(page);
+  await workspaceFixture(page);
+  await page.goto('/');
+  await enter(page);
+  await controls(page).locator('[data-immersive-action="panel:evidence:close"]').click();
+  const layout = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'));
+  for (const count of [2, 1, 0, 1, 2]) {
+    await page.evaluate((count) => window.xrFixture.setControllers?.(count), count);
+    await expect(controls(page)).toBeVisible();
+    expect(await page.evaluate(() => window.xrFixture.ends)).toBe(0);
+  }
+  for (const visibility of ['visible-blurred', 'hidden', 'visible'] as const) {
+    await page.evaluate((visibility) => window.xrFixture.setVisibility?.(visibility), visibility);
+    await expect(controls(page)).toBeVisible();
+    expect(await page.evaluate(() => window.xrFixture.ends)).toBe(0);
+  }
+  expect(await page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'))).toBe(layout);
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  const events = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events);
+  expect(events.filter((event) => event.event === 'controllers-changed').map((event) => event.controllers)).toEqual([2, 1, 0, 1, 2]);
+  expect(events.filter((event) => event.event === 'visibility-changed').map((event) => event.visibility)).toEqual(['visible-blurred', 'hidden', 'visible']);
+  // Content actions remain usable after input/visibility resume.
+  await controls(page).locator('[data-immersive-action="panel:evidence:open"]').click();
+  await expect(controls(page).locator('[data-immersive-panel="evidence"]')).toHaveAttribute('data-open', 'true');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.slice(-2).map((event) => event.event)))
+    .toEqual(['exit-requested', 'session-ended']);
+});
+
+test('samples diagnostics and removes the timer and error listeners after session end', async ({ page }) => {
+  await page.clock.install();
+  await installAdapter(page);
+  await workspaceFixture(page);
+  await page.goto('/');
+  await enter(page);
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.filter((event) => event.event === 'sample').length), { timeout: 15_000 }).toBeGreaterThan(0);
+  const sample = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.find((event) => event.event === 'sample'));
+  expect(sample).toMatchObject({ sessionActive: true, visibility: 'visible', controllers: 0 });
+  expect(sample!.frames).toBeGreaterThan(0);
+  expect(sample!.textures).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    window.dispatchEvent(new ErrorEvent('error', { message: 'Do not persist arbitrary error content' }));
+    window.dispatchEvent(new Event('unhandledrejection'));
+  });
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.slice(-2).map((event) => event.event)))
+    .toEqual(['window-error', 'unhandled-rejection']);
+  await page.evaluate(() => window.xrFixture.systemEnd?.());
+  await released(page);
+  await expect(page.locator('.immersive-entry [role="alert"]')).toContainText('headset or browser ended VR');
+  const previous = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events);
+  await page.evaluate(() => {
+    window.dispatchEvent(new ErrorEvent('error'));
+    window.dispatchEvent(new Event('unhandledrejection'));
+  });
+  await page.clock.fastForward(20_000);
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events)).toEqual(previous);
+});
+
+test('retains VR exit diagnostics across reload with a new document identity', async ({ page }) => {
+  await installAdapter(page);
+  await workspaceFixture(page);
+  await page.goto('/');
+  await enter(page);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+  const previous = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled();
+  const reloaded = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events);
+  expect(reloaded.slice(0, previous.length)).toEqual(previous);
+  expect(reloaded.at(-1)?.event).toBe('page-ready');
+  expect(reloaded.at(-1)?.pageStartedAt).not.toBe(previous.at(-1)?.pageStartedAt);
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(0);
+});
+
 test('contains broken canvas/transcript surfaces and cleans up rejection, system end, context loss and revocation', async ({ page }) => {
   await installAdapter(page);
   const state = await workspaceFixture(page);
@@ -219,6 +317,8 @@ test('contains broken canvas/transcript surfaces and cleans up rejection, system
   await page.locator('.immersive-viewport canvas').dispatchEvent('webglcontextlost');
   await expect(page.locator('.immersive-entry [role="alert"]')).toContainText('WebGL context was lost');
   await released(page);
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.slice(-2).map((event) => event.event)))
+    .toEqual(['webgl-context-lost', 'session-ended']);
   expect(await page.evaluate(() => window.xrFixture.ends)).toBe(1);
   await enter(page);
   state.authenticated = false;

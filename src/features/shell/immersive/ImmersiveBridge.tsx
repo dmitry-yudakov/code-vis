@@ -9,6 +9,7 @@ import type {
   ImmersiveSemanticAction, ImmersiveWorkspaceProps,
 } from '@/features/diagram/spatial/immersiveTypes';
 import { ImmersiveWorkspace } from './ImmersiveWorkspace';
+import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 
 if (typeof window !== 'undefined') {
   window.__CODEAI_XR_BUNDLE_EVALUATIONS__ = (window.__CODEAI_XR_BUNDLE_EVALUATIONS__ || 0) + 1;
@@ -66,19 +67,43 @@ export function ImmersiveBridge({
   const [floorBased, setFloorBased] = useState(false);
   const actionRef = useRef<((action: ImmersiveSemanticAction) => void) | undefined>(undefined);
 
+  useEffect(() => {
+    window.__CODEAI_XR_TEST__?.onStore?.(store);
+    return () => window.__CODEAI_XR_TEST__?.onStore?.();
+  }, [store]);
+
   const bindSession = useCallback((session: ImmersiveSessionAdapter) => {
     sessionRef.current = session;
+    const record = (event: Parameters<typeof recordImmersiveDiagnostic>[0]) => {
+      const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+      recordImmersiveDiagnostic(event, {
+        visibility: session.visibilityState,
+        controllers: session.inputSources && Array.from(session.inputSources).filter((source) => source.targetRayMode === 'tracked-pointer' && !source.hand).length,
+        textures: gl.info.memory.textures, geometries: gl.info.memory.geometries,
+        programs: gl.info.programs?.length, heapBytes: memory?.usedJSHeapSize,
+      });
+    };
     let requestedOutcome: { availability: ImmersiveAvailability; reason?: string } | undefined;
     const ended = () => finishSession(
       requestedOutcome?.availability || 'available',
-      requestedOutcome?.reason,
+      requestedOutcome ? requestedOutcome.reason : 'The headset or browser ended VR. Enter again when ready.',
     );
-    const visibilityChanged = () => {
-      if (session.visibilityState === 'hidden') void endSession('available', 'The headset hid the immersive session; enter again when ready.');
-    };
+    // Hidden/blurred sessions are paused by the runtime and may resume. Missing controllers
+    // likewise recover through XR input-source updates; neither event should terminate VR.
+    const visibilityChanged = () => record('visibility-changed');
+    const inputsChanged = () => record('controllers-changed');
+    const sampleTimer = window.setInterval(() => record('sample'), 10_000);
+    const windowError = () => record('window-error');
+    const unhandledRejection = () => record('unhandled-rejection');
+    window.addEventListener('error', windowError);
+    window.addEventListener('unhandledrejection', unhandledRejection);
     const cleanupListeners = () => {
+      window.clearInterval(sampleTimer);
+      window.removeEventListener('error', windowError);
+      window.removeEventListener('unhandledrejection', unhandledRejection);
       session.removeEventListener?.('end', ended);
       session.removeEventListener?.('visibilitychange', visibilityChanged);
+      session.removeEventListener?.('inputsourceschange', inputsChanged);
     };
     const finishSession = (availability: ImmersiveAvailability, reason?: string) => {
       if (sessionRef.current !== session) return;
@@ -86,6 +111,7 @@ export function ImmersiveBridge({
       sessionRef.current = undefined;
       endingRef.current = undefined;
       setImmersiveSessionActive(false);
+      record('session-ended');
       setFloorBased(false);
       if (mountedRef.current) onAvailability(availability, reason);
     };
@@ -98,6 +124,7 @@ export function ImmersiveBridge({
         const operation = Promise.resolve()
           .then(() => session.end())
           .catch((error) => {
+            record('end-failed');
             requestedOutcome = { availability: 'failed', reason: errorMessage(error) };
           })
           .finally(() => finishSession(
@@ -110,8 +137,9 @@ export function ImmersiveBridge({
     };
     session.addEventListener?.('end', ended);
     session.addEventListener?.('visibilitychange', visibilityChanged);
-    return { finishSession, endSession, cleanupListeners };
-  }, [onAvailability]);
+    session.addEventListener?.('inputsourceschange', inputsChanged);
+    return { endSession, record };
+  }, [gl, onAvailability]);
 
   const lifecycleRef = useRef<ReturnType<typeof bindSession> | undefined>(undefined);
   const enter = useCallback(() => {
@@ -119,6 +147,7 @@ export function ImmersiveBridge({
     const epoch = entryEpoch.current;
     const operation = (async () => {
       onAvailability('entering');
+      recordImmersiveDiagnostic('entry-requested');
       setFloorBased(false);
       try {
         let session: ImmersiveSessionAdapter | undefined;
@@ -135,6 +164,7 @@ export function ImmersiveBridge({
         }
         if (!session) throw new Error('The browser did not create an immersive VR session.');
         if (!mountedRef.current || entryEpoch.current !== epoch) {
+          recordImmersiveDiagnostic('entry-abandoned');
           await Promise.resolve(session.end()).catch(() => undefined);
           return;
         }
@@ -156,8 +186,10 @@ export function ImmersiveBridge({
         }
         if (sessionRef.current !== session) return;
         setImmersiveSessionActive(true);
+        lifecycleRef.current.record('session-started');
         onAvailability('active');
       } catch (error) {
+        recordImmersiveDiagnostic('entry-failed');
         setImmersiveSessionActive(false);
         if (mountedRef.current) onAvailability('failed', errorMessage(error));
       }
@@ -170,6 +202,7 @@ export function ImmersiveBridge({
   }, [bindSession, gl.xr, onAvailability, store]);
 
   const exit = useCallback(async () => {
+    recordImmersiveDiagnostic('exit-requested');
     entryEpoch.current += 1;
     if (!sessionRef.current) {
       onAvailability('available');
@@ -190,31 +223,25 @@ export function ImmersiveBridge({
     const contextLost = (event: Event) => {
       if (!sessionRef.current) return;
       event.preventDefault();
+      lifecycleRef.current?.record('webgl-context-lost');
       const reason = 'The WebGL context was lost. Immersive VR ended; your desktop workspace is still available.';
       void lifecycleRef.current?.endSession('failed', reason);
     };
-    const leaving = () => { void exit(); };
+    const restored = () => recordImmersiveDiagnostic('webgl-context-restored');
+    const leaving = () => {
+      recordImmersiveDiagnostic('pagehide');
+      entryEpoch.current += 1;
+      void lifecycleRef.current?.endSession('available');
+    };
     gl.domElement.addEventListener('webglcontextlost', contextLost);
+    gl.domElement.addEventListener('webglcontextrestored', restored);
     window.addEventListener('pagehide', leaving);
     return () => {
       gl.domElement.removeEventListener('webglcontextlost', contextLost);
+      gl.domElement.removeEventListener('webglcontextrestored', restored);
       window.removeEventListener('pagehide', leaving);
     };
-  }, [exit, gl.domElement]);
-
-  useEffect(() => {
-    let sawController = false;
-    return store.subscribe((state, previous) => {
-      const controllerCount = state.inputSourceStates.filter((source) => source.type === 'controller').length;
-      const previousCount = previous.inputSourceStates.filter((source) => source.type === 'controller').length;
-      if (controllerCount > 0) sawController = true;
-      if (!sawController || controllerCount >= previousCount || !sessionRef.current) return;
-      void lifecycleRef.current?.endSession(
-        'failed',
-        'A headset controller disconnected. Immersive VR ended; reconnect it and enter again.',
-      );
-    });
-  }, [store]);
+  }, [gl.domElement]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -224,6 +251,7 @@ export function ImmersiveBridge({
       // irreversible store destruction keeps that check from ending a real session spuriously.
       queueMicrotask(() => {
         if (mountedRef.current) return;
+        if (sessionRef.current || enteringRef.current) recordImmersiveDiagnostic('renderer-unmounted');
         const finish = async () => {
           const pendingEntry = enteringRef.current;
           const activeLifecycle = lifecycleRef.current;
