@@ -153,24 +153,46 @@ Flat, Spatial, and empty sessions. Plain LAN HTTP is not a WebXR secure context;
 `CODEAI_ALLOWED_DEV_ORIGINS` does not change that. To iterate with hot reload instead, see
 [Develop against a headset](#develop-against-a-headset).
 
-The shell presents four panels: Sessions, Conversation, Canvas, and Evidence. A compact strip
-below each panel holds grip, size, and close icons; point at an icon to see its tooltip. Hold the
+The workspace starts with Conversation on the right and Canvas in the center. Evidence (repository
+changes) is hidden by default and opens on the left. The conversation header identifies the session,
+project, and machine. History and Agents sit at its upper right. History replaces the chat with a
+scrollable conversation list, newest first, with relative update times. Load more at the end reveals
+the next 20 conversations. Back at the upper left restores your chat reading position.
+A compact strip below each panel holds grip, size, and close icons; tooltips appear
+after a short hover and fade smoothly. Hold the
 controller trigger on the grip, then move your hand to reposition the panel. Push or pull to place
 it farther away or closer, with 4× depth movement over a 2.0–4.5 m range. Release to save the placement.
 The size icon opens a menu with Small,
 Medium, Large, and Extra large presets. Panels stay visible while dragging, with content actions
-paused until release. Close and the tool list hide and recover panels.
+paused until release. The bottom panel buttons toggle visibility and highlight open panels.
 The always-accessible tool strip shows session/approval status, **Reset workspace**, and **Exit VR**.
-Conversation and repository diffs are paged; Evidence shares the desktop's selected changed file
+Conversation scrolls continuously with the controller thumbstick, trigger-drag, or mouse wheel.
+Repository diffs are paged; Evidence shares the desktop's selected changed file
 and refresh action. Canvas sizing is separate from panel placement. Ordinary session and shell-route navigation retains the same XR session. Loading failures
 and Offline machines have visible status; a broken canvas or transcript leaves navigation and Exit
-usable. Exit VR to compose, send, cancel, manage agents or attachments, or answer permissions;
-those operations arrive in later stories.
+usable. Conversation shows user and agent message bubbles with proportional text. An inline message
+field sits below the chat, with microphone and Send inside it. Select the field
+to type; Enter adds a newline, and Send is explicit. The field spans the content width with text
+padding around the microphone and Send buttons. Physical keyboards receive the full draft normally.
+In native VR, selecting a position in the field opens Quest's system keyboard. CodeAI remembers the
+clicked caret and treats the native field as a separate insertion buffer, so typed text and Quest's
+native speech recognition cannot overwrite the surrounding draft. An invisible guard makes
+Backspace on an empty buffer observable and re-arms it for repeated deletion. This guard is an
+experimental workaround for Quest's documented WebXR editing-session limitation and still requires
+physical headset verification, especially for prediction, composition, speech, and repeated
+Backspace. Send remains explicit and there is no floating Edit message button.
+Speech is reviewed before applying it; History and Agents pause while speech is pending. The input
+shows recipient/mode and attachments. Speech tools remain available within speech review for word
+correction, spelling, and undo. Agents uses the same participant and mode actions
+as desktop. Streaming preserves an older reading position and follows new messages when you are
+already at the bottom; Latest floats at the lower right of the scroll viewport only when reading
+older content. Latest and Send return to current activity.
+Cancel is available while reading an active run. Attachment management and permissions arrive later.
 
 Entry always requires a fresh gesture. Deliberate panel placement, size, visibility, and focus
 are saved on this device per machine/project/session, separately from desktop layouts. Re-entry
 places the layout in front of the current viewer at eye height; **Reset workspace** restores defaults.
-Head/controller poses, temporary canvas scale, and transcript paging are never saved. Entry preserves the chosen desktop canvas surface, drafts, cameras, and placements;
+Head/controller poses, temporary canvas scale, and transcript scroll position are never saved. Entry preserves the chosen desktop canvas surface, drafts, cameras, and placements;
 exit returns to the focused work. Desktop Spatial resources pause while immersive. This foundation
 has no AR/passthrough, locomotion, hand tracking, or spatial graph geometry. Authentication and
 execution continue through the same paired home origin and existing authorized executor routes.
@@ -178,6 +200,59 @@ execution continue through the same paired home origin and existing authorized e
 Controller disconnection and temporary headset visibility loss leave VR open. Reconnect the
 controller or return to the session to resume. A real browser/headset session end still requires
 **Enter VR** again; graphics failures display an explanation beside that button.
+
+### Local voice input in VR
+
+[Story 47](stories/STORY-20260905-vr-conversation-input.md) implements controller/voice input.
+Chrome capture, correction, and command tests pass; **Quest 3S microphone access during XR,
+transcription quality, and comfort still require physical acceptance**. No headset was connected
+during implementation. The inline field also supports text entry; voice does not require a keyboard.
+The guarded native-keyboard bridge and controller caret placement still need physical Quest acceptance.
+
+Voice runs through a local [whisper.cpp server](https://github.com/ggml-org/whisper.cpp/tree/master/examples/server)
+on the **home machine**, including when the agent executes on another machine. Set it up before
+the headset session. This tested revision includes cancellation on HTTP disconnect:
+
+```sh
+git clone https://github.com/ggml-org/whisper.cpp.git whisper.cpp
+cd whisper.cpp
+git checkout 02612981545f58188a44de99b8a4710793714629
+cmake -B build -DWHISPER_BUILD_SERVER=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target whisper-server -j 4
+bash models/download-ggml-model.sh base.en
+./build/bin/whisper-server --host 127.0.0.1 --port 8178 -m models/ggml-base.en.bin -t 4 -nt
+```
+
+In CodeAI's home configuration, set `CODEAI_WHISPER_ORIGIN=http://127.0.0.1:8178` and optionally
+`CODEAI_VOICE_LANGUAGE=en`, then restart CodeAI using the normal paired `start:remote` setup.
+The default language is English. Other language codes or `auto` require a multilingual model
+(for example `base` instead of `base.en`) and their own recognition checks. The former
+`CODEAI_WEB2_` spellings also work. An unset or unavailable engine produces an in-world recovery
+message; **Retry voice** rechecks configuration. Provider credentials are not used.
+
+Choose the microphone in the conversation input, allow the browser's microphone prompt, speak, and
+choose **Stop recording**. The level meter reflects captured audio and the timer shows elapsed
+recording time; transcription text still appears after Stop. Each clip stops at 60 seconds.
+Review the result and choose **Append speech**; open **Speech tools** within the review for **Replace word**,
+**Replace draft**, or spelling. **Previous/Next word** selects a word, path, or newline;
+**Delete word**, **Clear draft**, **New line**, and **Undo edit** help correct it. **Voice help**
+contains the full spelling vocabulary. To enter `App.tsx`, dictate “capital alpha papa papa dot
+tango sierra xray”, choose **Spell speech**, review, then append or replace. The spelling operation
+rejects unknown words. **Send** is a separate controller action after reviewing the draft, agent,
+mode, and attachments. The draft remains available if sending fails or VR exits.
+
+The browser captures mono PCM at 16 kHz through an AudioWorklet and sends at most 1,920,044 bytes
+of WAV over the paired HTTPS home connection. Audio leaves the headset for the home machine;
+it is never sent to a speech cloud or executor. CodeAI keeps audio only in memory for the request.
+Run Whisper without `--convert`, debug, or real-time transcript logging; the documented WAV path
+processes audio in memory. Accepted draft text follows ordinary device-draft/session storage.
+Closing the conversation panel, changing sessions, Exit, revocation, or capture failure releases the microphone
+and abandons late results. Moving/resizing panels or reselecting Compose preserves in-progress
+and unapplied speech. Cancelling transcription aborts the upstream request; the tested engine
+stops inference on disconnect. Uploads time out after 15 seconds, transcription after 90 seconds,
+and only one transcription is admitted per home process. An 11-second reference clip took about
+0.6 seconds on the implementation machine using `base.en` and four CPU threads; this is not a
+Quest latency or accuracy measurement.
 
 ### Investigate an unexpected VR exit
 
@@ -552,7 +627,7 @@ Flat. This remains an SVG-panel projection rather than the later model-native 3D
 
 On an authorized secure browser with `immersive-vr` support, the application header exposes **Enter
 VR** independently of the canvas. The shell lazily prepares its renderer and uploads only the active
-canvas, bounded conversation/diff pages, the session launcher, and labelled controls for open panels. Unsupported, denied,
+canvas, a bounded scrolling conversation viewport, diff pages, the conversation list, and labelled controls for open panels. Unsupported, denied,
 interrupted, or failed XR entry leaves the desktop workspace available.
 
 **Start a sketch** opens a blank sheet with the same drawing tools — available before any diagram

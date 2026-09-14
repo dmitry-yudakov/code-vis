@@ -7,7 +7,7 @@ import {
 } from './workspaceLayout';
 
 export function useImmersiveLayout(viewKey: string) {
-  const [layouts, setLayouts] = useState<ImmersiveLayouts>({ version: 2, views: {} });
+  const [layouts, setLayouts] = useState<ImmersiveLayouts>({ version: 4, views: {} });
   const [editing, setEditing] = useState<PanelEditing>();
   const layoutsRef = useRef(layouts);
   const defaultLayout = useRef(defaultImmersiveLayout());
@@ -23,7 +23,7 @@ export function useImmersiveLayout(viewKey: string) {
     const next = update(views[viewKey] || defaultImmersiveLayout());
     delete views[viewKey];
     views[viewKey] = next;
-    const value: ImmersiveLayouts = { version: 2, views: Object.fromEntries(Object.entries(views).slice(-MAX_IMMERSIVE_LAYOUTS)) };
+    const value: ImmersiveLayouts = { version: 4, views: Object.fromEntries(Object.entries(views).slice(-MAX_IMMERSIVE_LAYOUTS)) };
     layoutsRef.current = value;
     setLayouts(value);
     try { localStorage.setItem(IMMERSIVE_LAYOUT_KEY, JSON.stringify(value)); } catch { /* Optional device state. */ }
@@ -33,7 +33,7 @@ export function useImmersiveLayout(viewKey: string) {
     if (command === 'done') { setEditing(undefined); return; }
     commit((layout) => updateImmersivePanel(layout, id, command));
     if (command === 'resize') setEditing((current) => current?.id === id && current.mode === 'resize' ? undefined : { id, mode: 'resize' });
-    else if (['open', 'focus', 'close'].includes(command) || Object.hasOwn(PANEL_SIZES, command)) setEditing(undefined);
+    else if (['open', 'toggle', 'focus', 'close'].includes(command) || Object.hasOwn(PANEL_SIZES, command)) setEditing(undefined);
   }, [commit]);
   const onPanelPlacement = useCallback((id: WorkspacePanelId, placement: PanelPlacement) => {
     commit((layout) => placeImmersivePanel(layout, id, placement));

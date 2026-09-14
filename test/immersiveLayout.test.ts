@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { Matrix4, Ray, Vector3 } from 'three';
 import {
   defaultImmersiveLayout, immersiveViewKey, PANEL_ANGLES, PANEL_BOUNDS, PANEL_IDS, PANEL_SIZES,
-  parseImmersiveLayout, parseImmersiveLayouts, updateImmersivePanel, panelTransform, placeImmersivePanel,
+  parseImmersiveLayout, parseImmersiveLayouts, parsePanelAction, updateImmersivePanel, panelTransform, placeImmersivePanel,
 } from '@/features/shell/immersive/workspaceLayout';
 import { dragPanelPlacement, startPanelDrag } from '@/features/shell/immersive/panelDrag';
 import { evidencePages, workspaceTextLines } from '@/features/shell/immersive/workspaceText';
-import { buildImmersiveTranscriptPages } from '@/features/diagram/spatial/immersiveTranscript';
+import { immersiveChatLines, immersiveMessageEntry } from '@/features/diagram/spatial/immersiveTranscript';
 import { allocateTexturePixels } from '@/features/diagram/spatial/spatialModel';
 import type { ChatMessage } from '@/shared/types';
 
@@ -16,7 +16,7 @@ describe('immersive device layout', () => {
     const remote = immersiveViewKey('remote', 'project', 'session');
     let layout = placeImmersivePanel(defaultImmersiveLayout(), 'canvas', { angle: 12.5, height: 0.1, distance: 3 });
     layout = updateImmersivePanel(layout, 'conversation', 'close');
-    const parsed = parseImmersiveLayouts(JSON.stringify({ version: 2, views: { [key]: { ...layout, tracking: [1, 2, 3] } } }));
+    const parsed = parseImmersiveLayouts(JSON.stringify({ version: 4, views: { [key]: { ...layout, tracking: [1, 2, 3] } } }));
     expect(parsed.views[key]).toEqual(layout);
     expect(parsed.views[remote]).toBeUndefined();
     expect(JSON.stringify(parsed)).not.toContain('tracking');
@@ -27,20 +27,20 @@ describe('immersive device layout', () => {
   it('migrates old slot placements and continuous scales to angles and the nearest preset', () => {
     const key = immersiveViewKey('home', 'project', 'session');
     const legacy = { focused: 'evidence', panels: Object.fromEntries(PANEL_IDS.map((id, index) => [id,
-      { slot: 3 - index, height: 0.1, distance: 3, scale: 0.85, open: id !== 'sessions' },
+      { slot: 3 - index, height: 0.1, distance: 3, scale: 0.85, open: true },
     ])) };
     const parsed = parseImmersiveLayouts(JSON.stringify({ version: 1, views: { [key]: legacy } }));
-    expect(parsed.version).toBe(2);
-    expect(parsed.views[key].focused).toBe('evidence');
+    expect(parsed.version).toBe(4);
+    expect(parsed.views[key].focused).toBeUndefined();
     for (const [index, id] of PANEL_IDS.entries()) expect(parsed.views[key].panels[id]).toEqual({
-      angle: PANEL_ANGLES[3 - index], height: 0.1, distance: 3, size: 'small', open: id !== 'sessions',
+      angle: [-57, -19, 19, 57][3 - index], height: 0.1, distance: 3, size: 'small', open: id !== 'evidence',
     });
     legacy.panels.canvas.slot = legacy.panels.evidence.slot;
     expect(parseImmersiveLayout(legacy, 1)).toEqual(defaultImmersiveLayout());
   });
 
   it('recovers missing, corrupt, future-version and non-finite layouts and clamps saved placement', () => {
-    for (const raw of [null, '{broken', '{"version":3,"views":{}}', 'null']) expect(parseImmersiveLayouts(raw)).toEqual({ version: 2, views: {} });
+    for (const raw of [null, '{broken', '{"version":5,"views":{}}', 'null']) expect(parseImmersiveLayouts(raw)).toEqual({ version: 4, views: {} });
     const invalid = defaultImmersiveLayout();
     invalid.panels.canvas.angle = NaN;
     expect(parseImmersiveLayout(invalid)).toEqual(defaultImmersiveLayout());
@@ -52,10 +52,59 @@ describe('immersive device layout', () => {
     expect(parseImmersiveLayout(outside).panels.canvas).toEqual({ angle: 65, height: -0.3, distance: 2, size: 'extra-large', open: true });
   });
 
+  it('moves old defaults to chat-right/canvas-center and hides changes while retaining deliberate placement', () => {
+    const key = immersiveViewKey('home', 'project', 'session');
+    const legacy = { focused: 'canvas', panels: Object.fromEntries(['sessions', ...PANEL_IDS].map((id, slot) => [id,
+      { angle: [-57, -19, 19, 57][slot], slot, scale: 1, height: 0, distance: 2.6, size: 'medium', open: true },
+    ])) };
+    const read = () => parseImmersiveLayouts(JSON.stringify({ version: 2, views: { [key]: legacy } })).views[key];
+    expect(read()).toEqual(defaultImmersiveLayout());
+    expect(parseImmersiveLayouts(JSON.stringify({ version: 1, views: { [key]: legacy } })).views[key]).toEqual(defaultImmersiveLayout());
+    legacy.panels.conversation.angle = -44;
+    expect(read().panels.conversation.angle).toBe(-44);
+    expect(read().panels.canvas.angle).toBe(0);
+    expect(read().panels.evidence.open).toBe(false);
+    const opened = updateImmersivePanel(read(), 'evidence', 'open');
+    expect(parseImmersiveLayouts(JSON.stringify({ version: 4, views: { [key]: opened } })).views[key].panels.evidence.open).toBe(true);
+  });
+
+  it('migrates version 3 default positions while preserving moved panels and visibility choices', () => {
+    const key = immersiveViewKey('home', 'project', 'session');
+    const previous = defaultImmersiveLayout();
+    previous.panels.conversation.angle = -36;
+    previous.panels.evidence.angle = 36;
+    const read = () => parseImmersiveLayouts(JSON.stringify({ version: 3, views: { [key]: previous } }));
+    expect(read()).toEqual({ version: 4, views: { [key]: defaultImmersiveLayout() } });
+    previous.panels.conversation.height = 0.1;
+    previous.panels.evidence.open = true;
+    expect(read().views[key].panels.conversation).toEqual(previous.panels.conversation);
+    expect(read().views[key].panels.evidence).toEqual({ ...previous.panels.evidence, angle: -36 });
+    previous.panels.conversation.height = 0;
+    previous.panels.conversation.angle = -44;
+    expect(read().views[key].panels.conversation.angle).toBe(-44);
+    expect(PANEL_ANGLES).toEqual([36, 0, -36]);
+  });
+
+  it('toggles open panels closed and closed panels open without losing their placement', () => {
+    const original = placeImmersivePanel(defaultImmersiveLayout(), 'conversation', { angle: 22, height: 0.1, distance: 3.2 });
+    const closed = updateImmersivePanel(original, 'conversation', 'toggle');
+    expect(closed.panels.conversation).toEqual({ ...original.panels.conversation, open: false });
+    expect(closed.focused).toBeUndefined();
+    expect(closed.panels.canvas).toBe(original.panels.canvas);
+    expect(original.panels.conversation.open).toBe(true);
+    expect(updateImmersivePanel(closed, 'conversation', 'toggle')).toEqual(original);
+    const evidence = updateImmersivePanel(original, 'evidence', 'toggle');
+    expect(evidence.panels.evidence.open).toBe(true);
+    expect(evidence.focused).toBe('evidence');
+    expect(updateImmersivePanel(evidence, 'conversation', 'toggle').focused).toBe('evidence');
+    expect(parsePanelAction('panel:conversation:toggle')).toEqual({ id: 'conversation', command: 'toggle' });
+  });
+
   it('keeps placement forward and bounded without moving other panels or changing placement on resize', () => {
     let layout = defaultImmersiveLayout();
     for (let cycle = 0; cycle < 20; cycle++) {
       for (const id of PANEL_IDS) {
+        layout = updateImmersivePanel(layout, id, 'open');
         const before = layout;
         layout = placeImmersivePanel(layout, id, { angle: cycle * 10, height: cycle, distance: 0.1 });
         for (const other of PANEL_IDS.filter((other) => other !== id)) expect(layout.panels[other]).toBe(before.panels[other]);
@@ -162,17 +211,15 @@ describe('readable workspace text', () => {
     expect(allocation.height).toBeGreaterThanOrEqual(128);
     expect(allocation.pixels).toBeLessThanOrEqual(1_100_000);
   });
-  it('pages complete prose/code without losing long tokens, Unicode or indentation', () => {
+  it('wraps complete prose/code without losing long tokens, Unicode or indentation', () => {
     const source = `  const long = '${'🙂'.repeat(2400)}';\n${Array.from({ length: 50 }, (_, i) => `    code line ${i}`).join('\n')}`;
     const message: ChatMessage = { id: 'm', role: 'assistant', authorId: 'a', status: 'complete', createdAt: '', rawMarkdown: source, blocks: [] };
-    const pages = buildImmersiveTranscriptPages({ messages: [message], participants: [] });
-    expect(pages.length).toBeGreaterThan(2);
-    const reconstructed = [...pages].reverse().flatMap((page) => page.flatMap((entry) => entry.text.split('\n')));
-    expect(reconstructed).toEqual(workspaceTextLines(source));
-    expect(reconstructed[0]).toMatch(/^  const/);
-    for (const page of pages) {
-      expect(page.reduce((lines, entry) => lines + entry.text.split('\n').length + 3, 0)).toBeLessThanOrEqual(22);
-    }
+    const entry = immersiveMessageEntry(message, new Map());
+    const lines = immersiveChatLines(entry.text);
+    expect(lines.length).toBeGreaterThan(50);
+    expect(lines).toEqual(immersiveChatLines(source));
+    expect(lines[0]).toMatch(/^  const/);
+    expect(lines.join('')).toBe(source.replaceAll('\n', ''));
   });
   it('pages both staged and working-tree patches without clipping long lines', () => {
     const staged = `@@ fixture @@\n+${'x'.repeat(160)}`;

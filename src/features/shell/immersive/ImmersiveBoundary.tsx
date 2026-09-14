@@ -3,12 +3,13 @@
 import dynamic from 'next/dynamic';
 import { useImmersiveLayout } from './useImmersiveLayout';
 import { PANEL_IDS, PANEL_TITLES, PANEL_COMMAND_LABELS } from './workspaceLayout';
-import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 import { probeImmersiveCapability } from '@/features/diagram/spatial/immersiveCapability';
-import { immersiveConversationVersion } from '@/features/diagram/spatial/immersiveTranscript';
 import type { ImmersiveAvailability, ImmersiveController, ImmersiveSemanticAction, ImmersiveWorkspaceProps } from '@/features/diagram/spatial/immersiveTypes';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
+import { CONVERSATION_ACTIONS } from './conversationControls';
+import { CONVERSATION_LIST_BATCH_SIZE, sortConversationChoices } from './conversationListModel';
 
 const ImmersiveRenderer = dynamic(() => {
   if (window.__CODEAI_XR_TEST__?.failXRImport) return Promise.reject(new Error('Injected immersive bundle failure.'));
@@ -25,7 +26,7 @@ class RendererBoundary extends Component<{ children: ReactNode; onError(message:
   render() { return this.state.failed ? null : this.props.children; }
 }
 
-type Props = Pick<ImmersiveWorkspaceProps, 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession'> & {
+type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession'> & {
   authorized: boolean;
   onSelectCanvas(id: string): void;
   onActiveChange(active: boolean): void;
@@ -37,7 +38,7 @@ const ACTIONS: Array<[ImmersiveSemanticAction, string]> = [
   ['previous-evidence', 'Previous page'], ['next-evidence', 'Next page'], ['refresh-evidence', 'Refresh changes'], ['reset-view', 'Reset view'],
   ['previous-canvas', 'Previous canvas'], ['next-canvas', 'Next canvas'],
   ['larger', 'Larger'], ['smaller', 'Smaller'], ['older', 'Older'], ['newer', 'Newer'],
-  ['previous-sessions', 'Previous sessions'], ['next-sessions', 'Next sessions'],
+  ['load-more-sessions', 'Load more'],
 ];
 
 /** XR presentation state only. AppShell supplies records, navigation actions, and polling results. */
@@ -47,13 +48,9 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
   const [reason, setReason] = useState<string>();
   const [enabled, setEnabled] = useState(false);
   const [controller, setController] = useState<ImmersiveController>();
-  const [pageFromNewest, setPageFromNewest] = useState(0);
-  const [pageCount, setPageCount] = useState(1);
-  const [newActivity, setNewActivity] = useState(false);
-  const [launcherPage, setLauncherPage] = useState(0);
+  const [scroll, setScroll] = useState({ offset: 0, maxOffset: 0, atBottom: true, newActivity: false });
+  const choices = useMemo(() => sortConversationChoices(props.choices), [props.choices]);
   const active = availability === 'active';
-  const version = props.session ? immersiveConversationVersion(props.session, props.preview) : '';
-  const observedVersion = useRef(version);
   const activeTarget = useMemo(() => props.session && findCanvasTarget(props.session, props.session.activeDiagramId), [props.session]);
 
   useEffect(() => { recordImmersiveDiagnostic('page-ready'); }, []);
@@ -75,26 +72,9 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
   useEffect(() => {
     if (!active && panelState.editing) panelState.onPanelAction(panelState.editing.id, 'done');
   }, [active, panelState.editing, panelState.onPanelAction]);
-  useEffect(() => {
-    setPageFromNewest(0);
-    setNewActivity(false);
-  }, [props.session?.id, props.session?.machineId, active]);
-  useEffect(() => {
-    if (observedVersion.current !== version && pageFromNewest > 0) setNewActivity(true);
-    observedVersion.current = version;
-  }, [pageFromNewest, version]);
-  const changeLauncherPage = useCallback((page: number) => {
-    setLauncherPage(Math.max(0, Math.min(page, Math.ceil(props.choices.length / 4) - 1)));
-  }, [props.choices.length]);
-  useEffect(() => changeLauncherPage(launcherPage), [changeLauncherPage, launcherPage]);
-
   const handleAvailability = useCallback((next: ImmersiveAvailability, detail?: string) => {
     setAvailability(next);
     setReason(detail);
-  }, []);
-  const handlePageCount = useCallback((count: number) => {
-    setPageCount(count);
-    setPageFromNewest((page) => Math.max(0, Math.min(page, count - 1)));
   }, []);
   const selectRelative = (delta: number) => {
     if (!props.session) return;
@@ -113,22 +93,21 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
     {enabled && reason && <span role="alert">{reason}</span>}
     {enabled && authorized && <RendererBoundary onError={(message) => handleAvailability('failed', `The immersive renderer could not load: ${message}`)}>
       <ImmersiveRenderer {...props} {...panelState}
-        active={active} activeTarget={activeTarget}
-        pageFromNewest={pageFromNewest} newActivity={newActivity} launcherPage={launcherPage}
-        onLauncherPage={changeLauncherPage}
-        onOlder={() => setPageFromNewest((page) => Math.min(pageCount - 1, page + 1))}
-        onNewer={() => { setPageFromNewest((page) => Math.max(0, page - 1)); if (pageFromNewest <= 1) setNewActivity(false); }}
+        active={active} activeTarget={activeTarget} choices={choices}
+        onConversationScroll={setScroll}
         onPreviousCanvas={() => selectRelative(-1)} onNextCanvas={() => selectRelative(1)}
-        onExit={() => undefined} onPageCount={handlePageCount}
+        onExit={() => undefined}
         onController={setController} onAvailability={handleAvailability}
       />
     </RendererBoundary>}
     {active && <div className="immersive-semantic-controls" role="group" aria-label="Immersive workspace controls">
       <strong>{props.session?.title || 'Session launcher'}</strong><span role="status">{props.workspaceStatus}</span>
-      {newActivity && <strong>New activity</strong>}
+      {scroll.newActivity && <strong>New activity</strong>}
+      {Object.entries(CONVERSATION_ACTIONS).map(([action, label]) => <button key={action} type="button"
+        data-immersive-action={`conversation:${action}`}
+        onClick={() => controller?.perform(`conversation:${action}` as ImmersiveSemanticAction)}>Conversation: {label}</button>)}
       {ACTIONS.map(([action, label]) => <button key={action} type="button" data-immersive-action={action}
-        disabled={(action === 'older' && pageFromNewest >= pageCount - 1) || (action === 'newer' && pageFromNewest === 0)
-          || (action === 'previous-sessions' && launcherPage === 0) || (action === 'next-sessions' && (launcherPage + 1) * 4 >= props.choices.length)}
+        disabled={(action === 'older' && scroll.offset <= 0) || (action === 'newer' && scroll.atBottom)}
         onClick={() => controller?.perform(action)}>{label}</button>)}
       {PANEL_IDS.map((id) => <fieldset key={id} data-immersive-panel={id} data-open={panelState.layout.panels[id].open}
         data-focused={panelState.layout.focused === id} data-layout={JSON.stringify(panelState.layout.panels[id])}>
@@ -138,7 +117,7 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
           {label} {PANEL_TITLES[id]}
         </button>)}
       </fieldset>)}
-      {props.choices.slice(launcherPage * 4, launcherPage * 4 + 4).map((choice) => <button
+      {choices.slice(0, CONVERSATION_LIST_BATCH_SIZE).map((choice) => <button
         type="button" key={`${choice.machineId}:${choice.sessionId}`} data-immersive-session={choice.sessionId}
         onClick={() => props.onOpenSession(choice)}>{choice.title} · {choice.detail}</button>)}
     </div>}

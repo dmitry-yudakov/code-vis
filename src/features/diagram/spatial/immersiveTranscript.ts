@@ -1,45 +1,48 @@
-import { workspaceTextLines } from '@/features/shell/immersive/workspaceText';
-import type { AgentParticipant, ChatMessage, SessionSnapshot } from '@/shared/types';
-import {
-  MAX_IMMERSIVE_CHAT_CHARS,
-  type ImmersiveConversationProjection, type ImmersiveTranscriptEntry,
-} from './immersiveTypes';
+import type { ChatMessage, SessionSnapshot } from '@/shared/types';
+import type { ImmersiveTranscriptEntry } from './immersiveTypes';
 
-export interface ImmersiveConversationPage {
-  projection: ImmersiveConversationProjection;
-  pageFromNewest: number;
-  pageCount: number;
-  hasOlder: boolean;
-  hasNewer: boolean;
+// History layout and rasterization share text geometry.
+export const IMMERSIVE_CHAT_FONT_SIZE = 54;
+export const IMMERSIVE_CHAT_LINE_HEIGHT = 64;
+export const IMMERSIVE_CHAT_TEXT_WIDTH = 1_024;
+
+/** Conservative sans-serif advances keep wrapping independent of browser/font loading. */
+function characterAdvance(point: string): number {
+  if (point.codePointAt(0)! > 0x7f) return 1.2;
+  if (/[ ilI.,'`!:;|]/u.test(point)) return 0.35;
+  if (/[MWmw@%&]/u.test(point)) return 1.1;
+  if (/[A-Z]/u.test(point)) return 0.8;
+  return 0.65;
+}
+
+/** Wrap at spaces where possible, retaining whitespace, indentation, and complete code points. */
+export function immersiveChatLines(
+  text: string, maxWidth = IMMERSIVE_CHAT_TEXT_WIDTH, fontSize = IMMERSIVE_CHAT_FONT_SIZE,
+): string[] {
+  const width = maxWidth / fontSize;
+  return text.replaceAll('\t', '  ').split('\n').flatMap((paragraph) => {
+    const result: string[] = [];
+    let line: string[] = [];
+    let advance = 0;
+    for (const point of paragraph) {
+      while (advance + characterAdvance(point) > width && line.length) {
+        const space = line.lastIndexOf(' ');
+        // Keep whitespace on the preceding line instead of silently deleting it.
+        const boundary = space >= 0 ? space + 1 : line.length;
+        result.push(line.slice(0, boundary).join(''));
+        line = line.slice(boundary);
+        advance = line.reduce((total, character) => total + characterAdvance(character), 0);
+      }
+      line.push(point);
+      advance += characterAdvance(point);
+    }
+    result.push(line.join(''));
+    return result;
+  });
 }
 
 function titleCase(value: string): string {
   return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
-}
-
-/** Counts displayed Unicode code points rather than UTF-16 storage units. */
-export function immersiveDisplayLength(value: string): number {
-  return [...value].length;
-}
-
-export function truncateImmersiveText(value: string, limit: number): string {
-  const points = [...value];
-  if (points.length <= limit) return value;
-  if (limit <= 0) return '';
-  if (limit === 1) return '…';
-  return `${points.slice(0, limit - 1).join('')}…`;
-}
-
-export function immersiveEntryCharacters(entry: ImmersiveTranscriptEntry): number {
-  return immersiveDisplayLength(entry.author)
-    + immersiveDisplayLength(entry.meta)
-    + immersiveDisplayLength(entry.text)
-    + immersiveDisplayLength(entry.state || '');
-}
-
-export function immersiveProjectionCharacters(projection: ImmersiveConversationProjection): number {
-  return projection.entries.reduce((total, entry) => total + immersiveEntryCharacters(entry), 0)
-    + immersiveDisplayLength(projection.preview || '');
 }
 
 function attachmentSummary(message: Extract<ChatMessage, { role: 'user' }>): string {
@@ -63,7 +66,7 @@ function assistantText(message: Extract<ChatMessage, { role: 'assistant' }>): st
   return blocks.join('\n\n') || message.rawMarkdown;
 }
 
-function messageEntry(
+export function immersiveMessageEntry(
   message: ChatMessage,
   participants: ReadonlyMap<string, SessionSnapshot['participants'][number]>,
 ): ImmersiveTranscriptEntry {
@@ -74,73 +77,11 @@ function messageEntry(
   const delivery = message.role === 'user' && message.delivery === 'possibly-sent' ? ' · delivery uncertain' : '';
   return {
     id: message.id,
+    role: message.role,
     author,
     meta: `${message.role === 'user' ? 'You' : 'Assistant'}${participantRole}${mode}`,
     text: message.role === 'user' ? `${message.text}${attachmentSummary(message)}` : assistantText(message),
     state: `${message.status}${delivery}`,
-  };
-}
-
-export function buildImmersiveTranscriptPages(
-  session: Pick<SessionSnapshot, 'messages' | 'participants'>,
-  newestPageCharacterLimit = MAX_IMMERSIVE_CHAT_CHARS,
-  newestPageLineLimit = 22,
-): ImmersiveTranscriptEntry[][] {
-  const participants = new Map(session.participants.map((participant) => [participant.id, participant]));
-  const entries = session.messages.map((message) => messageEntry(message, participants));
-  const pages: ImmersiveTranscriptEntry[][] = [[]];
-  let remaining = Math.max(4, Math.min(22, newestPageLineLimit, Math.floor(newestPageCharacterLimit / 56)));
-  for (const entry of entries.reverse()) {
-    const lines = workspaceTextLines(entry.text);
-    let end = lines.length;
-    while (end > 0) {
-      if (remaining < 4) { pages.push([]); remaining = 22; }
-      const start = Math.max(0, end - (remaining - 3));
-      pages[pages.length - 1].unshift({ ...entry, text: lines.slice(start, end).join('\n') });
-      remaining -= end - start + 3;
-      end = start;
-    }
-  }
-  return pages;
-}
-
-export function projectImmersiveConversation({
-  session,
-  preview = '',
-  runStatus,
-  pendingApprovals,
-  unread,
-  pageFromNewest = 0,
-}: {
-  session: SessionSnapshot;
-  preview?: string;
-  runStatus: string;
-  pendingApprovals: number;
-  unread: number;
-  pageFromNewest?: number;
-}): ImmersiveConversationPage {
-  const boundedPreview = workspaceTextLines(truncateImmersiveText(preview, 4_000)).slice(-8).join('\n');
-  const newestLimit = Math.max(1, MAX_IMMERSIVE_CHAT_CHARS - immersiveDisplayLength(boundedPreview));
-  const pages = buildImmersiveTranscriptPages(session, newestLimit, 22 - (boundedPreview ? workspaceTextLines(boundedPreview).length + 3 : 0));
-  const resolvedPage = Math.max(0, Math.min(pageFromNewest, pages.length - 1));
-  const agent = session.participants.find((participant): participant is AgentParticipant => (
-    participant.kind === 'agent' && participant.id === (session.addressedAgentId || session.primaryAgentId)
-  ));
-  const projection: ImmersiveConversationProjection = {
-    sessionTitle: session.title,
-    ...(agent ? { addressedAgent: agent.displayName } : {}),
-    entries: pages[resolvedPage],
-    ...(resolvedPage === 0 && boundedPreview ? { preview: boundedPreview } : {}),
-    runStatus,
-    pendingApprovals,
-    unread,
-  };
-  return {
-    projection,
-    pageFromNewest: resolvedPage,
-    pageCount: pages.length,
-    hasOlder: resolvedPage < pages.length - 1,
-    hasNewer: resolvedPage > 0,
   };
 }
 

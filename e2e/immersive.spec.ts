@@ -3,6 +3,441 @@ import type { XRStore } from '@react-three/xr';
 import type { Mesh } from 'three';
 import { expect, test, type Page } from '@playwright/test';
 import type { ArenaMachineSnapshot, DurableProject, PublicSession } from '../src/shared/types';
+import { validVoiceWav } from '../src/shared/voice';
+
+test.use({ launchOptions: { args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });
+
+const conversationAction = (page: Page, action: string) => controls(page).locator(`[data-immersive-action="conversation:${action}"]`).click();
+const conversationState = (page: Page) => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation tools')?.userData);
+
+test.describe('VR conversation input', () => {
+
+  async function setupVoice(page: Page) {
+    await installAdapter(page);
+    await workspaceFixture(page, true);
+    await page.route('**/api/health', (route) => route.fulfill({ json: {
+      ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true,
+      providers: { claude: { available: true, authenticated: true, supportedModes: ['ask', 'plan'] },
+        codex: { available: false, authenticated: 'unknown', supportedModes: [] } },
+    } }));
+    const voice = { text: 'Edit badpath', requests: 0, fail: false, pending: undefined as Promise<void> | undefined };
+    await page.route('**/api/voice', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { configured: true, language: 'en' } });
+      voice.requests++;
+      expect(validVoiceWav(route.request().postDataBuffer()!)).toBe(true);
+      await voice.pending;
+      return route.fulfill(voice.fail ? { status: 503, json: { error: 'Transcription unavailable. Retry dictation.' } } : { json: { text: voice.text } });
+    });
+    await page.addInitScript(() => {
+      const tracks: MediaStreamTrack[] = [];
+      Object.assign(window, { voiceTestTracks: tracks });
+      const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await capture(constraints);
+        tracks.push(...stream.getTracks());
+        return stream;
+      };
+    });
+    await page.goto('/'); await enter(page);
+    await conversationAction(page, 'compose');
+    await expect.poll(async () => (await conversationState(page))?.conversationTab).toBe('compose');
+    return voice;
+  }
+
+  async function dictate(page: Page) {
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Dictate')?.userData.disabled)).toBe(false);
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    // Let the real AudioWorklet capture a nonempty fake microphone clip.
+    await page.waitForTimeout(180);
+    await conversationAction(page, 'stop');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('idle');
+  }
+  async function microphoneReleased(page: Page) {
+    await expect.poll(() => page.evaluate(() =>
+      window.voiceTestTracks.every((track) => track.readyState === 'ended'),
+    )).toBe(true);
+  }
+
+  test('types in the inline field, preserves the draft across header views, and sends explicitly once', async ({ page }) => {
+    await setupVoice(page);
+    const input = page.locator('[data-immersive-message-input]');
+    await expect(input).toHaveCount(1);
+    expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('VR chat messages')))).toBe(true);
+    const header = await page.evaluate(() => ['Conversation history', 'Agents'].map((name) => window.xrScene!.scene.getObjectByName(name)!.parent!.position.toArray()));
+    expect(header).toEqual([[0.35, 0.82, 0.04], [0.56, 0.82, 0.04]]);
+    expect(await page.evaluate(() => {
+      const mesh = window.xrScene!.scene.getObjectByName('Message input') as Mesh;
+      mesh.geometry.computeBoundingBox();
+      return { position: mesh.position.toArray(), width: mesh.geometry.boundingBox!.max.x - mesh.geometry.boundingBox!.min.x };
+    })).toMatchObject({ position: [0, -0.66, 0.035], width: expect.closeTo(1.32, 5) });
+    expect(JSON.parse((await panel(page, 'conversation').getAttribute('data-layout'))!).angle).toBe(36);
+    await pointAtAction(page, 'message-input');
+    await page.mouse.down(); await page.mouse.up();
+    await expect(input).toBeFocused();
+    await page.keyboard.insertText('Review src/App.tsx');
+    await page.keyboard.press('Enter');
+    await page.keyboard.insertText('Keep the tests.');
+    const draft = 'Review src/App.tsx\nKeep the tests.';
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe(draft);
+    await page.keyboard.press('Escape');
+    await expect(input).not.toBeFocused();
+    await page.screenshot({ path: 'test-results/vr-inline-input.png' });
+    await hideProjection(page);
+    await conversationAction(page, 'list');
+    await expect(input).toHaveCount(0);
+    await conversationAction(page, 'back');
+    await expect(input).toHaveValue(draft);
+    await conversationAction(page, 'agents');
+    await expect(input).toHaveCount(0);
+    await conversationAction(page, 'agents');
+    await expect(input).toHaveValue(draft);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const sent: Array<{ text: string; sessionId: string; participantId: string }> = [];
+    await page.route('**/api/agent/message', async (route) => {
+      sent.push(route.request().postDataJSON()); await pending;
+      await route.fulfill({ status: 503, json: { error: 'Temporary failure' } });
+    });
+    await page.evaluate(() => {
+      const send = document.querySelector<HTMLButtonElement>('[data-immersive-action="conversation:send"]')!;
+      send.click(); send.click();
+    });
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0]).toMatchObject({ text: draft, sessionId: SESSION, participantId: AGENT });
+    release();
+    await expect(input).toHaveValue(draft);
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+    await expect(input).toHaveCount(0); await released(page);
+  });
+
+  test('edits an existing draft through the guarded native Quest keyboard buffer', async ({ page }) => {
+    await setupVoice(page);
+    const input = page.locator('[data-immersive-message-input]');
+    await pointAtAction(page, 'message-input');
+    await page.mouse.down(); await page.mouse.up();
+    await page.keyboard.insertText('Keep this draft.');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => {
+      const { gl, scene } = window.xrScene!;
+      const original = gl.xr.getSession;
+      scene.userData.restoreKeyboardSession = () => { gl.xr.getSession = original; };
+      gl.xr.getSession = () => ({ isSystemKeyboardSupported: true }) as unknown as XRSession;
+    });
+    const end = await page.evaluate(() => {
+      const context = document.createElement('canvas').getContext('2d')!;
+      context.font = '44px Arial, sans-serif';
+      return [((28 + context.measureText('Keep this draft.').width) / 1024 - 0.5) * 1.32, (0.5 - 45 / 256) * 0.30, 0];
+    });
+    await pointAtAction(page, 'message-input', end);
+    await page.mouse.down(); await page.waitForTimeout(450); await page.mouse.up();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('\u2060');
+    const nativeInput = (value: string, inputType: string, caret = value.length) => input.evaluate(
+      (element: HTMLTextAreaElement, change) => {
+        element.value = change.value;
+        element.setSelectionRange(change.caret, change.caret);
+        element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: change.inputType }));
+      }, { value, inputType, caret },
+    );
+    // The invisible guard turns Backspace on an otherwise empty native buffer into
+    // an observable value change, while the remembered VR caret edits the real draft.
+    await nativeInput('', 'deleteContentBackward', 0);
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Keep this draft');
+    await expect(input).toHaveValue('\u2060');
+    await nativeInput('', 'deleteContentBackward', 0);
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Keep this draf');
+    await nativeInput('!', 'insertText');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Keep this draf!');
+    // Native correction, prediction, or speech may replace the complete native buffer.
+    await nativeInput(' better', 'insertReplacementText');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Keep this draf better');
+    await input.evaluate((element: HTMLTextAreaElement) => element.blur());
+    await expect(input).toHaveValue('Keep this draf better');
+    const afterKeep = await page.evaluate(() => {
+      const context = document.createElement('canvas').getContext('2d')!;
+      context.font = '44px Arial, sans-serif';
+      return [((28 + context.measureText('Keep').width) / 1024 - 0.5) * 1.32, (0.5 - 45 / 256) * 0.30, 0];
+    });
+    await pointAtAction(page, 'message-input', afterKeep);
+    await page.mouse.down(); await page.mouse.up();
+    await expect(input).toHaveValue('\u2060');
+    await nativeInput(', definitely,', 'insertFromDictation');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Keep, definitely, this draf better');
+    expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Edit message')))).toBe(false);
+    expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Message keyboard')))).toBe(false);
+    expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+    await input.evaluate((element: HTMLTextAreaElement) => element.blur());
+    await page.evaluate(() => { window.xrScene!.scene.userData.restoreKeyboardSession(); delete window.xrScene!.scene.userData.restoreKeyboardSession; });
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR chat messages')?.visible)).toBe(true);
+    await pointAtAction(page, 'panel:conversation:toggle');
+    await page.mouse.down(); await page.mouse.up();
+    await expect.poll(() => livePanelIds(page)).toEqual(['canvas']);
+    await expect(input).toHaveCount(0);
+    await pointAtAction(page, 'panel:conversation:toggle');
+    await page.mouse.down(); await page.mouse.up();
+    await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation']);
+    await expect(input).toHaveValue('Keep, definitely, this draf better');
+    await hideProjection(page);
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+  });
+
+  test('dictates, spells a path, sends once, and preserves a failed draft across navigation', async ({ page }) => {
+    const voice = await setupVoice(page);
+    // Exercise a real ray selection, then use the same registered actions for the longer workflow.
+    await pointAtAction(page, 'conversation:record');
+    await page.mouse.down(); await page.mouse.up();
+    await hideProjection(page);
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await page.waitForTimeout(180);
+    await conversationAction(page, 'stop');
+    await expect.poll(async () => (await conversationState(page))?.voiceResult).toBe('Edit badpath');
+    await conversationAction(page, 'edit');
+    await conversationAction(page, 'append');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Edit badpath');
+    await conversationAction(page, 'next-word'); await conversationAction(page, 'next-word');
+    voice.text = 'sierra romeo charlie slash capital alpha papa papa dot tango sierra xray';
+    await dictate(page); await conversationAction(page, 'spell');
+    await expect.poll(async () => (await conversationState(page))?.voiceResult).toBe('src/App.tsx');
+    await conversationAction(page, 'replace');
+    await conversationAction(page, 'newline');
+    voice.text = 'Keep the tests.';
+    await dictate(page); await conversationAction(page, 'append');
+    const draft = 'Edit src/App.tsx\nKeep the tests.';
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe(draft);
+    await conversationAction(page, 'done');
+    await microphoneReleased(page);
+    await showPanel(page, 'conversation');
+    await page.screenshot({ path: 'test-results/vr-composer.png' });
+    await hideProjection(page);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const sent: Array<{ text: string; sessionId: string; participantId: string; mode: string }> = [];
+    await page.route('**/api/agent/message', async (route) => {
+      sent.push(route.request().postDataJSON());
+      await pending;
+      await route.fulfill({ status: 503, json: { error: 'Temporary failure' } });
+    });
+    await page.evaluate(() => {
+      const send = document.querySelector<HTMLButtonElement>('[data-immersive-action="conversation:send"]')!;
+      send.click(); send.click();
+    });
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0]).toMatchObject({ text: draft, sessionId: SESSION, participantId: AGENT });
+    await openSession(page, EMPTY);
+    release();
+    await conversationAction(page, 'compose');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('');
+    await openSession(page, SESSION);
+    await conversationAction(page, 'compose');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe(draft);
+    expect(sent).toHaveLength(1);
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+    await released(page);
+    await page.reload(); await enter(page); await conversationAction(page, 'compose');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe(draft);
+  });
+
+  test('keeps speech during panel movement and shows microphone activity before Stop', async ({ page }) => {
+    await setupVoice(page);
+    // Chrome's default fake microphone is silent. Feed a known tone through the real capture
+    // graph to distinguish measured activity from an animation that runs during silence.
+    await page.evaluate(() => {
+      navigator.mediaDevices.getUserMedia = async () => {
+        const context = new AudioContext();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain(); gain.gain.value = 0.1;
+        const destination = context.createMediaStreamDestination();
+        oscillator.connect(gain).connect(destination); oscillator.start();
+        await context.resume();
+        const track = destination.stream.getAudioTracks()[0];
+        const stop = track.stop.bind(track);
+        track.stop = () => { stop(); oscillator.stop(); void context.close(); };
+        window.voiceTestTracks.push(track);
+        return destination.stream;
+      };
+    });
+    const actions = () => page.evaluate(() => {
+      const result: string[] = [];
+      window.xrScene?.scene.getObjectByName('Conversation tools')?.traverse((object) => {
+        if (object.userData.immersiveAction) result.push(object.userData.immersiveAction);
+      });
+      return result;
+    });
+    await expect.poll(actions).toHaveLength(2);
+    expect(await actions()).not.toContain('conversation:delete');
+    await pointAtAction(page, 'conversation:send');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Send tooltip')?.visible)).toBe(true);
+    await pointAtAction(page, 'conversation:record');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Dictate tooltip')?.visible)).toBe(true);
+    await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+    await expect.poll(async () => (await conversationState(page))?.voiceSeconds).toBeGreaterThan(0);
+    await expect.poll(async () => (await conversationState(page))?.voiceLevel).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation history')?.userData.disabled)).toBe(true);
+    await conversationAction(page, 'list');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await conversationAction(page, 'compose');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await panelAction(page, 'canvas', 'drag');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await panelAction(page, 'canvas', 'done');
+    await expect.poll(async () => (await conversationState(page))?.voiceSeconds).toBeGreaterThanOrEqual(1);
+    await showPanel(page, 'conversation');
+    await page.screenshot({ path: 'test-results/vr-recording.png' });
+    await hideProjection(page);
+    await conversationAction(page, 'stop');
+    await expect.poll(async () => (await conversationState(page))?.voiceResult).toBe('Edit badpath');
+    await panelAction(page, 'conversation', 'drag');
+    await panelAction(page, 'conversation', 'done');
+    await panelAction(page, 'conversation', 'resize');
+    await panelAction(page, 'conversation', 'large');
+    await conversationAction(page, 'compose');
+    await expect.poll(async () => (await conversationState(page))?.voiceResult).toBe('Edit badpath');
+    await conversationAction(page, 'edit');
+    await conversationAction(page, 'append');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Edit badpath');
+    await conversationAction(page, 'next-word');
+    await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; });
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voiceStatus).toContain('Microphone denied');
+    await expect.poll(async () => (await conversationState(page))?.selectedWord).toBe('Edit');
+    await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+    await microphoneReleased(page); await released(page);
+  });
+
+  test('stops capture on close and exit, ignores late speech, and recovers from failure or denial', async ({ page }) => {
+    const voice = await setupVoice(page);
+    await dictate(page); await conversationAction(page, 'append');
+    voice.fail = true;
+    await dictate(page);
+    await expect.poll(async () => (await conversationState(page))?.voiceStatus).toContain('Transcription unavailable');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('Edit badpath');
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await panelAction(page, 'conversation', 'close'); await microphoneReleased(page);
+    await panelAction(page, 'conversation', 'open');
+    await expect.poll(async () => (await conversationState(page))?.conversationTab).toBe('read');
+    await conversationAction(page, 'compose');
+    voice.fail = false;
+    let release!: () => void;
+    voice.pending = new Promise<void>((resolve) => { release = resolve; });
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await page.waitForTimeout(180); await conversationAction(page, 'stop');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('transcribing');
+    await openSession(page, EMPTY); release();
+    await conversationAction(page, 'compose');
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('');
+    await microphoneReleased(page);
+    await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; });
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voiceStatus).toContain('Microphone denied');
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+  });
+
+  test('releases late microphone permission and recording on exit or processing failure', async ({ page }) => {
+    await setupVoice(page);
+    await page.evaluate(() => {
+      const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      window.voiceTestCapture = capture;
+      navigator.mediaDevices.getUserMedia = (constraints) => new Promise((resolve, reject) => {
+        window.releaseVoicePermission = () => { void capture(constraints).then(resolve, reject); };
+      });
+    });
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('starting');
+    await panelAction(page, 'conversation', 'close');
+    await page.evaluate(() => window.releaseVoicePermission?.());
+    await expect.poll(() => page.evaluate(() => window.voiceTestTracks.length)).toBe(1);
+    await microphoneReleased(page);
+    await page.evaluate(() => { navigator.mediaDevices.getUserMedia = window.voiceTestCapture!; });
+    await panelAction(page, 'conversation', 'open'); await conversationAction(page, 'compose');
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await page.evaluate(() => window.voiceTestTracks.at(-1)!.dispatchEvent(new Event('ended')));
+    await expect.poll(async () => (await conversationState(page))?.voiceStatus).toContain('Microphone disconnected');
+    await microphoneReleased(page);
+    await conversationAction(page, 'record');
+    await expect.poll(async () => (await conversationState(page))?.voicePhase).toBe('recording');
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+    await microphoneReleased(page); await released(page);
+  });
+
+  test('uses shared agent actions, rejects unsupported modes, and bounds tool resources', async ({ page }) => {
+    await setupVoice(page);
+    await page.getByRole('button', { name: 'Open conversation', exact: true }).click();
+    await conversationAction(page, 'agents');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Agent')?.userData.disabled)).toBe(true);
+    await conversationAction(page, 'ask');
+    await expect(page.getByRole('radio', { name: 'Ask', exact: true })).toHaveAttribute('aria-checked', 'true');
+    const original = await page.evaluate(async (id) => (await (await fetch(`/api/sessions/${id}`)).json()).session as PublicSession, SESSION);
+    const updated = structuredClone(original);
+    const addedId = '88888888-8888-4888-8888-888888888888';
+    let additions = 0; let changes = 0;
+    await page.route(`**/api/sessions/${SESSION}/participants`, async (route) => {
+      const input = route.request().postDataJSON();
+      if (route.request().method() === 'POST') {
+        additions++;
+        updated.participants.push({ id: addedId, kind: 'agent', displayName: 'Reviewer', provider: input.provider, role: input.role, defaultMode: 'ask' });
+      } else { changes++; expect(input.primaryAgentId).toBe(addedId); updated.primaryAgentId = addedId; }
+      updated.revision++;
+      await route.fulfill({ json: { session: updated } });
+    });
+    await conversationAction(page, 'add');
+    await expect.poll(() => additions).toBe(1);
+    await expect(page.getByRole('button', { name: '@Reviewer Reviewer', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await conversationAction(page, 'make-primary'); await expect.poll(() => changes).toBe(1);
+    await conversationAction(page, 'previous-agent');
+    await expect(page.getByRole('button', { name: '@Claude Coder', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    for (let cycle = 0; cycle < 5; cycle++) {
+      for (const action of ['read', 'compose', 'agents']) {
+        await conversationAction(page, action);
+        await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+        await expect.poll(() => page.evaluate((action) => Boolean(window.xrScene?.scene.getObjectByName(action === 'agents' ? 'VR draft and agents' : 'Message input')), action)).toBe(true);
+      }
+    }
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+  });
+
+  test('cancels the selected run while a second run remains untouched after focus changes', async ({ page }) => {
+    await setupVoice(page);
+    await dictate(page); await conversationAction(page, 'append');
+    const otherId = '99999999-9999-4999-8999-999999999999';
+    const firstRun = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const secondRun = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const snapshot = await page.evaluate(async (id) => (await (await fetch(`/api/sessions/${id}`)).json()).session as PublicSession, SESSION);
+    await page.route(`**/api/sessions/${otherId}`, (route) => route.fulfill({ json: { session: { ...snapshot, id: otherId, title: 'Other running session' } } }));
+    await page.route('**/api/agent/runs*', (route) => route.fulfill({ json: { active: [
+      { runId: firstRun, sessionId: SESSION }, { runId: secondRun, sessionId: otherId },
+    ].map((run) => ({ ...run, participantId: AGENT, state: 'running', enqueuedAt: 1, pendingPermissionCount: 0, pendingPermissions: [] })), recent: [] } }));
+    let releaseStreams!: () => void;
+    const streams = new Promise<void>((resolve) => { releaseStreams = resolve; });
+    await page.route('**/api/agent/stream?*', async (route) => {
+      await streams;
+      await route.fulfill({ contentType: 'application/x-ndjson', body: '' });
+    });
+    const cancellations: string[] = [];
+    let releaseCancel!: () => void;
+    const cancellation = new Promise<void>((resolve) => { releaseCancel = resolve; });
+    await page.route('**/api/agent/cancel', async (route) => {
+      cancellations.push(route.request().postDataJSON().runId);
+      await cancellation;
+      await route.fulfill({ status: 503, json: { error: 'Cancellation could not be confirmed.' } });
+    });
+    await page.reload(); await enter(page); await conversationAction(page, 'compose');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Cancel run')?.userData.disabled)).toBe(false);
+    await conversationAction(page, 'cancel');
+    await expect.poll(() => cancellations).toEqual([firstRun]);
+    await openSession(page, EMPTY); await conversationAction(page, 'compose');
+    releaseCancel();
+    await expect.poll(async () => (await conversationState(page))?.draft).toBe('');
+    await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Cancel run')))).toBe(false);
+    expect(cancellations).toEqual([firstRun]);
+    releaseStreams();
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+  });
+});
 
 const LOCAL = '11111111-1111-4111-8111-111111111111';
 const REMOTE = '22222222-2222-4222-8222-222222222222';
@@ -15,6 +450,9 @@ const NOW = '2026-09-08T12:00:00.000Z';
 
 declare global {
   interface Window {
+    voiceTestTracks: MediaStreamTrack[];
+    voiceTestCapture?: MediaDevices['getUserMedia'];
+    releaseVoicePermission?: () => void;
     xrScene?: RootState;
     xrStore?: XRStore;
     xrFixture: {
@@ -70,7 +508,7 @@ async function installAdapter(page: Page, options: { supported?: boolean; failIm
   }, options);
 }
 
-async function workspaceFixture(page: Page, withRepository = false) {
+async function workspaceFixture(page: Page, withRepository = false, historyMessages = 0, extraConversations = 0) {
   const state = { annotationWrites: 0, diffReads: 0, statusReads: 0, holdDiff: undefined as Promise<void> | undefined, online: true, failLoad: false, authenticated: true, holdLoad: undefined as Promise<void> | undefined };
   const project = (id: string, name: string): DurableProject => ({ version: 1, revision: 0, id, name, repositories: [], createdAt: NOW, updatedAt: NOW });
   const session = (id: string, projectId: string, title: string): PublicSession => ({
@@ -91,13 +529,25 @@ async function workspaceFixture(page: Page, withRepository = false) {
     ] }];
   }
   local.sketches = [{ id: 'sketch-fixture', ordinal: 1, sessionId: SESSION, createdAt: NOW, viewBox: [0, 0, 1600, 1000] }];
+  for (let index = 0; index < historyMessages; index++) local.messages.push(index % 2 === 0
+    ? { id: `history-${index}`, role: 'user', authorId: `${SESSION}:human`, addressedParticipantId: AGENT, createdAt: NOW, status: 'sent',
+      text: `Message ${index}: can we simplify this?`, diagramAttachments: [] }
+    : { id: `history-${index}`, role: 'assistant', authorId: AGENT, createdAt: NOW, status: 'complete',
+      rawMarkdown: `Message ${index}: yes, let's keep the conversation easy to follow.`, blocks: [] });
   const remote = session(EMPTY, REMOTE_PROJECT, 'Empty remote session');
+  const olderSessions = Array.from({ length: extraConversations }, (_, index) => ({
+    ...session(`99999999-9999-4999-8999-${String(index).padStart(12, '0')}`, PROJECT, `Older conversation ${index + 1}`),
+    updatedAt: new Date(Date.parse(NOW) - (index + 1) * 3_600_000).toISOString(),
+  }));
+  if (extraConversations) remote.updatedAt = new Date(Date.parse(NOW) + 3_600_000).toISOString();
   const snapshot = (id: string, name: string, item: PublicSession): ArenaMachineSnapshot => ({
     machine: { id, label: name, kind: id === LOCAL ? 'local' : 'remote', state: id === REMOTE && !state.online ? 'offline' : 'online', lastSeenAt: NOW },
     projects: [project(item.projectId!, id === LOCAL ? 'Local project' : 'Remote project')],
     checkouts: [], recentCheckoutIds: [],
     providers: { claude: { available: true, authenticated: true, supportedModes: ['ask', 'plan'] }, codex: { available: false, authenticated: 'unknown', supportedModes: [] } },
-    sessions: [{ id: item.id, projectId: item.projectId, revision: 0, title: item.title, repositoryCheckoutIds: [], agents: [], updatedAt: NOW }],
+    sessions: [item, ...(id === LOCAL ? [...olderSessions].reverse() : [])].map((record) => ({
+      id: record.id, projectId: record.projectId, revision: 0, title: record.title, repositoryCheckoutIds: [], agents: [], updatedAt: record.updatedAt,
+    })),
     archivedSessions: [], runs: { active: [], recent: [] },
   });
   await page.route('**/api/auth/status', (route) => route.fulfill({ json: { mode: 'paired', authenticated: state.authenticated, transportSecure: true, hostLabel: 'Home' } }));
@@ -105,7 +555,8 @@ async function workspaceFixture(page: Page, withRepository = false) {
   await page.route('**/api/checkouts', (route) => route.fulfill({ json: { hostId: LOCAL, checkouts: withRepository ? [{ id: 'checkout', name: 'Fixture', relativePath: 'fixture' }] : [], recentCheckoutIds: [] } }));
   await page.route('**/api/arena', (route) => route.fulfill({ json: { machines: [snapshot(LOCAL, 'Home', local), snapshot(REMOTE, 'Laptop', remote)] } }));
   await page.route('**/api/agent/runs*', (route) => route.fulfill({ json: { active: [], recent: [] } }));
-  await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [local] } }));
+  await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [local, ...olderSessions] } }));
+  for (const item of olderSessions) await page.route(`**/api/sessions/${item.id}`, (route) => route.fulfill({ json: { session: item } }));
   await page.route(`**/api/sessions/${SESSION}/annotations`, (route) => {
     state.annotationWrites++;
     return route.fulfill({ json: { session: local } });
@@ -375,19 +826,30 @@ const livePanelIds = (page: Page) => page.evaluate(() => {
   return ids.sort();
 });
 
-async function pointAtAction(page: Page, action: string) {
-  await expect.poll(() => page.evaluate((action) => {
+async function pointAtAction(page: Page, action: string, point?: number[]) {
+  await expect.poll(() => page.evaluate(({ action, point }) => {
     let target: Mesh | undefined;
-    window.xrScene?.scene.traverse((object) => { if (object.userData.immersiveAction === action) target = object as Mesh; });
+    let localPosition: number[] = point || [0.01, 0.005, 0];
+    window.xrScene?.scene.traverse((object) => {
+      if (object.userData.immersiveAction === action || (action === 'message-input' && object.userData.immersiveMessageInput)
+        || (action.startsWith('session:') && object.userData.immersiveSession?.sessionId === action.slice(8))) target = object as Mesh;
+    });
+    const list = window.xrScene?.scene.getObjectByName('Conversation list scroll') as Mesh | undefined;
+    if (list && (action.startsWith('session:') || action === 'load-more-sessions')) {
+      const model = list.userData.immersiveConversationList;
+      const position = action === 'load-more-sessions' ? model.loadMorePosition
+        : model.rows.find((row: { choice: { sessionId: string } }) => row.choice.sessionId === action.slice(8))?.position;
+      if (position) { target = list; localPosition = position; }
+    }
     if (!target || !window.xrScene) return false;
     const { camera, scene } = window.xrScene;
     scene.updateMatrixWorld(true);
     // Aim inside a triangle: the exact center lies on the quad's shared edge and can
     // miss both triangles through floating-point rounding at some camera angles.
-    camera.lookAt(target.localToWorld(camera.position.clone().set(0.01, 0.005, 0)));
+    camera.lookAt(target.localToWorld(camera.position.clone().set(localPosition[0], localPosition[1], localPosition[2])));
     camera.updateMatrixWorld(true);
     return true;
-  }, action)).toBe(true);
+  }, { action, point })).toBe(true);
   await page.locator('.immersive-viewport').evaluate((element: HTMLElement) => {
     element.style.opacity = '1'; element.style.zIndex = '200'; element.style.pointerEvents = 'auto';
     element.querySelector('canvas')!.style.pointerEvents = 'auto';
@@ -428,6 +890,119 @@ async function moveHeldPanel(page: Page) {
   await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2, { steps: 3 });
 }
 
+test('identifies the conversation, scrolls a continuous thread, and returns from its list', async ({ page }) => {
+  await installAdapter(page);
+  await workspaceFixture(page, false, 24);
+  await page.goto('/'); await enter(page);
+  const history = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR chat messages')?.userData.immersiveHistory);
+  const heading = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation panel')?.userData);
+  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation']);
+  await expect.poll(heading).toMatchObject({ heading: 'Canvas session', detail: 'Local project · Home · Online' });
+  await expect.poll(async () => (await history())?.atBottom).toBe(true);
+  expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Latest')))).toBe(false);
+  expect((await history()).visibleMessageIds.length).toBeGreaterThan(1);
+  const bottom = (await history()).offset;
+  const texture = await page.evaluate(() => ((window.xrScene!.scene.getObjectByName('VR chat messages') as Mesh).material as import('three').MeshBasicMaterial).map!.uuid);
+  await showPanel(page, 'conversation');
+  const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -180);
+  await expect.poll(async () => (await history())?.offset).toBeLessThan(bottom);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Latest')?.parent?.position.toArray())).toEqual([0.55, -0.32, 0.05]);
+  const afterWheel = (await history()).offset;
+  expect(bottom - afterWheel).toBeLessThan(400);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 32, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await history())?.offset).toBeLessThan(afterWheel);
+  const readingOffset = (await history()).offset;
+  expect(await page.evaluate(() => ((window.xrScene!.scene.getObjectByName('VR chat messages') as Mesh).material as import('three').MeshBasicMaterial).map!.uuid)).toBe(texture);
+  await page.screenshot({ path: 'test-results/vr-conversation-scroll.png' });
+  await hideProjection(page);
+  await conversationAction(page, 'list');
+  await expect.poll(heading).toMatchObject({ heading: 'Conversations' });
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Conversation list')))).toBe(true);
+  await conversationAction(page, 'back');
+  await expect.poll(async () => (await history())?.offset).toBe(readingOffset);
+  await expect.poll(heading).toMatchObject({ heading: 'Canvas session' });
+  await conversationAction(page, 'latest');
+  await expect.poll(async () => (await history())?.atBottom).toBe(true);
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Latest')))).toBe(false);
+  await conversationAction(page, 'list');
+  await showPanel(page, 'conversation');
+  await page.screenshot({ path: 'test-results/vr-conversation-list.png' });
+  await pointAtAction(page, `session:${EMPTY}`);
+  await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(heading).toMatchObject({ heading: 'Empty remote session' });
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('sorts conversation activity, scrolls without selecting, and loads older conversations at the end', async ({ page }) => {
+  await installAdapter(page); await workspaceFixture(page, false, 0, 25);
+  await page.clock.setFixedTime(new Date(Date.parse(NOW) + 2 * 3_600_000));
+  await page.goto('/'); await enter(page); await conversationAction(page, 'list');
+  const listState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation list scroll')?.userData.immersiveConversationList);
+  await expect.poll(async () => (await listState())?.loadedCount).toBe(20);
+  expect((await listState()).visibleSessionIds.slice(0, 3)).toEqual([EMPTY, SESSION, '99999999-9999-4999-8999-000000000000']);
+  expect((await listState()).rows[0].timeLabel).toBe('Updated 1h ago');
+  expect(await page.evaluate(() => window.xrScene?.scene.getObjectByName('Back to conversation')?.parent?.position.toArray())).toEqual([-0.56, 0.82, 0.04]);
+  const texture = await page.evaluate(() => ((window.xrScene!.scene.getObjectByName('Conversation list scroll') as Mesh).material as import('three').MeshBasicMaterial).map!.uuid);
+  await showPanel(page, 'conversation');
+  await page.screenshot({ path: 'test-results/vr-conversation-list-times.png' });
+  await pointAtAction(page, `session:${SESSION}`);
+  const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 45, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await listState())?.offset).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation panel')?.userData.heading)).toBe('Conversations');
+  await page.mouse.wheel(0, 100_000);
+  await expect.poll(async () => (await listState())?.loadMorePosition).toBeTruthy();
+  const before = (await listState()).offset;
+  await pointAtAction(page, 'load-more-sessions');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(async () => (await listState())?.loadedCount).toBe(27);
+  expect((await listState()).offset).toBe(before);
+  expect((await listState()).hasMore).toBe(false);
+  await page.mouse.wheel(0, 100_000);
+  const oldest = '99999999-9999-4999-8999-000000000024';
+  await expect.poll(async () => (await listState())?.visibleSessionIds).toContain(oldest);
+  expect(await page.evaluate(() => ((window.xrScene!.scene.getObjectByName('Conversation list scroll') as Mesh).material as import('three').MeshBasicMaterial).map!.uuid)).toBe(texture);
+  await pointAtAction(page, `session:${oldest}`);
+  await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation panel')?.userData.heading)).toBe('Older conversation 25');
+  await conversationAction(page, 'list');
+  await pointAtAction(page, 'conversation:back');
+  await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation panel')?.userData.heading)).toBe('Older conversation 25');
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('delays tooltip appearance, fades it, and cancels a brief hover', async ({ page }) => {
+  await installAdapter(page); await workspaceFixture(page);
+  await page.goto('/'); await enter(page);
+  const opacity = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation history tooltip')?.userData.tooltipOpacity || 0);
+  await pointAtAction(page, 'conversation:list');
+  await page.waitForTimeout(100);
+  expect(await opacity()).toBe(0);
+  await pointAtAction(page, 'panel:conversation:focus');
+  await page.waitForTimeout(500);
+  expect(await opacity()).toBe(0);
+  await pointAtAction(page, 'conversation:list');
+  await expect.poll(opacity).toBe(1);
+  expect(await page.evaluate(() => {
+    const tooltip = window.xrScene!.scene.getObjectByName('Conversation history tooltip') as Mesh;
+    const material = tooltip.material as import('three').MeshBasicMaterial;
+    return { depthTest: material.depthTest, depthWrite: material.depthWrite, renderOrder: tooltip.renderOrder };
+  })).toEqual({ depthTest: false, depthWrite: false, renderOrder: 1000 });
+  await pointAtAction(page, 'panel:conversation:focus');
+  await expect.poll(opacity).toBe(0);
+  await hideProjection(page);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
 test('arranges every panel, isolates content actions, recovers tools and restores device layouts', async ({ page }) => {
   await installAdapter(page);
   const fixture = await workspaceFixture(page);
@@ -439,8 +1014,9 @@ test('arranges every panel, isolates content actions, recovers tools and restore
   let writes = 0;
   page.on('request', (request) => { if (request.method() !== 'GET' && request.url().includes('/api/')) writes++; });
   await enter(page);
-  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation', 'evidence', 'sessions']);
-  for (const id of ['canvas', 'conversation', 'evidence', 'sessions']) {
+  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation']);
+  await panelAction(page, 'evidence', 'open');
+  for (const id of ['canvas', 'conversation', 'evidence']) {
     await panelAction(page, id, 'focus');
     await expect(panel(page, id)).toHaveAttribute('data-focused', 'true');
     const before = JSON.parse((await panel(page, id).getAttribute('data-layout'))!);
@@ -503,11 +1079,11 @@ test('arranges every panel, isolates content actions, recovers tools and restore
   await enter(page);
   expect(await storedLayout(page)).toBe(saved);
   await openSession(page, EMPTY);
-  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 19, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 0, height: 0, distance: 2.6, size: 'medium', open: true }));
   await openSession(page, SESSION);
-  await expect(panel(page, 'canvas')).not.toHaveAttribute('data-layout', JSON.stringify({ angle: 19, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await expect(panel(page, 'canvas')).not.toHaveAttribute('data-layout', JSON.stringify({ angle: 0, height: 0, distance: 2.6, size: 'medium', open: true }));
   await controls(page).getByRole('button', { name: 'Reset workspace', exact: true }).click();
-  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 19, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 0, height: 0, distance: 2.6, size: 'medium', open: true }));
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
 });
@@ -526,7 +1102,7 @@ test('selects real world controls by ray, ignores hover and recenters restored p
   await page.mouse.down();
   await moveHeldPanel(page);
   await page.mouse.up();
-  expect(JSON.parse((await panel(page, 'conversation').getAttribute('data-layout'))!).angle).not.toBe(-19);
+  expect(JSON.parse((await panel(page, 'conversation').getAttribute('data-layout'))!).angle).not.toBe(36);
   await hideProjection(page);
   await page.evaluate(() => { window.xrScene!.camera.position.set(1, 1.6, 2); window.xrScene!.camera.rotation.set(0, Math.PI / 2, 0); });
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
@@ -562,6 +1138,8 @@ test('cancels captured drags safely and chooses every size preset through the wo
   expect(await storedLayout(page)).toBe(saved);
   await expect.poll(() => page.evaluate(() => window.xrScene?.internal.capturedMap.size)).toBe(0);
 
+  await hideProjection(page);
+  await panelAction(page, 'evidence', 'open');
   await pointAtAction(page, 'panel:evidence:drag');
   await page.mouse.down();
   await moveHeldPanel(page);
@@ -616,6 +1194,7 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
   const state = await workspaceFixture(page, true);
   await page.goto('/');
   await enter(page);
+  await panelAction(page, 'evidence', 'open');
   await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();
   await expect.poll(() => state.diffReads).toBe(1);
   await expect(page.getByRole('region', { name: 'Changes in fixture.ts' })).toBeAttached();
@@ -655,11 +1234,11 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
   await hideProjection(page);
   const baseline = await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources);
   for (let cycle = 0; cycle < 20; cycle++) {
-    for (const id of ['canvas', 'conversation', 'evidence', 'sessions']) await panelAction(page, id, 'close');
+    for (const id of ['canvas', 'conversation', 'evidence']) await panelAction(page, id, 'close');
     await expect.poll(() => livePanelIds(page)).toEqual([]);
     await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThan(800_000);
     await controls(page).getByRole('button', { name: 'Reset workspace', exact: true }).click();
-    await expect.poll(() => livePanelIds(page)).toHaveLength(4);
+    await expect.poll(() => livePanelIds(page)).toHaveLength(2);
     expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
   }
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources)).toBeLessThanOrEqual(baseline + 12);
@@ -677,6 +1256,7 @@ test('ignores a delayed diff after navigating to another machine and keeps recov
   await expect.poll(() => state.statusReads).toBeGreaterThan(0);
   let resolveDiff!: () => void;
   state.holdDiff = new Promise<void>((resolve) => { resolveDiff = resolve; });
+  await panelAction(page, 'evidence', 'open');
   await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();
   await expect.poll(() => state.diffReads).toBe(1);
   await openSession(page, EMPTY);

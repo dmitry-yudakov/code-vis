@@ -94,7 +94,7 @@ the `code-ai:device:v1:*` records; focus, next recipient, mode, panels, flat vie
 surface/camera/placements, and drafts remain React state. Spatial coordinates are finite, clamped,
 count-bounded, and reconciled against live canvas ids. Canonical project and session records do not
 gain layout or a home-machine routing field. An immersive session, head/controller poses, temporary
-diagram scale, and transcript page are still more ephemeral: they are never written to
+diagram scale, and transcript scroll position are still more ephemeral: they are never written to
 `localStorage`, restored after reload, or added to a wire record. Legacy
 `code-ai:web2:v1:*` conversation keys are untouched and unread.
 
@@ -273,20 +273,32 @@ suspended while immersive and restored from their existing device state on exit.
 The bridge owns one `@react-three/xr` store with controller rays and `local-floor`/`local` reference
 space handling. Normal project/machine/session and Arena/Inbox navigation does not replace it.
 AppShell supplies records, loading/error status, and explicitly addressed session-opening commands
-from its existing Arena polling owner. The paged launcher has four visible session rows. Canvas
+from its existing Arena polling owner, including each session's modification timestamp. The
+conversation-list view replaces the chat within its panel, sorts all machines' choices newest first,
+and shows relative update times. It initially exposes 20 choices; Load more appends another 20 from
+the available catalog without moving the reading position. One fixed 1024×1024 texture draws only
+visible rows. Activity labels refresh each minute. `useImmersiveScroll` shares wheel, thumbstick,
+and captured-drag handling with the chat; dragging suppresses row selection. Back in the upper-left
+header restores the existing chat scroll state. Canvas
 rendering stays in the diagram feature and failures remain local; the opaque environment is a
-separate presentation component. Conversation remains a read-only projection at this milestone.
+separate presentation component. Conversation combines continuous scrolling with the shared draft,
+agent controls, and local voice input.
 
 The XR resource ledger enforces a 4,194,304-pixel aggregate cap and 2,048-pixel edge cap, with mipmaps
 disabled. Story 46 reserves at most 1.1 million texels for the active canvas, 1,048,576 for the
 conversation, 786,432 for evidence, and bounded textures for launcher rows, panel chrome, and the
-protected tool/status strip. The maximum steady allocation is 4,031,456 texels; even temporary text
-fallbacks fit below the hard cap. Closed panels and panels showing the size menu unmount their content;
-dragging keeps content visible with its actions disabled. Hidden/replaced content releases its resources. System end,
+protected tool/status strip. Story 47 uses 96×96 icon textures and allocates hover labels only
+after 450 ms of hover, with a 150 ms fade and muted theme colors. Tooltip materials disable depth
+testing/writing and render after controls to prevent occlusion. Inline input adds one 1024×256
+texture beneath the transcript. Speech review/editing and Agents replace the transcript texture with smaller draft/status surfaces
+and contextual controls; browser tests enforce the aggregate cap including recovery surfaces.
+Closed panels unmount their content. The conversation stays mounted but hidden during resizing
+to preserve its voice operation; other panels release their content for the size menu.
+Dragging keeps content visible with its actions disabled. Replaced content releases its resources. System end,
 authorization/unmount, page departure, and WebGL loss end immersion; a late entry
 result after departure or unmount is also ended. Controller removal/reconnection and temporary
 hidden/blurred visibility preserve the XR session; the runtime pauses/resumes rendering and input.
-No XR pose, scale, paging, or resource enters canonical records or desktop layouts.
+No XR pose, scale, scroll position, paging, or resource enters canonical records or desktop layouts.
 
 `immersiveDiagnostics.ts` retains up to 120 device-local lifecycle events and ten-second samples
 at `code-ai:device:v1:immersive-diagnostics`, best-effort across reloads. The remote console can read
@@ -297,11 +309,15 @@ remain in DevTools. Sampling and error listeners are removed when the session fi
 failure falls back to memory. This adds no Three.js import to the non-lazy boundary.
 
 `workspaceLayout.ts` validates continuous forward angles, bounded distance/height, and four size
-presets. `useImmersiveLayout` stores version 2 disposable device views at the existing
+presets. `useImmersiveLayout` stores version 4 disposable device views at the existing
 `code-ai:device:v1:immersive-layout` key, keyed by machine/project/session; version 1 slot placements
-migrate to angles and the closest size preset. `WorkspacePanel` owns an icon strip below the frame
+migrate to angles and the closest size preset. Versions 1–3 migrate untouched defaults to conversation
+right, canvas center, and evidence left, preserving explicitly moved positions and dropping
+the separate Sessions panel. Evidence starts closed, retaining explicit version 3 visibility choices.
+Bottom panel buttons toggle visibility and show open state. `WorkspacePanel` owns an icon strip below the frame
 with a captured drag handle, Size menu, Close action, and non-interactive ray-hover tooltips.
-Toolbar, icon, and tooltip textures are shared across the four panels. `usePanelDrag` follows the
+Toolbar and icon textures are shared across the three panels; tooltip opacity belongs to each control.
+`usePanelDrag` follows the
 controller ray and converts the result to workspace coordinates; physical push/pull receives 4×
 depth gain over 2.0–4.5 m without amplifying lateral or vertical motion.
 Drag previews stay in memory, release commits
@@ -311,9 +327,59 @@ at the current eye position and horizontal viewing direction, without storing tr
 the camera. The nearer tool/status strip stays outside every closable panel.
 
 AppShell owns the shared repository status/selection and diff hooks. DOM and immersive Evidence
-consume the same read-only result and refresh/select actions; no fetch occurs inside the renderer.
+consume the same read-only result and refresh/select actions; Evidence never fetches independently.
 Responses are scoped to API origin, checkout, and file, and abandoned requests are ignored.
-Conversation and diff raster pages wrap monospace text to the available line/column budget.
+Diff raster pages wrap monospace text to the available line/column budget.
+
+`ConversationTools` keeps input below the chat; History and Agents occupy the panel's upper right. Its
+typed `ImmersiveConversationControls` contract receives drafts, roster, mode, attachment summaries,
+and captured send/cancel actions from AppShell. It owns temporary word selection, bounded undo,
+speech review, contextual editing, and draft paging. `ConversationHistory` lays out the full loaded
+transcript as user/agent bubbles using shared proportional wrapping. It repaints only visible entries
+and lines into one fixed 1024×1024 texture, so history length does not increase GPU allocation.
+Thumbstick, wheel, and captured trigger-drag input update a continuous scroll offset.
+AppShell keeps a synchronous per-session send guard through
+attachment preparation and clears an unchanged draft only after a successful final response.
+Cancellation captures session/run identity; roster commands keep the existing DOM capabilities.
+Streaming preserves older scroll offsets and follows the bottom only when already there. Latest
+and Send return to current activity. Latest floats inside the scroll viewport only away from bottom.
+Cancel remains available in the chat view, replacing Send during a run.
+
+`InlineConversationInput` owns a bounded raster field, measured wrapping, and ray-to-caret mapping.
+When the active `XRSession` reports `isSystemKeyboardSupported`, selecting the field focuses a
+one-pixel DOM textarea and opens Quest's system keyboard. `nativeKeyboardEditing` retains the
+canonical draft and clicked selection separately; native value changes replace only that selected
+range. Native correction, prediction, and dictation can therefore revise their own insertion buffer
+without exposing the surrounding draft to Quest's first-input replacement.
+
+The native buffer begins with an invisible word-joiner guard. Removing the guard is interpreted as
+Backspace against the retained draft, using grapheme boundaries, then the guard is restored for
+another deletion. Explicit empty composition/insertion events do not delete text. Erasing a native
+replacement commits its empty range before another Backspace, and literal input such as “Delete” is
+always text. The bridge enforces the shared draft cap and strips the guard from canonical state.
+This is an experimental browser workaround: automated tests can validate value translation but
+cannot prove that Quest's private IME accepts programmatic guard restoration. Physical acceptance
+must cover first/repeated Backspace, speech, prediction, composition, dismissal, and reopening.
+
+Browsers without the WebXR system keyboard keep the full textarea and ordinary selection behavior.
+Enter adds a newline, Escape blurs, and only Send submits. Disable, navigation, and unmount blur and
+remove the textarea while retaining the shell draft. No additional keyboard texture is allocated.
+The browser's `visible-blurred` lifecycle continues to preserve the XR session.
+
+`useVoiceDraft` scopes an abort controller to one mounted session's chat input. Header navigation
+is disabled during capture, transcription, and unapplied speech review. `voiceCapture`
+loads `/voice-capture.js` only after deliberate dictation, uses a silent AudioWorklet output and
+bounded 16 kHz PCM chunks, reports measured RMS levels and captured duration to the UI, and closes
+tracks/context/ports on stop or abandonment. Interaction locking during panel movement does not
+change voice ownership. The worklet and
+main-thread timer independently enforce 60 seconds. Dictation does not depend on a keyboard or browser speech service.
+`/api/voice` is a home-only, paired personal-device route; it is not an executor gateway capability.
+It checks the exact mono PCM16 WAV contract, limits streamed uploads and their duration, admits
+one request, and calls the configured HTTP loopback Whisper origin with redirects disabled.
+Audio remains in memory. Browser abort and the 90-second deadline close the Whisper request;
+the documented engine version cancels on disconnect. Authorization is checked again before
+returning text. No audio or transcript is added to XR diagnostics. See the README's voice setup
+for the tested engine revision and the still-pending physical Quest validation.
 
 The response policy `xr-spatial-tracking=(self)` grants only the same origin. On a personal device,
 the shell passes immersive authorization only after the existing pairing and secure-transport gate,
@@ -323,15 +389,16 @@ does not qualify.
 
 ### Remaining immersive workspace work
 
-Story 45 establishes shell ownership and navigation; Story 46 implements bounded movable panels.
+Story 45 establishes shell ownership and navigation; Story 46 implements bounded movable panels;
+Story 47 implements conversation commands and local voice capture/transcription/correction.
 Physical Quest 3S entry, readability, controller use, and comfort verification remain pending.
 The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns the remaining
 working surfaces and headset acceptance.
 
 The first release targets one complete session on Quest 3S: movable tools, controller/voice input,
 permission decisions, repository diffs and marks, and derived spatial Mermaid flowcharts. Voice
-capture/transcription and correction need an explicit validated path; there is no existing speech
-service implied by this plan. Device panel layout remains separate from desktop camera state and
+capture/transcription and correction still need Quest 3S validation of the implemented local path.
+Device panel layout remains separate from desktop camera state and
 canonical records. Story 52 adds the multi-session VR Arena after that work loop is accepted.
 Model-native geometry, lenses, and provenance remain owned by the software-model track.
 

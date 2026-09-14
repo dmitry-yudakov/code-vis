@@ -2,9 +2,8 @@ import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, SessionSnapshot } from '@/shared/types';
 import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
 import type { ImmersiveLayout, PanelAction, PanelCommand, PanelEditing, PanelPlacement, WorkspacePanelId } from '@/features/shell/immersive/workspaceLayout';
+import type { ConversationAction, ImmersiveConversationControls } from '@/features/shell/immersive/conversationControls';
 
-export const MAX_IMMERSIVE_CHAT_ENTRIES = 12;
-export const MAX_IMMERSIVE_CHAT_CHARS = 12_000;
 export const MAX_IMMERSIVE_TEXTURE_PIXELS = 4_194_304;
 export const MAX_IMMERSIVE_TEXTURE_EDGE = 2_048;
 
@@ -19,20 +18,11 @@ export type ImmersiveAvailability =
 
 export interface ImmersiveTranscriptEntry {
   id: string;
+  role?: 'user' | 'assistant';
   author: string;
   meta: string;
   text: string;
   state?: string;
-}
-
-export interface ImmersiveConversationProjection {
-  sessionTitle: string;
-  addressedAgent?: string;
-  entries: ImmersiveTranscriptEntry[];
-  preview?: string;
-  runStatus: string;
-  pendingApprovals: number;
-  unread: number;
 }
 
 export interface ImmersiveInstrumentation {
@@ -62,6 +52,7 @@ export interface ImmersiveXRAdapter {
 
 export type ImmersiveSemanticAction =
   | PanelAction
+  | ConversationAction
   | 'exit'
   | 'reset-workspace'
   | 'previous-file'
@@ -69,8 +60,7 @@ export type ImmersiveSemanticAction =
   | 'previous-evidence'
   | 'next-evidence'
   | 'refresh-evidence'
-  | 'previous-sessions'
-  | 'next-sessions'
+  | 'load-more-sessions'
   | 'previous-canvas'
   | 'next-canvas'
   | 'larger'
@@ -91,9 +81,11 @@ export interface ImmersiveSessionChoice {
   sessionId: string;
   title: string;
   detail: string;
+  updatedAt?: string;
 }
 
 export interface ImmersiveWorkspaceProps {
+  conversation?: ImmersiveConversationControls;
   viewKey: string;
   layout: ImmersiveLayout;
   editing?: PanelEditing;
@@ -112,24 +104,18 @@ export interface ImmersiveWorkspaceProps {
   };
   session?: SessionSnapshot;
   choices: ImmersiveSessionChoice[];
-  launcherPage: number;
   workspaceStatus: string;
   onOpenSession(choice: ImmersiveSessionChoice): void;
-  onLauncherPage(page: number): void;
   theme: ThemeName;
   activeTarget?: CanvasTarget;
   preview: string;
   runStatus: string;
   pendingApprovals: number;
   unread: number;
-  pageFromNewest: number;
-  newActivity: boolean;
-  onOlder(): void;
-  onNewer(): void;
+  onConversationScroll(state: { offset: number; maxOffset: number; atBottom: boolean; newActivity: boolean }): void;
   onPreviousCanvas(): void;
   onNextCanvas(): void;
   onExit(): void;
-  onPageCount(pageCount: number): void;
 }
 
 export interface ImmersiveTestHooks {

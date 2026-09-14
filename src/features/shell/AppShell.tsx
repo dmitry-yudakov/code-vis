@@ -121,6 +121,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [archiveUndo, setArchiveUndo] = useState<ArenaSessionSummary>();
   const [busyRun, setBusyRun] = useState<RunDescriptor>();
   const [participantBusy, setParticipantBusy] = useState(false);
+  const [preparingSends, setPreparingSends] = useState<string[]>([]);
+  const sendingSessions = useRef(new Set<string>());
   const runControllers = useRef(new Map<string, AbortController>());
   const runsBySessionRef = useRef<Record<string, RunPresentation>>({});
   const toolActivityKeyRef = useRef(0);
@@ -199,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
   const focusedRun = sessionId ? runsBySession[sessionId] : undefined;
   const focusedRunOutcome = sessionId ? runOutcomesBySession[sessionId] : undefined;
-  const sessionRunning = Boolean(focusedRun);
+  const sessionRunning = Boolean(focusedRun) || Boolean(sessionId && preparingSends.includes(sessionId));
   const running = Object.keys(runsBySession).length > 0;
   const status = focusedRun?.status || 'Ready for an instruction';
   const preview = focusedRun?.preview || '';
@@ -290,10 +292,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     targetSessionId: string,
     operation: (current: SessionSnapshot) => Promise<Response>,
   ): Promise<SessionSnapshot> => {
+    const sourceMachineId = machineIdRef.current;
+    const capturedSession = sessionsRef.current.find((item) => item.id === targetSessionId);
     const prior = mutationQueues.current.get(targetSessionId) || Promise.resolve();
     let result!: Promise<SessionSnapshot>;
     const queued = prior.then(async () => {
-      const current = sessionsRef.current.find((item) => item.id === targetSessionId);
+      const current = sessionsRef.current.find((item) => item.id === targetSessionId) || capturedSession;
       if (!current) throw new Error('Session is no longer available.');
       const response = await operation(current);
       const data = await response.json().catch(() => ({})) as { session?: PublicSession; error?: string };
@@ -301,7 +305,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         if (response.status === 409) await refreshSession(targetSessionId);
         throw new Error(data.error || 'Session update failed.');
       }
-      return applyServerSnapshot(data.session);
+      return applyServerSnapshot(data.session, sourceMachineId);
     });
     result = queued;
     mutationQueues.current.set(targetSessionId, queued.then(() => undefined, () => undefined));
@@ -964,7 +968,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [mutateSession, refreshSession, setRunOutcome, updateRun, workspace.updateView]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
-    if (!session || runsBySessionRef.current[session.id]) return;
+    if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id)) return;
     if (!session.repositories.some((repository) => repository.role === 'primary')) {
       setNotice('Attach a repository and make it primary before running an agent turn. The canvas and participant setup remain available.');
       panelLayout.openRepository();
@@ -987,151 +991,162 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     setNotice(undefined);
-    setBusyRun(undefined);
-    setRunOutcome(session.id);
-    const attachmentPayload: DiagramMessageAttachment[] = [];
-    let compositeWarning = false;
-    for (const canvas of selected) {
-      const id = canvasTargetId(canvas);
-      const marks = session.annotations[id]?.marks || [];
-      const snapshot = id === session.activeDiagramId ? snapshotRef.current : undefined;
-      // A sketch has no rendered source, so its own sheet is the fallback frame for the marks.
-      const fallbackViewBox = canvas.kind === 'sketch' ? canvas.sketch.viewBox : [0, 0, 1, 1] as const;
-      let viewBox = snapshot?.viewBox || fallbackViewBox;
-      let png: string | undefined;
-      if (canvas.kind === 'diagram') {
-        try {
-          const lightSnapshot = await renderMermaid(
-            `attachment-${id.replaceAll('-', '')}`,
-            canvas.artifact.source,
-            'light',
-          );
-          viewBox = lightSnapshot.viewBox;
-          png = await compositePng(lightSnapshot.svg, marks, lightSnapshot.viewBox);
-        } catch { compositeWarning = true; }
-      } else {
-        try {
-          png = await compositePng(EMPTY_CANVAS_SVG, marks, viewBox as [number, number, number, number]);
-        } catch { compositeWarning = true; }
-      }
-      attachmentPayload.push({
-        diagramId: id,
-        kind: canvas.kind,
-        source: canvas.kind === 'diagram' ? canvas.artifact.source : '',
-        marks,
-        viewport: { viewBox: viewBox as [number, number, number, number] },
-        compositePngDataUrl: png,
-      });
-    }
-    if (compositeWarning) {
-      setNotice(selected.every((canvas) => canvas.kind === 'sketch')
-        ? 'Composite image export was unavailable; the vector marks are still attached.'
-        : 'Composite image export was unavailable; Mermaid source and vector marks are still attached.');
-    }
-
-    const userId = createUuid();
-    const createdAt = new Date().toISOString();
-    const human = session.participants.find((participant) => participant.kind === 'human');
-    if (!human) {
-      setNotice('This session has no local user identity.');
-      return;
-    }
-    const userMessage: UserMessage = {
-      id: userId,
-      role: 'user',
-      authorId: human.id,
-      addressedParticipantId: turnAgent.id,
-      text,
-      createdAt,
-      status: 'sending',
-      diagramAttachments: attachmentPayload.map((item) => ({
-        diagramId: item.diagramId,
-        kind: item.kind,
-        marksSnapshot: structuredClone(item.marks),
-        viewport: item.viewport,
-        compositeIncluded: Boolean(item.compositePngDataUrl),
-      })),
-      mode: turnMode,
-    };
-    const activeAtSend = session.activeDiagramId;
-    const navigationAtSend = navigationRevisions.current.get(session.id) || 0;
-    mutateSession(session.id, (current) => ({
-      ...current,
-      // A sketch-only turn would otherwise title the session with the whole synthesized instruction.
-      title: current.messages.length === 0 ? (typed ? typed.slice(0, 56) : 'Sketch session') : current.title,
-      messages: [...current.messages, userMessage],
-    }));
-    if (!override) setComposer('');
-    putRun({
-      sessionId: session.id,
-      participantId: turnAgent.id,
-      mode: turnMode,
-      state: 'running',
-      status: turnMode === 'agent'
-        ? `Starting ${turnAgent.displayName}`
-        : `Starting read-only ${turnAgent.displayName}`,
-      preview: '',
-      toolActivity: [],
-      runFailed: false,
-      permissions: [],
-    });
-    const controller = new AbortController();
-    runControllers.current.set(session.id, controller);
-    let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
-    let streamRunId: string | undefined;
-
+    sendingSessions.current.add(session.id);
+    setPreparingSends((current) => [...current, session.id]);
     try {
-      const response = await fetch(apiPath('/api/agent/message'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: session.id,
-          messageId: userId,
-          participantId: turnAgent.id,
-          text,
-          diagramAttachments: attachmentPayload,
-          mode: turnMode,
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({})) as { error?: string; activeRun?: RunDescriptor };
-        if (data.activeRun) setBusyRun(data.activeRun);
-        throw new Error(data.error || `Agent request failed (${response.status}).`);
-      }
-      const outcome = await consumeStream(response, {
-        sessionId: session.id,
-        mode: turnMode,
-        userMessageId: userId,
-        activeAtSend,
-        navigationAtSend,
-        attachmentIds: pendingAttachmentIds,
-      });
-      streamError = outcome.streamError;
-      streamRunId = outcome.runId;
-      if (!outcome.receivedFinal && !streamError) throw new Error('Agent stream ended without a final response.');
-    } catch (error) {
-      const cancelled = controller.signal.aborted;
-      if (!streamError) {
-        if (!cancelled) updateRun(session.id, (run) => ({ ...run, runFailed: true }));
-        const message = cancelled
-          ? 'The request was cancelled. Earlier conversation and diagrams are unchanged.'
-          : error instanceof Error ? error.message : 'Agent request failed.';
-        setRunOutcome(session.id, {
-          runId: streamRunId,
-          message,
-          missingProviderSession: false,
-        });
-        if (focusedSessionIdRef.current !== session.id || !chatOpenRef.current) {
-          workspace.updateView(session.id, (current) => ({ ...current, unread: current.unread + 1 }));
+      setBusyRun(undefined);
+      setRunOutcome(session.id);
+      const attachmentPayload: DiagramMessageAttachment[] = [];
+      let compositeWarning = false;
+      for (const canvas of selected) {
+        const id = canvasTargetId(canvas);
+        const marks = session.annotations[id]?.marks || [];
+        const snapshot = id === session.activeDiagramId ? snapshotRef.current : undefined;
+        // A sketch has no rendered source, so its own sheet is the fallback frame for the marks.
+        const fallbackViewBox = canvas.kind === 'sketch' ? canvas.sketch.viewBox : [0, 0, 1, 1] as const;
+        let viewBox = snapshot?.viewBox || fallbackViewBox;
+        let png: string | undefined;
+        if (canvas.kind === 'diagram') {
+          try {
+            const lightSnapshot = await renderMermaid(
+              `attachment-${id.replaceAll('-', '')}`,
+              canvas.artifact.source,
+              'light',
+            );
+            viewBox = lightSnapshot.viewBox;
+            png = await compositePng(lightSnapshot.svg, marks, lightSnapshot.viewBox);
+          } catch { compositeWarning = true; }
+        } else {
+          try {
+            png = await compositePng(EMPTY_CANVAS_SVG, marks, viewBox as [number, number, number, number]);
+          } catch { compositeWarning = true; }
         }
-        mutateSession(session.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
-          ? { ...message, status: cancelled ? 'cancelled' : 'failed', delivery: cancelled ? 'possibly-sent' : 'not-sent' }
-          : message) }));
-        await refreshSession(session.id);
+        attachmentPayload.push({
+          diagramId: id,
+          kind: canvas.kind,
+          source: canvas.kind === 'diagram' ? canvas.artifact.source : '',
+          marks,
+          viewport: { viewBox: viewBox as [number, number, number, number] },
+          compositePngDataUrl: png,
+        });
       }
+      if (compositeWarning) {
+        setNotice(selected.every((canvas) => canvas.kind === 'sketch')
+          ? 'Composite image export was unavailable; the vector marks are still attached.'
+          : 'Composite image export was unavailable; Mermaid source and vector marks are still attached.');
+      }
+
+      const userId = createUuid();
+      const createdAt = new Date().toISOString();
+      const human = session.participants.find((participant) => participant.kind === 'human');
+      if (!human) {
+        setNotice('This session has no local user identity.');
+        return;
+      }
+      const userMessage: UserMessage = {
+        id: userId,
+        role: 'user',
+        authorId: human.id,
+        addressedParticipantId: turnAgent.id,
+        text,
+        createdAt,
+        status: 'sending',
+        diagramAttachments: attachmentPayload.map((item) => ({
+          diagramId: item.diagramId,
+          kind: item.kind,
+          marksSnapshot: structuredClone(item.marks),
+          viewport: item.viewport,
+          compositeIncluded: Boolean(item.compositePngDataUrl),
+        })),
+        mode: turnMode,
+      };
+      const activeAtSend = session.activeDiagramId;
+      const navigationAtSend = navigationRevisions.current.get(session.id) || 0;
+      mutateSession(session.id, (current) => ({
+        ...current,
+        // A sketch-only turn would otherwise title the session with the whole synthesized instruction.
+        title: current.messages.length === 0 ? (typed ? typed.slice(0, 56) : 'Sketch session') : current.title,
+        messages: [...current.messages, userMessage],
+      }));
+      putRun({
+        sessionId: session.id,
+        participantId: turnAgent.id,
+        mode: turnMode,
+        state: 'running',
+        status: turnMode === 'agent'
+          ? `Starting ${turnAgent.displayName}`
+          : `Starting read-only ${turnAgent.displayName}`,
+        preview: '',
+        toolActivity: [],
+        runFailed: false,
+        permissions: [],
+      });
+      const controller = new AbortController();
+      runControllers.current.set(session.id, controller);
+      let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
+      let streamRunId: string | undefined;
+
+      try {
+        const response = await fetch(apiPath('/api/agent/message'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: session.id,
+            messageId: userId,
+            participantId: turnAgent.id,
+            text,
+            diagramAttachments: attachmentPayload,
+            mode: turnMode,
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({})) as { error?: string; activeRun?: RunDescriptor };
+          if (data.activeRun) setBusyRun(data.activeRun);
+          throw new Error(data.error || `Agent request failed (${response.status}).`);
+        }
+        const outcome = await consumeStream(response, {
+          sessionId: session.id,
+          mode: turnMode,
+          userMessageId: userId,
+          activeAtSend,
+          navigationAtSend,
+          attachmentIds: pendingAttachmentIds,
+        });
+        streamError = outcome.streamError;
+        streamRunId = outcome.runId;
+        if (!outcome.receivedFinal && !streamError) throw new Error('Agent stream ended without a final response.');
+        if (outcome.receivedFinal && !streamError && !override) {
+          workspace.updateView(session.id, (current) => ({ ...current, composer: current.composer === composer ? '' : current.composer }));
+        }
+      } catch (error) {
+        const cancelled = controller.signal.aborted;
+        if (!streamError) {
+          if (!cancelled) updateRun(session.id, (run) => ({ ...run, runFailed: true }));
+          const message = cancelled
+            ? 'The request was cancelled. Earlier conversation and diagrams are unchanged.'
+            : error instanceof Error ? error.message : 'Agent request failed.';
+          setRunOutcome(session.id, {
+            runId: streamRunId,
+            message,
+            missingProviderSession: false,
+          });
+          if (focusedSessionIdRef.current !== session.id || !chatOpenRef.current) {
+            workspace.updateView(session.id, (current) => ({ ...current, unread: current.unread + 1 }));
+          }
+          mutateSession(session.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user'
+            ? { ...message, status: cancelled ? 'cancelled' : 'failed', delivery: cancelled ? 'possibly-sent' : 'not-sent' }
+            : message) }));
+          await refreshSession(session.id);
+        }
+      } finally {
+        removeRun(session.id, streamRunId);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not prepare this instruction. The draft is preserved.');
     } finally {
-      removeRun(session.id, streamRunId);
+      sendingSessions.current.delete(session.id);
+      setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
   }, [activeAgent, apiPath, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, putRun, refreshSession, removeRun, session, setRunOutcome, updateRun, workspace.updateView]);
 
@@ -1257,10 +1272,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [apiPath, busyRun, busyRunLabel]);
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
-  const cancelRun = useCallback(async () => {
-    const targetSessionId = focusedSessionIdRef.current;
+  const cancelRun = useCallback(async (target?: { sessionId: string; runId: string }) => {
+    const targetSessionId = target?.sessionId || focusedSessionIdRef.current;
     if (!targetSessionId) return;
-    const runId = runsBySessionRef.current[targetSessionId]?.runId;
+    const runId = target?.runId || runsBySessionRef.current[targetSessionId]?.runId;
+    if (target && runsBySessionRef.current[targetSessionId]?.runId !== runId) return;
     if (!runId) {
       runControllers.current.get(targetSessionId)?.abort();
       return;
@@ -1408,6 +1424,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     projectId: item.projectId,
     sessionId: item.id,
     title: item.title,
+    updatedAt: item.updatedAt,
     detail: `${entry.projects.find((project) => project.id === item.projectId)?.name || 'No project'} · ${entry.machine.label} · ${entry.machine.state === 'online' ? 'Online' : 'Offline'}`,
   })));
   const openImmersiveSession = (choice: ImmersiveSessionChoice) => {
@@ -1469,6 +1486,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
           <ImmersiveBoundary
+            conversation={!loading && session ? {
+              draft: composer,
+              target: `${session.title} · ${activeAgent?.displayName || 'No agent'} · ${PROVIDER_LABELS[activeProvider]} · ${mode}`,
+              attachments: attachedCanvases.map((canvas) => {
+                const id = canvasTargetId(canvas);
+                return `${canvas.kind === 'diagram' ? `Diagram ${canvas.artifact.ordinal}` : 'Sketch'} · ${session.annotations[id]?.marks.length || 0} marks`;
+              }),
+              canSend: !sessionRunning && !participantBusy && Boolean(activeAgent && providerHealth?.available)
+                && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
+                && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch')),
+              running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
+              agents, activeAgentId: activeAgent?.id, primaryAgentId: session.primaryAgentId,
+              providers: selectableProviders, mode, unsupportedModes,
+              onDraft: setComposer, onSend: () => { void send(); },
+              onCancel: () => { if (focusedRun?.runId) void cancelRun({ sessionId: session.id, runId: focusedRun.runId }); },
+              onMode: setMode, onSelectAgent: selectAgent,
+              onAddAgent: (provider, role) => { void addAgent(provider, role); },
+              onMakePrimary: (id) => { void setPrimaryAgent(id); },
+            } : undefined}
             authorized={deviceAccess.authenticated && deviceAccess.transportSecure}
             session={loading ? undefined : session}
             viewKey={immersiveViewKey(machineId || localMachineId, projectId, sessionId)}

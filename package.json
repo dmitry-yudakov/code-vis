@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "next dev -p 3023",
+    "devs": "npm run dev -- --experimental-https   --experimental-https-key .cert/codeai-key.pem   --experimental-https-cert .cert/codeai-cert.pem",
     "build": "next build",
     "start": "next start -p 3023",
     "start:remote": "NODE_ENV=production node scripts/start-remote.mjs",

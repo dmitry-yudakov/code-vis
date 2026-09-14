@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, SessionSnapshot } from '@/shared/types';
-import {
-  buildImmersiveTranscriptPages, immersiveDisplayLength,
-  immersiveEntryCharacters, immersiveProjectionCharacters, projectImmersiveConversation,
-} from '@/features/diagram/spatial/immersiveTranscript';
+import { immersiveChatLines } from '@/features/diagram/spatial/immersiveTranscript';
+import { buildConversationHistory } from '@/features/shell/immersive/conversationHistoryModel';
 import { probeImmersiveCapability } from '@/features/diagram/spatial/immersiveCapability';
 import {
-  MAX_IMMERSIVE_CHAT_CHARS, MAX_IMMERSIVE_CHAT_ENTRIES, MAX_IMMERSIVE_TEXTURE_PIXELS,
+  MAX_IMMERSIVE_TEXTURE_PIXELS,
 } from '@/features/diagram/spatial/immersiveTypes';
 import {
   getImmersiveInstrumentation, recordImmersiveFrame, setImmersiveSessionActive,
@@ -77,54 +75,34 @@ function session(messageCount = 28): SessionSnapshot {
   };
 }
 
-describe('immersive transcript projection', () => {
-  it('pages newest-first with stable entry and Unicode display-character bounds', () => {
-    const fixture = session();
-    const pages = buildImmersiveTranscriptPages(fixture);
-    expect(pages.length).toBeGreaterThan(2);
-    for (const page of pages) {
-      expect(page.length).toBeLessThanOrEqual(MAX_IMMERSIVE_CHAT_ENTRIES);
-      expect(page.reduce((total, entry) => total + immersiveEntryCharacters(entry), 0))
-        .toBeLessThanOrEqual(MAX_IMMERSIVE_CHAT_CHARS);
-    }
-    expect(pages[0].at(-1)?.id).toBe('assistant-27');
-    expect(pages.at(-1)?.[0].text).toContain('🙂');
-    expect(immersiveDisplayLength('🙂🙂')).toBe(2);
+describe('immersive transcript content', () => {
+  it('preserves long identifiers, whitespace, and Unicode across the complete bubble history', () => {
+    const fixture = session(1);
+    const first = fixture.messages[0];
+    if (first.role !== 'user') throw new Error('Expected user fixture');
+    first.diagramAttachments = [];
+    first.text = `  ${'W'.repeat(190)}\n\n${'路径🙂'.repeat(150)}\n  final  instruction`;
+    const history = buildConversationHistory(fixture);
+    const recovered = history.entries.flatMap((item) => item.lines).join('\n');
+    expect(recovered).toBe(immersiveChatLines(first.text).join('\n'));
+    expect(recovered.replaceAll('\n', '')).toBe(first.text.replaceAll('\n', ''));
+    expect(history.entries.every((item) => item.entry.role === 'user')).toBe(true);
+    expect(immersiveChatLines('W'.repeat(80)).length).toBeGreaterThan(immersiveChatLines('a'.repeat(80)).length);
   });
 
-  it('preserves message meaning while summarizing diagrams and attachments', () => {
+  it('preserves message meaning, authors, and delivery status while summarizing diagrams and attachments', () => {
     const fixture = session(4);
     const first = fixture.messages[0];
     if (first.role === 'user') first.text = 'Review the annotated canvas.';
-    const projected = projectImmersiveConversation({
-      session: fixture,
-      preview: 'Live preview',
-      runStatus: 'Working',
-      pendingApprovals: 1,
-      unread: 3,
-    });
-    expect(projected.projection.preview).toBe('Live preview');
-    expect(projected.projection.addressedAgent).toBe('Codex');
-    expect(projected.projection.entries.find((entry) => entry.id === 'assistant-1')?.text)
-      .toContain('[Diagram 1 is available on the canvas]');
-    expect(buildImmersiveTranscriptPages(fixture).flat().find((entry) => entry.id === 'user-0')?.text)
-      .toContain('Attachments: diagram with 1 mark.');
-    expect(immersiveProjectionCharacters(projected.projection)).toBeLessThanOrEqual(MAX_IMMERSIVE_CHAT_CHARS);
-  });
-
-  it('shows preview only on the newest page and clamps an obsolete page index', () => {
-    const fixture = session();
-    const newest = projectImmersiveConversation({
-      session: fixture, preview: 'streaming', runStatus: 'Working', pendingApprovals: 0, unread: 0,
-    });
-    const oldest = projectImmersiveConversation({
-      session: fixture, preview: 'streaming', runStatus: 'Working', pendingApprovals: 0, unread: 0,
-      pageFromNewest: 999,
-    });
-    expect(newest.projection.preview).toBe('streaming');
-    expect(oldest.pageFromNewest).toBe(oldest.pageCount - 1);
-    expect(oldest.projection.preview).toBeUndefined();
-    expect(oldest.hasNewer).toBe(true);
+    const history = buildConversationHistory(fixture, 'Live preview');
+    const entry = (id: string) => history.entries.find((item) => item.entry.id === id)?.entry;
+    expect(entry('assistant-1')).toMatchObject({ author: 'Codex', role: 'assistant' });
+    expect(entry('assistant-1')?.text).toContain('[Diagram 1 is available on the canvas]');
+    expect(entry('assistant-1')?.text).toContain('[ts code]\nconst answer = 1;');
+    expect(entry('user-0')?.text).toContain('Attachments: diagram with 1 mark.');
+    expect(entry('user-2')?.state).toBe('cancelled · delivery uncertain');
+    expect(history.entries.at(-1)?.entry).toMatchObject({ id: 'live-preview', author: 'Codex', text: 'Live preview' });
+    expect(history.entries.slice(0, -1).map((item) => item.entry.id)).toEqual(fixture.messages.map((message) => message.id));
   });
 });
 
