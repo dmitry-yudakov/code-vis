@@ -48,6 +48,7 @@ export interface GitFileDiff {
 }
 
 export type AgentProvider = 'claude' | 'codex';
+export type AgentExecution = 'local' | 'docker';
 export type AgentRole = 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom';
 
 export type ProviderSessionRef =
@@ -102,7 +103,7 @@ export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 export interface DurableSession {
   version: 3 | 4;
   /** Required in version 4; absent in version 3, whose execution is always local. */
-  execution?: 'local' | 'docker';
+  execution?: AgentExecution;
   revision: number;
   id: string;
   title: string;
@@ -126,6 +127,11 @@ export interface ProviderHealth {
   supportedModes: AgentMode[];
   message?: string;
 }
+
+export type ExecutionHealth = Record<AgentExecution, {
+  enabled: boolean;
+  providers: Record<AgentProvider, ProviderHealth>;
+}>;
 
 export interface DeviceAuthStatus {
   mode: 'local' | 'paired';
@@ -295,7 +301,7 @@ export interface DiagramAnnotation {
 export interface PublicSession {
   version: 3 | 4;
   /** Required in version 4; absent in version 3, whose execution is always local. */
-  execution?: 'local' | 'docker';
+  execution?: AgentExecution;
   revision: number;
   id: string;
   title: string;
@@ -316,6 +322,8 @@ export interface PublicSession {
 export interface ArenaSessionSummary {
   /** Added by the Arena client when flattening machine projections; never stored canonically. */
   machineId?: string;
+  /** Absent for version 3 sessions, which always execute locally. */
+  execution?: AgentExecution;
   id: string;
   revision: number;
   title: string;
@@ -481,13 +489,14 @@ export interface PermissionDecisionRequest {
 }
 
 export interface ResolvedAgentPolicy {
+  execution?: AgentExecution;
   profile: 'ask-readonly' | 'plan-readonly' | 'agent-full';
   mode: AgentMode;
   /** Undefined means the CLI default toolset (agent mode). */
   tools?: readonly string[];
   /** Server-owned permission rules, e.g. `Bash(git log:*)`. Never browser-configurable. */
   allowedTools: readonly string[];
-  permissionMode: 'plan' | 'default';
+  permissionMode: 'plan' | 'default' | 'bypassPermissions';
   interactivePermissions: boolean;
   safeMode: true;
   sessionPersistence: true;

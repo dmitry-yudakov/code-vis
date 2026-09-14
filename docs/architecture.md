@@ -8,6 +8,32 @@ React Flow client, and VS Code extension are archived and documented separately 
 
 ## Shape
 
+Story 42 adds an opt-in Docker transport in `src/server/execution/`; its release verification is
+tracked in [docker-execution.md](docker-execution.md). Version 4 session records persist Local/Docker
+execution, migrating active and archived version 3 records to Local without changing revisions.
+Provider protocol parsers, conversation orchestration, canonical records, device authorization,
+and checkout scheduling remain on the host. Worker stdio replaces the local process transport.
+Docker workers, credential-free Git readers and egress gateways have
+separate roles and ownership labels. Setup/turn/cleanup use the same exclusive session lease.
+Workers bind the whole selected checkout directly, read-only for Ask/Plan and writable for Agent.
+Dependency installs and build outputs are checkout changes; no nested mounts hide repository paths.
+New participants share a persistent Docker home per installation/provider. Existing participant
+volumes retain their history in place. A short Docker home-admission lease coordinates worker
+creation across processes; interactive login retains it and refuses mounted homes, while ordinary
+turns release it after mounting and can run concurrently. Legacy cleanup never names shared homes.
+No provider files are read or copied by CodeAI. npm downloads use disposable worker scratch.
+Public health keeps the Local `providers` fields and adds execution-scoped capability health;
+provider authentication is checked in the addressed worker before any prompt. Short provider-name
+login commands work before any session exists. Conversations expose execution explicitly and offer
+continuation through `POST /api/sessions` with `sourceSessionId` and the target execution. The server
+copies only project/repository bindings into a fresh session, checking the source revision after
+Docker validation; the device initializes an editable recap without sending a turn.
+Arena's Docker toggle writes only a boolean through the device-authorized, same-origin
+`PATCH /api/execution/docker`. The private `docker/settings.json` record in the data directory
+overrides the environment default on every config read, so new requests see changes without a
+restart. Accepted turns retain their original configuration. Provisioning and login remain terminal
+operations; the browser cannot alter the container profile.
+
 One private npm package, one Next.js 16 App Router application, no separate backend process.
 Route handlers under `src/app/api/` are the only server surface; they spawn local agent CLIs as
 child processes and read the selected repository with fixed git invocations.

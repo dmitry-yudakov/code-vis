@@ -1,37 +1,11 @@
-import { execFile } from 'node:child_process';
+import { runGitRead } from './gitRead';
 import type { GitChangedFile, GitFileDiff, GitFileStatus, GitWorkingTree } from '@/shared/types';
 
-const STATUS_BUFFER_BYTES = 5 * 1024 * 1024;
 const DIFF_BUFFER_BYTES = 2 * 1024 * 1024;
-const GIT_TIMEOUT_MS = 8_000;
 
 interface GitFailure extends Error {
   code?: number | string;
   stderr?: string;
-}
-
-function runGit(
-  cwd: string,
-  args: string[],
-  options: { allowedExitCodes?: number[]; maxBuffer?: number } = {},
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, {
-      cwd,
-      encoding: 'utf8',
-      maxBuffer: options.maxBuffer || STATUS_BUFFER_BYTES,
-      timeout: GIT_TIMEOUT_MS,
-      windowsHide: true,
-    }, (error, stdout, stderr) => {
-      const failure = error as GitFailure | null;
-      if (!failure || (typeof failure.code === 'number' && options.allowedExitCodes?.includes(failure.code))) {
-        resolve(stdout);
-        return;
-      }
-      failure.stderr = stderr;
-      reject(failure);
-    });
-  });
 }
 
 function fileStatus(code: string): GitFileStatus {
@@ -104,7 +78,7 @@ function boundedGitError(error: unknown, operation: 'status' | 'diff'): Error {
 
 export async function readWorkingTree(repositoryPath: string): Promise<GitWorkingTree> {
   try {
-    const output = await runGit(repositoryPath, [
+    const output = await runGitRead(repositoryPath, [
       '-c', 'status.relativePaths=true', 'status', '--porcelain=v1', '-z', '--branch',
       '--untracked-files=all', '--', '.',
     ]);
@@ -122,7 +96,7 @@ export function findChangedFile(tree: GitWorkingTree, requestedPath: string): Gi
 
 async function readDiff(repositoryPath: string, args: string[], allowedExitCodes?: number[]): Promise<string> {
   try {
-    return await runGit(repositoryPath, args, { allowedExitCodes, maxBuffer: DIFF_BUFFER_BYTES });
+    return await runGitRead(repositoryPath, args, { allowedExitCodes, maxBuffer: DIFF_BUFFER_BYTES });
   } catch (error) {
     throw boundedGitError(error, 'diff');
   }
@@ -130,7 +104,7 @@ async function readDiff(repositoryPath: string, args: string[], allowedExitCodes
 
 export async function readFileDiff(repositoryPath: string, file: GitChangedFile): Promise<GitFileDiff> {
   const result: GitFileDiff = { path: file.path };
-  const common = ['--no-ext-diff', '--no-color', '--unified=3'];
+  const common = ['--no-ext-diff', '--no-textconv', '--no-color', '--unified=3'];
 
   if (file.staged) {
     result.staged = await readDiff(repositoryPath, ['diff', '--cached', ...common, '--', file.path]);

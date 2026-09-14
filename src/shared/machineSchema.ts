@@ -21,6 +21,7 @@ const checkoutSummarySchema = z.object({
 }).strict();
 
 const arenaSessionSummarySchema = z.object({
+  execution: z.enum(['local', 'docker']).optional(),
   id: z.string().uuid(),
   revision: z.number().int().nonnegative(),
   title: z.string().trim().min(1).max(200),

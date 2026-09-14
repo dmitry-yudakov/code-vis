@@ -17,6 +17,8 @@ Updated 2026-09-11. When a story ships, change the line that names it; each stor
   active-session permissions before review/annotations and the later VR Arena.
 - **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
   controller/visibility interruptions and retain device-local exit diagnostics.
+- **Also in flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md),
+  with [Docker session creation and shared provider login](stories/STORY-20260909-docker-session-friction.md).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the
@@ -92,8 +94,12 @@ importing file's own directory; keep `./…` for same-directory siblings.
 - Provider capability is server-owned. The browser names a supported mode and nothing else; the
   executable, tool list, allowlist, permission mode, sandbox, and model flags are resolved on the
   server. An unknown or unsupported mode is a 400.
-- Agent mode edits the real working tree after explicit per-action approval. There is no worktree
-  isolation and no OS/container boundary — this runs as the desktop user.
+- Local Agent edits the real working tree after per-action approval and runs as the desktop user.
+  Optional Docker execution (Story 42, release verification pending) uses a pinned non-root worker:
+  Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
+  separate working copy or rollback. New Docker participants share a persistent provider home per
+  installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host
+  storage; see [the Docker execution contract](docs/docker-execution.md).
 - Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
   device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode.
 - Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is

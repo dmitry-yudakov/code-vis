@@ -268,11 +268,13 @@ rename before step 3, so every story after it is written once in the settled nou
 ## Not now
 
 - Real-time multi-writer collaboration inside one session.
-- A coordinator service, sandboxing, Internet exposure, relay, or automatic NAT traversal.
+- A coordinator service or public inbound network exposure. Optional local containment is brought
+  forward in [Story 42](../stories/STORY-20260908-local-docker-execution.md), with its own release gates.
 - Portable repository identity across machines (the checkout/identity split is prepared, not built).
-- Autonomous apply: a change is previewed and verified before it is written.
-- Anything that makes the direct, single-person product worse in order to prepare for coordinator
-  or multi-person operation.
+- Cloud autonomous apply. Explicitly selected local Docker Agent sessions in Story 42 authorize
+  direct repository edits and commands inside a bounded container; Local keeps per-action approvals.
+- Anything that makes the single-machine, single-person product worse in order to be ready for the
+  multi-machine one.
 
 ---
 

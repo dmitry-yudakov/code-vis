@@ -1,5 +1,5 @@
 import type {
-  AgentProvider, AgentProviderAdapter, AgentProcessRunner, ProviderHealth,
+  AgentExecution, AgentProvider, AgentProviderAdapter, AgentProcessRunner, ProviderHealth,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import { ClaudeProcessRunner } from './claudeProcessRunner';
@@ -7,6 +7,8 @@ import { checkClaude } from './claudePreflight';
 import { CodexProcessRunner } from './codexProcessRunner';
 import { checkCodex } from './codexPreflight';
 import { codexSupportedModes } from './codexInvocation';
+import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { DockerProcessRunner } from '@/server/execution/dockerProcessRunner';
 
 class ClaudeProviderAdapter implements AgentProviderAdapter {
   readonly id = 'claude' as const;
@@ -59,7 +61,19 @@ class CodexProviderAdapter implements AgentProviderAdapter {
 
 export type ProviderRegistry = Record<AgentProvider, AgentProviderAdapter>;
 
-export function getProviderAdapters(config: AppConfig): ProviderRegistry {
+export function getProviderAdapters(config: AppConfig, execution: AgentExecution = 'local',
+  identity?: { sessionId: string; participantId: string }): ProviderRegistry {
+  if (execution === 'docker') {
+    const adapter = (id: AgentProvider): AgentProviderAdapter => ({
+      id, supportedModes: ['ask', 'plan', 'agent'],
+      checkHealth: () => getDockerRuntime(config).health(),
+      createRunner() {
+        if (!identity) throw new Error('Docker execution requires an addressed session participant.');
+        return new DockerProcessRunner(config, id, identity);
+      },
+    });
+    return { claude: adapter('claude'), codex: adapter('codex') };
+  }
   return {
     claude: new ClaudeProviderAdapter(config),
     codex: new CodexProviderAdapter(config),

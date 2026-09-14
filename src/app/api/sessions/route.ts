@@ -4,6 +4,9 @@ import {
 } from '@/server/storage/sessionStore';
 import { createSessionRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
+import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { validateDockerCheckout } from '@/server/execution/dockerProfile';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,11 +37,29 @@ export async function POST(request: Request): Promise<Response> {
   if (denied) return denied;
   try {
     const parsed = createSessionRequestSchema.safeParse(await request.json());
-    if (!parsed.success) return safeJsonResponse({ error: 'A valid project, provider, and role are required.' }, { status: 400 });
+    if (!parsed.success) return safeJsonResponse({ error: 'Choose a valid provider and either a project, a Docker checkout, or a source session with an execution.' }, { status: 400 });
     const config = getConfig();
     const store = getSessionStore(config.dataDir, config.hostLabel);
-    if (parsed.data.projectId) await store.getProject(parsed.data.projectId);
-    const session = await store.createSession(parsed.data);
+    const source = parsed.data.sourceSessionId ? await store.getSession(parsed.data.sourceSessionId) : undefined;
+    const project = parsed.data.projectId ? await store.getProject(parsed.data.projectId) : undefined;
+    const registry = getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth);
+    if (parsed.data.checkoutId) await registry.resolve(parsed.data.checkoutId);
+    if (parsed.data.execution === 'docker') {
+      const health = await getDockerRuntime(config).health();
+      if (!health.available) return safeJsonResponse({ error: health.message }, { status: 409 });
+      const host = await store.host();
+      const bindings = source?.repositories || project?.repositories || (parsed.data.checkoutId ? [{
+        checkoutId: parsed.data.checkoutId, role: 'primary', hostId: host.id,
+      }] : []);
+      if (bindings.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== host.id) {
+        return safeJsonResponse({ error: 'Docker requires exactly one primary repository on this machine.' }, { status: 400 });
+      }
+      await validateDockerCheckout((await registry.resolve(bindings[0].checkoutId)).realPath, config);
+    }
+    const session = await store.createSession({
+      ...parsed.data,
+      ...(source ? { expectedSourceRevision: source.revision } : {}),
+    });
     return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });

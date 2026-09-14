@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { AgentMode, CanvasTarget } from '@/shared/types';
+import type { AgentExecution, AgentMode, CanvasTarget } from '@/shared/types';
 import { canvasTargetId } from '@/features/conversation/sessionStore';
 import { AGENT_MODE_HINTS, AGENT_MODE_LABELS, AGENT_MODE_TOOLTIPS } from '@/features/agents/toolActivity';
 
@@ -9,9 +9,10 @@ const MODES: AgentMode[] = ['ask', 'plan', 'agent'];
 
 export function InstructionComposer({
   value, running, cancelReady = true, turnBlocked, autoFocus, attached, activeDiagramId, markCounts, mode, unsupportedModes,
-  onChange, onModeChange, onSend, onCancel, onRemoveAttachment,
+  onChange, onModeChange, onSend, onCancel, onRemoveAttachment, execution = 'local',
 }: {
   value: string;
+  execution?: AgentExecution;
   running: boolean;
   cancelReady?: boolean;
   turnBlocked?: boolean;
@@ -85,7 +86,11 @@ export function InstructionComposer({
                 aria-checked={mode === item}
                 className={mode === item ? 'active' : ''}
                 disabled={running || unsupported}
-                title={unsupported ? `${AGENT_MODE_LABELS[item]} needs a newer Claude Code. Run \`claude update\`.` : AGENT_MODE_TOOLTIPS[item]}
+                title={unsupported ? `${AGENT_MODE_LABELS[item]} is unavailable for this provider and execution. Check provider setup.`
+                  : execution === 'docker' ? item === 'agent'
+                    ? 'Agent edits the mounted repository and runs commands without individual approvals.'
+                    : 'The repository is mounted read-only; writable scratch space is available inside Docker.'
+                    : AGENT_MODE_TOOLTIPS[item]}
                 onClick={() => onModeChange(item)}
               >
                 {AGENT_MODE_LABELS[item]}
@@ -93,7 +98,9 @@ export function InstructionComposer({
             );
           })}
         </div>
-        <span className="composer-hint">{AGENT_MODE_HINTS[mode]}</span>
+        <span className="composer-hint">{execution === 'docker'
+          ? mode === 'agent' ? 'Docker · autonomous direct edits' : 'Docker · repository read-only'
+          : AGENT_MODE_HINTS[mode]}</span>
         <button
           type="button"
           className={running ? 'cancel-button' : 'send-button'}

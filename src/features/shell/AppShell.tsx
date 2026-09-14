@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import type {
-  AgentEvent, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaMachineSnapshot, ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact,
+  AgentEvent, AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaMachineSnapshot,
+  ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact, ExecutionHealth,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
   ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
@@ -22,7 +23,7 @@ import {
   loadSelectedCheckoutId, saveSelectedCheckoutId,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
-import { SessionPicker } from '@/features/conversation/SessionPicker';
+import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { Arena } from '@/features/arena/Arena';
 import { buildMultiMachineInbox, unreadArenaAttention } from '@/features/arena/arenaModel';
@@ -59,6 +60,7 @@ interface Health {
   repositoriesRootReady: boolean;
   dataDirectoryReady: boolean;
   providers: Record<AgentProvider, ProviderHealth>;
+  executions?: ExecutionHealth;
   message?: string;
 }
 
@@ -89,6 +91,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { status: deviceAccess } = useDeviceAccess();
   const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
   const [health, setHealth] = useState<Health>();
+  const [localExecutionHealth, setLocalExecutionHealth] = useState<ExecutionHealth>();
   const [projects, setProjects] = useState<DurableProject[]>([]);
   const [checkouts, setCheckouts] = useState<CheckoutSummary[]>([]);
   const [recentCheckoutIds, setRecentCheckoutIds] = useState<string[]>([]);
@@ -112,6 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const view = sessionId ? workspace.scope.views[sessionId] : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
+  const [creatingSession, setCreatingSession] = useState(false);
   const [loading, setLoading] = useState(true);
   const [immersiveActive, setImmersiveActive] = useState(false);
   const [runsBySession, setRunsBySession] = useState<Record<string, RunPresentation>>({});
@@ -234,12 +238,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
   const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
 
-  const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => health?.providers[provider]?.available), [health]);
+  const executionProviders = health?.executions?.[session?.execution || 'local'].providers || health?.providers;
+  const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => executionProviders?.[provider]?.available), [executionProviders]);
   const agents = useMemo(() => session?.participants.filter((participant): participant is AgentParticipant => participant.kind === 'agent') || [], [session]);
   const activeAgent = findAgentParticipant(agents, session?.addressedAgentId)
     || findAgentParticipant(agents, session?.primaryAgentId);
   const activeProvider = activeAgent?.provider || newProvider;
-  const providerHealth = health?.providers[activeProvider];
+  const continuationExecution = session?.execution === 'docker' ? 'local' : 'docker';
+  const continuationHealth = continuationExecution === 'docker' ? health?.executions?.docker.providers[activeProvider]
+    : health?.executions?.local.providers[activeProvider] || health?.providers[activeProvider];
+  const continuationUnavailable = sessionRunning ? 'Wait for this turn to finish.'
+    : continuationExecution === 'docker' && !health?.executions?.docker.enabled ? 'Enable Docker in Arena to continue there.'
+    : !continuationHealth?.available || !continuationHealth.supportedModes.length ? `${PROVIDER_LABELS[activeProvider]} needs ${continuationExecution === 'docker' ? 'Docker' : 'Local'} setup.`
+    : continuationExecution === 'docker' && (session?.repositories.length !== 1 || session.repositories[0].role !== 'primary'
+      || session.repositories[0].hostId !== hostId || !checkouts.some((checkout) => checkout.id === session.repositories[0].checkoutId))
+      ? 'Docker needs exactly one primary repository on this machine.' : undefined;
+  const providerHealth = executionProviders?.[activeProvider];
   const unsupportedModes = useMemo(() => health
     ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
     : [], [health, providerHealth]);
@@ -331,6 +345,39 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [archiveUndo]);
 
+  const setDockerEnabled = async (enabled: boolean) => {
+    const response = await fetch('/api/execution/docker', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    const docker = await response.json() as ExecutionHealth['docker'] & { error?: string };
+    if (!response.ok) throw new Error(docker.error || 'Could not save Docker settings.');
+    setLocalExecutionHealth((current) => current && ({ ...current, docker }));
+    setHealth((current) => current && ({
+      ...current,
+      executions: {
+        local: current.executions?.local || { enabled: true, providers: current.providers },
+        docker,
+      },
+    }));
+  };
+
+  const refreshArena = async () => {
+    try {
+      const [response] = await Promise.all([
+        fetch('/api/health', { cache: 'no-store' }),
+        arena.refresh(),
+      ]);
+      if (!response.ok) throw new Error('Could not refresh machine readiness.');
+      const next = await response.json() as Health;
+      setHealth(next);
+      setLocalExecutionHealth(next.executions);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not refresh machine readiness.');
+    }
+  };
+
   useEffect(() => {
     let current = true;
     void Promise.all([
@@ -348,6 +395,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     ]).then(([healthResult, projectResult, checkoutResult]) => {
       if (!current) return;
       setHealth(healthResult);
+      setLocalExecutionHealth(healthResult.executions);
       setProjects(projectResult);
       setCheckouts(checkoutResult.checkouts || []);
       setRecentCheckoutIds(checkoutResult.recentCheckoutIds || []);
@@ -482,11 +530,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
-    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; machineId?: string } = {},
+    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
   ): Promise<boolean> => {
     setNotice(undefined);
+    setCreatingSession(true);
     try {
-      const targetProjectId = options.fromArena ? options.projectId : projectId;
+      const requestedProjectId = options.fromArena ? options.projectId : projectId;
       const targetMachineId = options.machineId || machineId;
       const targetMachine = options.fromArena
         ? arena.machines.find((entry) => entry.machine.id === targetMachineId)
@@ -497,14 +546,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       const response = await fetch(machineApiPath('/api/sessions', targetMachineId, localMachineId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(targetProjectId ? { projectId: targetProjectId } : {}), provider: requestedProvider }),
+        body: JSON.stringify({ provider: requestedProvider, ...(options.execution ? { execution: options.execution } : {}),
+          ...(options.sourceSessionId ? { sourceSessionId: options.sourceSessionId }
+            : { ...(requestedProjectId ? { projectId: requestedProjectId } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }) }),
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
+      const targetProjectId = data.session.projectId;
       const targetWorkspaceMachineId = targetMachineId && targetMachineId !== localMachineId ? targetMachineId : undefined;
       workspace.openInProject(targetProjectId, data.session.id, (current) => ({
         ...current,
         ...(options.mode ? { defaultMode: options.mode } : {}),
+        ...(options.initialComposer !== undefined ? { composer: options.initialComposer } : {}),
       }), targetWorkspaceMachineId);
       if (targetMachine && targetMachineId !== machineId) selectMachineCatalog(targetMachine);
       if (targetMachineId === machineId && targetProjectId === projectId) applyServerSnapshot(data.session);
@@ -522,8 +575,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
       return false;
+    } finally {
+      setCreatingSession(false);
     }
   }, [applyServerSnapshot, arena.machines, arena.refresh, localMachineId, machineId, newProvider, panelLayout.openConversationFor, projectId, router, selectMachineCatalog, workspace.openInProject]);
+
+  const continueSession = (execution: AgentExecution) => {
+    if (!session || sessionRunning || creatingSession) return;
+    const recap = session.messages.slice(-6).map((message) => {
+      const author = session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role;
+      const text = message.role === 'user' ? message.text : message.rawMarkdown;
+      return `${author}: ${text.slice(0, 900)}${text.length > 900 ? '…' : ''}`;
+    }).join('\n\n');
+    const initialComposer = `Continue from “${session.title.slice(0, 200)}” (${session.execution === 'docker' ? 'Docker' : 'Local'} session ${session.id}). This is a fresh provider session using the same repositories.\n\nRecent visible conversation (may be incomplete):\n${recap || 'No messages yet.'}${composer.trim() ? `\n\nUnsent draft:\n${composer.slice(0, 1_400)}` : ''}\n\nPlease continue from this context.`.slice(0, 7_600);
+    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode });
+  };
 
   const switchProject = (next?: string) => {
     if (next === projectId) return;
@@ -985,7 +1051,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
-    const turnProviderHealth = health?.providers[turnAgent.provider];
+    const turnProviderHealth = executionProviders?.[turnAgent.provider];
     if (!turnProviderHealth?.available || !turnProviderHealth.supportedModes.includes(turnMode)) {
       setNotice(turnProviderHealth?.message || `${PROVIDER_LABELS[turnAgent.provider]} is not available for ${turnMode} mode.`);
       return;
@@ -1411,7 +1477,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(session?.participants || [], participantId);
-    const planHealth = planAgent && health?.providers[planAgent.provider];
+    const planHealth = planAgent && executionProviders?.[planAgent.provider];
     if (!planAgent || !planHealth?.supportedModes.includes('agent')) {
       setNotice(planHealth?.message || 'That agent cannot execute in Agent mode.');
       return;
@@ -1471,11 +1537,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <SessionPicker
                   sessions={sessions}
                   value={sessionId}
-                  providers={selectableProviders}
+                  initialExecution={session?.execution}
+                  executionHealth={health?.executions}
+                  providerHealth={health?.providers}
+                  project={selectedProject}
+                  checkouts={orderedCheckouts}
+                  hostId={hostId}
+                  creating={creatingSession}
+                  error={notice}
                   newProvider={newProvider}
                   onChange={workspace.open}
                   onNewProvider={setNewProvider}
-                  onNew={(provider) => void createSession(provider)}
+                  onNew={createSession}
                 />
               </>
             )}
@@ -1571,7 +1644,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
             {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
             <span
-              className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}`}
+              className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}${providerHealth?.available && providerHealth.message ? ' notice' : ''}`}
               title={providerHealth?.message || health?.message || 'Local readiness'}
             >
               <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
@@ -1620,7 +1693,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 checkouts={orderedCheckouts}
                 hostId={hostId}
                 selectedCheckoutId={selectedCheckoutId}
-                disabled={sessionRunning}
+                disabled={sessionRunning || session.execution === 'docker'}
                 onSelect={selectCheckout}
                 onChange={updateRepositories}
               />
@@ -1651,7 +1724,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>{displayedNotice}</span>
           {archiveUndo?.machineId && <button type="button" onClick={() => void restoreArenaSession(archiveUndo.machineId!, archiveUndo)}>Undo archive</button>}
           {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
-          {focusedRunOutcome?.missingProviderSession && <button type="button" onClick={() => { void createSession(activeProvider); setComposer(`Continue this session in a new CodeAI session. Here is a brief visible recap:\n\n${session?.messages.slice(-6).map((message) => `${session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role}: ${message.role === 'user' ? message.text : message.rawMarkdown.slice(0, 600)}`).join('\n\n') || ''}`); }}>Continue in new session</button>}
+          {focusedRunOutcome?.missingProviderSession && <button type="button" disabled={sessionRunning || creatingSession} onClick={() => continueSession(session?.execution || 'local')}>Continue in new session</button>}
           {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => {
             if (focusedRunOutcome && sessionId) setRunOutcome(sessionId);
@@ -1665,16 +1738,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : arenaOpen && health ? (
         <Arena
           machines={arena.machines}
+          executionHealth={localExecutionHealth}
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}
-          onRefresh={() => void arena.refresh()}
+          onRefresh={refreshArena}
+          onSetDockerEnabled={setDockerEnabled}
           onOpenSession={openArenaSession}
-          onCreateSession={({ machineId: targetMachineId, projectId: targetProjectId, provider, mode: initialMode }) => createSession(provider, {
+          onCreateSession={({ machineId: targetMachineId, projectId: targetProjectId, provider, mode: initialMode, execution, checkoutId }) => createSession(provider, {
             machineId: targetMachineId,
             projectId: targetProjectId,
             mode: initialMode,
             fromArena: true,
+            execution,
+            checkoutId,
           })}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
@@ -1687,12 +1764,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="eyebrow">Local exploration, planning, and building</span>
           <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
           <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
-          <button type="button" className="primary-cta" disabled={!selectableProviders.length} onClick={() => void createSession(newProvider)}>New session <span>→</span></button>
-          <small>{selectableProviders.length
-            ? checkouts.length
-              ? `${selectableProviders.map((provider) => PROVIDER_LABELS[provider]).join(' and ')} run locally on your own login. Ask and Plan stay read-only; Agent appears only where its approval contract is verified.`
-              : 'No repositories were discovered. You can still create a repository-free session; set CODEAI_REPOSITORIES_ROOT when you need agent turns.'
-            : 'Install and authenticate Claude Code or Codex to start a local session.'}</small>
+          <SessionCreationForm
+            key={projectId || 'loose'}
+            submitLabel="Create and open"
+            executionHealth={health?.executions}
+            providerHealth={health?.providers}
+            project={selectedProject}
+            checkouts={orderedCheckouts}
+            hostId={hostId}
+            newProvider={newProvider}
+            creating={creatingSession}
+            error={notice}
+            onNewProvider={setNewProvider}
+            onNew={createSession}
+          />
         </div>
       ) : (
         <>
@@ -1738,6 +1823,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               decidingPermission={decidingPermission}
               running={sessionRunning}
               cancelReady={Boolean(focusedRun?.runId)}
+              continuing={creatingSession}
+              continuationUnavailable={continuationUnavailable}
+              onContinue={() => continueSession(continuationExecution)}
               turnBlocked={false}
               status={sessionRunning ? status : 'Ready for an instruction'}
               composer={composer}

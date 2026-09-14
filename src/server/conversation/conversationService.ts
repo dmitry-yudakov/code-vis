@@ -69,7 +69,7 @@ export async function runConversation(input: {
     label: resuming ? `Resuming ${providerName} provider session` : `Starting ${providerName} provider session`,
   });
 
-  const policy = resolveAgentPolicy(config, mode);
+  const policy = resolveAgentPolicy(config, mode, session.execution);
   const permissions = policy.interactivePermissions
     ? new PermissionBroker(policy.approvalTimeoutMs ?? config.approvalTimeoutMs)
     : undefined;
@@ -90,6 +90,7 @@ export async function runConversation(input: {
       attachedCanvasNames: manifest.map((item, index) => `${item.kind === 'sketch' ? 'Sketch' : 'Diagram'} ${index + 1} (${item.diagramId})`),
       hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
       mode,
+      execution: session.execution,
       participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this CodeAI session. Your stable participant id is ${participant.id}.`,
       roleContract: roleContract(participant.role),
       transcriptDelta,

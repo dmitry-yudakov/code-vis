@@ -91,11 +91,12 @@ async function createSessions(count: number, version: 3 | 4 = 3): Promise<Durabl
     sessions.push(await store.createSession({ projectId: project.id, provider: 'claude' }));
   }
   await store.close();
-  if (version === 4) {
+  if (version === 3) {
     for (const session of sessions) {
-      session.version = 4;
-      session.execution = 'local';
-      await writeFile(path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`), JSON.stringify(session));
+      const { execution: _execution, ...legacy } = session;
+      const versionThree = { ...legacy, version: 3 as const };
+      sessions[sessions.indexOf(session)] = versionThree;
+      await writeFile(path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`), JSON.stringify(versionThree));
     }
   }
   return sessions;

@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { ProviderHealth } from '@/shared/types';
 import {
-  buildCodexAppServerArgs, codexIsolationIssue, codexMcpServerNames, codexSupportedModes,
-  codexThreadConfig, codexThreadPolicyIssue,
+  buildCodexAppServerArgs, codexAmbientInstructionNote, codexIsolationIssue, codexMcpServerNames,
+  codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
 } from './codexInvocation';
 
 type JsonRecord = Record<string, unknown>;
@@ -134,6 +134,7 @@ export async function checkCodex(
           return;
         }
         const mcpServerNames = codexMcpServerNames(mcp);
+        let note: string | undefined;
         let issue = mcpServerNames
           ? codexIsolationIssue({ mcp: { data: [] }, hooks, skills })
           : 'Codex did not return a complete MCP capability inventory.';
@@ -153,6 +154,7 @@ export async function checkCodex(
             issue = 'Codex App Server could not create an isolated readiness provider session.';
           } else {
             issue = codexThreadPolicyIssue(threadResult, cwd, security.approvalPolicy);
+            note = codexAmbientInstructionNote(threadResult, cwd);
             if (!issue) {
               const scopedMcp = await request('mcpServerStatus/list', {
                 cursor: null, limit: 100, detail: 'toolsAndAuthOnly', threadId: thread.id,
@@ -170,14 +172,11 @@ export async function checkCodex(
           });
           return;
         }
-        finish({
-          available: true,
-          authenticated: true,
-          supportedModes,
-          message: agentEnabled
-            ? undefined
-            : 'Codex Ask and Plan are ready. Agent remains disabled until its real approval-parity smoke passes.',
-        });
+        const notes = [
+          note,
+          agentEnabled ? undefined : 'Codex Ask and Plan are ready. Agent remains disabled until its real approval-parity smoke passes.',
+        ].filter(Boolean);
+        finish({ available: true, authenticated: true, supportedModes, message: notes.length ? notes.join(' ') : undefined });
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
         finish({

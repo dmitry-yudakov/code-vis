@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AgentMode } from '@/shared/types';
+import type { AgentExecution, AgentMode } from '@/shared/types';
 
 /**
  * App Server inherits the user's login, but CodeAI owns the capability surface. These
@@ -36,7 +36,12 @@ export function codexSupportedModes(agentEnabled: boolean): readonly AgentMode[]
   return agentEnabled ? [...CODEX_BASE_MODES, 'agent'] : CODEX_BASE_MODES;
 }
 
-export function codexTurnSecurity(mode: AgentMode) {
+export function codexTurnSecurity(mode: AgentMode, execution: AgentExecution = 'local') {
+  if (execution === 'docker') return {
+    approvalPolicy: 'never' as const,
+    sandboxPolicy: { type: 'externalSandbox' as const, networkAccess: 'restricted' as const },
+    sandbox: 'danger-full-access' as const,
+  };
   if (mode === 'agent') {
     // Read-only is deliberate: a write or command escalation must cross App Server's approval
     // protocol before it can affect the working tree. An accepted request is one-shot.
@@ -97,32 +102,45 @@ export function codexMcpServerNames(value: unknown): string[] | undefined {
   return [...names];
 }
 
-/** Verifies that App Server honored the server-owned thread policy and loaded no ambient instructions. */
+/** Verifies that App Server honored the server-owned thread policy and reported its instruction sources. */
 export function codexThreadPolicyIssue(
   value: unknown,
   cwd: string,
   approvalPolicy: 'never' | 'on-request',
+  execution: AgentExecution = 'local',
 ): string | undefined {
   const response = record(value);
   const sandbox = record(response?.sandbox);
   if (response?.cwd !== cwd || response?.approvalPolicy !== approvalPolicy
-    || sandbox?.type !== 'readOnly' || sandbox.networkAccess !== false) {
+    || (execution === 'docker'
+      ? sandbox?.type !== 'dangerFullAccess'
+      : sandbox?.type !== 'readOnly' || sandbox.networkAccess !== false)) {
     return 'Codex did not apply CodeAI\'s required provider-session sandbox and approval policy.';
   }
   if (!Array.isArray(response.instructionSources)) {
     return 'Codex did not report its effective instruction sources.';
   }
-  const repositoryRoot = path.resolve(cwd);
-  for (const source of response.instructionSources) {
-    if (typeof source !== 'string' || !path.isAbsolute(source)) {
-      return 'Codex reported an invalid instruction source.';
-    }
-    const relative = path.relative(repositoryRoot, path.resolve(source));
-    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      return 'Ambient Codex instruction files are still active.';
-    }
+  if (response.instructionSources.some((source) => typeof source !== 'string' || !path.isAbsolute(source))) {
+    return 'Codex reported an invalid instruction source.';
   }
   return undefined;
+}
+
+/**
+ * Instruction files outside the repository (a user-level AGENTS.md, for example) are the user's own
+ * Codex configuration, so they are reported as a path-free readiness note rather than blocking.
+ */
+export function codexAmbientInstructionNote(value: unknown, cwd: string): string | undefined {
+  const sources = record(value)?.instructionSources;
+  if (!Array.isArray(sources)) return undefined;
+  const repositoryRoot = path.resolve(cwd);
+  const ambient = sources.filter((source) => {
+    if (typeof source !== 'string' || !path.isAbsolute(source)) return false;
+    const relative = path.relative(repositoryRoot, path.resolve(source));
+    return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+  }).length;
+  if (!ambient) return undefined;
+  return `Codex also loads ${ambient} instruction file${ambient === 1 ? '' : 's'} from outside the repository, such as a user-level AGENTS.md, which will shape its answers here.`;
 }
 
 /** Returns a public, path-free reason when command-line isolation did not take effect. */

@@ -4,7 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
 import { checkCodex } from '@/server/agents/codexPreflight';
-import { buildCodexAppServerArgs, codexTurnSecurity } from '@/server/agents/codexInvocation';
+import {
+  buildCodexAppServerArgs, codexAmbientInstructionNote, codexThreadPolicyIssue, codexTurnSecurity,
+} from '@/server/agents/codexInvocation';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
@@ -183,6 +185,19 @@ describe.sequential('CodexProcessRunner', () => {
     await expect(run()).rejects.toMatchObject({ code: 'unsupported-flags', delivery: 'not-sent' });
   });
 
+  it('notes ambient instruction files without blocking the turn', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-instructions';
+    const { result } = await run();
+    expect(result.finalText).toBe('Codex answer.');
+
+    const thread = { cwd: '/repo', approvalPolicy: 'never', sandbox: { type: 'readOnly', networkAccess: false } };
+    expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['/home/user/.codex/AGENTS.md'] }, '/repo', 'never')).toBeUndefined();
+    expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['relative/AGENTS.md'] }, '/repo', 'never')).toMatch(/invalid instruction source/);
+    expect(codexAmbientInstructionNote({ instructionSources: ['/repo/AGENTS.md'] }, '/repo')).toBeUndefined();
+    expect(codexAmbientInstructionNote({ instructionSources: ['/home/user/.codex/AGENTS.md', '/repo/AGENTS.md'] }, '/repo'))
+      .toMatch(/^Codex also loads 1 instruction file from outside the repository/);
+  });
+
   it('preflights authentication, isolation, protocol support, and mode gates without a model turn', async () => {
     await expect(checkCodex(binary, process.cwd(), false)).resolves.toMatchObject({
       available: true, authenticated: true, supportedModes: ['ask', 'plan'],
@@ -194,6 +209,11 @@ describe.sequential('CodexProcessRunner', () => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-mcp';
     await expect(checkCodex(binary, process.cwd(), true)).resolves.toMatchObject({
       available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'],
+    });
+    process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-instructions';
+    await expect(checkCodex(binary, process.cwd(), true)).resolves.toMatchObject({
+      available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'],
+      message: expect.stringContaining('instruction file from outside the repository'),
     });
     process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-mcp-unisolated';
     await expect(checkCodex(binary, process.cwd(), true)).resolves.toMatchObject({

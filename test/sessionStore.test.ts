@@ -40,7 +40,7 @@ function durableFixture(id: string, hostId: string, title = 'Migrated session'):
   const diagramId = crypto.randomUUID();
   const sketchId = crypto.randomUUID();
   return durableSessionSchema.parse({
-    version: 3,
+    version: 4, execution: 'local',
     revision: 9,
     id,
     title,
@@ -251,6 +251,9 @@ describe('host-owned session store', () => {
   it('rejects invalid version/execution combinations and retains strict content validation', () => {
     const session = durableFixture(crypto.randomUUID(), crypto.randomUUID());
     expect(durableSessionSchema.safeParse(session).success).toBe(true);
+    const { execution: _execution, ...legacySession } = session;
+    const versionThree = { ...legacySession, version: 3 as const };
+    expect(durableSessionSchema.safeParse(versionThree).success).toBe(true);
     for (const execution of ['local', 'docker'] as const) {
       const current = { ...session, version: 4, execution };
       expect(durableSessionSchema.safeParse(current).success).toBe(true);
@@ -258,9 +261,9 @@ describe('host-owned session store', () => {
       expect(durableSessionSchema.safeParse({ ...current, unknownField: true }).success).toBe(false);
     }
     for (const invalid of [
-      { ...session, execution: 'local' },
-      { ...session, execution: undefined },
-      { ...session, version: 4 },
+      { ...versionThree, execution: 'local' },
+      { ...versionThree, execution: null },
+      { ...versionThree, version: 4 },
       { ...session, version: 4, execution: 'unknown' },
       { ...session, version: 5, execution: 'local' },
       { ...session, version: 4, execution: 'docker', repositories: [] },
@@ -306,7 +309,7 @@ describe('host-owned session store', () => {
     expect(host.label).toBe('Laptop');
     expect(await readStoredMachineIdentity(dataDir)).toEqual(host);
     expect(created).toMatchObject({
-      version: 3,
+      version: 4, execution: 'local',
       revision: 0,
       projectId: project.id,
       repositories: [{ hostId: host.id, checkoutId: 'checkout-a', role: 'primary' }],

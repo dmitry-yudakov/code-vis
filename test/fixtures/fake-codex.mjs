@@ -32,7 +32,8 @@ function threadResult(params, id = threadId) {
   return {
     thread: { id, sessionId: id, preview: '', ephemeral: Boolean(params.ephemeral), modelProvider: 'openai', createdAt: 1 },
     model: 'fake-model', modelProvider: 'openai', serviceTier: null, cwd: params.cwd,
-    instructionSources: [], approvalPolicy: params.approvalPolicy,
+    instructionSources: mode === 'ambient-instructions' ? ['/tmp/fake-codex/AGENTS.md'] : [],
+    approvalPolicy: params.approvalPolicy,
     approvalsReviewer: 'user', sandbox: { type: 'readOnly', networkAccess: false }, reasoningEffort: 'medium',
   };
 }

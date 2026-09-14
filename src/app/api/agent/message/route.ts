@@ -10,6 +10,7 @@ import {
 import { runRegistry } from '@/server/runs/runRegistry';
 import { AgentRunError } from '@/server/agents/agentRunError';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
+import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runConversation } from '@/server/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
@@ -116,7 +117,12 @@ export async function POST(request: Request): Promise<Response> {
         : 'This message id was already used with different content.',
     }, { status: sameRequest ? 409 : 400 });
   }
-  const adapter = getProviderAdapters(config)[participant.provider];
+  try {
+    await recoverDockerExecution(config);
+  } catch {
+    return safeJsonResponse({ error: 'Docker recovery is incomplete. Restore the local daemon before starting another turn.' }, { status: 409 });
+  }
+  const adapter = getProviderAdapters(config, session.execution, { sessionId: session.id, participantId: participant.id })[participant.provider];
   const providerHealth = await adapter.checkHealth();
   if (!providerHealth.available || !providerHealth.supportedModes.includes(mode)) {
     return safeJsonResponse({
@@ -132,14 +138,15 @@ export async function POST(request: Request): Promise<Response> {
   const runId = randomUUID();
   const abortController = new AbortController();
   const providerKey = participant.session.started
-    ? `${host.id}:${participant.provider}:session:${participant.session.sessionId}`
-    : `${host.id}:${participant.provider}:participant:${participant.id}`;
+    ? `${host.id}:${session.execution}:${participant.provider}:session:${participant.session.sessionId}`
+    : `${host.id}:${session.execution}:${participant.provider}:participant:${participant.id}`;
   const reservation = runRegistry.reserve({
     runId,
     sessionId: session.id,
     participantId: participant.id,
     providerKey,
     checkoutId: repository.checkoutId,
+    checkoutPath: checkout.realPath,
     access: mode === 'agent' ? 'write' : 'read',
     cancel: () => abortController.abort(),
   });

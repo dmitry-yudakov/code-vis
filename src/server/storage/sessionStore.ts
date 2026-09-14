@@ -7,7 +7,7 @@ import {
 import path from 'node:path';
 import { z } from 'zod';
 import type {
-  AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
+  AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
   Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
@@ -19,7 +19,7 @@ import {
 } from '@/shared/participants';
 
 const STORE_FORMAT_VERSION = 1;
-const SESSION_RECORD_VERSION = 3;
+const SESSION_RECORD_VERSION = 4;
 const PROJECT_RECORD_VERSION = 1;
 const STORE_DIRECTORY = 'session-store-v2';
 const PREVIOUS_STORE_DIRECTORY = 'session-store-v1';
@@ -146,7 +146,7 @@ async function syncDirectory(directory: string): Promise<void> {
   }
 }
 
-async function atomicWrite(
+export async function atomicWrite(
   targetPath: string,
   value: unknown,
   beforeRename?: SessionStoreOptions['beforeRename'],
@@ -198,6 +198,7 @@ export function publicSession(session: DurableSession): PublicSession {
 export function arenaSessionSummary(session: DurableSession): ArenaSessionSummary {
   const latest = session.messages.at(-1);
   return {
+    execution: session.execution,
     id: session.id,
     revision: session.revision,
     title: session.title,
@@ -475,6 +476,10 @@ export class SessionStore {
   }
 
   async createSession(input: {
+    execution?: AgentExecution;
+    sourceSessionId?: string;
+    expectedSourceRevision?: number;
+    checkoutId?: string;
     projectId?: string;
     provider: AgentProvider;
     role?: AgentRole;
@@ -490,14 +495,31 @@ export class SessionStore {
       const id = randomUUID();
       const agentId = randomUUID();
       const role = input.role || 'coder';
+      const source = input.sourceSessionId ? await this.getSession(input.sourceSessionId) : undefined;
+      if (source && (input.projectId || input.checkoutId || !input.execution)) {
+        throw new Error('A continuation requires an execution and inherits its source session bindings.');
+      }
+      if (source && input.expectedSourceRevision !== undefined && source.revision !== input.expectedSourceRevision) {
+        throw new SessionStoreError('conflict', 'The source session changed. Refetch and retry the continuation.');
+      }
       const project = input.projectId ? await this.getProject(input.projectId) : undefined;
+      const projectId = source?.projectId || project?.id;
+      if (project && input.checkoutId) throw new Error('Choose a project or a checkout, not both.');
+      const repositories = structuredClone(source?.repositories || project?.repositories || (input.checkoutId ? [{
+        id: randomUUID(), hostId: this.manifest!.host.id, checkoutId: input.checkoutId, role: 'primary' as const,
+      }] : []));
+      if (input.execution === 'docker' && (repositories.length !== 1
+        || repositories[0].role !== 'primary' || repositories[0].hostId !== this.manifest!.host.id)) {
+        throw new Error('Docker requires exactly one primary repository on this machine.');
+      }
       const session: DurableSession = {
         version: SESSION_RECORD_VERSION,
+        execution: input.execution || 'local',
         revision: 0,
         id,
         title: `Session ${currentCount + 1}`,
-        ...(project ? { projectId: project.id } : {}),
-        repositories: structuredClone(project?.repositories || []),
+        ...(projectId ? { projectId } : {}),
+        repositories,
         createdAt: now,
         updatedAt: now,
         primaryAgentId: agentId,

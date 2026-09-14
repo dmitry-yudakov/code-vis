@@ -380,13 +380,13 @@ function migrateEvidenceStatuses(messages: unknown): unknown {
 }
 
 function migrateBindings(source: Record<string, unknown>): Record<string, unknown> {
-  const migrated: Record<string, unknown> = { ...source, version: 3, repositories: source.attachments };
+  const migrated: Record<string, unknown> = { ...source, version: 4, execution: 'local', repositories: source.attachments };
   delete migrated.attachments;
   delete migrated.projectId;
   return migrated;
 }
 
-/** Validates a v2 durable record while returning its exact v3 session equivalent. */
+/** Validates a v2 durable record while returning its current Local session equivalent. */
 export const previousDurableSessionSchema = z.unknown().transform((value, ctx) => {
   const source = record(value);
   if (!source || source.version !== 2) {
@@ -396,7 +396,7 @@ export const previousDurableSessionSchema = z.unknown().transform((value, ctx) =
   return { ...migrateBindings(source), messages: migrateEvidenceStatuses(source.messages) };
 }).pipe(durableSessionSchema);
 
-/** Validates a v1 durable record while returning its exact v3 session equivalent. */
+/** Validates a v1 durable record while returning its current Local session equivalent. */
 export const legacyDurableSessionSchema = z.unknown().transform((value, ctx) => {
   const source = record(value);
   if (!source || source.version !== 1) {

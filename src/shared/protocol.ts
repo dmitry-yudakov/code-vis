@@ -62,11 +62,20 @@ export const pairDeviceRequestSchema = z.object({
 
 export const revokeDeviceRequestSchema = z.object({ deviceId: z.string().uuid() }).strict();
 
+export const dockerSettingsSchema = z.object({ enabled: z.boolean() }).strict();
+
 export const createSessionRequestSchema = z.object({
+  execution: z.enum(['local', 'docker']).optional(),
+  sourceSessionId: z.string().uuid().optional(),
+  checkoutId: z.string().trim().min(1).max(128).optional(),
   projectId: z.string().uuid().optional(),
   provider: agentProviderSchema,
   role: agentRoleSchema.optional(),
-}).strict();
+}).strict().refine((input) => input.sourceSessionId
+  ? Boolean(input.execution && !input.checkoutId && !input.projectId)
+  : (!input.checkoutId || input.execution === 'docker') && !(input.checkoutId && input.projectId), {
+  message: 'Choose a source session and execution, a project, or a direct Docker checkout.',
+});
 
 export const sessionLifecycleRequestSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),

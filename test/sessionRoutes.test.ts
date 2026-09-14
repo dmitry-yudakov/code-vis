@@ -113,6 +113,14 @@ async function seedVersionFourSession(execution: 'local' | 'docker'): Promise<Du
   return session;
 }
 
+async function seedVersionThreeSession(): Promise<DurableSession> {
+  const created = await seedVersionFourSession('local');
+  const { execution: _execution, ...session } = created;
+  const versionThree: DurableSession = { ...session, version: 3 };
+  await writeFile(path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`), JSON.stringify(versionThree));
+  return versionThree;
+}
+
 describe('session snapshot and mutation routes', () => {
   beforeEach(async () => {
     routeState.dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-session-routes-'));
@@ -122,8 +130,13 @@ describe('session snapshot and mutation routes', () => {
   });
 
   it.each([3, 4] as const)('lists and hydrates version %i public snapshots, then applies revisioned canvas operations', async (version) => {
-    let session = version === 3 ? await createViaRoute('checkout-a') : publicSession(await seedVersionFourSession('local'));
-    expect(session).toMatchObject({ version, revision: 0, repositories: [{ checkoutId: 'checkout-a', role: 'primary' }] });
+    let session = publicSession(version === 3 ? await seedVersionThreeSession() : await seedVersionFourSession('local'));
+    expect(session).toMatchObject({
+      version,
+      ...(version === 4 ? { execution: 'local' } : {}),
+      revision: 0,
+      repositories: [{ checkoutId: 'checkout-a', role: 'primary' }],
+    });
     expect(session.participants.some((participant) => 'session' in participant)).toBe(false);
     expect(JSON.stringify(session)).not.toMatch(/lastObserved/);
 

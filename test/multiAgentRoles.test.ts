@@ -71,7 +71,7 @@ describe('authored transcript handoff', () => {
     session: { provider: 'codex', started: false },
   };
   const session: DurableSession = {
-    version: 3, revision: 0, id: crypto.randomUUID(), title: 'Handoff', repositories: [], createdAt: now, updatedAt: now,
+    version: 4, execution: 'local', revision: 0, id: crypto.randomUUID(), title: 'Handoff', repositories: [], createdAt: now, updatedAt: now,
     participants: [{ id: humanId, kind: 'human', displayName: 'You' }, editor, reviewer],
     primaryAgentId: editorId, messages: [], pinnedDiagramIds: [], annotations: {}, sketches: [],
   };
@@ -217,7 +217,7 @@ describe('durable delivery and canonical transcript boundaries', () => {
       session: { provider: 'codex', started: false }, lastObservedMessageId: messages[237].id,
     };
     const session: DurableSession = {
-      version: 3, revision: 0, id: crypto.randomUUID(), title: 'Long', repositories: [], createdAt: now, updatedAt: now,
+      version: 4, execution: 'local', revision: 0, id: crypto.randomUUID(), title: 'Long', repositories: [], createdAt: now, updatedAt: now,
       participants: [
         { id: humanId, kind: 'human', displayName: 'You' },
         participant,

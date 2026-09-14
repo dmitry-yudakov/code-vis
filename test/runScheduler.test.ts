@@ -8,6 +8,7 @@ interface TurnOptions {
   participantId?: string;
   providerKey?: string;
   checkoutId?: string;
+  checkoutPath?: string;
   access?: RunAccess;
 }
 
@@ -21,6 +22,7 @@ function turn(registry: RunRegistry, options: TurnOptions = {}) {
     participantId: options.participantId || crypto.randomUUID(),
     providerKey: options.providerKey || `provider:${crypto.randomUUID()}`,
     checkoutId: options.checkoutId || `checkout:${crypto.randomUUID()}`,
+    checkoutPath: options.checkoutPath,
     access: options.access || 'read',
     cancel: vi.fn(),
   });
@@ -35,6 +37,39 @@ async function scheduled(): Promise<void> {
 }
 
 describe('machine run scheduler', () => {
+  it('excludes overlapping checkout paths even when their registry identities differ', async () => {
+    const registry = new RunRegistry(3);
+    const parent = turn(registry, { checkoutPath: '/repos/project', access: 'write' });
+    const child = turn(registry, { checkoutPath: '/repos/project/package', access: 'read' });
+    const sibling = turn(registry, { checkoutPath: '/repos/project-other', access: 'write' });
+    await scheduled();
+    expect(parent.execute).toHaveBeenCalledOnce();
+    expect(child.execute).not.toHaveBeenCalled();
+    expect(sibling.execute).toHaveBeenCalledOnce();
+    registry.finish(parent.runId);
+    await scheduled();
+    expect(child.execute).toHaveBeenCalledOnce();
+    const enclosing = turn(registry, { checkoutPath: '/repos', access: 'write' });
+    await scheduled();
+    expect(enclosing.execute).not.toHaveBeenCalled();
+  });
+
+  it('guards helper bind sources from enclosing writers without blocking live root diffs', async () => {
+    const registry = new RunRegistry(2);
+    const release = registry.acquireCheckoutRead('/repos/project/package');
+    expect(release).toBeTypeOf('function');
+    const writer = turn(registry, { checkoutPath: '/repos/project', access: 'write' });
+    await scheduled();
+    expect(writer.execute).not.toHaveBeenCalled();
+    release!();
+    await scheduled();
+    expect(writer.execute).toHaveBeenCalledOnce();
+    expect(registry.acquireCheckoutRead('/repos/project/package')).toBeUndefined();
+    const releaseRoot = registry.acquireCheckoutRead('/repos/project');
+    expect(releaseRoot).toBeTypeOf('function');
+    releaseRoot!();
+  });
+
   it('runs to capacity, exposes queue positions, and promotes FIFO when a slot opens', async () => {
     const registry = new RunRegistry(2);
     const first = turn(registry);

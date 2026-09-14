@@ -4,6 +4,8 @@ import { getConfig } from '@/server/config';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +14,9 @@ export async function GET(request: Request): Promise<Response> {
   const denied = await authorizeDeviceRequest(request);
   if (denied) return denied;
   const config = getConfig();
+  let recoveryMessage: string | undefined;
+  try { await recoverDockerExecution(config); }
+  catch { recoveryMessage = 'Docker recovery is incomplete. Restore the local daemon before starting another turn.'; }
   let repositoriesRootReady = false;
   let dataDirectoryReady = false;
   let readinessMessage: string | undefined;
@@ -36,12 +41,17 @@ export async function GET(request: Request): Promise<Response> {
     adapters.codex.checkHealth(),
   ]);
   const providerReady = claude.available || codex.available;
+  const docker = await getDockerRuntime(config).health();
   return safeJsonResponse({
-    ok: repositoriesRootReady && dataDirectoryReady && providerReady,
+    ok: repositoriesRootReady && dataDirectoryReady && (providerReady || docker.available) && !recoveryMessage,
     hostLabel: config.hostLabel,
     repositoriesRootReady,
     dataDirectoryReady,
     providers: { claude, codex },
-    message: readinessMessage || (!providerReady ? claude.message || codex.message : undefined),
+    executions: {
+      local: { enabled: true, providers: { claude, codex } },
+      docker: { enabled: config.dockerEnabled, providers: { claude: docker, codex: docker } },
+    },
+    message: recoveryMessage || readinessMessage || (!providerReady && !docker.available ? claude.message || codex.message : undefined),
   });
 }
