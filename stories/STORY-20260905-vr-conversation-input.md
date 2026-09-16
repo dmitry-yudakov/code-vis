@@ -53,6 +53,22 @@ correct it, send it to the intended agent, and steer or stop the resulting work 
 
 ## Desired behavior
 
+### September 16 Quest deletion fallback
+
+Physical Quest feedback confirms that the guarded native keyboard buffer does not make Backspace
+observable on the tested headset/browser, despite the browser adapter exercising the expected
+`deleteContentBackward` event. Keep the native bridge bounded, but do not make recovery depend on
+an event Quest may omit.
+
+- [x] A populated inline composer exposes a labelled, controller-selectable **Clear draft** × beside
+  Dictate and Send. It clears the shared session draft without sending, then permits immediate
+  entry of a replacement message; it is absent when there is nothing to clear.
+- [x] Focused browser coverage activates the same world-space control through the ray path, verifies
+  the empty shared draft, types a replacement, and sends only that replacement.
+- [x] Record the user-reported Quest result accurately: general immersive use works, native
+  Backspace remains unverified/broken on the tested configuration, and chat shape/view polish is
+  deferred. Do not mark the broader physical-input acceptance complete from this partial check.
+
 ### Native Quest keyboard bridge
 
 Replace the in-panel keyboard from the previous follow-up with Quest's familiar system keyboard.
@@ -65,9 +81,10 @@ observable value change, and it must not leak into the draft.
   a focused DOM input when `XRSession.isSystemKeyboardSupported` is true.
 - [x] Native typed or dictated text is inserted at the recorded caret. Native edits to that text
   update only the inserted range, preserving the surrounding draft.
-- [x] Backspace from an empty native buffer deletes the complete grapheme before the recorded
-  caret; repeated Backspace is re-armed without adding a visible character. A selected range, when
-  available, is deleted first.
+- [ ] Backspace from an empty native buffer deletes the complete grapheme before the recorded
+  caret; repeated Backspace is re-armed without adding a visible character. The simulated event
+  path passes, but the tested Quest/browser does not expose the required deletion event; the clear
+  control above is the supported recovery until a physical configuration verifies this behavior.
 - [x] Browsers without the WebXR system keyboard retain normal textarea/physical keyboard editing.
   Disable, navigation, send, and exit remove focus and transient input state without losing drafts.
 - [x] Remove the superseded in-panel keyboard and its texture allocation. Pure regressions cover
@@ -278,6 +295,20 @@ deletions. Verify guard restoration, native speech, controller caret placement, 
 path on the exact Quest 3S browser used for acceptance.
 
 ## Verification record
+
+September 16, 2026:
+
+- Headset feedback confirms that the immersive workspace generally works, while deleting existing
+  composer text with the native Quest keyboard does not. The guarded Backspace bridge therefore
+  remains unaccepted; exact headset/browser versions and the full physical input matrix are still
+  needed. Conversation shape and viewing polish are deferred rather than expanded into this fix.
+- A populated inline composer now shows a labelled × **Clear draft** action between Dictate and
+  Send. It ends the transient native edit, uses the existing session-owned draft action, disappears
+  for an empty draft, and permits immediate replacement entry without sending the cleared text.
+- `npm run lint` passed. `npm test` passed 388 tests in 61 files. The production build passed, the
+  focused clear/retype/send journey passed, and all 8 immersive conversation-input browser cases
+  passed. The regression ray-selects the world-space ×, verifies the shared draft is empty, types a
+  replacement, switches views, and sends only that replacement. `git diff --check` passed.
 
 September 12, 2026:
 

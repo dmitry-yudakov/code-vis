@@ -19,7 +19,7 @@ const ICONS: Record<ConversationActionName, WorkspaceIcon> = {
   read: 'chat', compose: 'compose', agents: 'agents', latest: 'down', help: 'help',
   record: 'microphone', retry: 'refresh', stop: 'stop', discard: 'close', send: 'send', cancel: 'stop',
   append: 'check', replace: 'replace', 'replace-all': 'replace', spell: 'spell',
-  'previous-word': 'chevron-left', 'next-word': 'chevron-right', delete: 'trash', clear: 'trash',
+  'previous-word': 'chevron-left', 'next-word': 'chevron-right', delete: 'trash', clear: 'close',
   undo: 'undo', newline: 'newline', 'draft-older': 'chevron-left', 'draft-newer': 'chevron-right',
   'previous-agent': 'chevron-left', 'next-agent': 'chevron-right', 'make-primary': 'check',
   ask: 'help', plan: 'edit', agent: 'settings', provider: 'agents', role: 'settings', add: 'plus',
@@ -125,7 +125,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
             ? ['done', 'append', 'replace', 'replace-all', 'spell', 'previous-word', 'next-word', 'discard']
             : ['append', ...(selected ? ['replace' as const] : []), 'edit', 'discard']
           : editing ? ['done', 'previous-word', 'next-word', 'delete', 'clear', 'undo', 'newline', voice.configured ? 'record' : 'retry', 'help']
-            : [voice.configured ? 'record' : 'retry', 'send'];
+            : [voice.configured ? 'record' : 'retry', ...(draft ? ['clear' as const] : []), 'send'];
   if (expanded && pageCount > 1 && !voiceBusy) actions.push('draft-older', 'draft-newer');
   if (controls?.runId) actions.push('cancel');
   const visibleActions = [...actions, ...(!expanded && !atBottom ? ['latest' as const] : [])];
@@ -183,7 +183,10 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
       else if (action === 'draft-newer') setPage(Math.min(pageCount - 1, safePage + 1));
       else if (action === 'previous-word' || action === 'next-word') setWord(word + (action === 'next-word' ? 1 : -1));
       else if (action === 'undo') { const previous = undo.current.pop(); if (previous !== undefined) { draftRef.current = previous; controls?.onDraft(previous); } }
-      else if (action === 'clear') { edit(''); setWord(-1); }
+      else if (action === 'clear') {
+        document.querySelector<HTMLTextAreaElement>('[data-immersive-message-input]')?.blur();
+        edit(''); setWord(-1);
+      }
       else if (action === 'delete') { edit(editVoiceDraft(draftRef.current, '', selected)); setWord(-1); }
       else if (action === 'newline') edit(editVoiceDraft(draftRef.current, '\n'));
       else if (action === 'spell') {
@@ -226,7 +229,8 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
     {!expanded && !atBottom && button('latest', [0.55, -0.32, 0.05])}
     {actions.map((action, i) => button(action, !expanded
       ? action === 'send' || action === 'discard' || action === 'cancel'
-        ? [0.56, -0.70, 0.04] : [0.35, -0.70, 0.04]
+        ? [0.56, -0.70, 0.04] : action === 'clear'
+          ? [0.35, -0.70, 0.04] : [draft && !controls?.running ? 0.14 : 0.35, -0.70, 0.04]
       :
       [(i % 6 - (Math.min(6, actions.length - Math.floor(i / 6) * 6) - 1) / 2) * 0.215,
         actions.length > 6 ? -0.58 - Math.floor(i / 6) * 0.22 : -0.76, 0.03]))}

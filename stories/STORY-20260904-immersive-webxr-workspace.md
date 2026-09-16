@@ -361,3 +361,10 @@ No Quest-class headset is available in this implementation environment. Before c
 to **Shipped**, run all six manual steps above and record the Quest model, OS and browser versions,
 median/p95 frame time after warm-up, peak logical texture pixels, live-resource counts before/during/
 after XR, five-minute update/switching behavior, and ten-cycle entry/exit result here.
+
+Partial headset feedback on 2026-09-16 reports that the immersive workspace generally works. It also
+identified native chat-input deletion as broken; Story 47 now provides a controller-selectable
+**Clear draft** fallback while leaving native Backspace unaccepted. This does not close Story 44's
+manual criterion: headset/browser versions, the interaction matrix, ten-cycle cleanup, five-minute
+update/switching run, and frame/resource measurements have not been recorded. Conversation panel
+shape and view polish are explicitly deferred for a future slice.
