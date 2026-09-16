@@ -1,6 +1,6 @@
 # Story 48 — Answer permissions and control the active session in VR
 
-**Status:** Draft · **Type:** Frontend-only · **Depends on:**
+**Status:** In progress · **Type:** Frontend-only · **Depends on:**
 [Story 45](STORY-20260905-application-vr-shell.md), [Story 46](STORY-20260905-vr-workspace-panels.md),
 [Story 47](STORY-20260905-vr-conversation-input.md).
 
@@ -12,14 +12,23 @@
 An Agent-mode conversation cannot be completed in VR if every approval requires returning to the
 browser window. The user chose a fully operational single session before the multi-session Arena.
 
-## Current behavior (where the code is)
+## Implementation (where the code is)
 
-- [PermissionCard.tsx:7](../src/features/agents/PermissionCard.tsx#L7) renders explicit Allow/Deny
-  actions in the DOM; [AppShell.tsx:805](../src/features/shell/AppShell.tsx#L805) routes decisions.
-- [AppShell.tsx:470](../src/features/shell/AppShell.tsx#L470) creates sessions with provider/mode
-  choices; [1251](../src/features/shell/AppShell.tsx#L1251) cancels the focused run.
-- [immersiveTypes.ts:27](../src/features/diagram/spatial/immersiveTypes.ts#L27) currently carries
-  only a count and text status, without actionable permission records.
+- [SessionTools.tsx:14](../src/features/shell/immersive/SessionTools.tsx#L14) renders the launcher,
+  repository attachment, paged permission details, explicit decisions, retry, and device sign-out.
+- [sessionControls.ts:4](../src/features/shell/immersive/sessionControls.ts#L4) defines captured
+  permission identity and client-only shell actions; no shared wire schema changed.
+- [usePermissionDecisions.ts:9](../src/features/shell/usePermissionDecisions.ts#L9) owns shared DOM,
+  Arena, and XR decisions, synchronous duplicate guards, bounded outcomes, and confirmed refresh
+  before an explicit retry. It keeps uncertain results when the executor cannot be reached.
+- [AppShell.tsx:541](../src/features/shell/AppShell.tsx#L541) creates sessions;
+  [897](../src/features/shell/AppShell.tsx#L897) projects stream/Arena requests;
+  [1331](../src/features/shell/AppShell.tsx#L1331) cancels captured runs;
+  [1559](../src/features/shell/AppShell.tsx#L1559) supplies the existing authorized actions to XR.
+- [ImmersiveWorkspace.tsx:159](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L159) routes
+  controller/semantic session actions and preserves the shared composer while session tools open.
+- [immersive.spec.ts:1290](../e2e/immersive.spec.ts#L1290) covers real-route fake-provider approvals
+  and denial, remote creation/decision failures, captured identity, stale requests, and revocation.
 
 ## Desired behavior
 
@@ -43,14 +52,24 @@ browser window. The user chose a fully operational single session before the mul
 
 ## Acceptance criteria
 
-- [ ] A new empty or repository-free session can be created and instructed entirely in VR.
-- [ ] The user can inspect, allow, and deny active-session permissions without exiting or losing a draft.
-- [ ] Commands capture the target identity; focus changes and duplicate selection cannot retarget
+Implementation scope, September 16, 2026: add Session tools to the conversation panel, with a
+simple local-execution launcher using the selected machine's existing projects/providers/modes.
+Project bindings are inherited through the existing create route. Repository-free sessions can
+attach an existing checkout as primary in VR before sending; the server's primary-repository
+requirement for agent turns remains unchanged. Docker setup and execution selection remain in the
+existing desktop setup flow. Permission details use bounded paged text with the complete sanitized
+summary reachable. Decisions retain captured machine/session/run/request identity and an explicit
+outcome; no automatic retry or selection of the next request after answering.
+
+- [x] A new empty or repository-free session can be created and instructed entirely in VR (attach
+  an existing primary checkout before an agent turn, as required by the existing server contract).
+- [x] The user can inspect, allow, and deny active-session permissions without exiting or losing a draft.
+- [x] Commands capture the target identity; focus changes and duplicate selection cannot retarget
   or duplicate a permission decision or cancellation.
-- [ ] Already-answered, expired, offline, unauthorized, and failed decisions show accurate outcomes.
-- [ ] A controller-only path operates the decision controls; speech input cannot implicitly approve.
+- [x] Already-answered, expired, offline, unauthorized, and failed decisions show accurate outcomes.
+- [x] A controller-only path operates the decision controls; speech input cannot implicitly approve.
 - [ ] A real Quest 3S Agent-mode turn completes through at least one approval and a separate denial.
-- [ ] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including stale and
+- [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including stale and
   cross-device decision cases through the existing fake-provider/route harness.
 
 ## Out of scope
@@ -69,4 +88,33 @@ Machine pairing/provider setup remain pre-session setup; no new permission polic
 
 ## Verification record
 
-Pending implementation and Quest 3S verification.
+September 16, 2026:
+
+- Implemented Session tools in the conversation header. The launcher selects an existing machine,
+  project or No project, provider, and supported mode. Local execution remains server-owned;
+  existing project bindings are inherited, and a repository-free session can attach a discovered
+  primary checkout before sending. Creation and attachment failures preserve the view and draft.
+- Permissions retain the full sanitized summary in a ten-line paged raster viewport. Each request
+  names its session, machine, agent/provider, and tool. Allow/Deny are explicit ray controls; opening
+  a card or transcribing speech cannot decide it. Results remain on the selected card until the user
+  chooses another request. DOM and XR share a command owner with bounded device-local outcomes.
+- Failed delivery requires explicit Refresh status. The captured executor's run discovery must
+  confirm that exact session/run/request is still pending before rearming; a failed refresh keeps
+  the uncertain outcome. 404/409 retain the server's stale/expired explanation, and 401/403 refresh
+  the existing device gate. Device sign-out has a deliberate second selection.
+- Browser coverage includes in-XR creation and checkout attachment through real routes, separate
+  fake-provider Agent turns with ray-selected Allow and Deny, duplicate creation/decision/cancel
+  selection, remote target identity through navigation, complete long-detail paging, 503 recovery,
+  cross-device resolution, 404/409/401, drafts across tools, and explicit device revocation.
+- Inspected launcher and permission screenshots and enlarged session-detail text. Physical Quest
+  3S readability, controller selection, and a real Agent approval/denial journey remain unverified;
+  this story stays **In progress**. Story 49 is the next implementation slice.
+- The full browser run exposed cross-file host-state interference: a concurrent Docker test changed
+  the newest project selected by the canvas reload test. Playwright now uses one worker because the
+  files share a host store and scheduler (including host-wide cancellation cleanup). The pairing
+  test also targets the exact page heading rather than matching projects with “Arena” in their names.
+- Final verification: `npm run lint` passed; `npm test` passed 388 tests in 61 files; the production
+  build passed. The E2E production pipeline was run as `CODEAI_DIST_DIR=.next-e2e npm run build`
+  followed by `npx playwright test`; all 63 browser tests passed with the final one-worker config.
+  `git diff --check` passed. Review found and corrected retry recovery and cancellation identity
+  gaps before final verification; no additional blocking findings remained.

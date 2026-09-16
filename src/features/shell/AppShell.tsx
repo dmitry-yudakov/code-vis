@@ -51,6 +51,8 @@ import {
   type CanvasSurface, type SpatialViewState,
 } from './workspaceViews';
 import { ImmersiveBoundary } from './immersive/ImmersiveBoundary';
+import { usePermissionDecisions } from './usePermissionDecisions';
+import { permissionKey, type PermissionTarget } from './immersive/sessionControls';
 import type { ImmersiveSessionChoice } from '@/features/diagram/spatial/immersiveTypes';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
@@ -88,7 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const arenaSection = arenaSectionForPathname(pathname);
   const arenaOpen = arenaSection !== undefined;
-  const { status: deviceAccess } = useDeviceAccess();
+  const { status: deviceAccess, refresh: refreshDeviceAccess } = useDeviceAccess();
   const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
   const [health, setHealth] = useState<Health>();
   const [localExecutionHealth, setLocalExecutionHealth] = useState<ExecutionHealth>();
@@ -116,6 +118,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [creatingSession, setCreatingSession] = useState(false);
+  const creatingSessionRef = useRef(false);
+  const cancellingRuns = useRef(new Set<string>());
   const [loading, setLoading] = useState(true);
   const [immersiveActive, setImmersiveActive] = useState(false);
   const [runsBySession, setRunsBySession] = useState<Record<string, RunPresentation>>({});
@@ -143,6 +147,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   sessionsRef.current = sessions;
   const focusedSessionIdRef = useRef(sessionId);
   focusedSessionIdRef.current = sessionId;
+  const onPermissionOutcome = useCallback((target: PermissionTarget, message: string) => {
+    setNotice(`${target.sessionTitle}: ${message}`);
+  }, []);
+  const permissionDecisions = usePermissionDecisions(localMachineId, arena.refresh, refreshDeviceAccess, onPermissionOutcome);
 
   const putRun = useCallback((run: RunPresentation) => {
     const next = { ...runsBySessionRef.current, [run.sessionId]: run };
@@ -221,7 +229,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         : session?.messages.at(-1)?.role === 'assistant'
           ? 'Completed'
           : 'Ready';
-  const decidingPermission = focusedRun?.decidingPermission;
+  const decidingPermission = permissions.find((request) => focusedRun?.runId && permissionDecisions.results[permissionKey({
+    machineId: machineId || localMachineId || '', sessionId: sessionId || '', runId: focusedRun.runId, requestId: request.requestId,
+  })]?.pending)?.requestId;
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
@@ -532,6 +542,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     requestedProvider: AgentProvider = newProvider,
     options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
   ): Promise<boolean> => {
+    if (creatingSessionRef.current) return false;
+    creatingSessionRef.current = true;
     setNotice(undefined);
     setCreatingSession(true);
     try {
@@ -576,6 +588,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNotice(error instanceof Error ? error.message : 'Could not create a session.');
       return false;
     } finally {
+      creatingSessionRef.current = false;
       setCreatingSession(false);
     }
   }, [applyServerSnapshot, arena.machines, arena.refresh, localMachineId, machineId, newProvider, panelLayout.openConversationFor, projectId, router, selectMachineCatalog, workspace.openInProject]);
@@ -662,8 +675,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [workspaceMachineId]);
 
   const updateRepositories = useCallback((update: (current: RepositoryBinding[]) => RepositoryBinding[]) => {
-    if (!session || sessionRunning) return;
-    void enqueueSessionMutation(session.id, (current) => {
+    if (!session || sessionRunning) return Promise.resolve();
+    return enqueueSessionMutation(session.id, (current) => {
       const repositories = update(current.repositories);
       return fetch(apiPath(`/api/sessions/${encodeURIComponent(session.id)}/repositories`), {
         method: 'PUT',
@@ -881,32 +894,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (handoffMode && sessionId) mutateSession(sessionId, (current) => ({ ...current, defaultMode: handoffMode }));
   }, [mutateSession, selectAgent, sessionId]);
 
-  const decidePermission = useCallback(async (requestId: string, decision: 'allow' | 'deny') => {
-    const targetSessionId = focusedSessionIdRef.current;
-    if (!targetSessionId) return;
-    const runId = runsBySessionRef.current[targetSessionId]?.runId;
-    if (!runId) return;
-    updateRun(targetSessionId, (run) => ({ ...run, decidingPermission: requestId }));
-    try {
-      const response = await fetch(apiPath('/api/agent/permission'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId, requestId, decision }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({})) as { error?: string };
-        updateRun(targetSessionId, (run) => ({
-          ...run,
-          permissions: run.permissions.filter((item) => item.requestId !== requestId),
-        }));
-        setNotice(data.error || 'That approval could not be delivered.');
-      }
-    } catch {
-      setNotice('That approval could not be delivered.');
-    } finally {
-      updateRun(targetSessionId, (run) => ({ ...run, decidingPermission: undefined }));
-    }
-  }, [apiPath, updateRun]);
+  const focusedPermissionTargets: PermissionTarget[] = (focusedRun?.runId ? permissions.map((request) => ({
+    ...request, runId: focusedRun.runId!,
+  })) : arena.discovery.active.filter((run) => run.machineId === machineId && run.sessionId === sessionId)
+    .flatMap((run) => run.pendingPermissions.map((request) => ({ ...request, runId: run.runId })))).map((request) => {
+      const agent = agents.find((item) => item.id === request.participantId);
+      return { ...request, machineId: machineId || localMachineId || '', sessionId: sessionId || '',
+        sessionTitle: session?.title || 'Session', machineLabel: arena.machines.find((item) => item.machine.id === machineId)?.machine.label || 'This machine',
+        agentLabel: agent ? `${agent.displayName} (${PROVIDER_LABELS[agent.provider]})` : 'Agent',
+      };
+    });
+  const decidePermission = (requestId: string, decision: 'allow' | 'deny') => {
+    const target = focusedPermissionTargets.find((item) => item.requestId === requestId);
+    if (target) void permissionDecisions.decide(target, decision);
+  };
 
   /**
    * Drives the UI from one run's event stream. Shared by sending a message and by reattaching to a
@@ -1300,26 +1301,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [arena.refresh, localMachineId, machineId, projectId, refreshSession]);
 
-  const decideArenaPermission = useCallback(async (
-    targetMachineId: string,
-    runId: string,
-    requestId: string,
-    decision: 'allow' | 'deny',
-  ) => {
-    try {
-      const response = await fetch(machineApiPath('/api/agent/permission', targetMachineId, localMachineId), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId, requestId, decision }),
-      });
-      const data = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(data.error || 'That permission could not be answered.');
-      await arena.refresh();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'That permission could not be answered.');
-      await arena.refresh();
-    }
-  }, [arena.refresh, localMachineId]);
+  const decideArenaPermission = async (targetMachineId: string, runId: string, requestId: string, decision: 'allow' | 'deny') => {
+    const machine = arena.machines.find((item) => item.machine.id === targetMachineId);
+    const run = machine?.runs.active.find((item) => item.runId === runId);
+    const request = run?.pendingPermissions.find((item) => item.requestId === requestId);
+    if (!run || !request) return;
+    await permissionDecisions.decide({ ...request, machineId: targetMachineId, sessionId: run.sessionId, runId,
+      machineLabel: machine!.machine.label, sessionTitle: machine!.sessions.find((item) => item.id === run.sessionId)?.title || 'Session', agentLabel: 'Agent',
+    }, decision);
+  };
 
   const cancelBusyRun = useCallback(async () => {
     if (!busyRun) return;
@@ -1338,7 +1328,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [apiPath, busyRun, busyRunLabel]);
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
-  const cancelRun = useCallback(async (target?: { sessionId: string; runId: string }) => {
+  const cancelRun = useCallback(async (target?: { machineId?: string; sessionId: string; runId: string }) => {
     const targetSessionId = target?.sessionId || focusedSessionIdRef.current;
     if (!targetSessionId) return;
     const runId = target?.runId || runsBySessionRef.current[targetSessionId]?.runId;
@@ -1347,8 +1337,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       runControllers.current.get(targetSessionId)?.abort();
       return;
     }
+    const targetMachineId = target?.machineId || machineId;
+    const key = JSON.stringify([targetMachineId, targetSessionId, runId]);
+    if (cancellingRuns.current.has(key)) return;
+    cancellingRuns.current.add(key);
     try {
-      const response = await fetch(apiPath('/api/agent/cancel'), {
+      const response = await fetch(machineApiPath('/api/agent/cancel', targetMachineId, localMachineId), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }),
       });
       if (!response.ok) {
@@ -1367,8 +1361,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         message: 'Cancellation could not be confirmed. The turn may still be running.',
         missingProviderSession: false,
       });
+    } finally {
+      cancellingRuns.current.delete(key);
+      await arena.refresh();
     }
-  }, [apiPath, setRunOutcome]);
+  }, [arena.refresh, localMachineId, machineId, setRunOutcome]);
 
   // Recover every active turn in this project's workspace. Each attachment owns its controller and
   // presentation, so one stale or failed stream cannot disturb another session's live work.
@@ -1559,6 +1556,37 @@ export function AppShell({ children }: { children: ReactNode }) {
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
           <ImmersiveBoundary
+            sessionControls={{
+              machines: arena.machines, machineId, sessionId: session?.id, creating: creatingSession,
+              status: immersiveStatus, permissions: focusedPermissionTargets, results: permissionDecisions.results,
+              online: immersiveMachine?.machine.state === 'online', checkouts: orderedCheckouts,
+              needsRepository: Boolean(session && !session.repositories.some((item) => item.role === 'primary')),
+              canAttach: Boolean(session && !sessionRunning && session.execution !== 'docker' && immersiveMachine?.machine.state === 'online'),
+              canCancel: Boolean(focusedRun?.runId),
+              cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
+              canRetry: Boolean(session?.messages.some((item) => item.role === 'user') && !sessionRunning),
+              onCreate: ({ provider, ...options }) => createSession(provider, { ...options, fromArena: true }),
+              onAttach: (checkoutId) => updateRepositories((current) => [
+                ...current.filter((item) => item.checkoutId !== checkoutId).map((item) => ({ ...item, role: 'reference' as const })),
+                { id: crypto.randomUUID(), checkoutId, hostId: hostId!, role: 'primary' },
+              ]),
+              onDecide: (target, decision) => { void permissionDecisions.decide(target, decision); },
+              onRefresh: () => { void permissionDecisions.refreshFailures(); void refreshDeviceAccess(); },
+              onCancel: () => { if (session && focusedRun?.runId) void cancelRun({ machineId, sessionId: session.id, runId: focusedRun.runId }); },
+              onRetry: () => {
+                const message = session?.messages.findLast((item) => item.role === 'user');
+                if (message?.role === 'user') prefillHandoff(message.addressedParticipantId, message.text, message.mode);
+              },
+              onRevoke: () => {
+                if (!deviceAccess.device) { setNotice('This browser is not a paired device.'); return; }
+                void fetch('/api/auth/devices', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ deviceId: deviceAccess.device.id }),
+                }).then(async (response) => {
+                  if (!response.ok) setNotice('Could not forget this device. Try again.');
+                  await refreshDeviceAccess();
+                }).catch(() => setNotice('Could not forget this device. Try again.'));
+              },
+            }}
             conversation={!loading && session ? {
               draft: composer,
               target: `${session.title} · ${activeAgent?.displayName || 'No agent'} · ${PROVIDER_LABELS[activeProvider]} · ${mode}`,
@@ -1570,10 +1598,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                 && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
                 && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch')),
               running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
+              cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
               agents, activeAgentId: activeAgent?.id, primaryAgentId: session.primaryAgentId,
               providers: selectableProviders, mode, unsupportedModes,
               onDraft: setComposer, onSend: () => { void send(); },
-              onCancel: () => { if (focusedRun?.runId) void cancelRun({ sessionId: session.id, runId: focusedRun.runId }); },
+              onCancel: () => { if (focusedRun?.runId) void cancelRun({ machineId, sessionId: session.id, runId: focusedRun.runId }); },
               onMode: setMode, onSelectAgent: selectAgent,
               onAddAgent: (provider, role) => { void addAgent(provider, role); },
               onMakePrimary: (id) => { void setPrimaryAgent(id); },
@@ -1724,6 +1753,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>{displayedNotice}</span>
           {archiveUndo?.machineId && <button type="button" onClick={() => void restoreArenaSession(archiveUndo.machineId!, archiveUndo)}>Undo archive</button>}
           {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
+          {Object.values(permissionDecisions.results).some((result) => result.retryable) && <button type="button" onClick={() => void permissionDecisions.refreshFailures()}>Refresh approval status</button>}
           {focusedRunOutcome?.missingProviderSession && <button type="button" disabled={sessionRunning || creatingSession} onClick={() => continueSession(session?.execution || 'local')}>Continue in new session</button>}
           {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
           <button type="button" aria-label="Dismiss notice" onClick={() => {

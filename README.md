@@ -187,7 +187,18 @@ correction, spelling, and undo. Agents uses the same participant and mode action
 as desktop. Streaming preserves an older reading position and follows new messages when you are
 already at the bottom; Latest floats at the lower right of the scroll viewport only when reading
 older content. Latest and Send return to current activity.
-Cancel is available while reading an active run. Attachment management and permissions arrive later.
+Cancel is available while reading an active run. **Session tools** in the conversation header opens
+a launcher and the active session's permissions. Choose an existing machine, project (or No project),
+provider, and mode to create a local-execution session. A repository-free session can attach an
+existing checkout as primary here before sending an agent instruction.
+
+**Permissions** shows the session, machine, agent, tool, and complete sanitized details through
+**Previous details / More details**. Select **Allow** or **Deny** explicitly; speech only edits drafts.
+The card retains its result, and **Next request** deliberately selects another request. If delivery
+fails, **Refresh status** checks current state before another explicit attempt. **Retry instruction**
+copies the last instruction into the draft for review before Send. **Forget this device** requires
+a second selection and returns a paired headset to the existing pairing gate. Quest 3S acceptance
+of this work loop remains pending. Canvas attachment management follows in Story 49.
 
 Entry always requires a fresh gesture. Deliberate panel placement, size, visibility, and focus
 are saved on this device per machine/project/session, separately from desktop layouts. Re-entry

@@ -17,7 +17,6 @@ export interface RunPresentation {
   runFailed: boolean;
   permissions: PendingPermission[];
   pendingPermissionCount?: number;
-  decidingPermission?: string;
 }
 
 export interface SessionRunOutcome {

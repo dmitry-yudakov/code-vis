@@ -1,3 +1,4 @@
+import type { ImmersiveSessionControls, SessionAction } from '@/features/shell/immersive/sessionControls';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, SessionSnapshot } from '@/shared/types';
 import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
@@ -52,6 +53,7 @@ export interface ImmersiveXRAdapter {
 
 export type ImmersiveSemanticAction =
   | PanelAction
+  | SessionAction
   | ConversationAction
   | 'exit'
   | 'reset-workspace'
@@ -86,6 +88,7 @@ export interface ImmersiveSessionChoice {
 
 export interface ImmersiveWorkspaceProps {
   conversation?: ImmersiveConversationControls;
+  sessionControls?: ImmersiveSessionControls;
   viewKey: string;
   layout: ImmersiveLayout;
   editing?: PanelEditing;

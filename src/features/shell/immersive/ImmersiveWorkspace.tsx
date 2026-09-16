@@ -18,6 +18,8 @@ import { PANEL_IDS, PANEL_TITLES, parsePanelAction } from './workspaceLayout';
 import { evidencePages, workspaceTextLines } from './workspaceText';
 import { useTextureResource } from './useTextureResource';
 import { WorkspacePanel, WorldButton } from './WorkspacePanel';
+import { SessionTools } from './SessionTools';
+import type { SessionActionName } from './sessionControls';
 import { ConversationTools } from './ConversationTools';
 import { ConversationList, type ConversationListController } from './ConversationList';
 import type { ConversationActionName } from './conversationControls';
@@ -95,6 +97,9 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   const [conversationTab, setConversationTab] = useState<'read' | 'compose' | 'agents'>('read');
   const conversationAction = useRef<((action: ConversationActionName) => void) | undefined>(undefined);
   const setConversationController = useCallback((perform?: (action: ConversationActionName) => void) => { conversationAction.current = perform; }, []);
+  const [sessionToolsOpen, setSessionToolsOpen] = useState(false);
+  const sessionAction = useRef<((action: SessionActionName) => void) | undefined>(undefined);
+  const setSessionController = useCallback((perform?: (action: SessionActionName) => void) => { sessionAction.current = perform; }, []);
   const [listOpen, setListOpen] = useState(!session);
   const listController = useRef<ConversationListController | undefined>(undefined);
   const setListController = useCallback((controller?: ConversationListController) => { listController.current = controller; }, []);
@@ -106,7 +111,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     setAtBottom(value.atBottom); onConversationScroll(value);
   }, [onConversationScroll]);
   const activeChoice = choices.find((choice) => choice.sessionId === session?.id && (!session.machineId || choice.machineId === session.machineId));
-  useEffect(() => { setConversationTab('read'); setListOpen(!session); }, [viewKey, session?.id]);
+  useEffect(() => { setConversationTab('read'); setListOpen(!session); setSessionToolsOpen(false); }, [viewKey, session?.id]);
   const pages = useMemo(() => evidencePages(evidence.diff), [evidence.diff]);
   const page = Math.min(evidencePage, pages.length - 1);
   useEffect(() => { setEvidencePage(0); }, [evidence.selectedPath, viewKey]);
@@ -116,6 +121,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     [action, createWorkspaceIconResource(icon, theme, ledger)])), [theme]);
   const panelControls = useTextureResource((ledger) => createPanelControlResources(theme, ledger), [theme]);
   const headerControls = useTextureResource((ledger) => ({
+    tools: createWorkspaceIconResource('settings', theme, ledger),
     history: createWorkspaceIconResource('history', theme, ledger),
     agents: createWorkspaceIconResource('agents', theme, ledger),
   }), [theme]);
@@ -150,7 +156,18 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
         || panelAction.command === 'toggle' && layout.panels.conversation.open)) setConversationTab('read');
       onPanelAction(panelAction.id, panelAction.command); return;
     }
+    if (action.startsWith('session:')) {
+      if (!contentEnabled('conversation') || voicePending) return;
+      if (action === 'session:tools') {
+        setSessionToolsOpen((value) => !value); setListOpen(false); onPanelAction('conversation', 'focus');
+      } else if (sessionToolsOpen) sessionAction.current?.(action.slice('session:'.length) as SessionActionName);
+      return;
+    }
     if (action.startsWith('conversation:')) {
+      if (sessionToolsOpen) {
+        if (action === 'conversation:list' || action === 'conversation:back' || action === 'conversation:agents') setSessionToolsOpen(false);
+        else return;
+      }
       if (!contentEnabled('conversation')) return;
       if (voicePending && (action === 'conversation:list' || action === 'conversation:agents')) return;
       if (action === 'conversation:list') {
@@ -187,7 +204,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
       }
     }
   }, [onPanelAction, onResetWorkspace, onExit, recenter, layout, editing, onPreviousCanvas, onNextCanvas,
-    listOpen, conversationTab, voicePending, session, evidence, page, pages.length]);
+    listOpen, sessionToolsOpen, conversationTab, voicePending, session, evidence, page, pages.length]);
   useEffect(() => { onActionController(perform); return () => onActionController(undefined); }, [onActionController, perform]);
   const button = (action: ImmersiveAction, position: [number, number, number], disabled = false) => <WorldButton
     action={action} label={IMMERSIVE_ACTION_LABELS[action]} resource={controls?.[action]} iconTheme={theme} position={position} disabled={disabled} onAction={() => perform(action)} />;
@@ -196,7 +213,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     <group ref={contentOrigin} name="Workspace origin">
       {PANEL_IDS.filter((id) => layout.panels[id].open).map((id) => <WorkspacePanel key={`${viewKey}:${id}`}
         id={id} layout={layout.panels[id]} focused={layout.focused === id} editing={editing}
-        heading={id === 'conversation' ? listOpen ? 'Conversations' : session?.title || 'Conversation' : id === 'evidence' ? 'Repository changes' : undefined}
+        heading={id === 'conversation' ? sessionToolsOpen ? 'Session tools' : listOpen ? 'Conversations' : session?.title || 'Conversation' : id === 'evidence' ? 'Repository changes' : undefined}
         headerBack={id === 'conversation' && listOpen}
         detail={id === 'conversation' ? listOpen ? 'Newest first' : activeChoice?.detail || props.conversation?.target : undefined}
         theme={theme} controls={panelControls} perform={perform} onPlacement={onPanelPlacement}>
@@ -206,13 +223,18 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
           {button('smaller', [0.12, -0.78, 0.02], diagramScale <= 0.7)}{button('larger', [0.36, -0.78, 0.02], diagramScale >= 1.3)}
         </>}
         {id === 'conversation' && <>
+          <WorldButton action="session:tools" label="Session tools" resource={headerControls?.tools} iconTheme={theme}
+            position={[0.14, 0.82, 0.04]} selected={sessionToolsOpen} disabled={voicePending || !contentEnabled('conversation')}
+            onAction={() => perform('session:tools')} />
+          {sessionToolsOpen && props.sessionControls && <SessionTools controls={props.sessionControls} theme={theme}
+            enabled={contentEnabled('conversation')} onController={setSessionController} />}
           <WorldButton action="conversation:list" label="Conversation history" resource={headerControls?.history} iconTheme={theme}
             position={[0.35, 0.82, 0.04]} selected={listOpen} disabled={voicePending || !contentEnabled('conversation')}
             onAction={() => perform('conversation:list')} />
           <WorldButton action="conversation:agents" label="Agents" resource={headerControls?.agents} iconTheme={theme}
             position={[0.56, 0.82, 0.04]} selected={!listOpen && conversationTab === 'agents'}
             disabled={voicePending || !session || !contentEnabled('conversation')} onAction={() => perform('conversation:agents')} />
-          {listOpen && <group name="Conversation list">
+          {listOpen && !sessionToolsOpen && <group name="Conversation list">
             <ConversationList choices={choices} theme={theme} enabled={contentEnabled('conversation')}
               focused={layout.focused === 'conversation'} onController={setListController}
               onOpenSession={(choice) => { if (contentEnabled('conversation')) { setListOpen(false); onOpenSession(choice); } }} />
@@ -220,7 +242,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
               position={[-0.56, 0.82, 0.04]} disabled={!session || !contentEnabled('conversation')}
               onAction={() => setListOpen(false)} />
           </group>}
-          <ConversationTools controls={props.conversation} theme={theme} tab={conversationTab} visible={!listOpen}
+          <ConversationTools controls={props.conversation} theme={theme} tab={conversationTab} visible={!listOpen && !sessionToolsOpen}
             enabled={contentEnabled('conversation')} atBottom={atBottom}
             onVoicePending={setVoicePending}
             renderHistory={(visible) => <ConversationHistory session={session} preview={preview} theme={theme} runStatus={runStatus}

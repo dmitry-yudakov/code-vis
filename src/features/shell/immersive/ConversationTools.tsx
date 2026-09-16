@@ -212,7 +212,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Draft edit failed.'); }
   };
   useEffect(() => { onController(perform); return () => onController(undefined); }, [onController, perform]);
-  const button = (action: ConversationActionName, position: [number, number, number]) => <WorldButton key={action}
+  const button = (action: ConversationActionName, position: [number, number, number]) => <WorldButton key={action === 'cancel' ? `${action}:${controls?.cancelKey}` : action}
     action={`conversation:${action}`} label={CONVERSATION_ACTIONS[action]} resource={labels?.[action]?.icon}
     iconTheme={theme} position={position}
     disabled={disabled(action)} selected={action === tab || action === controls?.mode} onAction={() => perform(action)} />;

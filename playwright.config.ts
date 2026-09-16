@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 45_000,
   fullyParallel: false,
+  // Files share one host store and scheduler; concurrent suites can change each other's runs/projects.
+  workers: 1,
   reporter: [['list']],
   use: {
     baseURL: e2eBaseUrl,

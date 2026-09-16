@@ -436,7 +436,10 @@ test.describe('VR conversation input', () => {
     });
     await page.reload(); await enter(page); await conversationAction(page, 'compose');
     await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Cancel run')?.userData.disabled)).toBe(false);
-    await conversationAction(page, 'cancel');
+    await page.evaluate(() => {
+      const cancel = document.querySelector<HTMLButtonElement>('[data-immersive-action="conversation:cancel"]')!;
+      cancel.click(); cancel.click();
+    });
     await expect.poll(() => cancellations).toEqual([firstRun]);
     await openSession(page, EMPTY); await conversationAction(page, 'compose');
     releaseCancel();
@@ -593,7 +596,7 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
     return route.fulfill({ json: { diff: { path, staged: '@@ staged @@\n+  first change',
       unstaged: Array.from({ length: 60 }, (_, i) => `+  ${path} line ${i}`).join('\n') } } });
   });
-  return state;
+  return Object.assign(state, { local, remote, snapshot });
 }
 
 const controls = (page: Page) => page.getByRole('group', { name: 'Immersive workspace controls' });
@@ -1278,4 +1281,211 @@ test('ignores a delayed diff after navigating to another machine and keeps recov
   await pointAtAction(page, 'exit');
   await page.mouse.down(); await page.mouse.up();
   await released(page);
+});
+
+
+const sessionAction = (page: Page, action: string) => controls(page).locator(`[data-immersive-action="session:${action}"]`).click();
+const sessionToolsState = (page: Page) => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR session tools')?.userData);
+
+test('VR session tools create a repository-free session, attach a checkout, and complete real allow and deny turns', async ({ page, request }) => {
+  await installAdapter(page);
+  await page.goto('/'); await enter(page);
+  await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
+  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('launcher');
+  const created = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
+  await page.evaluate(() => {
+    const create = document.querySelector<HTMLButtonElement>('[data-immersive-action="session:create"]')!;
+    create.click(); create.click();
+  });
+  const response = await created;
+  expect(response.status()).toBe(201);
+  const { session } = await response.json() as { session: PublicSession };
+  expect(session.repositories).toEqual([]);
+  await expect(controls(page).locator('strong').first()).toHaveText(session.title);
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Message input')))).toBe(true);
+  await sessionAction(page, 'tools');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Primary repository required');
+  const attached = page.waitForResponse((res) => res.url().endsWith(`/sessions/${session.id}/repositories`) && res.request().method() === 'PUT');
+  await sessionAction(page, 'attach'); expect((await attached).ok()).toBe(true);
+  for (const decision of ['allow', 'deny'] as const) {
+    await sessionAction(page, 'tools');
+    await conversationAction(page, 'agents'); await conversationAction(page, 'agent'); await conversationAction(page, 'agents');
+    const input = page.locator('[data-immersive-message-input]');
+    await input.fill(`VR real ${decision} turn`);
+    await conversationAction(page, 'send');
+    await expect.poll(() => page.locator('.permission-card').count()).toBe(1);
+    await sessionAction(page, 'tools'); await sessionAction(page, 'permissions');
+    await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('README.md');
+    await showPanel(page, 'conversation'); await page.screenshot({ path: `test-results/vr-permission-${decision}.png` }); await hideProjection(page);
+    const decisionResponse = page.waitForResponse((res) => res.url().endsWith('/api/agent/permission') && res.request().method() === 'POST');
+    await pointAtAction(page, `session:${decision}`); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+    expect((await decisionResponse).ok()).toBe(true);
+    await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toBe(decision === 'allow' ? 'Allowed.' : 'Denied.');
+    await expect.poll(async () => {
+      const data = await (await request.get(`/api/sessions/${session.id}`)).json() as { session: PublicSession };
+      return data.session.messages.filter((message) => message.role === 'assistant').length;
+    }).toBe(decision === 'allow' ? 1 : 2);
+    await sessionAction(page, 'tools');
+    await input.fill(`Preserve draft after ${decision}`);
+    await sessionAction(page, 'tools');
+    await sessionAction(page, 'tools');
+    await expect(input).toHaveValue(`Preserve draft after ${decision}`);
+    await sessionAction(page, 'tools');
+  }
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('VR permission cards page complete details, retain outcomes, retry explicitly, and capture remote identity across navigation', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true);
+  const pending = [{ requestId: 'request-one', participantId: AGENT, tool: 'Edit', detail: 'START ' + 'long sanitized detail '.repeat(180) + ' END' },
+    { requestId: 'request-two', participantId: AGENT, tool: 'Bash', detail: 'Second request' }];
+  let online = true;
+  await page.route('**/api/arena', (route) => {
+    const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote);
+    remote.machine.state = online ? 'online' : 'offline';
+    remote.runs.active = [{ runId: 'remote-run', sessionId: EMPTY, participantId: AGENT, state: 'needs-you',
+      enqueuedAt: 1, pendingPermissionCount: pending.length, pendingPermissions: [...pending] }];
+    return route.fulfill({ json: { machines: [fixture.snapshot(LOCAL, 'Home', fixture.local), remote] } });
+  });
+  await page.route(`**/api/machines/${REMOTE}/agent/runs?*`, (route) => route.fulfill({ json: { active: [{
+    runId: 'remote-run', sessionId: EMPTY, pendingPermissions: [...pending],
+  }], recent: [] } }));
+  let responseStatus = 503;
+  let hold: Promise<void> | undefined;
+  const decisions: Array<{ url: string; runId: string; requestId: string; decision: string }> = [];
+  await page.route(`**/api/machines/${REMOTE}/agent/permission`, async (route) => {
+    decisions.push({ url: route.request().url(), ...route.request().postDataJSON() });
+    await hold;
+    await route.fulfill({ status: responseStatus, json: responseStatus === 200 ? { ok: true } : { error: 'Executor disconnected. Refresh and retry.' } });
+  });
+  await page.goto('/'); await enter(page); await openSession(page, EMPTY);
+  await sessionAction(page, 'tools'); await sessionAction(page, 'permissions');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('START');
+  const pages = (await sessionToolsState(page))!.pageCount;
+  expect(pages).toBeGreaterThan(5);
+  for (let i = 1; i < pages; i++) await sessionAction(page, 'newer');
+  await expect.poll(async () => (await sessionToolsState(page))?.page).toBe(pages - 1);
+  await sessionAction(page, 'allow');
+  await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toContain('Executor disconnected');
+  await sessionAction(page, 'allow'); expect(decisions).toHaveLength(1);
+  await sessionAction(page, 'refresh');
+  await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toContain('Review the details');
+  responseStatus = 200;
+  let release!: () => void;
+  hold = new Promise<void>((resolve) => { release = resolve; });
+  await page.evaluate(() => {
+    const allow = document.querySelector<HTMLButtonElement>('[data-immersive-action="session:allow"]')!;
+    allow.click(); allow.click();
+  });
+  await expect.poll(() => decisions.length).toBe(2);
+  await openSession(page, SESSION); release();
+  expect(decisions[1]).toMatchObject({ runId: 'remote-run', requestId: 'request-one', decision: 'allow' });
+  expect(decisions[1].url).toContain(`/api/machines/${REMOTE}/agent/permission`);
+  await openSession(page, EMPTY); await sessionAction(page, 'tools'); await sessionAction(page, 'permissions');
+  await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toBe('Allowed.');
+  await sessionAction(page, 'allow'); expect(decisions).toHaveLength(2);
+  await sessionAction(page, 'next');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Second request');
+  pending.splice(1, 1); // another device answers before selection
+  await sessionAction(page, 'refresh');
+  await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toContain('no longer pending');
+  await sessionAction(page, 'deny'); expect(decisions).toHaveLength(2);
+  online = false; await sessionAction(page, 'refresh');
+  await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toContain('offline');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+for (const status of [404, 409, 401]) {
+  test(`VR permissions report ${status} without retargeting and revoke private content on authorization loss`, async ({ page }) => {
+    await installAdapter(page);
+    const fixture = await workspaceFixture(page, true);
+    const pending = [{ requestId: 'stale-request', participantId: AGENT, tool: 'Edit', detail: 'Original action' }];
+    await page.route('**/api/arena', (route) => {
+      const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
+      home.runs.active = [{ runId: 'stale-run', sessionId: SESSION, participantId: AGENT, state: 'needs-you',
+        enqueuedAt: 1, pendingPermissionCount: pending.length, pendingPermissions: [...pending] }];
+      return route.fulfill({ json: { machines: [home] } });
+    });
+    const message = status === 404 ? 'That agent run is no longer active.' : status === 409 ? 'That approval was already resolved.' : 'Pair this device again.';
+    let posts = 0;
+    await page.route('**/api/agent/permission', (route) => {
+      posts++;
+      expect(route.request().postDataJSON()).toEqual({ runId: 'stale-run', requestId: 'stale-request', decision: 'deny' });
+      if (status === 401) fixture.authenticated = false;
+      pending.splice(0, 1, { requestId: 'replacement-request', participantId: AGENT, tool: 'Bash', detail: 'Must not be answered' });
+      return route.fulfill({ status, json: { error: message } });
+    });
+    await page.goto('/'); await enter(page);
+    await page.locator('[data-immersive-message-input]').fill('Draft remains separate from approvals.');
+    await sessionAction(page, 'tools'); await sessionAction(page, 'permissions');
+    await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Original action');
+    await sessionAction(page, 'deny');
+    if (status === 401) {
+      await expect(page.getByRole('heading', { name: 'Pair this device' })).toBeVisible();
+      await released(page);
+      expect(await page.evaluate(() => window.xrScene)).toBeUndefined();
+    } else {
+      await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toBe(message);
+      await sessionAction(page, 'refresh'); await sessionAction(page, 'allow');
+      expect(posts).toBe(1);
+      await sessionAction(page, 'tools');
+      await expect(page.locator('[data-immersive-message-input]')).toHaveValue('Draft remains separate from approvals.');
+      await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+    }
+    expect(posts).toBe(1);
+  });
+}
+
+test('VR launcher captures the selected remote project and mode and preserves choices after creation fails', async ({ page }) => {
+  await installAdapter(page); const fixture = await workspaceFixture(page, true);
+  const requests: unknown[] = [];
+  await page.route(`**/api/machines/${REMOTE}/sessions`, (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ status: 503, json: { error: 'Selected executor disconnected.' } });
+  });
+  await page.goto('/'); await enter(page);
+  await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
+  await sessionAction(page, 'machine'); await sessionAction(page, 'project'); await sessionAction(page, 'mode');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Remote project');
+  await sessionAction(page, 'create');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Selected executor disconnected');
+  expect(requests).toEqual([{ provider: 'claude', projectId: REMOTE_PROJECT }]);
+  expect((await sessionToolsState(page))?.text).toContain('Mode: plan');
+  await showPanel(page, 'conversation'); await page.screenshot({ path: 'test-results/vr-session-launcher.png' }); await hideProjection(page);
+  fixture.online = false;
+  await sessionAction(page, 'refresh');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('offline');
+  await sessionAction(page, 'create'); expect(requests).toHaveLength(1);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+
+test('VR session tools forget the paired device only after an explicit second selection', async ({ page }) => {
+  await installAdapter(page); const fixture = await workspaceFixture(page, true);
+  await page.route('**/api/auth/status', (route) => route.fulfill({ json: {
+    mode: 'paired', authenticated: fixture.authenticated, transportSecure: true, hostLabel: 'Home',
+    device: { id: 'paired-headset', label: 'Quest' },
+  } }));
+  let revoked = 0;
+  await page.route('**/api/auth/devices', (route) => {
+    expect(route.request().method()).toBe('DELETE');
+    expect(route.request().postDataJSON()).toEqual({ deviceId: 'paired-headset' });
+    revoked++; fixture.authenticated = false;
+    return route.fulfill({ json: { signedOut: true } });
+  });
+  await page.goto('/'); await enter(page);
+  await panelAction(page, 'evidence', 'open');
+  await sessionAction(page, 'tools');
+  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('home');
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  await sessionAction(page, 'confirm-revoke'); expect(revoked).toBe(0);
+  await sessionAction(page, 'revoke'); expect(revoked).toBe(0);
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('A new pairing code');
+  await sessionAction(page, 'confirm-revoke');
+  await expect(page.getByRole('heading', { name: 'Pair this device' })).toBeVisible();
+  await released(page); expect(revoked).toBe(1);
 });

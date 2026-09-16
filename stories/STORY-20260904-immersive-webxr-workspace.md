@@ -12,6 +12,11 @@ The [immersive workspace epic](EPIC-20260905-immersive-workspace.md) owns the co
 and its follow-up stories. Keep this implementation and verification record as the foundation;
 physical Quest acceptance remains open, and its completion alone does not deliver that epic.
 
+**Continuation — 2026-09-16:** [Story 48](STORY-20260905-vr-session-permissions.md) adds the next
+working slice: in-headset session creation, existing-checkout attachment, and explicit active-session
+permission decisions. Story 49 owns the next review/annotation work. This story's physical acceptance
+criterion remains open.
+
 **Implementation update — 2026-09-08:** [Story 45](STORY-20260905-application-vr-shell.md) now
 supersedes this story's diagram-owned entry/lifetime. The reusable XR bridge moved to
 [`shell/immersive/ImmersiveBridge.tsx`](../src/features/shell/immersive/ImmersiveBridge.tsx#L33),

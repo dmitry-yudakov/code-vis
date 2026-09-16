@@ -16,7 +16,7 @@ export function createWorkspaceTextResource(title: string, detail: string, theme
   context.fillStyle = colors.ink;
   context.font = '600 26px system-ui, sans-serif';
   const left = headerBack ? 100 : 16;
-  context.fillText(title, left, 36, (headerActions ? 336 : 496) - left);
+  context.fillText(title, left, 36, (headerActions ? 250 : 496) - left);
   context.fillStyle = colors.muted;
   context.font = '20px system-ui, sans-serif';
   context.fillText(detail, left, 73, 496 - left);
@@ -38,7 +38,7 @@ export function createWorkspaceButtonResource(label: string, theme: ThemeName, l
   return texturePanel(canvas, [0.42, 0.16], ledger);
 }
 
-export function createConversationTextResource(title: string, lines: readonly string[], theme: ThemeName, ledger: SpatialResourceLedger, status = false) {
+export function createConversationTextResource(title: string, lines: readonly string[], theme: ThemeName, ledger: SpatialResourceLedger, status = false, fontSize = 38) {
   const canvas = document.createElement('canvas');
   canvas.width = 1024; canvas.height = status ? 144 : 640;
   const context = canvas.getContext('2d');
@@ -48,7 +48,7 @@ export function createConversationTextResource(title: string, lines: readonly st
   context.fillStyle = palette[theme].ink;
   context.font = '600 30px system-ui, sans-serif';
   if (title) context.fillText(title, 24, 35, 976);
-  context.font = `${status ? 32 : 38}px Arial, sans-serif`;
+  context.font = `${status ? 32 : fontSize}px Arial, sans-serif`;
   lines.forEach((line, i) => context.fillText(line, 24, (status ? (title ? 78 : 34) : 92) + i * (status ? 40 : 48), 976));
   return texturePanel(canvas, [1.32, canvas.height / 1024 * 1.32], ledger);
 }

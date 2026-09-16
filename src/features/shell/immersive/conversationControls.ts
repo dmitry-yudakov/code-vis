@@ -9,6 +9,7 @@ export interface ImmersiveConversationControls {
   running: boolean;
   runStatus: string;
   runId?: string;
+  cancelKey?: string;
   busy: boolean;
   agents: AgentParticipant[];
   activeAgentId?: string;

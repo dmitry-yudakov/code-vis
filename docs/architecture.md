@@ -417,6 +417,13 @@ does not qualify.
 
 Story 45 establishes shell ownership and navigation; Story 46 implements bounded movable panels;
 Story 47 implements conversation commands and local voice capture/transcription/correction.
+Story 48 adds `SessionTools` within the conversation panel: a local-execution session launcher,
+existing-checkout attachment, and paged permission inspection. `usePermissionDecisions` is the
+shared DOM/XR command owner, keyed by captured machine/session/run/request identity, with bounded
+device-only outcomes and explicit refresh before retrying an uncertain delivery. The existing
+Arena poll and run stream supply requests; existing authorized routes decide them. Session creation,
+repository attachment, draft retry, cancellation, and device revocation reuse shell actions and
+the pairing gate. Neither speech nor card focus can approve a permission.
 Physical Quest 3S entry, readability, controller use, and comfort verification remain pending.
 The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns the remaining
 working surfaces and headset acceptance.
