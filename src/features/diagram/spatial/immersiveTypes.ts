@@ -4,6 +4,7 @@ import type { CanvasTarget, SessionSnapshot } from '@/shared/types';
 import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
 import type { ImmersiveLayout, PanelAction, PanelCommand, PanelEditing, PanelPlacement, WorkspacePanelId } from '@/features/shell/immersive/workspaceLayout';
 import type { ConversationAction, ImmersiveConversationControls } from '@/features/shell/immersive/conversationControls';
+import type { CanvasReviewAction, ImmersiveCanvasReviewControls } from '@/features/shell/immersive/canvasReviewControls';
 
 export const MAX_IMMERSIVE_TEXTURE_PIXELS = 4_194_304;
 export const MAX_IMMERSIVE_TEXTURE_EDGE = 2_048;
@@ -55,10 +56,13 @@ export type ImmersiveSemanticAction =
   | PanelAction
   | SessionAction
   | ConversationAction
+  | CanvasReviewAction
   | 'exit'
   | 'reset-workspace'
   | 'previous-file'
   | 'next-file'
+  | 'previous-checkout'
+  | 'next-checkout'
   | 'previous-evidence'
   | 'next-evidence'
   | 'refresh-evidence'
@@ -88,6 +92,7 @@ export interface ImmersiveSessionChoice {
 
 export interface ImmersiveWorkspaceProps {
   conversation?: ImmersiveConversationControls;
+  canvasReview?: ImmersiveCanvasReviewControls;
   sessionControls?: ImmersiveSessionControls;
   viewKey: string;
   layout: ImmersiveLayout;
@@ -96,6 +101,10 @@ export interface ImmersiveWorkspaceProps {
   onPanelPlacement(id: WorkspacePanelId, placement: PanelPlacement): void;
   onResetWorkspace(): void;
   evidence: {
+    machineLabel: string;
+    checkoutId?: string;
+    checkoutName?: string;
+    checkouts: Array<{ id: string; name: string }>;
     tree?: GitWorkingTree;
     selectedPath?: string;
     diff?: GitFileDiff;
@@ -103,6 +112,7 @@ export interface ImmersiveWorkspaceProps {
     error?: string;
     status: string;
     onSelectPath(path: string): void;
+    onSelectCheckout(id: string): void;
     onRefresh(): void;
   };
   session?: SessionSnapshot;

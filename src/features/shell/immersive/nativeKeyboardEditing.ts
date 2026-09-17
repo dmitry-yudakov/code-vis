@@ -43,6 +43,7 @@ export function applyNativeKeyboardValue(
   rawStart: number,
   rawEnd: number,
   inputType = '',
+  maxLength = MAX_DRAFT_LENGTH,
 ): NativeKeyboardUpdate {
   const withoutGuard = rawValue.replaceAll(NATIVE_KEYBOARD_GUARD, '');
   const deletion = inputType.startsWith('delete');
@@ -61,7 +62,7 @@ export function applyNativeKeyboardValue(
   }
 
   const selectionLength = session.base.end - session.base.start;
-  const capacity = MAX_DRAFT_LENGTH - (session.base.value.length - selectionLength);
+  const capacity = maxLength - (session.base.value.length - selectionLength);
   const buffer = boundedPrefix(withoutGuard, capacity);
   if (!buffer) {
     if (insertion) {

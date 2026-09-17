@@ -89,6 +89,8 @@ export function DiagramCanvas({
   const [pan, setPan] = useState(initialView?.pan ?? { x: 0, y: 0 });
   const [fitted, setFitted] = useState(initialView?.fitted ?? false);
   const [state, dispatch] = useReducer(drawingReducer, { marks: initialMarks, past: [], future: [] });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const gesture = useRef<{ mode: DrawingTool; start: Point; panStart: Point; markId?: string } | undefined>(undefined);
   const color = '#c67139';
 
@@ -100,6 +102,15 @@ export function DiagramCanvas({
     viewIsFittedRef.current = initialView?.fitted ?? false;
     fittedCanvasRef.current = initialView ? canvasId : undefined;
   }, [canvasId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // Flat and VR edit the same durable annotation record. A local Flat dispatch reaches the
+    // parent before this prop changes, so equal marks keep its undo stack; an external VR update
+    // replaces the Flat copy and starts a fresh local history from that shared snapshot.
+    if (JSON.stringify(stateRef.current.marks) !== JSON.stringify(initialMarks)) {
+      dispatch({ type: 'reset', marks: initialMarks });
+    }
+  }, [initialMarks]);
 
   useEffect(() => onMarksChange(state.marks), [state.marks, onMarksChange]);
   useEffect(() => onViewChange({ zoom, pan, fitted }), [fitted, onViewChange, pan, zoom]);

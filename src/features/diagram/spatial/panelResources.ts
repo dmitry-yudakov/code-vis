@@ -25,6 +25,7 @@ export interface PanelResource {
   id: string;
   size: [number, number];
   aspectRatio: number;
+  viewBox: [number, number, number, number];
   geometry: THREE.PlaneGeometry;
   material: THREE.Material;
   frameGeometry: THREE.PlaneGeometry;
@@ -150,7 +151,7 @@ export async function createPanelResources(
         color: status === 'error' ? palette[theme].stopWash : palette[theme].neutralWashStrong,
       }));
     }
-    resources[id] = { id, size, aspectRatio: viewBox[2] / Math.max(1, viewBox[3]), geometry, material, frameGeometry, frameMaterial, status, detail };
+    resources[id] = { id, size, aspectRatio: viewBox[2] / Math.max(1, viewBox[3]), viewBox, geometry, material, frameGeometry, frameMaterial, status, detail };
   }
   return resources;
 }

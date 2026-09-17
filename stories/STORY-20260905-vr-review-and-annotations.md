@@ -1,6 +1,6 @@
 # Story 49 — Review and annotate session work in VR
 
-**Status:** Draft · **Type:** Frontend-only · **Depends on:**
+**Status:** In progress · **Type:** Frontend-only · **Depends on:**
 [Story 46](STORY-20260905-vr-workspace-panels.md), [Story 47](STORY-20260905-vr-conversation-input.md),
 [Story 48](STORY-20260905-vr-session-permissions.md).
 
@@ -15,15 +15,20 @@ requires exiting to open a diff or mark a diagram cannot complete this loop.
 
 ## Current behavior (where the code is)
 
-- [RepositoryDiffInspector.tsx:25](../src/features/repository/RepositoryDiffInspector.tsx#L25) reads
-  bounded staged/unstaged diffs; [useRepositoryChanges.ts:7](../src/features/repository/useRepositoryChanges.ts#L7)
-  provides checkout change state. There is no general file editor to port.
-- [DiagramCanvas.tsx:56](../src/features/diagram/components/DiagramCanvas.tsx#L56) provides Flat
-  drawing; [drawingReducer.ts:36](../src/features/diagram/annotations/drawingReducer.ts#L36) bounds
-  marks and undo/redo; [compositeExport.ts:53](../src/features/diagram/annotations/compositeExport.ts#L53)
-  creates the attachment projection.
-- [AppShell.tsx:605](../src/features/shell/AppShell.tsx#L605) selects artifacts and
-  [613](../src/features/shell/AppShell.tsx#L613) creates sketches; Story 44 only shows the active texture.
+- [ImmersiveWorkspace.tsx:38](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L38) projects the
+  selected session checkout's branch, status, changed files, and bounded diff, while
+  [AppShell.tsx:1626](../src/features/shell/AppShell.tsx#L1626) keeps checkout/file selection shared
+  with Flat and routes reads through the selected machine.
+- [CanvasReviewTools.tsx:81](../src/features/shell/immersive/CanvasReviewTools.tsx#L81) owns comparison,
+  drawing, text labels, undo/redo, deliberate clear, sketches, and attachment selection. Controller
+  intersections become canonical artifact coordinates in
+  [canvasReviewModel.ts:3](../src/features/shell/immersive/canvasReviewModel.ts#L3).
+- [DiagramCanvas.tsx:103](../src/features/diagram/components/DiagramCanvas.tsx#L103) mirrors external VR
+  mark updates into Flat, and [sessionStore.ts:48](../src/features/conversation/sessionStore.ts#L48)
+  protects newer optimistic marks from an older save response.
+- [AppShell.tsx:1080](../src/features/shell/AppShell.tsx#L1080) uses the existing stable composite
+  projection for marked attachments and stops a send—with its draft intact—if that required export
+  fails.
 
 ## Desired behavior
 
@@ -47,14 +52,16 @@ requires exiting to open a diff or mark a diagram cannot complete this loop.
 
 ## Acceptance criteria
 
-- [ ] Readable checkout status, changed files, and bounded diffs are available alongside chat in VR.
-- [ ] Two artifact revisions can be compared without losing the active session or exceeding the
+- [x] Readable checkout status, changed files, and bounded diffs are available alongside chat in VR.
+- [x] Two artifact revisions can be compared without losing the active session or exceeding the
   aggregate budget; one failing artifact does not remove other tools.
-- [ ] A controller creates/edits marks with undo/redo and sends a selected marked artifact as context.
-- [ ] Mark coordinates and attachment content agree between Flat and VR independent of panel pose.
-- [ ] Failed reads/exports, stale diffs, and unsupported/binary content have usable in-world states.
+- [x] A controller creates/edits marks with undo/redo and sends a selected marked artifact as context.
+- [x] Controller drawing follows a press-hold-release gesture, keeps the canvas/title stable while
+  drawing, and reliably ends the stroke on trigger release or cancellation.
+- [x] Mark coordinates and attachment content agree between Flat and VR independent of panel pose.
+- [x] Failed reads/exports, stale diffs, and unsupported/binary content have usable in-world states.
 - [ ] Quest 3S verification completes read → annotate → attach → instruct → inspect new revision/diff.
-- [ ] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including coordinate
+- [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including coordinate
   mapping, attachment parity, correct checkout routing, and bounded-resource checks.
 
 ## Out of scope
@@ -74,4 +81,22 @@ canonical artifact plane, reachable inside VR even when a graph view is open.
 
 ## Verification record
 
-Pending implementation and Quest 3S verification.
+September 16, 2026 — automated implementation complete. `npm run lint` passed; `npm test` passed
+(62 files, 392 tests); `npm run test:e2e` passed its production build and full Chrome suite (65
+tests), including the marked-export failure check. Coverage includes
+checkout routing, branch/status/file and paged-diff review, panel-pose-independent coordinates,
+Flat/VR mark parity, undo/redo and deliberate clear, comparison failure containment, aggregate
+resource bounds, composite attachment capture, failed-send preservation, failed-export
+preservation, and sketch creation. Physical Quest 3S verification remains pending.
+
+September 17, 2026 — controller drawing now previews only while the trigger is held, commits once
+on release, discards cancelled strokes, and keeps the raster/title mounted during the gesture.
+`npm run lint`, the full 392-test Vitest suite, the production build, and the focused immersive
+Playwright review/annotation scenario passed. The focused scenario reproduces the XR runtime's
+capture-loss-before-pointer-up ordering so a normal trigger release cannot be mistaken for a
+cancelled stroke. After physical testing exposed that controller release events could still be
+missed, Quest trigger state is also polled each frame. A subsequent physical test exposed transient
+double-allocation against the immersive pixel budget; the live stroke now paints into the existing
+budgeted canvas texture and replacement generations dispose before allocating. Lint, focused unit
+and budget tests, the production build, and the zero-allocation drawing Playwright scenario pass.
+Physical trigger acceptance remains part of the pending Quest 3S verification above.

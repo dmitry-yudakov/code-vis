@@ -7,15 +7,13 @@ import {
   IMMERSIVE_ACTION_LABELS,
   type ImmersiveAction,
 } from '@/features/diagram/spatial/immersiveResources';
-import { recordImmersiveFrame, SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
+import { recordImmersiveFrame } from '@/features/diagram/spatial/resourceLedger';
 import type { ImmersiveSemanticAction, ImmersiveWorkspaceProps } from '@/features/diagram/spatial/immersiveTypes';
-import { createPanelResources, type PanelResource } from '@/features/diagram/spatial/panelResources';
-import { canvasTargetId } from '@/features/conversation/sessionStore';
 import { createEvidenceResource, createPanelControlResources, createWorkspaceTextResource } from './workspaceResources';
 import { createWorkspaceIconResource, type WorkspaceIcon } from './workspaceIcons';
 import { ImmersiveEnvironment } from './ImmersiveEnvironment';
 import { PANEL_IDS, PANEL_TITLES, parsePanelAction } from './workspaceLayout';
-import { evidencePages, workspaceTextLines } from './workspaceText';
+import { evidencePages, repositoryStatusLines, workspaceTextLines } from './workspaceText';
 import { useTextureResource } from './useTextureResource';
 import { WorkspacePanel, WorldButton } from './WorkspacePanel';
 import { SessionTools } from './SessionTools';
@@ -24,58 +22,34 @@ import { ConversationTools } from './ConversationTools';
 import { ConversationList, type ConversationListController } from './ConversationList';
 import type { ConversationActionName } from './conversationControls';
 import { ConversationHistory, type ConversationHistoryController, type ConversationHistoryScrollState } from './ConversationHistory';
+import { CanvasReviewTools, type CanvasReviewController } from './CanvasReviewTools';
+import type { CanvasReviewActionName } from './canvasReviewControls';
 
 const WORKSPACE_ICONS: Record<ImmersiveAction, WorkspaceIcon> = {
   exit: 'exit', 'reset-workspace': 'reset', 'reset-view': 'reset',
   'previous-file': 'chevron-left', 'next-file': 'chevron-right',
+  'previous-checkout': 'chevron-left', 'next-checkout': 'chevron-right',
   'previous-evidence': 'chevron-left', 'next-evidence': 'chevron-right', 'refresh-evidence': 'refresh',
   'load-more-sessions': 'plus',
   'previous-canvas': 'chevron-left', 'next-canvas': 'chevron-right',
   larger: 'zoom-in', smaller: 'zoom-out', older: 'chevron-left', newer: 'chevron-right',
 };
 
-function CanvasSurface({ activeTarget, session, theme, scale }: Pick<ImmersiveWorkspaceProps, 'activeTarget' | 'session' | 'theme'> & { scale: number }) {
-  const [resource, setResource] = useState<PanelResource>();
-  const [failure, setFailure] = useState<string>();
-  useEffect(() => {
-    setResource(undefined);
-    setFailure(undefined);
-    if (!activeTarget || !session) return;
-    const ledger = new SpatialResourceLedger('immersive');
-    const id = canvasTargetId(activeTarget);
-    void createPanelResources([activeTarget], session.annotations, id, theme, ledger, 1_100_000).then((resources) => {
-      if (!ledger.isDisposed()) setResource(resources[id]);
-    }).catch((error: unknown) => {
-      if (!ledger.isDisposed()) setFailure(error instanceof Error ? error.message : 'Canvas unavailable');
-    });
-    return () => ledger.dispose();
-  }, [JSON.stringify(activeTarget), JSON.stringify(activeTarget && session?.annotations[canvasTargetId(activeTarget)]), theme]);
-  const label = useTextureResource((ledger) => createWorkspaceTextResource(
-    !activeTarget ? 'Empty canvas' : !resource ? failure ? 'Canvas unavailable' : 'Loading canvas…'
-      : resource.status === 'ready' ? activeTarget.kind === 'diagram' ? `Diagram ${activeTarget.artifact.ordinal}` : 'Sketch' : 'Canvas unavailable',
-    resource?.detail || failure || (!activeTarget ? 'Create a diagram in the conversation.' : 'Active canvas'), theme, ledger,
-  ), [activeTarget, resource?.detail, resource?.status, failure, theme]);
-  const height = resource ? Math.min(0.9, 1.28 / resource.aspectRatio) * scale / 1.3 : 1;
-  return <>
-    {resource && <group scale={[height * resource.aspectRatio / resource.size[0], height / resource.size[1], 1]} position-y={0.04}>
-      <mesh name="Active canvas" geometry={resource.geometry} material={resource.material}
-        userData={{ canvasTarget: resource.id, canvasStatus: resource.status }} />
-    </group>}
-    {label && <mesh geometry={label.geometry} material={label.material} scale={0.8} position={[0, -0.48, 0.01]} />}
-  </>;
-}
-
 function EvidenceSurface({ evidence, pages, page, theme }: {
   evidence: ImmersiveWorkspaceProps['evidence']; pages: string[][]; page: number; theme: ImmersiveWorkspaceProps['theme'];
 }) {
   const resource = useTextureResource((ledger) => createEvidenceResource(
-    evidence.selectedPath || 'Repository changes',
+    evidence.selectedPath || evidence.checkoutName || 'Repository changes',
     evidence.loading ? ['Reading patch…'] : evidence.error ? workspaceTextLines(evidence.error).slice(0, 16)
-      : evidence.diff ? pages[page] : workspaceTextLines(evidence.tree?.files.length === 0 ? 'Working tree clean' : evidence.status).slice(0, 16),
-    evidence.diff ? `Page ${page + 1} of ${pages.length} · read only` : `${evidence.tree?.files.length || 0} changed files`, theme, ledger,
-  ), [evidence.diff, evidence.loading, evidence.error, evidence.selectedPath, evidence.status, evidence.tree?.files.length, pages, page, theme]);
+      : evidence.diff ? pages[page] : repositoryStatusLines(evidence.tree, evidence.status),
+    evidence.diff ? `${evidence.checkoutName || 'Repository'} · ${evidence.machineLabel} · page ${page + 1}/${pages.length} · bounded read only`
+      : `${evidence.checkoutName || 'No repository'} · ${evidence.machineLabel} · refresh after working-tree changes`, theme, ledger,
+  ), [evidence.diff, evidence.loading, evidence.error, evidence.selectedPath, evidence.status, evidence.tree, evidence.checkoutName, evidence.machineLabel, pages, page, theme]);
   const fallback = useTextureResource((ledger) => resource ? undefined : createWorkspaceTextResource('Evidence unavailable', 'Reopen this panel to retry.', theme, ledger), [Boolean(resource), theme]);
-  return resource ? <mesh geometry={resource.geometry} material={resource.material} position-y={0.02} />
+  return resource ? <mesh name="Repository evidence" geometry={resource.geometry} material={resource.material} position-y={0.02}
+    userData={{ checkoutId: evidence.checkoutId, checkoutName: evidence.checkoutName, machineLabel: evidence.machineLabel,
+      checkouts: evidence.checkouts, path: evidence.selectedPath, branch: evidence.tree?.branch,
+      loading: evidence.loading, error: evidence.error }} />
     : fallback ? <mesh geometry={fallback.geometry} material={fallback.material} /> : null;
 }
 
@@ -93,6 +67,8 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     return () => window.__CODEAI_XR_TEST__?.onWorkspace?.();
   }, [state]);
   const [diagramScale, setDiagramScale] = useState(1);
+  const canvasReview = useRef<CanvasReviewController | undefined>(undefined);
+  const setCanvasReviewController = useCallback((controller?: CanvasReviewController) => { canvasReview.current = controller; }, []);
   const [evidencePage, setEvidencePage] = useState(0);
   const [conversationTab, setConversationTab] = useState<'read' | 'compose' | 'agents'>('read');
   const conversationAction = useRef<((action: ConversationActionName) => void) | undefined>(undefined);
@@ -182,6 +158,10 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
       else if (!listOpen) conversationAction.current?.(action.slice('conversation:'.length) as ConversationActionName);
       return;
     }
+    if (action.startsWith('canvas:')) {
+      if (contentEnabled('canvas')) canvasReview.current?.perform(action.slice('canvas:'.length) as CanvasReviewActionName);
+      return;
+    }
     if (action === 'exit') onExit();
     else if (action === 'reset-workspace') { onResetWorkspace(); setDiagramScale(1); recenter(); }
     else if (action === 'reset-view') { setDiagramScale(1); recenter(); }
@@ -194,6 +174,11 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     else if (action === 'smaller' && contentEnabled('canvas')) setDiagramScale((value) => Math.max(0.7, value - 0.1));
     else if (contentEnabled('evidence')) {
       if (action === 'refresh-evidence') evidence.onRefresh();
+      else if (action === 'previous-checkout' || action === 'next-checkout') {
+        const index = evidence.checkouts.findIndex((checkout) => checkout.id === evidence.checkoutId);
+        const next = evidence.checkouts[(Math.max(0, index) + (action === 'next-checkout' ? 1 : -1) + evidence.checkouts.length) % evidence.checkouts.length];
+        if (next) evidence.onSelectCheckout(next.id);
+      }
       else if (action === 'previous-evidence') setEvidencePage(Math.max(0, page - 1));
       else if (action === 'next-evidence') setEvidencePage(Math.min(pages.length - 1, page + 1));
       else if (action === 'previous-file' || action === 'next-file') {
@@ -218,7 +203,9 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
         detail={id === 'conversation' ? listOpen ? 'Newest first' : activeChoice?.detail || props.conversation?.target : undefined}
         theme={theme} controls={panelControls} perform={perform} onPlacement={onPanelPlacement}>
         {id === 'canvas' && <>
-          <CanvasSurface activeTarget={activeTarget} session={session} theme={theme} scale={diagramScale} />
+          <CanvasReviewTools key={activeTarget ? `${activeTarget.kind}:${activeTarget.kind === 'diagram' ? activeTarget.artifact.id : activeTarget.sketch.id}` : 'empty'}
+            activeTarget={activeTarget} session={session} theme={theme} scale={diagramScale}
+            enabled={contentEnabled('canvas')} controls={props.canvasReview} onController={setCanvasReviewController} />
           {button('previous-canvas', [-0.36, -0.78, 0.02])}{button('next-canvas', [-0.12, -0.78, 0.02])}
           {button('smaller', [0.12, -0.78, 0.02], diagramScale <= 0.7)}{button('larger', [0.36, -0.78, 0.02], diagramScale >= 1.3)}
         </>}
@@ -254,9 +241,11 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
         </>}
         {id === 'evidence' && <>
           <EvidenceSurface evidence={evidence} pages={pages} page={page} theme={theme} />
-          {button('previous-file', [-0.48, -0.78, 0.02], !evidence.tree?.files.length)}{button('next-file', [-0.24, -0.78, 0.02], !evidence.tree?.files.length)}
-          {button('refresh-evidence', [0, -0.78, 0.02])}
-          {button('previous-evidence', [0.24, -0.78, 0.02], page === 0)}{button('next-evidence', [0.48, -0.78, 0.02], page >= pages.length - 1)}
+          {button('previous-checkout', [-0.60, -0.78, 0.02], evidence.checkouts.length < 2)}
+          {button('next-checkout', [-0.40, -0.78, 0.02], evidence.checkouts.length < 2)}
+          {button('previous-file', [-0.20, -0.78, 0.02], !evidence.tree?.files.length)}{button('next-file', [0, -0.78, 0.02], !evidence.tree?.files.length)}
+          {button('refresh-evidence', [0.20, -0.78, 0.02])}
+          {button('previous-evidence', [0.40, -0.78, 0.02], page === 0)}{button('next-evidence', [0.60, -0.78, 0.02], page >= pages.length - 1)}
         </>}
       </WorkspacePanel>)}
       <group name="Workspace controls" position={[0, -1.45, -1.3]}>

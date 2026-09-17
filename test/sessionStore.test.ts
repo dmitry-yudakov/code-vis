@@ -759,4 +759,19 @@ describe('browser session helpers', () => {
     });
     await store.close();
   });
+
+  it('keeps newer optimistic annotations when an older save response arrives', () => {
+    const fixture = durableFixture(crypto.randomUUID(), crypto.randomUUID());
+    const snapshot = publicSession(fixture);
+    const diagramId = getArtifacts(snapshot)[0].id;
+    const prior = hydrateSession(snapshot);
+    prior.annotations[diagramId] = {
+      version: 1,
+      diagramId,
+      updatedAt: '2026-09-16T12:00:00.000Z',
+      marks: [{ id: crypto.randomUUID(), origin: 'user', color: '#c67139', createdAt: '2026-09-16T12:00:00.000Z',
+        kind: 'text', x: 10, y: 20, text: 'newer local mark' }],
+    };
+    expect(hydrateSession(snapshot, prior).annotations[diagramId].marks).toEqual(prior.annotations[diagramId].marks);
+  });
 });

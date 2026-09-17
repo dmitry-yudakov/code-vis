@@ -119,7 +119,9 @@ is pending. Story 46 is in progress with movable panels, device layout, and shar
 physical acceptance is pending. Story 47 implements shared conversation controls and local
 Whisper dictation/correction with passing browser checks; Quest 3S voice acceptance is pending.
 Story 48 is in progress with session creation and active-session permission controls; physical
-acceptance remains pending. Stories 49–52 remain Drafts.
+acceptance remains pending. Story 49 is in progress with automated repository review, artifact
+comparison, annotation, and marked-attachment checks complete; physical acceptance remains pending.
+Stories 50–52 remain Drafts.
 Existing Stories 43–44 remain useful foundations and retain their own status.
 
 | Story | Outcome | Depends on |

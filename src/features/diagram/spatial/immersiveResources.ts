@@ -2,13 +2,15 @@ import * as THREE from 'three';
 import { MAX_IMMERSIVE_TEXTURE_EDGE, type ImmersiveSemanticAction } from './immersiveTypes';
 import { SpatialResourceLedger } from './resourceLedger';
 
-export type ImmersiveAction = Exclude<ImmersiveSemanticAction, `panel:${string}` | `conversation:${string}` | `session:${string}`>;
+export type ImmersiveAction = Exclude<ImmersiveSemanticAction, `panel:${string}` | `conversation:${string}` | `session:${string}` | `canvas:${string}`>;
 
 export const IMMERSIVE_ACTION_LABELS: Readonly<Record<ImmersiveAction, string>> = {
   exit: 'Exit VR',
   'reset-workspace': 'Reset workspace',
   'previous-file': 'Previous file',
   'next-file': 'Next file',
+  'previous-checkout': 'Previous repository',
+  'next-checkout': 'Next repository',
   'previous-evidence': 'Previous page',
   'next-evidence': 'Next page',
   'refresh-evidence': 'Refresh changes',

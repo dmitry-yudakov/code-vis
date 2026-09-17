@@ -320,6 +320,8 @@ texture beneath the transcript. Speech review/editing and Agents replace the tra
 and contextual controls; browser tests enforce the aggregate cap including recovery surfaces.
 Closed panels unmount their content. The conversation stays mounted but hidden during resizing
 to preserve its voice operation; other panels release their content for the size menu.
+Story 49 gives the active canvas and optional comparison equal shares of an 800,000-texel canvas
+allowance so both remain readable without exceeding the workspace aggregate.
 Dragging keeps content visible with its actions disabled. Replaced content releases its resources. System end,
 authorization/unmount, page departure, and WebGL loss end immersion; a late entry
 result after departure or unmount is also ended. Controller removal/reconnection and temporary
@@ -355,7 +357,18 @@ the camera. The nearer tool/status strip stays outside every closable panel.
 AppShell owns the shared repository status/selection and diff hooks. DOM and immersive Evidence
 consume the same read-only result and refresh/select actions; Evidence never fetches independently.
 Responses are scoped to API origin, checkout, and file, and abandoned requests are ignored.
-Diff raster pages wrap monospace text to the available line/column budget.
+Diff raster pages wrap monospace text to the available line/column budget. The immersive surface can
+cycle only among the active session's repository bindings and always displays its machine, checkout,
+branch, file status, path, loading/error state, and bounded-read provenance.
+
+`CanvasReviewTools` projects the active canvas and one optional comparison. Texture UV intersections
+map directly into the immutable artifact viewBox, independent of panel placement and scale. Its
+pen/rectangle/arrow/text/eraser actions feed the shared bounded drawing reducer; labels reuse
+`InlineConversationInput`, including the Quest system-keyboard bridge. AppShell remains the owner of
+durable annotation saves, sketch creation, attachment selection, and stable light composite export.
+Flat observes external VR annotation snapshots, while hydration retains a newer optimistic snapshot
+when an older save response arrives. A marked attachment whose composite cannot be produced is not
+sent: the shared draft and attachment remain available and the immersive status reports the retry.
 
 `ConversationTools` keeps input below the chat; History and Agents occupy the panel's upper right. Its
 typed `ImmersiveConversationControls` contract receives drafts, roster, mode, attachment summaries,
@@ -424,6 +437,9 @@ device-only outcomes and explicit refresh before retrying an uncertain delivery.
 Arena poll and run stream supply requests; existing authorized routes decide them. Session creation,
 repository attachment, draft retry, cancellation, and device revocation reuse shell actions and
 the pairing gate. Neither speech nor card focus can approve a permission.
+Story 49 adds session-checkout evidence, artifact comparison, controller-authored canonical marks,
+sketch creation, and marked composite attachments through the existing shared owners. Story 50 is
+the next implementation slice and turns supported Mermaid flowcharts into spatial geometry.
 Physical Quest 3S entry, readability, controller use, and comfort verification remain pending.
 The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns the remaining
 working surfaces and headset acceptance.

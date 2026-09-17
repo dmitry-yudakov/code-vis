@@ -245,6 +245,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => checkouts.find((checkout) => checkout.id === selectedCheckoutId),
     [checkouts, selectedCheckoutId],
   );
+  const sessionCheckouts = useMemo(() => session?.repositories.flatMap((binding) => {
+    const checkout = checkouts.find((item) => item.id === binding.checkoutId);
+    return checkout ? [{ id: checkout.id, name: checkout.name }] : [];
+  }) || [], [checkouts, session?.repositories]);
   const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
   const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
 
@@ -469,11 +473,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     const local = session.repositories.filter((repository) => (
       repository.hostId === hostId && checkouts.some((checkout) => checkout.id === repository.checkoutId)
     ));
-    const next = local.some((repository) => repository.checkoutId === selectedCheckoutId)
-      ? selectedCheckoutId
-      : local.some((repository) => repository.checkoutId === savedCheckoutId)
-        ? savedCheckoutId
-        : local.find((repository) => repository.role === 'primary')?.checkoutId || local[0]?.checkoutId;
+    if (local.some((repository) => repository.checkoutId === selectedCheckoutId)) return;
+    const next = local.some((repository) => repository.checkoutId === savedCheckoutId)
+      ? savedCheckoutId
+      : local.find((repository) => repository.role === 'primary')?.checkoutId || local[0]?.checkoutId;
     setSelectedCheckoutId(next);
   }, [checkouts, hostId, savedCheckoutId, selectedCheckoutId, session]);
 
@@ -672,7 +675,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setSavedCheckoutId(checkoutId);
     setRepositoryTree(undefined);
     try { saveSelectedCheckoutId(checkoutId, localStorage, workspaceMachineId); } catch { /* Selection still works without persistence. */ }
-  }, [workspaceMachineId]);
+  }, [setSelectedCheckoutId, workspaceMachineId]);
 
   const updateRepositories = useCallback((update: (current: RepositoryBinding[]) => RepositoryBinding[]) => {
     if (!session || sessionRunning) return Promise.resolve();
@@ -730,10 +733,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [apiPath, enqueueSessionMutation, mutateSession, sessionId, sessionRunning]);
 
-  const removeAttachment = (id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id));
-  const toggleAttachment = (id: string) => setPendingAttachmentIds((current) => current.includes(id)
+  const removeAttachment = useCallback((id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id)), [setPendingAttachmentIds]);
+  const toggleAttachment = useCallback((id: string) => setPendingAttachmentIds((current) => current.includes(id)
     ? current.filter((item) => item !== id)
-    : current.length < 4 ? [...current, id] : current);
+    : current.length < 4 ? [...current, id] : current), [setPendingAttachmentIds]);
 
   const togglePin = useCallback((canvasId: string) => {
     if (!sessionId) return;
@@ -1096,6 +1099,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           viewport: { viewBox: viewBox as [number, number, number, number] },
           compositePngDataUrl: png,
         });
+      }
+      if (attachmentPayload.some((item) => item.marks.length > 0 && !item.compositePngDataUrl)) {
+        throw new Error('The marked canvas could not be exported. Your draft and attachment are preserved; retry after reopening the canvas.');
       }
       if (compositeWarning) {
         setNotice(selected.every((canvas) => canvas.kind === 'sketch')
@@ -1556,6 +1562,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             stop reading as a single undifferentiated strip. */}
         <div className="header-actions">
           <ImmersiveBoundary
+            canvasReview={!loading && session ? {
+              attachmentIds: pendingAttachmentIds,
+              canCreateSketch: !sessionRunning,
+              onMarksChange: handleMarksChange,
+              onCreateSketch: createSketch,
+              onToggleAttachment: toggleAttachment,
+            } : undefined}
             sessionControls={{
               machines: arena.machines, machineId, sessionId: session?.id, creating: creatingSession,
               status: immersiveStatus, permissions: focusedPermissionTargets, results: permissionDecisions.results,
@@ -1610,10 +1623,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             authorized={deviceAccess.authenticated && deviceAccess.transportSecure}
             session={loading ? undefined : session}
             viewKey={immersiveViewKey(machineId || localMachineId, projectId, sessionId)}
-            evidence={{ ...repositoryDiff, tree: repositoryChanges.tree, selectedPath: repositoryChanges.selectedPath,
+            evidence={{ ...repositoryDiff, machineLabel: immersiveMachine?.machine.label || health?.hostLabel || 'This machine',
+              checkoutId: selectedCheckout?.id, checkoutName: selectedCheckout?.name, checkouts: sessionCheckouts,
+              tree: repositoryChanges.tree, selectedPath: repositoryChanges.selectedPath,
               status: loading ? 'Loading session…' : !selectedCheckout ? 'No repository attached' : repositoryChanges.error
                 || (repositoryChanges.loading ? 'Reading changes…' : repositoryChanges.tree?.isRepository === false ? 'Not a Git repository' : 'Choose a changed file'),
-              onSelectPath: repositoryChanges.selectPath, onRefresh: repositoryChanges.refresh }}
+              onSelectPath: repositoryChanges.selectPath, onSelectCheckout: selectCheckout, onRefresh: repositoryChanges.refresh }}
             theme={theme} preview={preview} runStatus={immersiveRunStatus}
             pendingApprovals={permissions.length} unread={unread}
             choices={immersiveChoices} workspaceStatus={immersiveStatus}

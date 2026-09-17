@@ -520,8 +520,9 @@ async function installAdapter(page: Page, options: { supported?: boolean; failIm
   }, options);
 }
 
-async function workspaceFixture(page: Page, withRepository = false, historyMessages = 0, extraConversations = 0) {
-  const state = { annotationWrites: 0, diffReads: 0, statusReads: 0, holdDiff: undefined as Promise<void> | undefined, online: true, failLoad: false, authenticated: true, holdLoad: undefined as Promise<void> | undefined };
+async function workspaceFixture(page: Page, withRepository = false, historyMessages = 0, extraConversations = 0, multipleRepositories = false) {
+  const state = { annotationWrites: 0, diffReads: 0, statusReads: 0, statusCheckoutIds: [] as string[], diffRequests: [] as Array<{ checkoutId: string; path: string }>,
+    holdDiff: undefined as Promise<void> | undefined, online: true, failLoad: false, authenticated: true, holdLoad: undefined as Promise<void> | undefined };
   const project = (id: string, name: string): DurableProject => ({ version: 1, revision: 0, id, name, repositories: [], createdAt: NOW, updatedAt: NOW });
   const session = (id: string, projectId: string, title: string): PublicSession => ({
     version: 3, revision: 0, id, projectId, title, repositories: [], createdAt: NOW, updatedAt: NOW,
@@ -534,6 +535,7 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
   const local = session(SESSION, PROJECT, 'Canvas session');
   if (withRepository) {
     local.repositories = [{ id: 'binding', hostId: LOCAL, checkoutId: 'checkout', role: 'primary' }];
+    if (multipleRepositories) local.repositories.push({ id: 'reference-binding', hostId: LOCAL, checkoutId: 'reference-checkout', role: 'reference' });
     local.messages = [{ id: 'reading-fixture', role: 'assistant', authorId: AGENT, createdAt: NOW, status: 'complete', rawMarkdown: '', blocks: [
       { kind: 'markdown', markdown: 'Reading fixture: keep the conversation, diagram, and repository evidence beside one another. Compare the result, then arrange the panels from your seat.' },
       { kind: 'code', language: 'ts', source: 'function resetWorkspace() {\n  return panels.map(panel => ({ ...panel, open: true }));\n}' },
@@ -564,14 +566,27 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
   });
   await page.route('**/api/auth/status', (route) => route.fulfill({ json: { mode: 'paired', authenticated: state.authenticated, transportSecure: true, hostLabel: 'Home' } }));
   await page.route('**/api/projects', (route) => route.fulfill({ json: { projects: [project(PROJECT, 'Local project')] } }));
-  await page.route('**/api/checkouts', (route) => route.fulfill({ json: { hostId: LOCAL, checkouts: withRepository ? [{ id: 'checkout', name: 'Fixture', relativePath: 'fixture' }] : [], recentCheckoutIds: [] } }));
+  await page.route('**/api/checkouts', (route) => route.fulfill({ json: { hostId: LOCAL, checkouts: withRepository ? [
+    { id: 'checkout', name: 'Fixture', relativePath: 'fixture' },
+    ...(multipleRepositories ? [{ id: 'reference-checkout', name: 'Reference', relativePath: 'reference' }] : []),
+  ] : [], recentCheckoutIds: [] } }));
   await page.route('**/api/arena', (route) => route.fulfill({ json: { machines: [snapshot(LOCAL, 'Home', local), snapshot(REMOTE, 'Laptop', remote)] } }));
   await page.route('**/api/agent/runs*', (route) => route.fulfill({ json: { active: [], recent: [] } }));
   await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [local, ...olderSessions] } }));
   for (const item of olderSessions) await page.route(`**/api/sessions/${item.id}`, (route) => route.fulfill({ json: { session: item } }));
   await page.route(`**/api/sessions/${SESSION}/annotations`, (route) => {
     state.annotationWrites++;
+    const annotation = route.request().postDataJSON()?.annotation;
+    if (annotation?.diagramId) {
+      local.annotations[annotation.diagramId] = annotation;
+      local.revision++;
+    }
     return route.fulfill({ json: { session: local } });
+  });
+  await page.route(`**/api/sessions/${SESSION}/sketches`, (route) => {
+    const sketch = route.request().postDataJSON()?.sketch;
+    if (sketch) { local.sketches.push(sketch); local.revision++; }
+    return route.fulfill({ status: 201, json: { session: local } });
   });
   await page.route(`**/api/sessions/${SESSION}`, (route) => route.fulfill({ json: { session: local } }));
   await page.route(`**/api/machines/${REMOTE}/**`, async (route) => {
@@ -584,6 +599,11 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
   });
   await page.route('**/api/repository/status?*', (route) => {
     state.statusReads++;
+    const checkoutId = new URL(route.request().url()).searchParams.get('checkoutId') || '';
+    state.statusCheckoutIds.push(checkoutId);
+    if (checkoutId === 'reference-checkout') return route.fulfill({ json: { tree: { isRepository: true, branch: 'reference', files: [
+      { path: 'reference.ts', status: 'untracked', staged: false, unstaged: true },
+    ] } } });
     return route.fulfill({ json: { tree: { isRepository: true, files: [
       { path: 'fixture.ts', status: 'modified', staged: true, unstaged: true },
       { path: 'other.ts', status: 'modified', staged: false, unstaged: true },
@@ -592,7 +612,9 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
   await page.route('**/api/repository/diff?*', async (route) => {
     state.diffReads++;
     await state.holdDiff;
-    const path = new URL(route.request().url()).searchParams.get('path');
+    const url = new URL(route.request().url());
+    const path = url.searchParams.get('path') || '';
+    state.diffRequests.push({ checkoutId: url.searchParams.get('checkoutId') || '', path });
     return route.fulfill({ json: { diff: { path, staged: '@@ staged @@\n+  first change',
       unstaged: Array.from({ length: 60 }, (_, i) => `+  ${path} line ${i}`).join('\n') } } });
   });
@@ -869,6 +891,27 @@ async function pointAtAction(page: Page, action: string, point?: number[]) {
   const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
   // Camera rotation alone does not emit a desktop pointer event. Move off the last
   // screen coordinate before pointing at the new target to refresh the hover ray.
+  await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2 + 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+async function pointAtCanvasUv(page: Page, u: number, v: number) {
+  await expect.poll(() => page.evaluate(({ u, v }) => {
+    const target = window.xrScene?.scene.getObjectByName('Active canvas') as Mesh | undefined;
+    if (!target || !window.xrScene) return false;
+    const { camera, scene } = window.xrScene;
+    const size = (target.geometry as import('three').PlaneGeometry).parameters;
+    scene.updateMatrixWorld(true);
+    const point = camera.position.clone().set((u - 0.5) * size.width, (v - 0.5) * size.height, 0);
+    camera.lookAt(target.localToWorld(point));
+    camera.updateMatrixWorld(true);
+    return true;
+  }, { u, v })).toBe(true);
+  await page.locator('.immersive-viewport').evaluate((element: HTMLElement) => {
+    element.style.opacity = '1'; element.style.zIndex = '200'; element.style.pointerEvents = 'auto';
+    element.querySelector('canvas')!.style.pointerEvents = 'auto';
+  });
+  const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
   await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2 + 2);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 }
@@ -1258,6 +1301,141 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
   await test.info().attach('vr-resource-budget', { body: JSON.stringify(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__), null, 2), contentType: 'application/json' });
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
+});
+
+test('routes immersive repository review through the selected session checkout', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true, 0, 0, true);
+  await page.goto('/'); await enter(page); await panelAction(page, 'evidence', 'open');
+  const evidenceState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Repository evidence')?.userData);
+  await expect.poll(async () => (await evidenceState())?.checkoutId).toBe('checkout');
+  await expect.poll(async () => (await evidenceState())?.checkouts).toEqual([
+    { id: 'checkout', name: 'Fixture' }, { id: 'reference-checkout', name: 'Reference' },
+  ]);
+  await pointAtAction(page, 'next-checkout'); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:device:v1:active-checkout'))).toBe('reference-checkout');
+  await expect.poll(() => page.evaluate((sessionId) => {
+    const stored = JSON.parse(localStorage.getItem('code-ai:device:v1:workspace') || '{}');
+    const match = Object.values(stored.scopes || {}).flatMap((scope: any) => Object.entries(scope.views || {}))
+      .find(([id]) => id === sessionId);
+    return (match?.[1] as { selectedCheckoutId?: string } | undefined)?.selectedCheckoutId;
+  }, SESSION)).toBe('reference-checkout');
+  await expect.poll(async () => (await evidenceState())?.checkoutId).toBe('reference-checkout');
+  await expect.poll(() => fixture.statusCheckoutIds).toContain('reference-checkout');
+  await expect.poll(async () => (await evidenceState())?.checkoutName).toBe('Reference');
+  expect(await evidenceState()).toMatchObject({ machineLabel: 'Home', branch: 'reference' });
+  await controls(page).locator('[data-immersive-action="next-file"]').click();
+  await expect.poll(() => fixture.diffRequests.at(-1)).toEqual({ checkoutId: 'reference-checkout', path: 'reference.ts' });
+  await expect.poll(async () => (await evidenceState())?.path).toBe('reference.ts');
+  await pointAtAction(page, 'previous-checkout'); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(async () => (await evidenceState())?.checkoutId).toBe('checkout');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('compares canvases, writes canonical controller marks, and sends the marked attachment', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true);
+  await page.route('**/api/health', (route) => route.fulfill({ json: {
+    ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true,
+    providers: { claude: { available: true, authenticated: true, supportedModes: ['ask', 'plan'] },
+      codex: { available: false, authenticated: 'unknown', supportedModes: [] } },
+  } }));
+  await page.goto('/'); await enter(page);
+  const canvasAction = (action: string) => controls(page).locator(`[data-immersive-action="canvas:${action}"]`).click();
+  const reviewState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Canvas review tools')?.userData);
+  await expect.poll(async () => (await reviewState())?.activeId).toBe('sketch-fixture');
+
+  // Move the panel before drawing: the canonical coordinates must still come from texture UVs.
+  await pointAtAction(page, 'panel:canvas:drag'); await page.mouse.down(); await moveHeldPanel(page); await page.mouse.up();
+  await hideProjection(page);
+  await canvasAction('rectangle');
+  const drawingPixels = await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels);
+  await pointAtCanvasUv(page, 0.25, 0.75); await page.mouse.down();
+  await pointAtCanvasUv(page, 0.75, 0.25);
+  await expect.poll(async () => (await reviewState())?.drawing).toBe(true);
+  expect((await reviewState())!.marks).toHaveLength(0);
+  expect((await reviewState())!.previewVersion).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBe(drawingPixels);
+  const drawingPointerId = (await reviewState())!.drawingPointerId;
+  await page.locator('.immersive-viewport canvas').dispatchEvent('lostpointercapture', { pointerId: drawingPointerId });
+  await expect.poll(async () => (await reviewState())?.drawing).toBe(true);
+  await page.mouse.up(); await hideProjection(page);
+  await expect.poll(async () => (await reviewState())?.drawing).toBe(false);
+  await expect.poll(async () => (await reviewState())?.marks?.length).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Active canvas')?.userData.status)).toBe('ready');
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  const rectangle = (await reviewState())!.marks[0];
+  expect(rectangle).toMatchObject({ kind: 'rectangle', x: expect.closeTo(400, 0), y: expect.closeTo(250, 0) });
+  expect(rectangle.width).toBeGreaterThan(300); expect(rectangle.width).toBeLessThan(900);
+  expect(rectangle.height).toBeGreaterThan(150); expect(rectangle.height).toBeLessThan(600);
+  await canvasAction('undo'); await expect.poll(async () => (await reviewState())?.marks?.length).toBe(0);
+  await canvasAction('redo'); await expect.poll(async () => (await reviewState())?.marks?.length).toBe(1);
+
+  await canvasAction('text');
+  await expect.poll(async () => (await reviewState())?.tool).toBe('text');
+  await pointAtCanvasUv(page, 0.5, 0.5); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(async () => Boolean((await reviewState())?.labelPoint)).toBe(true);
+  const label = page.locator('[data-immersive-canvas-label]');
+  await expect(label).toHaveCount(1); await label.fill('Check this route');
+  await canvasAction('commit-label');
+  await expect.poll(async () => (await reviewState())?.marks?.length).toBe(2);
+  await expect(page.locator('.ink-layer [data-mark-id]')).toHaveCount(2);
+  const flatRectangle = page.locator('.ink-layer rect[data-mark-id]');
+  await expect(flatRectangle).toHaveAttribute('x', String(rectangle.x));
+  await expect(flatRectangle).toHaveAttribute('y', String(rectangle.y));
+  await expect(flatRectangle).toHaveAttribute('width', String(rectangle.width));
+  await expect(flatRectangle).toHaveAttribute('height', String(rectangle.height));
+  await canvasAction('clear');
+  expect((await reviewState())!.marks).toHaveLength(2);
+  expect((await reviewState())!.clearPending).toBe(true);
+  await canvasAction('clear'); await expect.poll(async () => (await reviewState())?.marks?.length).toBe(0);
+  await canvasAction('undo'); await expect.poll(async () => (await reviewState())?.marks?.length).toBe(2);
+  await expect.poll(() => fixture.annotationWrites).toBeGreaterThan(1);
+
+  await page.evaluate(() => { window.__CODEAI_SPATIAL_TEST__ = { failTextureId: 'reading-diagram' }; });
+  await canvasAction('compare');
+  await expect.poll(async () => (await reviewState())?.comparisonId).toBe('reading-diagram');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Comparison canvas')?.userData.status)).toBe('error');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Active canvas')?.userData.status)).toBe('ready');
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+
+  expect((await reviewState())!.attached).toBe(true);
+  await canvasAction('attach'); await expect.poll(async () => (await reviewState())?.attached).toBe(false);
+  await canvasAction('attach'); await expect.poll(async () => (await reviewState())?.attached).toBe(true);
+  await conversationAction(page, 'compose');
+  const input = page.locator('[data-immersive-message-input]');
+  await input.fill('Review the marked route.');
+  let messageRequests = 0;
+  let sent: { text: string; diagramAttachments: Array<{ diagramId: string; kind?: string; marks: unknown[]; viewport: { viewBox: number[] }; compositePngDataUrl?: string }> } | undefined;
+  await page.route('**/api/agent/message', (route) => {
+    messageRequests += 1;
+    sent = route.request().postDataJSON();
+    return route.fulfill({ status: 503, json: { error: 'Injected send failure after capture.' } });
+  });
+  await conversationAction(page, 'send');
+  await expect.poll(() => sent?.diagramAttachments.length).toBe(1);
+  expect(sent).toMatchObject({ text: 'Review the marked route.', diagramAttachments: [{
+    diagramId: 'sketch-fixture', kind: 'sketch', marks: expect.arrayContaining([
+      expect.objectContaining({ kind: 'rectangle' }), expect.objectContaining({ kind: 'text', text: 'Check this route' }),
+    ]), viewport: { viewBox: [0, 0, 1_600, 1_000] },
+  }] });
+  expect(sent!.diagramAttachments[0].compositePngDataUrl).toMatch(/^data:image\/png/);
+  await expect(input).toHaveValue('Review the marked route.');
+  expect(messageRequests).toBe(1);
+
+  await page.evaluate(() => {
+    HTMLCanvasElement.prototype.toDataURL = () => { throw new Error('Injected export failure.'); };
+  });
+  await input.fill('Retry the marked route.');
+  await conversationAction(page, 'send');
+  await expect(controls(page).getByRole('status')).toContainText('marked canvas could not be exported');
+  await expect(input).toHaveValue('Retry the marked route.');
+  expect(messageRequests).toBe(1);
+
+  await canvasAction('sketch');
+  await expect.poll(() => fixture.local.sketches.length).toBe(2);
+  await expect.poll(async () => (await reviewState())?.activeId).not.toBe('sketch-fixture');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
 test('ignores a delayed diff after navigating to another machine and keeps recovery controls available', async ({ page }) => {

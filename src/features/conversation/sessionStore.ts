@@ -51,6 +51,13 @@ export function hydrateSession(
   device?: Partial<SessionHydrationState>,
 ): SessionSnapshot {
   const base = structuredClone(snapshot) as SessionSnapshot;
+  if (prior) {
+    for (const [id, annotation] of Object.entries(prior.annotations)) {
+      if (!base.annotations[id] || annotation.updatedAt > base.annotations[id].updatedAt) {
+        base.annotations[id] = structuredClone(annotation);
+      }
+    }
+  }
   const canvasIds = new Set([
     ...getArtifacts(base).map((artifact) => artifact.id),
     ...getSketches(base).map((sketch) => sketch.id),

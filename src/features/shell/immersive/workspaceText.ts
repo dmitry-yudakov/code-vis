@@ -1,4 +1,4 @@
-import type { GitFileDiff } from '@/shared/types';
+import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
 
 /** Fixed monospace columns match raster text; preserve code indentation and wrap long tokens. */
 export function workspaceTextLines(text: string, columns = 56): string[] {
@@ -20,6 +20,19 @@ export function workspaceTextLines(text: string, columns = 56): string[] {
   });
 }
 export const EVIDENCE_LINES_PER_PAGE = 16;
+
+export function repositoryStatusLines(tree: GitWorkingTree | undefined, status: string): string[] {
+  if (!tree) return workspaceTextLines(status).slice(0, EVIDENCE_LINES_PER_PAGE);
+  if (!tree.isRepository) return ['Not a Git repository', '', 'This checkout remains available as agent context.'];
+  const tracking = [tree.ahead ? `ahead ${tree.ahead}` : '', tree.behind ? `behind ${tree.behind}` : ''].filter(Boolean).join(' · ');
+  const heading = `Branch: ${tree.branch || 'unknown'}${tracking ? ` · ${tracking}` : ''}`;
+  if (!tree.files.length) return [heading, '', 'Working tree clean'];
+  return [heading, '', `${tree.files.length} changed ${tree.files.length === 1 ? 'file' : 'files'}`,
+    ...tree.files.slice(0, 12).map((file) => `${file.staged ? 'S' : ' '} ${file.unstaged ? 'W' : ' '} ${file.status === 'untracked' ? '?' : ' '}  ${file.path}`),
+    ...(tree.files.length > 12 ? [`… ${tree.files.length - 12} more; use file controls`] : []),
+  ];
+}
+
 export function evidencePages(diff?: GitFileDiff): string[][] {
   const text = diff ? [
     diff.staged !== undefined ? `Staged\n${diff.staged || 'No textual patch available.'}` : '',

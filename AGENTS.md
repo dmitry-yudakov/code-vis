@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-11. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-16. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -15,8 +15,11 @@ Updated 2026-09-11. When a story ships, change the line that names it; each stor
   Physical Quest 3S acceptance remains pending for Stories 44–47.
 - **Also in flight:** [Story 48](stories/STORY-20260905-vr-session-permissions.md) — session creation
   and active-session permissions in VR; physical Quest 3S acceptance remains pending.
-- **Next:** [Story 49](stories/STORY-20260905-vr-review-and-annotations.md) — review and annotations
-  before spatial diagrams and the later VR Arena.
+- **Also in flight:** [Story 49](stories/STORY-20260905-vr-review-and-annotations.md) — automated
+  repository review, diagram comparison, annotations, and marked attachments are implemented;
+  physical Quest 3S acceptance remains pending.
+- **Next:** [Story 50](stories/STORY-20260905-vr-spatial-diagrams.md) — spatial Mermaid diagrams
+  before complete headset acceptance and the later VR Arena.
 - **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
   controller/visibility interruptions and retain device-local exit diagnostics.
 - **Also in flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md),

@@ -143,7 +143,9 @@ topology—not Internet hosting, a team account, or a relay.
 
 [Story 45](stories/STORY-20260905-application-vr-shell.md) adds an application-level immersive shell.
 [Story 46](stories/STORY-20260905-vr-workspace-panels.md) adds movable panels and a read-only diff surface.
-Physical Quest 3S entry, navigation, readability, and comfort verification remain pending. The
+[Story 49](stories/STORY-20260905-vr-review-and-annotations.md) adds checkout review, artifact
+comparison, canonical drawing, and marked attachments. Physical Quest 3S entry, navigation,
+readability, and comfort verification remain pending. The
 [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) tracks the full work loop:
 movable panels, real 3D diagrams, controllers, and voice, followed later by the multi-session Arena.
 
@@ -167,8 +169,9 @@ Medium, Large, and Extra large presets. Panels stay visible while dragging, with
 paused until release. The bottom panel buttons toggle visibility and highlight open panels.
 The always-accessible tool strip shows session/approval status, **Reset workspace**, and **Exit VR**.
 Conversation scrolls continuously with the controller thumbstick, trigger-drag, or mouse wheel.
-Repository diffs are paged; Evidence shares the desktop's selected changed file
-and refresh action. Canvas sizing is separate from panel placement. Ordinary session and shell-route navigation retains the same XR session. Loading failures
+Repository diffs are paged; Evidence shares the desktop's selected session checkout, changed file,
+and refresh action while identifying the machine, checkout, branch, and bounded read-only path.
+Canvas sizing is separate from panel placement. Ordinary session and shell-route navigation retains the same XR session. Loading failures
 and Offline machines have visible status; a broken canvas or transcript leaves navigation and Exit
 usable. Conversation shows user and agent message bubbles with proportional text. An inline message
 field sits below the chat, with microphone and Send inside it. Select the field
@@ -198,7 +201,15 @@ The card retains its result, and **Next request** deliberately selects another r
 fails, **Refresh status** checks current state before another explicit attempt. **Retry instruction**
 copies the last instruction into the draft for review before Send. **Forget this device** requires
 a second selection and returns a paired headset to the existing pairing gate. Quest 3S acceptance
-of this work loop remains pending. Canvas attachment management follows in Story 49.
+of this work loop remains pending.
+
+The Canvas panel can compare two diagrams or sketches under the shared texture budget. Pen,
+rectangle, arrow, eraser, undo/redo, deliberate two-step clear, and text labels use the same durable
+marks as Flat; text labels reuse the native Quest input path. Marks are mapped from controller hits
+to the artifact viewBox, so moving or resizing the panel does not change saved coordinates or the
+composite sent to an agent. Toggle attachment selects the active canvas for the next instruction,
+and New sketch creates a blank immutable canvas. A required marked composite that cannot be
+exported blocks the send and keeps the draft and attachment available for retry.
 
 Entry always requires a fresh gesture. Deliberate panel placement, size, visibility, and focus
 are saved on this device per machine/project/session, separately from desktop layouts. Re-entry
@@ -655,7 +666,7 @@ Flat. This remains an SVG-panel projection rather than the later model-native 3D
 
 On an authorized secure browser with `immersive-vr` support, the application header exposes **Enter
 VR** independently of the canvas. The shell lazily prepares its renderer and uploads only the active
-canvas, a bounded scrolling conversation viewport, diff pages, the conversation list, and labelled controls for open panels. Unsupported, denied,
+canvas and optional comparison, a bounded scrolling conversation viewport, diff pages, the conversation list, and labelled controls for open panels. Unsupported, denied,
 interrupted, or failed XR entry leaves the desktop workspace available.
 
 **Start a sketch** opens a blank sheet with the same drawing tools — available before any diagram

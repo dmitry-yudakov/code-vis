@@ -15,11 +15,22 @@ import {
 
 type QuestKeyboardSession = XRSession & { isSystemKeyboardSupported?: boolean };
 
-export function InlineConversationInput({ draft, theme, enabled, onDraft }: {
+export function InlineConversationInput({
+  draft, theme, enabled, onDraft,
+  ariaLabel = 'VR message input', dataAttribute = 'data-immersive-message-input',
+  placeholder = 'Message…', meshName = 'Message input', maxLength = MAX_DRAFT_LENGTH,
+  position = [0, -0.66, 0.035],
+}: {
   draft: string;
   theme: ThemeName;
   enabled: boolean;
   onDraft(value: string): void;
+  ariaLabel?: string;
+  dataAttribute?: string;
+  placeholder?: string;
+  meshName?: string;
+  maxLength?: number;
+  position?: [number, number, number];
 }) {
   const get = useThree((state) => state.get);
   const textarea = useRef<HTMLTextAreaElement | null>(null);
@@ -55,11 +66,11 @@ export function InlineConversationInput({ draft, theme, enabled, onDraft }: {
   useEffect(() => {
     if (!enabled) return;
     const input = document.createElement('textarea');
-    input.setAttribute('aria-label', 'VR message input');
-    input.setAttribute('data-immersive-message-input', '');
+    input.setAttribute('aria-label', ariaLabel);
+    input.setAttribute(dataAttribute, '');
     input.tabIndex = -1;
-    input.maxLength = MAX_DRAFT_LENGTH;
-    input.placeholder = 'Message…';
+    input.maxLength = maxLength;
+    input.placeholder = placeholder;
     input.value = current.current.draft;
     // Keep the focus target in the viewport so Quest does not move the underlying page.
     Object.assign(input.style, { position: 'fixed', top: '0', left: '0', width: '1px', height: '1px', opacity: '0', pointerEvents: 'none' });
@@ -77,14 +88,14 @@ export function InlineConversationInput({ draft, theme, enabled, onDraft }: {
       const session = nativeEdit.current;
       if (session) {
         const update = applyNativeKeyboardValue(session, input.value, input.selectionStart, input.selectionEnd,
-          event instanceof InputEvent ? event.inputType : '');
+          event instanceof InputEvent ? event.inputType : '', maxLength);
         nativeEdit.current = update.session;
         updateDraft(update.edit);
         if (input.value !== update.nativeValue) input.value = update.nativeValue;
         if (update.rearm) input.setSelectionRange(NATIVE_KEYBOARD_GUARD.length, NATIVE_KEYBOARD_GUARD.length);
         return;
       }
-      let value = input.value.slice(0, MAX_DRAFT_LENGTH);
+      let value = input.value.slice(0, maxLength);
       if (/[\uD800-\uDBFF]$/u.test(value)) value = value.slice(0, -1);
       if (input.value !== value) input.value = value;
       updateDraft({ value, start: Math.min(input.selectionStart, value.length), end: Math.min(input.selectionEnd, value.length) });
@@ -112,7 +123,7 @@ export function InlineConversationInput({ draft, theme, enabled, onDraft }: {
       pressed.current = null;
       setFocused(false);
     };
-  }, [enabled]);
+  }, [ariaLabel, dataAttribute, enabled, maxLength, placeholder]);
 
   useEffect(() => {
     const input = textarea.current;
@@ -155,10 +166,10 @@ export function InlineConversationInput({ draft, theme, enabled, onDraft }: {
       context.fillStyle = colors.ink;
       context.fillText(line.text, 28, baseline);
     });
-    if (!draft && !focused) { context.fillStyle = colors.muted; context.fillText('Message…', 28, 66); }
+    if (!draft && !focused) { context.fillStyle = colors.muted; context.fillText(placeholder, 28, 66); }
     resource.material.opacity = enabled ? 1 : 0.5;
     resource.material.map!.needsUpdate = true;
-  }, [resource, draft, theme, focused, caret, enabled]);
+  }, [resource, draft, theme, focused, caret, enabled, placeholder]);
 
   const caretAt = (event: ThreeEvent<PointerEvent>) => {
     if (!mesh.current) return current.current.draft.length;
@@ -193,8 +204,8 @@ export function InlineConversationInput({ draft, theme, enabled, onDraft }: {
     input.focus({ preventScroll: true });
   };
 
-  return resource && <mesh ref={mesh} name="Message input" geometry={resource.geometry} material={resource.material}
-    position={[0, -0.66, 0.035]} pointerEvents={enabled ? 'auto' : 'none'}
+  return resource && <mesh ref={mesh} name={meshName} geometry={resource.geometry} material={resource.material}
+    position={position} pointerEvents={enabled ? 'auto' : 'none'}
     userData={{ immersiveMessageInput: true, draft, focused, enabled, selection: caret,
       nativeKeyboard: Boolean((get().gl.xr.getSession() as QuestKeyboardSession | null)?.isSystemKeyboardSupported) }}
     onPointerDown={(event) => { event.stopPropagation(); if (event.button === 0 && pressed.current === null) pressed.current = event.pointerId; }}
