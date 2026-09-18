@@ -469,7 +469,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
   await expect(controls).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.logicalTexturePixels || 0)).toBeGreaterThan(0);
-  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
 
   const activeBeforeNavigation = await page.locator('.canvas-titleblock strong').textContent();
   await controls.getByRole('button', { name: 'Previous canvas' }).click();

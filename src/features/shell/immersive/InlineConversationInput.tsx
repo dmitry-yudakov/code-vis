@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import { palette, type ThemeName } from '@/shared/design/tokens';
+import type { ThemeName } from '@/shared/design/tokens';
 import { MAX_DRAFT_LENGTH } from '@/shared/voice';
 import { texturePanel } from '@/features/diagram/spatial/immersiveResources';
 import { useTextureResource } from './useTextureResource';
@@ -12,6 +12,7 @@ import {
   startNativeKeyboardEdit,
   type NativeKeyboardEditSession,
 } from './nativeKeyboardEditing';
+import { IMMERSIVE_FIELD_RADIUS, immersiveFont, immersiveTheme } from './immersiveTheme';
 
 type QuestKeyboardSession = XRSession & { isSystemKeyboardSupported?: boolean };
 
@@ -19,7 +20,7 @@ export function InlineConversationInput({
   draft, theme, enabled, onDraft,
   ariaLabel = 'VR message input', dataAttribute = 'data-immersive-message-input',
   placeholder = 'Message…', meshName = 'Message input', maxLength = MAX_DRAFT_LENGTH,
-  position = [0, -0.66, 0.035],
+  position = [0, -0.66, 0.0015],
 }: {
   draft: string;
   theme: ThemeName;
@@ -138,13 +139,14 @@ export function InlineConversationInput({
   useLayoutEffect(() => {
     if (!resource) return;
     const { context } = resource;
-    const colors = palette[theme];
+    const colors = immersiveTheme[theme];
+    const pixelsPerMeter = 1024 / 1.32;
     context.clearRect(0, 0, 1024, 256);
-    context.fillStyle = colors.sheetSunk;
-    context.strokeStyle = focused ? colors.live : colors.line;
+    context.fillStyle = colors.raised;
+    context.strokeStyle = focused ? colors.focus : colors.raised;
     context.lineWidth = 3;
-    context.beginPath(); context.roundRect(3, 3, 1018, 250, 28); context.fill(); context.stroke();
-    context.font = '44px Arial, sans-serif';
+    context.beginPath(); context.roundRect(3, 3, 1018, 250, IMMERSIVE_FIELD_RADIUS * pixelsPerMeter); context.fill(); context.stroke();
+    context.font = immersiveFont('reading', pixelsPerMeter);
     const lines = immersiveInputLines(draft, 680, (text) => context.measureText(text).width);
     const caretLine = lines.findLastIndex((line) => line.start <= caret.end);
     const first = focused ? Math.max(0, Math.min(caretLine - 1, lines.length - 3)) : Math.max(0, lines.length - 3);
@@ -154,19 +156,19 @@ export function InlineConversationInput({
       if (focused) {
         const x = (at: number) => line.stops.find((stop) => stop.index === at)?.x ?? 0;
         if (caret.start !== caret.end && caret.start <= line.end && caret.end >= line.start) {
-          context.fillStyle = colors.lineStrong;
+          context.fillStyle = colors.control;
           const left = x(Math.max(caret.start, line.start));
           context.fillRect(28 + left, baseline - 44, x(Math.min(caret.end, line.end)) - left, 54);
         }
         if (first + index === caretLine) {
-          context.fillStyle = colors.live;
+          context.fillStyle = colors.link;
           context.fillRect(28 + x(caret.end), baseline - 43, 3, 52);
         }
       }
-      context.fillStyle = colors.ink;
+      context.fillStyle = colors.text;
       context.fillText(line.text, 28, baseline);
     });
-    if (!draft && !focused) { context.fillStyle = colors.muted; context.fillText(placeholder, 28, 66); }
+    if (!draft && !focused) { context.fillStyle = colors.secondaryText; context.fillText(placeholder, 28, 66); }
     resource.material.opacity = enabled ? 1 : 0.5;
     resource.material.map!.needsUpdate = true;
   }, [resource, draft, theme, focused, caret, enabled, placeholder]);
@@ -205,7 +207,7 @@ export function InlineConversationInput({
   };
 
   return resource && <mesh ref={mesh} name={meshName} geometry={resource.geometry} material={resource.material}
-    position={position} pointerEvents={enabled ? 'auto' : 'none'}
+    position={position} renderOrder={14} pointerEvents={enabled ? 'auto' : 'none'}
     userData={{ immersiveMessageInput: true, draft, focused, enabled, selection: caret,
       nativeKeyboard: Boolean((get().gl.xr.getSession() as QuestKeyboardSession | null)?.isSystemKeyboardSupported) }}
     onPointerDown={(event) => { event.stopPropagation(); if (event.button === 0 && pressed.current === null) pressed.current = event.pointerId; }}

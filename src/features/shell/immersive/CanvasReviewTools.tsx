@@ -14,20 +14,14 @@ import {
   type CanvasReviewActionName,
   type ImmersiveCanvasReviewControls,
 } from './canvasReviewControls';
-import { createWorkspaceIconResource, type WorkspaceIcon } from './workspaceIcons';
-import { createWorkspaceTextResource } from './workspaceResources';
+import { createWorkspaceIconResource, isWorkspaceIconAction } from './workspaceIcons';
+import { createWorkspaceButtonResource, createWorkspaceTextResource } from './workspaceResources';
 import { useTextureResource } from './useTextureResource';
-import { WorldButton } from './WorkspacePanel';
+import { ControlGroupSurface, WorkspacePager, WorldButton } from './WorkspacePanel';
 import { InlineConversationInput } from './InlineConversationInput';
+import { immersiveTheme } from './immersiveTheme';
 
-const ICONS: Record<CanvasReviewActionName, WorkspaceIcon> = {
-  pen: 'edit', rectangle: 'canvas', arrow: 'replace', text: 'spell', eraser: 'trash',
-  undo: 'undo', redo: 'refresh', clear: 'close', attach: 'plus', sketch: 'canvas', compare: 'history',
-  'previous-compare': 'chevron-left', 'next-compare': 'chevron-right',
-  'commit-label': 'check', 'cancel-label': 'close',
-};
 const DRAWING_TOOLS = ['pen', 'rectangle', 'arrow', 'text', 'eraser'] as const;
-const MARK_COLOR = '#c67139';
 
 export interface CanvasReviewController {
   perform(action: CanvasReviewActionName): void;
@@ -41,23 +35,40 @@ interface DraftPreview {
   canvas: HTMLCanvasElement;
   context: CanvasRenderingContext2D;
   texture: THREE.CanvasTexture;
-  base: ImageData;
+  base: HTMLCanvasElement;
   viewBox: [number, number, number, number];
+  minFilter: THREE.MinificationTextureFilter;
+  generateMipmaps: boolean;
 }
 
 function createDraftPreview(resource: PanelResource): DraftPreview | undefined {
-  const texture = (resource.material as THREE.MeshBasicMaterial).map;
-  const canvas = texture?.image;
-  if (!(texture instanceof THREE.CanvasTexture) || !(canvas instanceof HTMLCanvasElement)) return;
-  const context = canvas.getContext('2d');
-  if (!context) return;
-  return { canvas, context, texture, base: context.getImageData(0, 0, canvas.width, canvas.height), viewBox: resource.viewBox };
+  try {
+    const texture = (resource.material as THREE.MeshBasicMaterial).map;
+    const canvas = texture?.image;
+    if (!(texture instanceof THREE.CanvasTexture) || !(canvas instanceof HTMLCanvasElement)) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const base = document.createElement('canvas');
+    base.width = canvas.width; base.height = canvas.height;
+    const baseContext = base.getContext('2d');
+    if (!baseContext) return;
+    baseContext.drawImage(canvas, 0, 0);
+    const preview = { canvas, context, texture, base, viewBox: resource.viewBox,
+      minFilter: texture.minFilter, generateMipmaps: texture.generateMipmaps };
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    return preview;
+  } catch {
+    // A missing live preview must never prevent the controller gesture from being committed.
+    return;
+  }
 }
 
 function paintDraft(preview: DraftPreview, mark: DrawingMark): void {
   const { canvas, context, texture, base, viewBox: [x, y, viewWidth, viewHeight] } = preview;
   context.setTransform(1, 0, 0, 1, 0, 0);
-  context.putImageData(base, 0, 0);
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(base, 0, 0);
   context.setTransform(canvas.width / viewWidth, 0, 0, canvas.height / viewHeight,
     -x * canvas.width / viewWidth, -y * canvas.height / viewHeight);
   context.strokeStyle = mark.color;
@@ -110,17 +121,12 @@ function CanvasResource({ target, resource, active, comparison, enabled, tool, t
   const height = Math.min(availableHeight, availableWidth / Math.max(0.1, resource.aspectRatio)) * scale;
   const width = height * resource.aspectRatio;
   const label = targetLabel(target);
-  const title = useTextureResource((ledger) => createWorkspaceTextResource(
-    label,
-    resource.status === 'ready' ? active ? 'Hold trigger to draw' : 'Comparison'
-      : resource.detail || (resource.status === 'omitted' ? 'Preview omitted by resource budget' : 'Preview unavailable'),
-    theme, ledger,
-  ), [label, resource.status, resource.detail, active, theme]);
   const positionX = comparison ? active ? -0.34 : 0.34 : 0;
   // The XR pointer releases capture before emitting its normal pointerup. Its pointercancel is the
   // cancellation signal; handling lostpointercapture would discard every controller stroke.
-  return <group position={[positionX, -0.08, 0.02]}>
+  return <group position={[positionX, -0.08, 0.001]}>
     <mesh name={active ? 'Active canvas' : 'Comparison canvas'} geometry={resource.geometry} material={resource.material}
+      renderOrder={10}
       scale={[width / resource.size[0], height / resource.size[1], 1]}
       pointerEvents={active && enabled && resource.status === 'ready' ? 'auto' : 'none'}
       userData={{ canvasReviewSurface: canvasTargetId(target), canvasTarget: canvasTargetId(target), active,
@@ -129,8 +135,6 @@ function CanvasResource({ target, resource, active, comparison, enabled, tool, t
       onPointerMove={(event) => onPointerMove(event, resource)}
       onPointerUp={(event) => onPointerFinish(event, resource, false)}
       onPointerCancel={(event) => onPointerFinish(event, resource, true)} />
-    {title && <mesh geometry={title.geometry} material={title.material} scale={comparison ? 0.43 : 0.7}
-      position={[0, -height / 2 - 0.13, 0.02]} pointerEvents="none" raycast={() => undefined} />}
   </group>;
 }
 
@@ -186,11 +190,11 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
     const ledger = new SpatialResourceLedger('immersive');
     const annotations = { ...session.annotations, [activeId!]: { ...session.annotations[activeId!], marks: drawing.marks } };
     // Reserve room for chat, repository evidence, controls, and a second comparison canvas under
-    // the workspace-wide 4 MP budget. Each comparison gets an equal readable share; treating each
+    // the workspace-wide 5.59 MP mipmapped budget. Each comparison gets an equal readable share; treating each
     // as active also upscales small Mermaid viewBoxes past the allocator's legibility floor.
     const perTargetPixels = Math.floor(800_000 / targets.length);
     void Promise.all(targets.map((target) => createPanelResources(
-      [target], annotations, canvasTargetId(target), theme, ledger, perTargetPixels,
+      [target], annotations, canvasTargetId(target), theme, ledger, perTargetPixels, true,
     ))).then((parts) => {
       if (!ledger.isDisposed()) setResources(Object.assign({}, ...parts));
     });
@@ -205,7 +209,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   };
   const commitLabel = () => {
     if (!labelPoint || !label.trim()) return;
-    const mark = createCanvasMark('text', labelPoint, MARK_COLOR, createUuid(), new Date().toISOString(), label);
+    const mark = createCanvasMark('text', labelPoint, immersiveTheme[theme].annotation, createUuid(), new Date().toISOString(), label);
     if (mark) dispatch({ type: 'add', mark });
     setLabelPoint(undefined); setLabel('');
   };
@@ -236,9 +240,15 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
     gesture.current = undefined;
     if (cancelled && current.preview) {
       current.preview.context.setTransform(1, 0, 0, 1, 0, 0);
-      current.preview.context.putImageData(current.preview.base, 0, 0);
+      current.preview.context.clearRect(0, 0, current.preview.canvas.width, current.preview.canvas.height);
+      current.preview.context.drawImage(current.preview.base, 0, 0);
       current.preview.texture.needsUpdate = true;
     } else if (!cancelled) dispatch({ type: 'add', mark: current.mark });
+    if (current.preview) {
+      current.preview.texture.generateMipmaps = current.preview.generateMipmaps;
+      current.preview.texture.minFilter = current.preview.minFilter;
+      current.preview.texture.needsUpdate = true;
+    }
     setDraft(undefined);
     try {
       if (current.capture.hasPointerCapture(current.pointerId)) current.capture.releasePointerCapture(current.pointerId);
@@ -266,7 +276,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
       if (mark) dispatch({ type: 'remove', id: mark.id });
       return;
     }
-    const mark = createCanvasMark(tool, point, MARK_COLOR, createUuid(), new Date().toISOString());
+    const mark = createCanvasMark(tool, point, immersiveTheme[theme].annotation, createUuid(), new Date().toISOString());
     if (!mark) return;
     const capture = event.target as Element;
     capture.setPointerCapture(event.pointerId);
@@ -309,21 +319,28 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   const compareResource = comparisonTarget && resources[canvasTargetId(comparisonTarget)];
   const visibleActions: CanvasReviewActionName[] = labelPoint ? ['commit-label', 'cancel-label'] : [
     'pen', 'rectangle', 'arrow', 'text', 'eraser', 'undo', 'redo', 'clear', 'attach', 'sketch', 'compare',
-    ...(comparing ? ['previous-compare' as const, 'next-compare' as const] : []),
   ];
-  const icons = useTextureResource((ledger) => Object.fromEntries(visibleActions.map((action) => [action,
-    createWorkspaceIconResource(ICONS[action], theme, ledger)])), [visibleActions.join(','), theme]);
+  const icons = useTextureResource((ledger) => Object.fromEntries(visibleActions.map((action) => {
+    const iconAction = `canvas:${action}`;
+    return [action, isWorkspaceIconAction(iconAction) ? createWorkspaceIconResource(iconAction, theme, ledger)
+      : createWorkspaceButtonResource(CANVAS_REVIEW_ACTIONS[action], theme, ledger)];
+  })), [visibleActions.join(','), theme]);
   const status = useTextureResource((ledger) => clearPending
     ? createWorkspaceTextResource('Clear every mark?', 'Choose Clear marks again to confirm.', theme, ledger)
     : undefined, [clearPending, theme]);
-  const button = (action: CanvasReviewActionName, index: number) => {
-    const topRow = index < 7;
-    const rowIndex = topRow ? index : index - 7;
-    const rowCount = topRow ? Math.min(7, visibleActions.length) : visibleActions.length - 7;
+  const button = (action: CanvasReviewActionName) => {
+    const positions: Partial<Record<CanvasReviewActionName, [number, number, number]>> = labelPoint ? {
+      'commit-label': [-0.16, -0.50, 0], 'cancel-label': [0.20, -0.50, 0],
+    } : {
+      pen: [-0.52, 0.58, 0], rectangle: [-0.36, 0.58, 0], arrow: [-0.20, 0.58, 0],
+      text: [-0.04, 0.58, 0], eraser: [0.12, 0.58, 0], undo: [0.38, 0.58, 0], redo: [0.54, 0.58, 0],
+      attach: [-0.46, 0.38, 0], compare: [-0.15, 0.38, 0], sketch: [0.18, 0.38, 0], clear: [0.50, 0.38, 0],
+    };
     return <WorldButton key={action} action={`canvas:${action}`} label={CANVAS_REVIEW_ACTIONS[action]}
       resource={icons?.[action]} iconTheme={theme}
-      position={[(rowIndex - (rowCount - 1) / 2) * 0.19, topRow ? 0.58 : 0.37, 0.06]}
+      position={positions[action] || [0, 0, 0]}
       selected={action === tool || action === 'attach' && controls?.attachmentIds.includes(activeId || '') || action === 'compare' && comparing}
+      variant={action === 'commit-label' ? 'primary' : action === 'clear' || action === 'cancel-label' ? 'destructive' : 'secondary'}
       disabled={!enabled || !activeId || action === 'undo' && !drawing.past.length || action === 'redo' && !drawing.future.length
         || action === 'clear' && !drawing.marks.length || action === 'sketch' && !controls?.canCreateSketch
         || (action === 'compare' || action.endsWith('compare')) && !comparisonIds.length
@@ -345,9 +362,16 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
       onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerFinish={pointerFinish} />}
     {labelPoint && <InlineConversationInput draft={label} theme={theme} enabled={enabled} onDraft={setLabel}
       ariaLabel="VR canvas label" dataAttribute="data-immersive-canvas-label" placeholder="Label…"
-      meshName="Canvas label input" maxLength={500} position={[0, -0.28, 0.07]} />}
-    {status && <mesh geometry={status.geometry} material={status.material} scale={0.72} position={[0, -0.53, 0.06]} />}
+      meshName="Canvas label input" maxLength={500} position={[0, -0.28, 0.0015]} />}
+    {status && <mesh geometry={status.geometry} material={status.material} position={[0, -0.53, 0]}
+      pointerEvents="none" raycast={() => undefined} />}
+    {!labelPoint && <ControlGroupSurface name="Drawing tool selector" width={0.78} position={[-0.20, 0.58, 0]} theme={theme} />}
     {visibleActions.map(button)}
+    {comparing && <WorkspacePager label={`Compare ${Math.max(1, comparisonIds.indexOf(comparisonId || '') + 1)} of ${comparisonIds.length}`}
+      previousAction="canvas:previous-compare" nextAction="canvas:next-compare"
+      previousLabel="Previous comparison" nextLabel="Next comparison" position={[0, -0.61, 0]} theme={theme}
+      previousDisabled={!comparisonIds.length} nextDisabled={!comparisonIds.length}
+      onAction={(action) => perform(action.slice('canvas:'.length) as CanvasReviewActionName)} />}
   </group>;
 }
 
@@ -355,5 +379,5 @@ function CanvasEmpty({ theme }: { theme: ThemeName }) {
   const resource = useTextureResource((ledger) => createWorkspaceTextResource(
     'Empty canvas', 'Create a sketch here or ask an agent for a diagram.', theme, ledger,
   ), [theme]);
-  return resource ? <mesh geometry={resource.geometry} material={resource.material} position={[0, 0, 0.02]} /> : null;
+  return resource ? <mesh geometry={resource.geometry} material={resource.material} /> : null;
 }

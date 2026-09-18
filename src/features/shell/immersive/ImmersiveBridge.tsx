@@ -10,6 +10,7 @@ import type {
 } from '@/features/diagram/spatial/immersiveTypes';
 import { ImmersiveWorkspace } from './ImmersiveWorkspace';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
+import { immersiveTheme } from './immersiveTheme';
 
 if (typeof window !== 'undefined') {
   window.__CODEAI_XR_BUNDLE_EVALUATIONS__ = (window.__CODEAI_XR_BUNDLE_EVALUATIONS__ || 0) + 1;
@@ -35,6 +36,8 @@ export function ImmersiveBridge({
   active, onController, onAvailability, onExit, ...workspaceProps
 }: ImmersiveBridgeProps) {
   const gl = useThree((state) => state.gl);
+  const themeRef = useRef(workspaceProps.theme);
+  themeRef.current = workspaceProps.theme;
   const store = useMemo(() => createXRStore({
     offerSession: false,
     emulate: false,
@@ -51,7 +54,13 @@ export function ImmersiveBridge({
     controller: {
       model: false,
       grabPointer: false,
-      rayPointer: { rayModel: { color: '#7d9df5' } },
+      rayPointer: {
+        rayModel: { color: (pointer) => pointer.getButtonsDown().size ? immersiveTheme[themeRef.current].link : immersiveTheme[themeRef.current].text },
+        cursorModel: {
+          color: (pointer) => pointer.getButtonsDown().size ? immersiveTheme[themeRef.current].link : immersiveTheme[themeRef.current].text,
+          opacity: (pointer) => pointer.getButtonsDown().size ? 0.9 : 0.55,
+        },
+      },
     },
     hand: false,
     transientPointer: false,

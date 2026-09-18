@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Archivo, Geist, Geist_Mono } from 'next/font/google';
+import { Archivo, Geist, Geist_Mono, Inter } from 'next/font/google';
 import './globals.css';
 
 const geist = Geist({
@@ -24,6 +24,15 @@ const archivo = Archivo({
   fallback: ['Arial', 'system-ui'],
 });
 
+const inter = Inter({
+  subsets: ['latin'],
+  weight: ['400', '600'],
+  display: 'swap',
+  preload: false,
+  variable: '--font-inter',
+  fallback: ['system-ui', 'Arial'],
+});
+
 export const metadata: Metadata = {
   title: 'CodeAI — conversational code canvas',
   description: 'Explore a local repository with a read-only coding agent and Mermaid canvas.',
@@ -39,7 +48,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html
       lang="en"
-      className={`${geist.variable} ${geistMono.variable} ${archivo.variable}`}
+      className={`${geist.variable} ${geistMono.variable} ${archivo.variable} ${inter.variable}`}
       suppressHydrationWarning
     >
       <head>

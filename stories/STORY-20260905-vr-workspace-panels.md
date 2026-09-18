@@ -19,8 +19,9 @@ initial implementation default, with physical acceptance to be recorded on Quest
   placement bounds, size presets, and version 1 slot migration to the version 2 layout.
 - [useImmersiveLayout.ts:9](../src/features/shell/immersive/useImmersiveLayout.ts#L9) persists at most
   100 machine/project/session views in device storage, independently of desktop/canonical state.
-- [WorkspacePanel.tsx:46](../src/features/shell/immersive/WorkspacePanel.tsx#L46) supplies panel chrome,
-  the lower icon toolbar, ray-hover tooltips, and a preset size menu. Content stays visible but inactive while dragging.
+- [WorkspacePanel.tsx](../src/features/shell/immersive/WorkspacePanel.tsx) supplies rounded panel chrome,
+  the lower Control Bar (Move, panel name, Size, Close), ray-hover tooltips, and a preset size menu.
+  Content stays visible but inactive while dragging.
 - [usePanelDrag.ts:7](../src/features/shell/immersive/usePanelDrag.ts#L7) owns capture, preview,
   release/cancellation, and unmount cleanup;
   [panelDrag.ts:7](../src/features/shell/immersive/panelDrag.ts#L7) converts controller rays to bounded placement with 4× depth gain.
@@ -40,7 +41,8 @@ initial implementation default, with physical acceptance to be recorded on Quest
 1. Establish a small common panel/control system for conversation, canvas, evidence, and session
    controls, reusable by the later Arena.
    Start with a comfortable seated arrangement. Panels have a title, visible focus, labelled
-   a compact strip beneath the frame with drag, size, and close icons and ray-hover tooltips.
+   and a compact Control Bar beneath the frame with Move, panel name, Size, and Close plus
+   ray-hover tooltips.
    Distance and size stay bounded. No required action is behind the user.
 2. Hold the controller trigger on a labelled drag handle to move a panel continuously left/right,
    up/down, and nearer/farther by moving the controller in space. Release to save the placement;
@@ -73,13 +75,13 @@ approval status in a separate nearer strip. Store only deliberate layout in a ve
 record keyed by machine/project/session; re-entry and reset use the current viewer's direction.
 Reuse repository status/diff controllers from the shell for a paged read-only evidence surface;
 full review/annotation actions remain Story 49. Closed surfaces unmount their derived resources.
-Keep the existing aggregate 4,194,304-pixel ceiling and document each allocation and provisional
+Keep an aggregate 5,592,405-pixel ceiling, including 4/3 mip chains, and document each allocation and provisional
 physical size. Physical sizing, comfort, and controller acceptance remain pending Quest 3S use;
 Story 45's outstanding hardware verification does not prevent this implementation work.
 
 - [x] Every panel has a labelled drag handle and a Size menu with Small/Medium/Large/Extra large;
   directional and incremental panel resize buttons are removed.
-- [x] Drag, Size, and Close are icons in a compact strip below the panel, with legible hover
+- [x] Move, the 600-weight panel name, Size, and Close sit in a compact Control Bar below the panel, with legible hover
   tooltips that do not intercept rays or trigger actions; labels remain available to semantic controls.
 - [x] A 10 cm push/pull changes depth by about 40 cm, within 2.0–4.5 m bounds, without amplifying
   sideways or vertical movement, or changing placement when first grabbed.
@@ -172,15 +174,15 @@ These are implementation values, **not headset measurements or a comfort claim**
 | Distance/height | Default 2.6 m; continuous distance 2.0–4.5 m with 4× push/pull gain; height −0.3…+0.5 m; panels may deliberately overlap and Reset recovers the default arrangement |
 | Reset origin | Current eye position and horizontal viewing direction; no tracking is stored |
 | Recovery strip | 1.3 m ahead, 1.45 m below eye height, lowered to leave the panel toolbars clear in the default arrangement |
-| Panel toolbar | 0.6 × 0.22 m, centered 0.18 m below the frame's bottom; three 0.16 m square icon targets before panel scale; tooltips 0.84 × 0.14 m |
-| Control targets | Size presets 0.42 × 0.14 m before panel scale; content actions 0.62 × 0.155 m |
-| Text | Conversation body ~0.034 m at default scale; diff body ~0.036 m; 56 monospace columns, conservative wrapping for wide glyphs |
-| Paged content | Conversation ≤22 line units (including entry spacing); diff ≤16 lines; launcher ≤4 rows |
-| Canvas allocation | ≤1,100,000 texels, edge ≤2,048 pixels |
-| Conversation / Evidence | 1,048,576 / 786,432 texels, one raster page per open surface |
-| Global controls and status | 654,080 texels including the shared toolbar, icons, and tooltips; recovery actions remain available with all panels closed |
-| Panel chrome / launcher / canvas label | ≤196,608 / 196,608 / 49,152 texels |
-| Aggregate | ≤4,031,456 steady surface texels, ≤4,129,760 with temporary text fallbacks; ledger ceiling 4,194,304; no mipmaps |
+| Panel Control Bar | 0.94 m pill, 12 dp below the panel; Move, 14 dp panel name, Size, and Close; 48 dp icon targets before panel scale |
+| Control targets | Icon circles and labelled pills are 48 dp tall before panel scale |
+| Text | Inter 18 dp conversation body; Geist Mono 16 dp diff body; about 46 columns derived from content width |
+| Paged content | Conversation is virtualized; diff lines per page derive from the available content height; launcher ≤4 rows |
+| Canvas allocation | ≤800,000 base texels across the active/comparison canvases, edge ≤2,048 pixels |
+| Conversation / Evidence | 1,048,576 / 786,432 base texels, one raster page per open surface, with 4/3 mip chains |
+| Global controls and status | Bounded shared icon/label textures; recovery actions remain available with all panels closed |
+| Panel chrome | Geometry and solid-color materials; no texture allocation for the rounded surface, focus outline, or Control Bar pill |
+| Aggregate | Ledger ceiling 5,592,405 logical texels including mipmaps; every tracked mipmapped texture is charged at 4/3 of its base texels |
 
 The cap covers application-owned surface textures; native XR eye framebuffers and controller
 rendering still require hardware measurements. Geometry/material counts are bounded by four fixed

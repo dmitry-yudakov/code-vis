@@ -1,38 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { palette, type ThemeName } from '@/shared/design/tokens';
+import type { ThemeName } from '@/shared/design/tokens';
 import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 import { draftTokens, editVoiceDraft, spellVoiceText } from '@/features/conversation/voiceEditing';
 import { useVoiceDraft } from '@/features/conversation/useVoiceDraft';
 import { immersiveChatLines } from '@/features/diagram/spatial/immersiveTranscript';
-import { CONVERSATION_ACTIONS, type ConversationActionName, type ImmersiveConversationControls } from './conversationControls';
-import { createConversationTextResource } from './workspaceResources';
-import { createWorkspaceIconResource, type WorkspaceIcon } from './workspaceIcons';
+import { centeredControlRow, CONVERSATION_ACTIONS, type ConversationActionName, type ImmersiveConversationControls } from './conversationControls';
+import { createConversationTextResource, createWorkspaceButtonResource } from './workspaceResources';
+import { createWorkspaceIconResource, isWorkspaceIconAction } from './workspaceIcons';
 import { workspaceTextLines } from './workspaceText';
 import { useTextureResource } from './useTextureResource';
-import { WorldButton } from './WorkspacePanel';
+import { ControlGroupSurface, WorkspacePager, WorldButton } from './WorkspacePanel';
 import { InlineConversationInput } from './InlineConversationInput';
+import { immersiveTheme } from './immersiveTheme';
 
 type Tab = 'read' | 'compose' | 'agents';
-
-const ICONS: Record<ConversationActionName, WorkspaceIcon> = {
-  read: 'chat', compose: 'compose', agents: 'agents', latest: 'down', help: 'help',
-  record: 'microphone', retry: 'refresh', stop: 'stop', discard: 'close', send: 'send', cancel: 'stop',
-  append: 'check', replace: 'replace', 'replace-all': 'replace', spell: 'spell',
-  'previous-word': 'chevron-left', 'next-word': 'chevron-right', delete: 'trash', clear: 'close',
-  undo: 'undo', newline: 'newline', 'draft-older': 'chevron-left', 'draft-newer': 'chevron-right',
-  'previous-agent': 'chevron-left', 'next-agent': 'chevron-right', 'make-primary': 'check',
-  ask: 'help', plan: 'edit', agent: 'settings', provider: 'agents', role: 'settings', add: 'plus',
-  edit: 'settings', done: 'check',
-  list: 'history', back: 'chevron-left',
-};
 
 function VoiceActivity({ level, theme }: { level: number; theme: ThemeName }) {
   const resource = useTextureResource((ledger) => ({
     geometry: ledger.trackGeometry(new THREE.PlaneGeometry(0.025, 0.1)),
-    material: ledger.trackMaterial(new THREE.MeshBasicMaterial({ color: palette[theme].live, toneMapped: false })),
+    material: ledger.trackMaterial(new THREE.MeshBasicMaterial({ color: immersiveTheme[theme].positive, toneMapped: false, depthWrite: false })),
   }), [theme]);
-  return resource && <group name="Microphone activity" position={[-0.20, -0.77, 0.06]}>
+  return resource && <group name="Microphone activity" position={[-0.20, -0.77, 0]}>
     {Array.from({ length: 13 }, (_, index) => <mesh key={index} geometry={resource.geometry} material={resource.material}
       position-x={(index - 6) * 0.045} scale-y={0.12 + level * (1 - Math.abs(index - 6) / 9)} />)}
   </group>;
@@ -69,6 +58,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
   const provider = controls?.providers[providerIndex % (controls.providers.length || 1)];
   const role = AGENT_ROLES[roleIndex];
   const activeAgent = controls?.agents.find((agent) => agent.id === controls.activeAgentId);
+  const agentIndex = Math.max(0, controls?.agents.findIndex((agent) => agent.id === controls.activeAgentId) ?? 0);
   const locked = !controls || controls.running || controls.busy;
   const voiceBusy = voice.phase !== 'idle';
   const voicePending = voiceBusy || Boolean(voice.result);
@@ -101,8 +91,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
   const voiceStatus = error || (controls?.running ? controls.runStatus
     : voice.phase === 'recording' ? recordingStatus
       : tab !== 'agents' ? voice.status : 'Choose an agent and mode');
-  const displayedStatus = editing && selected && !voiceBusy
-    ? `${voiceStatus}\nSelected: ${selected.text === '\n' ? 'New line' : selected.text}` : voiceStatus;
+  const displayedStatus = voiceStatus;
   const context = !voiceBusy && !voice.result && !showHelp && !editing && tab !== 'agents'
     ? `${activeAgent?.displayName || 'No agent'} · ${controls?.mode || ''}${controls?.attachments.length ? ` · ${controls.attachments.join('; ')}` : ''}` : '';
   const resource = useTextureResource((ledger) => !visible || !expanded ? undefined : createConversationTextResource(
@@ -114,7 +103,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
   const inlineStatus = voice.phase === 'recording' ? `Listening · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} · Stop to transcribe`
     : voiceBusy || error || !['Ready to dictate', 'Ready to send', 'Draft preserved'].includes(voice.status) ? displayedStatus.split('\n')[0] : context;
   const statusResource = useTextureResource((ledger) => !visible ? undefined : createConversationTextResource(
-    '', expanded ? statusLines.slice(0, 3) : workspaceTextLines(inlineStatus, 58).slice(0, 2), theme, ledger, true,
+    '', expanded ? statusLines.slice(0, 3) : workspaceTextLines(inlineStatus, 58).slice(0, 1), theme, ledger, true, !expanded,
   ), [visible, expanded, displayedStatus, inlineStatus, context, theme]);
 
   const actions: ConversationActionName[] = showHelp ? ['done']
@@ -129,9 +118,15 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
   if (expanded && pageCount > 1 && !voiceBusy) actions.push('draft-older', 'draft-newer');
   if (controls?.runId) actions.push('cancel');
   const visibleActions = [...actions, ...(!expanded && !atBottom ? ['latest' as const] : [])];
-  const labels = useTextureResource((ledger) => !visible ? undefined : Object.fromEntries(visibleActions.map((action) => [action, {
-    icon: createWorkspaceIconResource(ICONS[action], theme, ledger),
-  }])), [visible, visibleActions.join(','), theme]);
+  const actionLabel = (action: ConversationActionName) => action === 'provider'
+    ? `Provider: ${provider ? PROVIDER_LABELS[provider] : 'None'}`
+    : action === 'role' ? `Role: ${AGENT_ROLE_LABELS[role]}` : CONVERSATION_ACTIONS[action];
+  const labels = useTextureResource((ledger) => !visible ? undefined : Object.fromEntries(visibleActions.map((action) => {
+    const iconAction = `conversation:${action}`;
+    return [action, { icon: isWorkspaceIconAction(iconAction)
+      ? createWorkspaceIconResource(iconAction, theme, ledger)
+      : createWorkspaceButtonResource(actionLabel(action), theme, ledger) }];
+  })), [visible, visibleActions.join(','), provider, role, theme]);
   const disabled = (action: ConversationActionName) => {
     if (!enabled || !visible) return true;
     if (action === 'read' || action === 'compose' || action === 'agents' || action === 'latest') return false;
@@ -213,26 +208,61 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
   };
   useEffect(() => { onController(perform); return () => onController(undefined); }, [onController, perform]);
   const button = (action: ConversationActionName, position: [number, number, number]) => <WorldButton key={action === 'cancel' ? `${action}:${controls?.cancelKey}` : action}
-    action={`conversation:${action}`} label={CONVERSATION_ACTIONS[action]} resource={labels?.[action]?.icon}
+    action={`conversation:${action}`} label={actionLabel(action)} resource={labels?.[action]?.icon}
     iconTheme={theme} position={position}
-    disabled={disabled(action)} selected={action === tab || action === controls?.mode} onAction={() => perform(action)} />;
+    disabled={disabled(action)} selected={action === tab || action === controls?.mode}
+    variant={action === 'send' ? 'primary' : action === 'discard' || action === 'cancel' ? 'destructive' : 'secondary'}
+    onAction={() => perform(action)} />;
+  const pagerActions = new Set<ConversationActionName>(['previous-word', 'next-word', 'draft-older', 'draft-newer', 'previous-agent', 'next-agent']);
+  const editingRow = centeredControlRow((['retry', 'help', 'clear', 'done'] as ConversationActionName[])
+    .filter((action) => editing && !voice.result && actions.includes(action))
+    .map((action) => ({ key: action, width: labels?.[action]?.icon.width || 0.14 })));
+  const actionPosition = (action: ConversationActionName, index: number): [number, number, number] => {
+    if (action === 'cancel') return [0.48, expanded ? -0.34 : -0.43, 0];
+    if (!expanded) return action === 'send' || action === 'discard' ? [0.55, -0.70, 0]
+      : action === 'clear' ? [0.37, -0.70, 0] : [draft && !controls?.running ? 0.18 : 0.37, -0.70, 0];
+    if (tab === 'agents') {
+      const positions: Partial<Record<ConversationActionName, [number, number, number]>> = {
+        read: [-0.51, 0.48, 0], ask: [-0.42, -0.44, 0], plan: [-0.14, -0.44, 0], agent: [0.14, -0.44, 0],
+        'make-primary': [0.46, -0.44, 0], provider: [-0.40, -0.68, 0], role: [0, -0.68, 0], add: [0.40, -0.68, 0],
+      };
+      return positions[action] || [0, -0.68, 0];
+    }
+    const editingX = editingRow.get(action);
+    if (editingX !== undefined) return [editingX, -0.73, 0];
+    const reviewPositions: Partial<Record<ConversationActionName, [number, number, number]>> = {
+      delete: [-0.48, -0.52, 0], undo: [-0.30, -0.52, 0], newline: [-0.12, -0.52, 0], record: [0.06, -0.52, 0],
+      append: [-0.43, -0.52, 0], replace: [-0.12, -0.52, 0], 'replace-all': [0.20, -0.52, 0], spell: [0.48, -0.52, 0],
+      discard: [-0.39, -0.73, 0], help: [-0.08, -0.73, 0], done: [0.22, -0.73, 0], edit: [0.42, -0.73, 0],
+      stop: [-0.18, -0.73, 0], retry: [-0.18, -0.73, 0], clear: [0.12, -0.73, 0], send: [0.43, -0.73, 0],
+    };
+    return reviewPositions[action] || [(index - 2) * 0.22, -0.73, 0];
+  };
   return <group name="Conversation tools" visible={visible} userData={{ conversationTab: tab, draft, voicePhase: voice.phase, voiceResult: voice.result, voiceStatus: displayedStatus,
     voiceLevel: voice.activity.level, voiceSeconds: voice.activity.seconds, editing, selectedWord: selected?.text }}>
     {renderHistory(visible && !expanded)}
     {resource && <mesh name="VR draft and agents" geometry={resource.geometry} material={resource.material}
-      position={[0, 0.2, 0.02]} />}
+      position={[0, 0.2, 0]} />}
     {statusResource && <mesh name="Voice status" geometry={statusResource.geometry} material={statusResource.material}
-      position={[0, expanded ? -0.34 : -0.49, 0.025]} />}
+      position={[0, expanded ? -0.34 : -0.45, 0.0005]} renderOrder={12} />}
     {visible && !expanded && controls && <InlineConversationInput draft={draft} theme={theme}
       enabled={enabled && !locked && !voiceBusy} onDraft={controls.onDraft} />}
     {voice.phase === 'recording' && <VoiceActivity level={voice.activity.level} theme={theme} />}
-    {!expanded && !atBottom && button('latest', [0.55, -0.32, 0.05])}
-    {actions.map((action, i) => button(action, !expanded
-      ? action === 'send' || action === 'discard' || action === 'cancel'
-        ? [0.56, -0.70, 0.04] : action === 'clear'
-          ? [0.35, -0.70, 0.04] : [draft && !controls?.running ? 0.14 : 0.35, -0.70, 0.04]
-      :
-      [(i % 6 - (Math.min(6, actions.length - Math.floor(i / 6) * 6) - 1) / 2) * 0.215,
-        actions.length > 6 ? -0.58 - Math.floor(i / 6) * 0.22 : -0.76, 0.03]))}
+    {!expanded && !atBottom && button('latest', [0.55, -0.32, 0])}
+    {expanded && pageCount > 1 && tab !== 'agents' && <WorkspacePager label={`Page ${safePage + 1} of ${pageCount}`}
+      previousAction="conversation:draft-older" nextAction="conversation:draft-newer" previousLabel="Previous page" nextLabel="Next page"
+      position={[0.33, 0.48, 0]} theme={theme} previousDisabled={safePage === 0} nextDisabled={safePage >= pageCount - 1}
+      onAction={(action) => perform(action.slice('conversation:'.length) as ConversationActionName)} />}
+    {tab === 'agents' && expanded && <WorkspacePager label={`Agent ${agentIndex + 1} of ${Math.max(1, controls?.agents.length || 0)}`}
+      previousAction="conversation:previous-agent" nextAction="conversation:next-agent" previousLabel="Previous agent" nextLabel="Next agent"
+      position={[0.18, 0.48, 0]} theme={theme} previousDisabled={(controls?.agents.length || 0) < 2} nextDisabled={(controls?.agents.length || 0) < 2}
+      onAction={(action) => perform(action.slice('conversation:'.length) as ConversationActionName)} />}
+    {tab === 'agents' && expanded && <ControlGroupSurface name="Agent mode selector" width={0.82}
+      position={[-0.14, -0.44, 0]} theme={theme} />}
+    {editing && !voiceBusy && <WorkspacePager label={`Selected: ${selected?.text === '\n' ? 'New line' : selected?.text || 'None'}`}
+      previousAction="conversation:previous-word" nextAction="conversation:next-word" previousLabel="Previous word" nextLabel="Next word"
+      position={[0, -0.32, 0]} theme={theme} previousDisabled={word < 0} nextDisabled={word >= tokens.length - 1}
+      onAction={(action) => perform(action.slice('conversation:'.length) as ConversationActionName)} />}
+    {actions.filter((action) => !pagerActions.has(action)).map((action, index) => button(action, actionPosition(action, index)))}
   </group>;
 }

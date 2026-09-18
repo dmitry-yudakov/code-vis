@@ -12,11 +12,30 @@ import { SESSION_ACTIONS } from './sessionControls';
 import { CONVERSATION_ACTIONS } from './conversationControls';
 import { CONVERSATION_LIST_BATCH_SIZE, sortConversationChoices } from './conversationListModel';
 import { CANVAS_REVIEW_ACTIONS } from './canvasReviewControls';
+import { loadImmersiveFonts } from './immersiveTheme';
 
 const ImmersiveRenderer = dynamic(() => {
   if (window.__CODEAI_XR_TEST__?.failXRImport) return Promise.reject(new Error('Injected immersive bundle failure.'));
   return import('./ImmersiveRenderer').then((module) => module.ImmersiveRenderer);
 }, { ssr: false, loading: () => null });
+
+const IMMERSIVE_FONT_TIMEOUT_MS = 1_500;
+
+async function loadFontsBeforeEntry(): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      loadImmersiveFonts(),
+      new Promise<void>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Immersive font loading timed out.')), IMMERSIVE_FONT_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    recordImmersiveDiagnostic('font-loading-failed');
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 class RendererBoundary extends Component<{ children: ReactNode; onError(message: string): void }, { failed: boolean }> {
   state = { failed: false };
@@ -62,7 +81,7 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
     let cancelled = false;
     setAvailability('checking');
     setEnabled(false);
-    void probeImmersiveCapability({ authorized }).then((result) => {
+    void loadFontsBeforeEntry().then(() => probeImmersiveCapability({ authorized })).then((result) => {
       if (cancelled) return;
       setAvailability(result.availability);
       setReason(result.reason);

@@ -9,8 +9,9 @@ import {
   allocateTexturePixels, spatialPanelSize, stableSpatialDigest, type TextureAllocation,
 } from './spatialModel';
 import { SpatialResourceLedger } from './resourceLedger';
+import { immersiveTheme } from '@/features/shell/immersive/immersiveTheme';
 
-export const SPATIAL_RENDERER_VERSION = 1;
+export const SPATIAL_RENDERER_VERSION = 2;
 const EMPTY_SKETCH_SVG = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
 const MAX_SVG_CACHE_ENTRIES = 48;
 
@@ -43,7 +44,12 @@ function remember(snapshot: PanelSnapshot): PanelSnapshot {
   return snapshot;
 }
 
-async function snapshotTarget(target: CanvasTarget, marks: DrawingMark[], theme: ThemeName): Promise<PanelSnapshot> {
+export function sanitizeImmersiveSvg(svg: string): string {
+  return svg.replaceAll(/var\([^)]+\)/g, 'system-ui, sans-serif')
+    .replaceAll(/(?<!sans-)\b(?:ui-)?serif\b/g, 'system-ui');
+}
+
+async function snapshotTarget(target: CanvasTarget, marks: DrawingMark[], theme: ThemeName, immersive: boolean): Promise<PanelSnapshot> {
   const id = canvasTargetId(target);
   if (target.kind === 'diagram' && target.artifact.status !== 'ready') {
     throw new Error(target.artifact.error || `Status: ${target.artifact.status}`);
@@ -53,12 +59,13 @@ async function snapshotTarget(target: CanvasTarget, marks: DrawingMark[], theme:
     : { svg: EMPTY_SKETCH_SVG, viewBox: target.sketch.viewBox };
   const source = target.kind === 'diagram' ? target.artifact.source : 'sketch';
   const digest = stableSpatialDigest(`${source}\n${rendered.viewBox.join(',')}\n${JSON.stringify(marks)}`);
-  const cacheKey = `${id}:${digest}:${theme}:v${SPATIAL_RENDERER_VERSION}`;
+  const cacheKey = `${id}:${digest}:${theme}:${immersive ? 'immersive' : 'desktop'}:v${SPATIAL_RENDERER_VERSION}`;
   const cached = svgCache.get(cacheKey);
   if (cached) return remember(cached);
   return remember({
     id,
-    svg: composeSvgMarkup(rendered.svg, marks, rendered.viewBox, palette[theme].sheet),
+    svg: composeSvgMarkup(immersive ? sanitizeImmersiveSvg(rendered.svg) : rendered.svg, marks, rendered.viewBox,
+      immersive ? immersiveTheme[theme].raised : palette[theme].sheet),
     viewBox: rendered.viewBox,
     cacheKey,
   });
@@ -68,6 +75,8 @@ async function rasterize(
   snapshot: PanelSnapshot,
   allocation: TextureAllocation,
   ledger: SpatialResourceLedger,
+  theme: ThemeName,
+  immersive: boolean,
 ): Promise<THREE.Texture> {
   if (window.__CODEAI_SPATIAL_TEST__?.failTextureId === snapshot.id) throw new Error('Injected texture conversion failure.');
   const image = new Image();
@@ -82,16 +91,17 @@ async function rasterize(
     canvas.height = allocation.height;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas texture conversion is unavailable.');
-    context.fillStyle = palette.light.sheet;
+    context.fillStyle = immersive ? immersiveTheme[theme].raised : palette.light.sheet;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     const texture = new THREE.CanvasTexture(canvas);
-    texture.generateMipmaps = false;
-    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = immersive;
+    texture.minFilter = immersive ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = immersive ? 4 : 1;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
-    return ledger.trackTexture(texture, allocation.pixels);
+    return ledger.trackTexture(texture, allocation.pixels, immersive);
   } finally {
     ledger.releaseObjectUrl(url);
   }
@@ -104,13 +114,14 @@ export async function createPanelResources(
   theme: ThemeName,
   ledger: SpatialResourceLedger,
   maxTexturePixels?: number,
+  immersive = false,
 ): Promise<Record<string, PanelResource>> {
   const snapshots = new Map<string, PanelSnapshot>();
   const errors = new Map<string, string>();
   await Promise.all(targets.map(async (target) => {
     const id = canvasTargetId(target);
     try {
-      snapshots.set(id, await snapshotTarget(target, annotations[id]?.marks || [], theme));
+      snapshots.set(id, await snapshotTarget(target, annotations[id]?.marks || [], theme, immersive));
     } catch (error) {
       errors.set(id, error instanceof Error ? error.message : 'Preview could not be rendered.');
     }
@@ -132,23 +143,26 @@ export async function createPanelResources(
     const geometry = ledger.trackGeometry(new THREE.PlaneGeometry(size[0], size[1]));
     const frameGeometry = ledger.trackGeometry(new THREE.PlaneGeometry(size[0] + 0.14, size[1] + 0.14));
     const frameMaterial = ledger.trackMaterial(new THREE.MeshBasicMaterial({
-      color: id === activeId ? palette[theme].plot : palette[theme].lineStrong,
+      color: immersive ? immersiveTheme[theme].raised : id === activeId ? palette[theme].plot : palette[theme].lineStrong,
+      depthWrite: !immersive,
     }));
     let status: PanelResource['status'] = errors.has(id) ? 'error' : allocation?.omitted ? 'omitted' : 'ready';
     let detail = errors.get(id);
     let material: THREE.Material;
     if (status === 'ready' && snapshot && allocation) {
       try {
-        const texture = await rasterize(snapshot, allocation, ledger);
-        material = ledger.trackMaterial(new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
+        const texture = await rasterize(snapshot, allocation, ledger, theme, immersive);
+        material = ledger.trackMaterial(new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, depthWrite: !immersive }));
       } catch (error) {
         status = 'error';
         detail = error instanceof Error ? error.message : 'Preview could not be converted.';
-        material = ledger.trackMaterial(new THREE.MeshStandardMaterial({ color: palette[theme].stopWash }));
+        material = ledger.trackMaterial(new THREE.MeshStandardMaterial({ color: immersive ? immersiveTheme[theme].negative : palette[theme].stopWash, depthWrite: !immersive }));
       }
     } else {
       material = ledger.trackMaterial(new THREE.MeshStandardMaterial({
-        color: status === 'error' ? palette[theme].stopWash : palette[theme].neutralWashStrong,
+        color: immersive ? status === 'error' ? immersiveTheme[theme].negative : immersiveTheme[theme].raised
+          : status === 'error' ? palette[theme].stopWash : palette[theme].neutralWashStrong,
+        depthWrite: !immersive,
       }));
     }
     resources[id] = { id, size, aspectRatio: viewBox[2] / Math.max(1, viewBox[3]), viewBox, geometry, material, frameGeometry, frameMaterial, status, detail };

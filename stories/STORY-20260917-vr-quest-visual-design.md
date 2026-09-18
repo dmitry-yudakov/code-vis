@@ -1,6 +1,6 @@
 # Story 54 — Restyle the VR workspace after Quest system UI
 
-**Status:** Draft · **Type:** Frontend-only · **Depends on:**
+**Status:** In progress · **Type:** Frontend-only · **Depends on:**
 [Story 46](STORY-20260905-vr-workspace-panels.md); restyles the tool surfaces of
 [Stories 47](STORY-20260905-vr-conversation-input.md)–[49](STORY-20260905-vr-review-and-annotations.md).
 
@@ -104,7 +104,8 @@ Verified September 17, 2026 against developers.meta.com (D = `…/horizon/design
    panels to 4.5 m, where everything is 42 % smaller; that is their choice. Calibrate the scale once
    on the headset against Quest Browser's own text.
 3. **Flat surfaces.** Horizon's subtle panel gradient is omitted: content textures fill with the
-   exact surface color, so they sit seamlessly without transparency sorting.
+   exact surface color. Header rasters leave their background transparent so they cannot cover
+   adjacent controls; render queues and the thin depth stack determine their order.
 4. **Deliberate deviations from Horizon OS:**
    - The Control Bar is always visible, because controller users would not discover a hover-only bar.
    - Icons are outline (Lucide), because Meta's filled set isn't available for the web.
@@ -192,12 +193,12 @@ Verified September 17, 2026 against developers.meta.com (D = `…/horizon/design
    - Content stays inset by 24 dp, so the corners never clip it.
    - Every content texture fills with its exact token color: surface or raised.
    - **One thin depth stack (F11).** Everything on a panel sits within 1 cm of its surface (before
-     panel scale): content +1 mm; header, fields, and controls +2 mm; hover lift +3 mm; tooltips
-     +10 mm (Meta's 0.01 m). The Control Bar sits on the panel plane with the same offsets.
-     `renderOrder` per layer sets draw order, and layers above the surface don't write depth. Only
-     the surface writes depth, so millimetre offsets can't z-fight at any distance and overlapping
-     panels still hide each other. The offsets only give overlapping ray targets a deterministic hit
-     order.
+     panel scale): content and headers +3 mm; compact status +3.5 mm; fields and canvas content
+     +4–4.5 mm; control backgrounds +6.5 mm; glyphs +7 mm; hover +9 mm; tooltips +10 mm (Meta's
+     0.01 m). The Control Bar uses the same offsets. `renderOrder` per layer sets draw order, and
+     layers above the surface don't write depth. Only the surface writes depth, so millimetre
+     offsets can't z-fight at any distance and overlapping panels still hide each other. The offsets
+     also give overlapping ray targets a deterministic hit order.
    - Nothing except the Control Bar and tooltips extends past the panel edge.
 8. **Content headers** replace generic panel names; the name moves to the Control Bar. The header
    stays the `panel:*:focus` target; its hit area covers only the title text, never the header
@@ -355,42 +356,42 @@ Verified September 17, 2026 against developers.meta.com (D = `…/horizon/design
 ## Acceptance criteria
 
 - [ ] The baseline and headset check A frame deltas are recorded, and check A meets the step 3 rule.
-- [ ] The scene background equals the environment token in both themes (test reads `scene.background`).
-- [ ] The token contrast and brightness test passes; no immersive code picks colors outside
+- [x] The scene background equals the environment token in both themes (test reads `scene.background`).
+- [x] The token contrast and brightness test passes; no immersive code picks colors outside
   `immersiveTheme.ts`.
-- [ ] VR text uses only Inter and Geist Mono after font loading. A failed font load still allows entry
+- [x] VR text uses only Inter and Geist Mono after font loading. A failed font load still allows entry
   and records a diagnostic. Diagram labels are sans-serif.
-- [ ] A unit test covers the dp conversion and type scale: nothing below 14 dp, and reading text at
+- [x] A unit test covers the dp conversion and type scale: nothing below 14 dp, and reading text at
   least 18 dp at the default distance and Medium size.
-- [ ] Panel, text, icon, and diagram textures use mipmaps, except the draft preview. The ledger counts
+- [x] Panel, text, icon, and diagram textures use mipmaps, except the draft preview. The ledger counts
   4/3 texels under the 5,592,405 ceiling.
-- [ ] Panels have 24 dp rounded surfaces with no border plane or seam. Content headers are
+- [x] Panels have 24 dp rounded surfaces with no border plane or seam. Content headers are
   specific (Canvas: diagram or sketch name; Evidence: file path).
 - [ ] A scene test proves every panel descendant except tooltips sits within 1 cm of the panel
   surface, before scale. Every descendant except the Control Bar and tooltips stays inside the
   panel bounds. Oblique screenshots show no layer sliding over or off another.
-- [ ] Each panel has a Control Bar (Move, name, Size, Close) below it, and the Size presets still work.
-- [ ] The focused panel shows the outline and 600-weight name. Controls show hover lift, pressed,
+- [x] Each panel has a Control Bar (Move, name, Size, Close) below it, and the Size presets still work.
+- [x] The focused panel shows the outline and 600-weight name. Controls show hover lift, pressed,
   selected, and disabled states. Icon and text hit areas are 48 dp at Medium.
-- [ ] Tooltips linger 0.5 s, hide on press, and never intercept rays.
-- [ ] The glyph map test passes: one meaning per glyph, and chevrons only in pagers. Every action in
+- [x] Tooltips linger 0.5 s, hide on press, and never intercept rays.
+- [x] The glyph map test passes: one meaning per glyph, and chevrons only in pagers. Every action in
   item 14's text list renders as a labelled button.
-- [ ] Evidence shows the File and Page pagers, plus a repository pager only with two or more
+- [x] Evidence shows the File and Page pagers, plus a repository pager only with two or more
   checkouts. Diff text is 16 dp mono.
-- [ ] Canvas review shows the segmented tool selector, Undo/Redo, the labelled Attach/Compare/New
+- [x] Canvas review shows the segmented tool selector, Undo/Redo, the labelled Attach/Compare/New
   sketch/Clear row, and the canvas pager and zoom footer.
-- [ ] Conversation uses item 18's layouts: word and draft pagers, destructive Cancel run and Discard,
+- [x] Conversation uses item 18's layouts: word and draft pagers, destructive Cancel run and Discard,
   the segmented mode control, labelled agent actions, gap-separated list rows, and card-styled
   session tools and permission cards.
-- [ ] The ray and cursor use the text color while hovering and the link color while selecting.
-- [ ] All `e2e/immersive.spec.ts` and `e2e/canvas.spec.ts` XR cases pass. Only the assertions listed
+- [x] The ray and cursor use the text color while hovering and the link color while selecting.
+- [x] All `e2e/immersive.spec.ts` and `e2e/canvas.spec.ts` XR cases pass. Only the assertions listed
   in item 23 change.
-- [ ] Twenty open/close/reset cycles and exit return tracked resources to zero.
-- [ ] Replaced code is deleted, and the Story 46 and 47 text is amended.
+- [x] Twenty open/close/reset cycles and exit return tracked resources to zero.
+- [x] Replaced code is deleted, and the Story 46 and 47 text is amended.
 - [ ] The screenshot matrix is saved and reviewed in both themes.
 - [ ] Headset check B: on Quest 3S the user reads the fixture seated, operates every panel, and records
   the verdict, browser and OS versions, and the decision on Story 55.
-- [ ] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass.
+- [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass.
 
 ## Out of scope
 
@@ -429,4 +430,65 @@ Verified September 17, 2026 against developers.meta.com (D = `…/horizon/design
 
 ## Verification record
 
-_Not started._
+September 18, 2026 — implementation and automated verification complete; physical review remains pending.
+
+- Added the shared dp/type/radius/color system, Inter font gate with a recorded fallback diagnostic,
+  mipmapped anisotropic raster textures, sans-serif diagram sanitization, and direct scene background
+  application. Unit coverage verifies contrast, the minimum type scale, glyph semantics, mip costs,
+  and diagram font fallback.
+- Rebuilt panel chrome around rounded surfaces, a focus outline, the always-visible Control Bar, one
+  geometry-backed button component, delayed non-intercepting tooltips, and the labelled recovery pill.
+  A browser scene test verifies both theme backgrounds, the thin depth stack, panel bounds, and that
+  only panel surfaces write depth.
+- Reorganized Canvas, Evidence, Conversation, session, and permission controls around labelled pagers,
+  distinct Lucide glyph meanings, contextual text actions, and content-specific headers. The existing
+  action contracts, semantic controls, drag/layout persistence, voice, permissions, and annotations are
+  unchanged. Stories 46 and 47 now describe the amended visual and resource contracts.
+- `npm run lint` passes. `npm test` passes **397 tests in 63 files**. `npm run build` passes.
+  `npm run test:e2e` passes **69 Chrome tests**, including all immersive/canvas cases, font-failure
+  fallback, both theme backgrounds, sequential tooltip allocation, and twenty resource cycles.
+- The automated suite refreshed its existing VR screenshots, but the full named dark/light and oblique
+  screenshot review matrix is not claimed complete. The Quest 3S baseline, check A, and check B require
+  the physical headset, browser/OS version, and user verdict; those criteria remain unchecked and keep
+  this story In progress.
+
+September 18, 2026 — external review and first Quest captures followed up.
+
+- Reviewed the two raw Quest captures `28212796478391961.jpg` and `28327938546835109.jpg`. They are
+  useful dark-theme evidence, but are not the required named dark/light matrix and were left as the
+  user's untracked originals. The captures exposed the compact status surface crossing the composer
+  boundary and icon-button backgrounds sharing the input field's depth. The status raster is now
+  physically separated and control backgrounds sit deterministically in front of fields.
+- Addressed every external code-review item: pre-colored headers no longer receive mask tinting,
+  mixed-width speech controls are packed from their measured widths, a 1.5-second font-loading timeout
+  preserves VR entry, and automatic tooltips are limited to icon buttons. Removed the stale Evidence
+  parameters and dead toolbar type.
+- Added scene coverage for the light-theme header material, composer/status separation, field/control
+  depth ordering, speech-action bounds, icon-only tooltips, and a font promise that never settles.
+  `npm run lint` passes. `npm test` passes **398 tests in 63 files**. The production build passes, and
+  the complete Playwright suite passes **70 Chrome tests**.
+
+September 18, 2026 — physical Quest follow-up found two remaining rendering regressions.
+
+- Moving the headset off-axis exposes coplanar transparent/opaque planes around the Conversation
+  header and composer. Headers no longer paint an opaque background under their controls; button
+  chrome now shares the transparent queue, and the header, status, field, background, glyph, and
+  hover tiers have explicit render orders and distinct panel-local depths within 1 cm.
+- Canvas content now renders after and 4 mm in front of the depth-writing panel surface. Live preview
+  restoration copies from a CPU canvas instead of synchronous `getImageData()`, and preview setup
+  failure cannot abort the gesture or prevent the committed mark.
+- Browser coverage verifies the effective panel-local depths and render queues and proves drawing
+  survives an injected `getImageData()` failure. `npm run lint`, all **398 unit tests**, and the
+  production build pass. After restoring the tooltip's effective depth from 16 mm to its established
+  10 mm, the complete Playwright suite passes **70 Chrome tests**. Fresh Quest captures are still
+  required before the oblique screenshot and headset criteria can close.
+
+September 18, 2026 — the third Quest capture `28212120205124676.jpg` found two placement issues.
+
+- The compact “Cancel run” pill sat at the left edge between the status and input surfaces. It is now
+  right-aligned in the status row with its lower edge clear of the input field.
+- The shared Close circle extended past the Control Bar's right cap. Size and Close are redistributed
+  so every circular target stays within the 0.94 m bar on every panel.
+- Scene coverage asserts the Cancel/status placement and checks every panel toolbar target against
+  the bar bounds. `npm run lint`, the production build, and both focused browser regressions pass.
+  The user's headset capture remains untouched.

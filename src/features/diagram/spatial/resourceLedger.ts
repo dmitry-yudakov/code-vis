@@ -109,21 +109,22 @@ export class SpatialResourceLedger {
 
   constructor(private readonly owner: ResourceOwner = 'desktop') {}
 
-  trackTexture<T extends Disposable>(texture: T, pixels: number): T {
+  trackTexture<T extends Disposable>(texture: T, pixels: number, mipmapped = false): T {
     if (this.disposed) {
       texture.dispose();
       return texture;
     }
     if (!this.textures.has(texture)) {
+      const logicalPixels = mipmapped ? Math.ceil(pixels * 4 / 3) : pixels;
       if (this.owner === 'immersive'
-        && immersiveInstrumentation.logicalTexturePixels + pixels > MAX_IMMERSIVE_TEXTURE_PIXELS) {
+        && immersiveInstrumentation.logicalTexturePixels + logicalPixels > MAX_IMMERSIVE_TEXTURE_PIXELS) {
         texture.dispose();
-        throw new Error('Immersive texture allocation exceeded the 4,194,304-pixel budget.');
+        throw new Error('Immersive texture allocation exceeded the 5,592,405-pixel budget.');
       }
-      this.textures.set(texture, pixels);
+      this.textures.set(texture, logicalPixels);
       instrumentation.textures += 1;
-      instrumentation.logicalTexturePixels += pixels;
-      if (this.owner === 'immersive') updateImmersiveResources(1, pixels);
+      instrumentation.logicalTexturePixels += logicalPixels;
+      if (this.owner === 'immersive') updateImmersiveResources(1, logicalPixels);
       publish();
     }
     return texture;

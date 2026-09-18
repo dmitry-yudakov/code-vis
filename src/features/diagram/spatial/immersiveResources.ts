@@ -6,7 +6,7 @@ export type ImmersiveAction = Exclude<ImmersiveSemanticAction, `panel:${string}`
 
 export const IMMERSIVE_ACTION_LABELS: Readonly<Record<ImmersiveAction, string>> = {
   exit: 'Exit VR',
-  'reset-workspace': 'Reset workspace',
+  'reset-workspace': 'Reset',
   'previous-file': 'Previous file',
   'next-file': 'Next file',
   'previous-checkout': 'Previous repository',
@@ -29,18 +29,20 @@ export interface ImmersiveTexturePanel {
   material: THREE.MeshBasicMaterial;
   width: number;
   height: number;
+  presentation: 'precolored' | 'icon-mask' | 'text-mask';
   status: 'ready' | 'error';
   detail?: string;
 }
 
 function trackedTexture(canvas: HTMLCanvasElement, ledger: SpatialResourceLedger): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 4;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
-  return ledger.trackTexture(texture, canvas.width * canvas.height);
+  return ledger.trackTexture(texture, canvas.width * canvas.height, true);
 }
 
 export function texturePanel(
@@ -60,9 +62,11 @@ export function texturePanel(
       map: texture,
       toneMapped: false,
       transparent: true,
+      depthWrite: false,
     })),
     width: worldSize[0],
     height: worldSize[1],
+    presentation: 'precolored',
     status,
     detail,
   };

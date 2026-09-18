@@ -25,7 +25,7 @@ const entry = snapshot.extend({
     'page-ready', 'entry-requested', 'entry-failed', 'entry-abandoned', 'session-started',
     'visibility-changed', 'controllers-changed', 'sample', 'exit-requested', 'session-ended',
     'end-failed', 'webgl-context-lost', 'webgl-context-restored', 'pagehide', 'renderer-unmounted',
-    'renderer-error', 'window-error', 'unhandled-rejection',
+    'renderer-error', 'font-loading-failed', 'window-error', 'unhandled-rejection',
   ]),
 });
 type DiagnosticEntry = z.infer<typeof entry>;

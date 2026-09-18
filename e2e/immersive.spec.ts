@@ -64,13 +64,53 @@ test.describe('VR conversation input', () => {
     const input = page.locator('[data-immersive-message-input]');
     await expect(input).toHaveCount(1);
     expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('VR chat messages')))).toBe(true);
-    const header = await page.evaluate(() => ['Conversation history', 'Agents'].map((name) => window.xrScene!.scene.getObjectByName(name)!.parent!.position.toArray()));
-    expect(header).toEqual([[0.35, 0.82, 0.04], [0.56, 0.82, 0.04]]);
+    const header = await page.evaluate(() => ['Conversation history', 'Agents'].map((name) => window.xrScene!.scene.getObjectByName(name)!.parent!.parent!.position.toArray()));
+    expect(header).toEqual([[0.38, 0.81, 0], [0.56, 0.81, 0]]);
     expect(await page.evaluate(() => {
       const mesh = window.xrScene!.scene.getObjectByName('Message input') as Mesh;
       mesh.geometry.computeBoundingBox();
       return { position: mesh.position.toArray(), width: mesh.geometry.boundingBox!.max.x - mesh.geometry.boundingBox!.min.x };
-    })).toMatchObject({ position: [0, -0.66, 0.035], width: expect.closeTo(1.32, 5) });
+    })).toMatchObject({ position: [0, -0.66, 0.0015], width: expect.closeTo(1.32, 5) });
+    expect(await page.evaluate(() => {
+      const scene = window.xrScene!.scene;
+      const panel = scene.getObjectByName('Conversation panel')!;
+      scene.updateMatrixWorld(true);
+      const bounds = (name: string) => {
+        const mesh = scene.getObjectByName(name) as Mesh;
+        mesh.geometry.computeBoundingBox();
+        const box = mesh.geometry.boundingBox!;
+        const points = [box.min.x, box.max.x].flatMap((x) => [box.min.y, box.max.y].flatMap((y) =>
+          [box.min.z, box.max.z].map((z) => panel.worldToLocal(mesh.localToWorld(window.xrScene!.camera.position.clone().set(x, y, z))))));
+        return { minY: Math.min(...points.map((point) => point.y)), maxY: Math.max(...points.map((point) => point.y)),
+          z: panel.worldToLocal(mesh.getWorldPosition(window.xrScene!.camera.position.clone())).z };
+      };
+      const status = bounds('Voice status');
+      const input = bounds('Message input');
+      const inspect = (name: string) => {
+        const mesh = scene.getObjectByName(name) as Mesh;
+        return { z: bounds(name).z, renderOrder: mesh.renderOrder,
+          transparent: (mesh.material as import('three').Material).transparent };
+      };
+      return {
+        statusInputGap: status.minY - input.maxY,
+        title: inspect('Focus Conversation display'),
+        headerBackground: inspect('Conversation history background'),
+        headerGlyph: inspect('Conversation history'),
+        status: inspect('Voice status'), input: inspect('Message input'),
+        dictateBackground: inspect('Dictate background'), dictateGlyph: inspect('Dictate'),
+        sendBackground: inspect('Send background'),
+      };
+    })).toMatchObject({
+      statusInputGap: expect.closeTo(0.0136, 3),
+      title: { z: expect.closeTo(0.003, 5), renderOrder: 4, transparent: true },
+      headerBackground: { z: expect.closeTo(0.0065, 5), renderOrder: 20, transparent: true },
+      headerGlyph: { z: expect.closeTo(0.007, 5), renderOrder: 21, transparent: true },
+      status: { z: expect.closeTo(0.0035, 5), renderOrder: 12, transparent: true },
+      input: { z: expect.closeTo(0.0045, 5), renderOrder: 14, transparent: true },
+      dictateBackground: { z: expect.closeTo(0.0065, 5), renderOrder: 20, transparent: true },
+      dictateGlyph: { z: expect.closeTo(0.007, 5), renderOrder: 21, transparent: true },
+      sendBackground: { z: expect.closeTo(0.0065, 5), renderOrder: 20, transparent: true },
+    });
     expect(JSON.parse((await panel(page, 'conversation').getAttribute('data-layout'))!).angle).toBe(36);
     await pointAtAction(page, 'message-input');
     await page.mouse.down(); await page.mouse.up();
@@ -135,7 +175,9 @@ test.describe('VR conversation input', () => {
     });
     const end = await page.evaluate(() => {
       const context = document.createElement('canvas').getContext('2d')!;
-      context.font = '44px Arial, sans-serif';
+      const family = getComputedStyle(document.documentElement).getPropertyValue('--font-inter').trim() || 'system-ui';
+      const size = Math.round(2 * 2.6 * Math.tan((18 * 0.0625 * Math.PI / 180) / 2) * 1024 / 1.32);
+      context.font = `400 ${size}px ${family}, system-ui, sans-serif`;
       return [((28 + context.measureText('Keep this draft.').width) / 1024 - 0.5) * 1.32, (0.5 - 45 / 256) * 0.30, 0];
     });
     await pointAtAction(page, 'message-input', end);
@@ -165,7 +207,9 @@ test.describe('VR conversation input', () => {
     await expect(input).toHaveValue('Keep this draf better');
     const afterKeep = await page.evaluate(() => {
       const context = document.createElement('canvas').getContext('2d')!;
-      context.font = '44px Arial, sans-serif';
+      const family = getComputedStyle(document.documentElement).getPropertyValue('--font-inter').trim() || 'system-ui';
+      const size = Math.round(2 * 2.6 * Math.tan((18 * 0.0625 * Math.PI / 180) / 2) * 1024 / 1.32);
+      context.font = `400 ${size}px ${family}, system-ui, sans-serif`;
       return [((28 + context.measureText('Keep').width) / 1024 - 0.5) * 1.32, (0.5 - 45 / 256) * 0.30, 0];
     });
     await pointAtAction(page, 'message-input', afterKeep);
@@ -175,7 +219,7 @@ test.describe('VR conversation input', () => {
     await expect.poll(async () => (await conversationState(page))?.draft).toBe('Keep, definitely, this draf better');
     expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Edit message')))).toBe(false);
     expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Message keyboard')))).toBe(false);
-    expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+    expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
     await input.evaluate((element: HTMLTextAreaElement) => element.blur());
     await page.evaluate(() => { window.xrScene!.scene.userData.restoreKeyboardSession(); delete window.xrScene!.scene.userData.restoreKeyboardSession; });
     await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR chat messages')?.visible)).toBe(true);
@@ -204,6 +248,21 @@ test.describe('VR conversation input', () => {
     await conversationAction(page, 'edit');
     await conversationAction(page, 'append');
     await expect.poll(async () => (await conversationState(page))?.draft).toBe('Edit badpath');
+    expect(await page.evaluate(() => {
+      const scene = window.xrScene!.scene;
+      const panel = scene.getObjectByName('Conversation panel')!;
+      scene.updateMatrixWorld(true);
+      return ['Voice help', 'Clear draft', 'Done'].map((name) => {
+        const mesh = scene.getObjectByName(name) as Mesh;
+        mesh.geometry.computeBoundingBox();
+        const box = mesh.geometry.boundingBox!;
+        const xs = [box.min.x, box.max.x].map((x) => panel.worldToLocal(mesh.localToWorld(
+          window.xrScene!.camera.position.clone().set(x, 0, 0),
+        )).x);
+        return { name, min: Math.min(...xs), max: Math.max(...xs) };
+      }).sort((left, right) => left.min - right.min)
+        .every((item, index, items) => index === 0 || items[index - 1].max < item.min);
+    })).toBe(true);
     await conversationAction(page, 'next-word'); await conversationAction(page, 'next-word');
     voice.text = 'sierra romeo charlie slash capital alpha papa papa dot tango sierra xray';
     await dictate(page); await conversationAction(page, 'spell');
@@ -310,7 +369,7 @@ test.describe('VR conversation input', () => {
     await conversationAction(page, 'record');
     await expect.poll(async () => (await conversationState(page))?.voiceStatus).toContain('Microphone denied');
     await expect.poll(async () => (await conversationState(page))?.selectedWord).toBe('Edit');
-    await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+    await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
     await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
     await microphoneReleased(page); await released(page);
   });
@@ -402,7 +461,7 @@ test.describe('VR conversation input', () => {
     for (let cycle = 0; cycle < 5; cycle++) {
       for (const action of ['read', 'compose', 'agents']) {
         await conversationAction(page, action);
-        await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+        await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
         await expect.poll(() => page.evaluate((action) => Boolean(window.xrScene?.scene.getObjectByName(action === 'agents' ? 'VR draft and agents' : 'Message input')), action)).toBe(true);
       }
     }
@@ -436,6 +495,20 @@ test.describe('VR conversation input', () => {
     });
     await page.reload(); await enter(page); await conversationAction(page, 'compose');
     await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Cancel run')?.userData.disabled)).toBe(false);
+    expect(await page.evaluate(() => {
+      const scene = window.xrScene!.scene;
+      const panel = scene.getObjectByName('Conversation panel')!;
+      const cancel = scene.getObjectByName('Cancel run')!;
+      const status = scene.getObjectByName('Voice status')!;
+      scene.updateMatrixWorld(true);
+      return {
+        cancel: panel.worldToLocal(cancel.getWorldPosition(window.xrScene!.camera.position.clone())).toArray(),
+        status: panel.worldToLocal(status.getWorldPosition(window.xrScene!.camera.position.clone())).toArray(),
+      };
+    })).toMatchObject({
+      cancel: [expect.closeTo(0.48, 5), expect.closeTo(-0.43, 5), expect.any(Number)],
+      status: [expect.closeTo(0, 5), expect.closeTo(-0.45, 5), expect.any(Number)],
+    });
     await page.evaluate(() => {
       const cancel = document.querySelector<HTMLButtonElement>('[data-immersive-action="conversation:cancel"]')!;
       cancel.click(); cancel.click();
@@ -659,6 +732,110 @@ for (const location of ['Arena', 'Inbox', 'Flat', 'Spatial', 'Empty'] as const) 
   });
 }
 
+for (const [colorScheme, expected] of [['dark', '1a1a1a'], ['light', 'b0b0b0']] as const) {
+  test(`applies the ${colorScheme} environment token to the XR scene`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await installAdapter(page);
+    await workspaceFixture(page);
+    await page.goto('/');
+    await enter(page);
+    await expect.poll(() => page.evaluate(() => {
+      const background = window.xrScene?.scene.background;
+      return background && 'getHexString' in background ? background.getHexString() : undefined;
+    })).toBe(expected);
+    expect(await page.evaluate(() => {
+      const title = window.xrScene!.scene.getObjectByName('Focus Conversation display') as Mesh;
+      return (title.material as import('three').MeshBasicMaterial).color.getHexString();
+    })).toBe('ffffff');
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+    await released(page);
+  });
+}
+
+test('continues into VR and records a diagnostic when immersive fonts fail to load', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(document.fonts, 'load', {
+      configurable: true,
+      value: () => Promise.reject(new Error('Injected font loading failure.')),
+    });
+  });
+  await installAdapter(page);
+  await workspaceFixture(page);
+  await page.goto('/');
+  await enter(page);
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__?.().events
+    .some((entry) => entry.event === 'font-loading-failed'))).toBe(true);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
+test('continues to the VR entry when immersive font loading never settles', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(document.fonts, 'load', {
+      configurable: true,
+      value: () => new Promise(() => undefined),
+    });
+  });
+  await installAdapter(page);
+  await workspaceFixture(page);
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled({ timeout: 5_000 });
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__?.().events
+    .some((entry) => entry.event === 'font-loading-failed'))).toBe(true);
+});
+
+test('keeps panel geometry in the thin depth stack and inside rounded panel bounds', async ({ page }) => {
+  await installAdapter(page);
+  await workspaceFixture(page, true);
+  await page.goto('/');
+  await enter(page);
+  await panelAction(page, 'evidence', 'open');
+  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation', 'evidence']);
+  const violations = await page.evaluate(() => {
+    const failures: string[] = [];
+    const panels: Array<import('three').Object3D> = [];
+    const scene = window.xrScene!.scene;
+    scene.updateMatrixWorld(true);
+    scene.traverse((object) => { if (object.userData.workspacePanel) panels.push(object); });
+    for (const panel of panels) {
+      panel.traverse((object) => {
+        const mesh = object as Mesh;
+        const positions = mesh.geometry?.attributes.position;
+        if (!positions) return;
+        const tooltip = Boolean(object.userData.immersiveTooltip);
+        let ancestor: import('three').Object3D | null = object;
+        let controlBar = false;
+        while (ancestor && ancestor !== panel) {
+          if (ancestor.name.includes('toolbar') || ancestor.name.includes('control bar')) controlBar = true;
+          ancestor = ancestor.parent;
+        }
+        let maxDepth = 0;
+        let outside = false;
+        for (let index = 0; index < positions.count; index++) {
+          const point = panel.worldToLocal(object.localToWorld(window.xrScene!.camera.position.clone().set(
+            positions.getX(index), positions.getY(index), positions.getZ(index),
+          )));
+          maxDepth = Math.max(maxDepth, Math.abs(point.z));
+          outside ||= Math.abs(point.x) > 0.7001 || Math.abs(point.y) > 0.9001;
+        }
+        if (!tooltip && maxDepth > 0.0101) failures.push(`${panel.name}/${object.name}: depth ${maxDepth}`);
+        if (!tooltip && !controlBar && !object.name.includes('focus outline') && outside) {
+          failures.push(`${panel.name}/${object.name}: outside bounds`);
+        }
+        const material = mesh.material as import('three').Material | import('three').Material[] | undefined;
+        const materials = Array.isArray(material) ? material : material ? [material] : [];
+        if (!object.name.endsWith(' surface') && materials.some((entry) => entry.depthWrite)) {
+          failures.push(`${panel.name}/${object.name}: writes depth`);
+        }
+      });
+    }
+    return failures;
+  });
+  expect(violations).toEqual([]);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
 test('retains one XR store across machine/project navigation, loading races, history, failure and Offline', async ({ page }) => {
   await installAdapter(page);
   const state = await workspaceFixture(page);
@@ -791,7 +968,7 @@ test('contains broken canvas/transcript surfaces and cleans up rejection, system
   await page.evaluate(() => { window.xrFixture.reject = false; });
   await enter(page);
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.logicalTexturePixels || 0)).toBeGreaterThan(0);
-  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   await controls(page).getByRole('button', { name: 'Reset view' }).click();
   await openSession(page, EMPTY);
   await expect(controls(page).locator('strong').first()).toHaveText('Empty remote session');
@@ -963,7 +1140,7 @@ test('identifies the conversation, scrolls a continuous thread, and returns from
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(0, -180);
   await expect.poll(async () => (await history())?.offset).toBeLessThan(bottom);
-  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Latest')?.parent?.position.toArray())).toEqual([0.55, -0.32, 0.05]);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Latest')?.parent?.parent?.position.toArray())).toEqual([0.55, -0.32, 0]);
   const afterWheel = (await history()).offset;
   expect(bottom - afterWheel).toBeLessThan(400);
   await page.mouse.down();
@@ -987,6 +1164,8 @@ test('identifies the conversation, scrolls a continuous thread, and returns from
   await showPanel(page, 'conversation');
   await page.screenshot({ path: 'test-results/vr-conversation-list.png' });
   await pointAtAction(page, `session:${EMPTY}`);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation list scroll')
+    ?.userData.immersiveConversationList.hoveredSessionId)).toBe(EMPTY);
   await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
   await expect.poll(heading).toMatchObject({ heading: 'Empty remote session' });
   expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
@@ -1001,7 +1180,7 @@ test('sorts conversation activity, scrolls without selecting, and loads older co
   await expect.poll(async () => (await listState())?.loadedCount).toBe(20);
   expect((await listState()).visibleSessionIds.slice(0, 3)).toEqual([EMPTY, SESSION, '99999999-9999-4999-8999-000000000000']);
   expect((await listState()).rows[0].timeLabel).toBe('Updated 1h ago');
-  expect(await page.evaluate(() => window.xrScene?.scene.getObjectByName('Back to conversation')?.parent?.position.toArray())).toEqual([-0.56, 0.82, 0.04]);
+  expect(await page.evaluate(() => window.xrScene?.scene.getObjectByName('Back to conversation')?.parent?.parent?.position.toArray())).toEqual([-0.56, 0.81, 0]);
   const texture = await page.evaluate(() => ((window.xrScene!.scene.getObjectByName('Conversation list scroll') as Mesh).material as import('three').MeshBasicMaterial).map!.uuid);
   await showPanel(page, 'conversation');
   await page.screenshot({ path: 'test-results/vr-conversation-list-times.png' });
@@ -1031,7 +1210,7 @@ test('sorts conversation activity, scrolls without selecting, and loads older co
   await pointAtAction(page, 'conversation:back');
   await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
   await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation panel')?.userData.heading)).toBe('Older conversation 25');
-  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
@@ -1045,8 +1224,19 @@ test('delays tooltip appearance, fades it, and cancels a brief hover', async ({ 
   await pointAtAction(page, 'panel:conversation:focus');
   await page.waitForTimeout(500);
   expect(await opacity()).toBe(0);
+  expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Focus Conversation tooltip')))).toBe(false);
+  await pointAtAction(page, 'panel:conversation:toggle');
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Hide Conversation tooltip')))).toBe(false);
   await pointAtAction(page, 'conversation:list');
   await expect.poll(opacity).toBe(1);
+  expect(await page.evaluate(() => {
+    const scene = window.xrScene!.scene;
+    const panel = scene.getObjectByName('Conversation panel')!;
+    const tooltip = scene.getObjectByName('Conversation history tooltip')!;
+    scene.updateMatrixWorld(true);
+    return panel.worldToLocal(tooltip.getWorldPosition(window.xrScene!.camera.position.clone())).z;
+  })).toBeCloseTo(0.01, 4);
   expect(await page.evaluate(() => {
     const tooltip = window.xrScene!.scene.getObjectByName('Conversation history tooltip') as Mesh;
     const material = tooltip.material as import('three').MeshBasicMaterial;
@@ -1088,19 +1278,20 @@ test('arranges every panel, isolates content actions, recovers tools and restore
       return icons.length === 3 && icons.every((icon) => {
         const position = panel.worldToLocal(icon.getWorldPosition(camera.position.clone()));
         const size = (icon.geometry as import('three').PlaneGeometry).parameters;
-        return position.y + size.height / 2 < -0.92 && size.width === size.height;
+        return position.y + size.height / 2 < -0.92 && size.width === size.height
+          && Math.abs(position.x) + size.width / 2 <= 0.4701;
       });
     }, id)).toBe(true);
     for (const [command, label] of [['resize', 'Size'], ['close', 'Close'], ['drag', 'Drag']]) {
       await pointAtAction(page, `panel:${id}:${command}`);
       await expect.poll(() => page.evaluate(({ id, label }) =>
         window.xrScene?.scene.getObjectByName(`${label} ${id[0].toUpperCase()}${id.slice(1)} tooltip`)?.visible,
-      { id, label })).toBe(true);
+      { id, label }), `show ${label} tooltip for ${id}`).toBe(true);
       expect(await storedLayout(page)).toBe(savedBeforeDrag);
     }
     await pointAtAction(page, `panel:${id}:focus`);
     await expect.poll(() => page.evaluate((id) =>
-      window.xrScene?.scene.getObjectByName(`Drag ${id[0].toUpperCase()}${id.slice(1)} tooltip`)?.visible, id)).toBe(false);
+      Boolean(window.xrScene?.scene.getObjectByName(`Drag ${id[0].toUpperCase()}${id.slice(1)} tooltip`)?.visible), id)).toBe(false);
     await pointAtAction(page, `panel:${id}:drag`);
     await page.mouse.down();
     await moveHeldPanel(page);
@@ -1294,7 +1485,7 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
     await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThan(800_000);
     await controls(page).getByRole('button', { name: 'Reset workspace', exact: true }).click();
     await expect.poll(() => livePanelIds(page)).toHaveLength(2);
-    expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+    expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   }
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources)).toBeLessThanOrEqual(baseline + 12);
   expect(state.diffReads).toBe(1);
@@ -1350,6 +1541,25 @@ test('compares canvases, writes canonical controller marks, and sends the marked
   await hideProjection(page);
   await canvasAction('rectangle');
   const drawingPixels = await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels);
+  expect(await page.evaluate(() => {
+    const scene = window.xrScene!.scene;
+    const panel = scene.getObjectByName('Canvas panel')!;
+    const surface = scene.getObjectByName('Canvas surface') as Mesh;
+    const canvas = scene.getObjectByName('Active canvas') as Mesh;
+    scene.updateMatrixWorld(true);
+    return {
+      depth: panel.worldToLocal(canvas.getWorldPosition(window.xrScene!.camera.position.clone())).z,
+      canvasOrder: canvas.renderOrder,
+      surfaceOrder: surface.renderOrder,
+      depthWrite: (canvas.material as import('three').Material).depthWrite,
+    };
+  })).toMatchObject({ depth: expect.closeTo(0.004, 5), canvasOrder: 10, surfaceOrder: 1, depthWrite: false });
+  await page.evaluate(() => {
+    Object.defineProperty(CanvasRenderingContext2D.prototype, 'getImageData', {
+      configurable: true,
+      value: () => { throw new Error('Injected Quest canvas readback failure.'); },
+    });
+  });
   await pointAtCanvasUv(page, 0.25, 0.75); await page.mouse.down();
   await pointAtCanvasUv(page, 0.75, 0.25);
   await expect.poll(async () => (await reviewState())?.drawing).toBe(true);
@@ -1363,7 +1573,7 @@ test('compares canvases, writes canonical controller marks, and sends the marked
   await expect.poll(async () => (await reviewState())?.drawing).toBe(false);
   await expect.poll(async () => (await reviewState())?.marks?.length).toBe(1);
   await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Active canvas')?.userData.status)).toBe('ready');
-  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   const rectangle = (await reviewState())!.marks[0];
   expect(rectangle).toMatchObject({ kind: 'rectangle', x: expect.closeTo(400, 0), y: expect.closeTo(250, 0) });
   expect(rectangle.width).toBeGreaterThan(300); expect(rectangle.width).toBeLessThan(900);
@@ -1397,7 +1607,7 @@ test('compares canvases, writes canonical controller marks, and sends the marked
   await expect.poll(async () => (await reviewState())?.comparisonId).toBe('reading-diagram');
   await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Comparison canvas')?.userData.status)).toBe('error');
   await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Active canvas')?.userData.status)).toBe('ready');
-  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
 
   expect((await reviewState())!.attached).toBe(true);
   await canvasAction('attach'); await expect.poll(async () => (await reviewState())?.attached).toBe(false);
@@ -1511,7 +1721,7 @@ test('VR session tools create a repository-free session, attach a checkout, and 
     await sessionAction(page, 'tools');
   }
   expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
-  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
@@ -1659,7 +1869,7 @@ test('VR session tools forget the paired device only after an explicit second se
   await panelAction(page, 'evidence', 'open');
   await sessionAction(page, 'tools');
   await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('home');
-  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(4_194_304);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   await sessionAction(page, 'confirm-revoke'); expect(revoked).toBe(0);
   await sessionAction(page, 'revoke'); expect(revoked).toBe(0);
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('A new pairing code');

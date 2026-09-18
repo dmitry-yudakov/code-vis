@@ -128,7 +128,7 @@ describe('immersive capability and resources', () => {
     const full = { dispose: vi.fn() };
     const rejected = { dispose: vi.fn() };
     ledger.trackTexture(full, MAX_IMMERSIVE_TEXTURE_PIXELS);
-    expect(() => ledger.trackTexture(rejected, 1)).toThrow(/4,194,304-pixel budget/);
+    expect(() => ledger.trackTexture(rejected, 1)).toThrow(/5,592,405-pixel budget/);
     expect(rejected.dispose).toHaveBeenCalledTimes(1);
     expect(getImmersiveInstrumentation().logicalTexturePixels).toBe(MAX_IMMERSIVE_TEXTURE_PIXELS);
     setImmersiveSessionActive(true);

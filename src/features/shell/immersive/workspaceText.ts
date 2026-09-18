@@ -1,7 +1,12 @@
 import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
+import { IMMERSIVE_CONTENT_INSET, dpToWorld } from './immersiveTheme';
+
+const EVIDENCE_CONTENT_WIDTH = 1.32;
+const EVIDENCE_CONTENT_HEIGHT = 0.99;
+export const EVIDENCE_COLUMNS = Math.floor((EVIDENCE_CONTENT_WIDTH - 2 * IMMERSIVE_CONTENT_INSET) / (dpToWorld(16) * 0.57));
 
 /** Fixed monospace columns match raster text; preserve code indentation and wrap long tokens. */
-export function workspaceTextLines(text: string, columns = 56): string[] {
+export function workspaceTextLines(text: string, columns = EVIDENCE_COLUMNS): string[] {
   return text.replaceAll('\t', '  ').split('\n').flatMap((line) => {
     const points = [...line];
     if (!points.length) return [''];
@@ -19,7 +24,7 @@ export function workspaceTextLines(text: string, columns = 56): string[] {
     return lines;
   });
 }
-export const EVIDENCE_LINES_PER_PAGE = 16;
+export const EVIDENCE_LINES_PER_PAGE = Math.floor((EVIDENCE_CONTENT_HEIGHT - 2 * IMMERSIVE_CONTENT_INSET) / dpToWorld(22));
 
 export function repositoryStatusLines(tree: GitWorkingTree | undefined, status: string): string[] {
   if (!tree) return workspaceTextLines(status).slice(0, EVIDENCE_LINES_PER_PAGE);

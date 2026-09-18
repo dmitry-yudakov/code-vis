@@ -12,11 +12,13 @@ describe('sheet and instrument visual language', () => {
   it('loads each typography role through next/font/google', async () => {
     const layout = await readFile(layoutPath, 'utf8');
 
-    expect(layout).toContain("import { Archivo, Geist, Geist_Mono } from 'next/font/google';");
+    expect(layout).toContain("import { Archivo, Geist, Geist_Mono, Inter } from 'next/font/google';");
     expect(layout).toContain("variable: '--font-geist'");
     expect(layout).toContain("variable: '--font-geist-mono'");
     expect(layout).toContain("variable: '--font-archivo'");
-    expect(layout).toMatch(/className=\{`\$\{geist\.variable\} \$\{geistMono\.variable\} \$\{archivo\.variable\}`\}/);
+    expect(layout).toContain("variable: '--font-inter'");
+    expect(layout).toContain('preload: false');
+    expect(layout).toMatch(/className=\{`\$\{geist\.variable\} \$\{geistMono\.variable\} \$\{archivo\.variable\} \$\{inter\.variable\}`\}/);
   });
 
   it('reserves ambient animation for the ribbon and streaming cursor', async () => {

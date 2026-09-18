@@ -13,8 +13,8 @@ correct it, send it to the intended agent, and steer or stop the resulting work 
 
 ## Implementation (where the code is)
 
-- [ConversationTools.tsx:41](../src/features/shell/immersive/ConversationTools.tsx#L41) renders
-  icon navigation between chat/composer/agents, paged speech review, contextual correction tools,
+- [ConversationTools.tsx](../src/features/shell/immersive/ConversationTools.tsx) renders
+  icon navigation for unambiguous header actions, paged speech review, labelled correction tools,
   and measured microphone activity. [workspaceIcons.ts:39](../src/features/shell/immersive/workspaceIcons.ts#L39)
   shares canvas icons across the workspace with labels allocated on hover.
   [conversationControls.ts:4](../src/features/shell/immersive/conversationControls.ts#L4) defines
@@ -60,7 +60,7 @@ observable on the tested headset/browser, despite the browser adapter exercising
 `deleteContentBackward` event. Keep the native bridge bounded, but do not make recovery depend on
 an event Quest may omit.
 
-- [x] A populated inline composer exposes a labelled, controller-selectable **Clear draft** × beside
+- [x] A populated inline composer exposes a labelled, controller-selectable **Clear draft** `Delete` glyph beside
   Dictate and Send. It clears the shared session draft without sending, then permits immediate
   entry of a replacement message; it is absent when there is nothing to clear.
 - [x] Focused browser coverage activates the same world-space control through the ray path, verifies
@@ -193,8 +193,8 @@ a separate change to the current complete-WAV transcription protocol; do not imp
 recording state is a live transcript.
 
 - [x] Chat uses distinct user/agent bubbles, readable proportional text, and quiet metadata.
-- [x] Common VR navigation/actions use icons with discoverable labels; correction tools appear
-  only when requested, with Send and active-run cancellation easy to reach.
+- [x] Unambiguous VR actions use distinct icons with discoverable labels; correction, run, and agent
+  actions use labelled buttons and appear only when relevant, with Send and active-run cancellation easy to reach.
 - [x] Voice shows measured audio activity and elapsed recording time; dragging/resizing panels and
   reselecting Compose preserve speech. Exit/session changes still release the microphone.
 - [x] Focused browser regressions and visual inspection verify the revised chat/composer,
@@ -302,7 +302,7 @@ September 16, 2026:
   composer text with the native Quest keyboard does not. The guarded Backspace bridge therefore
   remains unaccepted; exact headset/browser versions and the full physical input matrix are still
   needed. Conversation shape and viewing polish are deferred rather than expanded into this fix.
-- A populated inline composer now shows a labelled × **Clear draft** action between Dictate and
+- A populated inline composer now shows a labelled `Delete` **Clear draft** action between Dictate and
   Send. It ends the transient native edit, uses the existing session-owned draft action, disappears
   for an empty draft, and permits immediate replacement entry without sending the cleared text.
 - `npm run lint` passed. `npm test` passed 388 tests in 61 files. The production build passed, the
@@ -411,7 +411,7 @@ September 11, 2026:
   ray-selected recording; dictated/spelled multiline text; duplicate sends and failed draft
   persistence across machines/reload; denied/unavailable voice; late permission/transcription;
   microphone loss/exit; roster/mode parity; and cancellation alongside a second active run.
-  Existing streaming/history and aggregate 4,194,304-pixel resource checks pass.
+  Existing streaming/history and aggregate 5,592,405-pixel mipmapped resource checks pass.
   After the final UI state cleanup, a fresh production build and all six focused VR input/streaming
   cases passed again. Next.js regenerated its normal development declaration after verification.
 - Built whisper.cpp revision `02612981545f58188a44de99b8a4710793714629` in a temporary directory,

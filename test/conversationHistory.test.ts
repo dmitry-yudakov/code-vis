@@ -68,7 +68,7 @@ describe('continuous immersive conversation history', () => {
         context.fillText.mockClear();
         paintConversationHistory(resource, history.entries, historyScrollState(index * 15_000, history.height), 'dark', 'Working', 0, 0);
         expect(context.fillText.mock.calls.length).toBeLessThan(40);
-        expect(getImmersiveInstrumentation().logicalTexturePixels - baseline.logicalTexturePixels).toBe(1_024 ** 2);
+        expect(getImmersiveInstrumentation().logicalTexturePixels - baseline.logicalTexturePixels).toBe(Math.ceil(1_024 ** 2 * 4 / 3));
         expect(getImmersiveInstrumentation().liveResources - baseline.liveResources).toBe(3);
       }
       context.fillText.mockImplementationOnce(() => { throw new Error('Raster failed'); });

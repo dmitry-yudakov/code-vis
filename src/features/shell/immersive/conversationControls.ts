@@ -29,14 +29,24 @@ export interface ImmersiveConversationControls {
 export const CONVERSATION_ACTIONS = {
   read: 'Read', compose: 'Compose', agents: 'Agents', latest: 'Latest', help: 'Voice help',
   record: 'Dictate', retry: 'Retry voice', stop: 'Stop recording', discard: 'Discard speech',
-  append: 'Append speech', replace: 'Replace word', 'replace-all': 'Replace draft', spell: 'Spell speech',
+  append: 'Append', replace: 'Replace word', 'replace-all': 'Replace all', spell: 'Spell',
   'previous-word': 'Previous word', 'next-word': 'Next word', delete: 'Delete word', clear: 'Clear draft',
   undo: 'Undo edit', newline: 'New line', 'draft-older': 'Previous page', 'draft-newer': 'Next page',
   send: 'Send', cancel: 'Cancel run', 'previous-agent': 'Previous agent', 'next-agent': 'Next agent',
   ask: 'Ask', plan: 'Plan', agent: 'Agent', 'make-primary': 'Make main',
   provider: 'Provider', role: 'Role', add: 'Add agent',
-  edit: 'Speech tools', done: 'Done editing',
+  edit: 'Speech tools', done: 'Done',
   list: 'Conversations', back: 'Back to conversation',
 } as const;
 export type ConversationActionName = keyof typeof CONVERSATION_ACTIONS;
 export type ConversationAction = `conversation:${ConversationActionName}`;
+
+export function centeredControlRow<T>(items: readonly { key: T; width: number }[], gap = 0.02): Map<T, number> {
+  const totalWidth = items.reduce((total, item) => total + item.width, 0) + Math.max(0, items.length - 1) * gap;
+  let cursor = -totalWidth / 2;
+  return new Map(items.map((item) => {
+    const center = cursor + item.width / 2;
+    cursor += item.width + gap;
+    return [item.key, center];
+  }));
+}

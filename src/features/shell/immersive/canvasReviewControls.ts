@@ -10,10 +10,10 @@ export interface ImmersiveCanvasReviewControls {
 
 export const CANVAS_REVIEW_ACTIONS = {
   pen: 'Pen', rectangle: 'Rectangle', arrow: 'Arrow', text: 'Text label', eraser: 'Eraser',
-  undo: 'Undo mark', redo: 'Redo mark', clear: 'Clear marks',
-  attach: 'Toggle canvas attachment', sketch: 'New sketch', compare: 'Compare canvases',
+  undo: 'Undo', redo: 'Redo', clear: 'Clear',
+  attach: 'Attach', sketch: 'New sketch', compare: 'Compare',
   'previous-compare': 'Previous comparison', 'next-compare': 'Next comparison',
-  'commit-label': 'Add label', 'cancel-label': 'Cancel label',
+  'commit-label': 'Add label', 'cancel-label': 'Cancel',
 } as const;
 
 export type CanvasReviewActionName = keyof typeof CANVAS_REVIEW_ACTIONS;

@@ -68,7 +68,7 @@ export function ConversationHistory({ session, preview, theme, runStatus, pendin
   });
   if (!resource) return null;
   return <mesh ref={mesh} name="VR chat messages" geometry={resource.geometry} material={resource.material}
-    scale={0.58} position-y={0.01} visible={visible} pointerEvents={enabled && visible ? 'auto' : 'none'}
+    scale={0.58} position-y={0.01} visible={visible} renderOrder={5} pointerEvents={enabled && visible ? 'auto' : 'none'}
     userData={{ immersiveHistory: { ...scrollState, visibleMessageIds: visibleHistoryEntries(history.entries, scrollState.offset).map((item) => item.entry.id) }, conversationStatus: resource.status }}
     {...scrollHandlers} />;
 }

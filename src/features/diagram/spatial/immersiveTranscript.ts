@@ -1,9 +1,11 @@
 import type { ChatMessage, SessionSnapshot } from '@/shared/types';
 import type { ImmersiveTranscriptEntry } from './immersiveTypes';
+import { dpToWorld } from '@/features/shell/immersive/immersiveTheme';
 
 // History layout and rasterization share text geometry.
-export const IMMERSIVE_CHAT_FONT_SIZE = 54;
-export const IMMERSIVE_CHAT_LINE_HEIGHT = 64;
+const IMMERSIVE_TEXT_PIXELS_PER_METER = 1_000;
+export const IMMERSIVE_CHAT_FONT_SIZE = Math.round(dpToWorld(18) * IMMERSIVE_TEXT_PIXELS_PER_METER);
+export const IMMERSIVE_CHAT_LINE_HEIGHT = Math.round(dpToWorld(26) * IMMERSIVE_TEXT_PIXELS_PER_METER);
 export const IMMERSIVE_CHAT_TEXT_WIDTH = 1_024;
 
 /** Conservative sans-serif advances keep wrapping independent of browser/font loading. */

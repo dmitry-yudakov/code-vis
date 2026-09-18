@@ -5,7 +5,7 @@ import {
   parseImmersiveLayout, parseImmersiveLayouts, parsePanelAction, updateImmersivePanel, panelTransform, placeImmersivePanel,
 } from '@/features/shell/immersive/workspaceLayout';
 import { dragPanelPlacement, startPanelDrag } from '@/features/shell/immersive/panelDrag';
-import { evidencePages, workspaceTextLines } from '@/features/shell/immersive/workspaceText';
+import { EVIDENCE_COLUMNS, EVIDENCE_LINES_PER_PAGE, evidencePages, workspaceTextLines } from '@/features/shell/immersive/workspaceText';
 import { immersiveChatLines, immersiveMessageEntry } from '@/features/diagram/spatial/immersiveTranscript';
 import { allocateTexturePixels } from '@/features/diagram/spatial/spatialModel';
 import type { ChatMessage } from '@/shared/types';
@@ -226,6 +226,6 @@ describe('readable workspace text', () => {
     const unstaged = Array.from({ length: 80 }, (_, i) => `-  removed ${i}`).join('\n');
     const pages = evidencePages({ path: 'source.ts', staged, unstaged });
     expect(pages.flat()).toEqual(workspaceTextLines(`Staged\n${staged}\n\nWorking tree\n${unstaged}`));
-    expect(pages.every((page) => page.length <= 16 && page.every((line) => [...line].length <= 56))).toBe(true);
+    expect(pages.every((page) => page.length <= EVIDENCE_LINES_PER_PAGE && page.every((line) => [...line].length <= EVIDENCE_COLUMNS))).toBe(true);
   });
 });

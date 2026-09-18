@@ -6,7 +6,7 @@ import { immersiveChatLines } from '@/features/diagram/spatial/immersiveTranscri
 import { permissionKey, SESSION_ACTIONS, type ImmersiveSessionControls, type PermissionTarget, type SessionActionName } from './sessionControls';
 import { createConversationTextResource, createWorkspaceButtonResource } from './workspaceResources';
 import { useTextureResource } from './useTextureResource';
-import { WorldButton } from './WorkspacePanel';
+import { WorkspacePager, WorldButton } from './WorkspacePanel';
 
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
 
@@ -65,7 +65,7 @@ export function SessionTools({ controls, theme, enabled, onController }: {
   const safePage = Math.min(page, pageCount - 1);
   const body = useTextureResource((ledger) => createConversationTextResource(
     `${tab === 'launcher' ? 'New session' : tab === 'permissions' ? 'Permission request' : 'Session tools'} · ${safePage + 1}/${pageCount}`,
-    lines.slice(safePage * 10, safePage * 10 + 10), theme, ledger, false, 44,
+    lines.slice(safePage * 10, safePage * 10 + 10), theme, ledger,
   ), [lines, safePage, pageCount, tab, theme]);
   const buttons = useTextureResource((ledger) => Object.fromEntries(Object.entries(SESSION_ACTIONS).map(([action, label]) =>
     [action, createWorkspaceButtonResource(label, theme, ledger)])), [theme]);
@@ -112,15 +112,26 @@ export function SessionTools({ controls, theme, enabled, onController }: {
   const button = (action: SessionActionName, x: number, y: number, disabled = false) => <WorldButton
     key={`${action}:${action === 'cancel' ? controls.cancelKey : tab === 'permissions' && selected ? permissionKey(selected) : ''}`}
     action={`session:${action}`} label={SESSION_ACTIONS[action]} resource={buttons?.[action]}
-    position={[x, y, 0.04]} disabled={!enabled || busy || disabled} onAction={() => perform(action)} />;
+    iconTheme={theme} position={[x, y, 0]} disabled={!enabled || busy || disabled}
+    variant={action === 'allow' || action === 'create' ? 'primary'
+      : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' ? 'destructive' : 'secondary'}
+    onAction={() => perform(action)} />;
   return <group name="VR session tools" userData={{ tab, text, page: safePage, pageCount, permissionKey: selected && permissionKey(selected), permissionStatus, busy }}>
-    {body && <mesh name="Session details" geometry={body.geometry} material={body.material} position={[0, 0.12, 0.02]} />}
-    {button('older', -0.44, -0.37, safePage === 0)}{button('newer', 0, -0.37, safePage >= pageCount - 1)}{button('refresh', 0.44, -0.37)}
+    {body && <mesh name="Session details" geometry={body.geometry} material={body.material} position={[0, 0.12, 0]} />}
+    <WorkspacePager label={`Page ${safePage + 1} of ${pageCount}`} previousAction="session:older" nextAction="session:newer"
+      previousLabel="Previous details" nextLabel="More details" position={[-0.18, -0.37, 0]} theme={theme}
+      previousDisabled={safePage === 0} nextDisabled={safePage >= pageCount - 1}
+      onAction={(action) => perform(action.slice('session:'.length) as SessionActionName)} />
+    {button('refresh', 0.48, -0.37)}
     {tab === 'launcher' ? <>
       {button('machine', -0.44, -0.56, controls.creating)}{button('project', 0, -0.56, controls.creating)}{button('provider', 0.44, -0.56, controls.creating)}
       {button('mode', -0.44, -0.76, controls.creating)}{button('create', 0, -0.76, !createEnabled)}{button('back', 0.44, -0.76)}
     </> : tab === 'permissions' ? <>
-      {button('previous', -0.44, -0.56, !controls.permissions.length)}{button('next', 0, -0.56, !controls.permissions.length)}{button('back', 0.44, -0.56)}
+      <WorkspacePager label={`Request ${Math.max(1, controls.permissions.findIndex((item) => selected && permissionKey(item) === permissionKey(selected)) + 1)} of ${Math.max(1, controls.permissions.length)}`}
+        previousAction="session:previous" nextAction="session:next" previousLabel="Previous request" nextLabel="Next request"
+        position={[-0.20, -0.56, 0]} theme={theme} previousDisabled={!controls.permissions.length} nextDisabled={!controls.permissions.length}
+        onAction={(action) => perform(action.slice('session:'.length) as SessionActionName)} />
+      {button('back', 0.48, -0.56)}
       {button('deny', -0.22, -0.76, !current || Boolean(result) || !controls.online || !body)}
       {button('allow', 0.22, -0.76, !current || Boolean(result) || !controls.online || !body)}
     </> : <>
