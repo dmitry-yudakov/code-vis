@@ -27,11 +27,12 @@ function VoiceActivity({ level, theme }: { level: number; theme: ThemeName }) {
   </group>;
 }
 
-export function ConversationTools({ controls, theme, enabled, visible = true, tab, atBottom, renderHistory, onTab, onLatest, onVoicePending, onController }: {
+export function ConversationTools({ controls, theme, enabled, visible = true, controllerOnly = false, tab, atBottom, renderHistory, onTab, onLatest, onVoicePending, onController }: {
   controls?: ImmersiveConversationControls;
   theme: ThemeName;
   enabled: boolean;
   visible?: boolean;
+  controllerOnly?: boolean;
   tab: Tab;
   atBottom: boolean;
   renderHistory(visible: boolean): ReactNode;
@@ -118,6 +119,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
   if (expanded && pageCount > 1 && !voiceBusy) actions.push('draft-older', 'draft-newer');
   if (controls?.runId) actions.push('cancel');
   const visibleActions = [...actions, ...(!expanded && !atBottom ? ['latest' as const] : [])];
+  const controllerAvailable = visible || controllerOnly;
   const actionLabel = (action: ConversationActionName) => action === 'provider'
     ? `Provider: ${provider ? PROVIDER_LABELS[provider] : 'None'}`
     : action === 'role' ? `Role: ${AGENT_ROLE_LABELS[role]}` : CONVERSATION_ACTIONS[action];
@@ -128,7 +130,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, ta
       : createWorkspaceButtonResource(actionLabel(action), theme, ledger) }];
   })), [visible, visibleActions.join(','), provider, role, theme]);
   const disabled = (action: ConversationActionName) => {
-    if (!enabled || !visible) return true;
+    if (!enabled || !controllerAvailable) return true;
     if (action === 'read' || action === 'compose' || action === 'agents' || action === 'latest') return false;
     if (action === 'discard') return false;
     if (action === 'help') return false;

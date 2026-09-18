@@ -549,11 +549,12 @@ declare global {
   }
 }
 
-async function installAdapter(page: Page, options: { supported?: boolean; failImport?: boolean } = {}) {
-  await page.addInitScript(({ supported, failImport }) => {
+async function installAdapter(page: Page, options: { supported?: boolean; failImport?: boolean; uikitSpike?: boolean } = {}) {
+  await page.addInitScript(({ supported, failImport, uikitSpike }) => {
     const stats = window.xrFixture = { entries: 0, ends: 0, destroys: 0, listeners: 0, reject: false, pending: false } as Window['xrFixture'];
     window.__CODEAI_XR_TEST__ = {
       failXRImport: failImport,
+      uikitSpike,
       onStore(store) { window.xrStore = store; },
       onWorkspace(state) { window.xrScene = state; },
       adapter: {
@@ -1121,6 +1122,121 @@ async function moveHeldPanel(page: Page) {
   const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
   await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2, { steps: 3 });
 }
+
+test('spikes the Horizon conversation panel without missing glyphs or growing renderer resources across twenty cycles', async ({ page }) => {
+  test.setTimeout(120_000);
+  const missingGlyphWarnings: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'warning' && message.text().includes('Missing glyph info')) missingGlyphWarnings.push(message.text());
+  });
+  await installAdapter(page, { uikitSpike: true });
+  const state = await workspaceFixture(page, true, 200);
+  const first = state.local.messages[0];
+  if (first?.role === 'assistant' && first.blocks[0]?.kind === 'markdown') {
+    first.blocks[0].markdown += '\nCrème · café… ‹branch› → ┌─┐ Привет 世界 😀';
+  }
+  await page.goto('/?vr-uikit-spike'); await enter(page);
+  await panelAction(page, 'evidence', 'open');
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_UIKIT_SPIKE__?.())).toMatchObject({
+    enabled: true,
+    atlasBytes: 3 * 2_048 * 2_048 * 4,
+    fonts: [
+      { family: 'inter', weight: '400', glyphs: 672, pages: 1 },
+      { family: 'inter', weight: '600', glyphs: 672, pages: 1 },
+      { family: 'geistMono', weight: '400', glyphs: 672, pages: 1 },
+    ],
+    transparentSortInstalled: true,
+  });
+  await expect.poll(() => page.evaluate(() => ({
+    panel: Boolean(window.xrScene?.scene.getObjectByName('VR uikit Conversation panel')),
+    transcript: window.xrScene?.scene.getObjectByName('VR chat messages')?.userData.immersiveHistory,
+    canvas: Boolean(window.xrScene?.scene.getObjectByName('Active canvas')),
+    evidence: Boolean(window.xrScene?.scene.getObjectByName('Repository evidence')),
+  }))).toMatchObject({ panel: true, transcript: { uikit: true }, canvas: true, evidence: true });
+
+  await panelAction(page, 'evidence', 'focus');
+  await pointAtAction(page, 'panel:conversation:focus');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation panel')?.userData.focused)).toBe(true);
+  await pointAtAction(page, 'session:tools');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('VR session tools')))).toBe(true);
+  await pointAtAction(page, 'session:tools');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('VR uikit Conversation panel')))).toBe(true);
+  await pointAtAction(page, 'conversation:list');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Conversation list')))).toBe(true);
+  await pointAtAction(page, 'conversation:back');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('VR uikit Conversation panel')))).toBe(true);
+  await pointAtAction(page, 'conversation:agents');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation tools')?.userData.conversationTab)).toBe('agents');
+  await pointAtAction(page, 'conversation:agents');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('VR uikit Conversation panel')))).toBe(true);
+
+  const bottom = await page.evaluate(() => window.xrScene?.scene.getObjectByName('VR chat messages')?.userData.immersiveHistory.offset);
+  await pointAtAction(page, 'uikit:transcript');
+  await page.mouse.wheel(0, -180);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR chat messages')?.userData.immersiveHistory.offset))
+    .toBeLessThan(bottom);
+
+  await pointAtAction(page, 'message-input');
+  await page.mouse.down(); await page.mouse.up();
+  const input = page.locator('[data-immersive-message-input]');
+  await expect(input).toBeFocused();
+  let expectedDraft = '';
+  for (const character of [...'Review · café… ‹now› → └─┘ Привет 世界 😀']) {
+    await page.keyboard.insertText(character);
+    expectedDraft += character;
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation tools')?.userData.draft))
+      .toBe(expectedDraft);
+  }
+
+  await expect.poll(() => page.evaluate(() => {
+    const list = window.xrScene?.scene.getObjectByName('Uikit view dropdown list') as unknown as {
+      displayed?: { value: boolean }; properties?: { value: { renderOrder?: number } };
+    } | undefined;
+    return { displayed: list?.displayed?.value, renderOrder: list?.properties?.value.renderOrder };
+  })).toEqual({ displayed: true, renderOrder: 10_000 });
+  await showPanel(page, 'evidence');
+  await pointAtAction(page, 'refresh-evidence');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Refresh changes tooltip')?.visible)).toBe(true);
+  expect(await page.evaluate(() => {
+    const tooltip = window.xrScene!.scene.getObjectByName('Refresh changes tooltip')!;
+    const dropdown = window.xrScene!.scene.getObjectByName('Uikit view dropdown list')!;
+    return { tooltip: tooltip.renderOrder, dropdown: (dropdown as unknown as { properties: { value: { renderOrder: number } } }).properties.value.renderOrder };
+  })).toEqual({ tooltip: 1_000, dropdown: 10_000 });
+
+  await hideProjection(page);
+  const baseline = await page.evaluate(() => window.__CODEAI_UIKIT_SPIKE__!().renderer);
+  for (let cycle = 0; cycle < 20; cycle++) {
+    await panelAction(page, 'conversation', 'close');
+    await expect.poll(() => page.evaluate(() => Boolean(window.__CODEAI_UIKIT_SPIKE__))).toBe(false);
+    await panelAction(page, 'conversation', 'toggle');
+    await expect.poll(() => page.evaluate(() => window.__CODEAI_UIKIT_SPIKE__?.().renderer)).toBeTruthy();
+  }
+  const after = await page.evaluate(() => window.__CODEAI_UIKIT_SPIKE__!().renderer);
+  expect(after.textures).toBeLessThanOrEqual(baseline.textures);
+  expect(after.geometries).toBeLessThanOrEqual(baseline.geometries + 2);
+  expect(missingGlyphWarnings).toEqual([]);
+  await showPanel(page, 'conversation');
+  await page.screenshot({ path: 'test-results/vr-uikit-horizon-spike.png' });
+  const sent: Array<{ text: string; sessionId: string; participantId: string }> = [];
+  await page.route('**/api/agent/message', (route) => {
+    sent.push(route.request().postDataJSON());
+    return route.fulfill({ status: 503, json: { error: 'Intentional spike failure' } });
+  });
+  await pointAtAction(page, 'conversation:send');
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ text: expectedDraft, sessionId: SESSION, participantId: AGENT });
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation tools')?.userData.draft)).toBe(expectedDraft);
+  await hideProjection(page);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
 
 test('identifies the conversation, scrolls a continuous thread, and returns from its list', async ({ page }) => {
   await installAdapter(page);

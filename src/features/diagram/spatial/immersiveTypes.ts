@@ -137,6 +137,15 @@ export interface ImmersiveTestHooks {
   onWorkspace?(state?: import('@react-three/fiber').RootState): void;
   failTranscript?: boolean;
   failXRImport?: boolean;
+  uikitSpike?: boolean;
+}
+
+export interface UikitSpikeDiagnostics {
+  enabled: true;
+  atlasBytes: number;
+  fonts: Array<{ family: string; weight: string; glyphs: number; pages: number; width: number; height: number; encodedBytes: number }>;
+  renderer: { textures: number; geometries: number; programs: number };
+  transparentSortInstalled: boolean;
 }
 
 declare global {
@@ -144,5 +153,6 @@ declare global {
     __CODEAI_XR_TEST__?: ImmersiveTestHooks;
     __CODEAI_XR_BUNDLE_EVALUATIONS__?: number;
     __CODEAI_IMMERSIVE_INSTRUMENTATION__?: ImmersiveInstrumentation;
+    __CODEAI_UIKIT_SPIKE__?: () => UikitSpikeDiagnostics;
   }
 }

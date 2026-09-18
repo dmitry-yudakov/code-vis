@@ -1,6 +1,7 @@
 'use client';
 
 import { useFrame, useThree } from '@react-three/fiber';
+import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -26,6 +27,9 @@ import { CanvasReviewTools, type CanvasReviewController } from './CanvasReviewTo
 import type { CanvasReviewActionName } from './canvasReviewControls';
 import { canvasTargetId, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 import { immersiveTheme } from './immersiveTheme';
+
+const UikitConversationSpike = dynamic(() => import('./UikitConversationSpike')
+  .then((module) => module.UikitConversationSpike), { ssr: false, loading: () => null });
 
 function middleTruncate(value: string, limit = 46): string {
   if (value.length <= limit) return value;
@@ -77,6 +81,8 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   const setListController = useCallback((controller?: ConversationListController) => { listController.current = controller; }, []);
   const [atBottom, setAtBottom] = useState(true);
   const [voicePending, setVoicePending] = useState(false);
+  const uikitSpike = typeof window !== 'undefined' && (window.__CODEAI_XR_TEST__?.uikitSpike
+    || new URLSearchParams(window.location.search).has('vr-uikit-spike'));
   const history = useRef<ConversationHistoryController | undefined>(undefined);
   const setHistoryController = useCallback((controller?: ConversationHistoryController) => { history.current = controller; }, []);
   const handleScrollState = useCallback((value: ConversationHistoryScrollState) => {
@@ -246,12 +252,18 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
               position={[-0.56, 0.81, 0]} disabled={!session || !contentEnabled('conversation')}
               onAction={() => setListOpen(false)} />
           </group>}
-          <ConversationTools controls={props.conversation} theme={theme} tab={conversationTab} visible={!listOpen && !sessionToolsOpen}
+          {uikitSpike && !listOpen && !sessionToolsOpen && conversationTab !== 'agents' && <UikitConversationSpike
+            session={session} controls={props.conversation} preview={preview} theme={theme}
+            enabled={contentEnabled('conversation')} focused={layout.focused === 'conversation'} perform={perform}
+            onController={setHistoryController} onScrollState={handleScrollState} />}
+          <ConversationTools controls={props.conversation} theme={theme} tab={conversationTab}
+            visible={!listOpen && !sessionToolsOpen && (!uikitSpike || conversationTab === 'agents')}
+            controllerOnly={uikitSpike && !listOpen && !sessionToolsOpen && conversationTab !== 'agents'}
             enabled={contentEnabled('conversation')} atBottom={atBottom}
             onVoicePending={setVoicePending}
             renderHistory={(visible) => <ConversationHistory session={session} preview={preview} theme={theme} runStatus={runStatus}
               pendingApprovals={pendingApprovals} unread={unread} enabled={contentEnabled('conversation')}
-              focused={layout.focused === 'conversation'} visible={visible}
+              focused={layout.focused === 'conversation'} visible={visible && !uikitSpike}
               onController={setHistoryController} onScrollState={handleScrollState} />}
             onTab={(tab) => { setConversationTab(tab); onPanelAction('conversation', 'focus'); }}
             onLatest={() => history.current?.latest()} onController={setConversationController} />

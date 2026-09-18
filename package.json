@@ -30,8 +30,11 @@
     "test:e2e": "CODEAI_DIST_DIR=.next-e2e npm run build && CODEAI_DIST_DIR=.next-e2e playwright test"
   },
   "dependencies": {
+    "@pmndrs/uikit": "1.0.76",
+    "@pmndrs/uikit-horizon": "1.0.76",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
+    "@react-three/uikit": "1.0.76",
     "@react-three/xr": "^6.6.30",
     "mermaid": "^11.12.0",
     "next": "^16.3.1",
