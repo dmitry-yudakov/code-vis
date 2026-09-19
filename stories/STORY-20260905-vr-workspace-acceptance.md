@@ -1,6 +1,6 @@
 # Story 51 — Accept a complete work session on Quest 3S
 
-**Status:** Draft · **Type:** Frontend-only (integration, fixes, and verification) · **Depends on:**
+**Status:** In progress · **Type:** Frontend-only (integration, fixes, and verification) · **Depends on:**
 [Stories 45–50](EPIC-20260905-immersive-workspace.md#story-map).
 
 **Vision slice:** first usable release of the
@@ -17,8 +17,10 @@ actions on the user's Quest 3S with the final scene, rather than extrapolating f
 
 - [e2e/canvas.spec.ts:411](../e2e/canvas.spec.ts#L411) tests the current viewer through an injected
   adapter and DOM semantic controls; it does not emulate optics or real controller/text input.
-- [resourceLedger.ts:66](../src/features/diagram/spatial/resourceLedger.ts#L66) records XR resource
-  and frame counters; expand metrics only where the final scene requires it.
+- [resourceLedger.ts](../src/features/diagram/spatial/resourceLedger.ts) records whole-session XR
+  frame percentiles and exact application-resource peaks;
+  [immersiveDiagnostics.ts](../src/features/shell/immersive/immersiveDiagnostics.ts) retains the
+  30-minute run, sampled renderer peaks, and a post-exit baseline on the device.
 - [Story 44's verification record](STORY-20260904-immersive-webxr-workspace.md#verification-record)
   has automated results and a pending Quest 3 manual run, not full-workspace usability evidence.
 
@@ -57,7 +59,7 @@ actions on the user's Quest 3S with the final scene, rather than extrapolating f
   revoked access have the specified recoveries without losing durable work or redirecting commands.
 - [ ] Ten entry/exit cycles preserve drafts/layout and return resources to baseline. The combined
   scene passes documented frame and resource budgets with measurements recorded here.
-- [ ] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass; README and architecture
+- [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass; README and architecture
   describe the actual first release and its input/setup requirements.
 
 ## Out of scope
@@ -90,8 +92,20 @@ record stays separate; shared regression evidence may be linked without inventin
 |---|---|
 | Quest 3S, OS/browser, refresh rate | Pending |
 | Home machine, voice engine/data path, language, optional keyboard | Pending |
-| Fixture/build revision and automated commands | Pending |
+| Fixture/build revision and automated commands | 410 Vitest tests and 73 Chrome tests pass; physical fixture/build revision pending |
 | Full controller/voice work journey and 30-minute comfort observations | Pending |
 | Median/p95 frame interval and missed frames | Pending |
 | Aggregate scene caps; peak and baseline resources; ten cycles | Pending |
 | Failure/recovery observations and resolved defects | Pending |
+
+September 19, 2026 — acceptance instrumentation is ready, without claiming headset acceptance.
+
+- Frame median/p95 now cover the complete session through a bounded 0.25 ms histogram; the previous
+  9,000-frame rolling window represented only about two minutes at 72 Hz. Final partial buckets are
+  included on exit, and maximum frame interval remains exact.
+- The device-local history now retains 256 entries, enough for 180 ten-second samples from the
+  30-minute run plus lifecycle/fault and ten-cycle evidence. Session-end records carry peak logical
+  texels/live resources and sampled renderer/heap peaks; `teardown-sample` captures the post-unmount
+  baseline. No content, identifiers, poses, audio, or exception text is added.
+- `npm run lint`, `npm test` (65 files, 410 tests), `npm run build`, and `npm run test:e2e`
+  (73 Chrome tests) pass. Every physical row above remains pending until the Quest 3S acceptance run.

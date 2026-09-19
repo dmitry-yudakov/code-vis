@@ -166,10 +166,25 @@ describe('immersive capability and resources', () => {
       frames: 30,
       medianFrameMs: 24,
       p95FrameMs: 37,
+      maxFrameMs: 39,
+      peakLogicalTexturePixels: baseline.logicalTexturePixels + 2_048,
+      peakLiveResources: baseline.liveResources + 4,
+    });
+    for (let frame = 0; frame < 130_000; frame += 1) recordImmersiveFrame(frame % 100 === 0 ? 25 : 12.5);
+    expect(getImmersiveInstrumentation()).toMatchObject({
+      frames: 130_030,
+      medianFrameMs: 12.5,
+      p95FrameMs: 12.5,
+      maxFrameMs: 39,
     });
     setImmersiveSessionActive(false);
+    setImmersiveSessionActive(true);
+    for (let frame = 1; frame <= 10; frame += 1) recordImmersiveFrame(frame);
+    expect(getImmersiveInstrumentation().medianFrameMs).toBeUndefined();
+    setImmersiveSessionActive(false);
+    expect(getImmersiveInstrumentation()).toMatchObject({ frames: 10, medianFrameMs: 5, p95FrameMs: 9, maxFrameMs: 10 });
     recordImmersiveFrame(99);
-    expect(getImmersiveInstrumentation().frames).toBe(30);
+    expect(getImmersiveInstrumentation().frames).toBe(10);
 
     ledger.dispose();
     ledger.dispose();

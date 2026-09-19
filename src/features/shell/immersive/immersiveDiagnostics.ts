@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
 export const IMMERSIVE_DIAGNOSTICS_KEY = 'code-ai:device:v1:immersive-diagnostics';
-export const MAX_IMMERSIVE_DIAGNOSTICS = 120;
+// Ten-second samples for a 30-minute run consume 180 entries. The remainder retains lifecycle,
+// interruption, and ten-cycle teardown evidence from the same acceptance pass.
+export const MAX_IMMERSIVE_DIAGNOSTICS = 256;
+const MAX_PERSISTED_DIAGNOSTIC_BYTES = 256_000;
 
 const count = z.number().finite().nonnegative();
 const snapshot = z.object({
@@ -15,8 +18,15 @@ const snapshot = z.object({
   frames: count.optional(),
   medianFrameMs: count.optional(),
   p95FrameMs: count.optional(),
+  maxFrameMs: count.optional(),
   logicalTexturePixels: count.optional(),
   liveResources: count.optional(),
+  peakLogicalTexturePixels: count.optional(),
+  peakLiveResources: count.optional(),
+  peakTextures: count.optional(),
+  peakGeometries: count.optional(),
+  peakPrograms: count.optional(),
+  peakHeapBytes: count.optional(),
 });
 const entry = snapshot.extend({
   at: z.string().datetime(),
@@ -25,7 +35,7 @@ const entry = snapshot.extend({
     'page-ready', 'entry-requested', 'entry-failed', 'entry-abandoned', 'session-started',
     'visibility-changed', 'controllers-changed', 'sample', 'exit-requested', 'session-ended',
     'end-failed', 'webgl-context-lost', 'webgl-context-restored', 'pagehide', 'renderer-unmounted',
-    'renderer-error', 'font-loading-failed', 'window-error', 'unhandled-rejection',
+    'renderer-error', 'font-loading-failed', 'window-error', 'unhandled-rejection', 'teardown-sample',
   ]),
 });
 type DiagnosticEntry = z.infer<typeof entry>;
@@ -37,7 +47,7 @@ function readHistory(): DiagnosticEntry[] {
   history = [];
   try {
     const raw = localStorage.getItem(IMMERSIVE_DIAGNOSTICS_KEY);
-    if (raw && raw.length <= 128_000) {
+    if (raw && raw.length <= MAX_PERSISTED_DIAGNOSTIC_BYTES) {
       const parsed = z.array(entry).max(MAX_IMMERSIVE_DIAGNOSTICS).safeParse(JSON.parse(raw));
       if (parsed.success) history = parsed.data;
     }

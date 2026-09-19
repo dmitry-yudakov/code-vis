@@ -32,8 +32,11 @@ export interface ImmersiveInstrumentation {
   frames: number;
   medianFrameMs?: number;
   p95FrameMs?: number;
+  maxFrameMs?: number;
   logicalTexturePixels: number;
   liveResources: number;
+  peakLogicalTexturePixels?: number;
+  peakLiveResources?: number;
 }
 
 /** The deliberately small surface required by automated XR adapters. */

@@ -292,10 +292,14 @@ console.table(window.__CODEAI_VR_DIAGNOSTICS__().events)
 copy(JSON.stringify(window.__CODEAI_VR_DIAGNOSTICS__(), null, 2))
 ```
 
-The last 120 events include entry, controller/visibility changes, explicit exit, session end,
+The last 256 events include entry, controller/visibility changes, explicit exit, session end,
 page departure, renderer errors, and WebGL loss/restoration. Every ten seconds while a session is
 bound, a sample records frame timing, application resource counts, renderer texture/geometry/program
-counts, and JS heap bytes when the browser exposes them. The report also identifies the browser.
+counts, and JS heap bytes when the browser exposes them. Frame median/p95 use a bounded histogram
+covering the whole session, rather than only its final minutes. Session-end records include peak
+application and renderer allocations; the following `teardown-sample` records the post-exit
+baseline. This retains the 30-minute Story 51 run plus its lifecycle and ten entry/exit cycles.
+The report also identifies the browser.
 The device-local history survives reloads when storage is available; it records no conversation,
 repository content, credentials, poses, or exception messages. Use one CodeAI tab for a reproduction.
 

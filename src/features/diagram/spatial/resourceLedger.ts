@@ -36,8 +36,12 @@ const immersiveInstrumentation: ImmersiveInstrumentation = {
   logicalTexturePixels: 0,
   liveResources: 0,
 };
-const immersiveFrameTimes: number[] = [];
-const MAX_FRAME_TIME_SAMPLES = 9_000;
+// A bounded histogram retains the complete physical-acceptance run without keeping one number per
+// frame or repeatedly sorting a growing array. Quarter-millisecond buckets preserve useful headset
+// precision through one second; longer stalls remain represented by the exact maximum.
+const FRAME_TIME_BUCKET_MS = 0.25;
+const MAX_BUCKETED_FRAME_MS = 1_000;
+const immersiveFrameTimeCounts = new Uint32Array(MAX_BUCKETED_FRAME_MS / FRAME_TIME_BUCKET_MS + 1);
 
 declare global {
   interface Window {
@@ -69,25 +73,48 @@ export function getImmersiveInstrumentation(): Readonly<ImmersiveInstrumentation
 
 export function setImmersiveSessionActive(active: boolean): void {
   if (immersiveInstrumentation.sessionActive === active) return;
+  if (!active && immersiveInstrumentation.frames > 0) {
+    immersiveInstrumentation.medianFrameMs = framePercentile(0.5);
+    immersiveInstrumentation.p95FrameMs = framePercentile(0.95);
+  }
   immersiveInstrumentation.sessionActive = active;
   if (active) {
     immersiveInstrumentation.frames = 0;
     immersiveInstrumentation.medianFrameMs = undefined;
     immersiveInstrumentation.p95FrameMs = undefined;
-    immersiveFrameTimes.length = 0;
+    immersiveInstrumentation.maxFrameMs = undefined;
+    immersiveInstrumentation.peakLogicalTexturePixels = immersiveInstrumentation.logicalTexturePixels;
+    immersiveInstrumentation.peakLiveResources = immersiveInstrumentation.liveResources;
+    immersiveFrameTimeCounts.fill(0);
   }
   publish();
+}
+
+function framePercentile(percentile: number): number {
+  const target = Math.floor((immersiveInstrumentation.frames - 1) * percentile);
+  let cumulative = 0;
+  for (let bucket = 0; bucket < immersiveFrameTimeCounts.length; bucket += 1) {
+    cumulative += immersiveFrameTimeCounts[bucket];
+    if (cumulative > target) {
+      if (bucket === immersiveFrameTimeCounts.length - 1
+        && (immersiveInstrumentation.maxFrameMs || 0) > MAX_BUCKETED_FRAME_MS) {
+        return immersiveInstrumentation.maxFrameMs!;
+      }
+      return bucket * FRAME_TIME_BUCKET_MS;
+    }
+  }
+  return immersiveInstrumentation.maxFrameMs || 0;
 }
 
 export function recordImmersiveFrame(frameMs: number): void {
   if (!immersiveInstrumentation.sessionActive || !Number.isFinite(frameMs) || frameMs <= 0) return;
   immersiveInstrumentation.frames += 1;
-  immersiveFrameTimes.push(frameMs);
-  if (immersiveFrameTimes.length > MAX_FRAME_TIME_SAMPLES) immersiveFrameTimes.shift();
+  immersiveInstrumentation.maxFrameMs = Math.max(immersiveInstrumentation.maxFrameMs || 0, frameMs);
+  const bucket = Math.min(Math.ceil(frameMs / FRAME_TIME_BUCKET_MS), immersiveFrameTimeCounts.length - 1);
+  immersiveFrameTimeCounts[bucket] += 1;
   if (immersiveInstrumentation.frames % 30 === 0) {
-    const sorted = [...immersiveFrameTimes].sort((left, right) => left - right);
-    immersiveInstrumentation.medianFrameMs = sorted[Math.floor((sorted.length - 1) * 0.5)];
-    immersiveInstrumentation.p95FrameMs = sorted[Math.floor((sorted.length - 1) * 0.95)];
+    immersiveInstrumentation.medianFrameMs = framePercentile(0.5);
+    immersiveInstrumentation.p95FrameMs = framePercentile(0.95);
   }
   publish();
 }
@@ -97,6 +124,16 @@ type ResourceOwner = 'desktop' | 'immersive';
 function updateImmersiveResources(resources: number, pixels = 0): void {
   immersiveInstrumentation.liveResources += resources;
   immersiveInstrumentation.logicalTexturePixels += pixels;
+  if (immersiveInstrumentation.sessionActive) {
+    immersiveInstrumentation.peakLiveResources = Math.max(
+      immersiveInstrumentation.peakLiveResources || 0,
+      immersiveInstrumentation.liveResources,
+    );
+    immersiveInstrumentation.peakLogicalTexturePixels = Math.max(
+      immersiveInstrumentation.peakLogicalTexturePixels || 0,
+      immersiveInstrumentation.logicalTexturePixels,
+    );
+  }
   publish();
 }
 

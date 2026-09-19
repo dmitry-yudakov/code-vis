@@ -123,7 +123,8 @@ acceptance remains pending. Story 49 is in progress with automated repository re
 comparison, annotation, and marked-attachment checks complete; physical acceptance remains pending.
 Story 50 is in progress with parser-backed spatial flowcharts, bounded detail, 2D fallback, and
 automated interaction/resource checks complete; physical Quest 3S acceptance remains pending.
-Stories 51–52 remain Drafts.
+Story 51 is in progress with whole-session frame/resource evidence implemented; its physical Quest
+3S work journey remains pending. Story 52 remains a Draft.
 Existing Stories 43–44 remain useful foundations and retain their own status.
 
 | Story | Outcome | Depends on |

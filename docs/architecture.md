@@ -310,8 +310,9 @@ rendering stays in the diagram feature and failures remain local; the opaque env
 separate presentation component. Conversation combines continuous scrolling with the shared draft,
 agent controls, and local voice input.
 
-The XR resource ledger enforces a 4,194,304-pixel aggregate cap and 2,048-pixel edge cap, with mipmaps
-disabled. Story 46 reserves at most 1.1 million texels for the active canvas, 1,048,576 for the
+The XR resource ledger enforces a 5,592,405-logical-texel aggregate cap and 2,048-pixel edge cap,
+charging mipmapped surfaces at 4/3 of their base pixels. Story 46 reserves at most 1.1 million base
+texels for the active canvas, 1,048,576 for the
 conversation, 786,432 for evidence, and bounded textures for launcher rows, panel chrome, and the
 protected tool/status strip. Story 47 uses 96×96 icon textures and allocates hover labels only
 after 450 ms of hover, with a 150 ms fade and muted theme colors. Tooltip materials disable depth
@@ -328,11 +329,14 @@ result after departure or unmount is also ended. Controller removal/reconnection
 hidden/blurred visibility preserve the XR session; the runtime pauses/resumes rendering and input.
 No XR pose, scale, scroll position, paging, or resource enters canonical records or desktop layouts.
 
-`immersiveDiagnostics.ts` retains up to 120 device-local lifecycle events and ten-second samples
+`immersiveDiagnostics.ts` retains up to 256 device-local lifecycle events and ten-second samples
 at `code-ai:device:v1:immersive-diagnostics`, best-effort across reloads. The remote console can read
 `window.__CODEAI_VR_DIAGNOSTICS__()`. Samples include application counters, renderer allocation
-counts, visibility/controller count, and optional browser heap usage. Page start times distinguish
-documents. It records neither content/poses nor arbitrary error messages; native error details
+counts, visibility/controller count, and optional browser heap usage. A bounded quarter-millisecond
+histogram keeps median/p95 frame intervals across the complete session without retaining every frame;
+the session end includes exact application-resource peaks and sampled renderer/heap peaks, followed
+by a post-unmount baseline sample. Page start times distinguish documents. It records neither
+content/poses nor arbitrary error messages; native error details
 remain in DevTools. Sampling and error listeners are removed when the session finishes. Storage
 failure falls back to memory. This adds no Three.js import to the non-lazy boundary.
 
@@ -438,9 +442,10 @@ Arena poll and run stream supply requests; existing authorized routes decide the
 repository attachment, draft retry, cancellation, and device revocation reuse shell actions and
 the pairing gate. Neither speech nor card focus can approve a permission.
 Story 49 adds session-checkout evidence, artifact comparison, controller-authored canonical marks,
-sketch creation, and marked composite attachments through the existing shared owners. Story 50 is
-the next implementation slice and turns supported Mermaid flowcharts into spatial geometry.
-Physical Quest 3S entry, readability, controller use, and comfort verification remain pending.
+sketch creation, and marked composite attachments through the existing shared owners. Story 50
+turns supported Mermaid flowcharts into spatial geometry. Story 51 now owns the combined automated
+evidence and physical acceptance; its 30-minute Quest 3S journey, readability, controller use,
+voice quality, comfort, and measured budgets remain pending.
 The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns the remaining
 working surfaces and headset acceptance.
 

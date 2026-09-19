@@ -24,8 +24,10 @@ Updated 2026-09-19. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 50](stories/STORY-20260905-vr-spatial-diagrams.md) — parser-backed
   spatial Mermaid diagrams and automated 30/45 plus 100/150 checks are implemented; physical Quest
   3S readability, comfort, and performance acceptance remain pending.
-- **Next:** [Story 51](stories/STORY-20260905-vr-workspace-acceptance.md) — accept the complete
-  controller-and-voice headset work loop on Quest 3S before the later VR Arena.
+- **Also in flight:** [Story 51](stories/STORY-20260905-vr-workspace-acceptance.md) — whole-session
+  frame/resource evidence is implemented; the controller-and-voice Quest 3S run remains pending.
+- **Next after headset acceptance:** [Story 52](stories/STORY-20260905-vr-arena-inbox.md) — add the
+  immersive multi-session Arena and Inbox without bypassing Story 51's physical gate.
 - **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
   controller/visibility interruptions and retain device-local exit diagnostics.
 - **Also in flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md),

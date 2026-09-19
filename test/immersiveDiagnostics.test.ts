@@ -19,7 +19,9 @@ describe('device-local VR diagnostics', () => {
   it('bounds the history, retains it after reload, and exports a copy containing only diagnostic fields', async () => {
     browser();
     const diagnostics = await import('@/features/shell/immersive/immersiveDiagnostics');
-    for (let i = 0; i < 150; i++) diagnostics.recordImmersiveDiagnostic('sample', { controllers: i });
+    for (let i = 0; i < diagnostics.MAX_IMMERSIVE_DIAGNOSTICS + 30; i++) {
+      diagnostics.recordImmersiveDiagnostic('sample', { controllers: i });
+    }
     diagnostics.recordImmersiveDiagnostic('session-ended', { controllers: 0, content: 'not diagnostic data' } as { controllers: number });
     const report = diagnostics.getImmersiveDiagnostics();
     expect(report.events).toHaveLength(diagnostics.MAX_IMMERSIVE_DIAGNOSTICS);
@@ -32,7 +34,7 @@ describe('device-local VR diagnostics', () => {
     expect(reloaded.getImmersiveDiagnostics().events.at(-1)?.event).toBe('session-ended');
   });
 
-  it.each(['invalid JSON', '[{"event":"sample"}]', 'x'.repeat(128_001)])('ignores malformed or oversized persisted history', async (raw) => {
+  it.each(['invalid JSON', '[{"event":"sample"}]', 'x'.repeat(256_001)])('ignores malformed or oversized persisted history', async (raw) => {
     browser(raw);
     const diagnostics = await import('@/features/shell/immersive/immersiveDiagnostics');
     diagnostics.recordImmersiveDiagnostic('page-ready');

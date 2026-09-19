@@ -73,6 +73,7 @@ export function ImmersiveBridge({
   const entryEpoch = useRef(0);
   const endingRef = useRef<Promise<void> | undefined>(undefined);
   const mountedRef = useRef(true);
+  const teardownPendingRef = useRef(false);
   const [floorBased, setFloorBased] = useState(false);
   const actionRef = useRef<((action: ImmersiveSemanticAction) => void) | undefined>(undefined);
 
@@ -83,13 +84,20 @@ export function ImmersiveBridge({
 
   const bindSession = useCallback((session: ImmersiveSessionAdapter) => {
     sessionRef.current = session;
+    const peaks = { textures: 0, geometries: 0, programs: 0, heapBytes: 0 };
     const record = (event: Parameters<typeof recordImmersiveDiagnostic>[0]) => {
       const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+      peaks.textures = Math.max(peaks.textures, gl.info.memory.textures);
+      peaks.geometries = Math.max(peaks.geometries, gl.info.memory.geometries);
+      peaks.programs = Math.max(peaks.programs, gl.info.programs?.length || 0);
+      peaks.heapBytes = Math.max(peaks.heapBytes, memory?.usedJSHeapSize || 0);
       recordImmersiveDiagnostic(event, {
         visibility: session.visibilityState,
         controllers: session.inputSources && Array.from(session.inputSources).filter((source) => source.targetRayMode === 'tracked-pointer' && !source.hand).length,
         textures: gl.info.memory.textures, geometries: gl.info.memory.geometries,
         programs: gl.info.programs?.length, heapBytes: memory?.usedJSHeapSize,
+        peakTextures: peaks.textures, peakGeometries: peaks.geometries, peakPrograms: peaks.programs,
+        ...(peaks.heapBytes ? { peakHeapBytes: peaks.heapBytes } : {}),
       });
     };
     let requestedOutcome: { availability: ImmersiveAvailability; reason?: string } | undefined;
@@ -122,7 +130,10 @@ export function ImmersiveBridge({
       setImmersiveSessionActive(false);
       record('session-ended');
       setFloorBased(false);
-      if (mountedRef.current) onAvailability(availability, reason);
+      if (mountedRef.current) {
+        teardownPendingRef.current = true;
+        onAvailability(availability, reason);
+      }
     };
     const endSession = (availability: ImmersiveAvailability, reason?: string) => {
       if (sessionRef.current !== session) return Promise.resolve();
@@ -149,6 +160,18 @@ export function ImmersiveBridge({
     session.addEventListener?.('inputsourceschange', inputsChanged);
     return { endSession, record };
   }, [gl, onAvailability]);
+
+  useEffect(() => {
+    if (active || !teardownPendingRef.current) return;
+    teardownPendingRef.current = false;
+    const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+    recordImmersiveDiagnostic('teardown-sample', {
+      textures: gl.info.memory.textures,
+      geometries: gl.info.memory.geometries,
+      programs: gl.info.programs?.length,
+      heapBytes: memory?.usedJSHeapSize,
+    });
+  }, [active, gl]);
 
   const lifecycleRef = useRef<ReturnType<typeof bindSession> | undefined>(undefined);
   const enter = useCallback(() => {

@@ -922,8 +922,8 @@ test('keeps VR and panel state through controller removal, reconnection and visi
   await expect(controls(page).locator('[data-immersive-panel="evidence"]')).toHaveAttribute('data-open', 'true');
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
-  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.slice(-2).map((event) => event.event)))
-    .toEqual(['exit-requested', 'session-ended']);
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.slice(-3).map((event) => event.event)))
+    .toEqual(['exit-requested', 'session-ended', 'teardown-sample']);
 });
 
 test('samples diagnostics and removes the timer and error listeners after session end', async ({ page }) => {
@@ -937,6 +937,8 @@ test('samples diagnostics and removes the timer and error listeners after sessio
   expect(sample).toMatchObject({ sessionActive: true, visibility: 'visible', controllers: 0 });
   expect(sample!.frames).toBeGreaterThan(0);
   expect(sample!.textures).toBeGreaterThan(0);
+  expect(sample!.peakTextures).toBeGreaterThan(0);
+  expect(sample!.peakLogicalTexturePixels).toBeGreaterThan(0);
   await page.evaluate(() => {
     window.dispatchEvent(new ErrorEvent('error', { message: 'Do not persist arbitrary error content' }));
     window.dispatchEvent(new Event('unhandledrejection'));
@@ -946,6 +948,14 @@ test('samples diagnostics and removes the timer and error listeners after sessio
   await page.evaluate(() => window.xrFixture.systemEnd?.());
   await released(page);
   await expect(page.locator('.immersive-entry [role="alert"]')).toContainText('headset or browser ended VR');
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.at(-1)?.event))
+    .toBe('teardown-sample');
+  const ended = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.findLast((event) => event.event === 'session-ended'));
+  expect(ended).toMatchObject({ sessionActive: false, peakTextures: expect.any(Number), peakGeometries: expect.any(Number) });
+  const teardown = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.at(-1));
+  expect(teardown).toMatchObject({
+    event: 'teardown-sample', sessionActive: false, logicalTexturePixels: 0, liveResources: 0,
+  });
   const previous = await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events);
   await page.evaluate(() => {
     window.dispatchEvent(new ErrorEvent('error'));
@@ -997,8 +1007,8 @@ test('contains broken canvas/transcript surfaces and cleans up rejection, system
   await page.locator('.immersive-viewport canvas').dispatchEvent('webglcontextlost');
   await expect(page.locator('.immersive-entry [role="alert"]')).toContainText('WebGL context was lost');
   await released(page);
-  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.slice(-2).map((event) => event.event)))
-    .toEqual(['webgl-context-lost', 'session-ended']);
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.slice(-3).map((event) => event.event)))
+    .toEqual(['webgl-context-lost', 'session-ended', 'teardown-sample']);
   expect(await page.evaluate(() => window.xrFixture.ends)).toBe(1);
   await enter(page);
   state.authenticated = false;
