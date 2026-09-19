@@ -179,7 +179,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     }
     if (action === 'exit') onExit();
     else if (action === 'reset-workspace') { onResetWorkspace(); setDiagramScale(1); recenter(); }
-    else if (action === 'reset-view') { setDiagramScale(1); recenter(); }
+    else if (action === 'reset-view') { setDiagramScale(1); canvasReview.current?.perform('reset-spatial'); recenter(); }
     else if (action === 'previous-canvas' && contentEnabled('canvas')) onPreviousCanvas();
     else if (action === 'next-canvas' && contentEnabled('canvas')) onNextCanvas();
     else if (action === 'load-more-sessions' && contentEnabled('conversation') && listOpen) listController.current?.loadMore();

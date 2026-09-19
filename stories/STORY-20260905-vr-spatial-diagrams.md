@@ -1,6 +1,6 @@
 # Story 50 — Explore diagrams as real spatial nodes and edges
 
-**Status:** Draft · **Type:** Frontend-only · **Depends on:**
+**Status:** In progress · **Type:** Frontend-only · **Depends on:**
 [Story 46](STORY-20260905-vr-workspace-panels.md), [Story 49](STORY-20260905-vr-review-and-annotations.md).
 
 **Vision slice:** the first release of the [immersive workspace epic](EPIC-20260905-immersive-workspace.md)
@@ -15,13 +15,17 @@ on a plane has spatial placement but does not let the user select and explore no
 
 ## Current behavior (where the code is)
 
-- [panelResources.ts:98](../src/features/diagram/spatial/panelResources.ts#L98) rasterizes the whole
-  artifact; [ImmersiveWorkspace.tsx:249](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L249) draws
-  that panel geometry. No node/edge-level spatial renderer exists in the root application.
-- [mermaidPolicy.ts:87](../src/features/diagram/mermaid/mermaidPolicy.ts#L87) validates canonical
-  source; [mermaidRenderer.ts:43](../src/features/diagram/mermaid/mermaidRenderer.ts#L43) renders SVG.
-- [DiagramCanvas.tsx:56](../src/features/diagram/components/DiagramCanvas.tsx#L56) is the existing
-  reference for artifact selection and marks. `legacy/` remains excluded from the runtime.
+- [spatialDiagramModel.ts:119](../src/features/diagram/spatial/spatialDiagramModel.ts#L119) copies the
+  official Mermaid flowchart database into a bounded disposable graph; its paging and deterministic
+  placement start at [line 211](../src/features/diagram/spatial/spatialDiagramModel.ts#L211).
+- [SpatialDiagram.tsx:30](../src/features/shell/immersive/SpatialDiagram.tsx#L30) renders individually
+  selectable nodes, edges, labels, and groups with depth and controller tools.
+- [CanvasReviewTools.tsx:392](../src/features/shell/immersive/CanvasReviewTools.tsx#L392) switches the
+  immutable artifact between spatial geometry and its existing marked 2D projection. Unsupported
+  content keeps that complete projection and receives a visible reason at
+  [line 411](../src/features/shell/immersive/CanvasReviewTools.tsx#L411).
+- [mermaidRenderer.ts:68](../src/features/diagram/mermaid/mermaidRenderer.ts#L68) serializes parser
+  database reads with SVG rendering because Mermaid owns process-global mutable state.
 
 ## Desired behavior
 
@@ -46,19 +50,37 @@ on a plane has spatial placement but does not let the user select and explore no
    Display omitted/collapsed counts and keep all content reachable. Update final caps from Quest 3S
    measurements; over-budget content falls back honestly instead of dropping entities silently.
 
+## Supported spatial subset
+
+The spatial projection consumes Mermaid 11's parsed flowchart database; it does not re-parse source
+text. It accepts `flowchart` and `graph` diagrams in `TB`, `TD`, `BT`, `LR`, or `RL` direction with:
+
+- explicit node identifiers and plain text labels using rectangle, circle, ellipse, or diamond
+  shapes;
+- solid, directed `-->` edges, with optional plain text labels and Mermaid's stable parsed edge ID;
+- non-nested `subgraph` groups whose plain title and member IDs are available from the parser.
+
+Markdown labels, links/callbacks, images/icons, animation, styled/dotted/invisible/open, self-loop,
+parallel, or bidirectional edges, nested/overlapping groups, missing endpoints, duplicate element IDs, and other Mermaid diagram
+types retain the complete canonical 2D projection with an explanation. Spatial graphs are capped at
+100 nodes, 150 edges, and 20 groups. A detail page exposes at most 30 nodes and 45 edges; pages are
+built from complete parsed edges so every accepted node and edge is reachable and hidden totals are
+shown. These are implementation limits pending Story 51's Quest 3S measurements, not final device
+claims.
+
 ## Acceptance criteria
 
-- [ ] Supported flowcharts contain selectable 3D nodes, edges, and groups with visible depth, while
+- [x] Supported flowcharts contain selectable 3D nodes, edges, and groups with visible depth, while
   conversation and review panels remain usable in the same immersive session.
-- [ ] Every supported source node/edge appears or is explicitly counted in a reachable collapsed
+- [x] Every supported source node/edge appears or is explicitly counted in a reachable collapsed
   group; unsupported syntax preserves the complete 2D artifact with an explanation.
-- [ ] Controllers select, inspect, focus, expand/collapse, scale/rotate, and reset without accidental
+- [x] Controllers select, inspect, focus, expand/collapse, scale/rotate, and reset without accidental
   panel movement; all primary actions have visible labels.
-- [ ] Geometry/2D switching preserves the canonical Mermaid, marks, and artifact identity and does
+- [x] Geometry/2D switching preserves the canonical Mermaid, marks, and artifact identity and does
   not restart XR; revisions do not acquire invented persistent element identity.
 - [ ] The 30/45 and 100/150 fixtures pass Quest 3S readability and aggregate frame/resource checks
   with the chosen visibility limits recorded; no inference is made from a Quest 3-only run.
-- [ ] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including parser
+- [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including parser
   coverage, unsupported fallback, stable selection within an artifact, and resource disposal.
 
 ## Out of scope
@@ -79,4 +101,20 @@ own model/parser contracts; none blocks the supported real-3D subset required he
 
 ## Verification record
 
-Pending implementation and Quest 3S verification.
+Automated implementation verified September 19, 2026:
+
+- `npm run lint` passed.
+- `npm test` passed: 65 files, 410 tests. Parser-database extraction, complete fallback, stable
+  artifact-scoped keys, collapse counts, deterministic placement, and 100/150 paging are covered in
+  [spatialDiagramModel.test.ts](../test/spatialDiagramModel.test.ts).
+- `npm run build` passed as part of the production E2E command.
+- `npm run test:e2e` passed: 73 Chrome tests. The real Mermaid/browser path selects nodes, edges,
+  and groups; focuses neighborhoods; rotates, collapses/expands, resets, switches projections,
+  retains selection, explains unsupported sequence syntax, returns resources, and exercises the
+  parser-backed 30/45 and 100/150 fixtures at
+  [immersive.spec.ts:1802](../e2e/immersive.spec.ts#L1802) and
+  [immersive.spec.ts:1871](../e2e/immersive.spec.ts#L1871).
+
+Quest 3S readability, controller comfort, frame distribution, and the final measured visibility
+limits remain pending. The browser resource assertion only proves the implementation cap and does
+not substitute for that physical acceptance.

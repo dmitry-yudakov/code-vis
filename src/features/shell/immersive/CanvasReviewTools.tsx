@@ -20,6 +20,8 @@ import { useTextureResource } from './useTextureResource';
 import { ControlGroupSurface, WorkspacePager, WorldButton } from './WorkspacePanel';
 import { InlineConversationInput } from './InlineConversationInput';
 import { immersiveTheme } from './immersiveTheme';
+import { parseSpatialDiagram, type SpatialDiagramResult } from '@/features/diagram/spatial/spatialDiagramModel';
+import { SpatialDiagram, type SpatialDiagramController } from './SpatialDiagram';
 
 const DRAWING_TOOLS = ['pen', 'rectangle', 'arrow', 'text', 'eraser'] as const;
 
@@ -158,6 +160,10 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   const [clearPending, setClearPending] = useState(false);
   const [resources, setResources] = useState<Record<string, PanelResource>>({});
   const [draft, setDraft] = useState<DrawingMark>();
+  const [projection, setProjection] = useState<'2d' | 'spatial'>('2d');
+  const [spatial, setSpatial] = useState<SpatialDiagramResult>();
+  const [selectedSpatialKey, setSelectedSpatialKey] = useState<string>();
+  const spatialController = useRef<SpatialDiagramController | undefined>(undefined);
   const gesture = useRef<{
     pointerId: number;
     start: Point;
@@ -179,13 +185,24 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   const comparisonTarget = comparing && session ? findCanvasTarget(session, comparisonId) : undefined;
 
   useEffect(() => {
+    let current = true;
+    setSpatial(undefined);
+    if (activeTarget?.kind !== 'diagram') return () => { current = false; };
+    void parseSpatialDiagram(activeTarget.artifact.id, activeTarget.artifact.source, theme)
+      .then((result) => { if (current) setSpatial(result); });
+    return () => { current = false; };
+  }, [activeTarget?.kind, activeTarget?.kind === 'diagram' ? activeTarget.artifact.id : activeTarget?.sketch.id,
+    activeTarget?.kind === 'diagram' ? activeTarget.artifact.source : undefined]);
+
+  useEffect(() => {
     if (!marksReady.current) { marksReady.current = true; return; }
     if (activeId) controls?.onMarksChange(activeId, drawing.marks);
   }, [activeId, controls?.onMarksChange, drawing.marks]);
 
   useEffect(() => {
     setResources({});
-    const targets = [activeTarget, comparisonTarget].filter((target): target is CanvasTarget => Boolean(target));
+    const spatialActive = projection === 'spatial' && spatial?.supported;
+    const targets = [spatialActive ? undefined : activeTarget, comparisonTarget].filter((target): target is CanvasTarget => Boolean(target));
     if (!activeTarget || !session || !targets.length) return;
     const ledger = new SpatialResourceLedger('immersive');
     const annotations = { ...session.annotations, [activeId!]: { ...session.annotations[activeId!], marks: drawing.marks } };
@@ -199,7 +216,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
       if (!ledger.isDisposed()) setResources(Object.assign({}, ...parts));
     });
     return () => ledger.dispose();
-  }, [activeId, activeTarget, comparisonTarget, drawing.marks, session, theme]);
+  }, [activeId, activeTarget, comparisonTarget, drawing.marks, projection, session, spatial?.supported, theme]);
 
   const cycleComparison = (delta: number) => {
     if (!comparisonIds.length) return;
@@ -214,8 +231,16 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
     setLabelPoint(undefined); setLabel('');
   };
   const perform = useCallback((action: CanvasReviewActionName) => {
-    if (!enabled || !activeId || !controls) return;
+    if (!enabled || !activeId) return;
     if (action !== 'clear') setClearPending(false);
+    if (action === 'spatial' && spatial?.supported) {
+      setComparing(false); setProjection('spatial'); return;
+    }
+    if (action === 'projection') { setProjection('2d'); return; }
+    if (['rotate-left', 'rotate-right', 'focus-selection', 'toggle-group', 'previous-detail', 'next-detail', 'reset-spatial'].includes(action)) {
+      spatialController.current?.perform(action); return;
+    }
+    if (!controls) return;
     if (DRAWING_TOOLS.includes(action as typeof DRAWING_TOOLS[number])) {
       setTool(action as DrawingTool); return;
     }
@@ -231,7 +256,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
     else if (action === 'next-compare') cycleComparison(1);
     else if (action === 'commit-label') commitLabel();
     else if (action === 'cancel-label') { setLabelPoint(undefined); setLabel(''); }
-  }, [activeId, clearPending, comparisonId, comparisonIds, controls, enabled, label, labelPoint]);
+  }, [activeId, clearPending, comparisonId, comparisonIds, controls, enabled, label, labelPoint, spatial?.supported]);
   useEffect(() => { onController({ perform }); return () => onController(undefined); }, [onController, perform]);
 
   const endGesture = useCallback((cancelled: boolean) => {
@@ -319,6 +344,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   const compareResource = comparisonTarget && resources[canvasTargetId(comparisonTarget)];
   const visibleActions: CanvasReviewActionName[] = labelPoint ? ['commit-label', 'cancel-label'] : [
     'pen', 'rectangle', 'arrow', 'text', 'eraser', 'undo', 'redo', 'clear', 'attach', 'sketch', 'compare',
+    ...(spatial?.supported ? ['spatial' as const] : []),
   ];
   const icons = useTextureResource((ledger) => Object.fromEntries(visibleActions.map((action) => {
     const iconAction = `canvas:${action}`;
@@ -335,6 +361,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
       pen: [-0.52, 0.58, 0], rectangle: [-0.36, 0.58, 0], arrow: [-0.20, 0.58, 0],
       text: [-0.04, 0.58, 0], eraser: [0.12, 0.58, 0], undo: [0.38, 0.58, 0], redo: [0.54, 0.58, 0],
       attach: [-0.46, 0.38, 0], compare: [-0.15, 0.38, 0], sketch: [0.18, 0.38, 0], clear: [0.50, 0.38, 0],
+      spatial: [0.48, 0.18, 0],
     };
     return <WorldButton key={action} action={`canvas:${action}`} label={CANVAS_REVIEW_ACTIONS[action]}
       resource={icons?.[action]} iconTheme={theme}
@@ -350,29 +377,41 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   return <group name="Canvas review tools" userData={{ activeId, comparisonId: comparing ? comparisonId : undefined,
     tool, marks: drawing.marks, drawing: Boolean(draft), drawingPointerId: gesture.current?.pointerId,
     previewVersion: gesture.current?.preview?.texture.version, clearPending, labelPoint,
-    attached: controls?.attachmentIds.includes(activeId || '') }}>
+    attached: controls?.attachmentIds.includes(activeId || ''), projection,
+    spatialSupported: spatial?.supported, spatialReason: spatial && !spatial.supported ? spatial.reason : undefined,
+    selectedSpatialKey }}>
     {!activeTarget && <CanvasEmpty theme={theme} />}
-    {activeTarget && activeResource && <CanvasResource target={activeTarget} resource={activeResource} active comparison={Boolean(comparisonTarget)}
+    {projection === '2d' && activeTarget && activeResource && <CanvasResource target={activeTarget} resource={activeResource} active comparison={Boolean(comparisonTarget)}
       theme={theme} scale={scale}
       enabled={enabled && !labelPoint} tool={tool}
       onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerFinish={pointerFinish} />}
-    {comparisonTarget && compareResource && <CanvasResource target={comparisonTarget} resource={compareResource} active={false} comparison
+    {projection === '2d' && comparisonTarget && compareResource && <CanvasResource target={comparisonTarget} resource={compareResource} active={false} comparison
       theme={theme} scale={scale}
       enabled={false} tool={tool}
       onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerFinish={pointerFinish} />}
-    {labelPoint && <InlineConversationInput draft={label} theme={theme} enabled={enabled} onDraft={setLabel}
+    {projection === 'spatial' && spatial?.supported && <SpatialDiagram graph={spatial.graph} theme={theme} enabled={enabled}
+      scale={scale} selectedKey={selectedSpatialKey} onSelectedKey={setSelectedSpatialKey} onProjection={() => setProjection('2d')}
+      onController={(controller) => { spatialController.current = controller; }} />}
+    {projection === '2d' && labelPoint && <InlineConversationInput draft={label} theme={theme} enabled={enabled} onDraft={setLabel}
       ariaLabel="VR canvas label" dataAttribute="data-immersive-canvas-label" placeholder="Label…"
       meshName="Canvas label input" maxLength={500} position={[0, -0.28, 0.0015]} />}
-    {status && <mesh geometry={status.geometry} material={status.material} position={[0, -0.53, 0]}
+    {projection === '2d' && status && <mesh geometry={status.geometry} material={status.material} position={[0, -0.53, 0]}
       pointerEvents="none" raycast={() => undefined} />}
-    {!labelPoint && <ControlGroupSurface name="Drawing tool selector" width={0.78} position={[-0.20, 0.58, 0]} theme={theme} />}
-    {visibleActions.map(button)}
-    {comparing && <WorkspacePager label={`Compare ${Math.max(1, comparisonIds.indexOf(comparisonId || '') + 1)} of ${comparisonIds.length}`}
+    {projection === '2d' && !labelPoint && <ControlGroupSurface name="Drawing tool selector" width={0.78} position={[-0.20, 0.58, 0]} theme={theme} />}
+    {projection === '2d' && visibleActions.map(button)}
+    {projection === '2d' && spatial && !spatial.supported && <SpatialFallback reason={spatial.reason} theme={theme} />}
+    {projection === '2d' && comparing && <WorkspacePager label={`Compare ${Math.max(1, comparisonIds.indexOf(comparisonId || '') + 1)} of ${comparisonIds.length}`}
       previousAction="canvas:previous-compare" nextAction="canvas:next-compare"
       previousLabel="Previous comparison" nextLabel="Next comparison" position={[0, -0.61, 0]} theme={theme}
       previousDisabled={!comparisonIds.length} nextDisabled={!comparisonIds.length}
       onAction={(action) => perform(action.slice('canvas:'.length) as CanvasReviewActionName)} />}
   </group>;
+}
+
+function SpatialFallback({ reason, theme }: { reason: string; theme: ThemeName }) {
+  const resource = useTextureResource((ledger) => createWorkspaceTextResource('Spatial view unavailable', reason, theme, ledger, true, true), [reason, theme]);
+  return resource ? <mesh name="Spatial fallback explanation" geometry={resource.geometry} material={resource.material}
+    position={[0, -0.49, 0.002]} pointerEvents="none" raycast={() => undefined} /> : null;
 }
 
 function CanvasEmpty({ theme }: { theme: ThemeName }) {

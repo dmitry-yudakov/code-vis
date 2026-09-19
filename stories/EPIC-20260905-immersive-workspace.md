@@ -1,6 +1,6 @@
 # EPIC — Use CodeAI as an immersive workspace
 
-**Status:** In progress · **Updated:** September 16, 2026 · **Owns:** the full VR presentation and working
+**Status:** In progress · **Updated:** September 19, 2026 · **Owns:** the full VR presentation and working
 journey across the Arena and sessions, under [vision.md step 9](../docs/vision.md#sequence).
 The [software-model epic](EPIC-20260705-north-star-roadmap.md) continues to own model identity,
 provenance, lenses, and the change loop. [Vocabulary](../docs/vocabulary.md) remains authoritative:
@@ -121,7 +121,9 @@ Whisper dictation/correction with passing browser checks; Quest 3S voice accepta
 Story 48 is in progress with session creation and active-session permission controls; physical
 acceptance remains pending. Story 49 is in progress with automated repository review, artifact
 comparison, annotation, and marked-attachment checks complete; physical acceptance remains pending.
-Stories 50–52 remain Drafts.
+Story 50 is in progress with parser-backed spatial flowcharts, bounded detail, 2D fallback, and
+automated interaction/resource checks complete; physical Quest 3S acceptance remains pending.
+Stories 51–52 remain Drafts.
 Existing Stories 43–44 remain useful foundations and retain their own status.
 
 | Story | Outcome | Depends on |

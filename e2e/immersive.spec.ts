@@ -533,6 +533,21 @@ const EMPTY = '66666666-6666-4666-8666-666666666666';
 const AGENT = '77777777-7777-4777-8777-777777777777';
 const NOW = '2026-09-08T12:00:00.000Z';
 
+function spatialFlowchartFixture(nodeCount: number, edgeCount: number): string {
+  const lines = ['flowchart LR'];
+  for (let group = 0; group < Math.ceil(nodeCount / 10); group++) {
+    lines.push(`subgraph G${group}[Group ${group + 1}]`);
+    for (let index = group * 10; index < Math.min(nodeCount, group * 10 + 10); index++) lines.push(`N${index}[Node ${index + 1}]`);
+    lines.push('end');
+  }
+  for (let index = 0; index < edgeCount; index++) {
+    const start = index % nodeCount;
+    const end = (start + 1 + Math.floor(index / nodeCount)) % nodeCount;
+    lines.push(`N${start} -->|Route ${index + 1}| N${end}`);
+  }
+  return lines.join('\n');
+}
+
 declare global {
   interface Window {
     voiceTestTracks: MediaStreamTrack[];
@@ -613,7 +628,9 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
     local.messages = [{ id: 'reading-fixture', role: 'assistant', authorId: AGENT, createdAt: NOW, status: 'complete', rawMarkdown: '', blocks: [
       { kind: 'markdown', markdown: 'Reading fixture: keep the conversation, diagram, and repository evidence beside one another. Compare the result, then arrange the panels from your seat.' },
       { kind: 'code', language: 'ts', source: 'function resetWorkspace() {\n  return panels.map(panel => ({ ...panel, open: true }));\n}' },
-      { kind: 'diagram', artifact: { id: 'reading-diagram', sessionId: SESSION, messageId: 'reading-fixture', ordinal: 1, source: 'flowchart LR\n A[Conversation] --> B[Canvas] --> C[Evidence]', createdAt: NOW, status: 'ready', derivedFromDiagramIds: [], evidence: [] } },
+      { kind: 'diagram', artifact: { id: 'reading-diagram', sessionId: SESSION, messageId: 'reading-fixture', ordinal: 1,
+        source: 'flowchart LR\n subgraph Workspace[Workspace]\n A[Conversation] -->|opens| B[Canvas]\n end\n B -->|reviews| C[Evidence]',
+        createdAt: NOW, status: 'ready', derivedFromDiagramIds: [], evidence: [] } },
     ] }];
   }
   local.sketches = [{ id: 'sketch-fixture', ordinal: 1, sessionId: SESSION, createdAt: NOW, viewBox: [0, 0, 1600, 1000] }];
@@ -1085,6 +1102,24 @@ async function pointAtCanvasUv(page: Page, u: number, v: number) {
     camera.updateMatrixWorld(true);
     return true;
   }, { u, v })).toBe(true);
+  await page.locator('.immersive-viewport').evaluate((element: HTMLElement) => {
+    element.style.opacity = '1'; element.style.zIndex = '200'; element.style.pointerEvents = 'auto';
+    element.querySelector('canvas')!.style.pointerEvents = 'auto';
+  });
+  const box = (await page.locator('.immersive-viewport canvas').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2 + 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+async function pointAtSpatialElement(page: Page, name: string) {
+  await expect.poll(() => page.evaluate((name) => {
+    const target = window.xrScene?.scene.getObjectByName(name);
+    if (!target || !window.xrScene) return false;
+    const { camera, scene } = window.xrScene;
+    scene.updateMatrixWorld(true);
+    camera.lookAt(target.getWorldPosition(camera.position.clone()));
+    camera.updateMatrixWorld(true);
+    return true;
+  }, name)).toBe(true);
   await page.locator('.immersive-viewport').evaluate((element: HTMLElement) => {
     element.style.opacity = '1'; element.style.zIndex = '200'; element.style.pointerEvents = 'auto';
     element.querySelector('canvas')!.style.pointerEvents = 'auto';
@@ -1761,6 +1796,116 @@ test('compares canvases, writes canonical controller marks, and sends the marked
   await canvasAction('sketch');
   await expect.poll(() => fixture.local.sketches.length).toBe(2);
   await expect.poll(async () => (await reviewState())?.activeId).not.toBe('sketch-fixture');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('explores the parser-backed spatial flowchart, preserves selection in 2D, and falls back completely', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true);
+  fixture.local.messages.push({ id: 'unsupported-fixture', role: 'assistant', authorId: AGENT, createdAt: NOW, status: 'complete', rawMarkdown: '', blocks: [
+    { kind: 'diagram', artifact: { id: 'unsupported-diagram', sessionId: SESSION, messageId: 'unsupported-fixture', ordinal: 2,
+      source: 'sequenceDiagram\n A->>B: Complete source stays visible', createdAt: NOW, status: 'ready', derivedFromDiagramIds: [], evidence: [] } },
+  ] });
+  await page.goto('/'); await enter(page);
+  const canvasAction = (action: string) => controls(page).locator(`[data-immersive-action="canvas:${action}"]`).click();
+  const reviewState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Canvas review tools')?.userData);
+  await controls(page).getByRole('button', { name: 'Next canvas', exact: true }).click();
+  await expect.poll(async () => (await reviewState())?.activeId).toBe('reading-diagram');
+  await expect.poll(async () => (await reviewState())?.spatialSupported).toBe(true);
+  const flatResources = await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources);
+  await canvasAction('spatial');
+  await expect.poll(async () => (await reviewState())?.projection).toBe('spatial');
+  await expect.poll(() => page.evaluate(() => ({
+    nodes: ['A', 'B', 'C'].filter((id) => window.xrScene?.scene.getObjectByName(`Spatial node ${id}`)).length,
+    edges: ['L_A_B_0', 'L_B_C_0'].filter((id) => window.xrScene?.scene.getObjectByName(`Spatial edge ${id}`)).length,
+    group: Boolean(window.xrScene?.scene.getObjectByName('Spatial group Workspace')),
+    activeCanvas: Boolean(window.xrScene?.scene.getObjectByName('Active canvas')),
+  }))).toEqual({ nodes: 3, edges: 2, group: true, activeCanvas: false });
+  const spatialState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Spatial diagram')?.userData);
+  expect(await spatialState()).toMatchObject({ artifactId: 'reading-diagram', visibleNodes: 3, visibleEdges: 2, hiddenNodes: 0, hiddenEdges: 0 });
+
+  await pointAtSpatialElement(page, 'Spatial node A'); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(async () => (await reviewState())?.selectedSpatialKey).toBe('reading-diagram:node:A');
+  await canvasAction('focus-selection');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Spatial node B')?.userData.neighbor)).toBe(true);
+  await pointAtSpatialElement(page, 'Spatial edge body L_A_B_0'); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(async () => (await reviewState())?.selectedSpatialKey).toBe('reading-diagram:edge:L_A_B_0');
+  await canvasAction('focus-selection');
+  await expect.poll(async () => (await spatialState())?.focused).toBe(true);
+  await canvasAction('rotate-right');
+  await expect.poll(async () => (await spatialState())?.rotation).toBeCloseTo(Math.PI / 12);
+  await controls(page).getByRole('button', { name: 'Larger', exact: true }).click();
+  await expect.poll(async () => (await spatialState())?.scale).toBeCloseTo(1.1);
+  await controls(page).getByRole('button', { name: 'Reset view', exact: true }).click();
+  await expect.poll(spatialState).toMatchObject({ rotation: 0, scale: 1 });
+  await expect.poll(async () => (await reviewState())?.selectedSpatialKey).toBeUndefined();
+  await pointAtSpatialElement(page, 'Spatial group label Workspace'); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(async () => (await reviewState())?.selectedSpatialKey).toBe('reading-diagram:group:Workspace');
+  await canvasAction('toggle-group');
+  await expect.poll(async () => (await spatialState())?.collapsedGroups).toEqual(['Workspace']);
+  expect(await spatialState()).toMatchObject({ hiddenNodes: 2, hiddenEdges: 2 });
+  await canvasAction('toggle-group');
+  await expect.poll(async () => (await spatialState())?.collapsedGroups).toEqual([]);
+
+  await canvasAction('projection');
+  await expect.poll(async () => (await reviewState())?.projection).toBe('2d');
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Active canvas')))).toBe(true);
+  expect((await reviewState())?.selectedSpatialKey).toBe('reading-diagram:group:Workspace');
+  await canvasAction('spatial');
+  await expect.poll(async () => (await reviewState())?.selectedSpatialKey).toBe('reading-diagram:group:Workspace');
+  await canvasAction('projection');
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources)).toBeLessThanOrEqual(flatResources + 8);
+
+  await controls(page).getByRole('button', { name: 'Next canvas', exact: true }).click();
+  await expect.poll(async () => (await reviewState())?.activeId).toBe('unsupported-diagram');
+  await expect.poll(async () => (await reviewState())?.spatialSupported).toBe(false);
+  expect((await reviewState())?.spatialReason).toContain('diagram type is not in the spatial flowchart subset');
+  await expect.poll(() => page.evaluate(() => ({
+    fallback: Boolean(window.xrScene?.scene.getObjectByName('Spatial fallback explanation')),
+    complete2d: window.xrScene?.scene.getObjectByName('Active canvas')?.userData.canvasTarget,
+    spatial: Boolean(window.xrScene?.scene.getObjectByName('Spatial diagram')),
+  }))).toEqual({ fallback: true, complete2d: 'unsupported-diagram', spatial: false });
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('bounds the 30/45 and 100/150 spatial fixtures with reachable detail pages', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true);
+  const firstMessage = fixture.local.messages[0];
+  if (firstMessage?.role !== 'assistant') throw new Error('Missing spatial fixture message.');
+  const firstDiagram = firstMessage.blocks.find((block) => block.kind === 'diagram');
+  if (!firstDiagram || firstDiagram.kind !== 'diagram') throw new Error('Missing spatial fixture diagram.');
+  firstDiagram.artifact.source = spatialFlowchartFixture(30, 45);
+  fixture.local.messages.push({ id: 'large-spatial-fixture', role: 'assistant', authorId: AGENT, createdAt: NOW, status: 'complete', rawMarkdown: '', blocks: [
+    { kind: 'diagram', artifact: { id: 'large-spatial-diagram', sessionId: SESSION, messageId: 'large-spatial-fixture', ordinal: 2,
+      source: spatialFlowchartFixture(100, 150), createdAt: NOW, status: 'ready', derivedFromDiagramIds: [], evidence: [] } },
+  ] });
+  await page.goto('/'); await enter(page);
+  const canvasAction = (action: string) => controls(page).locator(`[data-immersive-action="canvas:${action}"]`).click();
+  const reviewState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Canvas review tools')?.userData);
+  const spatialState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Spatial diagram')?.userData);
+  await controls(page).getByRole('button', { name: 'Next canvas', exact: true }).click();
+  await expect.poll(async () => (await reviewState())?.activeId).toBe('reading-diagram');
+  await expect.poll(async () => (await reviewState())?.spatialSupported).toBe(true);
+  await canvasAction('spatial');
+  await expect.poll(spatialState).toMatchObject({ page: 1, pages: 1, visibleNodes: 30, visibleEdges: 45, hiddenNodes: 0, hiddenEdges: 0 });
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
+
+  await canvasAction('projection');
+  await controls(page).getByRole('button', { name: 'Next canvas', exact: true }).click();
+  await expect.poll(async () => (await reviewState())?.activeId).toBe('large-spatial-diagram');
+  await expect.poll(async () => (await reviewState())?.spatialSupported).toBe(true);
+  await canvasAction('spatial');
+  await expect.poll(async () => (await spatialState())?.pages).toBeGreaterThan(1);
+  expect(await spatialState()).toMatchObject({ page: 1 });
+  expect((await spatialState())!.visibleNodes).toBeLessThanOrEqual(30);
+  expect((await spatialState())!.visibleEdges).toBeLessThanOrEqual(45);
+  expect((await spatialState())!.hiddenNodes).toBeGreaterThan(0);
+  expect((await spatialState())!.hiddenEdges).toBeGreaterThan(0);
+  await canvasAction('next-detail');
+  await expect.poll(async () => (await spatialState())?.page).toBe(2);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 

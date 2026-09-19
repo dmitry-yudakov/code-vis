@@ -12,6 +12,11 @@ interface MermaidRender {
 let lastInitializedTheme: ThemeName | undefined;
 let renderQueue: Promise<void> = Promise.resolve();
 
+interface ParsedMermaidDiagram {
+  type: string;
+  db: unknown;
+}
+
 function themeVariables(theme: ThemeName) {
   const colors = palette[theme];
   // Mindmap, pie, journey and quadrant sections read cScale0…n, not primaryColor. Left unset the
@@ -40,21 +45,40 @@ function themeVariables(theme: ThemeName) {
   };
 }
 
+async function initializedMermaid(theme: ThemeName) {
+  const mermaid = (await import('mermaid')).default;
+  if (lastInitializedTheme !== theme) {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      htmlLabels: false,
+      theme: 'base',
+      themeVariables: themeVariables(theme),
+      flowchart: { htmlLabels: false, curve: 'basis' },
+    });
+    lastInitializedTheme = theme;
+  }
+  return mermaid;
+}
+
+/**
+ * Reads Mermaid's official parsed database while holding the same process-global queue as render.
+ * Flowchart databases are reused by Mermaid, so callers must copy everything they need in `read`.
+ */
+export function readMermaidDiagram<T>(source: string, theme: ThemeName, read: (diagram: ParsedMermaidDiagram) => T): Promise<T> {
+  const operation = renderQueue.then(async () => {
+    const mermaid = await initializedMermaid(theme);
+    const diagram = await mermaid.mermaidAPI.getDiagramFromText(normalizeMermaidSource(source));
+    return read(diagram as ParsedMermaidDiagram);
+  });
+  renderQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
 export function renderMermaid(id: string, source: string, theme: ThemeName): Promise<MermaidRender> {
   const render = renderQueue.then(async () => {
-    const mermaid = (await import('mermaid')).default;
+    const mermaid = await initializedMermaid(theme);
     const normalizedSource = normalizeMermaidSource(source);
-    if (lastInitializedTheme !== theme) {
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',
-        htmlLabels: false,
-        theme: 'base',
-        themeVariables: themeVariables(theme),
-        flowchart: { htmlLabels: false, curve: 'basis' },
-      });
-      lastInitializedTheme = theme;
-    }
     await mermaid.parse(normalizedSource);
     const rendered = await mermaid.render(id, normalizedSource);
     const parsed = new DOMParser().parseFromString(rendered.svg, 'image/svg+xml').documentElement;

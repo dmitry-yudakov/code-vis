@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-18. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-19. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -21,8 +21,11 @@ Updated 2026-09-18. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 54](stories/STORY-20260917-vr-quest-visual-design.md) — the Quest-like
   visual system is implemented; screenshot review, performance baseline, and physical Quest 3S
   checks remain pending.
-- **Next:** [Story 50](stories/STORY-20260905-vr-spatial-diagrams.md) — spatial Mermaid diagrams
-  before complete headset acceptance and the later VR Arena.
+- **Also in flight:** [Story 50](stories/STORY-20260905-vr-spatial-diagrams.md) — parser-backed
+  spatial Mermaid diagrams and automated 30/45 plus 100/150 checks are implemented; physical Quest
+  3S readability, comfort, and performance acceptance remain pending.
+- **Next:** [Story 51](stories/STORY-20260905-vr-workspace-acceptance.md) — accept the complete
+  controller-and-voice headset work loop on Quest 3S before the later VR Arena.
 - **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
   controller/visibility interruptions and retain device-local exit diagnostics.
 - **Also in flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md),
