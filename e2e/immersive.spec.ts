@@ -114,7 +114,7 @@ test.describe('VR conversation input', () => {
       dictateGlyph: { z: expect.closeTo(0.007, 5), renderOrder: 21, transparent: true },
       sendBackground: { z: expect.closeTo(0.0065, 5), renderOrder: 20, transparent: true },
     });
-    expect(JSON.parse((await panel(page, 'conversation').getAttribute('data-layout'))!).angle).toBe(36);
+    expect(JSON.parse((await panel(page, 'conversation').getAttribute('data-layout'))!).angle).toBe(54);
     await pointAtAction(page, 'message-input');
     await page.mouse.down(); await page.mouse.up();
     await expect(input).toBeFocused();
@@ -228,11 +228,11 @@ test.describe('VR conversation input', () => {
     await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR chat messages')?.visible)).toBe(true);
     await pointAtAction(page, 'panel:conversation:toggle');
     await page.mouse.down(); await page.mouse.up();
-    await expect.poll(() => livePanelIds(page)).toEqual(['canvas']);
+    await expect.poll(() => livePanelIds(page)).toEqual(['arena', 'canvas']);
     await expect(input).toHaveCount(0);
     await pointAtAction(page, 'panel:conversation:toggle');
     await page.mouse.down(); await page.mouse.up();
-    await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation']);
+    await expect.poll(() => livePanelIds(page)).toEqual(['arena', 'canvas', 'conversation']);
     await expect(input).toHaveValue('Keep, definitely, this draf better');
     await hideProjection(page);
     await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
@@ -811,7 +811,7 @@ test('keeps panel geometry in the thin depth stack and inside rounded panel boun
   await page.goto('/');
   await enter(page);
   await panelAction(page, 'evidence', 'open');
-  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation', 'evidence']);
+  await expect.poll(() => livePanelIds(page)).toEqual(['arena', 'canvas', 'conversation', 'evidence']);
   const violations = await page.evaluate(() => {
     const failures: string[] = [];
     const panels: Array<import('three').Object3D> = [];
@@ -896,6 +896,108 @@ test('retains one XR store across machine/project navigation, loading races, his
   await controls(page).getByRole('button', { name: 'Exit VR' }).click();
   await released(page);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('Keep this local draft');
+});
+
+test('pages the immersive Arena, inspects an exact background permission, and returns to the prior draft', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, false, 0, 5);
+  const pending = [{ requestId: 'arena-request', participantId: AGENT, tool: 'Edit', detail: 'src/arena.ts' }];
+  await page.route('**/api/arena', (route) => {
+    const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
+    const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote);
+    remote.runs.active = [{
+      runId: 'arena-run', sessionId: EMPTY, participantId: AGENT, state: 'needs-you', enqueuedAt: 1,
+      pendingPermissionCount: pending.length, pendingPermissions: [...pending],
+    }];
+    return route.fulfill({ json: { machines: [home, remote] } });
+  });
+  const decisions: Array<{ runId: string; requestId: string; decision: string }> = [];
+  await page.route(`**/api/machines/${REMOTE}/agent/permission`, (route) => {
+    decisions.push(route.request().postDataJSON()); pending.splice(0);
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/'); await enter(page);
+  await page.locator('[data-immersive-message-input]').fill('Keep this draft in the original session.');
+  const arenaState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR Arena tools')?.userData);
+  await expect.poll(arenaState).toMatchObject({ tab: 'sessions', rows: 7, page: 0, pageCount: 2 });
+  await controls(page).locator('[data-immersive-action="arena:next"]').click();
+  await controls(page).locator('[data-immersive-action="arena:new"]').click();
+  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('launcher');
+  await controls(page).locator('[data-immersive-action="session:back"]').click();
+  await controls(page).locator('[data-immersive-action="session:tools"]').click();
+  await controls(page).locator('[data-immersive-action="arena:inbox"]').click();
+  await expect.poll(arenaState).toMatchObject({
+    tab: 'inbox', rows: 1, selectedKey: 'attention:machine:22222222-2222-4222-8222-222222222222:permission:arena-run:arena-request',
+  });
+  await controls(page).locator('[data-immersive-action="arena:inspect"]').click();
+  await expect(controls(page).locator('strong').first()).toHaveText('Empty remote session');
+  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('permissions');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('src/arena.ts');
+  await controls(page).locator('[data-immersive-action="session:allow"]').click();
+  await expect.poll(() => decisions).toEqual([{ runId: 'arena-run', requestId: 'arena-request', decision: 'allow' }]);
+  await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toBe('Allowed.');
+  await controls(page).locator('[data-immersive-action="session:return"]').click();
+  await expect(controls(page).locator('strong').first()).toHaveText('Canvas session');
+  await expect(page.locator('[data-immersive-message-input]')).toHaveValue('Keep this draft in the original session.');
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('archives, restores, and refuses to open Offline sessions from the immersive Arena', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, false, 0, 1);
+  const older = fixture.snapshot(LOCAL, 'Home', fixture.local).sessions.find((item) => item.id !== SESSION)!;
+  let archived = false;
+  const archiveRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().endsWith('/archive')) archiveRequests.push(request.url());
+  });
+  fixture.online = false;
+  await page.route('**/api/arena', (route) => {
+    const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
+    home.sessions = home.sessions.filter((item) => item.id !== older.id || !archived);
+    home.archivedSessions = archived ? [{ ...older, revision: 1, archivedAt: '2026-09-20T12:00:00.000Z' }] : [];
+    const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote);
+    return route.fulfill({ json: { machines: [home, remote] } });
+  });
+  await page.route(`**/api/sessions/${older.id}/archive`, (route) => {
+    archived = true;
+    return route.fulfill({ json: { session: { ...older, revision: 1, archivedAt: '2026-09-20T12:00:00.000Z' } } });
+  });
+  await page.route(`**/api/sessions/${older.id}/restore`, (route) => {
+    archived = false;
+    return route.fulfill({ json: { session: { ...older, revision: 2, archivedAt: undefined } } });
+  });
+  await page.goto('/'); await enter(page);
+  const arenaState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR Arena tools')?.userData);
+  await expect.poll(arenaState).toMatchObject({ tab: 'sessions', rows: 3 });
+  await controls(page).locator('[data-immersive-action="arena:confirm-archive"]').click();
+  await page.waitForTimeout(100);
+  expect(archiveRequests).toEqual([]);
+  await expect(controls(page).locator('strong').first()).toHaveText('Canvas session');
+  await controls(page).locator('[data-immersive-action="arena:next"]').click();
+  await expect.poll(async () => (await arenaState())?.selectedKey).toBe(`session:${LOCAL}:${older.id}`);
+  await controls(page).locator('[data-immersive-action="arena:archive"]').click();
+  expect(archived).toBe(false);
+  await controls(page).locator('[data-immersive-action="arena:confirm-archive"]').click();
+  await expect.poll(() => archived).toBe(true);
+  expect(archiveRequests).toHaveLength(1);
+  await expect.poll(async () => (await arenaState())?.rows).toBe(2);
+  await controls(page).locator('[data-immersive-action="arena:archived"]').click();
+  await expect.poll(arenaState).toMatchObject({ tab: 'archived', rows: 1, selectedKey: `session:${LOCAL}:${older.id}` });
+  await controls(page).locator('[data-immersive-action="arena:restore"]').click();
+  await expect.poll(() => archived).toBe(false);
+  await expect.poll(async () => (await arenaState())?.rows).toBe(0);
+  await controls(page).locator('[data-immersive-action="arena:sessions"]').click();
+  await expect.poll(async () => (await arenaState())?.rows).toBe(3);
+  await controls(page).locator('[data-immersive-action="arena:next"]').click();
+  await controls(page).locator('[data-immersive-action="arena:next"]').click();
+  await expect.poll(async () => (await arenaState())?.selectedKey).toBe(`session:${REMOTE}:${EMPTY}`);
+  await controls(page).locator('[data-immersive-action="arena:open"]').click();
+  await expect(controls(page).locator('strong').first()).toHaveText('Canvas session');
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
 test('keeps VR and panel state through controller removal, reconnection and visibility interruptions', async ({ page }) => {
@@ -1292,7 +1394,7 @@ test('identifies the conversation, scrolls a continuous thread, and returns from
   await page.goto('/'); await enter(page);
   const history = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR chat messages')?.userData.immersiveHistory);
   const heading = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation panel')?.userData);
-  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation']);
+  await expect.poll(() => livePanelIds(page)).toEqual(['arena', 'canvas', 'conversation']);
   await expect.poll(heading).toMatchObject({ heading: 'Canvas session', detail: 'Local project · Home · Online' });
   await expect.poll(async () => (await history())?.atBottom).toBe(true);
   expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Latest')))).toBe(false);
@@ -1423,9 +1525,9 @@ test('arranges every panel, isolates content actions, recovers tools and restore
   let writes = 0;
   page.on('request', (request) => { if (request.method() !== 'GET' && request.url().includes('/api/')) writes++; });
   await enter(page);
-  await expect.poll(() => livePanelIds(page)).toEqual(['canvas', 'conversation']);
+  await expect.poll(() => livePanelIds(page)).toEqual(['arena', 'canvas', 'conversation']);
   await panelAction(page, 'evidence', 'open');
-  for (const id of ['canvas', 'conversation', 'evidence']) {
+  for (const id of ['arena', 'canvas', 'conversation', 'evidence']) {
     await panelAction(page, id, 'focus');
     await expect(panel(page, id)).toHaveAttribute('data-focused', 'true');
     const before = JSON.parse((await panel(page, id).getAttribute('data-layout'))!);
@@ -1489,11 +1591,11 @@ test('arranges every panel, isolates content actions, recovers tools and restore
   await enter(page);
   expect(await storedLayout(page)).toBe(saved);
   await openSession(page, EMPTY);
-  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 0, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 18, height: 0, distance: 2.6, size: 'medium', open: true }));
   await openSession(page, SESSION);
-  await expect(panel(page, 'canvas')).not.toHaveAttribute('data-layout', JSON.stringify({ angle: 0, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await expect(panel(page, 'canvas')).not.toHaveAttribute('data-layout', JSON.stringify({ angle: 18, height: 0, distance: 2.6, size: 'medium', open: true }));
   await controls(page).getByRole('button', { name: 'Reset workspace', exact: true }).click();
-  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 0, height: 0, distance: 2.6, size: 'medium', open: true }));
+  await expect(panel(page, 'canvas')).toHaveAttribute('data-layout', JSON.stringify({ angle: 18, height: 0, distance: 2.6, size: 'medium', open: true }));
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
 });
@@ -1644,11 +1746,11 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
   await hideProjection(page);
   const baseline = await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources);
   for (let cycle = 0; cycle < 20; cycle++) {
-    for (const id of ['canvas', 'conversation', 'evidence']) await panelAction(page, id, 'close');
+    for (const id of ['arena', 'canvas', 'conversation', 'evidence']) await panelAction(page, id, 'close');
     await expect.poll(() => livePanelIds(page)).toEqual([]);
     await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThan(800_000);
     await controls(page).getByRole('button', { name: 'Reset workspace', exact: true }).click();
-    await expect.poll(() => livePanelIds(page)).toHaveLength(2);
+    await expect.poll(() => livePanelIds(page)).toHaveLength(3);
     expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   }
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.liveResources)).toBeLessThanOrEqual(baseline + 12);

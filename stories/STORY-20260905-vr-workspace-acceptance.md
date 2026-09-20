@@ -1,6 +1,6 @@
 # Story 51 — Accept a complete work session on Quest 3S
 
-**Status:** In progress · **Type:** Frontend-only (integration, fixes, and verification) · **Depends on:**
+**Status:** Shipped · **Type:** Frontend-only (integration, fixes, and verification) · **Depends on:**
 [Stories 45–50](EPIC-20260905-immersive-workspace.md#story-map).
 
 **Vision slice:** first usable release of the
@@ -48,16 +48,16 @@ actions on the user's Quest 3S with the final scene, rather than extrapolating f
 
 ## Acceptance criteria
 
-- [ ] On Quest 3S, create/open an empty session, enter VR, dictate and correct an instruction,
+- [x] On Quest 3S, create/open an empty session, enter VR, dictate and correct an instruction,
   choose its agent/mode, and send without another device or a required keyboard.
-- [ ] Read streaming/history, answer allow and deny requests, and cancel an identified run in VR.
-- [ ] Arrange tools, read a diff, explore actual 3D nodes/edges, switch to the marked 2D projection,
+- [x] Read streaming/history, answer allow and deny requests, and cancel an identified run in VR.
+- [x] Arrange tools, read a diff, explore actual 3D nodes/edges, switch to the marked 2D projection,
   annotate, attach a correction, and inspect the resulting revision without ending XR.
-- [ ] The 30-minute seated run has readable essential content and no forced desktop interaction;
+- [x] The 30-minute seated run has readable essential content and no forced desktop interaction;
   observed discomfort and usability defects are resolved or the release remains unaccepted.
-- [ ] Voice failure, lost controller, executor outage, a broken diagram, system interruption, and
+- [x] Voice failure, lost controller, executor outage, a broken diagram, system interruption, and
   revoked access have the specified recoveries without losing durable work or redirecting commands.
-- [ ] Ten entry/exit cycles preserve drafts/layout and return resources to baseline. The combined
+- [x] Ten entry/exit cycles preserve drafts/layout and return resources to baseline. The combined
   scene passes documented frame and resource budgets with measurements recorded here.
 - [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass; README and architecture
   describe the actual first release and its input/setup requirements.
@@ -90,13 +90,18 @@ record stays separate; shared regression evidence may be linked without inventin
 
 | Evidence | Result |
 |---|---|
-| Quest 3S, OS/browser, refresh rate | Pending |
-| Home machine, voice engine/data path, language, optional keyboard | Pending |
-| Fixture/build revision and automated commands | 410 Vitest tests and 73 Chrome tests pass; physical fixture/build revision pending |
-| Full controller/voice work journey and 30-minute comfort observations | Pending |
-| Median/p95 frame interval and missed frames | Pending |
-| Aggregate scene caps; peak and baseline resources; ten cycles | Pending |
-| Failure/recovery observations and resolved defects | Pending |
+| Quest 3S, OS/browser, refresh rate | User confirmed the Quest 3S gate passed September 20, 2026; versions/rate not supplied |
+| Home machine, voice engine/data path, language, optional keyboard | User confirmed the configured physical journey passed; detailed setup not supplied |
+| Fixture/build revision and automated commands | 410 Vitest tests and 73 Chrome tests pass; user accepted the physical build September 20, 2026 |
+| Full controller/voice work journey and 30-minute comfort observations | Accepted by the user September 20, 2026 |
+| Median/p95 frame interval and missed frames | Accepted by the user; numeric telemetry not supplied |
+| Aggregate scene caps; peak and baseline resources; ten cycles | Accepted by the user; numeric headset telemetry not supplied |
+| Failure/recovery observations and resolved defects | Accepted by the user September 20, 2026 |
+
+September 20, 2026 — the user explicitly marked the Quest 3S step verified and directed work to
+continue to Story 52. This is the physical acceptance authority for the gate; unreported device
+versions and numeric telemetry remain identified above rather than being reconstructed from browser
+automation.
 
 September 19, 2026 — acceptance instrumentation is ready, without claiming headset acceptance.
 

@@ -310,6 +310,13 @@ rendering stays in the diagram feature and failures remain local; the opaque env
 separate presentation component. Conversation combines continuous scrolling with the shared draft,
 agent controls, and local voice input.
 
+`ArenaTools` is the fourth world panel and consumes that same Arena polling owner. Its pure model
+reuses the DOM Arena's grouping and Inbox derivation, qualifies every row by machine, and pages six
+summaries without mounting another stream or detailed session scene. Active, Inbox, and Archived
+actions call AppShell's canonical open/create/archive/restore/read handlers. Offline rows stay
+non-actionable. A background permission captures machine/session/run/request identity before focus
+changes; Session tools opens that exact request and Return restores the prior device view and draft.
+
 The XR resource ledger enforces a 5,592,405-logical-texel aggregate cap and 2,048-pixel edge cap,
 charging mipmapped surfaces at 4/3 of their base pixels. Story 46 reserves at most 1.1 million base
 texels for the active canvas, 1,048,576 for the
@@ -319,6 +326,8 @@ after 450 ms of hover, with a 150 ms fade and muted theme colors. Tooltip materi
 testing/writing and render after controls to prevent occlusion. Inline input adds one 1024×256
 texture beneath the transcript. Speech review/editing and Agents replace the transcript texture with smaller draft/status surfaces
 and contextual controls; browser tests enforce the aggregate cap including recovery surfaces.
+Resize labels and contextual Arena actions are allocated only while rendered; pager glyphs and the
+recovery-strip panel names are shared across their simultaneous uses.
 Closed panels unmount their content. The conversation stays mounted but hidden during resizing
 to preserve its voice operation; other panels release their content for the size menu.
 Story 49 gives the active canvas and optional comparison equal shares of an 800,000-texel canvas
@@ -350,11 +359,11 @@ remain in DevTools. Sampling and error listeners are removed when the session fi
 failure falls back to memory. This adds no Three.js import to the non-lazy boundary.
 
 `workspaceLayout.ts` validates continuous forward angles, bounded distance/height, and four size
-presets. `useImmersiveLayout` stores version 4 disposable device views at the existing
+presets. `useImmersiveLayout` stores version 5 disposable device views at the existing
 `code-ai:device:v1:immersive-layout` key, keyed by machine/project/session; version 1 slot placements
-migrate to angles and the closest size preset. Versions 1–3 migrate untouched defaults to conversation
-right, canvas center, and evidence left, preserving explicitly moved positions and dropping
-the separate Sessions panel. Evidence starts closed, retaining explicit version 3 visibility choices.
+migrate to angles and the closest size preset. Versions 1–4 migrate untouched defaults into four
+non-overlapping Arena/Evidence/Canvas/Conversation positions, preserving explicitly moved positions
+and dropping the old separate Sessions panel. Evidence starts closed, retaining explicit visibility choices.
 Bottom panel buttons toggle visibility and show open state. `WorkspacePanel` owns an icon strip below the frame
 with a captured drag handle, Size menu, Close action, and non-interactive ray-hover tooltips.
 Toolbar and icon textures are shared across the three panels; tooltip opacity belongs to each control.
@@ -452,17 +461,17 @@ repository attachment, draft retry, cancellation, and device revocation reuse sh
 the pairing gate. Neither speech nor card focus can approve a permission.
 Story 49 adds session-checkout evidence, artifact comparison, controller-authored canonical marks,
 sketch creation, and marked composite attachments through the existing shared owners. Story 50
-turns supported Mermaid flowcharts into spatial geometry. Story 51 now owns the combined automated
-evidence and physical acceptance; its 30-minute Quest 3S journey, readability, controller use,
-voice quality, comfort, and measured budgets remain pending.
+turns supported Mermaid flowcharts into spatial geometry. Story 51 shipped after the user accepted
+the combined Quest 3S journey on September 20, 2026.
 The [immersive workspace epic](../stories/EPIC-20260905-immersive-workspace.md) owns the remaining
 working surfaces and headset acceptance.
 
-The first release targets one complete session on Quest 3S: movable tools, controller/voice input,
-permission decisions, repository diffs and marks, and derived spatial Mermaid flowcharts. Voice
-capture/transcription and correction still need Quest 3S validation of the implemented local path.
+The accepted first release covers one complete session on Quest 3S: movable tools,
+controller/voice input, permission decisions, repository diffs and marks, and derived spatial
+Mermaid flowcharts.
 Device panel layout remains separate from desktop camera state and
-canonical records. Story 52 adds the multi-session VR Arena after that work loop is accepted.
+canonical records. Story 52 now adds the multi-session VR Arena on top of that accepted work loop;
+its automated implementation is complete and its own physical multi-session run remains pending.
 Model-native geometry, lenses, and provenance remain owned by the software-model track.
 
 AR/passthrough is a retained future option in the epic. Keep the virtual environment/background

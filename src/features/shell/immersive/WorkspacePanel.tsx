@@ -173,7 +173,7 @@ export function WorldButton({ action, label, resource, tooltip, iconTheme = 'dar
 }
 
 export function WorkspacePager({ label, previousAction, nextAction, previousLabel, nextLabel, position, theme,
-  previousDisabled = false, nextDisabled = false, onAction }: {
+  icons, previousDisabled = false, nextDisabled = false, onAction }: {
   label: string;
   previousAction: ImmersiveSemanticAction;
   nextAction: ImmersiveSemanticAction;
@@ -181,28 +181,30 @@ export function WorkspacePager({ label, previousAction, nextAction, previousLabe
   nextLabel: string;
   position: [number, number, number];
   theme: ThemeName;
+  icons?: PanelControlResources['pager'];
   previousDisabled?: boolean;
   nextDisabled?: boolean;
   onAction(action: ImmersiveSemanticAction): void;
 }) {
-  const resources = useTextureResource((ledger) => ({
+  const fallbackIcons = useTextureResource((ledger) => icons ? undefined : ({
     previous: createWorkspaceIconResource('pager:previous', theme, ledger),
     next: createWorkspaceIconResource('pager:next', theme, ledger),
-    label: createWorkspaceLabelResource(label, theme, ledger),
-  }), [label, theme]);
-  const labelWidth = resources?.label.width || 0.2;
+  }), [icons, theme]);
+  const labelResource = useTextureResource((ledger) => createWorkspaceLabelResource(label, theme, ledger), [label, theme]);
+  const pagerIcons = icons || fallbackIcons;
+  const labelWidth = labelResource?.width || 0.2;
   const offset = labelWidth / 2 + IMMERSIVE_CONTROL_HEIGHT / 2 + 0.015;
   return <group name={`${label} pager`} position={position} userData={{ immersivePager: label }}>
-    <WorldButton action={previousAction} label={previousLabel} resource={resources?.previous} iconTheme={theme}
+    <WorldButton action={previousAction} label={previousLabel} resource={pagerIcons?.previous} iconTheme={theme}
       position={[-offset, 0, 0]} disabled={previousDisabled} onAction={() => onAction(previousAction)} />
-    {resources && <mesh name={`${label} pager label`} geometry={resources.label.geometry} material={resources.label.material}
+    {labelResource && <mesh name={`${label} pager label`} geometry={labelResource.geometry} material={labelResource.material}
       position-z={IMMERSIVE_LAYERS.controls} renderOrder={21} pointerEvents="none" raycast={() => undefined} />}
-    <WorldButton action={nextAction} label={nextLabel} resource={resources?.next} iconTheme={theme}
+    <WorldButton action={nextAction} label={nextLabel} resource={pagerIcons?.next} iconTheme={theme}
       position={[offset, 0, 0]} disabled={nextDisabled} onAction={() => onAction(nextAction)} />
   </group>;
 }
 
-export function WorkspacePanel({ id, heading, detail, headerBack = false, layout, focused, editing, theme, controls, perform, onPlacement, children }: {
+export function WorkspacePanel({ id, heading, detail, headerBack = false, layout, focused, editing, theme, controls, nameResource, perform, onPlacement, children }: {
   id: WorkspacePanelId;
   heading?: string;
   detail?: string;
@@ -212,6 +214,7 @@ export function WorkspacePanel({ id, heading, detail, headerBack = false, layout
   editing?: PanelEditing;
   theme: ThemeName;
   controls?: PanelControlResources;
+  nameResource?: ImmersiveTexturePanel;
   perform(action: ImmersiveSemanticAction): void;
   onPlacement(id: WorkspacePanelId, placement: PanelPlacement): void;
   children: ReactNode;
@@ -239,11 +242,10 @@ export function WorkspacePanel({ id, heading, detail, headerBack = false, layout
   const title = useTextureResource((ledger) => createWorkspaceTextResource(heading || PANEL_TITLES[id],
     mode === 'drag' ? 'Release to place' : mode === 'resize' ? `Size: ${PANEL_COMMAND_LABELS[layout.size]}` : detail || '',
     theme, ledger, id !== 'canvas', headerBack), [id, heading, detail, headerBack, mode, layout.size, theme]);
-  const panelName = useTextureResource((ledger) => createWorkspaceButtonResource(PANEL_TITLES[id], theme, ledger), [id, theme]);
   const commands: PanelCommand[] = [...Object.keys(PANEL_SIZES) as Array<keyof typeof PANEL_SIZES>, 'done'];
-  const menuResources = useTextureResource((ledger) => Object.fromEntries(commands.map((command) => [command,
+  const menuResources = useTextureResource((ledger) => mode === 'resize' ? Object.fromEntries(commands.map((command) => [command,
     createWorkspaceButtonResource(command === layout.size ? `✓ ${PANEL_COMMAND_LABELS[command]}` : PANEL_COMMAND_LABELS[command], theme, ledger),
-  ])) as Record<PanelCommand, ImmersiveTexturePanel>, [layout.size, theme]);
+  ])) as Record<PanelCommand, ImmersiveTexturePanel> : undefined, [mode, layout.size, theme]);
   const button = (command: PanelCommand, position: [number, number, number]) => <WorldButton key={command}
     action={`panel:${id}:${command}`} label={`${PANEL_COMMAND_LABELS[command]} ${PANEL_TITLES[id]}`}
     resource={menuResources?.[command]} position={position} iconTheme={theme} disabled={dragging} selected={command === layout.size}
@@ -266,7 +268,7 @@ export function WorkspacePanel({ id, heading, detail, headerBack = false, layout
       <WorldButton action={`panel:${id}:drag`} label={`Drag ${PANEL_TITLES[id]}`} resource={controls?.buttons.drag}
         position={[-0.37, 0, 0]} iconTheme={theme} selected={mode === 'drag'} disabled={dragging && mode !== 'drag'}
         pointerHandlers={handlers} onAction={() => undefined} />
-      {panelName && <mesh name={`${PANEL_TITLES[id]} control bar title`} geometry={panelName.geometry} material={panelName.material}
+      {nameResource && <mesh name={`${PANEL_TITLES[id]} control bar title`} geometry={nameResource.geometry} material={nameResource.material}
         position={[-0.11, 0, IMMERSIVE_LAYERS.controls]} renderOrder={21} pointerEvents="none" raycast={() => undefined} />}
       <WorldButton action={`panel:${id}:resize`} label={`Size ${PANEL_TITLES[id]}`} resource={controls?.buttons.resize}
         position={[0.24, 0, 0]} iconTheme={theme} selected={mode === 'resize'} disabled={dragging}

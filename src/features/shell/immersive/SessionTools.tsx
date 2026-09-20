@@ -11,8 +11,9 @@ import { WorkspacePager, WorldButton } from './WorkspacePanel';
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
 
 /** A single bounded viewport for session setup and complete, sanitized permission summaries. */
-export function SessionTools({ controls, theme, enabled, onController }: {
+export function SessionTools({ controls, theme, enabled, request, onController }: {
   controls: ImmersiveSessionControls; theme: ThemeName; enabled: boolean;
+  request?: { tab: 'launcher' | 'permissions'; key: string };
   onController(perform?: (action: SessionActionName) => void): void;
 }) {
   const [tab, setTab] = useState<'home' | 'launcher' | 'permissions'>('home');
@@ -26,6 +27,10 @@ export function SessionTools({ controls, theme, enabled, onController }: {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  useEffect(() => {
+    if (!request) return;
+    setTab(request.tab); setPage(0); setConfirmRevoke(false);
+  }, [request]);
   const machines = controls.machines.filter((item) => item.machine.state === 'online');
   // Keep an explicitly chosen offline machine selected; never silently submit to another one.
   const machine = controls.machines.find((item) => item.machine.id === machineId) || (!machineId ? machines[0] : undefined);
@@ -39,6 +44,11 @@ export function SessionTools({ controls, theme, enabled, onController }: {
   useEffect(() => {
     if (!selected && controls.permissions[0]) setSelected(controls.permissions[0]);
   }, [selected, controls.permissions]);
+  useEffect(() => {
+    if (!controls.requestedPermissionKey) return;
+    const requested = controls.permissions.find((item) => permissionKey(item) === controls.requestedPermissionKey);
+    if (requested) { setSelected(requested); setTab('permissions'); setPage(0); }
+  }, [controls.permissions, controls.requestedPermissionKey]);
   useEffect(() => { if (result) setPage(0); }, [result]);
   const createEnabled = machine?.machine.state === 'online' && providers.includes(provider) && modes.includes(mode)
     && (!projectId || Boolean(project)) && !controls.creating && !busy;
@@ -91,7 +101,8 @@ export function SessionTools({ controls, theme, enabled, onController }: {
           .finally(() => { busyRef.current = false; setBusy(false); });
       }
     } else if (tab === 'permissions') {
-      if ((action === 'allow' || action === 'deny') && selected && current && controls.online && !result && body) controls.onDecide(selected, action);
+      if (action === 'return' && controls.onReturn) controls.onReturn();
+      else if ((action === 'allow' || action === 'deny') && selected && current && controls.online && !result && body) controls.onDecide(selected, action);
       else if (action === 'previous' || action === 'next') {
         const index = controls.permissions.findIndex((item) => selected && permissionKey(item) === permissionKey(selected));
         const next = controls.permissions[(index + (action === 'next' ? 1 : -1) + controls.permissions.length) % controls.permissions.length];
@@ -131,7 +142,7 @@ export function SessionTools({ controls, theme, enabled, onController }: {
         previousAction="session:previous" nextAction="session:next" previousLabel="Previous request" nextLabel="Next request"
         position={[-0.20, -0.56, 0]} theme={theme} previousDisabled={!controls.permissions.length} nextDisabled={!controls.permissions.length}
         onAction={(action) => perform(action.slice('session:'.length) as SessionActionName)} />
-      {button('back', 0.48, -0.56)}
+      {button(controls.onReturn ? 'return' : 'back', 0.48, -0.56)}
       {button('deny', -0.22, -0.76, !current || Boolean(result) || !controls.online || !body)}
       {button('allow', 0.22, -0.76, !current || Boolean(result) || !controls.online || !body)}
     </> : <>

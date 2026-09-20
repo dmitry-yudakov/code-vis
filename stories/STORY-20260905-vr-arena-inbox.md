@@ -1,6 +1,6 @@
 # Story 52 — Expand the VR workspace to the Arena and Inbox
 
-**Status:** Draft · **Type:** Frontend-only · **Depends on:**
+**Status:** In progress · **Type:** Frontend-only · **Depends on:**
 [Story 51](STORY-20260905-vr-workspace-acceptance.md) and the existing Arena/machine foundation.
 
 **Vision slice:** second milestone of the [immersive workspace epic](EPIC-20260905-immersive-workspace.md),
@@ -14,13 +14,13 @@ of work and let the user respond to another session without losing their place.
 
 ## Current behavior (where the code is)
 
-- [Arena.tsx:48](../src/features/arena/Arena.tsx#L48) renders DOM session cards/Inbox;
-  [useArena.ts:13](../src/features/arena/useArena.ts#L13) polls home/executor snapshots once.
-- [AppShell.tsx:1144](../src/features/shell/AppShell.tsx#L1144) opens machine-qualified sessions;
-  [1213](../src/features/shell/AppShell.tsx#L1213) routes cross-session permission decisions.
-- [workspaceViews.ts:67](../src/features/shell/workspaceViews.ts#L67) and
-  [useWorkspaceViews.ts:20](../src/features/shell/useWorkspaceViews.ts#L20) scope device views by
-  project/machine. Simultaneous detailed cross-project content needs explicit state ownership.
+- [immersiveArenaModel.ts:41](../src/features/shell/immersive/immersiveArenaModel.ts#L41) reuses the
+  canonical Arena/Inbox derivation with machine-qualified rows and six-item pages.
+- [ArenaTools.tsx:60](../src/features/shell/immersive/ArenaTools.tsx#L60) renders Active, Inbox, and
+  Archived summaries and their existing create/open/archive/restore/read actions in world space.
+- [ImmersiveWorkspace.tsx:259](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L259) owns the
+  fourth bounded panel; [AppShell.tsx:1243](../src/features/shell/AppShell.tsx#L1243) remains the
+  canonical machine-qualified navigation/action owner and supplies the existing Arena poll.
 
 ## Desired behavior
 
@@ -41,15 +41,15 @@ of work and let the user respond to another session without losing their place.
 
 ## Acceptance criteria
 
-- [ ] Arena/Inbox and session focus operate in one XR session across projects and machines.
-- [ ] Several summaries stay visible with bounded resources; inactive detailed views do not each
+- [x] Arena/Inbox and session focus operate in one XR session across projects and machines.
+- [x] Several summaries stay visible with bounded resources; inactive detailed views do not each
   acquire a full unbounded scene or another stream/poller.
-- [ ] A background permission can be inspected/answered and the original draft/view restored;
+- [x] A background permission can be inspected/answered and the original draft/view restored;
   completion stays quiet and machine/run/request identity is preserved under racing updates.
-- [ ] Create, archive/restore, Offline/reconnect, and failed actions preserve canonical behavior.
+- [x] Create, archive/restore, Offline/reconnect, and failed actions preserve canonical behavior.
 - [ ] Quest 3S testing with six session summaries and two active runs passes the established
   combined-scene budgets and a 30-minute work run without forced exits or lost context.
-- [ ] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including duplicate
+- [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including duplicate
   session IDs on distinct machines and stale cross-device approvals.
 
 ## Out of scope
@@ -67,4 +67,17 @@ from Story 51 with the surrounding Arena active; record Quest 3S metrics and int
 
 ## Verification record
 
-Pending the first single-session release and this story's implementation.
+September 20, 2026 — Story 51's Quest 3S gate was accepted by the user. Implementation started.
+
+The immersive shell now shows a fourth Arena panel with Active, Inbox, and Archived tabs. Browser
+coverage verifies machine-qualified duplicate session IDs, six-summary paging, exact background
+permission routing and return to an untouched draft in the same XR session, deliberate archive and
+restore, honest Offline behavior, non-overlapping four-panel interaction, and the unchanged
+5,592,405-logical-texel combined-scene ceiling. Workspace canvases retain mipmaps for stable text
+minification as panels move through their supported depth range; hidden resize labels and contextual
+actions no longer consume that budget, while repeated pager glyphs share one resource. A review
+follow-up also made the semantic Confirm archive action require the selected row's prior Archive
+step, matching the visible world control. The physical Story 52 Quest 3S run remains pending.
+
+Repository verification: `npm run lint` passed; `npm test` passed 69 files / 429 tests;
+`npm run build` passed; `npm run test:e2e` passed all 76 Chrome tests.

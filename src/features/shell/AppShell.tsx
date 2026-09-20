@@ -26,7 +26,7 @@ import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { Arena } from '@/features/arena/Arena';
-import { buildMultiMachineInbox, unreadArenaAttention } from '@/features/arena/arenaModel';
+import { buildMultiMachineInbox, unreadArenaAttention, type ArenaAttentionItem } from '@/features/arena/arenaModel';
 import { ARENA_SECTION_PATHS, arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
@@ -122,6 +122,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const cancellingRuns = useRef(new Set<string>());
   const [loading, setLoading] = useState(true);
   const [immersiveActive, setImmersiveActive] = useState(false);
+  const [immersiveReturnChoice, setImmersiveReturnChoice] = useState<ImmersiveSessionChoice>();
+  const [immersivePermissionRequest, setImmersivePermissionRequest] = useState<{ machineId: string; sessionId: string; key: string }>();
   const [runsBySession, setRunsBySession] = useState<Record<string, RunPresentation>>({});
   const [runOutcomesBySession, setRunOutcomesBySession] = useState<Record<string, SessionRunOutcome>>({});
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
@@ -1510,6 +1512,42 @@ export function AppShell({ children }: { children: ReactNode }) {
     setNotice(undefined);
     openArenaSession(targetMachine, target);
   };
+  const clearImmersiveAttentionRoute = () => {
+    setImmersiveReturnChoice(undefined);
+    setImmersivePermissionRequest(undefined);
+  };
+  const inspectImmersiveAttention = (item: ArenaAttentionItem) => {
+    if (item.kind !== 'permission' || !item.machineId || !item.runId || !item.requestId) return;
+    const targetMachine = arena.machines.find((entry) => entry.machine.id === item.machineId);
+    const targetSession = targetMachine?.sessions.find((entry) => entry.id === item.sessionId && entry.projectId === item.projectId);
+    const run = targetMachine?.runs.active.find((entry) => entry.runId === item.runId && entry.sessionId === item.sessionId);
+    const request = run?.pendingPermissions.find((entry) => entry.requestId === item.requestId);
+    if (!targetMachine || targetMachine.machine.state !== 'online' || !targetSession || !run || !request) {
+      setNotice('That permission request is no longer available. Refresh the Arena.');
+      void arena.refresh();
+      return;
+    }
+    const current = immersiveChoices.find((choice) => choice.machineId === (machineId || localMachineId)
+      && choice.sessionId === sessionId && choice.projectId === projectId);
+    if (current && (current.machineId !== item.machineId || current.sessionId !== item.sessionId || current.projectId !== item.projectId)) {
+      setImmersiveReturnChoice(current);
+    }
+    const target: PermissionTarget = {
+      ...request, machineId: item.machineId, sessionId: item.sessionId, runId: item.runId,
+      sessionTitle: targetSession.title, machineLabel: targetMachine.machine.label, agentLabel: 'Agent',
+    };
+    setImmersivePermissionRequest({ machineId: item.machineId, sessionId: item.sessionId, key: permissionKey(target) });
+    openImmersiveSession({
+      machineId: item.machineId, projectId: targetSession.projectId, sessionId: targetSession.id,
+      title: targetSession.title, updatedAt: targetSession.updatedAt,
+      detail: `${targetMachine.machine.label} · Needs you`,
+    });
+  };
+  const returnFromImmersiveAttention = () => {
+    const target = immersiveReturnChoice;
+    clearImmersiveAttentionRoute();
+    if (target) openImmersiveSession(target);
+  };
   const immersiveMachine = arena.machines.find((entry) => entry.machine.id === machineId);
   const immersiveStatus = loading ? 'Loading session…'
     : immersiveMachine && immersiveMachine.machine.state !== 'online' ? `${immersiveMachine.machine.label} is Offline`
@@ -1578,6 +1616,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               canCancel: Boolean(focusedRun?.runId),
               cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
               canRetry: Boolean(session?.messages.some((item) => item.role === 'user') && !sessionRunning),
+              requestedPermissionKey: immersivePermissionRequest
+                && immersivePermissionRequest.machineId === (machineId || localMachineId)
+                && immersivePermissionRequest.sessionId === sessionId ? immersivePermissionRequest.key : undefined,
               onCreate: ({ provider, ...options }) => createSession(provider, { ...options, fromArena: true }),
               onAttach: (checkoutId) => updateRepositories((current) => [
                 ...current.filter((item) => item.checkoutId !== checkoutId).map((item) => ({ ...item, role: 'reference' as const })),
@@ -1590,6 +1631,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 const message = session?.messages.findLast((item) => item.role === 'user');
                 if (message?.role === 'user') prefillHandoff(message.addressedParticipantId, message.text, message.mode);
               },
+              onReturn: immersiveReturnChoice ? returnFromImmersiveAttention : undefined,
               onRevoke: () => {
                 if (!deviceAccess.device) { setNotice('This browser is not a paired device.'); return; }
                 void fetch('/api/auth/devices', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
@@ -1599,6 +1641,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                   await refreshDeviceAccess();
                 }).catch(() => setNotice('Could not forget this device. Try again.'));
               },
+            }}
+            arenaControls={{
+              machines: arena.machines,
+              deviceState: arena.deviceState,
+              active: sessionId && (machineId || localMachineId) ? {
+                machineId: machineId || localMachineId!, projectId, sessionId,
+              } : undefined,
+              onOpen: (choice) => { clearImmersiveAttentionRoute(); openImmersiveSession(choice); },
+              onInspect: inspectImmersiveAttention,
+              onArchive: archiveArenaSession,
+              onRestore: restoreArenaSession,
+              onAcknowledge: arena.acknowledge,
+              onRefresh: arena.refresh,
             }}
             conversation={!loading && session ? {
               draft: composer,

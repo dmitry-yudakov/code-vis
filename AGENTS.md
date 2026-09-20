@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-19. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-20. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -24,10 +24,11 @@ Updated 2026-09-19. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 50](stories/STORY-20260905-vr-spatial-diagrams.md) — parser-backed
   spatial Mermaid diagrams and automated 30/45 plus 100/150 checks are implemented; physical Quest
   3S readability, comfort, and performance acceptance remain pending.
-- **Also in flight:** [Story 51](stories/STORY-20260905-vr-workspace-acceptance.md) — whole-session
-  frame/resource evidence is implemented; the controller-and-voice Quest 3S run remains pending.
-- **Next after headset acceptance:** [Story 52](stories/STORY-20260905-vr-arena-inbox.md) — add the
-  immersive multi-session Arena and Inbox without bypassing Story 51's physical gate.
+- **Shipped:** [Story 51](stories/STORY-20260905-vr-workspace-acceptance.md) — the user accepted the
+  controller-and-voice Quest 3S work journey on September 20, 2026.
+- **Also in flight:** [Story 52](stories/STORY-20260905-vr-arena-inbox.md) — the immersive Arena,
+  Inbox, cross-session permission return, and bounded automated checks are implemented; its own
+  Quest 3S multi-session run remains pending.
 - **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
   controller/visibility interruptions and retain device-local exit diagnostics.
 - **Also in flight:** [Story 56](stories/STORY-20260919-vr-report-from-headset.md) — reporting from

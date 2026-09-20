@@ -5,6 +5,7 @@ import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
 import type { ImmersiveLayout, PanelAction, PanelCommand, PanelEditing, PanelPlacement, WorkspacePanelId } from '@/features/shell/immersive/workspaceLayout';
 import type { ConversationAction, ImmersiveConversationControls } from '@/features/shell/immersive/conversationControls';
 import type { CanvasReviewAction, ImmersiveCanvasReviewControls } from '@/features/shell/immersive/canvasReviewControls';
+import type { ArenaAction, ImmersiveArenaControls } from '@/features/shell/immersive/arenaControls';
 
 export const MAX_IMMERSIVE_TEXTURE_PIXELS = 5_592_405;
 export const MAX_IMMERSIVE_TEXTURE_EDGE = 2_048;
@@ -60,6 +61,7 @@ export type ImmersiveSemanticAction =
   | SessionAction
   | ConversationAction
   | CanvasReviewAction
+  | ArenaAction
   | 'exit'
   | 'reset-workspace'
   | 'report'
@@ -98,6 +100,7 @@ export interface ImmersiveWorkspaceProps {
   conversation?: ImmersiveConversationControls;
   canvasReview?: ImmersiveCanvasReviewControls;
   sessionControls?: ImmersiveSessionControls;
+  arenaControls: ImmersiveArenaControls;
   viewKey: string;
   layout: ImmersiveLayout;
   editing?: PanelEditing;

@@ -144,10 +144,10 @@ topology—not Internet hosting, a team account, or a relay.
 [Story 45](stories/STORY-20260905-application-vr-shell.md) adds an application-level immersive shell.
 [Story 46](stories/STORY-20260905-vr-workspace-panels.md) adds movable panels and a read-only diff surface.
 [Story 49](stories/STORY-20260905-vr-review-and-annotations.md) adds checkout review, artifact
-comparison, canonical drawing, and marked attachments. Physical Quest 3S entry, navigation,
-readability, and comfort verification remain pending. The
+comparison, canonical drawing, and marked attachments. The user accepted the complete Story 51
+Quest 3S controller-and-voice journey on September 20, 2026. The
 [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) tracks the full work loop:
-movable panels, real 3D diagrams, controllers, and voice, followed later by the multi-session Arena.
+movable panels, real 3D diagrams, controllers, voice, and the multi-session Arena.
 
 Use a paired, exact `https://` `start:remote` origin whose certificate the headset trusts. On a
 supported browser, **Enter VR** appears in the application header, including in Arena, Inbox,
@@ -155,8 +155,9 @@ Flat, Spatial, and empty sessions. Plain LAN HTTP is not a WebXR secure context;
 `CODEAI_ALLOWED_DEV_ORIGINS` does not change that. To iterate with hot reload instead, see
 [Develop against a headset](#develop-against-a-headset).
 
-The workspace starts with Conversation on the right and Canvas in the center. Evidence (repository
-changes) is hidden by default and opens on the left. The conversation header identifies the session,
+The workspace starts with Arena at the far left, Evidence hidden at the inner left, Canvas at the
+inner right, and Conversation at the far right. The four non-overlapping positions migrate only
+untouched older defaults; deliberate placements remain unchanged. The conversation header identifies the session,
 project, and machine. History and Agents sit at its upper right. History replaces the chat with a
 scrollable conversation list, newest first, with relative update times. Load more at the end reveals
 the next 20 conversations. Back at the upper left restores your chat reading position.
@@ -201,8 +202,14 @@ existing checkout as primary here before sending an agent instruction.
 The card retains its result, and **Next request** deliberately selects another request. If delivery
 fails, **Refresh status** checks current state before another explicit attempt. **Retry instruction**
 copies the last instruction into the draft for review before Send. **Forget this device** requires
-a second selection and returns a paired headset to the existing pairing gate. Quest 3S acceptance
-of this work loop remains pending.
+a second selection and returns a paired headset to the existing pairing gate.
+
+The Arena panel reuses the shell's single Arena poll and presents Active, Inbox, and Archived views
+six summaries at a time. Session identity is machine-qualified, Offline entries cannot be opened,
+and archive requires confirmation. New opens the existing launcher. Inspecting a background
+permission opens its exact machine/session/run/request card; Return restores the prior session and
+its untouched draft without ending XR. Story 52's automated multi-machine checks pass; its own
+six-summary, two-run Quest 3S acceptance journey remains pending.
 
 The Canvas panel can compare two diagrams or sketches under the shared texture budget. Pen,
 rectangle, arrow, eraser, undo/redo, deliberate two-step clear, and text labels use the same durable

@@ -14,6 +14,7 @@ import { CONVERSATION_ACTIONS } from './conversationControls';
 import { CONVERSATION_LIST_BATCH_SIZE, sortConversationChoices } from './conversationListModel';
 import { CANVAS_REVIEW_ACTIONS } from './canvasReviewControls';
 import { loadImmersiveFonts } from './immersiveTheme';
+import { ARENA_ACTIONS } from './arenaControls';
 
 const ImmersiveRenderer = dynamic(() => {
   if (window.__CODEAI_XR_TEST__?.failXRImport) return Promise.reject(new Error('Injected immersive bundle failure.'));
@@ -50,7 +51,7 @@ class RendererBoundary extends Component<{ children: ReactNode; onError(message:
   render() { return this.state.failed ? null : this.props.children; }
 }
 
-type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'canvasReview' | 'sessionControls' | 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession'> & {
+type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'canvasReview' | 'sessionControls' | 'arenaControls' | 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession'> & {
   authorized: boolean;
   onSelectCanvas(id: string): void;
   onActiveChange(active: boolean): void;
@@ -136,6 +137,8 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
         data-immersive-action={`session:${action}`} onClick={() => controller?.perform(`session:${action}` as ImmersiveSemanticAction)}>Session: {label}</button>)}
       {Object.entries(CANVAS_REVIEW_ACTIONS).map(([action, label]) => <button key={action} type="button"
         data-immersive-action={`canvas:${action}`} onClick={() => controller?.perform(`canvas:${action}` as ImmersiveSemanticAction)}>Canvas: {label}</button>)}
+      {Object.entries(ARENA_ACTIONS).map(([action, label]) => <button key={action} type="button"
+        data-immersive-action={`arena:${action}`} onClick={() => controller?.perform(`arena:${action}` as ImmersiveSemanticAction)}>Arena: {label}</button>)}
       {ACTIONS.map(([action, label]) => <button key={action} type="button" data-immersive-action={action}
         disabled={(action === 'older' && scroll.offset <= 0) || (action === 'newer' && scroll.atBottom)}
         onClick={() => controller?.perform(action)}>{label}</button>)}

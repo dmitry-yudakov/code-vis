@@ -30,9 +30,13 @@ import { immersiveTheme } from './immersiveTheme';
 import { captureImmersiveFrame } from './immersiveCapture';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { sendImmersiveReport } from './immersiveReport';
+import { ArenaTools } from './ArenaTools';
+import type { ArenaActionName } from './arenaControls';
 
 const UikitConversationSpike = dynamic(() => import('./UikitConversationSpike')
   .then((module) => module.UikitConversationSpike), { ssr: false, loading: () => null });
+
+const VISIBLE_IMMERSIVE_ACTIONS = ['exit', 'reset-workspace', 'report', 'refresh-evidence', 'larger', 'smaller'] as const;
 
 function middleTruncate(value: string, limit = 46): string {
   if (value.length <= limit) return value;
@@ -58,7 +62,7 @@ function EvidenceSurface({ evidence, pages, page, theme }: {
 
 export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionController(perform?: (action: ImmersiveSemanticAction) => void): void }) {
   const {
-    session, theme, activeTarget, preview, runStatus, pendingApprovals, unread, choices,
+    session, theme, activeTarget, preview, runStatus, pendingApprovals, unread, choices, arenaControls,
     workspaceStatus, onOpenSession, onConversationScroll,
     onPreviousCanvas, onNextCanvas, onExit, onActionController, layout, editing,
     onPanelAction, onPanelPlacement, onResetWorkspace, evidence, viewKey,
@@ -79,6 +83,9 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   const [sessionToolsOpen, setSessionToolsOpen] = useState(false);
   const sessionAction = useRef<((action: SessionActionName) => void) | undefined>(undefined);
   const setSessionController = useCallback((perform?: (action: SessionActionName) => void) => { sessionAction.current = perform; }, []);
+  const [sessionToolRequest, setSessionToolRequest] = useState<{ tab: 'launcher' | 'permissions'; key: string }>();
+  const arenaAction = useRef<((action: ArenaActionName) => void) | undefined>(undefined);
+  const setArenaController = useCallback((perform?: (action: ArenaActionName) => void) => { arenaAction.current = perform; }, []);
   const [listOpen, setListOpen] = useState(!session);
   const listController = useRef<ConversationListController | undefined>(undefined);
   const setListController = useCallback((controller?: ConversationListController) => { listController.current = controller; }, []);
@@ -93,6 +100,12 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   }, [onConversationScroll]);
   const activeChoice = choices.find((choice) => choice.sessionId === session?.id && (!session.machineId || choice.machineId === session.machineId));
   useEffect(() => { setConversationTab('read'); setListOpen(!session); setSessionToolsOpen(false); }, [viewKey, session?.id]);
+  useEffect(() => {
+    const key = props.sessionControls?.requestedPermissionKey;
+    if (!key) return;
+    setListOpen(false); setSessionToolsOpen(true); setSessionToolRequest({ tab: 'permissions', key });
+    onPanelAction('conversation', 'open');
+  }, [props.sessionControls?.requestedPermissionKey, onPanelAction, viewKey, session?.id]);
   const pages = useMemo(() => evidencePages(evidence.diff), [evidence.diff]);
   const page = Math.min(evidencePage, pages.length - 1);
   const files = evidence.tree?.files || [];
@@ -105,9 +118,9 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   const needsRecenter = useRef(true);
   const reportRequested = useRef(false);
   const reportNotice = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const controls = useTextureResource((ledger) => Object.fromEntries(Object.entries(IMMERSIVE_ACTION_LABELS).map(([action, label]) =>
+  const controls = useTextureResource((ledger) => Object.fromEntries(VISIBLE_IMMERSIVE_ACTIONS.map((action) =>
     [action, isWorkspaceIconAction(action) ? createWorkspaceIconResource(action, theme, ledger)
-      : createWorkspaceButtonResource(label, theme, ledger)])), [theme]);
+      : createWorkspaceButtonResource(IMMERSIVE_ACTION_LABELS[action], theme, ledger)])), [theme]);
   const panelControls = useTextureResource((ledger) => createPanelControlResources(theme, ledger), [theme]);
   const headerControls = useTextureResource((ledger) => ({
     tools: createWorkspaceIconResource('session:tools', theme, ledger),
@@ -204,6 +217,10 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
       if (contentEnabled('canvas')) canvasReview.current?.perform(action.slice('canvas:'.length) as CanvasReviewActionName);
       return;
     }
+    if (action.startsWith('arena:')) {
+      if (contentEnabled('arena')) arenaAction.current?.(action.slice('arena:'.length) as ArenaActionName);
+      return;
+    }
     if (action === 'exit') onExit();
     else if (action === 'reset-workspace') { onResetWorkspace(); setDiagramScale(1); recenter(); }
     else if (action === 'report') reportRequested.current = true;
@@ -243,28 +260,37 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     <group ref={contentOrigin} name="Workspace origin">
       {PANEL_IDS.filter((id) => layout.panels[id].open).map((id) => <WorkspacePanel key={`${viewKey}:${id}`}
         id={id} layout={layout.panels[id]} focused={layout.focused === id} editing={editing}
-        heading={id === 'conversation' ? sessionToolsOpen ? 'Session tools' : listOpen ? 'Conversations' : session?.title || 'Conversation'
+        heading={id === 'arena' ? 'Arena'
+          : id === 'conversation' ? sessionToolsOpen ? 'Session tools' : listOpen ? 'Conversations' : session?.title || 'Conversation'
           : id === 'canvas' ? activeTarget ? activeTarget.kind === 'diagram' ? `Diagram ${activeTarget.artifact.ordinal}` : `Sketch ${activeTarget.sketch.ordinal}` : 'Canvas'
             : middleTruncate(evidence.selectedPath || evidence.checkoutName || 'Repository changes')}
         headerBack={id === 'conversation' && listOpen}
-        detail={id === 'conversation' ? listOpen ? 'Newest first' : activeChoice?.detail || props.conversation?.target
+        detail={id === 'arena' ? `${arenaControls.machines.length} machine${arenaControls.machines.length === 1 ? '' : 's'} · shared live overview`
+          : id === 'conversation' ? listOpen ? 'Newest first' : activeChoice?.detail || props.conversation?.target
           : id === 'canvas' ? activeTarget ? 'Hold trigger to draw' : 'Create or attach a canvas'
             : `${evidence.checkoutName || 'No repository'} · ${evidence.machineLabel}`}
-        theme={theme} controls={panelControls} perform={perform} onPlacement={onPanelPlacement}>
+        theme={theme} controls={panelControls} nameResource={toolLabels?.[id]} perform={perform} onPlacement={onPanelPlacement}>
+        {id === 'arena' && <ArenaTools controls={arenaControls} theme={theme} enabled={contentEnabled('arena')}
+          focused={layout.focused === 'arena'} pagerIcons={panelControls?.pager} onController={setArenaController}
+          onNewSession={() => {
+            const key = `${Date.now()}`;
+            setListOpen(false); setSessionToolsOpen(true); setSessionToolRequest({ tab: 'launcher', key });
+            onPanelAction('conversation', 'open');
+          }} />}
         {id === 'canvas' && <>
           <CanvasReviewTools key={activeTarget ? `${activeTarget.kind}:${activeTarget.kind === 'diagram' ? activeTarget.artifact.id : activeTarget.sketch.id}` : 'empty'}
             activeTarget={activeTarget} session={session} theme={theme} scale={diagramScale}
             enabled={contentEnabled('canvas')} controls={props.canvasReview} onController={setCanvasReviewController} />
           <WorkspacePager label={`${canvasIndex + 1} of ${Math.max(1, canvasTargets.length)}`}
             previousAction="previous-canvas" nextAction="next-canvas" previousLabel="Previous canvas" nextLabel="Next canvas"
-            position={[-0.25, -0.78, 0]} theme={theme} previousDisabled={canvasTargets.length < 2} nextDisabled={canvasTargets.length < 2} onAction={perform} />
+            position={[-0.25, -0.78, 0]} theme={theme} icons={panelControls?.pager} previousDisabled={canvasTargets.length < 2} nextDisabled={canvasTargets.length < 2} onAction={perform} />
           {button('smaller', [0.38, -0.78, 0], diagramScale <= 0.7)}{button('larger', [0.55, -0.78, 0], diagramScale >= 1.3)}
         </>}
         {id === 'conversation' && <>
           <WorldButton action="session:tools" label="Session tools" resource={headerControls?.tools} iconTheme={theme}
             position={[0.20, 0.81, 0]} selected={sessionToolsOpen} disabled={voicePending || !contentEnabled('conversation')}
             onAction={() => perform('session:tools')} />
-          {sessionToolsOpen && props.sessionControls && <SessionTools controls={props.sessionControls} theme={theme}
+          {sessionToolsOpen && props.sessionControls && <SessionTools controls={props.sessionControls} theme={theme} request={sessionToolRequest}
             enabled={contentEnabled('conversation')} onController={setSessionController} />}
           <WorldButton action="conversation:list" label="Conversation history" resource={headerControls?.history} iconTheme={theme}
             position={[0.38, 0.81, 0]} selected={listOpen} disabled={voicePending || !contentEnabled('conversation')}
@@ -300,13 +326,13 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
           <EvidenceSurface evidence={evidence} pages={pages} page={page} theme={theme} />
           {evidence.checkouts.length > 1 && <WorkspacePager label={`Repository ${checkoutIndex + 1} of ${evidence.checkouts.length}`}
             previousAction="previous-checkout" nextAction="next-checkout" previousLabel="Previous repository" nextLabel="Next repository"
-            position={[-0.27, -0.58, 0]} theme={theme} onAction={perform} />}
+            position={[-0.27, -0.58, 0]} theme={theme} icons={panelControls?.pager} onAction={perform} />}
           <WorkspacePager label={`File ${fileIndex + 1} of ${Math.max(1, files.length)}`}
             previousAction="previous-file" nextAction="next-file" previousLabel="Previous file" nextLabel="Next file"
-            position={[-0.36, -0.78, 0]} theme={theme} previousDisabled={!files.length} nextDisabled={!files.length} onAction={perform} />
+            position={[-0.36, -0.78, 0]} theme={theme} icons={panelControls?.pager} previousDisabled={!files.length} nextDisabled={!files.length} onAction={perform} />
           <WorkspacePager label={`Page ${page + 1} of ${pages.length}`}
             previousAction="previous-evidence" nextAction="next-evidence" previousLabel="Previous page" nextLabel="Next page"
-            position={[0.30, -0.78, 0]} theme={theme} previousDisabled={page === 0} nextDisabled={page >= pages.length - 1} onAction={perform} />
+            position={[0.30, -0.78, 0]} theme={theme} icons={panelControls?.pager} previousDisabled={page === 0} nextDisabled={page >= pages.length - 1} onAction={perform} />
           {button('refresh-evidence', [0.56, 0.81, 0])}
         </>}
       </WorkspacePanel>)}
@@ -315,11 +341,11 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
           position={[0, 0.24, 0]} userData={{ detail: statusDetail }} />}
         {recoveryChrome && <mesh name="Workspace control pill" geometry={recoveryChrome.geometry} material={recoveryChrome.material}
           position-z={-0.001} renderOrder={10} pointerEvents="none" raycast={() => undefined} />}
-        {PANEL_IDS.map((id, index) => <group key={id} position={([[-0.77, 0, 0], [-0.47, 0, 0], [-0.17, 0, 0]] as [number, number, number][])[index]} >
+        {PANEL_IDS.map((id, index) => <group key={id} position={([[-0.82, 0, 0], [-0.58, 0, 0], [-0.34, 0, 0], [-0.10, 0, 0]] as [number, number, number][])[index]} >
           <WorldButton action={`panel:${id}:toggle`} label={`${layout.panels[id].open ? 'Hide' : 'Show'} ${PANEL_TITLES[id]}`} resource={toolLabels?.[id]}
             selected={layout.panels[id].open} iconTheme={theme} position={[0, 0, 0]} onAction={() => perform(`panel:${id}:toggle`)} />
         </group>)}
-        {button('reset-workspace', [0.13, 0, 0.01])}{button('report', [0.43, 0, 0.01])}
+        {button('reset-workspace', [0.18, 0, 0.01])}{button('report', [0.45, 0, 0.01])}
         {button('exit', [0.73, 0, 0.01], false, 'destructive')}
       </group>
     </group>

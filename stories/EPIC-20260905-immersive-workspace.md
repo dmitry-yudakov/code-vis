@@ -1,6 +1,6 @@
 # EPIC — Use CodeAI as an immersive workspace
 
-**Status:** In progress · **Updated:** September 19, 2026 · **Owns:** the full VR presentation and working
+**Status:** In progress · **Updated:** September 20, 2026 · **Owns:** the full VR presentation and working
 journey across the Arena and sessions, under [vision.md step 9](../docs/vision.md#sequence).
 The [software-model epic](EPIC-20260705-north-star-roadmap.md) continues to own model identity,
 provenance, lenses, and the change loop. [Vocabulary](../docs/vocabulary.md) remains authoritative:
@@ -123,10 +123,11 @@ acceptance remains pending. Story 49 is in progress with automated repository re
 comparison, annotation, and marked-attachment checks complete; physical acceptance remains pending.
 Story 50 is in progress with parser-backed spatial flowcharts, bounded detail, 2D fallback, and
 automated interaction/resource checks complete; physical Quest 3S acceptance remains pending.
-Story 51 is in progress with whole-session frame/resource evidence implemented; its physical Quest
-3S work journey remains pending. Story 56 is in progress with the in-headset report action, automatic
+Story 51 shipped after the user accepted the physical Quest 3S work journey on September 20, 2026.
+Story 56 is in progress with the in-headset report action, automatic
 error forwarding, and the home-machine report store implemented; its Quest run remains pending.
-Story 52 remains a Draft.
+Story 52 is in progress with its immersive Arena/Inbox, exact cross-session permission return, and
+automated resource/navigation checks implemented; its multi-session Quest 3S run remains pending.
 Existing Stories 43–44 remain useful foundations and retain their own status.
 
 | Story | Outcome | Depends on |
@@ -141,7 +142,8 @@ Existing Stories 43–44 remain useful foundations and retain their own status.
 | [52 — Add the Arena and Inbox](STORY-20260905-vr-arena-inbox.md) | Several visible sessions and cross-session attention in VR | 51 |
 | [56 — Report a VR problem from the headset](STORY-20260919-vr-report-from-headset.md) | A captured view, diagnostics, and error text reach the home machine | 45, 51 |
 
-The first usable release is **45–51**, including real spatial diagrams and voice. **52 is later.**
+The first usable release is **45–51**, including real spatial diagrams and voice. Story 52 is the
+in-progress second milestone.
 Story 45 alone remains a foundation; it must not be announced as a fully usable VR workspace.
 Story 50 adds real spatial diagrams without waiting for persistent code entities.
 Model-native lenses/provenance arrive through reserved roadmap Stories 12–13 and reuse this shell;
@@ -149,19 +151,19 @@ they are not prerequisites for chatting in VR.
 
 ## Acceptance criteria
 
-- [ ] Supported devices enter immersive VR from the Arena, Flat, Spatial, and empty sessions, with
+- [x] Supported devices enter immersive VR from the Arena, Flat, Spatial, and empty sessions, with
   no diagram prerequisite; normal in-app navigation preserves one XR session.
-- [ ] The complete six-step work session above succeeds on Quest 3S with controllers and voice,
+- [x] The complete six-step work session above succeeds on Quest 3S with controllers and voice,
   movable panels, and real 3D diagrams, without a required physical or virtual keyboard.
-- [ ] Conversation, canvas, evidence, navigation, and attention can be arranged for seated use;
+- [x] Conversation, canvas, evidence, navigation, and attention can be arranged for seated use;
   all essential actions work through the chosen input baseline and remain readable.
-- [ ] No command changes target because focus moved; approval conflicts, revocation, and offline
+- [x] No command changes target because focus moved; approval conflicts, revocation, and offline
   executors have explicit outcomes using the existing server authorization boundary.
-- [ ] Device layout and desktop return preserve context without persisting tracking or duplicating
+- [x] Device layout and desktop return preserve context without persisting tracking or duplicating
   canonical records; content failures leave navigation and Exit usable.
 - [x] The user confirms Quest 3S, one complete session first, panels plus real 3D diagrams,
   controllers plus voice, optional physical keyboard, and later hand tracking/virtual keyboard.
-- [ ] Story 51 records physical-headset work, comfort, recovery, and resource evidence; applicable
+- [x] Story 51 records physical-headset work, comfort, recovery, and resource evidence; applicable
   child stories pass their automated checks. No synthetic test result substitutes for headset use.
 - [ ] The later Story 52 delivers and verifies the multi-session Arena and Inbox without regressing
   the accepted first-release work loop; this does not gate the single-session release.

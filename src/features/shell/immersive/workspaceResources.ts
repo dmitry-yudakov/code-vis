@@ -1,4 +1,3 @@
-import { PANEL_COMMAND_LABELS, type PanelCommand } from './workspaceLayout';
 import type { ImmersiveTexturePanel } from '@/features/diagram/spatial/immersiveResources';
 import type { ThemeName } from '@/shared/design/tokens';
 import { texturePanel } from '@/features/diagram/spatial/immersiveResources';
@@ -91,15 +90,24 @@ export function createConversationTextResource(title: string, lines: readonly st
 }
 
 export interface PanelControlResources {
-  buttons: Record<PanelCommand, ImmersiveTexturePanel>;
+  buttons: Record<'drag' | 'resize' | 'close', ImmersiveTexturePanel>;
+  pager: {
+    previous: ImmersiveTexturePanel;
+    next: ImmersiveTexturePanel;
+  };
 }
 
 export function createPanelControlResources(theme: ThemeName, ledger: SpatialResourceLedger): PanelControlResources {
   return {
-    buttons: Object.fromEntries(Object.entries(PANEL_COMMAND_LABELS).map(([command, label]) =>
-      [command, command === 'drag' || command === 'resize' || command === 'close'
-        ? createWorkspaceIconResource(`panel:${command}`, theme, ledger)
-        : createWorkspaceButtonResource(label, theme, ledger)])) as Record<PanelCommand, ImmersiveTexturePanel>,
+    buttons: {
+      drag: createWorkspaceIconResource('panel:drag', theme, ledger),
+      resize: createWorkspaceIconResource('panel:resize', theme, ledger),
+      close: createWorkspaceIconResource('panel:close', theme, ledger),
+    },
+    pager: {
+      previous: createWorkspaceIconResource('pager:previous', theme, ledger),
+      next: createWorkspaceIconResource('pager:next', theme, ledger),
+    },
   };
 }
 

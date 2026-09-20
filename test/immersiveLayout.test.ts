@@ -16,7 +16,7 @@ describe('immersive device layout', () => {
     const remote = immersiveViewKey('remote', 'project', 'session');
     let layout = placeImmersivePanel(defaultImmersiveLayout(), 'canvas', { angle: 12.5, height: 0.1, distance: 3 });
     layout = updateImmersivePanel(layout, 'conversation', 'close');
-    const parsed = parseImmersiveLayouts(JSON.stringify({ version: 4, views: { [key]: { ...layout, tracking: [1, 2, 3] } } }));
+    const parsed = parseImmersiveLayouts(JSON.stringify({ version: 5, views: { [key]: { ...layout, tracking: [1, 2, 3] } } }));
     expect(parsed.views[key]).toEqual(layout);
     expect(parsed.views[remote]).toBeUndefined();
     expect(JSON.stringify(parsed)).not.toContain('tracking');
@@ -26,21 +26,23 @@ describe('immersive device layout', () => {
 
   it('migrates old slot placements and continuous scales to angles and the nearest preset', () => {
     const key = immersiveViewKey('home', 'project', 'session');
-    const legacy = { focused: 'evidence', panels: Object.fromEntries(PANEL_IDS.map((id, index) => [id,
+    const legacyIds = ['conversation', 'canvas', 'evidence'] as const;
+    const legacy = { focused: 'evidence', panels: Object.fromEntries(legacyIds.map((id, index) => [id,
       { slot: 3 - index, height: 0.1, distance: 3, scale: 0.85, open: true },
     ])) };
     const parsed = parseImmersiveLayouts(JSON.stringify({ version: 1, views: { [key]: legacy } }));
-    expect(parsed.version).toBe(4);
+    expect(parsed.version).toBe(5);
     expect(parsed.views[key].focused).toBeUndefined();
-    for (const [index, id] of PANEL_IDS.entries()) expect(parsed.views[key].panels[id]).toEqual({
+    for (const [index, id] of legacyIds.entries()) expect(parsed.views[key].panels[id]).toEqual({
       angle: [-57, -19, 19, 57][3 - index], height: 0.1, distance: 3, size: 'small', open: id !== 'evidence',
     });
+    expect(parsed.views[key].panels.arena).toEqual(defaultImmersiveLayout().panels.arena);
     legacy.panels.canvas.slot = legacy.panels.evidence.slot;
     expect(parseImmersiveLayout(legacy, 1)).toEqual(defaultImmersiveLayout());
   });
 
   it('recovers missing, corrupt, future-version and non-finite layouts and clamps saved placement', () => {
-    for (const raw of [null, '{broken', '{"version":5,"views":{}}', 'null']) expect(parseImmersiveLayouts(raw)).toEqual({ version: 4, views: {} });
+    for (const raw of [null, '{broken', '{"version":6,"views":{}}', 'null']) expect(parseImmersiveLayouts(raw)).toEqual({ version: 5, views: {} });
     const invalid = defaultImmersiveLayout();
     invalid.panels.canvas.angle = NaN;
     expect(parseImmersiveLayout(invalid)).toEqual(defaultImmersiveLayout());
@@ -54,7 +56,7 @@ describe('immersive device layout', () => {
 
   it('moves old defaults to chat-right/canvas-center and hides changes while retaining deliberate placement', () => {
     const key = immersiveViewKey('home', 'project', 'session');
-    const legacy = { focused: 'canvas', panels: Object.fromEntries(['sessions', ...PANEL_IDS].map((id, slot) => [id,
+    const legacy = { focused: 'canvas', panels: Object.fromEntries(['sessions', 'conversation', 'canvas', 'evidence'].map((id, slot) => [id,
       { angle: [-57, -19, 19, 57][slot], slot, scale: 1, height: 0, distance: 2.6, size: 'medium', open: true },
     ])) };
     const read = () => parseImmersiveLayouts(JSON.stringify({ version: 2, views: { [key]: legacy } })).views[key];
@@ -62,10 +64,10 @@ describe('immersive device layout', () => {
     expect(parseImmersiveLayouts(JSON.stringify({ version: 1, views: { [key]: legacy } })).views[key]).toEqual(defaultImmersiveLayout());
     legacy.panels.conversation.angle = -44;
     expect(read().panels.conversation.angle).toBe(-44);
-    expect(read().panels.canvas.angle).toBe(0);
+    expect(read().panels.canvas.angle).toBe(18);
     expect(read().panels.evidence.open).toBe(false);
     const opened = updateImmersivePanel(read(), 'evidence', 'open');
-    expect(parseImmersiveLayouts(JSON.stringify({ version: 4, views: { [key]: opened } })).views[key].panels.evidence.open).toBe(true);
+    expect(parseImmersiveLayouts(JSON.stringify({ version: 5, views: { [key]: opened } })).views[key].panels.evidence.open).toBe(true);
   });
 
   it('migrates version 3 default positions while preserving moved panels and visibility choices', () => {
@@ -74,15 +76,28 @@ describe('immersive device layout', () => {
     previous.panels.conversation.angle = -36;
     previous.panels.evidence.angle = 36;
     const read = () => parseImmersiveLayouts(JSON.stringify({ version: 3, views: { [key]: previous } }));
-    expect(read()).toEqual({ version: 4, views: { [key]: defaultImmersiveLayout() } });
+    expect(read()).toEqual({ version: 5, views: { [key]: defaultImmersiveLayout() } });
     previous.panels.conversation.height = 0.1;
     previous.panels.evidence.open = true;
     expect(read().views[key].panels.conversation).toEqual(previous.panels.conversation);
-    expect(read().views[key].panels.evidence).toEqual({ ...previous.panels.evidence, angle: -36 });
+    expect(read().views[key].panels.evidence).toEqual({ ...previous.panels.evidence, angle: -18 });
     previous.panels.conversation.height = 0;
     previous.panels.conversation.angle = -44;
     expect(read().views[key].panels.conversation.angle).toBe(-44);
-    expect(PANEL_ANGLES).toEqual([36, 0, -36]);
+    expect(PANEL_ANGLES).toEqual([-54, 54, 18, -18]);
+  });
+
+  it('moves untouched version 4 panels into four non-overlapping positions', () => {
+    const key = immersiveViewKey('home', 'project', 'session');
+    const previous = defaultImmersiveLayout();
+    previous.panels.conversation.angle = 36;
+    previous.panels.canvas.angle = 0;
+    previous.panels.evidence.angle = -36;
+    const parsed = parseImmersiveLayouts(JSON.stringify({ version: 4, views: { [key]: previous } }));
+    expect(parsed.views[key]).toEqual(defaultImmersiveLayout());
+    previous.panels.evidence.height = 0.1;
+    expect(parseImmersiveLayouts(JSON.stringify({ version: 4, views: { [key]: previous } }))
+      .views[key].panels.evidence.angle).toBe(-36);
   });
 
   it('toggles open panels closed and closed panels open without losing their placement', () => {

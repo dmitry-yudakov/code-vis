@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MAX_IMMERSIVE_TEXTURE_EDGE, type ImmersiveSemanticAction } from './immersiveTypes';
 import { SpatialResourceLedger } from './resourceLedger';
 
-export type ImmersiveAction = Exclude<ImmersiveSemanticAction, `panel:${string}` | `conversation:${string}` | `session:${string}` | `canvas:${string}`>;
+export type ImmersiveAction = Exclude<ImmersiveSemanticAction, `panel:${string}` | `conversation:${string}` | `session:${string}` | `canvas:${string}` | `arena:${string}`>;
 
 export const IMMERSIVE_ACTION_LABELS: Readonly<Record<ImmersiveAction, string>> = {
   exit: 'Exit VR',

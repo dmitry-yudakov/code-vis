@@ -1,9 +1,9 @@
 /** Disposable device presentation only: positions are relative to a resettable workspace origin. */
 export const IMMERSIVE_LAYOUT_KEY = 'code-ai:device:v1:immersive-layout';
-export const PANEL_IDS = ['conversation', 'canvas', 'evidence'] as const;
+export const PANEL_IDS = ['arena', 'conversation', 'canvas', 'evidence'] as const;
 export type WorkspacePanelId = typeof PANEL_IDS[number];
 export const PANEL_TITLES: Record<WorkspacePanelId, string> = {
-  conversation: 'Conversation', canvas: 'Canvas', evidence: 'Evidence',
+  arena: 'Arena', conversation: 'Conversation', canvas: 'Canvas', evidence: 'Evidence',
 };
 export const PANEL_COMMAND_LABELS = {
   open: 'Open', toggle: 'Toggle', focus: 'Focus', drag: 'Drag to move', resize: 'Size', close: 'Close',
@@ -11,8 +11,10 @@ export const PANEL_COMMAND_LABELS = {
 } as const;
 export type PanelCommand = keyof typeof PANEL_COMMAND_LABELS;
 export type PanelAction = `panel:${WorkspacePanelId}:${PanelCommand}`;
-export const PANEL_ANGLES = [36, 0, -36] as const;
+export const PANEL_ANGLES = [-54, 54, 18, -18] as const;
 const VERSION_3_PANEL_ANGLES = [-36, 0, 36] as const;
+const VERSION_4_PANEL_IDS = ['conversation', 'canvas', 'evidence'] as const;
+const VERSION_4_PANEL_ANGLES = [36, 0, -36] as const;
 const LEGACY_PANEL_IDS = ['sessions', 'conversation', 'canvas', 'evidence'] as const;
 const LEGACY_PANEL_ANGLES = [-57, -19, 19, 57] as const;
 export const PANEL_BOUNDS = { angle: [-65, 65], distance: [2, 4.5], height: [-0.3, 0.5] } as const;
@@ -33,7 +35,7 @@ export interface ImmersiveLayout {
   panels: Record<WorkspacePanelId, WorkspacePanelLayout>;
   focused?: WorkspacePanelId;
 }
-export interface ImmersiveLayouts { version: 4; views: Record<string, ImmersiveLayout> }
+export interface ImmersiveLayouts { version: 5; views: Record<string, ImmersiveLayout> }
 export interface PanelEditing { id: WorkspacePanelId; mode: 'drag' | 'resize' }
 export type PanelPlacement = Pick<WorkspacePanelLayout, 'angle' | 'height' | 'distance'>;
 
@@ -54,11 +56,12 @@ const clamp = (value: number, bounds: readonly [number, number]) => Math.max(bou
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
-export function parseImmersiveLayout(value: unknown, version = 4): ImmersiveLayout {
+export function parseImmersiveLayout(value: unknown, version = 5): ImmersiveLayout {
   const fallback = defaultImmersiveLayout();
   if (!record(value) || !record(value.panels)) return fallback;
   const slots = new Set<number>();
   for (const id of PANEL_IDS) {
+    if (version < 5 && id === 'arena') continue;
     const panel = value.panels[id];
     if (!record(panel) || !finite(panel.height) || !finite(panel.distance) || typeof panel.open !== 'boolean') return defaultImmersiveLayout();
     let angle: number;
@@ -80,9 +83,10 @@ export function parseImmersiveLayout(value: unknown, version = 4): ImmersiveLayo
       angle: clamp(angle, PANEL_BOUNDS.angle), height: clamp(panel.height, PANEL_BOUNDS.height),
       distance: clamp(panel.distance, PANEL_BOUNDS.distance), size, open: panel.open,
     };
-    if (version < 4) {
-      const originalAngle = version < 3 ? LEGACY_PANEL_ANGLES[LEGACY_PANEL_IDS.indexOf(id)]
-        : VERSION_3_PANEL_ANGLES[PANEL_IDS.indexOf(id)];
+    if (version < 5) {
+      const originalAngle = version < 3 ? LEGACY_PANEL_ANGLES[LEGACY_PANEL_IDS.indexOf(id as typeof LEGACY_PANEL_IDS[number])]
+        : version === 3 ? VERSION_3_PANEL_ANGLES[VERSION_4_PANEL_IDS.indexOf(id as typeof VERSION_4_PANEL_IDS[number])]
+          : VERSION_4_PANEL_ANGLES[VERSION_4_PANEL_IDS.indexOf(id as typeof VERSION_4_PANEL_IDS[number])];
       if (angle === originalAngle && panel.height === 0 && panel.distance === 2.6 && size === 'medium') {
         fallback.panels[id].angle = PANEL_ANGLES[PANEL_IDS.indexOf(id)];
       }
@@ -95,13 +99,13 @@ export function parseImmersiveLayout(value: unknown, version = 4): ImmersiveLayo
 }
 
 export function parseImmersiveLayouts(raw: string | null): ImmersiveLayouts {
-  const empty: ImmersiveLayouts = { version: 4, views: {} };
+  const empty: ImmersiveLayouts = { version: 5, views: {} };
   if (!raw || raw.length > 250_000) return empty;
   try {
     const value: unknown = JSON.parse(raw);
-    if (!record(value) || ![1, 2, 3, 4].includes(value.version as number) || !record(value.views)) return empty;
+    if (!record(value) || ![1, 2, 3, 4, 5].includes(value.version as number) || !record(value.views)) return empty;
     const version = value.version;
-    return { version: 4, views: Object.fromEntries(Object.entries(value.views)
+    return { version: 5, views: Object.fromEntries(Object.entries(value.views)
       .filter(([key]) => key.startsWith('[') && key.length <= 512).slice(-MAX_IMMERSIVE_LAYOUTS)
       .map(([key, layout]) => [key, parseImmersiveLayout(layout, version as number)])) };
   } catch { return empty; }

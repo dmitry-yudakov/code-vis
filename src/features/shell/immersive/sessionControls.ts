@@ -42,12 +42,14 @@ export interface ImmersiveSessionControls {
   canCancel: boolean;
   cancelKey?: string;
   canRetry: boolean;
+  requestedPermissionKey?: string;
   onCreate(input: SessionCreation): Promise<boolean>;
   onAttach(checkoutId: string): Promise<void>;
   onDecide(target: PermissionTarget, decision: 'allow' | 'deny'): void;
   onRefresh(): void;
   onCancel(): void;
   onRetry(): void;
+  onReturn?(): void;
   onRevoke(): void;
 }
 
@@ -56,7 +58,7 @@ export const SESSION_ACTIONS = {
   provider: 'Provider', mode: 'Mode', create: 'Create session',
   checkout: 'Repository', attach: 'Attach primary', permissions: 'Permissions',
   previous: 'Previous request', next: 'Next request', older: 'Previous details', newer: 'More details',
-  allow: 'Allow', deny: 'Deny', refresh: 'Refresh status', cancel: 'Cancel run', retry: 'Retry instruction',
+  allow: 'Allow', deny: 'Deny', refresh: 'Refresh status', cancel: 'Cancel run', retry: 'Retry instruction', return: 'Return to prior session',
   revoke: 'Forget this device', 'confirm-revoke': 'Confirm forget',
 } as const;
 export type SessionActionName = keyof typeof SESSION_ACTIONS;
