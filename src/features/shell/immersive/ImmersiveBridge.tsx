@@ -10,6 +10,7 @@ import type {
 } from '@/features/diagram/spatial/immersiveTypes';
 import { ImmersiveWorkspace } from './ImmersiveWorkspace';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
+import { noteImmersiveError } from './immersiveReport';
 import { immersiveTheme } from './immersiveTheme';
 
 if (typeof window !== 'undefined') {
@@ -110,8 +111,11 @@ export function ImmersiveBridge({
     const visibilityChanged = () => record('visibility-changed');
     const inputsChanged = () => record('controllers-changed');
     const sampleTimer = window.setInterval(() => record('sample'), 10_000);
-    const windowError = () => record('window-error');
-    const unhandledRejection = () => record('unhandled-rejection');
+    // The diagnostic event stays message-free; the exception text is forwarded to the home machine.
+    const windowError = (event: ErrorEvent) => { record('window-error'); noteImmersiveError('window-error', event); };
+    const unhandledRejection = (event: PromiseRejectionEvent) => {
+      record('unhandled-rejection'); noteImmersiveError('unhandled-rejection', event);
+    };
     window.addEventListener('error', windowError);
     window.addEventListener('unhandledrejection', unhandledRejection);
     const cleanupListeners = () => {
@@ -145,6 +149,7 @@ export function ImmersiveBridge({
           .then(() => session.end())
           .catch((error) => {
             record('end-failed');
+            noteImmersiveError('end-failed', error);
             requestedOutcome = { availability: 'failed', reason: errorMessage(error) };
           })
           .finally(() => finishSession(
@@ -222,6 +227,7 @@ export function ImmersiveBridge({
         onAvailability('active');
       } catch (error) {
         recordImmersiveDiagnostic('entry-failed');
+        noteImmersiveError('entry-failed', error);
         setImmersiveSessionActive(false);
         if (mountedRef.current) onAvailability('failed', errorMessage(error));
       }
@@ -257,6 +263,7 @@ export function ImmersiveBridge({
       event.preventDefault();
       lifecycleRef.current?.record('webgl-context-lost');
       const reason = 'The WebGL context was lost. Immersive VR ended; your desktop workspace is still available.';
+      noteImmersiveError('webgl-context-lost', reason);
       void lifecycleRef.current?.endSession('failed', reason);
     };
     const restored = () => recordImmersiveDiagnostic('webgl-context-restored');

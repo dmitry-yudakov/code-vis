@@ -62,6 +62,7 @@ export type ImmersiveSemanticAction =
   | CanvasReviewAction
   | 'exit'
   | 'reset-workspace'
+  | 'report'
   | 'previous-file'
   | 'next-file'
   | 'previous-checkout'

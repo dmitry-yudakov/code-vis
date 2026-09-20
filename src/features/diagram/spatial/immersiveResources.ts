@@ -7,6 +7,7 @@ export type ImmersiveAction = Exclude<ImmersiveSemanticAction, `panel:${string}`
 export const IMMERSIVE_ACTION_LABELS: Readonly<Record<ImmersiveAction, string>> = {
   exit: 'Exit VR',
   'reset-workspace': 'Reset',
+  report: 'Report',
   'previous-file': 'Previous file',
   'next-file': 'Next file',
   'previous-checkout': 'Previous repository',

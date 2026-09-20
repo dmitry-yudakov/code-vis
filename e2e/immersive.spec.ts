@@ -1,3 +1,5 @@
+import { readFile, readdir, rm } from 'node:fs/promises';
+import path from 'node:path';
 import type { RootState } from '@react-three/fiber';
 import type { XRStore } from '@react-three/xr';
 import type { Mesh } from 'three';
@@ -9,6 +11,7 @@ test.use({ launchOptions: { args: ['--no-sandbox', '--use-fake-device-for-media-
 
 const conversationAction = (page: Page, action: string) => controls(page).locator(`[data-immersive-action="conversation:${action}"]`).click();
 const conversationState = (page: Page) => page.evaluate(() => window.xrScene?.scene.getObjectByName('Conversation tools')?.userData);
+const workspaceStatus = (page: Page) => page.evaluate(() => window.xrScene?.scene.getObjectByName('Workspace status')?.userData as { detail?: string } | undefined);
 
 test.describe('VR conversation input', () => {
 
@@ -2147,4 +2150,50 @@ test('VR session tools forget the paired device only after an explicit second se
   await sessionAction(page, 'confirm-revoke');
   await expect(page.getByRole('heading', { name: 'Pair this device' })).toBeVisible();
   await released(page); expect(revoked).toBe(1);
+});
+
+test('reports the workspace view and forwarded errors to the home machine', async ({ page }) => {
+  const directory = path.resolve('test-results/server-data/diagnostics');
+  await rm(directory, { recursive: true, force: true });
+  await installAdapter(page);
+  await workspaceFixture(page, true);
+  await page.goto('/'); await enter(page);
+  const stored = async (kind: 'capture' | 'error') => (await readdir(directory).catch(() => []))
+    .filter((file) => file.endsWith(`-${kind}.json`)).sort();
+
+  // Reporting stays reachable exactly when the workspace is least usable: every panel closed.
+  for (const panel of ['conversation', 'canvas'] as const) await panelAction(page, panel, 'close');
+  expect(await page.evaluate(() => window.xrScene?.scene.getObjectByName('Report')?.userData))
+    .toMatchObject({ immersiveAction: 'report', disabled: false });
+  await controls(page).locator('[data-immersive-action="report"]').click();
+  await expect.poll(async () => (await stored('capture')).length, { timeout: 15_000 }).toBe(1);
+  const [capture] = await stored('capture');
+  const report = JSON.parse(await readFile(path.join(directory, capture), 'utf8'));
+  expect(report).toMatchObject({ version: 1, kind: 'capture', note: 'Reported from the workspace' });
+  expect(report.diagnostics.events.at(-1).event).toBeTruthy();
+  // The screenshot is a real JPEG of the rendered workspace, not a placeholder.
+  const image = await readFile(path.join(directory, capture.replace('.json', '.jpg')));
+  expect([...image.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  expect(image.byteLength).toBeGreaterThan(2_000);
+  await expect.poll(async () => (await workspaceStatus(page))?.detail).toContain('Report sent with a screenshot');
+
+  await page.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'Injected workspace failure.' })));
+  await expect.poll(async () => (await stored('error')).length, { timeout: 15_000 }).toBe(1);
+  const [forwarded] = await stored('error');
+  const errorReport = JSON.parse(await readFile(path.join(directory, forwarded), 'utf8'));
+  expect(errorReport.kind).toBe('error');
+  expect(errorReport.errors.at(-1).message).toContain('Injected workspace failure.');
+  expect(errorReport.screenshot).toBeUndefined();
+  // The message reaches the home machine without entering device storage.
+  expect(await page.evaluate(() => JSON.stringify(window.__CODEAI_VR_DIAGNOSTICS__!())))
+    .not.toContain('Injected workspace failure.');
+  // A refused upload explains itself without ending the session.
+  await page.route('**/api/immersive/report', (route) => route.fulfill({ status: 503, json: { error: 'no' } }));
+  await controls(page).locator('[data-immersive-action="report"]').click();
+  await expect.poll(async () => (await workspaceStatus(page))?.detail).toContain('Report failed');
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
+  expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.map((entry) => entry.event)))
+    .toContain('report-failed');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
 });

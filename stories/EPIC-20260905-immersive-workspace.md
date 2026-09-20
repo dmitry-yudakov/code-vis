@@ -124,7 +124,9 @@ comparison, annotation, and marked-attachment checks complete; physical acceptan
 Story 50 is in progress with parser-backed spatial flowcharts, bounded detail, 2D fallback, and
 automated interaction/resource checks complete; physical Quest 3S acceptance remains pending.
 Story 51 is in progress with whole-session frame/resource evidence implemented; its physical Quest
-3S work journey remains pending. Story 52 remains a Draft.
+3S work journey remains pending. Story 56 is in progress with the in-headset report action, automatic
+error forwarding, and the home-machine report store implemented; its Quest run remains pending.
+Story 52 remains a Draft.
 Existing Stories 43–44 remain useful foundations and retain their own status.
 
 | Story | Outcome | Depends on |
@@ -137,6 +139,7 @@ Existing Stories 43–44 remain useful foundations and retain their own status.
 | [50 — Explore diagrams as spatial geometry](STORY-20260905-vr-spatial-diagrams.md) | Supported Mermaid flowcharts become selectable nodes and edges | 46, 49 |
 | [51 — Accept the complete headset work loop](STORY-20260905-vr-workspace-acceptance.md) | Quest 3S evidence for controller/voice work, comfort, and performance | 45–50 |
 | [52 — Add the Arena and Inbox](STORY-20260905-vr-arena-inbox.md) | Several visible sessions and cross-session attention in VR | 51 |
+| [56 — Report a VR problem from the headset](STORY-20260919-vr-report-from-headset.md) | A captured view, diagnostics, and error text reach the home machine | 45, 51 |
 
 The first usable release is **45–51**, including real spatial diagrams and voice. **52 is later.**
 Story 45 alone remains a foundation; it must not be announced as a fully usable VR workspace.

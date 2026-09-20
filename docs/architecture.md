@@ -329,6 +329,15 @@ result after departure or unmount is also ended. Controller removal/reconnection
 hidden/blurred visibility preserve the XR session; the runtime pauses/resumes rendering and input.
 No XR pose, scale, scroll position, paging, or resource enters canonical records or desktop layouts.
 
+`immersiveReport.ts` holds the recent error text in memory only and posts it, the retained
+diagnostics, and the view context to `POST /api/immersive/report`, which
+`src/server/diagnostics/immersiveReports.ts` validates, writes to `<dataDir>/diagnostics/` at mode
+`0600`, prunes to the newest 50 reports, and announces on the server terminal. `immersiveCapture.ts`
+renders the report's screenshot in the XR frame: a transient render target sized from the captured
+view's own projection, `xr.enabled` briefly false so the renderer honors the supplied camera, a pixel
+read flipped into a JPEG, and disposal in the same frame, so neither the texture budget nor the resource ledger sees it. Automatic forwarding
+is rate-limited per document; the wire schema and its bounds live in `src/shared/immersiveReport.ts`.
+
 `immersiveDiagnostics.ts` retains up to 256 device-local lifecycle events and ten-second samples
 at `code-ai:device:v1:immersive-diagnostics`, best-effort across reloads. The remote console can read
 `window.__CODEAI_VR_DIAGNOSTICS__()`. Samples include application counters, renderer allocation

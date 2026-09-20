@@ -30,6 +30,9 @@ Updated 2026-09-19. When a story ships, change the line that names it; each stor
   immersive multi-session Arena and Inbox without bypassing Story 51's physical gate.
 - **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
   controller/visibility interruptions and retain device-local exit diagnostics.
+- **Also in flight:** [Story 56](stories/STORY-20260919-vr-report-from-headset.md) — reporting from
+  inside the headset is implemented: a captured view, the retained diagnostics, and forwarded error
+  text reach the paired home machine without a cable; the Quest 3S run remains pending.
 - **Also in flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md),
   with [Docker session creation and shared provider login](stories/STORY-20260909-docker-session-friction.md).
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
@@ -89,6 +92,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/server/storage/` | Project/session store, durable server records, per-run temp attachments |
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
+| `src/server/diagnostics/` | Immersive reports written to the data directory for the home machine |
 | `src/server/machines/` | Machine pairing, registry, snapshot collection, and allowlisted gateway |
 | `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
 | `test/`, `e2e/` | Vitest suite and Playwright suite |

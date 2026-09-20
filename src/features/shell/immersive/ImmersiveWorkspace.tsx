@@ -27,6 +27,9 @@ import { CanvasReviewTools, type CanvasReviewController } from './CanvasReviewTo
 import type { CanvasReviewActionName } from './canvasReviewControls';
 import { canvasTargetId, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 import { immersiveTheme } from './immersiveTheme';
+import { captureImmersiveFrame } from './immersiveCapture';
+import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
+import { sendImmersiveReport } from './immersiveReport';
 
 const UikitConversationSpike = dynamic(() => import('./UikitConversationSpike')
   .then((module) => module.UikitConversationSpike), { ssr: false, loading: () => null });
@@ -61,7 +64,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     onPanelAction, onPanelPlacement, onResetWorkspace, evidence, viewKey,
   } = props;
   const state = useThree();
-  const { camera, gl } = state;
+  const { camera, gl, scene } = state;
   useEffect(() => {
     window.__CODEAI_XR_TEST__?.onWorkspace?.(state);
     return () => window.__CODEAI_XR_TEST__?.onWorkspace?.();
@@ -100,6 +103,8 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   useEffect(() => { setEvidencePage(0); }, [evidence.selectedPath, viewKey]);
   const contentOrigin = useRef<THREE.Group>(null);
   const needsRecenter = useRef(true);
+  const reportRequested = useRef(false);
+  const reportNotice = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const controls = useTextureResource((ledger) => Object.fromEntries(Object.entries(IMMERSIVE_ACTION_LABELS).map(([action, label]) =>
     [action, isWorkspaceIconAction(action) ? createWorkspaceIconResource(action, theme, ledger)
       : createWorkspaceButtonResource(label, theme, ledger)])), [theme]);
@@ -113,10 +118,13 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   const toolLabels = useTextureResource((ledger) => Object.fromEntries(PANEL_IDS.map((id) => [id,
     createWorkspaceButtonResource(PANEL_TITLES[id], theme, ledger),
   ])), [theme, ...PANEL_IDS.map((id) => layout.panels[id].open)]);
+  const [reportStatus, setReportStatus] = useState<string>();
+  const statusDetail = reportStatus
+    || (pendingApprovals ? `${pendingApprovals} approval waiting · ${workspaceStatus}` : workspaceStatus);
   const status = useTextureResource((ledger) => createWorkspaceTextResource(session?.title || 'Session launcher',
-    pendingApprovals ? `${pendingApprovals} approval waiting · ${workspaceStatus}` : workspaceStatus, theme, ledger), [session?.title, workspaceStatus, pendingApprovals, theme]);
+    statusDetail, theme, ledger), [session?.title, statusDetail, theme]);
   const recoveryChrome = useTextureResource((ledger) => ({
-    geometry: ledger.trackGeometry(roundedGeometry(1.62, 0.19, 0.095)),
+    geometry: ledger.trackGeometry(roundedGeometry(1.92, 0.19, 0.095)),
     material: ledger.trackMaterial(new THREE.MeshBasicMaterial({
       color: immersiveTheme[theme].raised, depthWrite: false, toneMapped: false,
     })),
@@ -135,9 +143,28 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     origin.position.copy(position);
     origin.rotation.set(0, Math.atan2(-direction.x, -direction.z), 0);
   }, [camera, gl.xr]);
+  const showReportNotice = useCallback((detail: string) => {
+    setReportStatus(detail);
+    if (reportNotice.current) clearTimeout(reportNotice.current);
+    reportNotice.current = setTimeout(() => setReportStatus(undefined), 6_000);
+  }, []);
+  useEffect(() => () => { if (reportNotice.current) clearTimeout(reportNotice.current); }, []);
   useFrame((_state, delta) => {
     recordImmersiveFrame(delta * 1_000);
     if (needsRecenter.current) { recenter(); needsRecenter.current = false; }
+    // Capturing inside the frame keeps the head pose and the live GL context; a failed capture
+    // still reports the diagnostics and error tail.
+    if (reportRequested.current) {
+      reportRequested.current = false;
+      let screenshot: string | undefined;
+      try { screenshot = captureImmersiveFrame(gl, scene, camera); }
+      catch { recordImmersiveDiagnostic('capture-failed'); }
+      showReportNotice(screenshot ? 'Sending report…' : 'Sending report without a screenshot…');
+      void sendImmersiveReport({ kind: 'capture', note: 'Reported from the workspace', screenshot })
+        .then((outcome) => showReportNotice(outcome === 'sent'
+          ? screenshot ? 'Report sent with a screenshot' : 'Report sent without a screenshot'
+          : 'Report failed — check the home machine'));
+    }
   });
   const contentEnabled = (id: typeof PANEL_IDS[number]) => layout.panels[id].open && editing?.mode !== 'drag' && editing?.id !== id;
   const perform = useCallback((action: ImmersiveSemanticAction) => {
@@ -179,6 +206,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     }
     if (action === 'exit') onExit();
     else if (action === 'reset-workspace') { onResetWorkspace(); setDiagramScale(1); recenter(); }
+    else if (action === 'report') reportRequested.current = true;
     else if (action === 'reset-view') { setDiagramScale(1); canvasReview.current?.perform('reset-spatial'); recenter(); }
     else if (action === 'previous-canvas' && contentEnabled('canvas')) onPreviousCanvas();
     else if (action === 'next-canvas' && contentEnabled('canvas')) onNextCanvas();
@@ -283,14 +311,16 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
         </>}
       </WorkspacePanel>)}
       <group name="Workspace controls" position={[0, -1.45, -1.3]}>
-        {status && <mesh name="Workspace status" geometry={status.geometry} material={status.material} position={[0, 0.24, 0]} />}
+        {status && <mesh name="Workspace status" geometry={status.geometry} material={status.material}
+          position={[0, 0.24, 0]} userData={{ detail: statusDetail }} />}
         {recoveryChrome && <mesh name="Workspace control pill" geometry={recoveryChrome.geometry} material={recoveryChrome.material}
           position-z={-0.001} renderOrder={10} pointerEvents="none" raycast={() => undefined} />}
-        {PANEL_IDS.map((id, index) => <group key={id} position={([[-0.62, 0, 0], [-0.28, 0, 0], [0.02, 0, 0]] as [number, number, number][])[index]} >
+        {PANEL_IDS.map((id, index) => <group key={id} position={([[-0.77, 0, 0], [-0.47, 0, 0], [-0.17, 0, 0]] as [number, number, number][])[index]} >
           <WorldButton action={`panel:${id}:toggle`} label={`${layout.panels[id].open ? 'Hide' : 'Show'} ${PANEL_TITLES[id]}`} resource={toolLabels?.[id]}
             selected={layout.panels[id].open} iconTheme={theme} position={[0, 0, 0]} onAction={() => perform(`panel:${id}:toggle`)} />
         </group>)}
-        {button('reset-workspace', [0.34, 0, 0.01])}{button('exit', [0.64, 0, 0.01], false, 'destructive')}
+        {button('reset-workspace', [0.13, 0, 0.01])}{button('report', [0.43, 0, 0.01])}
+        {button('exit', [0.73, 0, 0.01], false, 'destructive')}
       </group>
     </group>
   </>;

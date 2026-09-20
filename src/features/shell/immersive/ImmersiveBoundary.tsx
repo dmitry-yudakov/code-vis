@@ -8,6 +8,7 @@ import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/f
 import { probeImmersiveCapability } from '@/features/diagram/spatial/immersiveCapability';
 import type { ImmersiveAvailability, ImmersiveController, ImmersiveSemanticAction, ImmersiveWorkspaceProps } from '@/features/diagram/spatial/immersiveTypes';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
+import { noteImmersiveError, setImmersiveReportContext } from './immersiveReport';
 import { SESSION_ACTIONS } from './sessionControls';
 import { CONVERSATION_ACTIONS } from './conversationControls';
 import { CONVERSATION_LIST_BATCH_SIZE, sortConversationChoices } from './conversationListModel';
@@ -30,8 +31,9 @@ async function loadFontsBeforeEntry(): Promise<void> {
         timer = setTimeout(() => reject(new Error('Immersive font loading timed out.')), IMMERSIVE_FONT_TIMEOUT_MS);
       }),
     ]);
-  } catch {
+  } catch (error) {
     recordImmersiveDiagnostic('font-loading-failed');
+    noteImmersiveError('font-loading-failed', error);
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -42,6 +44,7 @@ class RendererBoundary extends Component<{ children: ReactNode; onError(message:
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(error: unknown) {
     recordImmersiveDiagnostic('renderer-error');
+    noteImmersiveError('renderer-error', error);
     this.props.onError(error instanceof Error ? error.message : 'The immersive renderer could not load.');
   }
   render() { return this.state.failed ? null : this.props.children; }
@@ -54,7 +57,7 @@ type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'canvasReview' | 'se
 };
 
 const ACTIONS: Array<[ImmersiveSemanticAction, string]> = [
-  ['exit', 'Exit VR'], ['reset-workspace', 'Reset workspace'],
+  ['exit', 'Exit VR'], ['reset-workspace', 'Reset workspace'], ['report', 'Report problem'],
   ['previous-file', 'Previous file'], ['next-file', 'Next file'],
   ['previous-checkout', 'Previous repository'], ['next-checkout', 'Next repository'],
   ['previous-evidence', 'Previous page'], ['next-evidence', 'Next page'], ['refresh-evidence', 'Refresh changes'], ['reset-view', 'Reset view'],
@@ -76,6 +79,7 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
   const activeTarget = useMemo(() => props.session && findCanvasTarget(props.session, props.session.activeDiagramId), [props.session]);
 
   useEffect(() => { recordImmersiveDiagnostic('page-ready'); }, []);
+  useEffect(() => { setImmersiveReportContext({ view: props.viewKey, availability }); }, [props.viewKey, availability]);
 
   useEffect(() => {
     let cancelled = false;

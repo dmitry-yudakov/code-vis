@@ -167,7 +167,8 @@ it farther away or closer, with 4× depth movement over a 2.0–4.5 m range. Rel
 The size icon opens a menu with Small,
 Medium, Large, and Extra large presets. Panels stay visible while dragging, with content actions
 paused until release. The bottom panel buttons toggle visibility and highlight open panels.
-The always-accessible tool strip shows session/approval status, **Reset workspace**, and **Exit VR**.
+The always-accessible tool strip shows session/approval status, **Reset workspace**, **Report**, and
+**Exit VR**; see [Report a problem from the headset](#report-a-problem-from-the-headset).
 Conversation scrolls continuously with the controller thumbstick, trigger-drag, or mouse wheel.
 Repository diffs are paged; Evidence shares the desktop's selected session checkout, changed file,
 and refresh action while identifying the machine, checkout, branch, and bounded read-only path.
@@ -276,7 +277,34 @@ and only one transcription is admitted per home process. An 11-second reference 
 0.6 seconds on the implementation machine using `base.en` and four CPU threads; this is not a
 Quest latency or accuracy measurement.
 
+### Report a problem from the headset
+
+**Report** sits in the always-accessible VR tool strip beside **Reset** and **Exit VR**, and is
+mirrored as a `Report problem` control on the ordinary page. It renders the workspace from your
+current head pose, then sends that image with the retained diagnostics and the recent error text to
+the home machine. The status line confirms `Report sent with a screenshot`.
+
+Errors report themselves the same way: an uncaught error, an unhandled rejection, a renderer error,
+a failed entry or end, and WebGL context loss each forward their message without a screenshot,
+rate-limited to one every three seconds and twenty per page so a repeating failure cannot flood the
+link. Error text is never written to device storage; it exists in memory until it is sent.
+
+Reports land in `<data directory>/diagnostics/` as `<timestamp>-capture.json` or `-error.json`, each
+with a sibling `.jpg` when a view was captured, pruned to the newest 50. Every write prints one line
+in the terminal running `start:remote`:
+
+```
+[vr-report] ~/.code-ai/web2/diagnostics/2026-09-19T14-33-13Z-error.json — 1 error: TypeError: panel is undefined
+```
+
+The captured frame is a single 1024-pixel-wide view from the head pose, shaped by the headset's own
+frustum, not the stereo optics it displays. It is meant for layout, legibility, and "what was on screen when this broke", and the
+report needs only the paired HTTPS connection the headset already uses — no cable.
+
 ### Investigate an unexpected VR exit
+
+A report usually answers this without USB. Reach for remote debugging when the browser itself
+terminated, when nothing reached the home machine, or when you need the original stack.
 
 Connect the headset with USB debugging enabled and authorized (`adb devices` must list it).
 Open `chrome://inspect/#devices` in desktop Chrome and inspect the CodeAI tab in Quest Browser,
