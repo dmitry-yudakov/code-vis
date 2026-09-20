@@ -72,6 +72,33 @@ describe('Arena presentation model', () => {
     expect(groups[1].sessions.map((card) => card.session.id)).toEqual([SESSION_C, SESSION_A]);
   });
 
+  it('puts what needs the user first within a project and between projects, then orders by recency', () => {
+    const discovery: RunDiscovery = {
+      active: [
+        run({ runId: 'r1', sessionId: SESSION_A, state: 'needs-you' }),
+        run({ runId: 'r2', sessionId: SESSION_C, state: 'running' }),
+      ],
+      recent: [],
+    };
+    const groups = groupArenaSessions(
+      [
+        project(PROJECT_A, 'Alpha', '2026-09-01T00:00:00.000Z'),
+        project(PROJECT_B, 'Beta', '2026-09-02T00:00:00.000Z'),
+      ],
+      [
+        session(SESSION_A, '2026-09-03T09:00:00.000Z', PROJECT_A),
+        session(SESSION_C, '2026-09-03T11:00:00.000Z', PROJECT_A),
+        session(SESSION_B, '2026-09-03T12:00:00.000Z', PROJECT_B),
+        session('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', '2026-09-03T08:00:00.000Z', PROJECT_B, 'failed'),
+      ],
+      discovery,
+    );
+    // Alpha holds the oldest session, but it is the one waiting on the user.
+    expect(groups.map((group) => group.name)).toEqual(['Alpha', 'Beta']);
+    expect(groups[0].sessions.map((card) => card.state)).toEqual(['needs-you', 'running']);
+    expect(groups[1].sessions.map((card) => card.state)).toEqual(['failed', 'idle']);
+  });
+
   it('orders archived cards by archive time even when later metadata changed updatedAt', () => {
     const olderArchive = {
       ...session(SESSION_A, '2026-09-03T15:00:00.000Z', PROJECT_A),

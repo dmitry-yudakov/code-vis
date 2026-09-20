@@ -12,14 +12,20 @@ export function sortConversationChoices(choices: readonly ImmersiveSessionChoice
     || a.machineId.localeCompare(b.machineId) || a.sessionId.localeCompare(b.sessionId));
 }
 
-export function formatConversationActivityTime(value: string | undefined, now: number): string {
-  if (!value || !Number.isFinite(Date.parse(value))) return 'Update time unavailable';
+/** "3m ago", for a column that is already about time. Undefined when the record carries no usable time. */
+export function relativeActivityTime(value: string | undefined, now: number): string | undefined {
+  if (!value || !Number.isFinite(Date.parse(value))) return undefined;
   const minutes = Math.max(0, Math.floor((now - Date.parse(value)) / 60_000));
-  if (minutes < 1) return 'Updated just now';
-  if (minutes < 60) return `Updated ${minutes}m ago`;
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Updated ${hours}h ago`;
+  if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `Updated ${days}d ago`;
-  return `Updated ${new Date(value).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  if (days < 30) return `${days}d ago`;
+  return new Date(value).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export function formatConversationActivityTime(value: string | undefined, now: number): string {
+  const time = relativeActivityTime(value, now);
+  return time ? `Updated ${time}` : 'Update time unavailable';
 }

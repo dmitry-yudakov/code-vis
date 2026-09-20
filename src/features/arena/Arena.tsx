@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
+import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type {
   AgentExecution, AgentMode, AgentProvider, ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
@@ -28,8 +29,19 @@ function participantNames(session: ArenaSessionSummary): string {
 }
 
 function repositoryNames(session: ArenaSessionSummary, checkouts: Map<string, CheckoutSummary>): string {
-  if (!session.repositoryCheckoutIds.length) return 'No repositories';
+  if (!session.repositoryCheckoutIds.length) return 'No repository';
   return session.repositoryCheckoutIds.map((checkoutId) => checkouts.get(checkoutId)?.name || 'Repository').join(', ');
+}
+
+function SessionFacts({ session, checkouts }: { session: ArenaSessionSummary; checkouts: Map<string, CheckoutSummary> }) {
+  return (
+    <>
+      <strong>{session.title}</strong>
+      <span className="arena-card-meta arena-card-agents">{participantNames(session)}</span>
+      <span className="arena-card-meta">{repositoryNames(session, checkouts)}</span>
+      {session.execution === 'docker' && <span className="execution-badge execution-docker">Docker</span>}
+    </>
+  );
 }
 
 function AttentionKind({ item }: { item: ArenaAttentionItem }) {
@@ -134,6 +146,10 @@ export function Arena({
     if (!availableModes.includes(mode)) setMode(availableModes[0] || 'ask');
   }, [mode, provider, selectedHealth]);
 
+  // One online machine is simply "here"; naming it on every screen says nothing.
+  const offlineMachines = machines.length - onlineMachines.length;
+  const showMachines = machines.length > 1 || offlineMachines > 0;
+  const now = Date.now();
   const terminalUnreadIds = unread.filter((item) => item.kind !== 'permission').map((item) => item.id);
   const actionKey = (targetMachineId: string, sessionId: string) => `${targetMachineId}:${sessionId}`;
 
@@ -159,12 +175,8 @@ export function Arena({
     <main className="arena" aria-label="Arena">
       <header className="arena-heading">
         <div>
-          <span className="eyebrow">
-            {machines.length} {machines.length === 1 ? 'machine' : 'machines'}
-            {machines.some((machine) => machine.machine.state === 'offline') ? ` · ${machines.filter((machine) => machine.machine.state === 'offline').length} offline` : ''}
-          </span>
-          <h1>Your arena</h1>
-          <p>See every session across your execution machines, answer what is blocked, and start the next piece of work.</p>
+          <h1>Arena</h1>
+          {showMachines && <span>{machines.length} machines{offlineMachines ? `, ${offlineMachines} offline` : ''}</span>}
         </div>
         <div className="arena-heading-actions">
           <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
@@ -338,11 +350,13 @@ export function Arena({
             const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online);
             const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
             return (
-              <section className={`arena-machine ${online ? 'online' : 'offline'}`} aria-labelledby={`arena-machine-${machine.machine.id}`} key={machine.machine.id}>
-                <header className="arena-machine-heading">
-                  <div><h2 id={`arena-machine-${machine.machine.id}`}>{machine.machine.label}</h2><span>{machineTime(machine)}</span></div>
-                  <span className={`arena-machine-state ${machine.machine.state}`}>{online ? 'Online' : 'Offline'}</span>
-                </header>
+              <section className={`arena-machine ${online ? 'online' : 'offline'} ${showMachines ? '' : 'solo'}`} aria-label={machine.machine.label} key={machine.machine.id}>
+                {showMachines && (
+                  <header className="arena-machine-heading">
+                    <div><h2>{machine.machine.label}</h2><span>{machineTime(machine)}</span></div>
+                    <span className={`arena-machine-state ${machine.machine.state}`}>{online ? 'Online' : 'Offline'}</span>
+                  </header>
+                )}
                 {!groups.length && <div className="arena-machine-empty">No active sessions on this machine.</div>}
                 {groups.map((group) => (
                   <section className="arena-group" aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
@@ -355,11 +369,11 @@ export function Arena({
                           <article className={`arena-card state-${card.state}`} key={card.session.id}>
                             <button className="arena-card-open" type="button" disabled={!online} onClick={() => onOpenSession(machine, card.session)} aria-label={`Open ${card.session.title}`}>
                               <span className={`arena-state state-${card.state}`}><i aria-hidden="true" />{STATE_LABELS[card.state]}</span>
-                              <strong>{card.session.title}</strong>
-                              <span className="arena-card-activity">{card.activity}</span>
-                              <span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span>
-                              <span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span>
-                              <span className="arena-card-footer"><span>{machine.machine.label} · {card.session.execution === 'docker' ? 'Docker' : 'Local'}</span>{attention > 0 && <span className="arena-card-attention">{attention} unread</span>}</span>
+                              <SessionFacts session={card.session} checkouts={checkoutById} />
+                              {/* "Idle" already says a finished turn finished. */}
+                              {!(card.state === 'idle' && card.session.lastActivity?.status === 'complete') && <span className="arena-card-activity">{card.activity}</span>}
+                              {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
+                              <span className="arena-card-time">{relativeActivityTime(card.session.updatedAt, now)}</span>
                             </button>
                             <details className="arena-card-menu">
                               <summary aria-label={`Actions for ${card.session.title}`}>•••</summary>
@@ -413,8 +427,8 @@ export function Arena({
             const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
             if (!groups.length) return null;
             return (
-              <section className={`arena-machine ${online ? 'online' : 'offline'}`} aria-labelledby={`arena-archive-machine-${machine.machine.id}`} key={machine.machine.id}>
-                <header className="arena-machine-heading"><div><h2 id={`arena-archive-machine-${machine.machine.id}`}>{machine.machine.label}</h2><span>{machineTime(machine)}</span></div><span className={`arena-machine-state ${machine.machine.state}`}>{online ? 'Online' : 'Offline'}</span></header>
+              <section className={`arena-machine ${online ? 'online' : 'offline'} ${showMachines ? '' : 'solo'}`} aria-label={machine.machine.label} key={machine.machine.id}>
+                {showMachines && <header className="arena-machine-heading"><div><h2>{machine.machine.label}</h2><span>{machineTime(machine)}</span></div><span className={`arena-machine-state ${machine.machine.state}`}>{online ? 'Online' : 'Offline'}</span></header>}
                 {groups.map((group) => (
                   <section className="arena-group" aria-labelledby={`arena-archive-project-${machine.machine.id}-${group.id}`} key={group.id}>
                     <header><div><h3 id={`arena-archive-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} archived</span></div></header>
@@ -423,7 +437,11 @@ export function Arena({
                         const key = actionKey(machine.machine.id, card.session.id);
                         return (
                           <article className="arena-card archived" key={card.session.id}>
-                            <div className="arena-card-content"><span className={`arena-state ${online ? 'state-archived' : 'state-offline'}`}><i aria-hidden="true" />{online ? 'Archived' : 'Offline'}</span><strong>{card.session.title}</strong><span className="arena-card-activity">Archived {new Date(card.session.archivedAt || card.session.updatedAt).toLocaleString()}</span><span className="arena-card-meta"><b>Agents</b>{participantNames(card.session)}</span><span className="arena-card-meta"><b>Repositories</b>{repositoryNames(card.session, checkoutById)}</span><span className="arena-card-footer"><span>{machine.machine.label} · {card.session.execution === 'docker' ? 'Docker' : 'Local'}</span></span></div>
+                            <div className="arena-card-content">
+                              <span className={`arena-state ${online ? 'state-archived' : 'state-offline'}`}><i aria-hidden="true" />{online ? 'Archived' : 'Offline'}</span>
+                              <SessionFacts session={card.session} checkouts={checkoutById} />
+                              <span className="arena-card-time">Archived {new Date(card.session.archivedAt || card.session.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                            </div>
                             <div className="arena-card-restore"><button type="button" disabled={!online || restoring === key} onClick={() => restore(machine.machine.id, card.session)}>{restoring === key ? 'Restoring…' : 'Restore'}</button></div>
                           </article>
                         );

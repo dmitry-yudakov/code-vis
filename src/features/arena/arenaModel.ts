@@ -85,6 +85,11 @@ export function arenaSessionActivity(session: ArenaSessionSummary, run?: RunDesc
   return lastActivity(session);
 }
 
+/** What waits on the user comes first; what merely happened recently follows. */
+const ATTENTION_RANK: Record<ArenaSessionState, number> = {
+  'needs-you': 0, failed: 1, running: 2, queued: 3, idle: 4, offline: 5,
+};
+
 export function groupArenaSessions(
   projects: readonly DurableProject[],
   sessions: readonly ArenaSessionSummary[],
@@ -117,8 +122,12 @@ export function groupArenaSessions(
     grouped.set(groupId, group);
   }
 
-  return [...grouped.values()].sort((left, right) => (
-    right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name)
+  // Sessions arrived newest first, so a stable sort by attention keeps recency within each state.
+  const groups = [...grouped.values()];
+  for (const group of groups) group.sessions.sort((left, right) => ATTENTION_RANK[left.state] - ATTENTION_RANK[right.state]);
+  return groups.sort((left, right) => (
+    ATTENTION_RANK[left.sessions[0].state] - ATTENTION_RANK[right.sessions[0].state]
+    || right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name)
   ));
 }
 

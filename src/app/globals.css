@@ -161,9 +161,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 
 .arena { grid-column: 1 / -1; grid-row: 3; min-width: 0; min-height: 0; overflow: auto; padding: 34px clamp(20px, 5vw, 72px) 72px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
 .arena button, .arena select { border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
-.arena-heading { max-width: 1440px; margin: 0 auto; display: flex; align-items: end; justify-content: space-between; gap: 30px; }
-.arena-heading h1 { margin: 7px 0 6px; font: 750 clamp(34px, 4vw, 58px)/1 var(--sans); letter-spacing: -.04em; }
-.arena-heading p { max-width: 620px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.arena-heading { max-width: 1440px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 30px; }
+.arena-heading h1 { margin: 0; font: 700 20px/1.2 var(--sans); letter-spacing: -.02em; }
+.arena-heading > div:first-child { display: flex; align-items: baseline; gap: 12px; }
+.arena-heading > div:first-child > span { color: var(--muted); font-size: 12px; }
 .arena-heading-actions { flex: none; display: flex; gap: 7px; }
 .arena-docker-settings { max-width: 1440px; margin: 18px auto 0; padding: 10px 16px; border: 1px solid var(--plot-line-soft); border-radius: 12px; background: var(--plot-wash-soft); font-size: 12px; }
 .arena-docker-setting, .arena-docker-setting > div, .arena-docker-setting label { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -178,7 +179,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .arena .arena-primary { color: var(--on-emphasis); border-color: var(--plot); background: var(--plot); }
 .arena .arena-primary:hover:not(:disabled) { background: var(--plot-hover); }
 .arena-refresh-error { max-width: 1440px; margin: 20px auto 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px 10px 15px; border: 1px solid var(--wait-line); border-radius: 9px; color: var(--wait-ink-strong); background: var(--wait-wash); font-size: 11px; }
-.arena-sections { max-width: 1440px; margin: 28px auto 0; display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.arena-sections { max-width: 1440px; margin: 16px auto 0; display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
 .arena-sections a { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; text-decoration: none; }
 .arena-sections a[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--plot); background: var(--raised-backdrop); }
 .arena-sections a > span { min-width: 18px; height: 18px; display: inline-grid; place-items: center; padding: 0 5px; border-radius: 999px; color: var(--muted); background: var(--neutral-wash-strong); font: 700 9px/1 var(--mono); }
@@ -200,6 +201,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .arena-groups, .arena-inbox { max-width: 1440px; margin: 0 auto; }
 .arena-machine { margin-top: 24px; padding: 16px 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--sheet-backdrop) 72%, transparent); }
 .arena-machine.offline { border-style: dashed; }
+.arena-machine.solo { margin-top: 0; padding: 0; border: 0; background: transparent; }
 .arena-machine-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .arena-machine-heading > div { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
 .arena-machine-heading h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; }
@@ -207,33 +209,34 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .arena-machine-state { flex: none; padding: 4px 7px; border-radius: 999px; color: var(--live-ink); background: var(--live-wash); font: 700 9px/1 var(--mono); text-transform: uppercase; }
 .arena-machine-state.offline { color: var(--muted); background: var(--neutral-wash-strong); }
 .arena-machine-empty { padding-top: 18px; }
-.arena-group { padding-top: 26px; }
+.arena-group { padding-top: 22px; }
 .arena-group > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .arena-group > header > div { display: flex; align-items: baseline; gap: 9px; }
 .arena-group h2, .arena-group h3, .arena-inbox h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
 .arena-group > header span { color: var(--faint); font: 9px/1 var(--mono); text-transform: uppercase; }
-.arena-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(310px, 100%), 1fr)); gap: 10px; }
-.arena-card { min-width: 0; position: relative; border: 1px solid var(--line); border-radius: 11px; background: var(--sheet-backdrop); box-shadow: 0 1px 2px var(--component-shadow); }
-.arena-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow); }
+.arena-card-grid { display: grid; gap: 4px; }
+.arena-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--sheet-backdrop); }
+.arena-card:hover { border-color: var(--line-strong); }
 .arena-card.state-needs-you { border-color: var(--wait-line-strong); background: var(--wait-backdrop); }
 .arena-card.state-failed { border-color: var(--stop-line); }
 .arena-card.state-offline { border-style: dashed; background: var(--neutral-wash); }
 .arena-card-open:disabled { cursor: not-allowed; opacity: .68; }
-.arena-card-open, .arena-card-content { width: 100%; min-height: 210px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 0 !important; border-radius: 11px !important; text-align: left; background: transparent !important; }
-.arena-card-open > strong, .arena-card-content > strong { width: calc(100% - 34px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
-.arena-card-menu { position: absolute; z-index: 2; top: 10px; right: 10px; }
+.arena-card-open, .arena-card-content { min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 14px; padding: 6px 6px 6px 12px; border: 0 !important; border-radius: 9px !important; text-align: left; background: transparent !important; }
+.arena-card-open > .arena-state, .arena-card-content > .arena-state { flex: none; width: 88px; }
+.arena-card-open > strong, .arena-card-content > strong { flex: 0 1 34%; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.arena-card-menu { position: relative; margin-right: 8px; }
 .arena-card-menu summary { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: var(--raised-backdrop); cursor: pointer; list-style: none; font: 700 11px/1 var(--mono); }
 .arena-card-menu summary::-webkit-details-marker { display: none; }
 .arena-card-menu[open] summary { border-color: var(--line); background: var(--raised); }
 .arena-card-menu > div { position: absolute; top: calc(100% + 5px); right: 0; width: 150px; padding: 5px; border: 1px solid var(--line); border-radius: 8px; background: var(--shell); box-shadow: var(--popover-shadow); }
 .arena-card-menu button { width: 100%; min-height: 31px; padding: 0 9px; text-align: left; font-size: 10px; font-weight: 700; }
-.arena-card.archived { overflow: hidden; }
 .arena-state.state-archived { color: var(--muted); background: var(--neutral-wash-strong); }
 .arena-state.state-archived i { background: var(--faint); }
-.arena-card-restore { display: flex; justify-content: flex-end; padding: 0 16px 16px; }
+.arena-card-restore { padding-right: 8px; }
 .arena-card-restore button { min-height: 32px; padding: 0 12px; font-size: 10px; font-weight: 700; }
 .arena-state { display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px; border-radius: 999px; color: var(--muted); background: var(--neutral-wash-strong); font: 700 9px/1 var(--mono); text-transform: uppercase; }
 .arena-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
+.arena-state.state-idle { padding-left: 0; background: transparent; }
 .arena-state.state-running { color: var(--live-ink); background: var(--live-wash); }
 .arena-state.state-running i { background: var(--live); }
 .arena-state.state-needs-you { color: var(--wait-ink-strong); background: var(--wait-wash-muted); }
@@ -243,11 +246,10 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .arena-state.state-queued i { background: var(--faint); }
 .arena-state.state-offline { color: var(--muted); background: var(--neutral-wash-strong); }
 .arena-state.state-offline i { background: var(--faint); }
-.arena-card-activity { min-height: 34px; color: var(--ink-2); font-size: 11px; line-height: 1.5; }
-.arena-card-meta { width: 100%; display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; color: var(--muted); font-size: 10px; }
-.arena-card-meta b { color: var(--faint); font: 600 8px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
-.arena-card-meta:not(b) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.arena-card-footer { width: 100%; margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--faint); font: 9px/1 var(--mono); }
+.arena-card-activity { flex: 0 1 auto; max-width: 32%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 11px; }
+.arena-card-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.arena-card-agents { flex: 0 0 120px; }
+.arena-card-time { flex: none; margin-left: auto; color: var(--faint); font: 10px/1 var(--mono); }
 .arena-card-attention { padding: 4px 6px; border-radius: 999px; color: var(--wait-ink-strong); background: var(--wait-wash); font-weight: 700; }
 
 .arena-inbox { padding-top: 24px; }
@@ -711,7 +713,6 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .composer-actions { justify-content: space-between; }
   .arena { padding: 24px 14px 50px; }
   .arena-heading { align-items: flex-start; }
-  .arena-heading p { display: none; }
   .arena-create { grid-template-columns: 1fr 1fr; }
   .arena-create fieldset { grid-column: 1 / -1; }
   .arena-inbox-item { grid-template-columns: 76px minmax(0, 1fr); }
@@ -721,7 +722,9 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 @media (max-width: 620px) {
   /* A phone cannot hold the pickers and the actions on one row: the actions take a second. */
   .app-shell { grid-template-rows: 78px 34px minmax(0, 1fr); }
-  .app-shell.arena-mode { grid-template-rows: 78px 0 minmax(0, 1fr); }
+  /* The Arena's header holds one menu: it keeps a single row. */
+  .app-shell.arena-mode { grid-template-rows: 48px 0 minmax(0, 1fr); }
+  .arena-mode .header-actions { flex: none; margin-left: auto; }
   .dock-capacity-0 .repository-region { top: 112px; }
   .dock-capacity-0 .conversation-region { top: 122px; }
   .app-header { flex-wrap: wrap; row-gap: 6px; padding: 8px 10px; }
@@ -739,7 +742,9 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .arena-heading-actions button { flex: 1; }
   .arena-create { grid-template-columns: 1fr; }
   .arena-create > * { grid-column: 1 !important; }
-  .arena-card-grid { grid-template-columns: 1fr; }
+  .arena-card-open, .arena-card-content { flex-wrap: wrap; row-gap: 4px; padding-block: 9px; }
+  .arena-card-open > strong, .arena-card-content > strong { flex: 1 1 60%; }
+  .arena-card-agents { flex: 0 1 auto; }
   .arena-inbox > header { align-items: flex-start; }
 }
 

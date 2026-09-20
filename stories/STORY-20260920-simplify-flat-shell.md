@@ -118,10 +118,10 @@ Four parts, each its own commit, each leaving the suite green.
 - [x] A stored layout written before this story still parses.
 
 ### Part C
-- [ ] A session that needs the user is the first row of its project, and its project is first.
-- [ ] One attached, online machine shows no machine heading; two show both.
-- [ ] Eleven sessions fit in one 900px viewport without scrolling past the second screen.
-- [ ] The immersive Arena tests still pass with the shared ordering.
+- [x] A session that needs the user is the first row of its project, and its project is first.
+- [x] One attached, online machine shows no machine heading; two show both.
+- [x] Eleven sessions fit in one 900px viewport without scrolling past the second screen.
+- [x] The immersive Arena tests still pass with the shared ordering.
 
 ### Part D
 - [ ] Sketch and diagram entries show thumbnails; a failed diagram falls back to its kind mark.
