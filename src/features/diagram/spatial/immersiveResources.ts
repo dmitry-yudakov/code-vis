@@ -72,3 +72,11 @@ export function texturePanel(
     detail,
   };
 }
+
+/**
+ * A tinted clone is rebuilt one commit after its source panel changes. Until then it renders the
+ * source's current texture, because the replaced one is disposed as soon as that commit is bound.
+ */
+export function followSourceTexture(clone?: THREE.MeshBasicMaterial, source?: Pick<ImmersiveTexturePanel, 'material'>): void {
+  if (clone && source) clone.map = source.material.map;
+}

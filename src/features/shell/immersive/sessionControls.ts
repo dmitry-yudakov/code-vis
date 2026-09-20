@@ -14,6 +14,18 @@ export function permissionKey(target: Pick<PermissionTarget, 'machineId' | 'sess
   return JSON.stringify([target.machineId, target.sessionId, target.runId, target.requestId]);
 }
 
+/**
+ * Route an inbound permission request into the review once, when its key first resolves to a
+ * pending request. The Arena poll rebuilds the permission array every two seconds; re-applying
+ * would drop the reviewer back to the first page of a command they are still reading. A different
+ * key applies again, and clearing the route re-arms the same key for a later visit.
+ */
+export function permissionRequestUpdate(applied: string | undefined, requestedKey: string | undefined, resolved: boolean): { applied?: string; apply: boolean } {
+  if (!requestedKey) return { apply: false };
+  if (!resolved) return { applied, apply: false };
+  return { applied: requestedKey, apply: applied !== requestedKey };
+}
+
 export interface PermissionResult {
   pending: boolean;
   message: string;

@@ -1,8 +1,8 @@
-# Story 44 — Start and continue Docker sessions without repeated setup
+# Story 59 — Start and continue Docker sessions without repeated setup
 
 **Status:** Shipped · **Type:** Full-stack · **Depends on:**
-[Story 42](STORY-20260908-local-docker-execution.md),
-[Story 43](STORY-20260909-docker-ui-enablement.md).
+[Story 57](STORY-20260908-local-docker-execution.md),
+[Story 58](STORY-20260909-docker-ui-enablement.md).
 
 ## Motivation
 
@@ -60,7 +60,7 @@ execution requires manually rebuilding context. This extends the local execution
       bindings and an editable recap, with no automatic turn or source mutation.
 - [x] Setup/architecture docs and affected story contracts describe the simplified storage scope.
 - [x] Focused server tests, TypeScript, production build, and Docker browser flows pass. Any real
-      Docker/provider verification limits are recorded honestly; Story 42's release gates remain.
+      Docker/provider verification limits are recorded honestly; Story 57's release gates remain.
 
 ## Out of scope
 
@@ -73,7 +73,7 @@ Run focused Docker/session tests, `npm run lint`, and
 `npm run test:e2e -- e2e/docker-execution.spec.ts` (includes production build). Exercise creation in
 a project without a host provider, execution badges, both continuation directions, failed creation,
 and disabled/unavailable Docker. Use disposable storage for real Docker persistence/setup exclusion
-checks; never inspect provider credentials. Keep Story 42's signed-in release matrix separate.
+checks; never inspect provider credentials. Keep Story 57's signed-in release matrix separate.
 
 Verified September 9, 2026: all 287 offline tests in 42 files, strict TypeScript, production build,
 and all seven Docker browser flows pass. The real `npm run test:docker` suite passes on Linux
@@ -82,4 +82,10 @@ restart recovery. See [the experiment log](../docs/experiment-log.md) for image/
 The existing offline Git suites now use disposable data directories rather than inheriting the
 owner's Docker profile. Stale generated Next route types were refreshed using `npx next typegen`.
 Actual signed-in provider login/inference and macOS verification of this storage change remain
-in Story 42's release matrix; this story does not claim those checks passed.
+in Story 57's release matrix; this story does not claim those checks passed.
+
+September 20, 2026 — scope of that evidence, recorded after a pre-merge review. The Docker browser
+flows cover settings, session creation, and continuation; none sends a turn in a Docker session.
+That is how a guard merged from the VR branch could reject every Docker turn with 409 while these
+flows stayed green. [Story 61](STORY-20260920-spacial-merge-review-fixes.md) removes the guard and
+adds a route test that sends a Docker turn. A real-daemon turn remains in Story 57's release matrix.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SessionSnapshot } from '@/shared/types';
-import { buildConversationHistory, historyScrollState, updateHistoryScroll, visibleHistoryEntries, HISTORY_VIEW_HEIGHT } from '@/features/shell/immersive/conversationHistoryModel';
+import { buildConversationHistory, conversationScrollFlags, historyScrollState, updateHistoryScroll, visibleHistoryEntries, HISTORY_VIEW_HEIGHT } from '@/features/shell/immersive/conversationHistoryModel';
 import { createConversationHistoryResource, paintConversationHistory } from '@/features/shell/immersive/conversationHistoryResource';
 import { getImmersiveInstrumentation, SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
 
@@ -43,6 +43,37 @@ describe('continuous immersive conversation history', () => {
     const held = updateHistoryScroll(older, history.height + 500, true);
     expect(held).toMatchObject({ offset: older.offset, atBottom: false, newActivity: true });
     expect(historyScrollState(Infinity, history.height + 500, held.newActivity)).toMatchObject({ atBottom: true, newActivity: false });
+  });
+
+  it('re-wraps only the streaming preview while a delta arrives', () => {
+    const session = fixture(3);
+    const first = buildConversationHistory(session, 'Streaming');
+    const delta = buildConversationHistory(session, 'Streaming more');
+    // Identity, not equality: wrapping is per character, so a settled message must be reused.
+    for (const [index, item] of delta.entries.slice(0, 3).entries()) expect(item.lines).toBe(first.entries[index].lines);
+    expect(delta.entries[3].lines).not.toBe(first.entries[3].lines);
+    expect(delta.entries[3].lines).toEqual(['Streaming more']);
+
+    if (session.messages[1].role !== 'user') throw new Error('Expected user');
+    session.messages[1].text = 'Edited question';
+    const edited = buildConversationHistory({ ...session }, 'Streaming more');
+    expect(edited.entries[1].lines).toEqual(['Edited question']);
+    expect(edited.entries[0].lines).toBe(first.entries[0].lines);
+
+    // The cache holds the live transcript only, so it cannot grow across sessions.
+    buildConversationHistory(fixture(2));
+    expect(buildConversationHistory(session).entries[2].lines).not.toBe(first.entries[2].lines);
+  });
+
+  it('forwards only the scroll flags the workspace chrome reads', () => {
+    const start = conversationScrollFlags({ atTop: true, atBottom: true, newActivity: false }, historyScrollState(0, 4_000));
+    expect(start).toEqual({ atTop: true, atBottom: false, newActivity: false });
+    const moved = conversationScrollFlags(start, historyScrollState(120, 4_000));
+    expect(moved).toEqual({ atTop: false, atBottom: false, newActivity: false });
+    // A thumbstick moves the offset every frame; the chrome must keep its identity throughout.
+    expect(conversationScrollFlags(moved, historyScrollState(400, 4_000))).toBe(moved);
+    expect(conversationScrollFlags(moved, historyScrollState(Infinity, 4_000))).toEqual({ atTop: false, atBottom: true, newActivity: false });
+    expect(conversationScrollFlags(moved, historyScrollState(200, 4_000, true))).toEqual({ atTop: false, atBottom: false, newActivity: true });
   });
 
   it('clamps wheel/drag overshoot and history shrinking, including empty conversations', () => {

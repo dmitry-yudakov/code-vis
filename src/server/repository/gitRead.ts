@@ -42,7 +42,8 @@ async function executeGitRead(cwd: string, args: string[], options: {
 }): Promise<string> {
   const config = getConfig();
   await recoverDockerExecution(config);
-  let isolated = config.dockerEnabled;
+  // Only the provisioning record decides: enabling Docker first leaves host Git in place.
+  let isolated = false;
   try { await access(path.join(config.dataDir, 'docker', 'profile.json')); isolated = true; }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const hardenedArgs = [...GIT_READ_OPTIONS, ...args];

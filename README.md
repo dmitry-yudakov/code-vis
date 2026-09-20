@@ -75,8 +75,9 @@ The value is a comma-separated list of hostnames or IP addresses, without scheme
 or quotes. When `CODEAI_PUBLIC_ORIGIN` is already configured, its hostname is allowed automatically.
 This setting only satisfies Next.js's development asset/HMR origin guard; it does not add pairing,
 HTTPS, or a WebXR secure context. Use the paired `start:remote` path below for normal
-personal-device access, or [Develop against a headset](#develop-against-a-headset) for a secure
-development loop without a build or pairing.
+personal-device access, or [Develop against a headset](#develop-against-a-headset) for a
+development loop that gives the headset a WebXR secure context without a build or pairing. A secure
+context is not authentication; read that section's warning before serving on the LAN.
 
 ### Create a trusted LAN certificate with `mkcert`
 
@@ -368,10 +369,21 @@ connection; repeat `adb reverse` after the cable or headset restarts (`adb rever
 it). For a cable-free loop after the first USB connection, run `adb tcpip 5555`, unplug, then
 `adb connect <headset-ip>:5555` before `adb reverse`.
 
-**Serve the development server over HTTPS.** Create the certificate as in
+**Serve the development server over HTTPS.** Prefer the ADB path above: after `adb tcpip` it is
+also cable-free, and it exposes nothing to the network.
+
+> **This path is unauthenticated.** In local mode CodeAI checks no credential, and `next dev`
+> listens on every interface. While port 3023 is open, any host on the network can send agent
+> messages and approve its own permission requests, which runs commands as your desktop user. TLS
+> here encrypts the traffic; it does not identify the client. Use it only on a network where you
+> trust every device, and close the port when you finish. Paired access through
+> `npm run start:remote` remains the only supported way to reach CodeAI from another device.
+
+Create the certificate as in
 [Create a trusted LAN certificate with `mkcert`](#create-a-trusted-lan-certificate-with-mkcert),
 naming this machine's LAN address, and allow that address for development. With explicit key and
-certificate paths Next.js uses them directly and never prompts for a password:
+certificate paths Next.js uses them directly and never prompts for a password (`npm run devs` is
+shorthand for these flags with the `.cert/` paths):
 
 ```sh
 CODEAI_ALLOWED_DEV_ORIGINS=192.168.1.50 npm run dev -- --experimental-https \
@@ -453,11 +465,12 @@ The current host store lives under `~/.code-ai/web2/session-store-v2`. On first 
 valid `session-store-v1` into that store and leaves the old directory untouched as a rollback (a
 direct upgrade from `conversation-store-v1` is also supported).
 Checkouts using the same `CODEAI_DATA_DIR` share their projects and conversations. This checkout
-reads both version 3 sessions and version 4 sessions written by Docker-capable checkouts,
-preserving their format on reads and edits. Version 4 local conversations can continue here;
-Docker conversations are readable but require a checkout with Docker execution support to run.
-After updating an already-running server for this compatibility fix, restart it to load the new
-store reader, then refresh the browser.
+reads version 3 and version 4 sessions side by side, preserving each record's format on reads and
+edits, and writes new sessions as version 4. Local and Docker conversations both continue here;
+a version 3 session runs as Local. Version 4 is forward-only: a checkout older than the
+compatibility fix reports such a store as invalid. Nothing is lost; open it with a checkout that
+reads version 4. After updating an already-running server, restart it to load the new store
+reader, then refresh the browser.
 The older `threads.json` prototype and browser keys under `code-ai:web2:v1:` are still deliberately
 left untouched and are not imported. Environment variables were renamed from `CODEAI_WEB2_*` to
 `CODEAI_*`, and **the old names continue to work** — see [Configuration](#configuration).
@@ -594,7 +607,7 @@ looking read-only, they are arbitrary command execution.
 
 ## Safety model
 
-Optional **Docker** execution is being implemented in Story 42. Turn on **Enable Docker** in Arena
+Optional **Docker** execution is being implemented in Story 57. Turn on **Enable Docker** in Arena
 to save this machine's preference without restarting; the UI shows when setup is still needed. See the
 [Docker setup and verification guide](docs/docker-execution.md) for its release status, provider-owned
 login, direct-edit scope, network restrictions, and cleanup. Select Local or Docker directly when

@@ -24,6 +24,10 @@ export async function dockerMain(args: string[] = process.argv.slice(2)) {
   const endpoint = await localDockerEndpoint();
   const command = (args: string[]) => dockerCommand(['--host', endpoint, ...args]);
   if (operation === 'provision') {
+    const replaceEngine = targets.length === 1 && targets[0] === '--replace-engine';
+    if (targets.length && !replaceEngine) {
+      throw new Error('Usage: npm run docker:provision, or npm run docker:provision -- --replace-engine after the local Docker engine was replaced.');
+    }
     // Fixed build context is the installed CodeAI package, never the session checkout.
     await interactive(['--host', endpoint, 'build', '--load', '--tag', `codeai-worker:${DOCKER_PROFILE}`, path.resolve('docker')]);
     const image = (await command(['image', 'inspect', `codeai-worker:${DOCKER_PROFILE}`, '--format', '{{.Id}}'])).trim();
@@ -31,8 +35,10 @@ export async function dockerMain(args: string[] = process.argv.slice(2)) {
       const result = await command(['run', '--rm', ...containerSecurity(1000, 1000), '--network', 'none', image, provider, '--version']);
       if (!result.includes(DOCKER_VERSIONS[provider])) throw new Error(`The pinned ${provider} CLI is incompatible.`);
     }
-    await saveDockerProvision(config.dataDir, image);
-    process.stdout.write(`Provisioned ${DOCKER_PROFILE}: ${image}\nEnable Docker in Arena, then sign in once with npm run docker:login -- claude or npm run docker:login -- codex. New Docker conversations reuse that login.\n`);
+    await saveDockerProvision(config.dataDir, image, replaceEngine);
+    process.stdout.write(`Provisioned ${DOCKER_PROFILE}: ${image}\n${replaceEngine
+      ? 'Restart CodeAI. Provider logins and native history do not move between engines: sign in again with npm run docker:login -- claude or npm run docker:login -- codex.'
+      : 'Enable Docker in Arena, then sign in once with npm run docker:login -- claude or npm run docker:login -- codex. New Docker conversations reuse that login.'}\n`);
     return;
   }
   let [sessionId, participantId] = targets;

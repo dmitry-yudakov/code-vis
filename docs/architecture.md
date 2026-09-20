@@ -8,7 +8,7 @@ React Flow client, and VS Code extension are archived and documented separately 
 
 ## Shape
 
-Story 42 adds an opt-in Docker transport in `src/server/execution/`; its release verification is
+Story 57 adds an opt-in Docker transport in `src/server/execution/`; its release verification is
 tracked in [docker-execution.md](docker-execution.md). Version 4 session records persist Local/Docker
 execution, migrating active and archived version 3 records to Local without changing revisions.
 Provider protocol parsers, conversation orchestration, canonical records, device authorization,

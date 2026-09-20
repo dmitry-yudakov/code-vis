@@ -12,6 +12,7 @@ import { noteImmersiveError, setImmersiveReportContext } from './immersiveReport
 import { SESSION_ACTIONS } from './sessionControls';
 import { CONVERSATION_ACTIONS } from './conversationControls';
 import { CONVERSATION_LIST_BATCH_SIZE, sortConversationChoices } from './conversationListModel';
+import { conversationScrollFlags, type ConversationHistoryScrollState, type ConversationScrollFlags } from './conversationHistoryModel';
 import { CANVAS_REVIEW_ACTIONS } from './canvasReviewControls';
 import { loadImmersiveFonts } from './immersiveTheme';
 import { ARENA_ACTIONS } from './arenaControls';
@@ -74,7 +75,9 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
   const [reason, setReason] = useState<string>();
   const [enabled, setEnabled] = useState(false);
   const [controller, setController] = useState<ImmersiveController>();
-  const [scroll, setScroll] = useState({ offset: 0, maxOffset: 0, atBottom: true, newActivity: false });
+  const [scroll, setScroll] = useState<ConversationScrollFlags>({ atTop: true, atBottom: true, newActivity: false });
+  const handleConversationScroll = useCallback((state: ConversationHistoryScrollState) =>
+    setScroll((current) => conversationScrollFlags(current, state)), []);
   const choices = useMemo(() => sortConversationChoices(props.choices), [props.choices]);
   const active = availability === 'active';
   const activeTarget = useMemo(() => props.session && findCanvasTarget(props.session, props.session.activeDiagramId), [props.session]);
@@ -121,7 +124,7 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
     {enabled && authorized && <RendererBoundary onError={(message) => handleAvailability('failed', `The immersive renderer could not load: ${message}`)}>
       <ImmersiveRenderer {...props} {...panelState}
         active={active} activeTarget={activeTarget} choices={choices}
-        onConversationScroll={setScroll}
+        onConversationScroll={handleConversationScroll}
         onPreviousCanvas={() => selectRelative(-1)} onNextCanvas={() => selectRelative(1)}
         onExit={() => undefined}
         onController={setController} onAvailability={handleAvailability}
@@ -140,7 +143,7 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
       {Object.entries(ARENA_ACTIONS).map(([action, label]) => <button key={action} type="button"
         data-immersive-action={`arena:${action}`} onClick={() => controller?.perform(`arena:${action}` as ImmersiveSemanticAction)}>Arena: {label}</button>)}
       {ACTIONS.map(([action, label]) => <button key={action} type="button" data-immersive-action={action}
-        disabled={(action === 'older' && scroll.offset <= 0) || (action === 'newer' && scroll.atBottom)}
+        disabled={(action === 'older' && scroll.atTop) || (action === 'newer' && scroll.atBottom)}
         onClick={() => controller?.perform(action)}>{label}</button>)}
       {PANEL_IDS.map((id) => <fieldset key={id} data-immersive-panel={id} data-open={panelState.layout.panels[id].open}
         data-focused={panelState.layout.focused === id} data-layout={JSON.stringify(panelState.layout.panels[id])}>

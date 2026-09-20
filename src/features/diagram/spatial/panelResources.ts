@@ -19,7 +19,6 @@ interface PanelSnapshot {
   id: string;
   svg: string;
   viewBox: [number, number, number, number];
-  cacheKey: string;
 }
 
 export interface PanelResource {
@@ -35,13 +34,22 @@ export interface PanelResource {
   detail?: string;
 }
 
-const svgCache = new Map<string, PanelSnapshot>();
+type RenderedDiagram = Pick<PanelSnapshot, 'svg' | 'viewBox'>;
 
-function remember(snapshot: PanelSnapshot): PanelSnapshot {
-  svgCache.delete(snapshot.cacheKey);
-  svgCache.set(snapshot.cacheKey, snapshot);
+const svgCache = new Map<string, Promise<RenderedDiagram>>();
+
+// Mermaid is the slow step, runs in a global queue that cannot be cancelled, and depends on the
+// source alone. Its promise is cached so a stroke composes marks over the finished render and a
+// restarted generation joins the queued one. A failure is forgotten so it can be retried.
+function renderDiagram(id: string, source: string, theme: ThemeName): Promise<RenderedDiagram> {
+  const cacheKey = `${id}:${stableSpatialDigest(source)}:${theme}:v${SPATIAL_RENDERER_VERSION}`;
+  const cached = svgCache.get(cacheKey);
+  const rendered = cached || renderMermaid(`spatial-${id.replaceAll('-', '')}`, source, theme);
+  if (!cached) rendered.catch(() => { if (svgCache.get(cacheKey) === rendered) svgCache.delete(cacheKey); });
+  svgCache.delete(cacheKey);
+  svgCache.set(cacheKey, rendered);
   while (svgCache.size > MAX_SVG_CACHE_ENTRIES) svgCache.delete(svgCache.keys().next().value!);
-  return snapshot;
+  return rendered;
 }
 
 export function sanitizeImmersiveSvg(svg: string): string {
@@ -55,20 +63,14 @@ async function snapshotTarget(target: CanvasTarget, marks: DrawingMark[], theme:
     throw new Error(target.artifact.error || `Status: ${target.artifact.status}`);
   }
   const rendered = target.kind === 'diagram'
-    ? await renderMermaid(`spatial-${id.replaceAll('-', '')}`, target.artifact.source, theme)
+    ? await renderDiagram(id, target.artifact.source, theme)
     : { svg: EMPTY_SKETCH_SVG, viewBox: target.sketch.viewBox };
-  const source = target.kind === 'diagram' ? target.artifact.source : 'sketch';
-  const digest = stableSpatialDigest(`${source}\n${rendered.viewBox.join(',')}\n${JSON.stringify(marks)}`);
-  const cacheKey = `${id}:${digest}:${theme}:${immersive ? 'immersive' : 'desktop'}:v${SPATIAL_RENDERER_VERSION}`;
-  const cached = svgCache.get(cacheKey);
-  if (cached) return remember(cached);
-  return remember({
+  return {
     id,
     svg: composeSvgMarkup(immersive ? sanitizeImmersiveSvg(rendered.svg) : rendered.svg, marks, rendered.viewBox,
       immersive ? immersiveTheme[theme].raised : palette[theme].sheet),
     viewBox: rendered.viewBox,
-    cacheKey,
-  });
+  };
 }
 
 async function rasterize(

@@ -1,14 +1,14 @@
-# Story 43 — Enable Docker execution from Arena
+# Story 58 — Enable Docker execution from Arena
 
 **Status:** Shipped · **Type:** Full-stack · **Depends on:**
-[Story 42](STORY-20260908-local-docker-execution.md) (release verification in progress).
+[Story 57](STORY-20260908-local-docker-execution.md) (release verification in progress).
 
 ## Motivation
 
 Docker's session selector is hidden until an environment variable is set and CodeAI restarts.
 The owner should be able to enable this machine's Docker execution from the UI. This extends
 the optional local execution slice of [the arena vision](../docs/vision.md#the-cloud-chapter);
-it does not change Story 42's container profile or release requirements.
+it does not change Story 57's container profile or release requirements.
 
 ## Implementation (where the code is)
 
@@ -53,7 +53,7 @@ it does not change Story 42's container profile or release requirements.
 ## Out of scope
 
 Docker installation/provisioning or provider login in the browser, custom runtime settings,
-changing existing session execution, or clearing Story 42's real-provider/platform release matrix.
+changing existing session execution, or clearing Story 57's real-provider/platform release matrix.
 
 ## How to verify
 
@@ -66,5 +66,11 @@ confirm the control reports the error without claiming the setting changed.
 Verified September 9, 2026: offline suite, focused settings/device route checks, TypeScript,
 production build and all four Docker browser flows pass. The browser run uses the actual settings
 API for persistence and disables Docker afterward; readiness transitions and save failures also
-have browser fixtures. The setup panel was visually inspected. Story 42's actual Docker and
+have browser fixtures. The setup panel was visually inspected. Story 57's actual Docker and
 signed-in provider release matrix remains in progress.
+
+September 20, 2026 — scope of that evidence, recorded after a pre-merge review. The Docker browser
+flows cover settings, session creation, and continuation; none sends a turn in a Docker session.
+That is how a guard merged from the VR branch could reject every Docker turn with 409 while these
+flows stayed green. [Story 61](STORY-20260920-spacial-merge-review-fixes.md) removes the guard and
+adds a route test that sends a Docker turn. A real-daemon turn remains in Story 57's release matrix.

@@ -34,8 +34,12 @@ Updated 2026-09-20. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 56](stories/STORY-20260919-vr-report-from-headset.md) — reporting from
   inside the headset is implemented: a captured view, the retained diagnostics, and forwarded error
   text reach the paired home machine without a cable; the Quest 3S run remains pending.
-- **Also in flight:** [optional local Docker execution](stories/STORY-20260908-local-docker-execution.md),
-  with [Docker session creation and shared provider login](stories/STORY-20260909-docker-session-friction.md).
+- **Also in flight:** [Story 57, optional local Docker execution](stories/STORY-20260908-local-docker-execution.md);
+  release verification against a real daemon remains pending. Its follow-ups, Stories 58 and 59
+  (Arena enablement, [shared provider login](stories/STORY-20260909-docker-session-friction.md)), are shipped.
+- **Also in flight:** [Story 61](stories/STORY-20260920-spacial-merge-review-fixes.md) — repairs the
+  defects left by merging Docker execution into the VR branch: Docker turns were rejected outright,
+  and the VR permission review could hide the command being approved.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the
@@ -48,6 +52,7 @@ All commands run from the repository root.
 
 ```sh
 npm run dev        # Next.js dev server on 3023 (Turbopack, output in .next/dev)
+npm run devs       # the same over HTTPS on the LAN for a headset — unauthenticated, see README
 npm start          # production server on 3023, after npm run build
 npm run start:remote # paired personal-device HTTPS server, after npm run build
 npm run device:pair # issue a ten-minute, single-use pairing code
@@ -62,6 +67,10 @@ npm run lint       # strict TypeScript check (tsc --noEmit) — there is no ESLi
 npm test           # Vitest suite, offline, with fake Claude/Codex executables
 npm run test:watch # the same suite in watch mode
 npm run test:e2e   # production build into .next-e2e + Playwright against installed Chrome
+npm run docker:provision # build the pinned worker image and record the Docker profile
+npm run docker:login -- PROVIDER # sign a provider in inside the shared Docker home
+npm run docker:cleanup -- SESSION_ID PARTICIPANT_ID # remove one participant's Docker resources
+npm run test:docker # probe the real Docker runtime; needs a running daemon
 ```
 
 `legacy/` is excluded from the TypeScript project, the Vitest include set, and the Playwright test
@@ -77,6 +86,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 |------|------|
 | `src/app/` | Next pages, layout, global CSS, and route handlers |
 | `src/features/shell/` | Application composition (`AppShell`) |
+| `src/features/shell/immersive/` | The VR workspace: panels, tools, layout, input, capture, and reports |
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
 | `src/features/arena/` | Host-wide session cards, Inbox derivation, polling, and device read state |
 | `src/features/devices/` | Personal-device pairing gate and paired-device management UI |
@@ -84,6 +94,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
 | `src/features/diagram/mermaid/` | Mermaid validation policy and SVG renderer |
 | `src/features/diagram/annotations/` | Drawing state and composite export |
+| `src/features/diagram/spatial/` | Desktop spatial room, spatial diagram model, and the GPU resource ledger shared with VR |
 | `src/features/projects/` | Project selection UI |
 | `src/features/repository/` | Repository tree, status, and diff UI and client state |
 | `src/server/agents/` | Provider policies, adapters, preflight, process runners |
@@ -94,6 +105,8 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
 | `src/server/diagnostics/` | Immersive reports written to the data directory for the home machine |
+| `src/server/execution/` | Optional Docker execution: container profile, runtime, recovery, and process transport |
+| `src/server/voice/` | Loopback-only transcription client for voice dictation |
 | `src/server/machines/` | Machine pairing, registry, snapshot collection, and allowlisted gateway |
 | `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
 | `test/`, `e2e/` | Vitest suite and Playwright suite |
@@ -113,13 +126,15 @@ importing file's own directory; keep `./…` for same-directory siblings.
   executable, tool list, allowlist, permission mode, sandbox, and model flags are resolved on the
   server. An unknown or unsupported mode is a 400.
 - Local Agent edits the real working tree after per-action approval and runs as the desktop user.
-  Optional Docker execution (Story 42, release verification pending) uses a pinned non-root worker:
+  Optional Docker execution (Story 57, release verification pending) uses a pinned non-root worker:
   Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
   separate working copy or rollback. New Docker participants share a persistent provider home per
   installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host
   storage; see [the Docker execution contract](docs/docker-execution.md).
 - Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
-  device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode.
+  device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode. The
+  one exception is the README's development-only headset loop (`npm run devs`): it is
+  unauthenticated by design and for a network where every device is trusted. Do not extend it.
 - Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is
   ignored and must stay untracked.
 

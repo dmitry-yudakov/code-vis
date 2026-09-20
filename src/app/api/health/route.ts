@@ -5,7 +5,7 @@ import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
-import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
+import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,7 @@ export async function GET(request: Request): Promise<Response> {
   const config = getConfig();
   let recoveryMessage: string | undefined;
   try { await recoverDockerExecution(config); }
-  catch { recoveryMessage = 'Docker recovery is incomplete. Restore the local daemon before starting another turn.'; }
+  catch { recoveryMessage = DOCKER_RECOVERY_MESSAGE; }
   let repositoriesRootReady = false;
   let dataDirectoryReady = false;
   let readinessMessage: string | undefined;

@@ -483,7 +483,9 @@ September 18, 2026 — physical Quest follow-up found two remaining rendering re
   10 mm, the complete Playwright suite passes **70 Chrome tests**. Fresh Quest captures are still
   required before the oblique screenshot and headset criteria can close.
 
-September 18, 2026 — the third Quest capture `28212120205124676.jpg` found two placement issues.
+September 18, 2026 — the third Quest capture
+([quest-capture-20260918-conversation-panel.jpg](../docs/design/quest-capture-20260918-conversation-panel.jpg),
+device metadata removed) found two placement issues.
 
 - The compact “Cancel run” pill sat at the left edge between the status and input surfaces. It is now
   right-aligned in the status row with its lower edge clear of the input field.

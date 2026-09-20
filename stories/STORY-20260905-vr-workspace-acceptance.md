@@ -49,7 +49,9 @@ actions on the user's Quest 3S with the final scene, rather than extrapolating f
 ## Acceptance criteria
 
 - [x] On Quest 3S, create/open an empty session, enter VR, dictate and correct an instruction,
-  choose its agent/mode, and send without another device or a required keyboard.
+  choose its agent/mode, and send without another device or a required keyboard. This is the
+  journey-level acceptance; [Story 47](STORY-20260905-vr-conversation-input.md) keeps its own
+  detailed Quest 3S dictation and native-input checks open.
 - [x] Read streaming/history, answer allow and deny requests, and cancel an identified run in VR.
 - [x] Arrange tools, read a diff, explore actual 3D nodes/edges, switch to the marked 2D projection,
   annotate, attach a correction, and inspect the resulting revision without ending XR.
@@ -57,8 +59,11 @@ actions on the user's Quest 3S with the final scene, rather than extrapolating f
   observed discomfort and usability defects are resolved or the release remains unaccepted.
 - [x] Voice failure, lost controller, executor outage, a broken diagram, system interruption, and
   revoked access have the specified recoveries without losing durable work or redirecting commands.
-- [x] Ten entry/exit cycles preserve drafts/layout and return resources to baseline. The combined
-  scene passes documented frame and resource budgets with measurements recorded here.
+- [x] Ten entry/exit cycles preserve drafts/layout and return resources to baseline. The user
+  accepted the combined scene's frame rate and resource behaviour on Quest 3S. Numeric frame and
+  resource measurements were not supplied, so the proposed budgets in step 4 remain unmeasured;
+  recording them is owned by [Story 50](STORY-20260905-vr-spatial-diagrams.md) and
+  [Story 54](STORY-20260917-vr-quest-visual-design.md)'s performance baseline.
 - [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass; README and architecture
   describe the actual first release and its input/setup requirements.
 
@@ -97,6 +102,13 @@ record stays separate; shared regression evidence may be linked without inventin
 | Median/p95 frame interval and missed frames | Accepted by the user; numeric telemetry not supplied |
 | Aggregate scene caps; peak and baseline resources; ten cycles | Accepted by the user; numeric headset telemetry not supplied |
 | Failure/recovery observations and resolved defects | Accepted by the user September 20, 2026 |
+
+September 20, 2026 — a pre-merge review found two criteria claiming more than this record holds:
+one said budgets passed "with measurements recorded here" while the rows above say none were
+supplied, and one could be read as closing Story 47's detailed voice checks. Both were reworded to
+what was accepted; the acceptance itself is unchanged. The same review found per-token, per-frame,
+and per-stroke costs likely to exceed a Quest frame budget, fixed in
+[Story 61](STORY-20260920-spacial-merge-review-fixes.md), which is a reason to record real numbers.
 
 September 20, 2026 — the user explicitly marked the Quest 3S step verified and directed work to
 continue to Story 52. This is the physical acceptance authority for the gate; unreported device

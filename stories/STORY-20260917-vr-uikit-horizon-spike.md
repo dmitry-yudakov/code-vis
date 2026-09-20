@@ -6,6 +6,15 @@
 **Start only if** Story 54's headset check B concludes the restyled raster workspace still doesn't
 feel like Quest. Otherwise mark this story Superseded.
 
+**Recorded deviation (September 20, 2026):** the software spike was started before that check
+concluded; Story 54's check B is still open. The spike also lives on `feat/spacial` rather than on
+a branch of its own, so "the branch deleted" below cannot be honoured literally. On no-go, remove
+instead: `UikitConversationSpike.tsx`, `uikitFontPolicy.ts`, `uikitFonts.generated.ts` (2.4 MB),
+both `scripts/generate-uikit-fonts*` files, the `?vr-uikit-spike` branch in
+`ImmersiveWorkspace.tsx`, its tests, and the three runtime dependencies that serve only the spike
+(`@pmndrs/uikit`, `@pmndrs/uikit-horizon`, `@react-three/uikit`). It is opt-in behind a dynamic
+import and adds nothing to the default bundle.
+
 ## Motivation
 
 `@pmndrs/uikit-horizon` is an MIT-licensed kit (Bela Bohlender 2024, Meta Platforms 2025) based on
@@ -69,7 +78,8 @@ implementation and verification record below.
 - [ ] Quest 3S numbers are recorded: frame deltas versus Story 54, atlas memory, and resource counts
   after twenty cycles.
 - [ ] The user records go or no-go. On go, a migration story is written with the costs above. On
-  no-go, this story is marked Superseded and the branch deleted.
+  no-go, this story is marked Superseded and the spike removed as listed in the recorded
+  deviation above.
 
 ## Out of scope
 

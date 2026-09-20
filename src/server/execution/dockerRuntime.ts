@@ -5,8 +5,9 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { AppConfig } from '@/server/config';
 import type { AgentMode, AgentProvider, ProviderHealth } from '@/shared/types';
+import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { atomicWrite } from '@/server/storage/sessionStore';
-import { dockerCommand, localDockerEndpoint, spawnDocker } from './dockerCommand';
+import { dockerCommand, localDockerEndpoint, removeContainerDetached, spawnDocker } from './dockerCommand';
 import {
   containerSecurity, dockerOwner, participantVolume, providerVolume, validateDockerCheckout,
   DOCKER_CONTEXT, DOCKER_HOME, DOCKER_LABEL, DOCKER_PATH, DOCKER_PROFILE,
@@ -18,6 +19,10 @@ const provisionSchema = z.object({
 }).strict();
 type WorkerIdentity = { sessionId: string; participantId: string; runId: string; provider: AgentProvider };
 type DockerCommand = (args: string[]) => Promise<string>;
+/** Start-up runs before the turn clock with every Docker command capped at 60 s; stopping adds seconds. */
+const WORKER_GRACE_SECONDS = 600;
+/** An owner terminal has no turn limit; an abandoned login still ends. */
+const SETUP_LIFETIME_SECONDS = 3_600;
 
 export class DockerTerminationError extends Error {
   constructor(readonly stop: () => Promise<void>) {
@@ -45,7 +50,7 @@ export class DockerRuntime {
     const endpoint = await localDockerEndpoint();
     const command = (args: string[]) => dockerCommand(['--host', endpoint, ...args]);
     if ((await command(['info', '--format', '{{.ID}}'])).trim() !== profile.engineId) {
-      throw new Error('The local Docker engine identity changed. The previous engine must be reconciled before reuse.');
+      throw new Error('The local Docker engine identity changed. Restore the previous engine, or adopt this one with npm run docker:provision -- --replace-engine.');
     }
     const version = JSON.parse(await command(['version', '--format', '{{json .Server}}'])) as { Version?: string; Os?: string };
     if (version.Os !== 'linux' || Number(version.Version?.split('.')[0]) < 28) {
@@ -115,7 +120,7 @@ export class DockerRuntime {
           }
           if (labels) {
             if (labels[`${DOCKER_LABEL}.owner`] !== this.owner || labels[`${DOCKER_LABEL}.home`] !== home) throw error;
-            if (labels[`${DOCKER_LABEL}.kind`] !== 'admission') {
+            if (labels[`${DOCKER_LABEL}.kind`] !== 'admission' && !await this.removeDeadTerminals(command).catch(() => false)) {
               throw new Error('Docker provider setup is active. Finish the login command in your terminal before starting another turn.');
             }
           }
@@ -129,8 +134,8 @@ export class DockerRuntime {
   /** Legacy cleanup deliberately names only participant volumes, never the shared provider home. */
   async cleanupParticipant(identity: WorkerIdentity): Promise<{ homeRemoved: boolean }> {
     const { command, image } = await this.profile();
-    const lease = (await command(['create', '--name', `codeai-${this.owner}-${identity.sessionId}`,
-      ...this.labels('cleanup', identity), ...containerSecurity(1000, 1000), '--network', 'none', image, 'true'])).trim();
+    const lease = await this.createLease(command, ['create', '--name', `codeai-${this.owner}-${identity.sessionId}`,
+      ...this.labels('cleanup', identity), ...containerSecurity(1000, 1000), '--network', 'none', image, 'true']);
     let homeRemoved = false;
     try {
       for (const kind of ['cache', 'home'] as const) {
@@ -167,6 +172,56 @@ export class DockerRuntime {
     if (matching.some((candidate) => remaining.includes(candidate))) throw new Error('Docker termination is unconfirmed; checkout remains locked.');
   }
 
+  private async ownedContainers(command: DockerCommand) {
+    const ids = (await command(['container', 'ls', '-aq', '--filter', `label=${DOCKER_LABEL}.owner=${this.owner}`])).trim().split('\n').filter(Boolean);
+    return Promise.all(ids.map(async (id) => ({ id,
+      labels: JSON.parse(await command(['inspect', '--format', '{{json .Config.Labels}}', id])) as Record<string, string>,
+    })));
+  }
+
+  /** Setup and cleanup belong to an owner terminal, whose recorded PID says whether it still runs. */
+  private heldByTerminal(labels: Record<string, string>): boolean {
+    return ['setup', 'cleanup'].includes(labels[`${DOCKER_LABEL}.kind`]);
+  }
+
+  private terminalAlive(labels: Record<string, string>): boolean {
+    const pid = Number(labels[`${DOCKER_LABEL}.pid`]);
+    if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  }
+
+  /** A killed terminal never releases its lease. Only containers its own dead process created in
+   * its session are removed, so this is safe in any process and at any time, unlike reconcile().
+   */
+  private async removeDeadTerminals(command: DockerCommand): Promise<boolean> {
+    const records = await this.ownedContainers(command);
+    const dead = records.map(({ labels }) => labels).filter((labels) => this.heldByTerminal(labels)
+      && !this.terminalAlive(labels) && /^[a-f0-9-]{36}$/i.test(labels[`${DOCKER_LABEL}.session`]));
+    const sessions = new Set(dead.map((labels) => labels[`${DOCKER_LABEL}.session`]));
+    for (const { id, labels } of records) {
+      if (sessions.has(labels[`${DOCKER_LABEL}.session`]) && !this.terminalAlive(labels)) await this.removeContainer(command, id);
+    }
+    const networks = new Set(dead.map((labels) => (
+      `codeai-${this.owner}-${labels[`${DOCKER_LABEL}.session`]}-${labels[`${DOCKER_LABEL}.run`]?.slice(0, 8)}`)));
+    for (const network of networks) await this.removeNetwork(command, network);
+    return sessions.size > 0;
+  }
+
+  private async removeNetwork(command: DockerCommand, network: string): Promise<void> {
+    const networks = (await command(['network', 'ls', '-q', '--filter', `name=^${network}$`, '--filter', `label=${DOCKER_LABEL}.owner=${this.owner}`])).trim();
+    if (networks) await command(['network', 'rm', network]);
+  }
+
+  /** Atomic fixed session name is also the cross-process setup/turn/cleanup lease. */
+  private async createLease(command: DockerCommand, args: string[]): Promise<string> {
+    try { return (await command(args)).trim(); }
+    catch (error) {
+      // A failed sweep proves nothing stale: the original refusal stands.
+      if (!await this.removeDeadTerminals(command).catch(() => false)) throw error;
+      return (await command(args)).trim();
+    }
+  }
+
   /** Called before admission, including Local admission after Docker was disabled. */
   async reconcile(): Promise<string[]> {
     this.recovery ??= this.reconcileOwned().catch((error) => { this.recovery = undefined; throw error; });
@@ -185,16 +240,9 @@ export class DockerRuntime {
     if ((await command(['info', '--format', '{{.ID}}'])).trim() !== provision.engineId) {
       throw new Error('Docker engine identity changed; orphan termination cannot be confirmed.');
     }
-    const ids = (await command(['container', 'ls', '-aq', '--filter', `label=${DOCKER_LABEL}.owner=${this.owner}`])).trim().split('\n').filter(Boolean);
-    const records = await Promise.all(ids.map(async (id) => ({ id,
-      labels: JSON.parse(await command(['inspect', '--format', '{{json .Config.Labels}}', id])) as Record<string, string>,
-    })));
-    const activeSetupSessions = new Set(records.filter(({ labels }) => {
-      if (!['setup', 'cleanup'].includes(labels[`${DOCKER_LABEL}.kind`])) return false;
-      const pid = Number(labels[`${DOCKER_LABEL}.pid`]);
-      if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-      try { process.kill(pid, 0); return true; } catch { return false; }
-    }).map(({ labels }) => labels[`${DOCKER_LABEL}.session`]));
+    const records = await this.ownedContainers(command);
+    const activeSetupSessions = new Set(records.filter(({ labels }) => this.heldByTerminal(labels) && this.terminalAlive(labels))
+      .map(({ labels }) => labels[`${DOCKER_LABEL}.session`]));
     const interruptedPath = path.join(this.config.dataDir, 'docker', 'interrupted.json');
     const interrupted = new Set<string>(z.array(z.string().uuid()).max(1000).parse(JSON.parse(
       await readFile(interruptedPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -245,24 +293,27 @@ export class DockerRuntime {
     let legacyHome = false;
     const name = `codeai-${this.owner}-${identity.sessionId}`;
     const network = `${name}-${identity.runId.slice(0, 8)}`;
+    // Every turn gets a new worker, and Docker turns never pause their clock for approvals. PID 1
+    // therefore outlasts the turn, and ends every exec'd process if CodeAI is no longer there to.
+    const lifetime = options.setup ? SETUP_LIFETIME_SECONDS
+      : Math.ceil(resolveAgentPolicy(this.config, options.mode, 'docker').timeoutMs / 1000) + WORKER_GRACE_SECONDS;
     const resources: string[] = [];
     let networkCreated = false;
     let cleanupComplete = false;
     const stop = async () => {
       if (cleanupComplete) return;
-      for (const id of [...resources].reverse()) await this.removeContainer(command, id);
-      if (networkCreated) {
-        const networks = (await command(['network', 'ls', '-q', '--filter', `name=^${network}$`, '--filter', `label=${DOCKER_LABEL}.owner=${this.owner}`])).trim();
-        if (networks) await command(['network', 'rm', network]);
+      for (const id of [...resources].reverse()) {
+        await this.removeContainer(command, id);
+        activeWorkers().delete(id);
       }
+      if (networkCreated) await this.removeNetwork(command, network);
       cleanupComplete = true;
     };
     try {
-      // Atomic fixed session name is also the cross-process setup/turn/cleanup lease.
-      const lease = (await command([
+      const lease = await this.createLease(command, [
         'create', '--name', name, ...this.labels(options.setup ? 'setup' : 'lease', identity),
         ...containerSecurity(uid, gid), '--network', 'none', image, 'sleep', 'infinity',
-      ])).trim();
+      ]);
       resources.push(lease);
       // Session admission excludes legacy cleanup while choosing and mounting its old home.
       const legacy = participantVolume(this.owner, identity.sessionId, identity.participantId, 'home');
@@ -327,9 +378,10 @@ export class DockerRuntime {
         ] : []),
         ...(options.context ? ['--mount', `type=bind,src=${options.context},dst=${DOCKER_CONTEXT},readonly`] : []),
         '--workdir', options.checkout ? '/workspace' : DOCKER_HOME,
-        image, 'sleep', 'infinity',
+        image, 'sleep', String(lifetime),
       ])).trim();
       resources.push(worker);
+      activeWorkers().set(worker, endpoint);
       // Recheck the bind source immediately before Docker actually attaches it on start.
       if (options.checkout) await validateDockerCheckout(options.checkout, this.config);
       await command(['start', worker]);
@@ -362,7 +414,22 @@ export class DockerRuntime {
   }
 }
 
-const globals = globalThis as typeof globalThis & { __codeAiDockerRuntimes?: Map<string, DockerRuntime> };
+const globals = globalThis as typeof globalThis & {
+  __codeAiDockerRuntimes?: Map<string, DockerRuntime>; __codeAiDockerWorkers?: Map<string, string>;
+};
+
+/** Best effort: an exit listener cannot delay shutdown, change its code or intercept a signal, and
+ * never runs after SIGKILL or a default signal exit. Leases stay so the next start records the
+ * interrupted delivery.
+ */
+function activeWorkers(): Map<string, string> {
+  if (!globals.__codeAiDockerWorkers) {
+    const workers = globals.__codeAiDockerWorkers = new Map<string, string>();
+    process.on('exit', () => { for (const [worker, endpoint] of workers) removeContainerDetached(endpoint, worker); });
+  }
+  return globals.__codeAiDockerWorkers;
+}
+
 export function getDockerRuntime(config: AppConfig): DockerRuntime {
   const runtimes = globals.__codeAiDockerRuntimes ??= new Map();
   const key = `${config.dataDir}\0${config.dockerEnabled}`;
@@ -371,11 +438,26 @@ export function getDockerRuntime(config: AppConfig): DockerRuntime {
   return runtime;
 }
 
-export async function saveDockerProvision(dataDir: string, image: string): Promise<void> {
+/** A profile is never overwritten, except that the owner's explicit command adopts a different engine. */
+export async function saveDockerProvision(dataDir: string, image: string, replaceEngine = false): Promise<void> {
   const endpoint = await localDockerEndpoint();
   const engineId = (await dockerCommand(['--host', endpoint, 'info', '--format', '{{.ID}}'])).trim();
   const provision = provisionSchema.parse({ profile: DOCKER_PROFILE, image, engineId });
   const directory = path.join(dataDir, 'docker');
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  await writeFile(path.join(directory, 'profile.json'), `${JSON.stringify(provision)}\n`, { mode: 0o600, flag: 'wx' });
+  const file = path.join(directory, 'profile.json');
+  const recorded = replaceEngine ? await readFile(file, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error;
+  }) : undefined;
+  if (recorded) {
+    if (provisionSchema.parse(JSON.parse(recorded)).engineId === engineId) {
+      throw new Error('The local Docker engine is unchanged, so its profile is not overwritten.');
+    }
+    await atomicWrite(file, provision);
+    return;
+  }
+  await writeFile(file, `${JSON.stringify(provision)}\n`, { mode: 0o600, flag: 'wx' }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EEXIST') throw error;
+    throw new Error('This installation is already provisioned. If the local Docker engine was replaced, run npm run docker:provision -- --replace-engine.');
+  });
 }

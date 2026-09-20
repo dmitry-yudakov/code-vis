@@ -6,6 +6,9 @@ import { getDockerRuntime } from './dockerRuntime';
 
 const globals = globalThis as typeof globalThis & { __codeAiDockerRecovery?: Map<string, Promise<void>> };
 
+/** Shown wherever recovery blocks admission, so the turn route and health agree. */
+export const DOCKER_RECOVERY_MESSAGE = 'Docker recovery is incomplete. Once provisioned, every turn needs the local Docker daemon: start it and retry. If its engine was replaced, run npm run docker:provision -- --replace-engine on this machine.';
+
 export function recoverDockerExecution(config: AppConfig): Promise<void> {
   const recoveries = globals.__codeAiDockerRecovery ??= new Map();
   let recovery = recoveries.get(config.dataDir);

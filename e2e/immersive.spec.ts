@@ -901,7 +901,9 @@ test('retains one XR store across machine/project navigation, loading races, his
 test('pages the immersive Arena, inspects an exact background permission, and returns to the prior draft', async ({ page }) => {
   await installAdapter(page);
   const fixture = await workspaceFixture(page, false, 0, 5);
-  const pending = [{ requestId: 'arena-request', participantId: AGENT, tool: 'Edit', detail: 'src/arena.ts' }];
+  // A realistic command runs past the first page of the review, so the reader must page forward.
+  const pending = [{ requestId: 'arena-request', participantId: AGENT, tool: 'Edit',
+    detail: 'src/arena.ts\n\nCommand:\ngit clean -fdx && rm -rf node_modules/.cache && npm run build -- --force' }];
   await page.route('**/api/arena', (route) => {
     const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
     const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote);
@@ -933,6 +935,12 @@ test('pages the immersive Arena, inspects an exact background permission, and re
   await expect(controls(page).locator('strong').first()).toHaveText('Empty remote session');
   await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('permissions');
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('src/arena.ts');
+  await expect.poll(async () => (await sessionToolsState(page))?.pageCount).toBeGreaterThan(1);
+  await controls(page).locator('[data-immersive-action="session:newer"]').click();
+  await expect.poll(async () => (await sessionToolsState(page))?.page).toBe(1);
+  // The Arena polls every two seconds; the command being approved must stay on screen.
+  await page.waitForTimeout(3_000);
+  expect(await sessionToolsState(page)).toMatchObject({ tab: 'permissions', page: 1 });
   await controls(page).locator('[data-immersive-action="session:allow"]').click();
   await expect.poll(() => decisions).toEqual([{ runId: 'arena-run', requestId: 'arena-request', decision: 'allow' }]);
   await expect.poll(async () => (await sessionToolsState(page))?.permissionStatus).toBe('Allowed.');
@@ -1826,6 +1834,17 @@ test('compares canvases, writes canonical controller marks, and sends the marked
       value: () => { throw new Error('Injected Quest canvas readback failure.'); },
     });
   });
+  // Count every frame in which the canvas is missing: a stroke must swap textures, never blank it.
+  const writesBeforeStroke = fixture.annotationWrites;
+  await page.evaluate(() => {
+    const probe = { gaps: 0, running: true };
+    (window as unknown as { __canvasProbe: typeof probe }).__canvasProbe = probe;
+    const sample = () => {
+      if (!window.xrScene?.scene.getObjectByName('Active canvas')) probe.gaps++;
+      if (probe.running) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
   await pointAtCanvasUv(page, 0.25, 0.75); await page.mouse.down();
   await pointAtCanvasUv(page, 0.75, 0.25);
   await expect.poll(async () => (await reviewState())?.drawing).toBe(true);
@@ -1839,6 +1858,14 @@ test('compares canvases, writes canonical controller marks, and sends the marked
   await expect.poll(async () => (await reviewState())?.drawing).toBe(false);
   await expect.poll(async () => (await reviewState())?.marks?.length).toBe(1);
   await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Active canvas')?.userData.status)).toBe('ready');
+  // The saved stroke returns as a session snapshot, which used to blank the canvas a second time.
+  await expect.poll(() => fixture.annotationWrites).toBeGreaterThan(writesBeforeStroke);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => {
+    const probe = (window as unknown as { __canvasProbe: { gaps: number; running: boolean } }).__canvasProbe;
+    probe.running = false;
+    return probe.gaps;
+  })).toBe(0);
   expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
   const rectangle = (await reviewState())!.marks[0];
   expect(rectangle).toMatchObject({ kind: 'rectangle', x: expect.closeTo(400, 0), y: expect.closeTo(250, 0) });

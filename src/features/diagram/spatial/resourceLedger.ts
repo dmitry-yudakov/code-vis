@@ -200,28 +200,37 @@ export class SpatialResourceLedger {
   }
 
   dispose(): void {
-    if (this.disposed) return;
+    this.retire()();
+  }
+
+  /**
+   * Stops tracking without freeing the GPU objects: a replaced generation stays bound to its meshes
+   * until React commits the replacement, and three.js silently re-creates a disposed texture that
+   * is rendered again. Accounting and object URLs are released now, so the replacement fits the
+   * immersive budget exactly as it would after `dispose`. The returned disposal runs once.
+   */
+  retire(): () => void {
+    if (this.disposed) return () => undefined;
     this.disposed = true;
     for (const [url, image] of this.objectUrls) this.cleanupObjectUrl(url, image);
     instrumentation.objectUrls -= this.objectUrls.size;
     if (this.owner === 'immersive') updateImmersiveResources(-this.objectUrls.size);
     this.objectUrls.clear();
-    for (const [texture, pixels] of this.textures) {
-      texture.dispose();
+    for (const pixels of this.textures.values()) {
       instrumentation.textures -= 1;
       instrumentation.logicalTexturePixels -= pixels;
       if (this.owner === 'immersive') updateImmersiveResources(-1, -pixels);
     }
-    this.textures.clear();
-    for (const material of this.materials) material.dispose();
     instrumentation.materials -= this.materials.size;
     if (this.owner === 'immersive') updateImmersiveResources(-this.materials.size);
-    this.materials.clear();
-    for (const geometry of this.geometries) geometry.dispose();
     instrumentation.geometries -= this.geometries.size;
     if (this.owner === 'immersive') updateImmersiveResources(-this.geometries.size);
+    const resources = [...this.textures.keys(), ...this.materials, ...this.geometries];
+    this.textures.clear();
+    this.materials.clear();
     this.geometries.clear();
     publish();
+    return () => { for (const resource of resources.splice(0)) resource.dispose(); };
   }
 
   isDisposed(): boolean {
@@ -249,5 +258,29 @@ export class SpatialResourceLedger {
       image.src = '';
     }
     if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Ledgers whose product a mesh may still render. The owner adds a ledger when its dependencies
+ * change and flushes after each commit with the product that commit bound, so a ledger is disposed
+ * only once React has bound something else. Commits order the disposal rather than time: the XR
+ * loop renders between them at its own rate, and `requestAnimationFrame` pauses in a headset.
+ */
+export class RetiredLedgers {
+  private readonly pending: Array<{ product: unknown; dispose(): void }> = [];
+
+  add(ledger: SpatialResourceLedger, product: unknown): void {
+    // Nothing was produced (superseded, or creation failed), so no mesh can be bound to it.
+    if (product === undefined) ledger.dispose();
+    else this.pending.push({ product, dispose: ledger.retire() });
+  }
+
+  /** Omit `bound` on unmount, when no mesh is left. */
+  flush(bound?: unknown): void {
+    for (const entry of this.pending.splice(0)) {
+      if (entry.product === bound) this.pending.push(entry);
+      else entry.dispose();
+    }
   }
 }

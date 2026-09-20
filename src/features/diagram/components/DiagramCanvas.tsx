@@ -26,6 +26,14 @@ export interface CanvasViewState {
  */
 export const EMPTY_CANVAS_SVG = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
 
+/**
+ * A reset copies the shared record's array but keeps its mark objects, while every local edit adds,
+ * replaces, or drops one. Marks that are still the record's own objects were adopted, not drawn.
+ */
+export function isSharedMarks(marks: readonly DrawingMark[], shared: readonly DrawingMark[]): boolean {
+  return marks.length === shared.length && marks.every((mark, index) => mark === shared[index]);
+}
+
 function download(name: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a');
@@ -112,7 +120,14 @@ export function DiagramCanvas({
     }
   }, [initialMarks]);
 
-  useEffect(() => onMarksChange(state.marks), [state.marks, onMarksChange]);
+  const reportedRef = useRef(false);
+  useEffect(() => {
+    // Marks adopted from the shared record are not a Flat change: reporting them back saved every
+    // VR stroke a second time. The first report still seeds this canvas's record, as it always has.
+    if (reportedRef.current && isSharedMarks(state.marks, initialMarks)) return;
+    reportedRef.current = true;
+    onMarksChange(state.marks);
+  }, [state.marks, onMarksChange]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onViewChange({ zoom, pan, fitted }), [fitted, onViewChange, pan, zoom]);
 
   const sketchSheet = sketch?.viewBox.join(' ');

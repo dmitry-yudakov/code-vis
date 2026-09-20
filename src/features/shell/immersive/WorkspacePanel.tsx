@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useFrame, type ThreeElements, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { ThemeName } from '@/shared/design/tokens';
-import type { ImmersiveTexturePanel } from '@/features/diagram/spatial/immersiveResources';
+import { followSourceTexture, type ImmersiveTexturePanel } from '@/features/diagram/spatial/immersiveResources';
 import type { ImmersiveSemanticAction } from '@/features/diagram/spatial/immersiveTypes';
 import {
   PANEL_COMMAND_LABELS, PANEL_HEIGHT, PANEL_SIZES, PANEL_TITLES, PANEL_WIDTH, panelTransform,
@@ -100,6 +100,12 @@ export function WorldButton({ action, label, resource, tooltip, iconTheme = 'dar
     if (!tooltipTarget.current && tooltipMaterial.opacity === 0 && tooltipReady) setTooltipReady(false);
   });
   const foreground = useTextureResource((ledger) => resource && ledger.trackMaterial(resource.material.clone()), [resource]);
+  // Both clones lag their source by one commit. A layout effect runs before the source's ledger
+  // flushes in this commit's passive effects, so no rendered material keeps the replaced texture.
+  useLayoutEffect(() => {
+    followSourceTexture(foreground, resource);
+    followSourceTexture(tooltipMaterial, visibleTooltip);
+  }, [foreground, resource, tooltipMaterial, visibleTooltip]);
   const button = useTextureResource((ledger) => {
     if (!resource || variant === 'bare') return undefined;
     const circle = Math.abs(resource.width - resource.height) < 0.001;

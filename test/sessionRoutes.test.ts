@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ const routeState = vi.hoisted(() => ({
   checkoutAvailable: true,
   healthChecks: 0,
   runnersCreated: 0,
+  adapterRequests: [] as unknown[][],
 }));
 
 vi.mock('@/server/config', () => ({
@@ -33,7 +34,7 @@ vi.mock('@/server/repository/checkoutRegistry', () => ({
 }));
 
 vi.mock('@/server/agents/providerRegistry', () => ({
-  getProviderAdapters: () => ({
+  getProviderAdapters: (_config: unknown, ...request: unknown[]) => (routeState.adapterRequests.push(request), {
     claude: {
       checkHealth: async () => {
         routeState.healthChecks += 1;
@@ -127,6 +128,7 @@ describe('session snapshot and mutation routes', () => {
     routeState.checkoutAvailable = true;
     routeState.healthChecks = 0;
     routeState.runnersCreated = 0;
+    routeState.adapterRequests = [];
   });
 
   it.each([3, 4] as const)('lists and hydrates version %i public snapshots, then applies revisioned canvas operations', async (version) => {
@@ -199,7 +201,7 @@ describe('session snapshot and mutation routes', () => {
     expect((await stale.json()).error).toContain('Refetch and retry');
   });
 
-  it('keeps Docker history readable but rejects local turns and repository changes without modifying history', async () => {
+  it('keeps Docker history readable, rejects repository changes without modifying history, and sends turns to the Docker adapter', async () => {
     const session = await seedVersionFourSession('docker');
     const sessionPath = path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`);
     const projectPath = path.join(routeState.dataDir, 'session-store-v2', 'projects', `${session.projectId}.json`);
@@ -207,15 +209,6 @@ describe('session snapshot and mutation routes', () => {
     const loaded = await GET_SESSION(new Request('http://localhost'), context(session.id));
     expect(loaded.status).toBe(200);
     expect((await loaded.json()).session).toMatchObject({ id: session.id, version: 4, execution: 'docker' });
-
-    const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(publicSession(session))),
-    }));
-    expect(response.status).toBe(409);
-    expect((await response.json()).error).toContain('cannot run Docker sessions');
-    expect(routeState.healthChecks).toBe(0);
-    expect(routeState.runnersCreated).toBe(0);
-    expect(runRegistry.currentRuns).toEqual([]);
 
     const rebind = await PUT_REPOSITORIES(new Request('http://localhost', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -227,6 +220,50 @@ describe('session snapshot and mutation routes', () => {
     expect(rebind.status).toBe(400);
     expect((await rebind.json()).error).toContain('repository binding is fixed');
     expect(await Promise.all([sessionPath, projectPath].map((file) => readFile(file, 'utf8')))).toEqual(originals);
+
+    const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(publicSession(session))),
+    }));
+    expect(routeState.adapterRequests).toEqual([['docker', { sessionId: session.id, participantId: session.primaryAgentId }]]);
+    expect(response.status).toBe(200);
+    // The fixture runner throws once requested, which ends the accepted turn and drains its stream.
+    expect(await response.text()).toContain('"type":"done"');
+    expect(routeState.healthChecks).toBe(1);
+    expect(routeState.runnersCreated).toBe(1);
+    await vi.waitFor(() => expect(runRegistry.currentRuns).toEqual([]));
+  });
+
+  it('reads a version 3 session as Local for its adapter and scheduler key', async () => {
+    const reserve = vi.spyOn(runRegistry, 'reserve').mockReturnValue({ accepted: false, reason: 'queue-full' });
+    try {
+      const sessions = [await seedVersionThreeSession(), await seedVersionFourSession('local')];
+      for (const session of sessions) {
+        const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(publicSession(session))),
+        }));
+        expect(response.status).toBe(429);
+      }
+      expect(reserve.mock.calls.map(([input]) => input.providerKey)).toEqual(sessions.map((session) => (
+        `${session.repositories[0].hostId}:local:claude:participant:${session.primaryAgentId}`
+      )));
+      expect(routeState.adapterRequests.map(([execution]) => execution)).toEqual(['local', 'local']);
+    } finally {
+      reserve.mockRestore();
+    }
+  });
+
+  it('answers an incomplete Docker recovery with the actions that resolve it', async () => {
+    const session = await createViaRoute('checkout-a');
+    await mkdir(path.join(routeState.dataDir, 'docker'));
+    await writeFile(path.join(routeState.dataDir, 'docker', 'profile.json'), 'unreadable');
+    const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(session)),
+    }));
+    expect(response.status).toBe(409);
+    const { error } = await response.json();
+    expect(error).toContain('start it and retry');
+    expect(error).toContain('npm run docker:provision -- --replace-engine');
+    expect(routeState.healthChecks).toBe(0);
   });
 
   it('keeps repository-free sessions readable and rejects their turns before provider work', async () => {

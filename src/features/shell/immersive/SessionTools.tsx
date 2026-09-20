@@ -3,7 +3,7 @@ import type { ThemeName } from '@/shared/design/tokens';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type { AgentMode, AgentProvider } from '@/shared/types';
 import { immersiveChatLines } from '@/features/diagram/spatial/immersiveTranscript';
-import { permissionKey, SESSION_ACTIONS, type ImmersiveSessionControls, type PermissionTarget, type SessionActionName } from './sessionControls';
+import { permissionKey, permissionRequestUpdate, SESSION_ACTIONS, type ImmersiveSessionControls, type PermissionTarget, type SessionActionName } from './sessionControls';
 import { createConversationTextResource, createWorkspaceButtonResource } from './workspaceResources';
 import { useTextureResource } from './useTextureResource';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
@@ -44,10 +44,13 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   useEffect(() => {
     if (!selected && controls.permissions[0]) setSelected(controls.permissions[0]);
   }, [selected, controls.permissions]);
+  const appliedRequest = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!controls.requestedPermissionKey) return;
-    const requested = controls.permissions.find((item) => permissionKey(item) === controls.requestedPermissionKey);
-    if (requested) { setSelected(requested); setTab('permissions'); setPage(0); }
+    const requested = controls.requestedPermissionKey
+      && controls.permissions.find((item) => permissionKey(item) === controls.requestedPermissionKey);
+    const update = permissionRequestUpdate(appliedRequest.current, controls.requestedPermissionKey, Boolean(requested));
+    appliedRequest.current = update.applied;
+    if (update.apply && requested) { setSelected(requested); setTab('permissions'); setPage(0); }
   }, [controls.permissions, controls.requestedPermissionKey]);
   useEffect(() => { if (result) setPage(0); }, [result]);
   const createEnabled = machine?.machine.state === 'online' && providers.includes(provider) && modes.includes(mode)

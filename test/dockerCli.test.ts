@@ -3,23 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(), spawn: vi.fn(), createWorker: vi.fn(), cleanupParticipant: vi.fn(), stop: vi.fn(),
+  command: vi.fn(), saveProvision: vi.fn(),
 }));
 vi.mock('node:child_process', () => ({ spawn: mocks.spawn }));
 vi.mock('node:fs/promises', () => ({ readFile: mocks.readFile }));
 vi.mock('@next/env', () => ({ loadEnvConfig: vi.fn() }));
 vi.mock('@/server/config', () => ({ getConfig: () => ({ dataDir: '/fixture', dockerEnabled: true }) }));
 vi.mock('@/server/execution/dockerCommand', () => ({
-  localDockerEndpoint: async () => 'unix:///fixture/docker.sock', dockerCommand: vi.fn(), dockerEnvironment: () => ({}),
+  localDockerEndpoint: async () => 'unix:///fixture/docker.sock', dockerCommand: mocks.command, dockerEnvironment: () => ({}),
 }));
 vi.mock('@/server/execution/dockerRuntime', () => ({
   DockerRuntime: class {
     createWorker = mocks.createWorker;
     cleanupParticipant = mocks.cleanupParticipant;
   },
-  saveDockerProvision: vi.fn(),
+  saveDockerProvision: mocks.saveProvision,
 }));
 
 import { dockerMain } from '../scripts/docker';
+import { DOCKER_VERSIONS } from '@/server/execution/dockerProfile';
 
 const sessionId = crypto.randomUUID();
 const participantId = crypto.randomUUID();
@@ -97,5 +99,25 @@ describe('Docker owner-terminal login', () => {
     mocks.readFile.mockResolvedValueOnce(legacySession());
     await dockerMain(['cleanup', sessionId, participantId]);
     expect(mocks.cleanupParticipant).toHaveBeenCalledWith(expect.objectContaining({ sessionId, participantId, provider: 'claude' }));
+  });
+});
+
+describe('Docker owner-terminal provisioning', () => {
+  beforeEach(() => {
+    mocks.command.mockImplementation(async (args: string[]) => (
+      args.includes('inspect') ? 'sha256:image\n' : `${DOCKER_VERSIONS.claude} ${DOCKER_VERSIONS.codex}`));
+  });
+
+  it('adopts a replaced engine only on the explicit owner flag', async () => {
+    await dockerMain(['provision']);
+    expect(mocks.saveProvision).toHaveBeenLastCalledWith('/fixture', 'sha256:image', false);
+    await dockerMain(['provision', '--replace-engine']);
+    expect(mocks.saveProvision).toHaveBeenLastCalledWith('/fixture', 'sha256:image', true);
+  });
+
+  it('rejects any other provisioning argument before building', async () => {
+    await expect(dockerMain(['provision', '--force'])).rejects.toThrow('Usage:');
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(mocks.saveProvision).not.toHaveBeenCalled();
   });
 });

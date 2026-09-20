@@ -117,7 +117,8 @@ Each linked story carries code anchors, acceptance checkboxes, and verification 
 is in progress; its automated shell/navigation implementation is complete and Quest 3S verification
 is pending. Story 46 is in progress with movable panels, device layout, and shared read-only diffs;
 physical acceptance is pending. Story 47 implements shared conversation controls and local
-Whisper dictation/correction with passing browser checks; Quest 3S voice acceptance is pending.
+Whisper dictation/correction with passing browser checks; its own detailed Quest 3S voice and
+native-input checks are pending, while the journey-level voice path was accepted in Story 51.
 Story 48 is in progress with session creation and active-session permission controls; physical
 acceptance remains pending. Story 49 is in progress with automated repository review, artifact
 comparison, annotation, and marked-attachment checks complete; physical acceptance remains pending.

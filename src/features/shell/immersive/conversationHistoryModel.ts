@@ -20,6 +20,11 @@ export interface ConversationHistoryScrollState {
   newActivity: boolean;
 }
 
+// Wrapping walks every character, so a streaming delta must not re-wrap the settled transcript.
+// Lines are reused per message while its text is unchanged, and the cache is replaced by the live
+// transcript on each call so it cannot outgrow the conversation or serve a stale wrap.
+let wrappedLines = new Map<string, { text: string; lines: string[] }>();
+
 export function buildConversationHistory(session?: SessionSnapshot, preview = ''): { entries: HistoryEntry[]; height: number } {
   const participants = new Map(session?.participants.map((participant) => [participant.id, participant]));
   const entries = session?.messages.map((message) => immersiveMessageEntry(message, participants)) || [];
@@ -29,12 +34,16 @@ export function buildConversationHistory(session?: SessionSnapshot, preview = ''
     meta: '', text: preview, state: 'Writing…',
   });
   let height = 0;
+  const wrapped = new Map<string, { text: string; lines: string[] }>();
   const layout = entries.map((entry) => {
-    const lines = immersiveChatLines(entry.text);
+    const cached = wrappedLines.get(entry.id);
+    const lines = cached?.text === entry.text ? cached.lines : immersiveChatLines(entry.text);
+    wrapped.set(entry.id, { text: entry.text, lines });
     const item = { entry, lines, top: height, height: (lines.length + 2) * IMMERSIVE_CHAT_LINE_HEIGHT };
     height += item.height;
     return item;
   });
+  wrappedLines = wrapped;
   return { entries: layout, height };
 }
 
@@ -48,6 +57,22 @@ export function historyScrollState(offset: number, height: number, newActivity =
 /** A reader at the bottom follows output; an older reading position stays anchored to the top. */
 export function updateHistoryScroll(previous: ConversationHistoryScrollState, height: number, changed: boolean): ConversationHistoryScrollState {
   return historyScrollState(previous.atBottom ? Infinity : previous.offset, height, previous.newActivity || changed);
+}
+
+export interface ConversationScrollFlags {
+  atTop: boolean;
+  atBottom: boolean;
+  newActivity: boolean;
+}
+
+/**
+ * A thumbstick moves the offset every XR frame. The surrounding chrome reads only these flags, so
+ * the previous value is returned unchanged while they hold, leaving the workspace tree untouched.
+ */
+export function conversationScrollFlags(previous: ConversationScrollFlags, state: ConversationHistoryScrollState): ConversationScrollFlags {
+  const next = { atTop: state.offset <= 0, atBottom: state.atBottom, newActivity: state.newActivity };
+  return next.atTop === previous.atTop && next.atBottom === previous.atBottom && next.newActivity === previous.newActivity
+    ? previous : next;
 }
 
 export function visibleHistoryEntries(entries: HistoryEntry[], offset: number): HistoryEntry[] {

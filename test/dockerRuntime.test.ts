@@ -1,19 +1,21 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getConfig } from '@/server/config';
-import { DockerRuntime } from '@/server/execution/dockerRuntime';
+import { DockerRuntime, saveDockerProvision } from '@/server/execution/dockerRuntime';
 import { DOCKER_HOME, DOCKER_LABEL, DOCKER_PROFILE, participantVolume, providerVolume } from '@/server/execution/dockerProfile';
 
-const mocks = vi.hoisted(() => ({ command: vi.fn() }));
+const mocks = vi.hoisted(() => ({ command: vi.fn(), removeDetached: vi.fn() }));
 vi.mock('@/server/execution/dockerCommand', () => ({
   localDockerEndpoint: async () => 'unix:///fixture/docker.sock',
   dockerCommand: mocks.command,
+  removeContainerDetached: mocks.removeDetached,
   spawnDocker: vi.fn(() => { throw new Error('A recovery must never start a provider'); }),
 }));
 
 const directories: string[] = [];
+const foreignExitListeners = process.listeners('exit');
 async function fixture() {
   const dataDir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'codeai-recovery-')));
   directories.push(dataDir);
@@ -121,14 +123,14 @@ async function workerFixture() {
   const containers = new Map<string, string[]>();
   const networks = new Set<string>();
   const volumes = new Map<string, Record<string, string>>();
-  const state = { failAccess: false, failPrepare: false, failAuth: false };
+  const state = { failAccess: false, failPrepare: false, failAuth: false, engine: 'engine-original' };
   const labels = (args: string[]) => Object.fromEntries(args.filter((_, index) => args[index - 1] === '--label').map((label) => {
     const separator = label.indexOf('=');
     return [label.slice(0, separator), label.slice(separator + 1)];
   }));
   let sequence = 0;
   const command = vi.fn(async (args: string[]) => {
-    if (args[0] === 'info') return 'engine-original';
+    if (args[0] === 'info') return state.engine;
     if (args[0] === 'version') return JSON.stringify({ Version: '28.0.0', Os: 'linux' });
     if (args[0] === 'image') return JSON.stringify({ Id: `sha256:${'a'.repeat(64)}`, Config: { Labels: { [`${DOCKER_LABEL}.profile`]: DOCKER_PROFILE } } });
     if (args[0] === 'create') {
@@ -157,7 +159,10 @@ async function workerFixture() {
     if (args[0] === 'volume' && args[1] === 'create') { volumes.set(args.at(-1)!, labels(args)); return args.at(-1)!; }
     if (args[0] === 'volume' && args[1] === 'rm') { volumes.delete(args[2]); return ''; }
     if (args[0] === 'network' && args[1] === 'create') { networks.add(args.at(-1)!); return args.at(-1)!; }
-    if (args[0] === 'network' && args[1] === 'ls') return [...networks].join('\n');
+    if (args[0] === 'network' && args[1] === 'ls') {
+      const name = args.find((arg) => arg.startsWith('name='));
+      return [...networks].filter((network) => !name || new RegExp(name.slice(5)).test(network)).join('\n');
+    }
     if (args[0] === 'network' && args[1] === 'rm') { networks.delete(args.at(-1)!); return ''; }
     if (args[0] === 'network' && args[1] === 'connect') return '';
     if (args[0] === 'start') {
@@ -177,6 +182,9 @@ async function workerFixture() {
   mocks.command.mockImplementation((args: string[]) => command(args.slice(2)));
   return { runtime, identity, home, legacyHome, checkout, context, command, containers, networks, volumes, state };
 }
+
+// Above every platform's PID range, so no live process can answer for it.
+const DEAD_OWNER = `${DOCKER_LABEL}.pid=2147483646`;
 
 function mounts(args: string[]) {
   return args.filter((_, index) => args[index - 1] === '--mount');
@@ -234,6 +242,43 @@ describe('Docker checkout mounts', () => {
     await expect(runtime.createWorker(identity, { checkout, mode: 'agent' })).rejects.toThrow(failure === 'failPrepare' ? 'Git metadata' : 'cannot access');
     expect(containers.size).toBe(0);
     expect(networks.size).toBe(0);
+  });
+});
+
+describe('Docker worker lifetime', () => {
+  it.each(['ask', 'plan', 'agent'] as const)('ends an orphaned %s worker after its turn limit and a grace period', async (mode) => {
+    const { runtime, identity, checkout, containers } = await workerFixture();
+    const worker = await runtime.createWorker(identity, { checkout, mode });
+    const limitMs = mode === 'agent' ? runtime.config.buildTimeoutMs : runtime.config.agentTimeoutMs;
+    expect(containers.get(worker.worker)!.slice(-2)).toEqual(['sleep', String(limitMs / 1000 + 600)]);
+    await worker.stop();
+  });
+
+  it('removes only the still-active workers on process exit, without waiting or handling signals', async () => {
+    const signalListeners = () => (['SIGINT', 'SIGTERM'] as const).map((signal) => process.listenerCount(signal));
+    const before = signalListeners();
+    const { runtime, identity, checkout } = await workerFixture();
+    const worker = await runtime.createWorker(identity, { checkout, mode: 'agent' });
+    const finished = await new DockerRuntime(runtime.config).createWorker(
+      { ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() }, { mode: 'ask' });
+    await finished.stop();
+    const hooks = process.listeners('exit').filter((listener) => !foreignExitListeners.includes(listener));
+    expect(hooks).toHaveLength(1);
+    expect(signalListeners()).toEqual(before);
+    (hooks[0] as (code: number) => void)(0);
+    // Its lease stays for the next start, which records the interrupted delivery.
+    expect(mocks.removeDetached.mock.calls).toEqual([['unix:///fixture/docker.sock', worker.worker]]);
+    await worker.stop();
+    mocks.removeDetached.mockClear();
+    (hooks[0] as (code: number) => void)(0);
+    expect(mocks.removeDetached).not.toHaveBeenCalled();
+  });
+
+  it('gives interactive setup its own longer bound', async () => {
+    const { runtime, identity, containers } = await workerFixture();
+    const worker = await runtime.createWorker(identity, { mode: 'ask', setup: true });
+    expect(containers.get(worker.worker)!.slice(-2)).toEqual(['sleep', '3600']);
+    await worker.stop();
   });
 });
 
@@ -310,6 +355,66 @@ describe('shared Docker provider storage', () => {
     await setup.stop();
   });
 
+  it.each(['turn', 'login'] as const)('lets a %s clear a login whose terminal died, without a server restart', async (next) => {
+    const { runtime, identity, containers, networks } = await workerFixture();
+    // The server's single reconciliation is already spent.
+    expect(await runtime.reconcile()).toEqual([]);
+    const login = { ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID(), runId: crypto.randomUUID() };
+    await new DockerRuntime(runtime.config).createWorker(login, { mode: 'ask', setup: true });
+    const held = [...containers.keys()];
+    await expect(runtime.createWorker(identity, { mode: 'ask' })).rejects.toThrow('setup is active');
+    expect([...containers.keys()]).toEqual(held);
+    for (const args of containers.values()) args[args.indexOf(`${DOCKER_LABEL}.pid=${process.pid}`)] = DEAD_OWNER;
+    const worker = await (next === 'turn' ? runtime : new DockerRuntime(runtime.config))
+      .createWorker(identity, { mode: 'ask', setup: next === 'login' });
+    expect(held.some((id) => containers.has(id))).toBe(false);
+    expect(networks.size).toBe(1);
+    await worker.stop();
+    expect(containers.size).toBe(0);
+    expect(networks.size).toBe(0);
+  });
+
+  it.each(['setup', 'cleanup'])('clears a dead %s lease from the session it blocks', async (kind) => {
+    const { runtime, identity, containers } = await workerFixture();
+    const strand = () => containers.set('stale-lease', ['create', '--name', `codeai-${runtime.owner}-${identity.sessionId}`,
+      '--label', `${DOCKER_LABEL}.owner=${runtime.owner}`, '--label', `${DOCKER_LABEL}.kind=${kind}`,
+      '--label', `${DOCKER_LABEL}.session=${identity.sessionId}`, '--label', DEAD_OWNER]);
+    strand();
+    const turn = await runtime.createWorker(identity, { mode: 'ask' });
+    expect(containers.has('stale-lease')).toBe(false);
+    await turn.stop();
+    strand();
+    expect(await runtime.cleanupParticipant(identity)).toEqual({ homeRemoved: false });
+    expect(containers.size).toBe(0);
+  });
+
+  it('keeps the original refusal when the dead-terminal sweep itself fails', async () => {
+    const { runtime, identity } = await workerFixture();
+    const setup = await new DockerRuntime(runtime.config).createWorker(
+      { ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() }, { mode: 'ask', setup: true });
+    const command = mocks.command.getMockImplementation()!;
+    // Admission inspects its conflict first; a container vanishing under the sweep's inspections fails it.
+    let inspections = 0;
+    mocks.command.mockImplementation((input: string[]) => (
+      input[2] === 'inspect' && ++inspections > 1 ? Promise.reject(new Error('No such container')) : command(input)));
+    await expect(runtime.createWorker(identity, { mode: 'ask' })).rejects.toThrow('setup is active');
+    mocks.command.mockImplementation(command);
+    await setup.stop();
+  });
+
+  it('leaves a live turn alone while clearing a dead terminal\'s remains in the same session', async () => {
+    const { runtime, identity, containers } = await workerFixture();
+    const turn = await runtime.createWorker(identity, { mode: 'ask' });
+    const live = [...containers.keys()];
+    // A half-removed login: its lease is gone, so the live turn could take the session.
+    containers.set('dead-setup', ['create', '--label', `${DOCKER_LABEL}.owner=${runtime.owner}`, '--label', `${DOCKER_LABEL}.kind=setup`,
+      '--label', `${DOCKER_LABEL}.session=${identity.sessionId}`, '--label', DEAD_OWNER]);
+    await expect(new DockerRuntime(runtime.config).createWorker({ ...identity, runId: crypto.randomUUID() }, { mode: 'ask' }))
+      .rejects.toThrow('name already in use');
+    expect([...containers.keys()]).toEqual(live);
+    await turn.stop();
+  });
+
   it('uses short login guidance for shared homes and ID guidance for legacy homes', async () => {
     const { runtime, identity, legacyHome, volumes, state } = await workerFixture();
     state.failAuth = true;
@@ -320,6 +425,47 @@ describe('shared Docker provider storage', () => {
     const legacy = await runtime.createWorker(identity, { mode: 'ask' });
     await expect(legacy.authenticate()).rejects.toThrow(`npm run docker:login -- ${identity.sessionId} ${identity.participantId}`);
     await legacy.stop();
+  });
+});
+
+describe('Docker engine replacement', () => {
+  const image = `sha256:${'b'.repeat(64)}`;
+
+  it('keeps an existing profile unless the owner explicitly replaces a different engine', async () => {
+    const { dataDir } = await fixture();
+    const file = path.join(dataDir, 'docker', 'profile.json');
+    const original = await readFile(file, 'utf8');
+    mocks.command.mockResolvedValue('engine-replacement');
+    await expect(saveDockerProvision(dataDir, image)).rejects.toThrow('npm run docker:provision -- --replace-engine');
+    mocks.command.mockResolvedValue('engine-original');
+    await expect(saveDockerProvision(dataDir, image, true)).rejects.toThrow('unchanged');
+    expect(await readFile(file, 'utf8')).toBe(original);
+    mocks.command.mockResolvedValue('engine-replacement');
+    await saveDockerProvision(dataDir, image, true);
+    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ profile: DOCKER_PROFILE, image, engineId: 'engine-replacement' });
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+  });
+
+  it('provisions normally when there is no profile to replace', async () => {
+    const { dataDir } = await fixture();
+    await rm(path.join(dataDir, 'docker'), { recursive: true });
+    mocks.command.mockResolvedValue('engine-replacement');
+    await saveDockerProvision(dataDir, image, true);
+    expect(JSON.parse(await readFile(path.join(dataDir, 'docker', 'profile.json'), 'utf8'))).toMatchObject({ engineId: 'engine-replacement' });
+  });
+
+  it('releases a turn stranded on the previous engine and recovers on the new one', async () => {
+    const { runtime, identity, checkout, containers, networks, state } = await workerFixture();
+    const worker = await runtime.createWorker(identity, { checkout, mode: 'agent' });
+    // The replacement engine holds none of the previous engine's containers or networks.
+    state.engine = 'engine-replacement';
+    containers.clear();
+    networks.clear();
+    await expect(worker.stop()).rejects.toThrow('identity changed');
+    await expect(new DockerRuntime(runtime.config).reconcile()).rejects.toThrow('identity changed');
+    await saveDockerProvision(runtime.config.dataDir, image, true);
+    await worker.stop();
+    expect(await new DockerRuntime(runtime.config).reconcile()).toEqual([]);
   });
 });
 

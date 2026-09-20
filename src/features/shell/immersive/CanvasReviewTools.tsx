@@ -3,12 +3,12 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { drawingReducer } from '@/features/diagram/annotations/drawingReducer';
 import { createPanelResources, type PanelResource } from '@/features/diagram/spatial/panelResources';
-import { SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
+import { RetiredLedgers, SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
 import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 import { createUuid } from '@/shared/uuid';
 import type { CanvasTarget, DrawingMark, DrawingTool, Point, SessionSnapshot } from '@/shared/types';
 import type { ThemeName } from '@/shared/design/tokens';
-import { canvasPointFromUv, createCanvasMark, findCanvasMarkAt, updateCanvasMark } from './canvasReviewModel';
+import { canvasCanHeal, canvasPointFromUv, canvasRenderKey, createCanvasMark, findCanvasMarkAt, updateCanvasMark } from './canvasReviewModel';
 import {
   CANVAS_REVIEW_ACTIONS,
   type CanvasReviewActionName,
@@ -16,7 +16,7 @@ import {
 } from './canvasReviewControls';
 import { createWorkspaceIconResource, isWorkspaceIconAction } from './workspaceIcons';
 import { createWorkspaceButtonResource, createWorkspaceTextResource } from './workspaceResources';
-import { useTextureResource } from './useTextureResource';
+import { useRetiredLedgerFlush, useTextureResource } from './useTextureResource';
 import { ControlGroupSurface, WorkspacePager, WorldButton } from './WorkspacePanel';
 import { InlineConversationInput } from './InlineConversationInput';
 import { immersiveTheme } from './immersiveTheme';
@@ -159,6 +159,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   const [label, setLabel] = useState('');
   const [clearPending, setClearPending] = useState(false);
   const [resources, setResources] = useState<Record<string, PanelResource>>({});
+  const [retired] = useState(() => new RetiredLedgers());
   const [draft, setDraft] = useState<DrawingMark>();
   const [projection, setProjection] = useState<'2d' | 'spatial'>('2d');
   const [spatial, setSpatial] = useState<SpatialDiagramResult>();
@@ -183,6 +184,20 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   const comparisonId = comparisonIds.includes(compareId || '') ? compareId
     : comparisonIds.includes(session?.previousDiagramId || '') ? session?.previousDiagramId : comparisonIds[0];
   const comparisonTarget = comparing && session ? findCanvasTarget(session, comparisonId) : undefined;
+  const comparisonAnnotation = comparisonTarget && session?.annotations[canvasTargetId(comparisonTarget)];
+  const spatialActive = projection === 'spatial' && Boolean(spatial?.supported);
+  const activeKey = canvasRenderKey(activeTarget);
+  const comparisonKey = canvasRenderKey(comparisonTarget, comparisonAnnotation?.updatedAt);
+  // Every session mutation (a message, a poll-applied snapshot, this panel's own saved stroke)
+  // rebuilds equal targets and annotations. The raster inputs are held until one of their keys
+  // changes, so only a change that reaches the pixels restarts the texture pipeline.
+  const rendered = useMemo(() => ({
+    targets: [spatialActive ? undefined : activeTarget, comparisonTarget].filter((target): target is CanvasTarget => Boolean(target)),
+    annotations: comparisonTarget && comparisonAnnotation ? { [canvasTargetId(comparisonTarget)]: comparisonAnnotation } : {},
+  }), [activeKey, comparisonKey, spatialActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Only a canvas that failed follows the session again, which is how it used to retry.
+  const retryOn = rendered.targets.some((target) => canvasCanHeal(target, resources[canvasTargetId(target)]?.status))
+    ? session : undefined;
 
   useEffect(() => {
     let current = true;
@@ -200,12 +215,14 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   }, [activeId, controls?.onMarksChange, drawing.marks]);
 
   useEffect(() => {
-    setResources({});
-    const spatialActive = projection === 'spatial' && spatial?.supported;
-    const targets = [spatialActive ? undefined : activeTarget, comparisonTarget].filter((target): target is CanvasTarget => Boolean(target));
-    if (!activeTarget || !session || !targets.length) return;
+    const { targets } = rendered;
+    if (!activeId || !targets.length) {
+      setResources((shown) => Object.keys(shown).length ? {} : shown);
+      return;
+    }
     const ledger = new SpatialResourceLedger('immersive');
-    const annotations = { ...session.annotations, [activeId!]: { ...session.annotations[activeId!], marks: drawing.marks } };
+    let generation: Record<string, PanelResource> | undefined;
+    const annotations = { ...rendered.annotations, [activeId]: { marks: drawing.marks } };
     // Reserve room for chat, repository evidence, controls, and a second comparison canvas under
     // the workspace-wide 5.59 MP mipmapped budget. Each comparison gets an equal readable share; treating each
     // as active also upscales small Mermaid viewBoxes past the allocator's legibility floor.
@@ -213,10 +230,16 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
     void Promise.all(targets.map((target) => createPanelResources(
       [target], annotations, canvasTargetId(target), theme, ledger, perTargetPixels, true,
     ))).then((parts) => {
-      if (!ledger.isDisposed()) setResources(Object.assign({}, ...parts));
+      if (ledger.isDisposed()) return;
+      const next: Record<string, PanelResource> = Object.assign({}, ...parts);
+      generation = next;
+      setResources(next);
     });
-    return () => ledger.dispose();
-  }, [activeId, activeTarget, comparisonTarget, drawing.marks, projection, session, spatial?.supported, theme]);
+    // The shown generation stays on the canvas until the next one is bound, so a stroke swaps
+    // textures instead of blanking the canvas. Retiring frees its budget for that next generation.
+    return () => retired.add(ledger, generation);
+  }, [activeId, drawing.marks, rendered, retired, retryOn, theme]);
+  useRetiredLedgerFlush(retired, resources);
 
   const cycleComparison = (delta: number) => {
     if (!comparisonIds.length) return;
@@ -290,6 +313,11 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
   const pointFromEvent = (event: ThreeEvent<PointerEvent>, resource: PanelResource) => event.uv
     ? canvasPointFromUv(resource.viewBox, event.uv)
     : undefined;
+  // The previous stroke's texture can replace the canvas while the next stroke is being drawn.
+  const paintGesture = (current: NonNullable<typeof gesture.current>, resource: PanelResource) => {
+    if (current.preview?.texture !== (resource.material as THREE.MeshBasicMaterial).map) current.preview = createDraftPreview(resource);
+    if (current.preview) paintDraft(current.preview, current.mark);
+  };
   const pointerDown = (event: ThreeEvent<PointerEvent>, resource: PanelResource) => {
     event.stopPropagation();
     if (!enabled || event.button !== 0 || !activeId || gesture.current) return;
@@ -321,7 +349,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
     if (!point) return;
     const mark = updateCanvasMark(current.mark, current.start, point);
     current.mark = mark;
-    if (current.preview) paintDraft(current.preview, mark);
+    paintGesture(current, resource);
     setDraft(mark);
   };
   const pointerFinish = (event: ThreeEvent<PointerEvent>, resource: PanelResource, cancelled: boolean) => {
@@ -331,7 +359,7 @@ export function CanvasReviewTools({ session, activeTarget, theme, enabled, scale
     if (!cancelled) {
       const point = pointFromEvent(event, resource);
       current.mark = point ? updateCanvasMark(current.mark, current.start, point) : current.mark;
-      if (current.preview) paintDraft(current.preview, current.mark);
+      paintGesture(current, resource);
     }
     endGesture(cancelled);
   };

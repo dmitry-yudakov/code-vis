@@ -4,9 +4,9 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
-## Story 44 — Shared Docker login and direct session creation (2026-09-09 UTC)
+## Story 59 — Shared Docker login and direct session creation (2026-09-09 UTC)
 
-**Outcome:** shared storage, continuation, and UI checks pass. Story 44 is shipped; Story 42's
+**Outcome:** shared storage, continuation, and UI checks pass. Story 59 is shipped; Story 57's
 signed-in provider release matrix remains incomplete.
 
 - Host: Ubuntu 26.04.1 LTS, Docker Engine 28.5.2, Linux amd64, kernel 7.0.0-31-generic,
@@ -34,10 +34,10 @@ signed-in provider release matrix remains incomplete.
   sent. This run establishes Linux container/storage behavior with synthetic state. Actual login,
   native-provider concurrent resume, and macOS checks for the shared-home change remain outstanding.
 
-## Story 42 — Direct checkout mounts (2026-09-09 UTC)
+## Story 57 — Direct checkout mounts (2026-09-09 UTC)
 
 **Outcome:** the checkout mount simplification passes offline checks and a focused macOS Docker
-probe. Story 42 remains **In progress** for its broader release matrix.
+probe. Story 57 remains **In progress** for its broader release matrix.
 
 - Removed recursive dependency/build masks, generated mount targets, dependency-cache volumes,
   and keeper creation. Workers use one checkout bind, a read-only context bind, their isolated
@@ -61,11 +61,11 @@ probe. Story 42 remains **In progress** for its broader release matrix.
 - No host provider folders were mounted and no signed-in provider turns were sent. The broader
   Linux, signed-in provider, and lifecycle/resource release evidence remains outstanding.
 
-## Story 42 — Local Docker execution (2026-09-08 UTC)
+## Story 57 — Local Docker execution (2026-09-08 UTC)
 
 **Outcome:** implementation and macOS boundary checks pass; release verification is incomplete.
 The owner explicitly deferred signed-in Claude/Codex verification. No host provider credentials
-were imported, and no authenticated model turn was sent. Story 42 remains **In progress**.
+were imported, and no authenticated model turn was sent. Story 57 remains **In progress**.
 
 - Host: macOS 26.6.2. Docker Desktop 4.90.0 (238679), Engine 29.7.2, Linux amd64,
   kernel 7.0.12-linuxkit, containerd 2.3.3, runc 1.4.3.

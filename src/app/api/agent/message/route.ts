@@ -10,7 +10,7 @@ import {
 import { runRegistry } from '@/server/runs/runRegistry';
 import { AgentRunError } from '@/server/agents/agentRunError';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
-import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
+import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runConversation } from '@/server/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
@@ -44,11 +44,6 @@ export async function POST(request: Request): Promise<Response> {
     session = await store.getSession(parsed.data.sessionId);
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
-  }
-  if (session.execution === 'docker') {
-    return safeJsonResponse({
-      error: 'This CodeAI checkout cannot run Docker sessions. Open this session in a checkout with Docker execution support.',
-    }, { status: 409 });
   }
   const mode = parsed.data.mode || 'ask';
   const participant = serverAgent(session, parsed.data.participantId);
@@ -120,9 +115,11 @@ export async function POST(request: Request): Promise<Response> {
   try {
     await recoverDockerExecution(config);
   } catch {
-    return safeJsonResponse({ error: 'Docker recovery is incomplete. Restore the local daemon before starting another turn.' }, { status: 409 });
+    return safeJsonResponse({ error: DOCKER_RECOVERY_MESSAGE }, { status: 409 });
   }
-  const adapter = getProviderAdapters(config, session.execution, { sessionId: session.id, participantId: participant.id })[participant.provider];
+  // Version 3 records predate the field; absence is Local.
+  const execution = session.execution ?? 'local';
+  const adapter = getProviderAdapters(config, execution, { sessionId: session.id, participantId: participant.id })[participant.provider];
   const providerHealth = await adapter.checkHealth();
   if (!providerHealth.available || !providerHealth.supportedModes.includes(mode)) {
     return safeJsonResponse({
@@ -138,8 +135,8 @@ export async function POST(request: Request): Promise<Response> {
   const runId = randomUUID();
   const abortController = new AbortController();
   const providerKey = participant.session.started
-    ? `${host.id}:${session.execution}:${participant.provider}:session:${participant.session.sessionId}`
-    : `${host.id}:${session.execution}:${participant.provider}:participant:${participant.id}`;
+    ? `${host.id}:${execution}:${participant.provider}:session:${participant.session.sessionId}`
+    : `${host.id}:${execution}:${participant.provider}:participant:${participant.id}`;
   const reservation = runRegistry.reserve({
     runId,
     sessionId: session.id,

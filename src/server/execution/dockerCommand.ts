@@ -42,6 +42,15 @@ export async function localDockerEndpoint(): Promise<string> {
   return endpoint;
 }
 
+/** For process exit only. Its own session outlives this process and the terminal's signal. */
+export function removeContainerDetached(endpoint: string, container: string): void {
+  try {
+    spawn('docker', ['--host', endpoint, 'container', 'rm', '--force', container], {
+      cwd: os.tmpdir(), env: dockerEnvironment(), shell: false, stdio: 'ignore', detached: true,
+    }).on('error', () => undefined).unref();
+  } catch { /* Exit proceeds; the worker's bounded PID 1 is the guarantee. */ }
+}
+
 export function spawnDocker(endpoint: string, args: string[]): ChildProcessWithoutNullStreams {
   return spawn('docker', ['--host', endpoint, ...args], {
     cwd: os.tmpdir(), env: dockerEnvironment(), shell: false, stdio: ['pipe', 'pipe', 'pipe'],

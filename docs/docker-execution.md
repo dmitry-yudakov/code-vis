@@ -1,6 +1,6 @@
 # Local Docker execution
 
-Story 42 is in progress. The code is opt-in; its release checklist includes actual Docker Desktop
+Story 57 is in progress. The code is opt-in; its release checklist includes actual Docker Desktop
 and Linux Engine boundary tests and signed-in Claude/Codex turns. See the
 [experiment log](experiment-log.md) for evidence and outstanding checks.
 
@@ -22,7 +22,16 @@ This builds only CodeAI's `docker/` context, with a digest-pinned Node 22.22.0 D
 immutable image ID and local engine identity in `<CODEAI_DATA_DIR>/docker/profile.json`. A changed
 engine fails closed: CodeAI cannot assume a worker on the previous engine stopped. No session Dockerfile, Compose file,
 devcontainer configuration, dependency script or host provider configuration is used. Provisioning
-is explicit and cannot occur as a side effect of a turn. An existing profile is not overwritten.
+is explicit and cannot occur as a side effect of a turn. An existing profile is not overwritten,
+except by the explicit [engine replacement](#replacing-the-docker-engine) below.
+
+**After provisioning, keep the Docker daemon running, for Local work too.** Each CodeAI start
+completes Docker recovery before its first turn, Local included, and every status/diff/context Git
+read runs in a helper container; nothing falls back to the host. If the daemon is stopped when
+CodeAI starts, every turn answers 409 "Docker recovery is incomplete" until Docker is running. If it
+stops later, Git views and a turn's repository context are unavailable and Docker turns are refused.
+Start Docker and retry: CodeAI needs no restart. Turning Docker off in Arena does not change this.
+Before provisioning, none of it applies, whether or not Docker is enabled.
 
 In **Arena**, turn on **Enable Docker**. The choice is saved on this machine and takes effect
 immediately, including after browser reloads and CodeAI restarts. The control shows **Off**,
@@ -70,6 +79,27 @@ image with the appropriate provider home and the execution network policy, and *
 Browser/device authentication steps belong to that provider. All setup output stays in your
 terminal. CodeAI does not import your host login, read provider credential files, forward provider
 environment variables, or include setup output in API responses or transcripts.
+
+## Replacing the Docker engine
+
+Moving between Docker Desktop, OrbStack, colima or a Linux Engine, or resetting Docker to factory
+defaults, changes the engine identity. CodeAI never talks to a daemon other than the one it
+recorded, so Git reads and Docker turns then stop, and after a restart Local turns too. If the
+previous engine still exists, switch back to it. If it is gone or will stay stopped, adopt the
+current one from the installed CodeAI directory:
+
+```sh
+npm run docker:provision -- --replace-engine
+```
+
+This builds and verifies the pinned image on the current engine, then replaces `profile.json`. It
+refuses when the recorded engine is still the current one. Do not delete `profile.json` by hand.
+Run it only when the previous engine is gone or stopped: CodeAI can no longer confirm that workers
+there were removed, although every worker [ends itself](#execution-contract). Restart CodeAI
+afterwards: a turn stranded by the switch releases its checkout, and startup recovery removes
+anything this installation once left on the adopted engine. Provider logins and native history
+do not move between engines: sign in again with `npm run docker:login`, and continue affected
+conversations in a new session.
 
 ## Execution contract
 
@@ -127,7 +157,16 @@ detaches its stream. Completion, timeout, cancellation and protocol failure remo
 before releasing its lock. If termination is unconfirmed, the turn stays active with a stopping
 message and keeps its checkout/machine slot until Docker recovers. Startup/admission recovery removes
 owned orphans before new turns, records interrupted delivery and never replays prompts. Owned
-interactive setup sessions remain protected by their terminal process lease.
+interactive setup sessions remain protected by their terminal process lease. A login or cleanup
+whose terminal was killed is recognized by its dead process: the next turn, login or cleanup that
+meets it clears it, without restarting CodeAI.
+
+A worker cannot outlive CodeAI indefinitely. Its first process exits after the turn's time limit
+plus ten minutes (one hour for a login), which ends every provider process inside it; Docker turns
+never pause that limit for approvals. When the CodeAI process exits by itself, including `npm start`
+handling SIGINT/SIGTERM, it also asks Docker to remove its active workers, without waiting and
+without changing the exit. That step is best effort: SIGKILL, or a signal nothing handles as under
+`start:remote`, skips it and leaves the time limit and the next startup recovery to clean up.
 
 ## Exposure and cleanup
 
@@ -169,7 +208,7 @@ npm run test:e2e
 personal provider credentials. Run it on macOS Docker Desktop and Linux Engine. It does not clear
 the signed-in provider matrix: Ask, Plan, Agent editing/testing, images, usage/activity, native
 resume across replacement/restart, expired login and missing history need actual provider runs.
-Record image/CLI/platform versions and outcomes before marking Story 42 shipped.
+Record image/CLI/platform versions and outcomes before marking Story 57 shipped.
 
 Design references: [Docker isolated gateway mode](https://docs.docker.com/engine/network/port-publishing/),
 [Codex App Server external sandbox](https://learn.chatgpt.com/docs/app-server), and

@@ -1,4 +1,4 @@
-# Story 42 — Run agents autonomously inside a local Docker container
+# Story 57 — Run agents autonomously inside a local Docker container
 
 **Status:** In progress · **Type:** Full-stack ·
 **Depends on:** [Story 20](STORY-20260817-web2-codex-provider.md),
@@ -16,7 +16,7 @@
   resource limits, and controlled network access. Protect host Git reads from agent-modified
   metadata; public npm downloads go through a GET/HEAD gateway.
 - Use provider-owned login and persistent provider storage (shared by new conversations since
-  [Story 44](STORY-20260909-docker-session-friction.md)). Preserve native history, streaming,
+  [Story 59](STORY-20260909-docker-session-friction.md)). Preserve native history, streaming,
   checkout locks, and recovery; cancellation must stop every container process before reuse.
 - **Mounted files and credentials remain exposed inside the container.** This is for trusted
   personal repositories. Multiple repositories, cloud execution, remote integrations, and
@@ -94,7 +94,7 @@ experience. Separate working copies and apply/discard are a subsequent product d
 
 ### Checkout mount simplification (2026-09-09)
 
-**Verification:** Complete on macOS for this simplification; the broader Story 42 release matrix
+**Verification:** Complete on macOS for this simplification; the broader Story 57 release matrix
 remains in progress. The owner chose a single repository bind with mode-specific permissions for
 the first version. Remove recursive dependency/build masks, generated mount-target creation,
 and the dedicated dependency-cache volume/keeper. All existing checkout contents remain visible.
@@ -112,7 +112,7 @@ Host and Linux dependencies may require reinstalling when switching execution en
 
 ### A. Choose execution explicitly and persist it
 
-1. Add an opt-in local Docker backend. [Story 43](STORY-20260909-docker-ui-enablement.md) adds a
+1. Add an opt-in local Docker backend. [Story 58](STORY-20260909-docker-ui-enablement.md) adds a
    saved **Enable Docker** choice in Arena; without a saved choice, server setting
    `CODEAI_DOCKER_ENABLED` supplies the default (false; accept the usual `CODEAI_WEB2_*` alias).
    Use only a locally configured Docker daemon;
@@ -145,7 +145,7 @@ Host and Linux dependencies may require reinstalling when switching execution en
    container over stdio and retains the current event stream and response parser. Reuse protocol
    handling; do not create a second conversation service or expose a provider listener port.
 7. At most one worker container is active per CodeAI session. Create it for each turn and remove
-   it after all its processes stop. [Story 44](STORY-20260909-docker-session-friction.md) simplifies
+   it after all its processes stop. [Story 59](STORY-20260909-docker-session-friction.md) simplifies
    persistence: new participants share one provider-owned Docker home per installation/provider.
    Existing participant homes remain in place. Other providers' homes and CodeAI's data directory
    are never mounted; same-provider Docker conversations deliberately share file access to history,
@@ -304,8 +304,12 @@ records; preserve revision/idempotency semantics and existing compatibility iden
 
 - [x] Docker is opt-in; Local remains the default. Creation explains direct autonomous edits,
       persists execution, displays it in Arena/session views, and rejects unsupported bindings.
-- [x] Old active/archived sessions migrate to Local; execution/checkout cannot silently change,
-      and Docker/native provider histories never cross execution boundaries.
+- [x] Old active/archived sessions run as Local; execution/checkout cannot silently change,
+      and Docker/native provider histories never cross execution boundaries. Version 1 and 2
+      records migrate to version 4 Local on read. Version 3 records are not rewritten
+      ([Story 60](STORY-20260909-session-format-compatibility.md)): their absent `execution` is
+      read as Local everywhere, including the scheduler key
+      ([Story 61](STORY-20260920-spacial-merge-review-fixes.md)).
 - [ ] Both providers run via the existing protocols inside the pinned container profile, with
       correct prompt/attachment/image/resume paths and no host-execution fallback.
 - [x] Filesystem and privilege probes prove access only to the assigned mounts; path escapes,
@@ -325,7 +329,11 @@ records; preserve revision/idempotency semantics and existing compatibility iden
 - [x] Local/Docker turns obey the same checkout locks, session/provider exclusion, queue bounds,
       and per-machine concurrency; reload and reattachment retain the existing event semantics.
 - [ ] Cancellation/failure stops all descendants before releasing locks; unconfirmed termination
-      blocks reuse. Restart/daemon-loss reconciliation prevents orphan writes and duplicate delivery.
+      blocks reuse. Restart/daemon-loss reconciliation prevents duplicate delivery and removes
+      orphans. Reconciliation runs only in the next server process, so it cannot stop writes made
+      between an exit and that start: those are bounded by the worker's own lifetime and a
+      best-effort exit hook ([Story 61](STORY-20260920-spacial-merge-review-fixes.md)). Confirming
+      that bound against a real daemon remains part of this box.
 - [ ] Resource/output limits are enforced; cleanup is ownership-scoped, retains inactive resumable
       state by default, and never removes source files or active participant volumes.
 - [x] README, architecture, sample configuration, setup/cleanup instructions, vision/AGENTS safety

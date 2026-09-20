@@ -1,4 +1,4 @@
-# Story 53 — Read shared sessions across checkout versions
+# Story 60 — Read shared sessions across checkout versions
 
 **Status:** Shipped · **Type:** Full-stack · **Depends on:** nothing
 
@@ -25,12 +25,14 @@ remains on disk. This repairs the durable session foundation of the
 
 Accept version 3 and version 4 records in the same store. Version 3 has no execution field;
 version 4 requires `execution: 'local' | 'docker'`. Preserve the original version and execution
-metadata through reads, mutations, archiving, public snapshots, and exports. New records retain
-this checkout's version 3 format. Keep strict content validation.
+metadata through reads, mutations, archiving, public snapshots, and exports. Keep strict content
+validation. (As written, new records kept this checkout's version 3 format; since the Docker
+merge they are written as version 4 — see the note below.)
 
-Version 4 local sessions can continue normally. Docker session history remains readable, but
-this checkout must reject agent turns before provider work because it lacks the Docker runtime.
-Preserve Docker sessions' fixed single-primary-repository binding.
+Version 4 local sessions can continue normally. Docker session history remains readable.
+Preserve Docker sessions' fixed single-primary-repository binding. (As written, this checkout
+also rejected Docker turns because it lacked the Docker runtime; that premise ended with the
+Docker merge — see the note below.)
 
 ## Acceptance criteria
 
@@ -38,7 +40,9 @@ Preserve Docker sessions' fixed single-primary-repository binding.
 - [x] Version 4 metadata, transcript, artifacts, and private provider state survive mutations and
   archive/restore; public snapshots and exports retain the format without exposing private state.
 - [x] Invalid version/execution combinations and malformed content remain rejected.
-- [x] Local version 4 turns work; Docker turns and repository rebinding are rejected before changes.
+- [x] Local version 4 turns work; repository rebinding on a Docker session is rejected before
+  changes. (The original clause also rejected Docker turns; removed by
+  [Story 61](STORY-20260920-spacial-merge-review-fixes.md).)
 - [x] Existing user records validate read-only, with unchanged content hashes.
 - [x] Typecheck and the offline test suite pass.
 
@@ -63,3 +67,11 @@ and queued version 4 local turns.
 To pick up the fix in an existing installation, restart the dev server (or rebuild and restart
 a production server), then refresh the browser and open an existing project. The store instance
 is process-wide, so recompiling a route alone may retain the previous reader.
+
+September 20, 2026 — amended after the Docker merge. Merge `9930ba2` brought the Docker runtime
+into this checkout, which ended two premises of this story. The guard that rejected Docker turns
+"because it lacks the Docker runtime" survived the merge and made every Docker turn fail with 409;
+[Story 61](STORY-20260920-spacial-merge-review-fixes.md) removes it. New records are now written
+as version 4, not version 3. Everything else here still ships: version 3 and version 4 records
+load side by side, and no stored record is rewritten. Version 4 is forward-only: a build older
+than this story reports such a store as invalid. Nothing is lost; run a build that reads version 4.

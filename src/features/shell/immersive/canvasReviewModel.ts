@@ -1,4 +1,26 @@
-import type { DrawingMark, DrawingTool, Point } from '@/shared/types';
+import type { CanvasTarget, DrawingMark, DrawingTool, Point } from '@/shared/types';
+
+/**
+ * Everything about a target that reaches its raster. Every session mutation rebuilds equal targets,
+ * so the texture pipeline restarts on this key rather than on object identity. `marksRevision` is
+ * the annotation's `updatedAt` for a canvas whose marks arrive with the session.
+ */
+export function canvasRenderKey(target?: CanvasTarget, marksRevision = ''): string {
+  if (!target) return '';
+  return target.kind === 'diagram'
+    ? `diagram:${target.artifact.id}:${target.artifact.status}:${target.artifact.error || ''}:${marksRevision}:${target.artifact.source}`
+    : `sketch:${target.sketch.id}:${target.sketch.viewBox.join(',')}:${marksRevision}`;
+}
+
+/**
+ * A failed raster or an over-budget omission leaves a dead panel that takes no pointer input, so no
+ * stroke can restart it; a later workspace change may have freed the budget or the network. An
+ * artifact the agent left invalid cannot heal, and its render key already covers a repair.
+ */
+export function canvasCanHeal(target?: CanvasTarget, status?: 'ready' | 'omitted' | 'error'): boolean {
+  if (!target || !status || status === 'ready') return false;
+  return target.kind !== 'diagram' || target.artifact.status === 'ready';
+}
 
 export function canvasPointFromUv(
   viewBox: readonly [number, number, number, number],
