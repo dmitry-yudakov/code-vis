@@ -18,7 +18,6 @@ export interface CanvasSnapshot {
 export function CanvasWorkspace({
   session,
   theme,
-  unread,
   pendingApprovals,
   running,
   runFailed,
@@ -44,7 +43,6 @@ export function CanvasWorkspace({
 }: {
   session: SessionSnapshot;
   theme: ThemeName;
-  unread: number;
   pendingApprovals: number;
   running: boolean;
   runFailed: boolean;
@@ -112,11 +110,6 @@ export function CanvasWorkspace({
           )}
           {target && <button type="button" onClick={onNewSketch}>New sketch</button>}
           <button type="button" onClick={onOpenHistory}>History <span className="button-count">{artifacts.length + sketches.length}</span></button>
-          <button type="button" onClick={onOpenChat}>
-            Chat
-            {pendingApprovals > 0 && <span className="approval-badge">{pendingApprovals}</span>}
-            {unread > 0 && <span className="unread-badge">{unread}</span>}
-          </button>
           <button type="button" onClick={onToggleFocus}>{focusMode ? 'Exit focus' : 'Focus'}</button>
         </div>
       </div>

@@ -116,6 +116,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sessionId = workspace.scope.focusedSessionId;
   const view = sessionId ? workspace.scope.views[sessionId] : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
+  const [vrUnavailable, setVrUnavailable] = useState<string>();
   const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
   const [creatingSession, setCreatingSession] = useState(false);
   const creatingSessionRef = useRef(false);
@@ -1689,21 +1690,19 @@ export function AppShell({ children }: { children: ReactNode }) {
             choices={immersiveChoices} workspaceStatus={immersiveStatus}
             onOpenSession={openImmersiveSession} onSelectCanvas={selectDiagram}
             onActiveChange={setImmersiveActive}
+            onUnavailable={setVrUnavailable}
           />
           {!loading && <>
-            <Link
-              href={ARENA_SECTION_PATHS.sessions}
-              scroll={false}
-              className={arenaOpen && arenaSection !== 'inbox' ? 'active' : ''}
-              aria-current={arenaSection === 'sessions' ? 'page' : undefined}
-            >Arena</Link>
-            <Link
-              href={ARENA_SECTION_PATHS.inbox}
-              scroll={false}
-              className={`inbox-toggle ${arenaOpen && arenaSection === 'inbox' ? 'active' : ''} ${arenaUnread.length ? 'has-attention' : ''}`}
-              aria-current={arenaOpen && arenaSection === 'inbox' ? 'page' : undefined}
-              aria-label={`Inbox${arenaUnread.length ? `, ${arenaUnread.length} unread` : ''}`}
-            >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</Link>
+            {/* The Arena's own tabs already name these two places. */}
+            {!arenaOpen && <Link href={ARENA_SECTION_PATHS.sessions} scroll={false}>Arena</Link>}
+            {!arenaOpen && (
+              <Link
+                href={ARENA_SECTION_PATHS.inbox}
+                scroll={false}
+                className={`inbox-toggle ${arenaUnread.length ? 'has-attention' : ''}`}
+                aria-label={`Inbox${arenaUnread.length ? `, ${arenaUnread.length} unread` : ''}`}
+              >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</Link>
+            )}
             {!arenaOpen && session && (
               <button
                 type="button"
@@ -1741,28 +1740,36 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {unread > 0 && <span className="unread-badge">{unread}</span>}
               </button>
             )}
-            {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export</button>}
-            <span
-              className={`health-pill ${providerHealth?.available ? 'ready' : 'warning'}${providerHealth?.available && providerHealth.message ? ' notice' : ''}`}
-              title={providerHealth?.message || health?.message || 'Local readiness'}
-            >
-              <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
-            </span>
+            {/* Readiness is news only when something is wrong or the provider has something to say. */}
+            {(!providerHealth?.available || providerHealth.message) && (
+              <span
+                className={`health-pill ${providerHealth?.available ? 'ready notice' : 'warning'}`}
+                title={providerHealth?.message || health?.message || 'Local readiness'}
+              >
+                <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
+              </span>
+            )}
             <DeviceMenu />
-            <span className="header-divider" aria-hidden="true" />
-            <div className="theme-selector" role="group" aria-label="Theme">
-              {THEME_PREFERENCES.map((choice) => (
-                <button
-                  key={choice}
-                  type="button"
-                  className={themePreference === choice ? 'active' : ''}
-                  aria-pressed={themePreference === choice}
-                  onClick={() => setThemePreference(choice)}
-                >
-                  {choice[0].toUpperCase() + choice.slice(1)}
-                </button>
-              ))}
-            </div>
+            <details className="header-menu">
+              <summary>More</summary>
+              <div>
+                <div className="theme-selector" role="group" aria-label="Theme">
+                  {THEME_PREFERENCES.map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      className={themePreference === choice ? 'active' : ''}
+                      aria-pressed={themePreference === choice}
+                      onClick={() => setThemePreference(choice)}
+                    >
+                      {choice[0].toUpperCase() + choice.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export session</button>}
+                {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
+              </div>
+            </details>
           </>}
         </div>
       </header>
@@ -1788,6 +1795,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             diffState={repositoryDiff}
             manager={(
               <RepositoryManager
+                key={session.id}
                 repositories={session.repositories}
                 checkouts={orderedCheckouts}
                 hostId={hostId}
@@ -1884,7 +1892,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           <CanvasWorkspace
             session={session}
             theme={theme}
-            unread={unread}
             pendingApprovals={sessionRunning ? permissions.length : 0}
             running={sessionRunning}
             runFailed={sessionRunning && runFailed}

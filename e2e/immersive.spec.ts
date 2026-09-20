@@ -876,7 +876,7 @@ test('retains one XR store across machine/project navigation, loading races, his
   await openSession(page, EMPTY);
   await expect(controls(page).locator('strong').first()).toHaveText('Empty remote session');
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await page.getByRole('link', { name: /^Inbox/ }).click();
+  await page.getByRole('main', { name: 'Arena' }).getByRole('tab', { name: /^Inbox/ }).click();
   await page.goBack();
   await expect(controls(page)).toBeVisible();
   await openSession(page, SESSION);
@@ -1160,7 +1160,11 @@ for (const failImport of [false, true]) {
     await workspaceFixture(page);
     await page.goto('/');
     if (failImport) await expect(page.locator('.immersive-entry [role="alert"]')).toContainText('The immersive renderer could not load');
-    else await expect(page.getByText('VR unavailable', { exact: true })).toBeVisible();
+    else {
+      await page.locator('.header-menu > summary').click();
+      await expect(page.getByText('VR unavailable', { exact: true })).toBeVisible();
+      await page.locator('.header-menu > summary').click();
+    }
     expect(await page.evaluate(() => window.__CODEAI_XR_BUNDLE_EVALUATIONS__)).toBeUndefined();
     expect(await page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__)).toBeUndefined();
     await expect(page.getByRole('button', { name: 'Flat', exact: true })).toHaveAttribute('aria-pressed', 'true');

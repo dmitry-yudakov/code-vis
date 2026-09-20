@@ -56,6 +56,8 @@ type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'canvasReview' | 'se
   authorized: boolean;
   onSelectCanvas(id: string): void;
   onActiveChange(active: boolean): void;
+  /** Why VR cannot be entered here, for the shell's menu; undefined while checking or available. */
+  onUnavailable(reason?: string): void;
 };
 
 const ACTIONS: Array<[ImmersiveSemanticAction, string]> = [
@@ -69,7 +71,7 @@ const ACTIONS: Array<[ImmersiveSemanticAction, string]> = [
 ];
 
 /** XR presentation state only. AppShell supplies records, navigation actions, and polling results. */
-export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, ...props }: Props) {
+export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, onUnavailable, ...props }: Props) {
   const panelState = useImmersiveLayout(props.viewKey);
   const [availability, setAvailability] = useState<ImmersiveAvailability>('checking');
   const [reason, setReason] = useState<string>();
@@ -100,6 +102,9 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
   }, [authorized]);
   useEffect(() => onActiveChange(active), [active, onActiveChange]);
   useEffect(() => {
+    onUnavailable(enabled || availability === 'checking' ? undefined : reason || 'This browser does not offer immersive VR.');
+  }, [availability, enabled, onUnavailable, reason]);
+  useEffect(() => {
     if (!active && panelState.editing) panelState.onPanelAction(panelState.editing.id, 'done');
   }, [active, panelState.editing, panelState.onPanelAction]);
   const handleAvailability = useCallback((next: ImmersiveAvailability, detail?: string) => {
@@ -119,7 +124,7 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
       : enabled ? <button type="button" className="immersive-enter" disabled={!controller || availability === 'entering'} onClick={() => void controller?.enter()}>
         {availability === 'entering' ? 'Entering VR…' : controller ? 'Enter VR' : 'Preparing VR…'}
       </button>
-        : <details><summary>{availability === 'checking' ? 'Checking VR…' : 'VR unavailable'}</summary><p>{reason}</p></details>}
+        : null}
     {enabled && reason && <span role="alert">{reason}</span>}
     {enabled && authorized && <RendererBoundary onError={(message) => handleAvailability('failed', `The immersive renderer could not load: ${message}`)}>
       <ImmersiveRenderer {...props} {...panelState}

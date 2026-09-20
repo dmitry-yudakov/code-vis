@@ -40,6 +40,9 @@ Updated 2026-09-20. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 61](stories/STORY-20260920-spacial-merge-review-fixes.md) — repairs the
   defects left by merging Docker execution into the VR branch: Docker turns were rejected outright,
   and the VR permission review could hide the command being approved.
+- **Also in flight:** [Story 62](stories/STORY-20260920-simplify-flat-shell.md) — shows less of the flat
+  shell at once: one header menu, a conversation column beside a single side panel, an Arena list
+  ordered by attention, and canvas history with thumbnails. It ships one part per commit.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the

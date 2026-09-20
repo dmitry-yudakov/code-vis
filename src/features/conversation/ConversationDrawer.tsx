@@ -64,7 +64,6 @@ export function ConversationDrawer({
     <aside className="conversation-drawer" aria-label="Conversation">
       <header>
         <div>
-          <span className="eyebrow">Conversation</span>
           <strong>{session?.title || 'New session'}</strong>
           <div className="conversation-badges">
             {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}

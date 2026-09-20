@@ -26,6 +26,8 @@ export function RepositoryManager({
     return checkouts.filter((checkout) => !bound.has(checkout.id));
   }, [checkouts, hostId, repositories]);
   const [checkoutToAdd, setCheckoutToAdd] = useState('');
+  // One repository needs no managing to read its changes; none or several is when this list is the way in.
+  const [open, setOpen] = useState(repositories.length !== 1);
   const checkoutById = useMemo(() => new Map(checkouts.map((checkout) => [checkout.id, checkout])), [checkouts]);
 
   const move = (repositoryId: string, direction: -1 | 1) => {
@@ -41,62 +43,64 @@ export function RepositoryManager({
 
   return (
     <section className="repository-manager" aria-label="Session repositories">
-      <div className="repository-manager-heading">
-        <span className="eyebrow">Session repositories</span>
-        <strong>{repositories.length || 'None'}</strong>
-      </div>
-      {repositories.length ? (
-        <div className="repository-binding-list">
-          {repositories.map((repository, index) => {
-            const checkout = repository.hostId === hostId ? checkoutById.get(repository.checkoutId) : undefined;
-            const name = checkout?.name || (repository.hostId === hostId ? 'Unavailable checkout' : 'Repository on another host');
-            return (
-              <div className={`repository-binding${repository.checkoutId === selectedCheckoutId ? ' selected' : ''}`} key={repository.id}>
-                <button type="button" className="repository-binding-select" disabled={!checkout} onClick={() => onSelect(repository.checkoutId)}>
-                  <strong>{name}</strong><small>{repository.role}</small>
-                </button>
-                <div className="repository-binding-actions">
-                  <button type="button" title="Move up" aria-label={`Move ${name} up`} disabled={disabled || index === 0} onClick={() => move(repository.id, -1)}>↑</button>
-                  <button type="button" title="Move down" aria-label={`Move ${name} down`} disabled={disabled || index === repositories.length - 1} onClick={() => move(repository.id, 1)}>↓</button>
-                  <button type="button" title="Make primary" aria-label={`Make ${name} primary`} disabled={disabled || repository.role === 'primary'} onClick={() => onChange((current) => current.map((item) => ({
-                    ...item,
-                    role: item.id === repository.id ? 'primary' : 'reference',
-                  })))}>★</button>
-                  <button type="button" title="Remove" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => onChange((current) => current.filter((item) => item.id !== repository.id))}>×</button>
+      <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary className="repository-manager-heading">
+          <span>Session repositories</span>
+          <strong>{repositories.length || 'None'}</strong>
+        </summary>
+        {repositories.length ? (
+          <div className="repository-binding-list">
+            {repositories.map((repository, index) => {
+              const checkout = repository.hostId === hostId ? checkoutById.get(repository.checkoutId) : undefined;
+              const name = checkout?.name || (repository.hostId === hostId ? 'Unavailable checkout' : 'Repository on another host');
+              return (
+                <div className={`repository-binding${repository.checkoutId === selectedCheckoutId ? ' selected' : ''}`} key={repository.id}>
+                  <button type="button" className="repository-binding-select" disabled={!checkout} onClick={() => onSelect(repository.checkoutId)}>
+                    <strong>{name}</strong><small>{repository.role}</small>
+                  </button>
+                  <div className="repository-binding-actions">
+                    <button type="button" title="Move up" aria-label={`Move ${name} up`} disabled={disabled || index === 0} onClick={() => move(repository.id, -1)}>↑</button>
+                    <button type="button" title="Move down" aria-label={`Move ${name} down`} disabled={disabled || index === repositories.length - 1} onClick={() => move(repository.id, 1)}>↓</button>
+                    <button type="button" title="Make primary" aria-label={`Make ${name} primary`} disabled={disabled || repository.role === 'primary'} onClick={() => onChange((current) => current.map((item) => ({
+                      ...item,
+                      role: item.id === repository.id ? 'primary' : 'reference',
+                    })))}>★</button>
+                    <button type="button" title="Remove" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => onChange((current) => current.filter((item) => item.id !== repository.id))}>×</button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+        ) : (
+          <p className="repository-manager-empty">Attach a repository to enable agent turns and working-tree views.</p>
+        )}
+        <div className="repository-add-row">
+          <select aria-label="Repository to add" value={checkoutToAdd} disabled={disabled || !hostId || !available.length} onChange={(event) => setCheckoutToAdd(event.target.value)}>
+            <option value="">{available.length ? 'Choose repository…' : 'No more repositories'}</option>
+            {available.map((checkout) => <option value={checkout.id} key={checkout.id}>{checkout.name}</option>)}
+          </select>
+          <button type="button" disabled={disabled || !hostId || !checkoutToAdd} onClick={() => {
+            const checkoutId = checkoutToAdd;
+            const binding: RepositoryBinding = {
+              id: createUuid(),
+              hostId: hostId!,
+              checkoutId,
+              role: 'reference',
+            };
+            onChange((current) => current.some((repository) => (
+              repository.hostId === binding.hostId && repository.checkoutId === binding.checkoutId
+            )) ? current : [
+              ...current,
+              {
+                ...binding,
+                role: current.some((repository) => repository.role === 'primary') ? 'reference' : 'primary',
+              },
+            ]);
+            onSelect(checkoutId);
+            setCheckoutToAdd('');
+          }}>Add</button>
         </div>
-      ) : (
-        <p className="repository-manager-empty">Attach a repository to enable agent turns and working-tree views.</p>
-      )}
-      <div className="repository-add-row">
-        <select aria-label="Repository to add" value={checkoutToAdd} disabled={disabled || !hostId || !available.length} onChange={(event) => setCheckoutToAdd(event.target.value)}>
-          <option value="">{available.length ? 'Choose repository…' : 'No more repositories'}</option>
-          {available.map((checkout) => <option value={checkout.id} key={checkout.id}>{checkout.name}</option>)}
-        </select>
-        <button type="button" disabled={disabled || !hostId || !checkoutToAdd} onClick={() => {
-          const checkoutId = checkoutToAdd;
-          const binding: RepositoryBinding = {
-            id: createUuid(),
-            hostId: hostId!,
-            checkoutId,
-            role: 'reference',
-          };
-          onChange((current) => current.some((repository) => (
-            repository.hostId === binding.hostId && repository.checkoutId === binding.checkoutId
-          )) ? current : [
-            ...current,
-            {
-              ...binding,
-              role: current.some((repository) => repository.role === 'primary') ? 'reference' : 'primary',
-            },
-          ]);
-          onSelect(checkoutId);
-          setCheckoutToAdd('');
-        }}>Add</button>
-      </div>
+      </details>
     </section>
   );
 }

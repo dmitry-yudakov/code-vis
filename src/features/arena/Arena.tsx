@@ -88,6 +88,7 @@ export function Arena({
   const [refreshing, setRefreshing] = useState(false);
   const [dockerError, setDockerError] = useState<string>();
   const docker = executionHealth?.docker;
+  const dockerSetupNeeded = Boolean(docker?.enabled && !docker.providers.claude.available);
   const dockerAvailableForSelected = selectedMachine?.machine.kind === 'local' && docker?.enabled;
   const [checkoutId, setCheckoutId] = useState(selectedMachine?.checkouts[0]?.id || '');
   const selectedHealth = selectedMachine?.machine.kind === 'local'
@@ -192,20 +193,20 @@ export function Arena({
               Enable Docker
             </label>
           </div>
-          <p>Make Docker available for new sessions on this machine. Local remains the default.</p>
-          {docker.enabled && !docker.providers.claude.available && (
+          {dockerSetupNeeded && (
             <div className="arena-docker-setup">
               <p>{docker.providers.claude.message}</p>
               <p>Start Docker, then run <code>npm run docker:provision</code> in your installed CodeAI directory for first-time setup.</p>
               <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Checking…' : 'Check again'}</button>
             </div>
           )}
-          {docker.enabled && (
-            <div className="arena-docker-setup">
-              <p>Sign in once for each provider you use: <code>npm run docker:login -- claude</code> or <code>npm run docker:login -- codex</code>.</p>
-              <p>New Docker conversations share that provider’s login, settings and history in persistent Docker storage. Your host provider setup stays separate.</p>
-            </div>
-          )}
+          {/* Open while setup is unfinished; one row once Docker is ready or off. */}
+          <details className="arena-docker-setup" open={dockerSetupNeeded}>
+            <summary>Setup and sign-in</summary>
+            <p>Make Docker available for new sessions on this machine. Local remains the default.</p>
+            <p>Sign in once for each provider you use: <code>npm run docker:login -- claude</code> or <code>npm run docker:login -- codex</code>.</p>
+            <p>New Docker conversations share that provider’s login, settings and history in persistent Docker storage. Your host provider setup stays separate.</p>
+          </details>
           {dockerError && <p role="alert">{dockerError}</p>}
         </section>
       )}

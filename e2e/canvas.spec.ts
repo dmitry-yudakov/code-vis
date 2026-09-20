@@ -51,8 +51,18 @@ async function createNamedProject(page: Page, name: string) {
   await expect(page.locator('.project-search-trigger')).toContainText(name);
 }
 
+/** Theme and export live in the header's More menu, which stays open until toggled again. */
+async function fromMoreMenu(page: Page, name: string) {
+  const menu = page.locator('.header-menu');
+  await menu.locator('summary').click();
+  await menu.getByRole('button', { name, exact: true }).click();
+  await menu.locator('summary').click();
+}
+
 async function attachRepository(page: Page, name: string) {
   const manager = page.getByRole('region', { name: 'Session repositories' });
+  // A single repository collapses the manager; attaching another starts by opening it.
+  if (!await manager.locator('details').evaluate((details: HTMLDetailsElement) => details.open)) await manager.locator('summary').click();
   await manager.getByRole('combobox', { name: 'Repository to add' }).selectOption({ label: name });
   await manager.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(manager.locator('.repository-binding').filter({ hasText: name })).toHaveCount(1);
@@ -234,7 +244,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await secondContext.close();
 
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export' }).click();
+  await fromMoreMenu(page, 'Export session');
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^codeai-.*\.json$/);
 
@@ -345,7 +355,7 @@ test('loads the bounded spatial room on demand and restores its device-only layo
   const layoutBeforeTheme = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
   const failureId = await readyOption.getAttribute('data-canvas-id');
   await page.evaluate((id) => { window.__CODEAI_SPATIAL_TEST__ = { failTextureId: id || undefined }; }, failureId);
-  await page.getByRole('button', { name: 'Dark', exact: true }).click();
+  await fromMoreMenu(page, 'Dark');
   await expect(readyOption).toContainText('Preview error');
   await expect.poll(() => page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__?.objectUrls)).toBe(0);
   const layoutAfterTheme = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
@@ -485,7 +495,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
 
   await controls.locator('[data-immersive-action="panel:conversation:focus"]').click();
   const immersiveLayoutBeforeStream = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'));
-  await page.getByRole('button', { name: /Chat/ }).click();
+  await page.locator('.run-status-toggle').click();
   const immersiveComposer = page.getByRole('complementary', { name: 'Conversation' }).locator('textarea');
   await immersiveComposer.fill('Live immersive update');
   await page.getByRole('complementary', { name: 'Conversation' }).getByRole('button', { name: 'Send', exact: true }).click();
@@ -1134,7 +1144,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
 
   const root = page.locator('html');
   await expect(root).toHaveAttribute('data-theme', 'dark');
-  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Dark', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
 
   await startSession(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
@@ -1165,7 +1175,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
 
   await page.getByRole('button', { name: 'Open conversation' }).click();
   const darkSvg = await page.locator('.mermaid-layer svg').evaluate((element) => element.outerHTML);
-  await page.getByRole('button', { name: 'Light', exact: true }).click();
+  await fromMoreMenu(page, 'Light');
   await expect(root).toHaveAttribute('data-theme', 'light');
   expect(await root.evaluate((element) => getComputedStyle(element).colorScheme)).toBe('light');
   await expect(page.locator('.mermaid-layer[data-mermaid-theme="light"] svg')).toBeVisible();
@@ -1175,14 +1185,14 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   await expect(page.locator('.diagram-scene')).toHaveAttribute('style', transformBeforeThemeChange!);
   await expect(page.locator('[data-mark-id]')).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'System', exact: true }).click();
+  await fromMoreMenu(page, 'System');
   await expect(root).not.toHaveAttribute('data-theme', /.+/);
   await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(root).not.toHaveAttribute('data-theme', /.+/);
   await expect(page.locator('.mermaid-layer[data-mermaid-theme="light"] svg')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Dark', exact: true }).click();
+  await fromMoreMenu(page, 'Dark');
   await expect(root).toHaveAttribute('data-theme', 'dark');
   expect(await root.evaluate((element) => getComputedStyle(element).colorScheme)).toBe('dark');
   const requestPromise = page.waitForRequest((request) => request.url().endsWith('/api/agent/message'));
@@ -1210,7 +1220,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
 
   await page.reload();
   await expect(root).toHaveAttribute('data-theme', 'dark');
-  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Dark', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
 
   const blockedContext = await page.context().browser()!.newContext({ colorScheme: 'dark' });
@@ -1221,9 +1231,9 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   const blockedPage = await blockedContext.newPage();
   await blockedPage.goto('/');
   await expect(blockedPage.locator('html')).not.toHaveAttribute('data-theme', /.+/);
-  await expect(blockedPage.getByRole('button', { name: 'System', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await blockedPage.getByRole('button', { name: 'Dark', exact: true }).click();
+  await expect(blockedPage.getByRole('button', { name: 'System', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
+  await fromMoreMenu(blockedPage, 'Dark');
   await expect(blockedPage.locator('html')).not.toHaveAttribute('data-theme', /.+/);
-  await expect(blockedPage.getByRole('button', { name: 'System', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(blockedPage.getByRole('button', { name: 'System', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
   await blockedContext.close();
 });
