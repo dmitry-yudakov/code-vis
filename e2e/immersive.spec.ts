@@ -437,7 +437,7 @@ test.describe('VR conversation input', () => {
 
   test('uses shared agent actions, rejects unsupported modes, and bounds tool resources', async ({ page }) => {
     await setupVoice(page);
-    await page.getByRole('button', { name: 'Open conversation', exact: true }).click();
+    await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
     await conversationAction(page, 'agents');
     await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Agent')?.userData.disabled)).toBe(true);
     await conversationAction(page, 'ask');
@@ -861,7 +861,6 @@ test('retains one XR store across machine/project navigation, loading races, his
   await installAdapter(page);
   const state = await workspaceFixture(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Open conversation', exact: true }).click();
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Keep this local draft');
   await enter(page);
   let resolveLoad!: () => void;
@@ -1717,6 +1716,8 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
   await installAdapter(page);
   const state = await workspaceFixture(page, true);
   await page.goto('/');
+  // The desktop shows the shared diff in its side panel, which starts closed.
+  await page.locator('.repository-toggle').click();
   await enter(page);
   await panelAction(page, 'evidence', 'open');
   await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();

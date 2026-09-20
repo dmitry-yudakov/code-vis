@@ -120,8 +120,8 @@ test('opens and streams a remote executor session, then preserves its cached off
   await remoteMachine.getByRole('button', { name: 'Open Work on the laptop' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.project-search-trigger')).toContainText('Remote project');
-  await page.getByRole('button', { name: 'Open conversation' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(conversation).toBeVisible();
   await conversation.locator('textarea').fill('Answer on the laptop');
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(conversation.getByText('Remote answer arrived.')).toBeVisible();

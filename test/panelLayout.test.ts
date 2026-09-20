@@ -40,7 +40,8 @@ describe('panel layout geometry', () => {
         [viewId]: {
           repositoryOpen: false,
           conversationOpen: true,
-          historyOpen: false,
+          // Written before Story 62: history was a dock state, and is now a side-panel tab.
+          historyOpen: true,
           inspectorOpen: true,
           focusMode: true,
           lastOpened: 'dock',
@@ -53,7 +54,7 @@ describe('panel layout geometry', () => {
       [viewId]: {
         repositoryOpen: false,
         conversationOpen: true,
-        historyOpen: false,
+        sideTab: 'changes',
         inspectorOpen: true,
         focusMode: true,
         lastOpened: 'dock',
@@ -61,6 +62,18 @@ describe('panel layout geometry', () => {
         conversationWidth: 560,
       },
     });
+  });
+
+  it('opens a view nobody has arranged with the conversation and without the side panel', () => {
+    expect(DEFAULT_PANEL_LAYOUT).toMatchObject({ conversationOpen: true, repositoryOpen: false, sideTab: 'changes', lastOpened: 'dock' });
+  });
+
+  it('keeps a stored history tab and ignores anything else in its place', () => {
+    const id = viewId(1);
+    const parse = (sideTab: unknown) => parseViewPanelLayouts(JSON.stringify({ version: 1, layouts: { [id]: { sideTab } } }))[id].sideTab;
+    expect(parse('history')).toBe('history');
+    expect(parse('elsewhere')).toBe('changes');
+    expect(parse(undefined)).toBe('changes');
   });
 
   it('bounds persisted layouts by retaining the most recently stored ids', () => {

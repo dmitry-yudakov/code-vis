@@ -78,6 +78,7 @@ Four parts, each its own commit, each leaving the suite green.
    side panel. Opening History no longer closes the conversation.
 3. The diff inspector widens the side panel only on the Changes tab.
 4. Stored per-view layouts keep working; a stored `historyOpen` is ignored.
+5. A session with no repository opens the side panel, because that is where one is attached.
 
 ### Part C — The Arena is a list ordered by attention
 
@@ -111,10 +112,10 @@ Four parts, each its own commit, each leaving the suite green.
       overlaps another and the zoom bar does not cover the titleblock.
 
 ### Part B
-- [ ] A view with no stored layout opens with the conversation open and the side panel closed.
-- [ ] History opens as a side-panel tab while the conversation stays open.
-- [ ] Selecting a changed file, then switching to History, does not leave the panel double width.
-- [ ] A stored layout written before this story still parses.
+- [x] A view with no stored layout opens with the conversation open and the side panel closed.
+- [x] History opens as a side-panel tab while the conversation stays open.
+- [x] Selecting a changed file, then switching to History, does not leave the panel double width.
+- [x] A stored layout written before this story still parses.
 
 ### Part C
 - [ ] A session that needs the user is the first row of its project, and its project is first.

@@ -273,9 +273,10 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .canvas-workspace { grid-area: canvas; min-width: 0; min-height: 0; position: relative; display: grid; grid-template-rows: 42px minmax(0, 1fr); background: var(--sheet); overflow: hidden; }
 .canvas-workspace.focus-mode .canvas-topbar { background: var(--sheet-backdrop); }
 .canvas-topbar { display: flex; align-items: center; justify-content: flex-end; gap: 20px; padding: 0 12px; border-bottom: 1px solid var(--line-backdrop); background: var(--sheet-sunk); z-index: 8; }
-.canvas-surface-control { margin-right: auto; display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--control-wash); }
-.canvas-surface-control button { height: 22px; padding: 0 9px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 700; }
-.canvas-surface-control button[aria-pressed="true"] { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
+.canvas-surface-control { margin-right: auto; }
+.canvas-surface-control, .side-panel-tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--control-wash); }
+.canvas-surface-control button, .side-panel-tabs button { height: 22px; padding: 0 9px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 700; }
+.canvas-surface-control button[aria-pressed="true"], .side-panel-tabs button[aria-pressed="true"] { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
 .eyebrow { color: var(--muted); font: 500 10px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase; }
 .canvas-top-actions { display: flex; align-items: center; gap: 7px; }
 .canvas-top-actions button { height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-size: 11px; font-weight: 600; }
@@ -425,7 +426,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .conversation-region { grid-area: dock; position: relative; min-width: 0; min-height: 0; z-index: 12; }
 /* The header row sizes to its own content. Pinned at 48px the eyebrow/title/badge stack overflows
    it: the eyebrow is clipped by this panel and the badge spills onto the first line of transcript. */
-.conversation-drawer, .diagram-navigator { position: absolute; z-index: 1; inset: 0; width: 100%; display: grid; grid-template-rows: auto minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border-left: 1px solid var(--line); overflow: hidden; background: var(--shell); box-shadow: var(--drawer-shadow); }
+.conversation-drawer { position: absolute; z-index: 1; inset: 0; width: 100%; display: grid; grid-template-rows: auto minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border-left: 1px solid var(--line); overflow: hidden; background: var(--shell); box-shadow: var(--drawer-shadow); }
 .conversation-drawer { grid-template-rows: auto minmax(0,1fr) auto; }
 .drawer-composer { position: relative; z-index: 3; display: grid; gap: 5px; padding: 8px 10px 10px; overflow: visible; border-top: 1px solid var(--line); background: var(--shell-sunk); }
 .participant-controls { position: relative; min-width: 0; display: grid; gap: 6px; }
@@ -446,9 +447,9 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .handoff-actions { min-width: 0; display: flex; gap: 5px; overflow-x: auto; }
 .handoff-actions button { flex: none; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--plot-ink-muted); background: var(--raised-backdrop-medium); font-size: 9px; }
 .handoff-actions button:hover:not(:disabled) { border-color: var(--plot-line); background: var(--raised); }
-.conversation-drawer > header, .diagram-navigator > header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 15px 9px 18px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
-.conversation-drawer header > div, .diagram-navigator header > div { min-width: 0; display: grid; gap: 5px; }
-.conversation-drawer header strong, .diagram-navigator header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.conversation-drawer > header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 15px 9px 18px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
+.conversation-drawer header > div { min-width: 0; display: grid; gap: 5px; }
+.conversation-drawer header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .provider-badge { justify-self: start; padding: 2px 7px; border-radius: 999px; color: var(--live-ink-deep); background: var(--live-wash); font: 600 8px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .provider-badge.provider-codex { color: var(--plot-ink-deep); background: var(--plot-wash); }
 .conversation-drawer header .conversation-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -456,7 +457,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .execution-badge.execution-docker { border-color: var(--plot-ink-deep); color: var(--plot-ink-deep); background: var(--plot-wash); }
 .continue-execution { justify-self: start; padding: 3px 0; border: 0; background: transparent; color: var(--muted); font-size: 11px; text-decoration: underline; }
 .continuation-unavailable { color: var(--muted); font-size: 10px; line-height: 1.4; }
-.conversation-drawer header > button, .diagram-navigator header > button { width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--raised-backdrop-soft); font-size: 20px; }
+.conversation-drawer header > button { width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--raised-backdrop-soft); font-size: 20px; }
 .conversation-scroll, .navigator-list { position: relative; z-index: 1; min-height: 0; overflow-y: auto; padding: 14px; }
 .conversation-scroll, .navigator-list, .repository-summary-scroll, .diff-inspector-scroll, .project-search-results { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 .drawer-empty { margin: 80px 30px; color: var(--muted); text-align: center; line-height: 1.6; }
@@ -597,11 +598,12 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 /* Below the live 640px minimum, side regions return to recoverable overlays. */
 .dock-capacity-0 .repository-region { position: fixed; z-index: 60; left: 0; top: 82px; bottom: 0; width: min(var(--repository-width), 100vw); }
 .dock-capacity-0 .conversation-region { position: fixed; z-index: 60; top: 92px; right: 10px; bottom: 10px; width: min(var(--conversation-width), calc(100vw - 20px)); }
-.dock-capacity-0 .conversation-drawer, .dock-capacity-0 .diagram-navigator { border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--drawer-shadow); }
+.dock-capacity-0 .conversation-drawer { border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--drawer-shadow); }
 .repository-panel-header, .diff-inspector-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
-.repository-panel-header > div:first-child, .diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
-.repository-panel-header strong, .diff-inspector-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
+.diff-inspector-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .repository-header-actions { display: flex; gap: 5px; }
+.repository-name { display: block; padding: 12px 16px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .repository-header-actions button, .diff-inspector-header > button { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border: 0; border-radius: 6px; background: var(--raised-backdrop-button); font-size: 18px; }
 .repository-header-actions button:hover, .diff-inspector-header > button:hover { background: var(--raised); }
 .repository-header-actions .repository-refresh-button { font-size: 16px; }

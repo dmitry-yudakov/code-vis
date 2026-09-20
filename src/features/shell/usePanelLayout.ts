@@ -19,6 +19,7 @@ import {
   storePanelLayout,
   type DockCapacity,
   type PanelLayout,
+  type SideTab,
 } from './panelLayout';
 
 type ResizePanel = 'repository' | 'conversation';
@@ -61,7 +62,9 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       return next === prior ? current : storePanelLayout(current, viewId, next);
     });
   }, [defaultLayout, viewId]);
-  const dockOpen = layout.conversationOpen || layout.historyOpen;
+  const dockOpen = layout.conversationOpen;
+  // The diff inspector belongs to the changes; history never widens the panel.
+  const inspectorOpen = layout.inspectorOpen && layout.sideTab === 'changes';
 
   useEffect(() => {
     try {
@@ -92,30 +95,35 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (dockCapacity !== 1 || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
     setLayout((current) => current.lastOpened === 'dock'
       ? { ...current, repositoryOpen: false }
-      : { ...current, conversationOpen: false, historyOpen: false });
+      : { ...current, conversationOpen: false });
   }, [dockCapacity, dockOpen, layout.repositoryOpen, repositoryAvailable, setLayout]);
 
   useEffect(() => {
-    if (!layout.inspectorOpen || dockCapacity !== 2 || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
+    if (!inspectorOpen || dockCapacity !== 2 || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
     const needed = layout.repositoryWidth * 2 + layout.conversationWidth + CANVAS_MIN_WIDTH;
     if (needed > shellWidth) {
-      setLayout((current) => ({ ...current, conversationOpen: false, historyOpen: false }));
+      setLayout((current) => ({ ...current, conversationOpen: false }));
     }
-  }, [dockCapacity, dockOpen, layout.conversationWidth, layout.inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout, shellWidth]);
+  }, [dockCapacity, dockOpen, layout.conversationWidth, inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout, shellWidth]);
 
-  const openRepository = useCallback(() => {
+  const openSide = useCallback((sideTab: SideTab) => {
     setLayout((current) => ({
       ...current,
       lastOpened: 'repository',
       repositoryOpen: true,
-      ...(dockCapacity === 1 ? { conversationOpen: false, historyOpen: false } : {}),
+      sideTab,
+      ...(dockCapacity === 1 ? { conversationOpen: false } : {}),
     }));
   }, [dockCapacity, setLayout]);
   const closeRepository = useCallback(() => setLayout((current) => ({ ...current, repositoryOpen: false })), [setLayout]);
-  const toggleRepository = useCallback(() => {
-    if (layout.repositoryOpen) closeRepository();
-    else openRepository();
-  }, [closeRepository, layout.repositoryOpen, openRepository]);
+  // Each entry point toggles its own tab: a second press closes the panel, a press on the other tab switches.
+  const toggleSide = useCallback((sideTab: SideTab) => {
+    if (layout.repositoryOpen && layout.sideTab === sideTab) closeRepository();
+    else openSide(sideTab);
+  }, [closeRepository, layout.repositoryOpen, layout.sideTab, openSide]);
+  const openRepository = useCallback(() => openSide('changes'), [openSide]);
+  const toggleRepository = useCallback(() => toggleSide('changes'), [toggleSide]);
+  const toggleHistory = useCallback(() => toggleSide('history'), [toggleSide]);
 
   const openConversation = useCallback(() => {
     setLayout((current) => ({
@@ -123,7 +131,6 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       lastOpened: 'dock',
       repositoryOpen: dockCapacity === 1 ? false : current.repositoryOpen,
       conversationOpen: true,
-      historyOpen: false,
     }));
   }, [dockCapacity, setLayout]);
   const openConversationFor = useCallback((targetViewId: string) => {
@@ -134,7 +141,6 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
         lastOpened: 'dock',
         repositoryOpen: dockCapacity === 1 ? false : prior.repositoryOpen,
         conversationOpen: true,
-        historyOpen: false,
       });
     });
   }, [defaultLayout, dockCapacity]);
@@ -142,16 +148,6 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     setLayouts((current) => reconcilePanelLayouts(current, sessionIds));
   }, []);
   const closeConversation = useCallback(() => setLayout((current) => ({ ...current, conversationOpen: false })), [setLayout]);
-  const openHistory = useCallback(() => {
-    setLayout((current) => ({
-      ...current,
-      lastOpened: 'dock',
-      repositoryOpen: dockCapacity === 1 ? false : current.repositoryOpen,
-      conversationOpen: false,
-      historyOpen: true,
-    }));
-  }, [dockCapacity, setLayout]);
-  const closeHistory = useCallback(() => setLayout((current) => ({ ...current, historyOpen: false })), [setLayout]);
   const setInspectorOpen = useCallback((inspectorOpen: boolean) => {
     setLayout((current) => current.inspectorOpen === inspectorOpen ? current : { ...current, inspectorOpen });
   }, [setLayout]);
@@ -162,11 +158,11 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (panel === 'repository') {
       const dockMinimum = dockOpen ? CONVERSATION_MIN_WIDTH : 0;
       const room = shellWidth - CANVAS_MIN_WIDTH - dockMinimum;
-      return Math.max(REPOSITORY_MIN_WIDTH, Math.min(REPOSITORY_MAX_WIDTH, layout.inspectorOpen && dockCapacity === 2 ? Math.floor(room / 2) : room));
+      return Math.max(REPOSITORY_MIN_WIDTH, Math.min(REPOSITORY_MAX_WIDTH, inspectorOpen && dockCapacity === 2 ? Math.floor(room / 2) : room));
     }
     const repositoryMinimum = repositoryAvailable && layout.repositoryOpen ? REPOSITORY_MIN_WIDTH : 0;
     return Math.max(CONVERSATION_MIN_WIDTH, Math.min(CONVERSATION_MAX_WIDTH, shellWidth - CANVAS_MIN_WIDTH - repositoryMinimum));
-  }, [dockCapacity, dockOpen, layout.inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
+  }, [dockCapacity, dockOpen, inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
 
   const setPanelWidth = useCallback((panel: ResizePanel, width: number) => {
     const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
@@ -224,10 +220,10 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     capacity: dockCapacity,
     repositoryOpen: repositoryAvailable && layout.repositoryOpen && !layout.focusMode,
     dockOpen: dockOpen && !layout.focusMode,
-    inspectorOpen: layout.inspectorOpen,
+    inspectorOpen,
     lastOpened,
     widths: layout,
-  }), [dockCapacity, dockOpen, lastOpened, layout, repositoryAvailable, shellWidth]);
+  }), [dockCapacity, dockOpen, inspectorOpen, lastOpened, layout, repositoryAvailable, shellWidth]);
 
   const shellStyle = {
     '--repository-width': `${layout.repositoryWidth}px`,
@@ -253,8 +249,8 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     openConversationFor,
     reconcile,
     closeConversation,
-    openHistory,
-    closeHistory,
+    toggleHistory,
+    selectSideTab: openSide,
     setInspectorOpen,
     toggleFocusMode,
     beginResize,

@@ -214,6 +214,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [sessionId, workspace.updateView]);
 
   const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
+  // The side panel starts closed, but a session without a repository needs the one place that attaches it.
+  const needsRepository = Boolean(session && !session.repositories.length);
+  useEffect(() => {
+    if (needsRepository) panelLayout.openRepository();
+  }, [needsRepository, panelLayout.openRepository, session?.id]);
   const focusedRun = sessionId ? runsBySession[sessionId] : undefined;
   const focusedRunOutcome = sessionId ? runOutcomesBySession[sessionId] : undefined;
   const sessionRunning = Boolean(focusedRun) || Boolean(sessionId && preparingSends.includes(sessionId));
@@ -1707,7 +1712,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
-                aria-pressed={panelLayout.repositoryOpen}
+                aria-pressed={panelLayout.repositoryOpen && panelLayout.sideTab === 'changes'}
                 onClick={panelLayout.toggleRepository}
               >
                 Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
@@ -1805,7 +1810,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onChange={updateRepositories}
               />
             )}
+            history={(
+              <DiagramNavigator
+                session={session}
+                pendingAttachmentIds={pendingAttachmentIds}
+                // Docked, the list stays for browsing; as a phone overlay it would hide what was chosen.
+                onSelect={(id) => { selectDiagram(id); if (panelLayout.dockCapacity === 0) panelLayout.closeRepository(); }}
+                onPin={togglePin}
+                onToggleAttachment={toggleAttachment}
+              />
+            )}
             open={panelLayout.repositoryOpen}
+            tab={panelLayout.sideTab}
+            onTab={panelLayout.selectSideTab}
             onClose={panelLayout.closeRepository}
             onInspectorOpenChange={panelLayout.setInspectorOpen}
           />
@@ -1903,7 +1920,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             spatial={view?.spatial}
             onComposer={setComposer}
             onOpenChat={() => { panelLayout.openConversation(); setUnread(0); }}
-            onOpenHistory={panelLayout.openHistory}
+            onOpenHistory={panelLayout.toggleHistory}
             onToggleFocus={panelLayout.toggleFocusMode}
             onSelectDiagram={selectDiagram}
             onNewSketch={createSketch}
@@ -1955,16 +1972,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
               onExecutePlan={executePlan}
             />
-            <DiagramNavigator
-              open={panelLayout.historyOpen}
-              session={session}
-              pendingAttachmentIds={pendingAttachmentIds}
-              onClose={panelLayout.closeHistory}
-              onSelect={(id) => { selectDiagram(id); panelLayout.closeHistory(); }}
-              onPin={togglePin}
-              onToggleAttachment={toggleAttachment}
-            />
-            {(panelLayout.conversationOpen || panelLayout.historyOpen) && (
+            {panelLayout.conversationOpen && (
               <div
                 className="panel-resize-handle conversation-resize-handle"
                 role="separator"

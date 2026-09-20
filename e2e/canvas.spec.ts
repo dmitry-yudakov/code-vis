@@ -31,6 +31,9 @@ async function startSession(page: Page) {
   }
   expect(clicked).toBe(true);
   await expect(openViews).toHaveCount(before + 1);
+  // The conversation is already open, so its composer can be typed into before the new session
+  // replaces the old one. The menu closes once creation has been applied.
+  await expect(page.locator('.new-session-menu[open]')).toHaveCount(0);
 }
 
 async function ensureConversationOpen(page: Page) {
@@ -59,7 +62,14 @@ async function fromMoreMenu(page: Page, name: string) {
   await menu.locator('summary').click();
 }
 
+/** The side panel starts closed unless the session has no repository yet. */
+async function openRepositoryPanel(page: Page) {
+  const toggle = page.locator('.repository-toggle');
+  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+}
+
 async function attachRepository(page: Page, name: string) {
+  await openRepositoryPanel(page);
   const manager = page.getByRole('region', { name: 'Session repositories' });
   // A single repository collapses the manager; attaching another starts by opening it.
   if (!await manager.locator('details').evaluate((details: HTMLDetailsElement) => details.open)) await manager.locator('summary').click();
@@ -69,6 +79,7 @@ async function attachRepository(page: Page, name: string) {
 }
 
 async function ensureRepository(page: Page) {
+  await openRepositoryPanel(page);
   const manager = page.getByRole('region', { name: 'Session repositories' });
   if (!await manager.locator('.repository-binding').count()) await attachRepository(page, 'alpha');
 }
@@ -222,9 +233,11 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect(page.locator('.diagram-card-svg svg')).toHaveCount(4);
   await page.getByRole('button', { name: 'Close conversation drawer' }).click();
 
-  await page.getByRole('button', { name: /History/ }).click();
+  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
   await expect(page.locator('.navigator-item')).toHaveCount(4);
-  await page.getByRole('complementary', { name: 'Canvas history' }).locator('header button').click();
+  // The toolbar's History toggles its tab; the turn's notice is still over the panel's own close button.
+  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeHidden();
 
   await page.reload();
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
@@ -301,7 +314,7 @@ test('loads the bounded spatial room on demand and restores its device-only layo
     await page.getByRole('button', { name: 'New sketch' }).click();
     await expect(page.locator('.canvas-titleblock strong')).toHaveText(`Sketch ${ordinal}`);
   }
-  await page.getByRole('button', { name: /History/ }).click();
+  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
   const badDiagram = page.locator('.navigator-item').filter({ hasText: 'Diagram 4' });
   await badDiagram.locator('.navigator-select').click();
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 4');
@@ -909,8 +922,8 @@ test('preserves device views when the session catalog request fails', async ({ p
   await startSession(page);
   const draft = `preserve this draft ${Date.now()}`;
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill(draft);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'))).toContain(draft);
   const before = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
-  expect(before).not.toBeNull();
 
   const catalogRequest = /\/api\/sessions\?(?:projectId=|loose=true)/;
   await page.route(catalogRequest, async (route) => {
@@ -961,7 +974,7 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await page.getByRole('button', { name: 'Close conversation drawer' }).click();
   await page.reload();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
-  await page.getByRole('button', { name: /History/ }).click();
+  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
   await expect(page.locator('.navigator-item')).toContainText('Sketch 1');
 });
 

@@ -11,18 +11,16 @@ function formatCreated(createdAt: string): string {
   });
 }
 
+/** The History tab of the side panel: every canvas of the session, oldest first. */
 export function DiagramNavigator({
-  open, session, pendingAttachmentIds, onClose, onSelect, onPin, onToggleAttachment,
+  session, pendingAttachmentIds, onSelect, onPin, onToggleAttachment,
 }: {
-  open: boolean;
   session: SessionSnapshot;
   pendingAttachmentIds: string[];
-  onClose(): void;
   onSelect(id: string): void;
   onPin(id: string): void;
   onToggleAttachment(id: string): void;
 }) {
-  if (!open) return null;
   const artifacts = getArtifacts(session);
   const sketches = getSketches(session);
   const byId = new Map<string, DiagramArtifact>(artifacts.map((item) => [item.id, item]));
@@ -53,30 +51,21 @@ export function DiagramNavigator({
   ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   return (
-    <aside className="diagram-navigator" aria-label="Canvas history">
-      <header>
-        <div>
-          <span className="eyebrow">Canvas history</span>
-          <strong>{entries.length} canvas{entries.length === 1 ? '' : 'es'}</strong>
-        </div>
-        <button type="button" onClick={onClose} aria-label="Close canvas history">×</button>
-      </header>
-      <div className="navigator-list">
-        {entries.map((entry) => (
-          <div className={`navigator-item ${session.activeDiagramId === entry.id ? 'active' : ''}`} key={entry.id}>
-            <button type="button" className="navigator-select" onClick={() => onSelect(entry.id)}>
-              <span className="version-number">{entry.badge}</span>
-              <span><strong>{entry.title}</strong><small>{formatCreated(entry.createdAt)}</small></span>
-            </button>
-            {entry.lineage && <div className="lineage">{entry.lineage}</div>}
-            <div className="navigator-actions">
-              <button type="button" onClick={() => onPin(entry.id)}>{session.pinnedDiagramIds.includes(entry.id) ? 'Unpin' : 'Pin'}</button>
-              <button type="button" onClick={() => onToggleAttachment(entry.id)}>{pendingAttachmentIds.includes(entry.id) ? 'Remove attachment' : 'Attach next'}</button>
-            </div>
+    <div className="navigator-list">
+      {entries.map((entry) => (
+        <div className={`navigator-item ${session.activeDiagramId === entry.id ? 'active' : ''}`} key={entry.id}>
+          <button type="button" className="navigator-select" onClick={() => onSelect(entry.id)}>
+            <span className="version-number">{entry.badge}</span>
+            <span><strong>{entry.title}</strong><small>{formatCreated(entry.createdAt)}</small></span>
+          </button>
+          {entry.lineage && <div className="lineage">{entry.lineage}</div>}
+          <div className="navigator-actions">
+            <button type="button" onClick={() => onPin(entry.id)}>{session.pinnedDiagramIds.includes(entry.id) ? 'Unpin' : 'Pin'}</button>
+            <button type="button" onClick={() => onToggleAttachment(entry.id)}>{pendingAttachmentIds.includes(entry.id) ? 'Remove attachment' : 'Attach next'}</button>
           </div>
-        ))}
-        {!entries.length && <p>No diagrams or sketches yet.</p>}
-      </div>
-    </aside>
+        </div>
+      ))}
+      {!entries.length && <p>No diagrams or sketches yet.</p>}
+    </div>
   );
 }
