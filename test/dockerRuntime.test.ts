@@ -204,6 +204,9 @@ describe('Docker checkout mounts', () => {
       `type=bind,src=${context},dst=/context,readonly`,
     ]);
     expect(launch).toContain('npm_config_cache=/tmp/npm');
+    // Codex rejects a CODEX_HOME that does not exist yet; from HOME it creates its own on a new volume.
+    expect(launch).toContain(`HOME=${DOCKER_HOME}`);
+    expect(launch.some((arg) => arg.startsWith('CODEX_HOME='))).toBe(false);
     expect(launch).toContain(`${DOCKER_LABEL}.kind=worker`);
     expect(command.mock.calls.filter(([args]) => args[0] === 'volume' && args[1] === 'create').map(([args]) => args.at(-1))).toEqual([home]);
     expect(command.mock.calls.some(([args]) => args.some((arg) => /volume-subpath=|kind=cache|\/cache|keeper/.test(arg)))).toBe(false);

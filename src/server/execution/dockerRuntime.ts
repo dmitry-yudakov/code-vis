@@ -363,7 +363,8 @@ export class DockerRuntime {
       await command(['network', 'connect', 'bridge', gateway]);
       await command(['start', gateway]);
       const environment = {
-        HOME: DOCKER_HOME, CODEX_HOME: `${DOCKER_HOME}/.codex`, PATH: DOCKER_PATH,
+        // No CODEX_HOME: Codex refuses one that does not exist, but creates $HOME/.codex itself.
+        HOME: DOCKER_HOME, PATH: DOCKER_PATH,
         npm_config_registry: 'http://egress:8081', npm_config_cache: '/tmp/npm',
         DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         NODE_USE_ENV_PROXY: '1', LANG: 'C.UTF-8',
