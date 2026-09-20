@@ -235,6 +235,9 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
 
   await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
   await expect(page.locator('.navigator-item')).toHaveCount(4);
+  // Every entry carries a picture of its canvas; the diagrams in view have rendered theirs.
+  await expect(page.locator('.navigator-item .canvas-thumbnail')).toHaveCount(4);
+  await expect(page.locator('.canvas-thumbnail [data-mermaid-theme] svg').first()).toBeVisible();
   // The toolbar's History toggles its tab; the turn's notice is still over the panel's own close button.
   await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
   await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeHidden();
@@ -316,6 +319,8 @@ test('loads the bounded spatial room on demand and restores its device-only layo
   }
   await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
   const badDiagram = page.locator('.navigator-item').filter({ hasText: 'Diagram 4' });
+  // A diagram Mermaid cannot render keeps its kind mark instead of an empty frame.
+  await expect(badDiagram.locator('.canvas-thumbnail-mark')).toBeVisible();
   await badDiagram.locator('.navigator-select').click();
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 4');
   const fixtureNotice = page.getByRole('button', { name: 'Dismiss notice' });

@@ -535,17 +535,26 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .evidence-item button { justify-self: start; border: 0; padding: 0; color: var(--plot); background: none; font: 9px/1.3 var(--mono); }
 .evidence-item small { color: var(--muted); font-size: 9px; }
 
-.navigator-item { margin-bottom: 9px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
+.navigator-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); align-content: start; gap: 9px; }
+.navigator-list > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
+.navigator-item { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
 .navigator-item.active { border-color: var(--plot); }
-.navigator-select { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; text-align: left; background: transparent; }
+.navigator-select { width: 100%; display: grid; gap: 7px; border: 0; text-align: left; background: transparent; }
 /* A kind mark, not an index. The card already names its ordinal, and a running 01…05 beside
    titles that read "Diagram 1 … Diagram 1" numbers something the list does not actually order. */
-.version-number { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--plot-ink); background: var(--plot-wash); font-size: 12px; }
-.navigator-select > span:last-child { display: grid; gap: 3px; }
+/* Strokes keep their on-screen weight however far a canvas is scaled down, so a thumbnail reads as a shape. */
+.canvas-thumbnail { height: 92px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--sheet); }
+.canvas-thumbnail > span:not(.canvas-thumbnail-mark) { width: 100%; height: 100%; display: grid; place-items: center; }
+.canvas-thumbnail svg { width: 100%; height: 100%; max-width: 100% !important; }
+.canvas-thumbnail svg * { vector-effect: non-scaling-stroke !important; }
+.canvas-thumbnail > svg * { stroke-width: 1.5px; }
+.canvas-thumbnail [data-mermaid-theme] svg * { stroke-width: .75px !important; }
+.canvas-thumbnail-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--plot-ink); background: var(--plot-wash); font-size: 12px; }
+.navigator-select > span:last-child { min-width: 0; display: grid; gap: 3px; padding: 0 2px; }
 .navigator-select strong { font-size: 12px; }
 .navigator-select small { color: var(--muted); font: 9px/1 var(--mono); }
-.lineage { margin: 7px 0 0 40px; color: var(--muted); font-size: 9px; }
-.navigator-actions { margin: 8px 0 0 40px; display: flex; gap: 6px; }
+.lineage { margin: 5px 2px 0; color: var(--muted); font-size: 9px; }
+.navigator-actions { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; }
 .navigator-actions button { border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; color: var(--muted); background: var(--neutral-wash-raised); font-size: 9px; }
 
 .notice-banner { position: fixed; z-index: 90; left: 50%; top: 90px; width: min(700px, calc(100vw - 32px)); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 15px; border: 1px solid var(--wait-line-strong); border-radius: 10px; color: var(--stop-ink); background: var(--plot-wash-soft); box-shadow: var(--shadow); font-size: 11px; }

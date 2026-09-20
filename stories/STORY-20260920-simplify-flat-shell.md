@@ -1,6 +1,6 @@
 # Story 62 — Show less of the flat shell at once
 
-**Status:** In progress · **Type:** Frontend-only · **Depends on:** [Story 31](STORY-20260828-dock-canvas-panels.md), [Story 38](STORY-20260903-arena-and-inbox.md)
+**Status:** In progress (every box ticked; the user has not yet reviewed the result) · **Type:** Frontend-only · **Depends on:** [Story 31](STORY-20260828-dock-canvas-panels.md), [Story 38](STORY-20260903-arena-and-inbox.md)
 
 **Vision slice:** the presentation layer owned by the
 [shell design-system epic](EPIC-20260828-shell-design-system.md). Nothing here changes a wire
@@ -15,7 +15,7 @@ The user, after a review of every non-spatial screen on September 20, 2026:
 > I feel the UI is too complex and some things could be improved.
 
 The review measured it. A session in its default layout shows 45 visible controls; opening the
-conversation makes it 74. The complexity is not the number of features. It is that everything is
+conversation makes it 58. The complexity is not the number of features. It is that everything is
 visible at the same level all the time, the same fact is shown in several places, set-once controls
 live in permanent chrome, and the thing the product is about gets the least room: with both side
 regions open a Mermaid diagram has 640 of 1440 pixels and fits at 19% zoom.
@@ -124,11 +124,27 @@ Four parts, each its own commit, each leaving the suite green.
 - [x] The immersive Arena tests still pass with the shared ordering.
 
 ### Part D
-- [ ] Sketch and diagram entries show thumbnails; a failed diagram falls back to its kind mark.
-- [ ] No more than one Mermaid render runs at a time, and none runs for an entry out of view.
+- [x] Sketch and diagram entries show thumbnails; a failed diagram falls back to its kind mark.
+- [x] No more than one Mermaid render runs at a time, and none runs for an entry out of view.
 
 ### All parts
-- [ ] `npm run lint`, `npm test`, and `npm run test:e2e` pass after each part.
+- [x] `npm run lint`, `npm test`, and `npm run test:e2e` pass after each part.
+
+## What shipped differently
+
+- The side panel has two tabs, Changes and History. Evidence stays where it is read, inside the
+  message that cites it.
+- The toolbar's **History** button stays beside the new tab: it is the way in while the panel is
+  closed, and it toggles the tab.
+- Measured on the development data at 1440×900, counting only controls a person can see. The old
+  default (side panel open, conversation closed) showed 45, and 58 once the conversation was opened
+  to do any work. The new default (conversation open, side panel closed) shows 43; both panels open
+  show 49; both closed show 30. The Arena shows nine sessions on the first screen where it showed
+  three. History rendered four of six diagrams on opening and the other two only after scrolling.
+- Known and left alone: the notice banner is centred on the window, so at about 1280px it covers the
+  side panel's close button while a notice is shown. It covered the Repository panel's close button
+  before this story too. Centring it on the canvas column instead covers "New sketch"; the real fix
+  is a notice row in the layout, which resizes the canvas and deserves its own story.
 
 ## Out of scope
 

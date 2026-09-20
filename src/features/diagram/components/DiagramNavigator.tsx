@@ -1,7 +1,9 @@
 'use client';
 
+import type { ThemeName } from '@/shared/design/tokens';
 import type { SessionSnapshot, DiagramArtifact } from '@/shared/types';
 import { getArtifacts, getSketches } from '@/features/conversation/sessionStore';
+import { CanvasThumbnail } from './CanvasThumbnail';
 
 // Seconds never tell a reader which canvas is which, and the full locale string spends the card's
 // whole second line saying it.
@@ -13,9 +15,10 @@ function formatCreated(createdAt: string): string {
 
 /** The History tab of the side panel: every canvas of the session, oldest first. */
 export function DiagramNavigator({
-  session, pendingAttachmentIds, onSelect, onPin, onToggleAttachment,
+  session, theme, pendingAttachmentIds, onSelect, onPin, onToggleAttachment,
 }: {
   session: SessionSnapshot;
+  theme: ThemeName;
   pendingAttachmentIds: string[];
   onSelect(id: string): void;
   onPin(id: string): void;
@@ -24,13 +27,14 @@ export function DiagramNavigator({
   const artifacts = getArtifacts(session);
   const sketches = getSketches(session);
   const byId = new Map<string, DiagramArtifact>(artifacts.map((item) => [item.id, item]));
-  // One list, newest concern first: both kinds share the canvas id space and the same actions.
-  // The badge marks which kind a card is. It used to be a running 01…05 taken from the artifact's
-  // position, which sat beside titles reading "Diagram 1 … Diagram 1" and numbered an order the
-  // list does not have — the cards are chronological, and each already names its own ordinal.
+  // One chronological list: both kinds share the canvas id space and the same actions. The picture
+  // tells two canvases apart where "Diagram 1 … Diagram 1" cannot; the badge stands in for a
+  // diagram that has not rendered, or cannot.
   const entries = [
     ...artifacts.map((artifact) => ({
       id: artifact.id,
+      artifact,
+      sketch: undefined,
       badge: '◇',
       title: `Diagram ${artifact.ordinal}`,
       createdAt: artifact.createdAt,
@@ -43,6 +47,8 @@ export function DiagramNavigator({
     })),
     ...sketches.map((sketch) => ({
       id: sketch.id,
+      artifact: undefined,
+      sketch,
       badge: '✎',
       title: `Sketch ${sketch.ordinal}`,
       createdAt: sketch.createdAt,
@@ -55,7 +61,13 @@ export function DiagramNavigator({
       {entries.map((entry) => (
         <div className={`navigator-item ${session.activeDiagramId === entry.id ? 'active' : ''}`} key={entry.id}>
           <button type="button" className="navigator-select" onClick={() => onSelect(entry.id)}>
-            <span className="version-number">{entry.badge}</span>
+            <CanvasThumbnail
+              artifact={entry.artifact}
+              sketch={entry.sketch}
+              marks={session.annotations[entry.id]?.marks || []}
+              theme={theme}
+              fallback={entry.badge}
+            />
             <span><strong>{entry.title}</strong><small>{formatCreated(entry.createdAt)}</small></span>
           </button>
           {entry.lineage && <div className="lineage">{entry.lineage}</div>}

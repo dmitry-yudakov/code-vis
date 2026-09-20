@@ -1813,6 +1813,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             history={(
               <DiagramNavigator
                 session={session}
+                theme={theme}
                 pendingAttachmentIds={pendingAttachmentIds}
                 // Docked, the list stays for browsing; as a phone overlay it would hide what was chosen.
                 onSelect={(id) => { selectDiagram(id); if (panelLayout.dockCapacity === 0) panelLayout.closeRepository(); }}
