@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-20. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-21. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -32,8 +32,8 @@ Updated 2026-09-20. When a story ships, change the line that names it; each stor
 - **Latest fix:** [Story 53](stories/STORY-20260910-vr-session-resilience.md) — preserve VR through
   controller/visibility interruptions and retain device-local exit diagnostics.
 - **Also in flight:** [Story 56](stories/STORY-20260919-vr-report-from-headset.md) — reporting from
-  inside the headset is implemented: a captured view, the retained diagnostics, and forwarded error
-  text reach the paired home machine without a cable; the Quest 3S run remains pending.
+  inside the headset reaches the paired home machine without a cable; its new three-second
+  aim-before-capture behavior and the Quest 3S run remain pending.
 - **Also in flight:** [Story 57, optional local Docker execution](stories/STORY-20260908-local-docker-execution.md);
   release verification against a real daemon remains pending. Its follow-ups, Stories 58 and 59
   (Arena enablement, [shared provider login](stories/STORY-20260909-docker-session-friction.md)), are shipped.

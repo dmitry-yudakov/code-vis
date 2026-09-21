@@ -126,7 +126,12 @@ Story 50 is in progress with parser-backed spatial flowcharts, bounded detail, 2
 automated interaction/resource checks complete; physical Quest 3S acceptance remains pending.
 Story 51 shipped after the user accepted the physical Quest 3S work journey on September 20, 2026.
 Story 56 is in progress with the in-headset report action, automatic
-error forwarding, and the home-machine report store implemented; its Quest run remains pending.
+error forwarding, and the home-machine report store implemented; its delayed aim-before-capture change
+and Quest run remain pending. Draft Story 63 promotes those reports into durable conversation evidence
+for CodeAI's own checkout, in three parts; Draft Story 64 then adds an explicitly approved managed
+rebuild/restart loop and needs only Story 63's first part. Both wait for Draft
+[Story 65](STORY-20260921-tolerate-newer-session-format.md), a storage fix outside this epic that keeps
+the store open when an older build meets a newer session format.
 Story 52 is in progress with its immersive Arena/Inbox, exact cross-session permission return, and
 automated resource/navigation checks implemented; its multi-session Quest 3S run remains pending.
 Existing Stories 43–44 remain useful foundations and retain their own status.
@@ -142,6 +147,8 @@ Existing Stories 43–44 remain useful foundations and retain their own status.
 | [51 — Accept the complete headset work loop](STORY-20260905-vr-workspace-acceptance.md) | Quest 3S evidence for controller/voice work, comfort, and performance | 45–50 |
 | [52 — Add the Arena and Inbox](STORY-20260905-vr-arena-inbox.md) | Several visible sessions and cross-session attention in VR | 51 |
 | [56 — Report a VR problem from the headset](STORY-20260919-vr-report-from-headset.md) | A captured view, diagnostics, and error text reach the home machine | 45, 51 |
+| [63 — Use headset reports as conversation evidence](STORY-20260921-report-evidence-in-conversation.md) | Capture, explain, and send durable report evidence to an agent | 47, 56, 62; 65 before Part B |
+| [64 — Rebuild and restart CodeAI from CodeAI](STORY-20260921-managed-self-rebuild.md) | Safely run and verify the accepted fix from the same paired device | 63 Part A, 65 |
 
 The first usable release is **45–51**, including real spatial diagrams and voice. Story 52 is the
 in-progress second milestone.
