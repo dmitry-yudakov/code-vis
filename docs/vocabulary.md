@@ -93,6 +93,9 @@ Three conclusions:
   cloud sandbox. *(The earlier notes'* Host*; `hostId` stays as the code name.)*
 - **Device** — a screen you watch from: a browser, a tablet, a headset. A device executes nothing.
   *(The earlier notes'* Client*.)*
+- **Installation** — the CodeAI checkout a machine is running from. **Self project** — a project
+  whose primary repository, on this machine, is that installation's own checkout: the one project in
+  which CodeAI's reports about itself can be seen and attached. A name never makes a project one.
 - **View** — one open presentation of a session on one device. **Layout** — how a device arranges
   its views. Both are per-device and never shared; losing them never loses work. *(Replaces the
   earlier notes'* Workspace*-as-a-pane; the "saved view" of*

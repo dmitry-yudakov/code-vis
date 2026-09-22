@@ -21,7 +21,8 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
 export type DockCapacity = 0 | 1 | 2;
 export type LastOpenedPanel = 'repository' | 'dock';
 /** What the side panel shows. Its open state keeps the stored name `repositoryOpen`. */
-export type SideTab = 'changes' | 'history';
+export type SideTab = 'changes' | 'history' | 'reports';
+const SIDE_TABS: readonly SideTab[] = ['changes', 'history', 'reports'];
 
 export interface PanelLayout extends PanelWidths {
   repositoryOpen: boolean;
@@ -84,7 +85,7 @@ export function parseViewPanelLayouts(value: string | null): Record<string, Pane
       result[viewId] = {
         repositoryOpen: candidate.repositoryOpen !== false,
         conversationOpen: candidate.conversationOpen === true,
-        sideTab: candidate.sideTab === 'history' ? 'history' : 'changes',
+        sideTab: SIDE_TABS.includes(candidate.sideTab as SideTab) ? candidate.sideTab as SideTab : 'changes',
         inspectorOpen: candidate.inspectorOpen === true,
         focusMode: candidate.focusMode === true,
         lastOpened: candidate.lastOpened === 'dock' ? 'dock' : 'repository',

@@ -68,10 +68,11 @@ describe('panel layout geometry', () => {
     expect(DEFAULT_PANEL_LAYOUT).toMatchObject({ conversationOpen: true, repositoryOpen: false, sideTab: 'changes', lastOpened: 'dock' });
   });
 
-  it('keeps a stored history tab and ignores anything else in its place', () => {
+  it('keeps a stored history or reports tab and ignores anything else in its place', () => {
     const id = viewId(1);
     const parse = (sideTab: unknown) => parseViewPanelLayouts(JSON.stringify({ version: 1, layouts: { [id]: { sideTab } } }))[id].sideTab;
     expect(parse('history')).toBe('history');
+    expect(parse('reports')).toBe('reports');
     expect(parse('elsewhere')).toBe('changes');
     expect(parse(undefined)).toBe('changes');
   });

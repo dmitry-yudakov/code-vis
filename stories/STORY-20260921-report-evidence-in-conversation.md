@@ -1,6 +1,6 @@
 # Story 63 — Use headset reports as conversation evidence
 
-**Status:** Draft · **Type:** Full-stack · **Depends on:** [Story 47](STORY-20260905-vr-conversation-input.md), [Story 56](STORY-20260919-vr-report-from-headset.md), [Story 62](STORY-20260920-simplify-flat-shell.md); Part B also needs [Story 65](STORY-20260921-tolerate-newer-session-format.md) shipped first
+**Status:** In progress (Part A implemented; Parts B and C follow) · **Type:** Full-stack · **Depends on:** [Story 47](STORY-20260905-vr-conversation-input.md), [Story 56](STORY-20260919-vr-report-from-headset.md), [Story 62](STORY-20260920-simplify-flat-shell.md); Part B also needs [Story 65](STORY-20260921-tolerate-newer-session-format.md) shipped first
 
 **Vision slice:** the complete immersive work loop in the
 [immersive workspace epic](EPIC-20260905-immersive-workspace.md) and the intent/context side of the
@@ -298,16 +298,16 @@ Story 65's README note asks every checkout sharing a data directory to include i
 
 ### Part A
 
-- [ ] A project is recognized as CodeAI only by local-host primary binding plus exact resolved-realpath
+- [x] A project is recognized as CodeAI only by local-host primary binding plus exact resolved-realpath
       equality with `config.installationRoot`; renaming the project does not change eligibility and a
       different checkout named `code-ai` is not eligible.
-- [ ] In an eligible project the flat Reports tab lists retained reports newest first, including ones
+- [x] In an eligible project the flat Reports tab lists retained reports newest first, including ones
       captured in another project or with no context, shows where each was captured when that still
       resolves, and shows a screenshot preview when present.
-- [ ] The list, detail, and image routes are device-authorized and `private, no-store`, disclose no
+- [x] The list, detail, and image routes are device-authorized and `private, no-store`, disclose no
       host path, re-check the self-project rule on every request, answer `{ available: false }` for any
       other project, and reject an id that does not match the pattern before touching the filesystem.
-- [ ] A malformed report file is skipped and counted rather than breaking the panel. Summary and error
+- [x] A malformed report file is skipped and counted rather than breaking the panel. Summary and error
       text are bounded.
 
 ### Part B
@@ -366,6 +366,25 @@ Story 65's README note asks every checkout sharing a data directory to include i
 - User-driven deletion/export of promoted evidence. Inbox reports continue to use bounded automatic
   retention; promoted evidence follows its owning session up to the per-session ceiling.
 - Rebuilding or restarting CodeAI. [Story 64](STORY-20260921-managed-self-rebuild.md) owns lifecycle.
+
+## What shipped
+
+Each part is its own commit, in order; the bullets below map to the parts.
+
+- **Self project.** `config.installationRoot` is `CODEAI_INSTALLATION_ROOT` or the working directory
+  ([config.ts](../src/server/config.ts#L186)); its real path is taken when compared, so a missing path
+  never matches. [selfProject.ts](../src/server/repository/selfProject.ts#L12) requires a local-host
+  primary binding whose `CheckoutRegistry.resolve` real path equals it.
+- **Reports (A).** The id pattern and the summary are in
+  [immersiveReport.ts](../src/shared/immersiveReport.ts#L19). Reads by id go through
+  [immersiveReports.ts](../src/server/diagnostics/immersiveReports.ts#L44), which checks the id
+  before building a path and bounds every read. The three routes share
+  [reportAccess.ts](../src/server/diagnostics/reportAccess.ts#L20): id first (400), then the personal
+  device, then the self-project rule. The list answers `{ available: false }` with 200; detail and
+  image answer it with 404. The flat tab is
+  [ReportsPanel.tsx](../src/features/reports/ReportsPanel.tsx), fed by the one owner
+  [useImmersiveReports.ts](../src/features/reports/useImmersiveReports.ts); it needs an open
+  session, like the rest of the side panel, and rereads the list when shown.
 
 ## How to verify
 

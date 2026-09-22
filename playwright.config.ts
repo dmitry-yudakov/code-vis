@@ -34,6 +34,8 @@ export default defineConfig({
       ...process.env,
       CODEAI_REPOSITORIES_ROOT: path.resolve('test/fixtures/projects'),
       CODEAI_REPOSITORIES_DEPTH: '2',
+      // A project whose primary repository is this fixture is CodeAI's own for the report flows.
+      CODEAI_INSTALLATION_ROOT: path.resolve('test/fixtures/projects/installation'),
       CODEAI_DATA_DIR: path.resolve('test-results/server-data'),
       CODEAI_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'),
       CODEAI_CODEX_BIN: path.resolve('test/fixtures/not-a-real-codex'),

@@ -9,7 +9,8 @@ and Linux Engine boundary tests and signed-in Claude/Codex turns. See the
 Use a separately installed CodeAI, Node 20.9+, and a local Docker Desktop or Linux Docker Engine
 28+ over a Unix socket. Remote Docker contexts and custom worker images are unsupported. CodeAI
 rejects a repository that overlaps its running installation, data directory or provider storage.
-To work on CodeAI itself, run a separate installation.
+To run Docker turns on CodeAI's own repository, use a separate installation; Local turns on this
+installation's own project are unaffected.
 
 From the installed CodeAI directory:
 

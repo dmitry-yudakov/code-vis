@@ -309,6 +309,21 @@ The captured frame is a single 1024-pixel-wide view from the head pose, shaped b
 frustum, not the stereo optics it displays. It is meant for layout, legibility, and "what was on screen when this broke", and the
 report needs only the paired HTTPS connection the headset already uses — no cable.
 
+### Use reports in CodeAI's own project
+
+When you develop CodeAI with CodeAI, a report is evidence about the installation you are running.
+This works in a **self project** only: one whose primary repository, on this machine, is the
+checkout CodeAI is running from. Renaming a project changes nothing, and another checkout named
+`code-ai` does not qualify. Sessions in such a project always run Local, because Docker refuses
+CodeAI's own checkout.
+
+- **Flat shell.** The side panel gains a **Reports** tab beside Changes and History. It lists every
+  retained report, newest first, with its time, kind, note or latest error, a thumbnail, and where it
+  was captured. A report captured while another project was open can show that project's
+  conversation or canvas; the row says so. Selecting a report opens its details and full screenshot.
+
+Everything stays on the home machine. The diagnostics directory keeps the newest 50 reports.
+
 ### Investigate an unexpected VR exit
 
 A report usually answers this without USB. Reach for remote debugging when the browser itself
@@ -780,6 +795,9 @@ See [.env.example](.env.example). The most useful options are:
   composer's Default;
 - `CODEAI_CODEX_AGENT` — explicit Codex Agent release gate; unset means Ask/Plan only;
 - `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node);
+- `CODEAI_INSTALLATION_ROOT` — which checkout counts as this installation for
+  [reports](#use-reports-in-codeais-own-project); defaults to the working directory and exists for
+  the end-to-end server, which names a fixture;
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
 - `CODEAI_REMOTE_ACCESS` / `CODEAI_PUBLIC_ORIGIN` — opt into paired personal-device access at one
   exact HTTPS origin;

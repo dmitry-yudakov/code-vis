@@ -221,6 +221,21 @@ preserve the version and execution metadata. New sessions remain version 3. Dock
 their fixed single-primary-repository binding and are readable here, but the message route
 rejects their turns before provider work because this checkout has no Docker runtime.
 
+## CodeAI reports
+
+A headset report (`POST /api/immersive/report`) lands in the home machine's diagnostics directory,
+`<dataDir>/diagnostics/<id>.json` plus an optional `<id>.jpg`, pruned to the newest 50. Its id is
+the stored base name; every route checks it against one pattern before building a path. The report
+may carry the machine/project/session selected when it was captured, but only as a label.
+
+What decides whether reports are visible is the **self project**:
+`src/server/repository/selfProject.ts` accepts a project only when its primary repository binding
+belongs to this host and resolves, through `CheckoutRegistry`, to the same real path as
+`config.installationRoot` (the working directory, or `CODEAI_INSTALLATION_ROOT` for the end-to-end
+server). `GET /api/immersive/reports`, `/reports/<id>`, and `/reports/<id>/image` take a project id,
+re-check that rule on every request, are personal-device-only, return no host paths, and answer
+`private, no-store`. Remote executors never serve reports.
+
 ## The streamed agent route
 
 `POST /api/agent/message` is the one turn-executing endpoint.

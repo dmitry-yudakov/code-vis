@@ -43,6 +43,9 @@ Updated 2026-09-22. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 62](stories/STORY-20260920-simplify-flat-shell.md) — shows less of the flat
   shell at once: one header menu, a conversation column beside a single side panel, an Arena list
   ordered by attention, and canvas history with thumbnails. It ships one part per commit.
+- **Also in flight:** [Story 63](stories/STORY-20260921-report-evidence-in-conversation.md) — headset
+  reports become attachable conversation evidence in CodeAI's own project; Part A, the Reports tab,
+  is implemented, and Parts B and C follow one commit each.
 - **Also in flight:** [Story 66](stories/STORY-20260922-select-model-and-effort.md) — choose the
   model and effort for an agent's next turn from the executing machine's own list; implemented with
   offline checks, and the real-provider verification remains pending.
@@ -104,15 +107,16 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/features/diagram/annotations/` | Drawing state and composite export |
 | `src/features/diagram/spatial/` | Desktop spatial room, spatial diagram model, and the GPU resource ledger shared with VR |
 | `src/features/projects/` | Project selection UI |
+| `src/features/reports/` | The shared CodeAI report owner, the flat Reports tab, and report labels |
 | `src/features/repository/` | Repository tree, status, and diff UI and client state |
 | `src/server/agents/` | Provider policies, adapters, preflight, process runners |
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
-| `src/server/repository/` | Checkout discovery, fixed read-only git invocations, and bounded context |
+| `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
 | `src/server/storage/` | Project/session store, durable server records, per-run temp attachments |
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
-| `src/server/diagnostics/` | Immersive reports written to the data directory for the home machine |
+| `src/server/diagnostics/` | Immersive reports in the home machine's data directory, and their self-project-only reads |
 | `src/server/execution/` | Optional Docker execution: container profile, runtime, recovery, and process transport |
 | `src/server/voice/` | Loopback-only transcription client for voice dictation |
 | `src/server/machines/` | Machine pairing, registry, snapshot collection, and allowlisted gateway |

@@ -37,6 +37,8 @@ import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { useRepositoryChanges } from '@/features/repository/useRepositoryChanges';
 import { useRepositoryDiff } from '@/features/repository/useRepositoryDiff';
+import { ReportsPanel } from '@/features/reports/ReportsPanel';
+import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
 import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
@@ -193,6 +195,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? [sessions.find((item) => item.id === sessionId)!.activeDiagramId!]
       : []);
   const selectedCheckoutId = view?.selectedCheckoutId;
+  // Reports are this home machine's; a remote executor's project is never CodeAI's own checkout here.
+  const reports = useImmersiveReports(workspaceMachineId ? undefined : projectId);
   const setComposer = useCallback((value: SetStateAction<string>) => {
     if (!sessionId) return;
     workspace.updateView(sessionId, (current) => ({
@@ -220,6 +224,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [sessionId, workspace.updateView]);
 
   const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
+  // The headset adds reports while the flat shell is open; showing the tab reads the latest list.
+  const reportsShown = panelLayout.repositoryOpen && panelLayout.sideTab === 'reports';
+  useEffect(() => {
+    if (reportsShown) void reports.refresh();
+  }, [reports.refresh, reportsShown]);
   // The side panel starts closed, but a session without a repository needs the one place that attaches it.
   const needsRepository = Boolean(session && !session.repositories.length);
   useEffect(() => {
@@ -1846,6 +1855,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onToggleAttachment={toggleAttachment}
               />
             )}
+            reports={reports.available && reports.projectId ? (
+              <ReportsPanel owner={{ ...reports, projectId: reports.projectId }} machines={arena.machines} />
+            ) : undefined}
             open={panelLayout.repositoryOpen}
             tab={panelLayout.sideTab}
             onTab={panelLayout.selectSideTab}

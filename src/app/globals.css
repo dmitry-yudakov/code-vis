@@ -570,6 +570,27 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .navigator-actions { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; }
 .navigator-actions button { border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; color: var(--muted); background: var(--neutral-wash-raised); font-size: 9px; }
 
+/* Reports share the History tab's card language; the picture is the evidence, so it leads the row. */
+.report-list, .report-detail { position: relative; z-index: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 9px; padding: 14px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.report-list > p { margin: 0; color: var(--muted); font-size: 11px; }
+.report-list-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
+.report-list-header button { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px; background: var(--raised-backdrop-button); font-size: 14px; }
+.report-item { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
+.report-select { width: 100%; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 9px; border: 0; text-align: left; background: transparent; }
+.report-select img, .report-mark { width: 96px; height: 72px; border: 1px solid var(--line); border-radius: 6px; object-fit: cover; background: var(--sheet); }
+.report-mark { display: grid; place-items: center; color: var(--muted); font-size: 18px; }
+.report-select > span:last-child { min-width: 0; display: grid; align-content: start; gap: 4px; }
+.report-select strong, .report-detail > strong { font-size: 11px; }
+.report-description { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 11px; line-height: 1.4; }
+.report-select small, .report-detail small { color: var(--muted); font-size: 9px; }
+.report-detail img { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--sheet); }
+.report-detail p { margin: 0; font-size: 11px; line-height: 1.5; }
+.report-back { justify-self: start; border: 0; padding: 0; color: var(--muted); background: none; font-size: 10px; font-weight: 700; }
+.report-errors { margin: 0; padding: 0; display: grid; gap: 6px; list-style: none; }
+.report-errors li { display: grid; gap: 3px; padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
+.report-errors code { white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.45 var(--mono); }
+.report-error { margin: 0; color: var(--wait); font-size: 11px; }
+
 .notice-banner { position: fixed; z-index: 90; left: 50%; top: 90px; width: min(700px, calc(100vw - 32px)); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 15px; border: 1px solid var(--wait-line-strong); border-radius: 10px; color: var(--stop-ink); background: var(--plot-wash-soft); box-shadow: var(--shadow); font-size: 11px; }
 .notice-banner > span { flex: 1; }
 .notice-banner button { border: 0; border-radius: 6px; padding: 5px 8px; color: var(--stop-ink); background: var(--stop-wash-strong); font-size: 10px; font-weight: 600; }

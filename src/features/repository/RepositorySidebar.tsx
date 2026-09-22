@@ -3,12 +3,15 @@
 import type { ReactNode } from 'react';
 import type { SideTab } from '@/features/shell/panelLayout';
 
+const SIDE_PANEL_LABELS: Record<SideTab, string> = { changes: 'Repository', history: 'Canvas history', reports: 'CodeAI reports' };
+
 /**
  * The side panel's chrome. Individual views own their data and actions; this shell owns only the
- * tabs, close behavior, and primary/inspector layout. The repository's changes and the session's
- * canvas history share it, so neither competes with the conversation for the other dock.
+ * tabs, close behavior, and primary/inspector layout. The repository's changes, the session's
+ * canvas history, and — in CodeAI's own project — its reports share it, so none competes with the
+ * conversation for the other dock.
  */
-export function RepositorySidebar({ repositoryName, open, tab, actions, manager, inspector, history, children, onTab, onClose }: {
+export function RepositorySidebar({ repositoryName, open, tab, actions, manager, inspector, history, reports, children, onTab, onClose }: {
   repositoryName: string;
   open: boolean;
   tab: SideTab;
@@ -16,20 +19,25 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
   manager?: ReactNode;
   inspector?: ReactNode;
   history: ReactNode;
+  /** Present only while the selected project is a self project. */
+  reports?: ReactNode;
   children: ReactNode;
   onTab(tab: SideTab): void;
   onClose(): void;
 }) {
   if (!open) return null;
-  const changes = tab === 'changes';
+  // A remembered Reports tab falls back to Changes wherever reports are unavailable.
+  const shown: SideTab = tab === 'reports' && !reports ? 'changes' : tab;
+  const changes = shown === 'changes';
 
   return (
-    <aside className={`repository-sidebar ${changes && inspector ? 'has-inspector' : ''}`} aria-label={changes ? 'Repository' : 'Canvas history'}>
+    <aside className={`repository-sidebar ${changes && inspector ? 'has-inspector' : ''}`} aria-label={SIDE_PANEL_LABELS[shown]}>
       <section className="repository-summary-panel">
         <header className="repository-panel-header">
           <div className="side-panel-tabs" role="group" aria-label="Side panel">
             <button type="button" aria-pressed={changes} onClick={() => onTab('changes')}>Changes</button>
-            <button type="button" aria-pressed={!changes} onClick={() => onTab('history')}>History</button>
+            <button type="button" aria-pressed={shown === 'history'} onClick={() => onTab('history')}>History</button>
+            {reports && <button type="button" aria-pressed={shown === 'reports'} onClick={() => onTab('reports')}>Reports</button>}
           </div>
           <div className="repository-header-actions">
             {changes && actions}
@@ -44,7 +52,7 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
             </div>
             {children}
           </div>
-        ) : history}
+        ) : shown === 'reports' ? reports : history}
       </section>
       {changes && inspector}
     </aside>

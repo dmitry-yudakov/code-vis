@@ -13,11 +13,12 @@ import type { RepositoryDiffState } from './useRepositoryDiff';
  * Repository-view composition point. A future file-tree view belongs here beside `changes`,
  * while the sidebar chrome and each view's data controller remain independent.
  */
-export function RepositoryPanel({ checkoutId, repositoryName, manager, history, changes, diffState, open, tab, onTab, onClose, onInspectorOpenChange }: {
+export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, tab, onTab, onClose, onInspectorOpenChange }: {
   checkoutId?: string;
   repositoryName: string;
   manager?: ReactNode;
   history: ReactNode;
+  reports?: ReactNode;
   changes: ReturnType<typeof useRepositoryChanges>;
   diffState: RepositoryDiffState;
   open: boolean;
@@ -36,6 +37,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
       repositoryName={repositoryName}
       manager={manager}
       history={history}
+      reports={reports}
       open={open}
       tab={tab}
       onTab={onTab}
