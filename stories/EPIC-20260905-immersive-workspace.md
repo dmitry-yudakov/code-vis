@@ -125,9 +125,9 @@ comparison, annotation, and marked-attachment checks complete; physical acceptan
 Story 50 is in progress with parser-backed spatial flowcharts, bounded detail, 2D fallback, and
 automated interaction/resource checks complete; physical Quest 3S acceptance remains pending.
 Story 51 shipped after the user accepted the physical Quest 3S work journey on September 20, 2026.
-Story 56 is in progress with the in-headset report action, automatic
-error forwarding, and the home-machine report store implemented; its delayed aim-before-capture change
-and Quest run remain pending. Story 63 is in progress with all three parts implemented and automated
+Story 56 is in progress with the in-headset report action, its three-second aim-before-capture
+countdown, automatic error forwarding, and the home-machine report store implemented; its Quest run
+remains pending. Story 63 is in progress with all three parts implemented and automated
 checks passing: those reports become durable conversation evidence for CodeAI's own checkout, flat
 and in the headset; its Quest 3S run remains pending. Draft Story 64 then adds an explicitly approved
 managed rebuild/restart loop and needs only Story 63's first part. Both depended on

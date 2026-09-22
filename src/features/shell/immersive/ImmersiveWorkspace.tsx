@@ -28,6 +28,7 @@ import type { CanvasReviewActionName } from './canvasReviewControls';
 import { canvasTargetId, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
 import { immersiveTheme } from './immersiveTheme';
 import { captureImmersiveFrame } from './immersiveCapture';
+import { createCaptureCountdown } from './captureCountdown';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { sendImmersiveReport } from './immersiveReport';
 import { ArenaTools } from './ArenaTools';
@@ -116,7 +117,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   useEffect(() => { setEvidencePage(0); }, [evidence.selectedPath, viewKey]);
   const contentOrigin = useRef<THREE.Group>(null);
   const needsRecenter = useRef(true);
-  const reportRequested = useRef(false);
+  const [captureCountdown] = useState(createCaptureCountdown);
   const reportNotice = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const controls = useTextureResource((ledger) => Object.fromEntries(VISIBLE_IMMERSIVE_ACTIONS.map((action) =>
     [action, isWorkspaceIconAction(action) ? createWorkspaceIconResource(action, theme, ledger)
@@ -132,10 +133,14 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     createWorkspaceButtonResource(PANEL_TITLES[id], theme, ledger),
   ])), [theme, ...PANEL_IDS.map((id) => layout.panels[id].open)]);
   const [reportStatus, setReportStatus] = useState<string>();
-  const statusDetail = reportStatus
+  const [countdownStatus, setCountdownStatus] = useState<string>();
+  const statusDetail = countdownStatus || reportStatus
     || (pendingApprovals ? `${pendingApprovals} approval waiting · ${workspaceStatus}` : workspaceStatus);
-  const status = useTextureResource((ledger) => createWorkspaceTextResource(session?.title || 'Session launcher',
-    statusDetail, theme, ledger), [session?.title, statusDetail, theme]);
+  // The rasterized line records whether it shows the countdown; the capture waits until it does not.
+  const status = useTextureResource((ledger) => ({
+    ...createWorkspaceTextResource(session?.title || 'Session launcher', statusDetail, theme, ledger),
+    countdown: Boolean(countdownStatus),
+  }), [session?.title, statusDetail, theme, Boolean(countdownStatus)]);
   const recoveryChrome = useTextureResource((ledger) => ({
     geometry: ledger.trackGeometry(roundedGeometry(1.92, 0.19, 0.095)),
     material: ledger.trackMaterial(new THREE.MeshBasicMaterial({
@@ -161,14 +166,20 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     if (reportNotice.current) clearTimeout(reportNotice.current);
     reportNotice.current = setTimeout(() => setReportStatus(undefined), 6_000);
   }, []);
-  useEffect(() => () => { if (reportNotice.current) clearTimeout(reportNotice.current); }, []);
+  useEffect(() => () => {
+    captureCountdown.cancel();
+    if (reportNotice.current) clearTimeout(reportNotice.current);
+  }, [captureCountdown]);
   useFrame((_state, delta) => {
     recordImmersiveFrame(delta * 1_000);
     if (needsRecenter.current) { recenter(); needsRecenter.current = false; }
-    // Capturing inside the frame keeps the head pose and the live GL context; a failed capture
-    // still reports the diagnostics and error tail.
-    if (reportRequested.current) {
-      reportRequested.current = false;
+    // The countdown advances per frame on the clock, never through a timer, so leaving the workspace
+    // ends it. Capturing inside the frame keeps the head pose and the live GL context; a failed
+    // capture still reports the diagnostics and error tail.
+    const step = captureCountdown.advance(performance.now(), !status?.countdown);
+    if (step.phase === 'counting') setCountdownStatus(step.status);
+    else if (step.phase === 'clearing') setCountdownStatus(undefined);
+    else if (step.phase === 'capture') {
       let screenshot: string | undefined;
       try { screenshot = captureImmersiveFrame(gl, scene, camera); }
       catch { recordImmersiveDiagnostic('capture-failed'); }
@@ -229,9 +240,11 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
       if (contentEnabled('arena')) arenaAction.current?.(action.slice('arena:'.length) as ArenaActionName);
       return;
     }
-    if (action === 'exit') onExit();
+    if (action === 'exit') { captureCountdown.cancel(); onExit(); }
     else if (action === 'reset-workspace') { onResetWorkspace(); setDiagramScale(1); recenter(); }
-    else if (action === 'report') reportRequested.current = true;
+    else if (action === 'report') {
+      if (!captureCountdown.toggle(performance.now())) { setCountdownStatus(undefined); showReportNotice('Report cancelled'); }
+    }
     else if (action === 'reset-view') { setDiagramScale(1); canvasReview.current?.perform('reset-spatial'); recenter(); }
     else if (action === 'previous-canvas' && contentEnabled('canvas')) onPreviousCanvas();
     else if (action === 'next-canvas' && contentEnabled('canvas')) onNextCanvas();
@@ -257,7 +270,8 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
       }
     }
   }, [onPanelAction, onResetWorkspace, onExit, recenter, layout, editing, onPreviousCanvas, onNextCanvas,
-    listOpen, sessionToolsOpen, conversationTab, voicePending, session, evidence, page, pages.length]);
+    listOpen, sessionToolsOpen, conversationTab, voicePending, session, evidence, page, pages.length,
+    captureCountdown, showReportNotice]);
   useEffect(() => { onActionController(perform); return () => onActionController(undefined); }, [onActionController, perform]);
   const button = (action: ImmersiveAction, position: [number, number, number], disabled = false,
     variant: 'secondary' | 'primary' | 'destructive' = 'secondary') => <WorldButton

@@ -416,8 +416,8 @@ Each part is its own commit, in order; the bullets below map to the parts.
   ([AppShell.tsx](../src/features/shell/AppShell.tsx#L788)) adds the report to that view, and the workspace
   ([ImmersiveWorkspace.tsx](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L181)) says
   `Report ready to send` or `Report saved`, opening the compose tab only when that session is still
-  active. Story 56's three-second countdown is still not implemented; the selection is read at send
-  time, so it will stay correct when the countdown arrives.
+  active. Story 56's three-second countdown arrived after this part; the selection is read at send
+  time, so it stays correct after the delay.
 - **Docs.** README (headset report status, **Use reports in CodeAI's own project**, data layout,
   `CODEAI_INSTALLATION_ROOT`), [architecture.md](../docs/architecture.md#codeai-reports),
   [docker-execution.md](../docs/docker-execution.md), [vocabulary.md](../docs/vocabulary.md), and

@@ -288,10 +288,14 @@ Quest latency or accuracy measurement.
 ### Report a problem from the headset
 
 **Report** sits in the always-accessible VR tool strip beside **Reset** and **Exit VR**, and is
-mirrored as a `Report problem` control on the ordinary page. It renders the workspace from your
-current head pose, then sends that image with the retained diagnostics, the recent error text, and
-the machine, project, and session selected at that moment to the home machine. The status line
-confirms `Report saved`, or `Report ready to send` when the capture was attached to a session (see
+mirrored as a `Report problem` control on the ordinary page. Pressing it starts a three-second
+countdown in the status line (`Capturing in 3…`), time to turn toward a problem that sits beside the
+control rather than under your gaze. When the countdown ends the status line clears, CodeAI renders
+the workspace from your head pose at that moment, and it sends that image with the retained
+diagnostics, the recent error text, and the machine, project, and session selected at that moment
+to the home machine. Pressing **Report** again during the countdown cancels it (`Report cancelled`),
+and leaving VR cancels it too; neither uploads anything. The status line then confirms
+`Report saved`, or `Report ready to send` when the capture was attached to a session (see
 [Use reports in CodeAI's own project](#use-reports-in-codeais-own-project)).
 
 Errors report themselves the same way: an uncaught error, an unhandled rejection, a renderer error,

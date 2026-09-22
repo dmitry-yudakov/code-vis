@@ -384,7 +384,10 @@ diagnostics, and the view context to `POST /api/immersive/report`, which
 `0600`, prunes to the newest 50 reports, and announces on the server terminal. `immersiveCapture.ts`
 renders the report's screenshot in the XR frame: a transient render target sized from the captured
 view's own projection, `xr.enabled` briefly false so the renderer honors the supplied camera, a pixel
-read flipped into a JPEG, and disposal in the same frame, so neither the texture budget nor the resource ledger sees it. Automatic forwarding
+read flipped into a JPEG, and disposal in the same frame, so neither the texture budget nor the resource ledger sees it. A deliberate report
+first runs `captureCountdown.ts`: a three-second deadline advanced once per rendered frame on the
+clock it was started with, never a timer, so a second press or leaving the workspace ends it, and the
+capture frame is taken only once the rasterized status line no longer shows the countdown. Automatic forwarding
 is rate-limited per document; the wire schema and its bounds live in `src/shared/immersiveReport.ts`.
 
 `immersiveDiagnostics.ts` retains up to 256 device-local lifecycle events and ten-second samples

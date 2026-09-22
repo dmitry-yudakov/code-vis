@@ -2289,17 +2289,34 @@ test('VR session tools forget the paired device only after an explicit second se
 test('reports the workspace view and forwarded errors to the home machine', async ({ page }) => {
   const directory = path.resolve('test-results/server-data/diagnostics');
   await rm(directory, { recursive: true, force: true });
+  // The countdown reads the browser clock once per frame, so the test jumps the clock instead of waiting.
+  await page.clock.install();
   await installAdapter(page);
   await workspaceFixture(page, true);
   await page.goto('/'); await enter(page);
   const stored = async (kind: 'capture' | 'error') => (await readdir(directory).catch(() => []))
     .filter((file) => file.endsWith(`-${kind}.json`)).sort();
+  let uploads = 0;
+  page.on('request', (request) => { if (request.url().endsWith('/api/immersive/report')) uploads += 1; });
+  const statusDetail = async () => (await workspaceStatus(page))?.detail;
+  const pressReport = () => controls(page).locator('[data-immersive-action="report"]').click();
+  const frames = () => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.frames ?? 0);
+  // Frames keep rendering after a jump; letting several pass gives a pending capture its chance.
+  const renderFrames = async () => { const before = await frames(); await expect.poll(frames).toBeGreaterThan(before + 5); };
 
   // Reporting stays reachable exactly when the workspace is least usable: every panel closed.
   for (const panel of ['conversation', 'canvas'] as const) await panelAction(page, panel, 'close');
   expect(await page.evaluate(() => window.xrScene?.scene.getObjectByName('Report')?.userData))
     .toMatchObject({ immersiveAction: 'report', disabled: false });
-  await controls(page).locator('[data-immersive-action="report"]').click();
+  // Report gives three seconds to turn toward the problem, and uploads nothing before they pass.
+  // The fake clock keeps ticking in real time, so the labels are checked as a descending sequence;
+  // the unit test pins the exact second boundaries.
+  await pressReport();
+  await expect.poll(statusDetail).toMatch(/^Capturing in [23]…$/);
+  await page.clock.fastForward(1_000);
+  await expect.poll(statusDetail).toMatch(/^Capturing in [12]…$/);
+  expect(uploads).toBe(0);
+  await page.clock.fastForward(2_000);
   await expect.poll(async () => (await stored('capture')).length, { timeout: 15_000 }).toBe(1);
   const [capture] = await stored('capture');
   const report = JSON.parse(await readFile(path.join(directory, capture), 'utf8'));
@@ -2310,7 +2327,19 @@ test('reports the workspace view and forwarded errors to the home machine', asyn
   expect([...image.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
   expect(image.byteLength).toBeGreaterThan(2_000);
   // Outside CodeAI's own project a capture is kept on the home machine and attached nowhere.
-  await expect.poll(async () => (await workspaceStatus(page))?.detail).toBe('Report saved');
+  await expect.poll(statusDetail).toBe('Report saved');
+  expect(uploads).toBe(1);
+
+  // A second press during the countdown cancels it: no capture, no upload, and the session continues.
+  await pressReport();
+  await expect.poll(statusDetail).toMatch(/^Capturing in [1-3]…$/);
+  await pressReport();
+  await expect.poll(statusDetail).toBe('Report cancelled');
+  await page.clock.fastForward(4_000);
+  await renderFrames();
+  expect(uploads).toBe(1);
+  expect(await stored('capture')).toHaveLength(1);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
 
   await page.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'Injected workspace failure.' })));
   await expect.poll(async () => (await stored('error')).length, { timeout: 15_000 }).toBe(1);
@@ -2324,13 +2353,22 @@ test('reports the workspace view and forwarded errors to the home machine', asyn
     .not.toContain('Injected workspace failure.');
   // A refused upload explains itself without ending the session.
   await page.route('**/api/immersive/report', (route) => route.fulfill({ status: 503, json: { error: 'no' } }));
-  await controls(page).locator('[data-immersive-action="report"]').click();
-  await expect.poll(async () => (await workspaceStatus(page))?.detail).toContain('Report failed');
+  await pressReport();
+  await page.clock.fastForward(3_000);
+  await expect.poll(statusDetail).toContain('Report failed');
   expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
   expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.map((entry) => entry.event)))
     .toContain('report-failed');
+
+  // Exiting VR during the countdown cancels it: nothing is uploaded after the workspace is gone.
+  await pressReport();
+  await expect.poll(statusDetail).toMatch(/^Capturing in [1-3]…$/);
+  const uploadsBeforeExit = uploads;
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
+  await page.clock.fastForward(4_000);
+  await page.waitForTimeout(300);
+  expect(uploads).toBe(uploadsBeforeExit);
 });
 
 test('captures a report into the selected CodeAI session and attaches a saved one from the immersive Reports view', async ({ page, request }) => {
@@ -2350,6 +2388,7 @@ test('captures a report into the selected CodeAI session and attaches a saved on
   await expect(controls(page).locator('strong').first()).toHaveText(session.title);
 
   // A deliberate capture waits in the session it was taken in, and brings its conversation forward.
+  // This test keeps the real clock: the status passes through the three-second countdown first.
   await controls(page).locator('[data-immersive-action="report"]').click();
   await expect.poll(async () => (await workspaceStatus(page))?.detail, { timeout: 15_000 }).toBe('Report ready to send');
   await expect.poll(async () => (await conversationState(page))?.conversationTab).toBe('compose');
