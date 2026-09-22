@@ -64,6 +64,8 @@ interface Health {
   dataDirectoryReady: boolean;
   providers: Record<AgentProvider, ProviderHealth>;
   executions?: ExecutionHealth;
+  /** Session files on this machine that only a newer CodeAI can open; absent for a remote machine. */
+  newerFormatSessions?: number;
   message?: string;
 }
 
@@ -130,6 +132,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [runOutcomesBySession, setRunOutcomesBySession] = useState<Record<string, SessionRunOutcome>>({});
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
   const [notice, setNotice] = useState<string>();
+  // Kept apart from health, which a remote machine's catalog replaces; the count is this machine's.
+  const [newerFormatSessions, setNewerFormatSessions] = useState(0);
+  const [newerFormatNoticeDismissed, setNewerFormatNoticeDismissed] = useState(false);
   const [archiveUndo, setArchiveUndo] = useState<ArenaSessionSummary>();
   const [busyRun, setBusyRun] = useState<RunDescriptor>();
   const [participantBusy, setParticipantBusy] = useState(false);
@@ -397,6 +402,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (!response.ok) throw new Error('Could not refresh machine readiness.');
       const next = await response.json() as Health;
       setHealth(next);
+      setNewerFormatSessions(next.newerFormatSessions || 0);
       setLocalExecutionHealth(next.executions);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not refresh machine readiness.');
@@ -421,6 +427,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (!current) return;
       setHealth(healthResult);
       setLocalExecutionHealth(healthResult.executions);
+      setNewerFormatSessions(healthResult.newerFormatSessions || 0);
       setProjects(projectResult);
       setCheckouts(checkoutResult.checkouts || []);
       setRecentCheckoutIds(checkoutResult.recentCheckoutIds || []);
@@ -1251,6 +1258,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     || `session ${busyRun.sessionId.slice(0, 8)}`
   );
   const displayedNotice = focusedRunOutcome?.message || notice;
+  const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
+    ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
+    : undefined;
   const unreadBySession = Object.fromEntries(Object.entries(workspace.scope.views).map(([id, state]) => [id, state.unread]));
   const runTabsBySession = Object.fromEntries(Object.entries(runsBySession).map(([id, run]) => [id, {
     state: run.state,
@@ -1871,6 +1881,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             if (focusedRunOutcome && sessionId) setRunOutcome(sessionId);
             else { setNotice(undefined); setBusyRun(undefined); setArchiveUndo(undefined); }
           }}>×</button>
+        </div>
+      )}
+      {/* The standing explanation for hidden sessions waits while a transient notice holds the slot. */}
+      {!loading && !displayedNotice && newerFormatNotice && (
+        <div className="notice-banner" role="status">
+          <span>{newerFormatNotice}</span>
+          <button type="button" aria-label="Dismiss notice" onClick={() => setNewerFormatNoticeDismissed(true)}>×</button>
         </div>
       )}
 

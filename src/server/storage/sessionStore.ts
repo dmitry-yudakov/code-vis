@@ -11,7 +11,7 @@ import type {
   Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
-  durableProjectSchema, durableSessionSchema, legacyDurableSessionSchema,
+  MAX_READABLE_SESSION_VERSION, durableProjectSchema, durableSessionSchema, legacyDurableSessionSchema,
   previousDurableSessionSchema, publicSessionSchema,
 } from '@/shared/sessionSchema';
 import {
@@ -19,7 +19,7 @@ import {
 } from '@/shared/participants';
 
 const STORE_FORMAT_VERSION = 1;
-const SESSION_RECORD_VERSION = 4;
+const SESSION_RECORD_VERSION = MAX_READABLE_SESSION_VERSION;
 const PROJECT_RECORD_VERSION = 1;
 const STORE_DIRECTORY = 'session-store-v2';
 const PREVIOUS_STORE_DIRECTORY = 'session-store-v1';
@@ -46,7 +46,9 @@ const writerLockSchema = z.object({
   heartbeat: z.string().datetime(),
 }).strict();
 
-export type SessionStoreErrorCode = 'unknown' | 'conflict' | 'locked' | 'corrupt';
+export type SessionStoreErrorCode = 'unknown' | 'conflict' | 'locked' | 'corrupt' | 'unsupported-format';
+
+const NEWER_FORMAT_MESSAGE = 'This session was written by a newer CodeAI. Open it with that version.';
 
 export class SessionStoreError extends Error {
   constructor(public readonly code: SessionStoreErrorCode, message: string) {
@@ -125,6 +127,20 @@ function isMissing(error: unknown): boolean {
 
 function isExists(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'EEXIST';
+}
+
+/** A newer CodeAI's record is recognised by its version and file identity alone; nothing else is read. */
+function isNewerFormatSession(parsed: unknown, filePath: string): boolean {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const { version, id } = parsed as { version?: unknown; id?: unknown };
+  return Number.isInteger(version) && (version as number) > MAX_READABLE_SESSION_VERSION
+    && typeof id === 'string' && path.basename(filePath) === `${id}.json`;
+}
+
+/** Lets scans pass over a newer CodeAI's session while every other failure still stops them. */
+export function skipNewerFormat(error: unknown): undefined {
+  if (sessionStoreErrorCode(error) === 'unsupported-format') return undefined;
+  throw error;
 }
 
 function localProcessIsAlive(pid: number): boolean {
@@ -359,6 +375,13 @@ export class SessionStore {
     return this.enqueue(async () => {
       const project = await this.getProject(id);
       this.expectProjectRevision(project, expectedRevision);
+      // Detaching cannot reach a newer CodeAI's session, and deleting would orphan its project link.
+      if (await this.newerFormatSessionCount()) {
+        throw new SessionStoreError(
+          'unsupported-format',
+          'A session written by a newer CodeAI may belong to this project. Delete the project from that version.',
+        );
+      }
       const [activeSessions, archivedSessions] = await Promise.all([
         this.listSessions(),
         this.listArchivedSessions(),
@@ -401,6 +424,16 @@ export class SessionStore {
       .sort((left, right) => (
         (right.archivedAt || right.updatedAt).localeCompare(left.archivedAt || left.updatedAt)
       ));
+  }
+
+  /** Session files in active or archived storage that only a newer CodeAI can open. */
+  async newerFormatSessionCount(): Promise<number> {
+    await this.openStore();
+    const scans = await Promise.all([
+      this.scanSessionDirectory(this.sessionsDirectory),
+      this.scanSessionDirectory(this.archivedSessionsDirectory),
+    ]);
+    return scans.reduce((total, scan) => total + scan.newerFormat, 0);
   }
 
   async getSession(id: string): Promise<DurableSession> {
@@ -851,6 +884,7 @@ export class SessionStore {
         `Session store contains an unreadable session file (${path.basename(filePath)}). Restore the whole ${STORE_DIRECTORY} directory from backup.`,
       );
     }
+    if (isNewerFormatSession(parsed, filePath)) throw new SessionStoreError('unsupported-format', NEWER_FORMAT_MESSAGE);
     const result = durableSessionSchema.safeParse(parsed);
     if (!result.success) {
       throw new SessionStoreError(
@@ -889,6 +923,12 @@ export class SessionStore {
   }
 
   private async listSessionDirectory(directory: string, archived: boolean): Promise<DurableSession[]> {
+    const { sessions } = await this.scanSessionDirectory(directory);
+    return sessions.filter((session) => archived ? Boolean(session.archivedAt) : !session.archivedAt);
+  }
+
+  /** Reads one directory under the whole store's file bound; newer-format files are counted, not read. */
+  private async scanSessionDirectory(directory: string): Promise<{ sessions: DurableSession[]; newerFormat: number }> {
     const [activeNames, archivedNames] = await Promise.all([
       this.sessionFileNames(this.sessionsDirectory),
       this.sessionFileNames(this.archivedSessionsDirectory),
@@ -897,8 +937,11 @@ export class SessionStore {
       throw new SessionStoreError('corrupt', `Session store exceeds its ${MAX_SESSIONS}-file safety bound.`);
     }
     const names = directory === this.sessionsDirectory ? activeNames : archivedNames;
-    const sessions = await Promise.all(names.map((name) => this.readSessionFile(path.join(directory, name))));
-    return sessions.filter((session) => archived ? Boolean(session.archivedAt) : !session.archivedAt);
+    const read = await Promise.all(names.map((name) => (
+      this.readSessionFile(path.join(directory, name)).catch(skipNewerFormat)
+    )));
+    const sessions = read.filter((session) => session !== undefined);
+    return { sessions, newerFormat: read.length - sessions.length };
   }
 
   private async writeProject(project: DurableProject): Promise<void> {
@@ -1083,12 +1126,12 @@ export class SessionStore {
       throw new SessionStoreError('corrupt', `Session exists in both active and archived storage (${duplicate}).`);
     }
     for (const name of activeNames) {
-      const session = await this.readSessionFile(path.join(this.sessionsDirectory, name));
-      if (session.archivedAt) await rename(this.sessionPath(session.id), this.archivedSessionPath(session.id));
+      const session = await this.readSessionFile(path.join(this.sessionsDirectory, name)).catch(skipNewerFormat);
+      if (session?.archivedAt) await rename(this.sessionPath(session.id), this.archivedSessionPath(session.id));
     }
     for (const name of archivedNames) {
-      const session = await this.readSessionFile(path.join(this.archivedSessionsDirectory, name));
-      if (!session.archivedAt) await rename(this.archivedSessionPath(session.id), this.sessionPath(session.id));
+      const session = await this.readSessionFile(path.join(this.archivedSessionsDirectory, name)).catch(skipNewerFormat);
+      if (session && !session.archivedAt) await rename(this.archivedSessionPath(session.id), this.sessionPath(session.id));
     }
     await Promise.all([syncDirectory(this.sessionsDirectory), syncDirectory(this.archivedSessionsDirectory)]);
   }
@@ -1179,14 +1222,18 @@ export function getSessionStore(
   return store;
 }
 
-export function sessionStoreStatus(error: unknown): number {
+export function sessionStoreErrorCode(error: unknown): SessionStoreErrorCode | undefined {
   // Route handlers may be compiled into separate bundles, so an error thrown by the process-wide
   // store is not guaranteed to share this bundle's class identity.
-  const code = error instanceof Error && error.name === 'SessionStoreError'
+  return error instanceof Error && error.name === 'SessionStoreError'
     ? (error as SessionStoreError).code
     : undefined;
+}
+
+export function sessionStoreStatus(error: unknown): number {
+  const code = sessionStoreErrorCode(error);
   if (!code) return 400;
   if (code === 'unknown') return 404;
-  if (code === 'conflict' || code === 'locked') return 409;
+  if (code === 'conflict' || code === 'locked' || code === 'unsupported-format') return 409;
   return 500;
 }

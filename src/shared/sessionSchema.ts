@@ -197,8 +197,11 @@ export const assistantMessageSchema = z.object({
 
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
+/** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
+export const MAX_READABLE_SESSION_VERSION = 4;
+
 const sessionBase = {
-  version: z.union([z.literal(3), z.literal(4)]),
+  version: z.union([z.literal(3), z.literal(MAX_READABLE_SESSION_VERSION)]),
   execution: z.enum(['local', 'docker']).optional(),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),

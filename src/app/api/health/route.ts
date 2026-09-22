@@ -6,6 +6,7 @@ import { safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
+import { getSessionStore } from '@/server/storage/sessionStore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,10 @@ export async function GET(request: Request): Promise<Response> {
   ]);
   const providerReady = claude.available || codex.available;
   const docker = await getDockerRuntime(config).health();
+  // Store failures surface where sessions load; readiness only reports what this build cannot open.
+  const newerFormatSessions = dataDirectoryReady
+    ? await getSessionStore(config.dataDir, config.hostLabel).newerFormatSessionCount().catch(() => 0)
+    : 0;
   return safeJsonResponse({
     ok: repositoriesRootReady && dataDirectoryReady && (providerReady || docker.available) && !recoveryMessage,
     hostLabel: config.hostLabel,
@@ -55,6 +60,7 @@ export async function GET(request: Request): Promise<Response> {
         providers: dockerProviderHealth(config, docker, codex),
       },
     },
+    newerFormatSessions,
     message: recoveryMessage || readinessMessage || (!providerReady && !docker.available ? claude.message || codex.message : undefined),
   });
 }

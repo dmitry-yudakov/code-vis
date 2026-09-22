@@ -949,6 +949,43 @@ test('preserves device views when the session catalog request fails', async ({ p
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue(draft);
 });
 
+test('explains sessions hidden because a newer CodeAI wrote them, only while there are some', async ({ page, request }) => {
+  const projectName = `Newer format ${Date.now()}`;
+  const { project } = await (await request.post('/api/projects', { data: { name: projectName, checkoutIds: [] } })).json();
+  expect((await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).status()).toBe(201);
+  // The newest project opens first, so the Arena below has to switch projects to reach the session.
+  await request.post('/api/projects', { data: { name: `${projectName} (opens first)`, checkoutIds: [] } });
+  let newerFormatSessions = 2;
+  await page.route('**/api/health', async (route) => {
+    const upstream = await route.fetch();
+    await route.fulfill({ response: upstream, json: { ...await upstream.json(), newerFormatSessions } });
+  });
+  const notice = page.getByRole('status').filter({ hasText: 'newer CodeAI' });
+  await page.goto('/');
+  await expect(notice).toHaveText(/^2 sessions were written by a newer CodeAI and are hidden here\./);
+  await expect(page.locator('.project-search-trigger')).toContainText('(opens first)');
+  // Opening another project's session from the Arena reloads this machine's catalog, not its health.
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  const arena = page.getByRole('main', { name: 'Arena' });
+  await arena.getByRole('tab', { name: /Active/ }).click();
+  await arena.getByRole('region', { name: projectName }).getByRole('button', { name: /^Open / }).click();
+  await expect(page.locator('.project-search-trigger')).toContainText(projectName);
+  await expect(notice).toHaveText(/^2 sessions were written by a newer CodeAI and are hidden here\./);
+  await notice.getByRole('button', { name: 'Dismiss notice' }).click();
+  await expect(notice).toHaveCount(0);
+
+  newerFormatSessions = 1;
+  await page.reload();
+  await expect(notice).toHaveText(/^1 session was written by a newer CodeAI and is hidden here\./);
+
+  newerFormatSessions = 0;
+  const loaded = page.waitForResponse('**/api/health');
+  await page.reload();
+  await loaded;
+  await expect(page.locator('.project-search-trigger')).toBeVisible();
+  await expect(notice).toHaveCount(0);
+});
+
 test('sketches a blank canvas and sends the drawing as the instruction', async ({ page }) => {
   await page.goto('/');
   await startSession(page);

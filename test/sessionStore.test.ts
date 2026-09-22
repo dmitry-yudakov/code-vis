@@ -700,6 +700,117 @@ describe('host-owned session store', () => {
   });
 });
 
+const NEWER_FORMAT_REFUSAL = {
+  code: 'unsupported-format',
+  message: 'This session was written by a newer CodeAI. Open it with that version.',
+};
+
+async function writeSessionRecord(
+  dataDir: string,
+  storage: 'sessions' | 'archived-sessions',
+  id: string,
+  record: unknown,
+): Promise<{ id: string; file: string; contents: string }> {
+  const file = path.join(dataDir, 'session-store-v2', storage, `${id}.json`);
+  const contents = typeof record === 'string' ? record : `${JSON.stringify(record, null, 2)}\n`;
+  await writeFile(file, contents);
+  return { id, file, contents };
+}
+
+describe('sessions written by a newer CodeAI', () => {
+  it('opens the store around them and never rewrites, moves, detaches, or opens them', async () => {
+    const dataDir = await directory();
+    const seed = new SessionStore(dataDir, { hostLabel: 'Host' });
+    const project = await seed.createProject('Shared', ['checkout-a']);
+    const host = await seed.host();
+    await seed.close();
+    const { execution: _execution, ...unversioned } = durableFixture(crypto.randomUUID(), host.id, 'Version 3');
+    const versionThree = { ...unversioned, version: 3, projectId: project.id } as DurableSession;
+    const versionFour: DurableSession = { ...durableFixture(crypto.randomUUID(), host.id, 'Version 4'), projectId: project.id };
+    for (const session of [versionThree, versionFour]) await writeSessionRecord(dataDir, 'sessions', session.id, session);
+    // Read as today's format, these would be moved to the archive and back, and detached below.
+    const activeId = crypto.randomUUID();
+    const archivedId = crypto.randomUUID();
+    const newer = [
+      await writeSessionRecord(dataDir, 'sessions', activeId, {
+        version: 99, id: activeId, projectId: project.id, archivedAt: '2026-09-21T10:00:00.000Z',
+      }),
+      await writeSessionRecord(dataDir, 'archived-sessions', archivedId, { version: 99, id: archivedId, projectId: project.id }),
+    ];
+    const expectNewerUntouched = async () => {
+      for (const { file, contents } of newer) expect(await readFile(file, 'utf8')).toBe(contents);
+    };
+
+    const store = new SessionStore(dataDir, { hostLabel: 'Host' });
+    expect(await store.listProjects()).toEqual([project]);
+    const listed = await store.listSessions({ projectId: project.id });
+    expect(listed).toHaveLength(2);
+    expect(listed).toEqual(expect.arrayContaining([versionThree, versionFour]));
+    expect(await store.listArchivedSessions()).toEqual([]);
+    expect(await store.newerFormatSessionCount()).toBe(2);
+    await expectNewerUntouched();
+
+    await expect(store.getSession(activeId)).rejects.toMatchObject(NEWER_FORMAT_REFUSAL);
+    await expect(store.getArchivedSession(archivedId)).rejects.toMatchObject(NEWER_FORMAT_REFUSAL);
+    await expect(store.archiveSession(activeId, 0)).rejects.toMatchObject(NEWER_FORMAT_REFUSAL);
+    await expect(store.restoreSession(archivedId, 0)).rejects.toMatchObject(NEWER_FORMAT_REFUSAL);
+    await expect(store.appendUserMessage(activeId, userMessage(activeId, `${activeId}:human`, crypto.randomUUID())))
+      .rejects.toMatchObject(NEWER_FORMAT_REFUSAL);
+    expect(sessionStoreStatus(await store.getSession(activeId).catch((error: unknown) => error))).toBe(409);
+
+    const archived = await store.archiveSession(versionFour.id, versionFour.revision);
+    await store.restoreSession(versionFour.id, archived.revision);
+    // Its project link is unreadable here, so no project may be deleted out from under it.
+    await expect(store.deleteProject(project.id, project.revision)).rejects.toMatchObject({
+      code: 'unsupported-format',
+      message: 'A session written by a newer CodeAI may belong to this project. Delete the project from that version.',
+    });
+    expect(await store.getProject(project.id)).toEqual(project);
+    await expectNewerUntouched();
+    await store.close();
+
+    const reopened = new SessionStore(dataDir, { hostLabel: 'Host' });
+    expect(await reopened.listSessions({ projectId: project.id })).toHaveLength(2);
+    expect(await reopened.newerFormatSessionCount()).toBe(2);
+    await expectNewerUntouched();
+    await reopened.close();
+  });
+
+  it.each([
+    ['unreadable JSON', () => '{', 'unreadable'],
+    ['a record that is not an object', () => null, 'invalid'],
+    ['invalid content at a supported version', (id: string) => ({ version: 4, id }), 'invalid'],
+    ['a missing version', (id: string) => ({ id }), 'invalid'],
+    ['a non-integer version', (id: string) => ({ version: 99.5, id }), 'invalid'],
+    ['a version written as a string', (id: string) => ({ version: '99', id }), 'invalid'],
+    ['a newer version whose id does not match its file name', () => ({ version: 99, id: crypto.randomUUID() }), 'invalid'],
+    ['a newer version whose id is not a string', (id: string) => ({ version: 99, id: [id] }), 'invalid'],
+  ] as const)('still reports %s as corruption of the whole store', async (_label, record, kind) => {
+    const dataDir = await directory();
+    const seed = new SessionStore(dataDir, { hostLabel: 'Host' });
+    await seed.createSession({ provider: 'claude' });
+    await seed.close();
+    const id = crypto.randomUUID();
+    await writeSessionRecord(dataDir, 'sessions', id, record(id));
+
+    const corrupt = {
+      code: 'corrupt',
+      message: `Session store contains an ${kind} session file (${id}.json). Restore the whole session-store-v2 directory from backup.`,
+    };
+    // Opening the store (its interrupted-transition repair) and reading by id stay strict.
+    await expect(new SessionStore(dataDir, { hostLabel: 'Host' }).host()).rejects.toMatchObject(corrupt);
+    const [archivedCopy] = await Promise.all([
+      writeSessionRecord(dataDir, 'archived-sessions', id, record(id)),
+      unlink(path.join(dataDir, 'session-store-v2', 'sessions', `${id}.json`)),
+    ]);
+    await expect(new SessionStore(dataDir, { hostLabel: 'Host' }).host()).rejects.toMatchObject(corrupt);
+    await unlink(archivedCopy.file);
+    await writeSessionRecord(dataDir, 'sessions', id, record(id));
+    const store = new SessionStore(dataDir, { hostLabel: 'Host' });
+    await expect(store.listSessions()).rejects.toMatchObject(corrupt);
+  });
+});
+
 describe('browser session helpers', () => {
   it('stores only the device checkout preference and never reads the legacy browser key', () => {
     const storage = new MemoryStorage();

@@ -46,6 +46,8 @@ Updated 2026-09-22. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 66](stories/STORY-20260922-select-model-and-effort.md) — choose the
   model and effort for an agent's next turn from the executing machine's own list; implemented with
   offline checks, and the real-provider verification remains pending.
+- **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
+  newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the

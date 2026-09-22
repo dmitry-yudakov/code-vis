@@ -477,6 +477,14 @@ a version 3 session runs as Local. Version 4 is forward-only: a checkout older t
 compatibility fix reports such a store as invalid. Nothing is lost; open it with a checkout that
 reads version 4. After updating an already-running server, restart it to load the new store
 reader, then refresh the browser.
+A session whose format is newer than this checkout reads costs only that session
+([Story 65](stories/STORY-20260921-tolerate-newer-session-format.md)): the store still opens, lists
+and the Arena leave the session out, opening it by id answers 409 (*written by a newer CodeAI*),
+and the flat shell says how many are hidden. The file is never rewritten, moved, or archived, and
+while one exists no project can be deleted here, because the hidden session may still belong to it.
+A checkout older than that story still reports the whole store as
+invalid, so **every checkout sharing a data directory must include Story 65 before any of them
+writes a newer session format.**
 The older `threads.json` prototype and browser keys under `code-ai:web2:v1:` are still deliberately
 left untouched and are not imported. Environment variables were renamed from `CODEAI_WEB2_*` to
 `CODEAI_*`, and **the old names continue to work** — see [Configuration](#configuration).

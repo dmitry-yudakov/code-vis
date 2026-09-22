@@ -370,6 +370,51 @@ describe('session snapshot and mutation routes', () => {
     expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(200);
   });
 
+  it('hides a session written by a newer CodeAI and answers 409 for it without touching its file', async () => {
+    const readable = await createViaRoute('checkout-a');
+    const newer = await Promise.all((['sessions', 'archived-sessions'] as const).map(async (storage) => {
+      const id = crypto.randomUUID();
+      const file = path.join(routeState.dataDir, 'session-store-v2', storage, `${id}.json`);
+      const contents = JSON.stringify({ version: 99, id, projectId: readable.projectId });
+      await writeFile(file, contents);
+      return { id, file, contents };
+    }));
+    const [active, archived] = newer;
+
+    const list = await GET_SESSIONS(new Request(`http://localhost/api/sessions?projectId=${readable.projectId}`));
+    expect((await list.json()).sessions).toEqual([readable]);
+    const arena = (await (await GET_ARENA()).json()).machines[0];
+    expect(arena.sessions.map((session: { id: string }) => session.id)).toEqual([readable.id]);
+    expect(arena.archivedSessions).toEqual([]);
+
+    const lifecycle = (sessionId: string) => [new Request('http://localhost', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: 0 }),
+    }), context(sessionId)] as const;
+    const refusals = [
+      await GET_SESSION(new Request('http://localhost'), context(active.id)),
+      await ARCHIVE_SESSION(...lifecycle(active.id)),
+      await RESTORE_SESSION(...lifecycle(archived.id)),
+      await PUT_PINS(new Request('http://localhost', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinnedDiagramIds: [], expectedRevision: 0 }),
+      }), context(active.id)),
+      await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...requestBody(readable), sessionId: active.id }),
+      })),
+      await POST_SESSION(new Request('http://localhost/api/sessions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'claude', execution: 'local', sourceSessionId: active.id }),
+      })),
+    ];
+    for (const response of refusals) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: 'This session was written by a newer CodeAI. Open it with that version.' });
+    }
+    expect(routeState.runnersCreated).toBe(0);
+    for (const { file, contents } of newer) expect(await readFile(file, 'utf8')).toBe(contents);
+  });
+
   it('rejects archiving during the hidden run-reservation window', async () => {
     const session = await createViaRoute('checkout-a');
     const runId = crypto.randomUUID();

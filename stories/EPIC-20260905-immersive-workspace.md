@@ -129,9 +129,9 @@ Story 56 is in progress with the in-headset report action, automatic
 error forwarding, and the home-machine report store implemented; its delayed aim-before-capture change
 and Quest run remain pending. Draft Story 63 promotes those reports into durable conversation evidence
 for CodeAI's own checkout, in three parts; Draft Story 64 then adds an explicitly approved managed
-rebuild/restart loop and needs only Story 63's first part. Both wait for Draft
+rebuild/restart loop and needs only Story 63's first part. Both depended on
 [Story 65](STORY-20260921-tolerate-newer-session-format.md), a storage fix outside this epic that keeps
-the store open when an older build meets a newer session format.
+the store open when an older build meets a newer session format; Story 65 has shipped.
 Story 52 is in progress with its immersive Arena/Inbox, exact cross-session permission return, and
 automated resource/navigation checks implemented; its multi-session Quest 3S run remains pending.
 Existing Stories 43–44 remain useful foundations and retain their own status.
