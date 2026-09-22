@@ -451,6 +451,12 @@ executor back, use `npm run machine:peers` and `npm run machine:revoke -- <home-
 before attaching again. Attachments are direct and non-transitive, and sessions are not moved or
 replicated between machines.
 
+Update the home machine before its executors. A home checks each executor's snapshot against its own
+machine contract, so an older home rejects a newer executor's snapshot (for example, one that lists
+provider model choices) and shows that executor as **Offline** until the home is updated. An
+executor's composer lists that executor's own model choices, and the executor checks each turn
+against them.
+
 ### Upgrading from the `web2/` layout
 
 The application used to live in `web2/`. If you have a working checkout from before that move:
@@ -585,6 +591,23 @@ Building spends turns on research long before the first edit, so Agent gets its 
 (`CODEAI_BUILD_MAX_TURNS`, `CODEAI_BUILD_TIMEOUT_MS`) rather than the conversation's. If a
 message still runs out, the turn ends with an explicit notice and a **Continue** action — the
 session is intact, so the agent picks up where it stopped.
+
+### Model and effort
+
+The **Model** menu beside the mode selector chooses the model and effort for the addressed agent's
+next turn. It lists only what the executing machine offers for that agent's provider: Claude's
+family aliases (`fable`, `opus`, `sonnet`, `haiku`) with `low` to `max` effort (none for Haiku or a
+Haiku `CODEAI_CLAUDE_MODEL` default, and none at all when the installed `claude --help` lacks
+`--effort`), and whatever Codex App Server's `model/list` returns, each model with its own efforts.
+Docker Claude offers the same aliases with their efforts; Docker Codex offers what the machine's
+local Codex lists. The server rejects any other model or effort with 400.
+
+The choice is remembered on this device for each agent in each session, like mode; it is not part
+of the session and another device does not see it. VR turns use this device's choice. **Default**
+means no override: a new agent starts on the machine's default (`CODEAI_CLAUDE_MODEL` /
+`CODEAI_CODEX_MODEL` when set, otherwise the CLI's own), and an agent that already ran on an
+explicit choice keeps it, because a provider session keeps its last model and effort. A machine that
+sets `CODEAI_*_MODEL` sends that model on every Default turn.
 
 ### Claude Git read allowlist
 
@@ -743,8 +766,10 @@ See [.env.example](.env.example). The most useful options are:
 
 - `CODEAI_REPOSITORIES_ROOT` — repository or repositories directory;
 - `CODEAI_REPOSITORIES_DEPTH` — nested discovery depth, from 1–10 (default `1`);
-- `CODEAI_CLAUDE_BIN` / `CODEAI_CLAUDE_MODEL` — local agent executable and optional model;
-- `CODEAI_CODEX_BIN` / `CODEAI_CODEX_MODEL` — local Codex executable and optional model;
+- `CODEAI_CLAUDE_BIN` / `CODEAI_CLAUDE_MODEL` — local agent executable and optional model; the
+  model is the Default that the composer's **Model** menu can override for one turn;
+- `CODEAI_CODEX_BIN` / `CODEAI_CODEX_MODEL` — local Codex executable and optional model, also the
+  composer's Default;
 - `CODEAI_CODEX_AGENT` — explicit Codex Agent release gate; unset means Ask/Plan only;
 - `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node);
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;

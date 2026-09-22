@@ -15,7 +15,13 @@ vi.mock('@/server/execution/dockerRuntime', () => ({
 
 import { getConfig } from '@/server/config';
 import { dockerSettingsPath, savedDockerEnabled } from '@/server/execution/dockerSettings';
+import { dockerProviderHealth, getProviderAdapters } from '@/server/agents/providerRegistry';
 import { PATCH } from '@/app/api/execution/docker/route';
+import type { ProviderHealth } from '@/shared/types';
+
+const FAKE_CLAUDE = path.resolve('test/fixtures/fake-claude.mjs');
+const FAKE_CODEX = path.resolve('test/fixtures/fake-codex.mjs');
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 function request(body: unknown, origin: string | null = 'http://localhost:3023'): Request {
   return new Request('http://localhost:3023/api/execution/docker', {
@@ -33,8 +39,42 @@ describe('Docker UI settings', () => {
     vi.stubEnv('CODEAI_REMOTE_ACCESS', 'local');
     vi.stubEnv('CODEAI_DOCKER_ENABLED', '');
     vi.stubEnv('CODEAI_WEB2_DOCKER_ENABLED', '');
+    // Docker offers the local providers' choices, so keep those checks on the offline fixtures.
+    vi.stubEnv('CODEAI_CLAUDE_BIN', FAKE_CLAUDE);
+    vi.stubEnv('CODEAI_CODEX_BIN', FAKE_CODEX);
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', process.cwd());
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it('offers each provider the same model choices as Local on this machine', async () => {
+    const engine: ProviderHealth = { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };
+    const local = await getProviderAdapters(getConfig()).codex.checkHealth();
+    expect(local.models?.length).toBeGreaterThan(0);
+    expect(dockerProviderHealth(getConfig(), engine, local).codex).toEqual({ ...engine, models: local.models, efforts: local.efforts });
+    expect(dockerProviderHealth(getConfig(), engine, { available: false, authenticated: 'unknown', supportedModes: [] }).codex).toEqual(engine);
+
+    const response = await PATCH(request({ enabled: true }));
+    const { providers } = await response.json() as { providers: Record<'claude' | 'codex', ProviderHealth> };
+    expect(providers.claude).toMatchObject({ available: false, message: 'Docker needs provisioning.', efforts: CLAUDE_EFFORTS });
+    expect(providers.claude.models?.map((model) => model.id)).toEqual(['fable', 'opus', 'sonnet', 'haiku']);
+    expect(providers.codex).toMatchObject({ available: false, models: local.models, efforts: local.efforts });
+
+    const docker = getProviderAdapters(getConfig(), 'docker', { sessionId: 'session', participantId: 'participant' });
+    await expect(docker.codex.checkHealth()).resolves.toEqual(providers.codex);
+    await expect(docker.claude.checkHealth()).resolves.toEqual(providers.claude);
+
+    // Without a working local Codex, Docker Codex offers Default only.
+    vi.stubEnv('CODEAI_CODEX_BIN', path.resolve('test/fixtures/not-a-real-codex'));
+    const withoutLocalCodex = await (await PATCH(request({ enabled: true }))).json() as { providers: Record<'claude' | 'codex', ProviderHealth> };
+    expect(withoutLocalCodex.providers.codex).not.toHaveProperty('models');
+    expect(withoutLocalCodex.providers.codex).not.toHaveProperty('efforts');
+    expect(withoutLocalCodex.providers.claude.efforts).toEqual(CLAUDE_EFFORTS);
+
+    // Docker Claude's choices come from the pinned worker, not from a local Claude.
+    vi.stubEnv('CODEAI_CLAUDE_BIN', path.resolve('test/fixtures/not-a-real-claude'));
+    const withoutLocalClaude = getProviderAdapters(getConfig(), 'docker', { sessionId: 'session', participantId: 'participant' });
+    await expect(withoutLocalClaude.claude.checkHealth()).resolves.toEqual(providers.claude);
+  });
 
   it('inherits environment flags only until a private saved choice exists, and updates without restarting', async () => {
     expect(getConfig().dockerEnabled).toBe(false);

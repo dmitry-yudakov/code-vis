@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_MESSAGE_TEXT_CHARS } from './limits';
+import { MAX_MESSAGE_TEXT_CHARS, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from './limits';
 import {
   diagramAnnotationSchema, drawingMarkSchema, repositoryBindingSchema, sketchCanvasSchema,
 } from './sessionSchema';
@@ -37,6 +37,10 @@ export const agentModeSchema = z.enum(['ask', 'plan', 'agent']);
 export const agentProviderSchema = z.enum(['claude', 'codex']);
 export const agentRoleSchema = z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']);
 
+/** Shape only: whether the addressed provider lists the value is checked by the message route. */
+export const agentModelIdSchema = z.string().regex(MODEL_ID_PATTERN);
+export const agentEffortSchema = z.string().regex(MODEL_EFFORT_PATTERN);
+
 const participantIdSchema = z.string().trim().min(1).max(160);
 export const agentMessageRequestSchema = z.object({
   sessionId: z.string().uuid(),
@@ -45,6 +49,8 @@ export const agentMessageRequestSchema = z.object({
   text: z.string().trim().min(1).max(MAX_MESSAGE_TEXT_CHARS),
   diagramAttachments: z.array(diagramAttachmentSchema),
   mode: agentModeSchema.optional(),
+  model: agentModelIdSchema.optional(),
+  effort: agentEffortSchema.optional(),
 }).strict();
 
 export const permissionDecisionRequestSchema = z.object({

@@ -121,11 +121,32 @@ export interface DurableSession {
   sketches: SketchCanvas[];
 }
 
+export interface ProviderModel {
+  /** Sent back as `model`; the server passes it to the provider unchanged. */
+  id: string;
+  label: string;
+  /** Efforts this model accepts, in provider order; empty means effort cannot be named. */
+  efforts: string[];
+}
+
 export interface ProviderHealth {
   available: boolean;
   authenticated: boolean | 'unknown';
   supportedModes: AgentMode[];
   message?: string;
+  /** Server-owned models a turn may name. Absent or empty: only Default. */
+  models?: ProviderModel[];
+  /** Efforts a turn may name while the model is Default. */
+  efforts?: string[];
+}
+
+/** The part of a provider's health a turn's model and effort are checked against. */
+export type ModelChoices = Pick<ProviderHealth, 'models' | 'efforts'>;
+
+/** Device-only choice for one agent's next turn. Absent fields mean Default. */
+export interface ModelSelection {
+  model?: string;
+  effort?: string;
 }
 
 export type ExecutionHealth = Record<AgentExecution, {
@@ -470,6 +491,10 @@ export interface AgentMessageRequest {
   diagramAttachments: DiagramMessageAttachment[];
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;
+  /** Omitted means Default. Must be an `id` in the addressed provider's `models`, or 400. */
+  model?: string;
+  /** Omitted means Default. Must be in the named model's `efforts` (or `efforts`), or 400. */
+  effort?: string;
 }
 
 /** Browser-held transcript input. Author metadata is resolved from the server-owned roster. */
@@ -536,6 +561,9 @@ export interface AgentProcessRun {
   permissions?: PermissionGate;
   signal: AbortSignal;
   emit(event: AgentProcessEvent): void;
+  /** Already validated. Undefined model means the installation default; undefined effort sends none. */
+  model?: string;
+  effort?: string;
 }
 
 export interface AgentProcessResult {

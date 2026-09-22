@@ -14,6 +14,8 @@ import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execut
 import { runConversation } from '@/server/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
+import { offeredModelSelection } from '@/shared/modelChoices';
+import { PROVIDER_LABELS } from '@/shared/participants';
 import type { CanvasKind, DiagramArtifact, DurableSession, SketchCanvas, UserMessage } from '@/shared/types';
 
 export const runtime = 'nodejs';
@@ -126,6 +128,17 @@ export async function POST(request: Request): Promise<Response> {
       error: providerHealth.message
         || `${participant.provider === 'codex' ? 'Codex' : 'Claude'} is not healthy for ${mode} mode in this CodeAI configuration.`,
     }, { status: 409 });
+  }
+  // The browser may name only a model and effort this machine lists for the addressed provider.
+  const { model, effort } = parsed.data;
+  const offered = offeredModelSelection({ model, effort }, providerHealth);
+  if (offered.model !== model || offered.effort !== effort) {
+    const provider = PROVIDER_LABELS[participant.provider];
+    return safeJsonResponse({
+      error: offered.model !== model
+        ? `${provider} does not offer model "${model}" on this machine.`
+        : `${provider} does not offer effort "${effort}" for ${model ? `model "${model}"` : 'its default model'} on this machine.`,
+    }, { status: 400 });
   }
 
   const human = session.participants.find((item) => item.kind === 'human');

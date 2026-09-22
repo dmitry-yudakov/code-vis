@@ -109,6 +109,8 @@ export async function runConversation(input: {
       policy,
       permissions,
       signal,
+      model: request.model,
+      effort: request.effort,
       emit(event) {
         if (event.type === 'session-started' && event.sessionId) {
           sessionMark = sessionMark

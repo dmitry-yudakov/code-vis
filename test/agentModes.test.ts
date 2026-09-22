@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GIT_READ_ALLOWLIST, resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import {
-  AGENT_MODES, buildClaudeArgs, REQUIRED_CLAUDE_FLAGS, requiredFlagsForMode, UNPROBED_CLAUDE_FLAGS,
+  AGENT_MODES, buildClaudeArgs, CHOICE_CLAUDE_FLAGS, REQUIRED_CLAUDE_FLAGS, requiredFlagsForMode, UNPROBED_CLAUDE_FLAGS,
 } from '@/server/agents/claudeInvocation';
 import { getConfig } from '@/server/config';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
@@ -13,11 +13,12 @@ import type { AgentEvent, AgentMode } from '@/shared/types';
 
 const config = getConfig();
 
-function args(mode: AgentMode): string[] {
+function args(mode: AgentMode, choice: { model?: string; effort?: string } = {}): string[] {
   return buildClaudeArgs({
     session: { id: '11111111-2222-3333-4444-555555555555', action: 'start' },
     attachmentDirectory: '/tmp/codeai-run',
     policy: resolveAgentPolicy(config, mode),
+    ...choice,
   });
 }
 
@@ -97,6 +98,19 @@ describe('agent modes', () => {
     }
   });
 
+  it('keeps Default arguments exactly as they were and appends only the chosen model and effort', () => {
+    const today = [
+      '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--safe-mode',
+      '--permission-mode', 'plan', '--tools', 'Read,Glob,Grep,Bash', '--allowedTools', GIT_READ_ALLOWLIST.join(','),
+      '--strict-mcp-config', '--disable-slash-commands', '--max-turns', String(config.agentMaxTurns),
+      '--session-id', '11111111-2222-3333-4444-555555555555', '--add-dir', '/tmp/codeai-run',
+    ];
+    expect(args('ask')).toEqual(today);
+    expect(args('ask', { model: 'configured-model' })).toEqual([...today, '--model', 'configured-model']);
+    expect(args('ask', { model: 'sonnet', effort: 'low' })).toEqual([...today, '--model', 'sonnet', '--effort', 'low']);
+    expect(args('ask', { effort: 'high' })).toEqual([...today, '--effort', 'high']);
+  });
+
   it('requires the union of every shipped mode’s flags at preflight', () => {
     for (const mode of AGENT_MODES) {
       for (const flag of requiredFlagsForMode(mode)) expect(REQUIRED_CLAUDE_FLAGS).toContain(flag);
@@ -108,14 +122,18 @@ describe('agent modes', () => {
     // Probing an undocumented flag reports a healthy install as outdated and disables every mode,
     // so each flag we actually pass must be deliberately classified one way or the other.
     for (const mode of AGENT_MODES) {
-      const passed = args(mode).filter((value) => value.startsWith('--'));
+      const passed = args(mode, { model: 'sonnet', effort: 'low' }).filter((value) => value.startsWith('--'));
+      expect(passed).toEqual(expect.arrayContaining([...CHOICE_CLAUDE_FLAGS]));
       for (const flag of passed) {
         const probed = requiredFlagsForMode(mode).includes(flag);
         const exempt = (UNPROBED_CLAUDE_FLAGS as readonly string[]).includes(flag);
-        expect(probed || exempt, `${flag} (${mode}) is neither probed nor exempt`).toBe(true);
+        const choice = (CHOICE_CLAUDE_FLAGS as readonly string[]).includes(flag);
+        expect([probed, exempt, choice].filter(Boolean), `${flag} (${mode}) needs exactly one class`).toHaveLength(1);
       }
     }
     for (const flag of UNPROBED_CLAUDE_FLAGS) expect(REQUIRED_CLAUDE_FLAGS).not.toContain(flag);
+    // A model or effort choice never gates a mode.
+    for (const flag of CHOICE_CLAUDE_FLAGS) expect(REQUIRED_CLAUDE_FLAGS).not.toContain(flag);
   });
 
   it('accepts only the three mode names over the wire', () => {
@@ -139,6 +157,30 @@ describe('agent modes', () => {
     expect(agentMessageRequestSchema.safeParse({ ...base, permissionMode: 'bypassPermissions' }).success).toBe(false);
     expect(agentMessageRequestSchema.safeParse({ ...base, projectId: 'p' }).success).toBe(false);
     expect(agentMessageRequestSchema.safeParse({ ...base, transcript: [] }).success).toBe(false);
+    expect(agentMessageRequestSchema.safeParse({ ...base, model: 'opus', tools: ['Bash'] }).success).toBe(false);
+    expect(agentMessageRequestSchema.safeParse({ ...base, effort: 'high', permissionMode: 'bypassPermissions' }).success).toBe(false);
+  });
+
+  it('accepts only a well-formed model and effort name over the wire', () => {
+    const base = {
+      sessionId: crypto.randomUUID(),
+      messageId: crypto.randomUUID(),
+      participantId: 'agent-1',
+      text: 'hello',
+      diagramAttachments: [],
+      mode: 'ask',
+    };
+    for (const choice of [{}, { model: 'opus' }, { model: 'gpt-5.5', effort: 'xhigh' }, { effort: 'low' },
+      { model: 'claude-opus-4-1:beta_2' }, { model: 'm'.repeat(100), effort: 'e'.repeat(32) }]) {
+      expect(agentMessageRequestSchema.safeParse({ ...base, ...choice }).success, JSON.stringify(choice)).toBe(true);
+    }
+    for (const choice of [
+      { model: '' }, { model: '-p' }, { model: '--dangerously-skip-permissions' }, { model: 'm'.repeat(101) },
+      { model: 'opus sonnet' }, { model: 42 }, { model: null }, { model: ['opus'] },
+      { effort: '' }, { effort: '-high' }, { effort: 'e'.repeat(33) }, { effort: 'High' }, { effort: 3 }, { effort: null },
+    ]) {
+      expect(agentMessageRequestSchema.safeParse({ ...base, ...choice }).success, JSON.stringify(choice)).toBe(false);
+    }
   });
 
   it('states the mode contract and git allowlist in the prompt', () => {

@@ -5,6 +5,14 @@ export const MAX_WIRE_TRANSCRIPT_MESSAGES = 80;
 /** Local history is intentionally larger than the old 200-message wire-shaped ceiling. */
 export const MAX_STORED_MESSAGES = 2_000;
 
+/** Server-owned model choices one provider may list, and the efforts one model may accept. */
+export const MAX_PROVIDER_MODELS = 50;
+export const MAX_MODEL_EFFORTS = 8;
+export const MAX_MODEL_LABEL_CHARS = 80;
+/** A model id or effort is passed to a provider as an argument value, so it can never start with `-`. */
+export const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
+export const MODEL_EFFORT_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
+
 export const DEFAULT_TRANSCRIPT_DELTA_MESSAGES = 40;
 export const DEFAULT_TRANSCRIPT_DELTA_BYTES = 24_000;
 

@@ -123,7 +123,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       session: { ...input.session, id: providerSessionId },
       attachmentDirectory: input.attachmentDirectory,
       policy: input.policy,
-      model: this.options.model,
+      model: input.model ?? this.options.model,
+      effort: input.effort,
     });
     const log = this.options.debug
       ? (message: string) => console.error(`[agent ${input.runId.slice(0, 8)}] +${((Date.now() - startedAt) / 1000).toFixed(1)}s ${message}`)

@@ -1,5 +1,7 @@
 import path from 'node:path';
-import type { AgentExecution, AgentMode } from '@/shared/types';
+import { MAX_PROVIDER_MODELS } from '@/shared/limits';
+import { providerModelSchema } from '@/shared/machineSchema';
+import type { AgentExecution, AgentMode, ModelChoices, ProviderModel } from '@/shared/types';
 
 /**
  * App Server inherits the user's login, but CodeAI owns the capability surface. These
@@ -100,6 +102,29 @@ export function codexMcpServerNames(value: unknown): string[] | undefined {
     names.add(name);
   }
   return [...names];
+}
+
+/**
+ * Reads the first `model/list` page into server-owned choices. Hidden and out-of-bounds entries are
+ * dropped. Default offers only the efforts every listed model accepts, because a Default turn runs
+ * on whatever model its thread is on.
+ */
+export function codexModelChoices(value: unknown): ModelChoices {
+  const data = record(value)?.data;
+  if (!Array.isArray(data)) return {};
+  const models: ProviderModel[] = [];
+  for (const entry of data) {
+    if (models.length >= MAX_PROVIDER_MODELS) break;
+    const item = record(entry);
+    if (!item || item.hidden === true || models.some((model) => model.id === item.model)) continue;
+    const efforts = Array.isArray(item.supportedReasoningEfforts)
+      ? item.supportedReasoningEfforts.map((option) => record(option)?.reasoningEffort)
+      : [];
+    const parsed = providerModelSchema.safeParse({ id: item.model, label: item.displayName, efforts: [...new Set(efforts)] });
+    if (parsed.success) models.push(parsed.data);
+  }
+  const efforts = models[0]?.efforts.filter((effort) => models.every((model) => model.efforts.includes(effort))) ?? [];
+  return { ...(models.length ? { models } : {}), ...(efforts.length ? { efforts } : {}) };
 }
 
 /** Verifies that App Server honored the server-owned thread policy and reported its instruction sources. */

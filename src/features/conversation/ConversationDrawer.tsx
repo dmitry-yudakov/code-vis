@@ -2,7 +2,9 @@
 
 import { useEffect, useRef } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
-import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, SessionSnapshot } from '@/shared/types';
+import type {
+  AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, ModelChoices, ModelSelection, SessionSnapshot,
+} from '@/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer } from './InstructionComposer';
@@ -12,8 +14,8 @@ import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
-  status, composer, mode, unsupportedModes, attached, markCounts, onClose, onSelectDiagram, onRetry, onComposer, onModeChange,
-  onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
+  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, markCounts, onClose, onSelectDiagram, onRetry,
+  onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
   continuing, continuationUnavailable, onContinue,
 }: {
   open: boolean;
@@ -36,6 +38,8 @@ export function ConversationDrawer({
   composer: string;
   mode: AgentMode;
   unsupportedModes: AgentMode[];
+  modelChoices?: ModelChoices;
+  modelSelection: ModelSelection;
   attached: CanvasTarget[];
   markCounts: Record<string, number>;
   onClose(): void;
@@ -43,6 +47,7 @@ export function ConversationDrawer({
   onRetry(text: string, participantId: string, mode: AgentMode): void;
   onComposer(value: string): void;
   onModeChange(mode: AgentMode): void;
+  onModelSelectionChange(selection: ModelSelection): void;
   onSelectAgent(participantId: string): void;
   onMakePrimary(participantId: string): void;
   onAddAgent(provider: AgentProvider, role: AgentRole): void;
@@ -148,8 +153,11 @@ export function ConversationDrawer({
           markCounts={markCounts}
           mode={mode}
           unsupportedModes={unsupportedModes}
+          modelChoices={modelChoices}
+          modelSelection={modelSelection}
           onChange={onComposer}
           onModeChange={onModeChange}
+          onModelSelectionChange={onModelSelectionChange}
           onSend={onSend}
           onCancel={onCancel}
           onRemoveAttachment={onRemoveAttachment}

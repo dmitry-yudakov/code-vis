@@ -1107,6 +1107,115 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   await expect(reloadedConversation.locator('.participant-chip.active')).toContainText('Main');
 });
 
+test('sends each agent\'s own model and effort, keeps them across a reload, and fits a phone', async ({ page }) => {
+  await page.goto('/');
+  await startSession(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const composer = conversation.locator('textarea');
+  const menu = conversation.locator('.model-menu');
+  const summary = menu.locator('summary');
+  const models = menu.getByRole('radiogroup', { name: 'Model' });
+  const efforts = menu.getByRole('radiogroup', { name: 'Effort' });
+  const answers = conversation.locator('.chat-message.assistant');
+  let turns = 0;
+  const send = async (text?: string) => {
+    const requested = page.waitForRequest((request) => request.url().endsWith('/api/agent/message'));
+    if (text) await composer.fill(text);
+    await conversation.getByRole('button', { name: 'Send' }).click();
+    const body = (await requested).postDataJSON() as { participantId: string; model?: string; effort?: string };
+    await expect(answers).toHaveCount(++turns);
+    return body;
+  };
+  const choose = async (model: string, effort?: string) => {
+    await summary.click();
+    await models.getByRole('radio', { name: model, exact: true }).click();
+    if (effort) await efforts.getByRole('radio', { name: effort, exact: true }).click();
+    await summary.click();
+  };
+
+  // Default sends neither field, exactly as before.
+  await expect(summary).toHaveText('Default');
+  const plain = await send('Summarize the current architecture in one paragraph.');
+  expect(plain).not.toHaveProperty('model');
+  expect(plain).not.toHaveProperty('effort');
+
+  // A model without efforts drops the effort group and resets the effort to Default.
+  await choose('Opus', 'High');
+  await expect(summary).toHaveText('Opus · High');
+  await choose('Haiku');
+  await expect(summary).toHaveText('Haiku');
+  await summary.click();
+  await expect(efforts).toHaveCount(0);
+  await summary.click();
+
+  await choose('Sonnet', 'Low');
+  await expect(summary).toHaveText('Sonnet · Low');
+  const chosen = await send('Explain the entry point briefly.');
+  expect(chosen).toMatchObject({ participantId: plain.participantId, model: 'sonnet', effort: 'low' });
+
+  // A second agent starts on Default and keeps its own choice.
+  await conversation.locator('.add-agent-menu summary').click();
+  await conversation.getByLabel('Role').selectOption('reviewer');
+  await conversation.getByRole('button', { name: 'Add participant' }).click();
+  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+  await expect(summary).toHaveText('Default');
+  await choose('Opus', 'Extra high');
+  await expect(summary).toHaveText('Opus · Extra high');
+
+  const mainChip = conversation.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' });
+  await mainChip.click();
+  await expect(summary).toHaveText('Sonnet · Low');
+  // A handoff addresses the reviewer, so the turn carries the reviewer's choice.
+  await conversation.getByRole('button', { name: /@Claude Reviewer · Review this/ }).click();
+  await expect(summary).toHaveText('Opus · Extra high');
+  const handoff = await send();
+  expect(handoff.participantId).not.toBe(plain.participantId);
+  expect(handoff).toMatchObject({ model: 'opus', effort: 'xhigh' });
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await ensureConversationOpen(page);
+  const reloaded = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(reloaded.locator('.model-menu summary')).toHaveText('Opus · Extra high');
+  await reloaded.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
+  await expect(reloaded.locator('.model-menu summary')).toHaveText('Sonnet · Low');
+
+  // At phone width nothing in the composer row overlaps, and the open menu stays on screen.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ensureConversationOpen(page);
+  const row = page.getByRole('complementary', { name: 'Conversation' }).locator('.composer-actions');
+  const boxes = (await Promise.all((await row.locator(':scope > *').all()).map((item) => item.boundingBox())))
+    .filter((box): box is NonNullable<typeof box> => Boolean(box && box.width > 0));
+  expect(boxes).toHaveLength(3);
+  const rowBox = (await row.boundingBox())!;
+  for (const [index, box] of boxes.entries()) {
+    expect(box.x).toBeGreaterThanOrEqual(rowBox.x - 0.5);
+    expect(box.x + box.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 0.5);
+    for (const other of boxes.slice(index + 1)) {
+      const overlaps = box.x < other.x + other.width && other.x < box.x + box.width
+        && box.y < other.y + other.height && other.y < box.y + box.height;
+      expect(overlaps, `${JSON.stringify(box)} overlaps ${JSON.stringify(other)}`).toBe(false);
+    }
+  }
+  await row.locator('.model-menu summary').click();
+  const panel = (await row.locator('.model-menu > div').boundingBox())!;
+  expect(panel.x).toBeGreaterThanOrEqual(0);
+  expect(panel.x + panel.width).toBeLessThanOrEqual(390);
+  expect(panel.y).toBeGreaterThanOrEqual(0);
+
+  // Escape and a press outside close the menu, and so does a turn starting while it is open.
+  const phoneMenu = row.locator('.model-menu');
+  const phoneComposer = page.getByRole('complementary', { name: 'Conversation' }).locator('textarea');
+  await page.keyboard.press('Escape');
+  await expect(phoneMenu).not.toHaveAttribute('open');
+  await row.locator('.model-menu summary').click();
+  await phoneComposer.click();
+  await expect(phoneMenu).not.toHaveAttribute('open');
+  await row.locator('.model-menu summary').click();
+  await phoneComposer.fill('One more turn.');
+  await phoneComposer.press('Enter');
+  await expect(phoneMenu).not.toHaveAttribute('open');
+});
+
 test('docks only the panels that fit the live shell width', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 720 });
   await page.goto('/');

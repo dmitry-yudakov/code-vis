@@ -1,7 +1,7 @@
 import { access, chmod, mkdir, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { getConfig } from '@/server/config';
-import { getProviderAdapters } from '@/server/agents/providerRegistry';
+import { dockerProviderHealth, getProviderAdapters } from '@/server/agents/providerRegistry';
 import { safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
@@ -50,7 +50,10 @@ export async function GET(request: Request): Promise<Response> {
     providers: { claude, codex },
     executions: {
       local: { enabled: true, providers: { claude, codex } },
-      docker: { enabled: config.dockerEnabled, providers: { claude: docker, codex: docker } },
+      docker: {
+        enabled: config.dockerEnabled,
+        providers: dockerProviderHealth(config, docker, codex),
+      },
     },
     message: recoveryMessage || readinessMessage || (!providerReady && !docker.available ? claude.message || codex.message : undefined),
   });

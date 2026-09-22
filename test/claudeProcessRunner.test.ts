@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ClaudeProcessRunner } from '@/server/agents/claudeProcessRunner';
 import { checkClaude } from '@/server/agents/claudePreflight';
+import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
@@ -21,6 +22,10 @@ interface RunOptions {
   prompt?: string;
   permissions?: PermissionBroker;
   onEvent?(event: AgentProcessEvent): void;
+  /** The installation default (`CODEAI_CLAUDE_MODEL`). */
+  runnerModel?: string;
+  model?: string;
+  effort?: string;
 }
 
 describe.sequential('ClaudeProcessRunner', () => {
@@ -37,7 +42,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     const { action = 'start', timeoutMs = 2_000, signal = new AbortController().signal, debug = false, mode = 'ask' } = options;
     const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-fake-'));
     const id = options.sessionId || crypto.randomUUID();
-    const runner = new ClaudeProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 50, debug });
+    const runner = new ClaudeProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50, debug });
     const events: AgentProcessEvent[] = [];
     const result = await runner.run({
       runId: crypto.randomUUID(),
@@ -49,6 +54,8 @@ describe.sequential('ClaudeProcessRunner', () => {
       permissions: options.permissions,
       signal,
       emit(event) { events.push(event); options.onEvent?.(event); },
+      model: options.model,
+      effort: options.effort,
     });
     return { result, events, sessionId: id, invocation: JSON.parse(await readFile(path.join(directory, 'fake-invocation.json'), 'utf8')) };
   }
@@ -74,6 +81,26 @@ describe.sequential('ClaudeProcessRunner', () => {
       expect(invocation.args).not.toContain('--input-format');
       expect(invocation.args).not.toContain('--permission-prompt-tool');
     }
+  });
+
+  it('keeps Default arguments unchanged and passes a chosen model and effort', async () => {
+    const plain = (await run()).invocation.args as string[];
+    expect(plain).not.toContain('--model');
+    expect(plain).not.toContain('--effort');
+    const configured = (await run({ runnerModel: 'configured-model' })).invocation.args as string[];
+    // Each run has its own provider session id and attachment directory; every other value is fixed.
+    const perRun = (list: string[]) => list.map((value, index) => ['--session-id', '--add-dir'].includes(list[index - 1]) ? '<per-run>' : value);
+    expect(perRun(configured)).toEqual([...perRun(plain), '--model', 'configured-model']);
+
+    const chosen = (await run({ runnerModel: 'configured-model', model: 'sonnet', effort: 'low' })).invocation.args as string[];
+    expect(chosen.slice(-4)).toEqual(['--model', 'sonnet', '--effort', 'low']);
+    expect(chosen.filter((value) => value === '--model')).toHaveLength(1);
+
+    const effortOnly = (await run({ effort: 'high' })).invocation.args as string[];
+    expect(effortOnly).not.toContain('--model');
+    expect(effortOnly.slice(-2)).toEqual(['--effort', 'high']);
+    const effortWithInstallationModel = (await run({ runnerModel: 'configured-model', effort: 'max' })).invocation.args as string[];
+    expect(effortWithInstallationModel.slice(-4)).toEqual(['--model', 'configured-model', '--effort', 'max']);
   });
 
   it('passes the parent environment through untouched so the user’s own auth applies', async () => {
@@ -160,7 +187,10 @@ describe.sequential('ClaudeProcessRunner', () => {
   });
 
   it('reports per-mode flag support with an actionable message', async () => {
-    await expect(checkClaude(binary)).resolves.toEqual({ binaryReady: true, flagsReady: true, unsupportedModes: [] });
+    await expect(checkClaude(binary)).resolves.toEqual({ binaryReady: true, flagsReady: true, unsupportedModes: [], effortSupported: true });
+
+    process.env.CODEAI_FAKE_HELP = 'no-effort';
+    await expect(checkClaude(binary)).resolves.toEqual({ binaryReady: true, flagsReady: true, unsupportedModes: [], effortSupported: false });
 
     process.env.CODEAI_FAKE_HELP = 'no-input-format';
     const partial = await checkClaude(binary);
@@ -174,7 +204,33 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(outdated.message).toContain('--allowedTools');
 
     const missing = await checkClaude(path.resolve('test/fixtures/not-a-real-binary'));
-    expect(missing).toMatchObject({ binaryReady: false, flagsReady: false });
+    expect(missing).toMatchObject({ binaryReady: false, flagsReady: false, effortSupported: false });
+  });
+
+  it('offers the family aliases and their efforts only when the CLI documents --effort', async () => {
+    const health = () => getProviderAdapters({ ...getConfig(), claudeBin: binary }).claude.checkHealth();
+    const efforts = ['low', 'medium', 'high', 'xhigh', 'max'];
+    await expect(health()).resolves.toEqual({
+      available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'],
+      models: [
+        { id: 'fable', label: 'Fable', efforts },
+        { id: 'opus', label: 'Opus', efforts },
+        { id: 'sonnet', label: 'Sonnet', efforts },
+        { id: 'haiku', label: 'Haiku', efforts: [] },
+      ],
+      efforts,
+    });
+    // Default runs the installation model, and Haiku takes no effort.
+    const haikuDefault = await getProviderAdapters({ ...getConfig(), claudeBin: binary, claudeModel: 'claude-haiku-4-5' }).claude.checkHealth();
+    expect(haikuDefault.efforts).toEqual([]);
+    expect(haikuDefault.models?.find((model) => model.id === 'opus')?.efforts).toEqual(efforts);
+
+    process.env.CODEAI_FAKE_HELP = 'no-effort';
+    const withoutEffort = await health();
+    expect(withoutEffort.supportedModes).toEqual(['ask', 'plan', 'agent']);
+    expect(withoutEffort.models?.map((model) => model.id)).toEqual(['fable', 'opus', 'sonnet', 'haiku']);
+    expect(withoutEffort.models?.every((model) => model.efforts.length === 0)).toBe(true);
+    expect(withoutEffort.efforts).toEqual([]);
   });
 
   describe.sequential('agent mode', () => {

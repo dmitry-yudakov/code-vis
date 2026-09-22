@@ -302,7 +302,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .inline-status > span { width: 6px; height: 6px; border-radius: 50%; background: var(--live); }
 .inline-status.working > span { background: var(--live); }
 
-.instruction-composer { display: grid; gap: 4px; padding: 7px 8px 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--raised); box-shadow: var(--shadow); }
+.instruction-composer { position: relative; display: grid; gap: 4px; padding: 7px 8px 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--raised); box-shadow: var(--shadow); }
 .instruction-composer:focus-within { border-color: var(--plot-bright); box-shadow: 0 0 0 3px var(--focus-wash-strong), var(--shadow); }
 .instruction-composer textarea { width: 100%; min-height: 42px; max-height: 260px; resize: none; border: 0; outline: 0; padding: 3px 4px; background: transparent; font-size: 14px; line-height: 1.45; }
 .instruction-composer textarea::placeholder { color: var(--placeholder); }
@@ -321,6 +321,19 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .mode-selector button:hover:not(:disabled) { color: var(--ink); }
 .mode-selector button.active, .mode-selector.mode-plan button.active { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
 .mode-selector.mode-agent button.active { color: var(--on-emphasis); background: var(--wait); }
+/* Model and effort for the addressed agent's next turn, a compact menu like More. Its panel spans the
+   composer and opens above it, so it stays inside even a phone-width drawer. */
+.model-menu { position: static; flex: none; min-width: 0; }
+.model-menu > summary { display: block; max-width: 150px; height: 24px; padding: 0 8px; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: var(--control-wash); cursor: pointer; list-style: none; font-size: 10px; font-weight: 700; line-height: 22px; letter-spacing: .02em; white-space: nowrap; text-overflow: ellipsis; }
+.model-menu > summary::-webkit-details-marker { display: none; }
+.model-menu > summary:hover:not([aria-disabled]), .model-menu[open] > summary { border-color: var(--line-strong); color: var(--ink); background: var(--raised); }
+.model-menu > summary[aria-disabled] { cursor: default; opacity: .55; }
+.model-menu > div { position: absolute; z-index: 5; left: 0; right: 0; bottom: calc(100% + 6px); display: grid; gap: 6px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); box-shadow: var(--shadow); }
+.model-menu > div > span { color: var(--muted); font: 600 8px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.model-menu [role="radiogroup"] { display: flex; flex-wrap: wrap; gap: 4px; }
+.model-menu [role="radio"] { padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 700; }
+.model-menu [role="radio"]:hover:not(:disabled) { color: var(--ink); }
+.model-menu [role="radio"].active { border-color: var(--plot-bright); color: var(--ink); background: var(--plot-wash); }
 .mode-tag { margin-left: 7px; padding: 2px 6px; border-radius: 999px; color: var(--ink-2); background: var(--neutral-wash-strong); font: 600 8px/1.3 var(--mono); font-style: normal; letter-spacing: .06em; }
 .mode-tag.mode-agent { color: var(--on-emphasis); background: var(--wait); }
 .send-button, .cancel-button { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px; color: var(--on-emphasis); background: var(--plot); font-size: 13px; line-height: 1; }
@@ -720,6 +733,8 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .canvas-controls { right: 10px; bottom: 10px; max-width: calc(100% - 20px); overflow-x: auto; }
   .composer-hint { display: none; }
   .composer-actions { justify-content: space-between; }
+  /* Without the hint, the model menu stays beside the mode selector and Send keeps the far end. */
+  .composer-actions > .model-menu { margin-right: auto; }
   .arena { padding: 24px 14px 50px; }
   .arena-heading { align-items: flex-start; }
   .arena-create { grid-template-columns: 1fr 1fr; }

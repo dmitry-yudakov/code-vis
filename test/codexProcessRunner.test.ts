@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
 import { checkCodex } from '@/server/agents/codexPreflight';
 import {
-  buildCodexAppServerArgs, codexAmbientInstructionNote, codexThreadPolicyIssue, codexTurnSecurity,
+  buildCodexAppServerArgs, codexAmbientInstructionNote, codexModelChoices, codexThreadPolicyIssue, codexTurnSecurity,
 } from '@/server/agents/codexInvocation';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
@@ -22,7 +22,13 @@ interface RunOptions {
   signal?: AbortSignal;
   permissions?: PermissionBroker;
   onEvent?(event: AgentProcessEvent): void;
+  /** The installation default (`CODEAI_CODEX_MODEL`). */
+  runnerModel?: string;
+  model?: string;
+  effort?: string;
 }
+
+type RecordedRequest = { method: string; params: Record<string, unknown> };
 
 describe.sequential('CodexProcessRunner', () => {
   beforeAll(async () => chmod(binary, 0o755));
@@ -38,7 +44,7 @@ describe.sequential('CodexProcessRunner', () => {
     process.env.CODEAI_FAKE_CODEX_RECORD = recordPath;
     const events: AgentProcessEvent[] = [];
     const mode = options.mode || 'ask';
-    const runner = new CodexProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 50 });
+    const runner = new CodexProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50 });
     const result = await runner.run({
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
@@ -49,6 +55,8 @@ describe.sequential('CodexProcessRunner', () => {
       permissions: options.permissions,
       signal: options.signal || new AbortController().signal,
       emit(event) { events.push(event); options.onEvent?.(event); },
+      model: options.model,
+      effort: options.effort,
     });
     const invocation = JSON.parse(await readFile(recordPath, 'utf8'));
     return { result, events, invocation, recordPath };
@@ -73,6 +81,38 @@ describe.sequential('CodexProcessRunner', () => {
     expect(turn.params.input).toContainEqual(expect.objectContaining({ type: 'localImage' }));
     const thread = invocation.requests.find((request: { method: string }) => request.method === 'thread/start');
     expect(thread.params.config).toMatchObject({ mcp_servers: {}, features: { multi_agent: false } });
+  });
+
+  it('keeps Default params unchanged and sends a chosen model on every request but effort only on the turn', async () => {
+    const params = (invocation: { requests: RecordedRequest[] }, method: string) => (
+      invocation.requests.find((request) => request.method === method)!.params
+    );
+    const threadKeys = ['approvalPolicy', 'config', 'cwd', 'developerInstructions', 'sandbox', 'serviceName'];
+    const turnKeys = ['approvalPolicy', 'cwd', 'input', 'sandboxPolicy', 'threadId'];
+
+    const plain = (await run()).invocation;
+    expect(Object.keys(params(plain, 'thread/start')).sort()).toEqual(threadKeys);
+    expect(Object.keys(params(plain, 'turn/start')).sort()).toEqual(turnKeys);
+
+    const configured = (await run({ runnerModel: 'configured-model' })).invocation;
+    expect(Object.keys(params(configured, 'thread/start')).sort()).toEqual([...threadKeys, 'model'].sort());
+    expect(params(configured, 'thread/start').model).toBe('configured-model');
+    expect(Object.keys(params(configured, 'turn/start')).sort()).toEqual([...turnKeys, 'model'].sort());
+    expect(params(configured, 'turn/start').model).toBe('configured-model');
+
+    const chosen = (await run({ runnerModel: 'configured-model', model: 'gpt-5.5', effort: 'high' })).invocation;
+    expect(params(chosen, 'thread/start')).toMatchObject({ model: 'gpt-5.5' });
+    expect(params(chosen, 'thread/start')).not.toHaveProperty('effort');
+    expect(params(chosen, 'turn/start')).toMatchObject({ model: 'gpt-5.5', effort: 'high' });
+
+    const resumed = (await run({ action: 'resume', sessionId: 'codex-thread-resume', model: 'gpt-5.5', effort: 'low' })).invocation;
+    expect(params(resumed, 'thread/resume')).toMatchObject({ threadId: 'codex-thread-resume', model: 'gpt-5.5' });
+    expect(params(resumed, 'thread/resume')).not.toHaveProperty('effort');
+    expect(params(resumed, 'turn/start')).toMatchObject({ model: 'gpt-5.5', effort: 'low' });
+
+    const effortOnly = (await run({ effort: 'medium' })).invocation;
+    expect(params(effortOnly, 'thread/start')).not.toHaveProperty('model');
+    expect(Object.keys(params(effortOnly, 'turn/start')).sort()).toEqual([...turnKeys, 'effort'].sort());
   });
 
   it('resumes only the stored Codex thread and preserves plan markers', async () => {
@@ -199,9 +239,38 @@ describe.sequential('CodexProcessRunner', () => {
   });
 
   it('preflights authentication, isolation, protocol support, and mode gates without a model turn', async () => {
-    await expect(checkCodex(binary, process.cwd(), false)).resolves.toMatchObject({
+    const recordPath = path.join(await mkdtemp(path.join(os.tmpdir(), 'codeai-codex-preflight-')), 'preflight.json');
+    process.env.CODEAI_FAKE_CODEX_RECORD = recordPath;
+    await expect(checkCodex(binary, process.cwd(), false)).resolves.toEqual({
       available: true, authenticated: true, supportedModes: ['ask', 'plan'],
+      message: expect.any(String),
+      // The hidden entry is left out, and Default offers only the efforts both models accept.
+      models: [
+        { id: 'fake-large', label: 'Fake Large', efforts: ['low', 'medium', 'high', 'ultra'] },
+        { id: 'fake-small', label: 'Fake Small', efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+      ],
+      efforts: ['low', 'medium', 'high'],
     });
+    const requests = (JSON.parse(await readFile(recordPath, 'utf8')) as { requests: RecordedRequest[] }).requests;
+    const methods = requests.map((request) => request.method);
+    expect(requests.find((request) => request.method === 'model/list')?.params).toEqual({ includeHidden: false, limit: 50 });
+    // It is sent with the first batch, so the whole handshake has time to answer it.
+    expect(methods.indexOf('model/list')).toBeLessThan(methods.indexOf('thread/start'));
+    delete process.env.CODEAI_FAKE_CODEX_RECORD;
+
+    process.env.CODEAI_FAKE_CODEX_MODE = 'no-model-list';
+    const withoutList = await checkCodex(binary, process.cwd(), false);
+    expect(withoutList).toMatchObject({ available: true, authenticated: true, supportedModes: ['ask', 'plan'] });
+    expect(withoutList).not.toHaveProperty('models');
+    expect(withoutList).not.toHaveProperty('efforts');
+
+    process.env.CODEAI_FAKE_CODEX_MODE = 'silent-model-list';
+    const startedAt = Date.now();
+    const silentList = await checkCodex(binary, process.cwd(), false);
+    expect(silentList).toMatchObject({ available: true, authenticated: true, supportedModes: ['ask', 'plan'] });
+    expect(silentList).not.toHaveProperty('models');
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+
     process.env.CODEAI_FAKE_CODEX_MODE = 'unauthenticated';
     await expect(checkCodex(binary, process.cwd(), false)).resolves.toMatchObject({
       available: false, authenticated: false, supportedModes: [],
@@ -222,5 +291,41 @@ describe.sequential('CodexProcessRunner', () => {
     await expect(checkCodex(path.resolve('test/fixtures/missing-codex'), process.cwd(), false)).resolves.toMatchObject({
       available: false, authenticated: 'unknown', supportedModes: [],
     });
+  });
+
+  it('keeps only visible, bounded model/list entries', () => {
+    const entry = (model: unknown, efforts: unknown[] = ['low', 'high'], extra: Record<string, unknown> = {}) => ({
+      id: model, model, displayName: typeof model === 'string' ? model.toUpperCase() : 'Bad', hidden: false, isDefault: false,
+      supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort, description: '' })),
+      defaultReasoningEffort: 'low', ...extra,
+    });
+    expect(codexModelChoices({ data: [
+      entry('gpt-a', ['low', 'medium', 'high']),
+      entry('gpt-hidden', ['low'], { hidden: true }),
+      entry('-flag'),
+      entry('bad id'),
+      entry('m'.repeat(101)),
+      entry(42),
+      entry('gpt-long-label', ['low'], { displayName: 'L'.repeat(81) }),
+      entry('gpt-no-label', ['low'], { displayName: '' }),
+      entry('gpt-bad-effort', ['low', 'High']),
+      entry('gpt-too-many', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']),
+      entry('gpt-a', ['low']),
+      entry('gpt-b', ['high', 'low']),
+      null,
+    ], nextCursor: 'next-page' })).toEqual({
+      models: [
+        { id: 'gpt-a', label: 'GPT-A', efforts: ['low', 'medium', 'high'] },
+        { id: 'gpt-b', label: 'GPT-B', efforts: ['high', 'low'] },
+      ],
+      efforts: ['low', 'high'],
+    });
+    expect(codexModelChoices({ data: Array.from({ length: 60 }, (_, index) => entry(`gpt-${index}`)) }).models).toHaveLength(50);
+    expect(codexModelChoices({ data: [entry('gpt-a', []), entry('gpt-b')] })).toEqual({
+      models: [{ id: 'gpt-a', label: 'GPT-A', efforts: [] }, { id: 'gpt-b', label: 'GPT-B', efforts: ['low', 'high'] }],
+    });
+    for (const malformed of [undefined, null, 'list', { data: 'x' }, { data: [] }, { data: [entry('-x')] }]) {
+      expect(codexModelChoices(malformed)).toEqual({});
+    }
   });
 });

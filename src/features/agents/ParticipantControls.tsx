@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { AgentMode, AgentParticipant, AgentProvider, AgentRole } from '@/shared/types';
+import { useMenuDismiss } from './useMenuDismiss';
 import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 const HANDOFF_PROMPTS: Record<AgentRole, string> = {
@@ -34,24 +35,7 @@ export function ParticipantControls({
   const quickAgents = useMemo(() => agents.filter((agent) => agent.id !== selected?.id), [agents, selected?.id]);
   const safeProvider = providers.includes(provider) ? provider : providers[0];
 
-  useEffect(() => {
-    const close = (event: Event) => {
-      const menu = addMenuRef.current;
-      if (!menu?.open) return;
-      if (event.type === 'keydown' && (event as KeyboardEvent).key === 'Escape') {
-        menu.removeAttribute('open');
-        (menu.querySelector('summary') as HTMLElement | null)?.focus();
-      } else if (event.type === 'pointerdown' && !menu.contains(event.target as Node)) {
-        menu.removeAttribute('open');
-      }
-    };
-    document.addEventListener('keydown', close);
-    document.addEventListener('pointerdown', close);
-    return () => {
-      document.removeEventListener('keydown', close);
-      document.removeEventListener('pointerdown', close);
-    };
-  }, []);
+  useMenuDismiss(addMenuRef);
 
   const addParticipant = () => {
     if (!safeProvider) return;

@@ -19,12 +19,15 @@ const emit = (event) => writeOut(`${JSON.stringify(event)}\n`);
 if (args.includes('--help')) {
   // Mirrors real `claude --help`, which documents neither --max-turns nor --permission-prompt-tool
   // even though it supports both. Preflight must stay green against exactly this.
+  const current = '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --input-format --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --model';
   const help = {
     // Story 18's flag set: no allowlist, no streaming input.
     legacy: '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir',
     // A CLI new enough for Ask/Plan but not for agent-mode permissions.
     'no-input-format': '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir',
-  }[process.env.CODEAI_FAKE_HELP] || '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --input-format --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir';
+    // Every mode works, but effort cannot be chosen.
+    'no-effort': current,
+  }[process.env.CODEAI_FAKE_HELP] || `${current} --effort`;
   writeOut(`${help}\n`);
   process.exit(0);
 }

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { MAX_MODEL_EFFORTS, MAX_MODEL_LABEL_CHARS, MAX_PROVIDER_MODELS } from './limits';
+import { agentEffortSchema, agentModelIdSchema } from './protocol';
 import { durableProjectSchema } from './sessionSchema';
 
 const dateTime = z.string().datetime();
@@ -7,11 +9,20 @@ const machineIdentitySchema = z.object({
   label: z.string().trim().min(1).max(200),
 }).strict();
 
+/** One server-owned model choice, as a machine lists it for its provider. */
+export const providerModelSchema = z.object({
+  id: agentModelIdSchema,
+  label: z.string().trim().min(1).max(MAX_MODEL_LABEL_CHARS),
+  efforts: z.array(agentEffortSchema).max(MAX_MODEL_EFFORTS),
+}).strict();
+
 const providerHealthSchema = z.object({
   available: z.boolean(),
   authenticated: z.union([z.boolean(), z.literal('unknown')]),
   supportedModes: z.array(z.enum(['ask', 'plan', 'agent'])).max(3),
   message: z.string().max(500).optional(),
+  models: z.array(providerModelSchema).max(MAX_PROVIDER_MODELS).optional(),
+  efforts: z.array(agentEffortSchema).max(MAX_MODEL_EFFORTS).optional(),
 }).strict();
 
 const checkoutSummarySchema = z.object({

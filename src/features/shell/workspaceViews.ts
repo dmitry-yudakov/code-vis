@@ -1,4 +1,5 @@
-import type { AgentMode } from '@/shared/types';
+import { MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from '@/shared/limits';
+import type { AgentMode, ModelSelection } from '@/shared/types';
 
 export const DEVICE_WORKSPACE_STORAGE_KEY = 'code-ai:device:v1:workspace';
 export const LOOSE_WORKSPACE_SCOPE = 'project:none';
@@ -6,6 +7,7 @@ export const LOOSE_WORKSPACE_SCOPE = 'project:none';
 const MAX_SCOPES = 100;
 const MAX_SESSIONS_PER_SCOPE = 200;
 export const MAX_CANVAS_VIEWS = 200;
+const MAX_MODEL_SELECTIONS = 16;
 export const SPATIAL_ROOM_BOUNDS = {
   x: [-32, 32],
   y: [-12, 16],
@@ -46,6 +48,8 @@ export interface DeviceViewState {
   activeDiagramId?: string;
   addressedAgentId?: string;
   defaultMode?: AgentMode;
+  /** Model and effort for each agent's next turn, keyed by agent participant id. */
+  modelSelections?: Record<string, ModelSelection>;
   canvasViews: Record<string, CanvasViewState>;
   surface?: CanvasSurface;
   spatial?: SpatialViewState;
@@ -118,6 +122,21 @@ function parseCanvasViews(value: unknown): Record<string, CanvasViewState> {
   return result;
 }
 
+function parseModelSelections(value: unknown): Record<string, ModelSelection> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const result: Record<string, ModelSelection> = {};
+  for (const [participantId, candidate] of Object.entries(value).slice(-MAX_MODEL_SELECTIONS)) {
+    if (!SESSION_ID.test(participantId) || !candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const { model, effort } = candidate as Record<string, unknown>;
+    const selection: ModelSelection = {
+      ...(typeof model === 'string' && MODEL_ID_PATTERN.test(model) ? { model } : {}),
+      ...(typeof effort === 'string' && MODEL_EFFORT_PATTERN.test(effort) ? { effort } : {}),
+    };
+    if (selection.model || selection.effort) result[participantId] = selection;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
 function clamp(value: number, lower: number, upper: number): number {
   return Math.max(lower, Math.min(upper, value));
 }
@@ -187,6 +206,7 @@ function parseView(value: unknown): DeviceViewState {
     : undefined;
   const surface = candidate.surface === 'flat' || candidate.surface === 'spatial' ? candidate.surface : undefined;
   const spatial = parseSpatialView(candidate.spatial);
+  const modelSelections = parseModelSelections(candidate.modelSelections);
   return {
     composer: typeof candidate.composer === 'string' ? candidate.composer.slice(0, 8_000) : '',
     ...(pending === undefined ? {} : { pendingAttachmentIds: pending }),
@@ -195,6 +215,7 @@ function parseView(value: unknown): DeviceViewState {
     ...(optionalId(candidate.activeDiagramId) ? { activeDiagramId: candidate.activeDiagramId } : {}),
     ...(optionalId(candidate.addressedAgentId) ? { addressedAgentId: candidate.addressedAgentId } : {}),
     ...(mode ? { defaultMode: mode } : {}),
+    ...(modelSelections ? { modelSelections } : {}),
     canvasViews: parseCanvasViews(candidate.canvasViews),
     ...(surface ? { surface } : {}),
     ...(spatial ? { spatial } : {}),

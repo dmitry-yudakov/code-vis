@@ -7,8 +7,9 @@ import type {
   AgentEvent, AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaMachineSnapshot,
   ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact, ExecutionHealth,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
-  ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
+  ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
 } from '@/shared/types';
+import { offeredModelSelection } from '@/shared/modelChoices';
 import { readNdjson } from '@/features/conversation/ndjson';
 import {
   applyRunEvent, isReplayedStreamEvent, latestRunUserMessage, runOutcomeFromError,
@@ -284,6 +285,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const mode: AgentMode = unsupportedModes.includes(storedMode)
     ? providerHealth?.supportedModes[0] || 'ask'
     : storedMode;
+  // Device state per agent. Whatever the machine no longer lists is shown and sent as Default.
+  const modelSelection = offeredModelSelection(activeAgent && view?.modelSelections?.[activeAgent.id], providerHealth);
   const attachedCanvases = useMemo(() => {
     if (!session) return [];
     return pendingAttachmentIds.flatMap((id) => {
@@ -839,6 +842,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     mutateSession(sessionId, (current) => ({ ...current, defaultMode: next }));
   }, [mutateSession, sessionId]);
 
+  const activeAgentId = activeAgent?.id;
+  const setModelSelection = useCallback((next: ModelSelection) => {
+    if (!sessionId || !activeAgentId) return;
+    workspace.updateView(sessionId, ({ modelSelections: { [activeAgentId]: _prior, ...others } = {}, ...current }) => {
+      const modelSelections = next.model || next.effort ? { ...others, [activeAgentId]: next } : others;
+      return Object.keys(modelSelections).length ? { ...current, modelSelections } : current;
+    });
+  }, [activeAgentId, sessionId, workspace.updateView]);
+
   const selectAgent = useCallback((participantId: string) => {
     if (!sessionId || sessionRunning) return;
     mutateSession(sessionId, (current) => {
@@ -1068,6 +1080,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNotice(turnProviderHealth?.message || `${PROVIDER_LABELS[turnAgent.provider]} is not available for ${turnMode} mode.`);
       return;
     }
+    // Each agent's own choice: an Execute plan turn may address an agent other than the selected one.
+    const turnModel = offeredModelSelection(view?.modelSelections?.[turnAgent.id], turnProviderHealth);
     setNotice(undefined);
     sendingSessions.current.add(session.id);
     setPreparingSends((current) => [...current, session.id]);
@@ -1178,6 +1192,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             text,
             diagramAttachments: attachmentPayload,
             mode: turnMode,
+            ...turnModel,
           }),
           signal: controller.signal,
         });
@@ -1229,7 +1244,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
-  }, [activeAgent, apiPath, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, putRun, refreshSession, removeRun, session, setRunOutcome, updateRun, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, putRun, refreshSession, removeRun, session, setRunOutcome, updateRun, view?.modelSelections, workspace.updateView]);
 
   const busyRunLabel = busyRun && (
     sessions.find((item) => item.id === busyRun.sessionId)?.title
@@ -1956,6 +1971,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               composer={composer}
               mode={mode}
               unsupportedModes={unsupportedModes}
+              modelChoices={providerHealth}
+              modelSelection={modelSelection}
+              onModelSelectionChange={setModelSelection}
               attached={attachedCanvases}
               markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), session.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
               onClose={panelLayout.closeConversation}

@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { ProviderHealth } from '@/shared/types';
 import {
   buildCodexAppServerArgs, codexAmbientInstructionNote, codexIsolationIssue, codexMcpServerNames,
-  codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
+  codexModelChoices, codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
 } from './codexInvocation';
 
 type JsonRecord = Record<string, unknown>;
@@ -116,6 +116,9 @@ export async function checkCodex(
           capabilities: null,
         });
         child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
+        // Choices are optional and never awaited with the handshake: a Codex without this method, or
+        // one slow to answer it, still runs every turn on Default.
+        const modelList = request('model/list', { includeHidden: false, limit: 50 }).catch(() => undefined);
         const [accountValue, mcp, hooks, skills] = await Promise.all([
           request('account/read', { refreshToken: false }),
           request('mcpServerStatus/list', { cursor: null, limit: 100, detail: 'toolsAndAuthOnly' }),
@@ -176,7 +179,11 @@ export async function checkCodex(
           note,
           agentEnabled ? undefined : 'Codex Ask and Plan are ready. Agent remains disabled until its real approval-parity smoke passes.',
         ].filter(Boolean);
-        finish({ available: true, authenticated: true, supportedModes, message: notes.length ? notes.join(' ') : undefined });
+        const models = await Promise.race([modelList, new Promise((resolve) => setTimeout(resolve, 300))]);
+        finish({
+          available: true, authenticated: true, supportedModes, message: notes.length ? notes.join(' ') : undefined,
+          ...codexModelChoices(models),
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
         finish({

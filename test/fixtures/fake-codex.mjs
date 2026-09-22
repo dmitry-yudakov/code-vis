@@ -79,6 +79,24 @@ while (true) {
       nextCursor: null,
     });
   }
+  // A Codex that never answers must not hold up readiness.
+  else if (message.method === 'model/list' && mode === 'silent-model-list') {}
+  else if (message.method === 'model/list' && mode !== 'no-model-list') {
+    const model = (id, displayName, efforts, extra = {}) => ({
+      id, model: id, displayName, description: '', hidden: false, isDefault: false,
+      supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })),
+      defaultReasoningEffort: efforts[0], ...extra,
+    });
+    // App Server was asked for visible models only; the hidden entry proves CodeAI filters anyway.
+    result(message.id, {
+      data: [
+        model('fake-hidden', 'Fake Hidden', ['low'], { hidden: true }),
+        model('fake-large', 'Fake Large', ['low', 'medium', 'high', 'ultra'], { isDefault: true }),
+        model('fake-small', 'Fake Small', ['minimal', 'low', 'medium', 'high', 'xhigh']),
+      ],
+      nextCursor: null,
+    });
+  }
   else if (message.method === 'hooks/list') result(message.id, {
     data: [{ cwd: process.cwd(), hooks: mode === 'ambient-hook' ? [{ name: 'ambient' }] : [], warnings: [], errors: [] }],
   });

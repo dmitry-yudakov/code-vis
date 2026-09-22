@@ -14,6 +14,7 @@ import {
   updateWorkspaceView,
   workspaceScopeKey,
 } from '@/features/shell/workspaceViews';
+import { offeredModelSelection } from '@/shared/modelChoices';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const SESSION_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -22,6 +23,8 @@ const MISSING = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const CANVAS = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const REVISION = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const OTHER_CANVAS = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const AGENT_A = '12121212-1212-4121-8121-121212121212';
+const AGENT_B = '34343434-3434-4343-8343-343434343434';
 const scopeId = workspaceScopeKey(PROJECT);
 
 describe('device workspace views', () => {
@@ -140,6 +143,50 @@ describe('device workspace views', () => {
         [CANVAS]: { zoom: 8, pan: { x: 100_000, y: -100_000 }, fitted: false },
       },
     });
+  });
+
+  it('keeps each agent\'s model choice per session view across a reload, bounded and well formed', () => {
+    let workspace = openWorkspaceView(EMPTY_DEVICE_WORKSPACE, scopeId, SESSION_A);
+    workspace = updateWorkspaceView(workspace, scopeId, SESSION_A, (view) => ({
+      ...view,
+      modelSelections: { [AGENT_A]: { model: 'opus', effort: 'high' }, [AGENT_B]: { effort: 'low' } },
+    }));
+    const reloaded = parseDeviceWorkspace(JSON.stringify(workspace));
+    expect(getWorkspaceScope(reloaded, scopeId).views[SESSION_A].modelSelections).toEqual({
+      [AGENT_A]: { model: 'opus', effort: 'high' },
+      [AGENT_B]: { effort: 'low' },
+    });
+
+    const stored = (modelSelections: unknown) => getWorkspaceScope(parseDeviceWorkspace(JSON.stringify({
+      version: 1, scopes: { [scopeId]: { openSessionIds: [SESSION_A], views: { [SESSION_A]: { composer: '', modelSelections } } } },
+    })), scopeId).views[SESSION_A].modelSelections;
+    expect(stored({
+      [AGENT_A]: { model: '--dangerously-skip-permissions', effort: 'max', flags: ['--yolo'] },
+      [AGENT_B]: { model: 'gpt-5.5', effort: 'High' },
+      'not-an-agent-id': { model: 'opus' },
+      [MISSING]: { model: 42 },
+      [CANVAS]: 'opus',
+    })).toEqual({ [AGENT_A]: { effort: 'max' }, [AGENT_B]: { model: 'gpt-5.5' } });
+    const many = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [
+      `${String(index).padStart(8, '0')}-0000-4000-8000-000000000000`, { model: 'opus' },
+    ]));
+    // The writer appends the latest choice, so the oldest entries are the ones dropped.
+    expect(Object.keys(stored(many) || {})).toEqual(Object.keys(many).slice(-16));
+    for (const malformed of [null, [], 'opus', { [AGENT_A]: {} }]) expect(stored(malformed)).toBeUndefined();
+  });
+
+  it('shows and sends a stored choice the provider no longer lists as Default', () => {
+    const choices = {
+      models: [{ id: 'opus', label: 'Opus', efforts: ['low', 'high'] }, { id: 'haiku', label: 'Haiku', efforts: [] }],
+      efforts: ['low'],
+    };
+    expect(offeredModelSelection({ model: 'opus', effort: 'high' }, choices)).toEqual({ model: 'opus', effort: 'high' });
+    expect(offeredModelSelection({ model: 'retired', effort: 'high' }, choices)).toEqual({});
+    expect(offeredModelSelection({ model: 'retired', effort: 'low' }, choices)).toEqual({ effort: 'low' });
+    expect(offeredModelSelection({ model: 'haiku', effort: 'low' }, choices)).toEqual({ model: 'haiku' });
+    expect(offeredModelSelection({ effort: 'high' }, choices)).toEqual({});
+    expect(offeredModelSelection({ model: 'opus', effort: 'high' }, undefined)).toEqual({});
+    expect(offeredModelSelection(undefined, choices)).toEqual({});
   });
 
   it('falls back safely for malformed or unsupported storage', () => {

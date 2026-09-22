@@ -494,13 +494,14 @@ export class CodexProcessRunner implements AgentProcessRunner {
             );
           }
           const security = codexTurnSecurity(input.policy.mode, input.policy.execution);
+          const model = input.model ?? this.options.model;
           const common = {
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
             sandbox: security.sandbox,
             config: codexThreadConfig(mcpServerNames),
             developerInstructions: CODEX_DEVELOPER_INSTRUCTIONS,
-            ...(this.options.model ? { model: this.options.model } : {}),
+            ...(model ? { model } : {}),
           };
           const threadResult = record(await request(
             input.session.action === 'start' ? 'thread/start' : 'thread/resume',
@@ -544,7 +545,9 @@ export class CodexProcessRunner implements AgentProcessRunner {
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
             sandboxPolicy: security.sandboxPolicy,
-            ...(this.options.model ? { model: this.options.model } : {}),
+            ...(model ? { model } : {}),
+            // Effort applies to this turn and those after it, so it is never part of the thread.
+            ...(input.effort ? { effort: input.effort } : {}),
           }));
           const turn = record(turnResult?.turn);
           if (typeof turn?.id !== 'string') throw new Error('Codex App Server returned no turn id');

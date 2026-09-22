@@ -47,6 +47,19 @@ export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
   agent: 'Agent',
 };
 
+const EFFORT_LABELS: Record<string, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+};
+
+/** Providers may list efforts CodeAI has no label for; those read exactly as they are sent. */
+export function effortLabel(effort: string): string {
+  return EFFORT_LABELS[effort] ?? effort;
+}
+
 /** Short enough to sit beside the mode selector in the drawer without truncating. */
 export const AGENT_MODE_HINTS: Record<AgentMode, string> = {
   ask: 'Read-only · git history',

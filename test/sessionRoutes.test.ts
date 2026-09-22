@@ -9,6 +9,7 @@ const routeState = vi.hoisted(() => ({
   healthChecks: 0,
   runnersCreated: 0,
   adapterRequests: [] as unknown[][],
+  runInputs: [] as Array<{ model?: string; effort?: string }>,
 }));
 
 vi.mock('@/server/config', () => ({
@@ -33,16 +34,26 @@ vi.mock('@/server/repository/checkoutRegistry', () => ({
   }),
 }));
 
-vi.mock('@/server/agents/providerRegistry', () => ({
-  getProviderAdapters: (_config: unknown, ...request: unknown[]) => (routeState.adapterRequests.push(request), {
+vi.mock('@/server/agents/providerRegistry', () => {
+  const getProviderAdapters = (_config: unknown, ...request: unknown[]) => (routeState.adapterRequests.push(request), {
     claude: {
       checkHealth: async () => {
         routeState.healthChecks += 1;
-        return { available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'] };
+        return {
+          available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'],
+          models: [{ id: 'opus', label: 'Opus', efforts: ['low', 'high'] }, { id: 'haiku', label: 'Haiku', efforts: [] }],
+          efforts: ['low'],
+        };
       },
       createRunner: () => {
         routeState.runnersCreated += 1;
-        throw new Error('A rejected request must not create a runner');
+        // An accepted turn reaches the runner, which records what it was asked to run and stops.
+        return {
+          run: async (input: { model?: string; effort?: string }) => {
+            routeState.runInputs.push(input);
+            throw new Error('The fixture runner ends every accepted turn');
+          },
+        };
       },
     },
     codex: {
@@ -55,8 +66,16 @@ vi.mock('@/server/agents/providerRegistry', () => ({
         throw new Error('A rejected request must not create a runner');
       },
     },
-  }),
-}));
+  });
+  return {
+    getProviderAdapters,
+    // The executor snapshot reads this machine's Local health through the same fixture adapters.
+    cachedLocalProviderHealth: async (config: unknown) => {
+      const adapters = getProviderAdapters(config);
+      return { claude: await adapters.claude.checkHealth(), codex: await adapters.codex.checkHealth() };
+    },
+  };
+});
 
 import { GET as GET_SESSIONS, POST as POST_SESSION } from '@/app/api/sessions/route';
 import { GET as GET_PROJECTS } from '@/app/api/projects/route';
@@ -129,6 +148,7 @@ describe('session snapshot and mutation routes', () => {
     routeState.healthChecks = 0;
     routeState.runnersCreated = 0;
     routeState.adapterRequests = [];
+    routeState.runInputs = [];
   });
 
   it.each([3, 4] as const)('lists and hydrates version %i public snapshots, then applies revisioned canvas operations', async (version) => {
@@ -231,6 +251,47 @@ describe('session snapshot and mutation routes', () => {
     expect(routeState.healthChecks).toBe(1);
     expect(routeState.runnersCreated).toBe(1);
     await vi.waitFor(() => expect(runRegistry.currentRuns).toEqual([]));
+  });
+
+  it.each([
+    ['a model the provider does not list', { model: 'gpt-9' }, 'Claude does not offer model "gpt-9" on this machine.'],
+    ['an effort the named model does not allow', { model: 'haiku', effort: 'low' }, 'Claude does not offer effort "low" for model "haiku" on this machine.'],
+    ['an effort outside the Default list', { effort: 'high' }, 'Claude does not offer effort "high" for its default model on this machine.'],
+  ])('rejects %s before reservation, message append, or runner', async (_label, choice, error) => {
+    const reserve = vi.spyOn(runRegistry, 'reserve');
+    try {
+      const session = await createViaRoute('checkout-a');
+      const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(session), ...choice }),
+      }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error });
+      expect(routeState.healthChecks).toBe(1);
+      expect(reserve).not.toHaveBeenCalled();
+      expect(routeState.runnersCreated).toBe(0);
+      const stored = await (await GET_SESSION(new Request('http://localhost'), context(session.id))).json();
+      expect(stored.session.messages).toEqual([]);
+    } finally {
+      reserve.mockRestore();
+    }
+  });
+
+  it.each(['local', 'docker'] as const)('gives the runner a listed model and effort on a %s session, and neither under Default', async (execution) => {
+    const session = publicSession(await seedVersionFourSession(execution));
+    for (const choice of [{ model: 'opus', effort: 'high' }, { effort: 'low' }, {}]) {
+      const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...requestBody(session), ...choice }),
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('"type":"done"');
+      await vi.waitFor(() => expect(runRegistry.currentRuns).toEqual([]));
+    }
+    expect(routeState.adapterRequests.map(([requested]) => requested)).toEqual([execution, execution, execution]);
+    expect(routeState.runInputs.map(({ model, effort }) => ({ model, effort }))).toEqual([
+      { model: 'opus', effort: 'high' },
+      { model: undefined, effort: 'low' },
+      { model: undefined, effort: undefined },
+    ]);
   });
 
   it('reads a version 3 session as Local for its adapter and scheduler key', async () => {

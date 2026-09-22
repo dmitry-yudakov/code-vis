@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-21. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-22. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -43,6 +43,9 @@ Updated 2026-09-21. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 62](stories/STORY-20260920-simplify-flat-shell.md) — shows less of the flat
   shell at once: one header menu, a conversation column beside a single side panel, an Arena list
   ordered by attention, and canvas history with thumbnails. It ships one part per commit.
+- **Also in flight:** [Story 66](stories/STORY-20260922-select-model-and-effort.md) — choose the
+  model and effort for an agent's next turn from the executing machine's own list; implemented with
+  offline checks, and the real-provider verification remains pending.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the
@@ -125,9 +128,10 @@ importing file's own directory; keep `./…` for same-directory siblings.
   `compositeExport`, and the Mermaid SVG renderer are browser-only.
 - **`src/shared` must stay side-effect free** — no Node built-ins, no DOM access. It is imported
   from both sides.
-- Provider capability is server-owned. The browser names a supported mode and nothing else; the
+- Provider capability is server-owned. The browser names a supported mode and, optionally, a model
+  and effort from the choices the executing machine lists for that provider, and nothing else; the
   executable, tool list, allowlist, permission mode, sandbox, and model flags are resolved on the
-  server. An unknown or unsupported mode is a 400.
+  server. An unknown or unsupported mode, or an unlisted model or effort, is a 400.
 - Local Agent edits the real working tree after per-action approval and runs as the desktop user.
   Optional Docker execution (Story 57, release verification pending) uses a pinned non-root worker:
   Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no

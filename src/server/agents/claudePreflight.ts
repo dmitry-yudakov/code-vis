@@ -6,6 +6,8 @@ export interface ClaudePreflightResult {
   binaryReady: boolean;
   flagsReady: boolean;
   unsupportedModes: AgentMode[];
+  /** Whether `claude --help` documents `--effort`. It decides only whether efforts are offered. */
+  effortSupported: boolean;
   message?: string;
 }
 
@@ -28,18 +30,18 @@ export async function checkClaude(binary: string): Promise<ClaudePreflightResult
     let output = '';
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
-      resolve({ binaryReady: true, flagsReady: false, unsupportedModes: [...AGENT_MODES], message: 'Claude Code help check timed out.' });
+      resolve({ binaryReady: true, flagsReady: false, unsupportedModes: [...AGENT_MODES], effortSupported: false, message: 'Claude Code help check timed out.' });
     }, 5_000);
     child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString('utf8').slice(0, 1_000_000); });
     child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString('utf8').slice(0, 1_000_000); });
     child.once('error', () => {
       clearTimeout(timer);
-      resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...AGENT_MODES], message: 'Claude Code executable was not found.' });
+      resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...AGENT_MODES], effortSupported: false, message: 'Claude Code executable was not found.' });
     });
     child.once('close', (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...AGENT_MODES], message: 'Claude Code help check failed.' });
+        resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...AGENT_MODES], effortSupported: false, message: 'Claude Code help check failed.' });
         return;
       }
       const flags = inspectFlags(output);
@@ -47,6 +49,7 @@ export async function checkClaude(binary: string): Promise<ClaudePreflightResult
         binaryReady: true,
         flagsReady: flags.unsupportedModes.length === 0,
         unsupportedModes: flags.unsupportedModes,
+        effortSupported: output.includes('--effort'),
         message: flags.message,
       });
     });

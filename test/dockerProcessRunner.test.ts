@@ -54,6 +54,15 @@ describe('Docker protocol transport lifecycle', () => {
     expect(worker.stop).toHaveBeenCalledOnce();
   });
 
+  it('gives the worker runner the same chosen model and effort, and neither under Default', async () => {
+    const { runner, input } = await fixture();
+    await runner.run({ ...input, model: 'gpt-5.5', effort: 'high' });
+    expect(mocks.run).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'gpt-5.5', effort: 'high' }));
+    await runner.run(input);
+    expect(mocks.run.mock.lastCall![0]).not.toHaveProperty('model');
+    expect(mocks.run.mock.lastCall![0]).not.toHaveProperty('effort');
+  });
+
   it('does not deliver a prompt after participant authentication fails or cancellation arrives during preflight', async () => {
     const { runner, input, worker, signal } = await fixture();
     worker.authenticate.mockRejectedValueOnce(new Error('Participant login required'));

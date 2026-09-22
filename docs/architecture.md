@@ -83,13 +83,21 @@ capability.
 | Checkout discovery and opaque checkout ids | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
 | Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
+| Model and effort for a turn | The browser names one of the machine's choices, and the server resolves it |
 | Pairing challenges and device credential digests | Separate host device-auth record |
 | Machine challenge and inbound credential digests | Separate executor machine-auth record |
 
-The browser can name a supported mode and nothing else. An unknown or unsupported mode is a 400.
-This is why the client never sends flags, prompts-with-tools, or paths outside the selected
-repository: every one of those is derived server-side from `src/server/config.ts` plus the resolved
-policy in `src/server/agents/agentPolicy.ts`.
+The browser can name a supported mode and, optionally, a model and an effort, and nothing else. An
+unknown or unsupported mode is a 400. The model and effort must come from the choices the executing
+machine lists in `ProviderHealth` for the addressed provider (`models`, each with its `efforts`, and
+`efforts` for the Default model); anything else is a 400 before the turn is reserved. Claude's
+choices are a fixed alias list (Docker Claude included), Codex's come from App Server's
+`model/list`, and Docker Codex offers what the machine's local Codex lists. The choice is device state kept per agent in the device
+workspace, like mode. Default sends no override, so the provider session keeps whatever model and
+effort it last used, and `CODEAI_*_MODEL` still applies when it is set. This is why the client never
+sends flags, prompts-with-tools, or paths outside the selected repository: every one of those is
+derived server-side from `src/server/config.ts` plus the resolved policy in
+`src/server/agents/agentPolicy.ts`.
 
 ## Browser snapshots and device state
 
