@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_MESSAGE_TEXT_CHARS, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from './limits';
 import {
   diagramAnnotationSchema, drawingMarkSchema, repositoryBindingSchema, sketchCanvasSchema,
@@ -48,6 +49,8 @@ export const agentMessageRequestSchema = z.object({
   participantId: participantIdSchema,
   text: z.string().trim().min(1).max(MAX_MESSAGE_TEXT_CHARS),
   diagramAttachments: z.array(diagramAttachmentSchema),
+  // Only the id crosses the wire. The route enforces the per-message count with a clear message.
+  reportAttachments: z.array(z.object({ reportId: z.string().regex(IMMERSIVE_REPORT_ID) }).strict()).max(32).default([]),
   mode: agentModeSchema.optional(),
   model: agentModelIdSchema.optional(),
   effort: agentEffortSchema.optional(),

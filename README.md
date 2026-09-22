@@ -311,18 +311,29 @@ report needs only the paired HTTPS connection the headset already uses — no ca
 
 ### Use reports in CodeAI's own project
 
-When you develop CodeAI with CodeAI, a report is evidence about the installation you are running.
-This works in a **self project** only: one whose primary repository, on this machine, is the
-checkout CodeAI is running from. Renaming a project changes nothing, and another checkout named
-`code-ai` does not qualify. Sessions in such a project always run Local, because Docker refuses
-CodeAI's own checkout.
+When you develop CodeAI with CodeAI, a report is evidence you can hand to the agent. This works in a
+**self project** only: one whose primary repository, on this machine, is the checkout CodeAI is
+running from. Renaming a project changes nothing, and another checkout named `code-ai` does not
+qualify. Sessions in such a project always run Local, because Docker refuses CodeAI's own checkout.
 
 - **Flat shell.** The side panel gains a **Reports** tab beside Changes and History. It lists every
   retained report, newest first, with its time, kind, note or latest error, a thumbnail, and where it
   was captured. A report captured while another project was open can show that project's
-  conversation or canvas; the row says so. Selecting a report opens its details and full screenshot.
+  conversation or canvas; the row says so, and nothing is attached on its own. **Attach next** adds
+  a report to the session's next message; the composer shows it as a chip you can remove, and you
+  can explain it or send it alone (`Investigate the attached CodeAI report.`).
+- **What the agent receives.** Sending copies the report's JSON and screenshot into the session's
+  own evidence before the message is written, then gives the turn the same files. The prompt treats
+  them as untrusted observed data. Codex receives the screenshot as an image; Claude reads it from
+  its context directory. The transcript says `1 CodeAI report attached · screenshot`, and **Retry**
+  re-attaches a message's reports.
 
-Everything stays on the home machine. The diagnostics directory keeps the newest 50 reports.
+Everything stays on the home machine. The diagnostics directory keeps the newest 50 reports; a report
+attached to a message is copied to `<data directory>/attachments/<session id>/reports/`, which is
+never pruned and follows its session through restarts and archive/restore. A message carries at
+most four reports and a session at most 64 MB of them; older evidence is never deleted to make room.
+The first report a session carries upgrades that session's record to version 5, which a CodeAI
+build without this feature hides (Story 65) while keeping every other session open.
 
 ### Investigate an unexpected VR exit
 
@@ -737,6 +748,9 @@ environment of whoever starts CodeAI.**
   defaults to 40 entries / 24 KB and never accepts a browser-supplied transcript.
 - If the provider's native session is missing, visible history is retained and the UI offers an explicit
   new-session continuation with a visible bounded recap.
+- CodeAI reports attached to a message are the one kind of evidence kept outside the record:
+  `<data directory>/attachments/<session id>/reports/`, user-only, referenced by bounded metadata in
+  the message. The pending reports for a session's next message are device state, like its draft.
 - Export includes the roster and expanded author/provider/role metadata for every entry, plus
   diagram/mark state, without provider session ids, credentials, or server paths.
 

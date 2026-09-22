@@ -11,15 +11,16 @@ import type {
   Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
-  MAX_READABLE_SESSION_VERSION, durableProjectSchema, durableSessionSchema, legacyDurableSessionSchema,
-  previousDurableSessionSchema, publicSessionSchema,
+  MAX_READABLE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
+  legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema,
 } from '@/shared/sessionSchema';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
 
 const STORE_FORMAT_VERSION = 1;
-const SESSION_RECORD_VERSION = MAX_READABLE_SESSION_VERSION;
+// New sessions stay at version 4 so builds without report support keep reading them.
+const SESSION_RECORD_VERSION = 4;
 const PROJECT_RECORD_VERSION = 1;
 const STORE_DIRECTORY = 'session-store-v2';
 const PREVIOUS_STORE_DIRECTORY = 'session-store-v1';
@@ -152,7 +153,7 @@ function localProcessIsAlive(pid: number): boolean {
   }
 }
 
-async function syncDirectory(directory: string): Promise<void> {
+export async function syncDirectory(directory: string): Promise<void> {
   const handle = await open(directory, 'r').catch(() => undefined);
   if (!handle) return;
   try {
@@ -588,7 +589,8 @@ export class SessionStore {
           && prior.addressedParticipantId === message.addressedParticipantId
           && prior.text === message.text
           && prior.mode === message.mode
-          && same(prior.diagramAttachments, message.diagramAttachments);
+          && same(prior.diagramAttachments, message.diagramAttachments)
+          && same(prior.reportAttachments ?? [], message.reportAttachments ?? []);
         if (!sameLogicalRequest) throw new Error('Message id was already used with different content');
         return { result: { session, appended: false }, changed: false };
       }
@@ -596,6 +598,11 @@ export class SessionStore {
       if (author?.kind !== 'human') throw new Error('The user message author is not a human in this session');
       if (!serverAgent(session, message.addressedParticipantId)) {
         throw new Error('The addressed participant is not an agent in this session');
+      }
+      if (message.reportAttachments?.length && session.version !== REPORT_EVIDENCE_SESSION_VERSION) {
+        // The first report is the only change that needs version 5; version 3 names its implicit Local.
+        if (session.version === 3) session.execution = 'local';
+        session.version = REPORT_EVIDENCE_SESSION_VERSION;
       }
       session.messages.push(structuredClone(message));
       if (session.messages.length === 1) session.title = message.text.trim().slice(0, 56) || 'Sketch session';

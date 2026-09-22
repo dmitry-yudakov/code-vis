@@ -7,15 +7,15 @@ import type {
 } from '@/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
-import { InstructionComposer } from './InstructionComposer';
+import { InstructionComposer, type PendingReportChip } from './InstructionComposer';
 import { PermissionCard } from '@/features/agents/PermissionCard';
 import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
-  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, markCounts, onClose, onSelectDiagram, onRetry,
-  onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onDecidePermission, onExecutePlan,
+  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, markCounts, onClose, onSelectDiagram, onRetry,
+  onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport, onDecidePermission, onExecutePlan,
   continuing, continuationUnavailable, onContinue,
 }: {
   open: boolean;
@@ -41,10 +41,11 @@ export function ConversationDrawer({
   modelChoices?: ModelChoices;
   modelSelection: ModelSelection;
   attached: CanvasTarget[];
+  reports: PendingReportChip[];
   markCounts: Record<string, number>;
   onClose(): void;
   onSelectDiagram(id: string): void;
-  onRetry(text: string, participantId: string, mode: AgentMode): void;
+  onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[]): void;
   onComposer(value: string): void;
   onModeChange(mode: AgentMode): void;
   onModelSelectionChange(selection: ModelSelection): void;
@@ -55,6 +56,7 @@ export function ConversationDrawer({
   onSend(): void;
   onCancel(): void;
   onRemoveAttachment(id: string): void;
+  onRemoveReport(id: string): void;
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
   onExecutePlan(participantId: string): void;
   onContinue(): void;
@@ -149,6 +151,7 @@ export function ConversationDrawer({
           turnBlocked={turnBlocked}
           autoFocus
           attached={attached}
+          reports={reports}
           activeDiagramId={session?.activeDiagramId}
           markCounts={markCounts}
           mode={mode}
@@ -161,6 +164,7 @@ export function ConversationDrawer({
           onSend={onSend}
           onCancel={onCancel}
           onRemoveAttachment={onRemoveAttachment}
+          onRemoveReport={onRemoveReport}
         />
       </div>
     </aside>

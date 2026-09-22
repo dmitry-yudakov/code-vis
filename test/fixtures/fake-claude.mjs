@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, readSync, writeFileSync } from 'node:fs';
+import { readFileSync, readSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
@@ -141,7 +141,7 @@ else {
   const spatialFixture = Array.from({ length: 8 }, (_, index) => (
     `\`\`\`mermaid\nflowchart LR\n  Panel${index + 1}[Panel ${index + 1}] --> Room[Spatial room]${index === 3 ? '\n  click Room "https://example.test"' : ''}\n\`\`\``
   )).join('\n\n');
-  const text = asked('Spatial fixture')
+  let text = asked('Spatial fixture')
     ? `Eight spatial fixture panels; panel four is deliberately non-ready.\n\n${spatialFixture}`
     : asked('Draw a simple architecture')
     ? 'Here is one architecture map.\n\n```mermaid\nflowchart LR\n  UI["`.claude/settings.local.json`<br/>M · +3 / −0"] --> API[Agent API]\n  API --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'
@@ -152,6 +152,11 @@ else {
         : prompt.includes('Mode: PLAN')
           ? 'I reviewed the module.\n\n<!-- cartograph:plan:start -->\n## Implementation plan\n1. Extract the parser into its own module.\n2. Verify with `npm test`.\n<!-- cartograph:plan:end -->'
           : args.includes('--resume') ? 'I remember the prior turn without a transcript replay.' : 'First turn complete.';
+  // Proves which report files the turn's context directory held, without reading their contents.
+  const reportFiles = attachmentDirectory
+    ? readdirSync(attachmentDirectory).filter((name) => name.startsWith('report-')).sort()
+    : [];
+  if (reportFiles.length) text = `${text}\n\nReport files: ${reportFiles.join(', ')}.`;
   const delta = JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
   writeOut(delta.slice(0, 17));
   await new Promise((resolve) => setTimeout(resolve, 5));

@@ -8,11 +8,15 @@ import { immersiveReportPath, type ImmersiveReportsOwner } from './useImmersiveR
 
 /**
  * The Reports tab of the side panel, shown only while the selected project is CodeAI's own
- * checkout. Every report arrives from the headset.
+ * checkout. Every report arrives from the headset; attaching one adds it to the next message.
  */
-export function ReportsPanel({ owner, machines }: {
+export function ReportsPanel({ owner, machines, pendingIds, canAttach, onToggleAttachment }: {
   owner: ImmersiveReportsOwner & { projectId: string };
   machines: readonly ArenaMachineSnapshot[];
+  pendingIds: readonly string[];
+  /** False without a session to attach to, or while the pending list is full. */
+  canAttach: boolean;
+  onToggleAttachment(id: string): void;
 }) {
   const [selectedId, setSelectedId] = useState<string>();
   const [detail, setDetail] = useState<ImmersiveReportDetail>();
@@ -36,6 +40,13 @@ export function ReportsPanel({ owner, machines }: {
     return () => controller.abort();
   }, [owner.projectId, selectedId]);
 
+  const attachButton = (id: string) => {
+    const pending = pendingIds.includes(id);
+    return <button type="button" disabled={!pending && !canAttach} onClick={() => onToggleAttachment(id)}>
+      {pending ? 'Remove attachment' : 'Attach next'}
+    </button>;
+  };
+
   if (selected) {
     return (
       <div className="report-detail">
@@ -58,6 +69,7 @@ export function ReportsPanel({ owner, machines }: {
           </ol>
         )}
         {detail && <small>{detail.report.browser}{detail.report.availability ? ` · VR ${detail.report.availability}` : ''}</small>}
+        <div className="navigator-actions">{attachButton(selected.id)}</div>
       </div>
     );
   }
@@ -73,7 +85,7 @@ export function ReportsPanel({ owner, machines }: {
       </div>
       {owner.error && <p className="report-error" role="alert">{owner.error}</p>}
       {owner.reports.map((report) => (
-        <div className="report-item" key={report.id}>
+        <div className={`report-item ${pendingIds.includes(report.id) ? 'attached' : ''}`} key={report.id}>
           <button type="button" className="report-select" onClick={() => setSelectedId(report.id)}>
             {report.screenshot
               ? <img src={immersiveReportPath(owner.projectId, report.id, true)} alt="" loading="lazy" />
@@ -84,6 +96,7 @@ export function ReportsPanel({ owner, machines }: {
               <small>{reportCaptureLabel(report.context, machines, owner.projectId)}</small>
             </span>
           </button>
+          <div className="navigator-actions">{attachButton(report.id)}</div>
         </div>
       ))}
       {!owner.loading && !owner.reports.length && !owner.error && (

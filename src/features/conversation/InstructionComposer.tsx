@@ -60,9 +60,15 @@ function ModelMenu({ choices, selection, disabled, onChange }: {
   );
 }
 
+export interface PendingReportChip {
+  id: string;
+  label: string;
+}
+
 export function InstructionComposer({
-  value, running, cancelReady = true, turnBlocked, autoFocus, attached, activeDiagramId, markCounts, mode, unsupportedModes,
-  modelChoices, modelSelection, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onRemoveAttachment, execution = 'local',
+  value, running, cancelReady = true, turnBlocked, autoFocus, attached, reports = [], activeDiagramId, markCounts, mode, unsupportedModes,
+  modelChoices, modelSelection, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onRemoveAttachment, onRemoveReport,
+  execution = 'local',
 }: {
   value: string;
   execution?: AgentExecution;
@@ -71,6 +77,8 @@ export function InstructionComposer({
   turnBlocked?: boolean;
   autoFocus?: boolean;
   attached: CanvasTarget[];
+  /** CodeAI reports for the next message; each is enough to send on its own. */
+  reports?: PendingReportChip[];
   activeDiagramId?: string;
   markCounts: Record<string, number>;
   mode: AgentMode;
@@ -85,10 +93,11 @@ export function InstructionComposer({
   onSend(): void;
   onCancel(): void;
   onRemoveAttachment(id: string): void;
+  onRemoveReport?(id: string): void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  // A drawing is an instruction in itself, so a sketch turn does not need typed text.
-  const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch');
+  // A drawing or a report is an instruction in itself, so such a turn does not need typed text.
+  const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0;
   useEffect(() => { if (autoFocus) ref.current?.focus(); }, [autoFocus]);
   useEffect(() => {
     const field = ref.current;
@@ -98,8 +107,8 @@ export function InstructionComposer({
   }, [value]);
   return (
     <div className="instruction-composer">
-      {attached.length > 0 && (
-        <div className="attachment-chips" aria-label="Canvas attachments">
+      {attached.length + reports.length > 0 && (
+        <div className="attachment-chips" aria-label="Attachments">
           {attached.map((canvas) => {
             const id = canvasTargetId(canvas);
             const label = canvas.kind === 'sketch'
@@ -113,6 +122,12 @@ export function InstructionComposer({
               </span>
             );
           })}
+          {reports.map((report) => (
+            <span className="attachment-chip report" key={report.id}>
+              <span>{report.label}</span>
+              <button type="button" aria-label="Remove report attachment" onClick={() => onRemoveReport?.(report.id)}>×</button>
+            </span>
+          ))}
         </div>
       )}
       <textarea
@@ -123,6 +138,7 @@ export function InstructionComposer({
         maxLength={8_000}
         placeholder={attached.some((canvas) => canvas.kind === 'sketch')
           ? 'Describe what you drew, or just send the sketch…'
+          : reports.length ? 'Explain what the report shows, or just send it…'
           : attached.length ? 'Ask about or revise the attached diagram…' : 'Ask anything about this project…'}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {

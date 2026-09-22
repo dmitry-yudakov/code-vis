@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { IMMERSIVE_REPORT_ID } from './immersiveReport';
+import { MAX_REPORTS_PER_MESSAGE } from './limits';
 
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 const dateTime = z.string().datetime();
@@ -132,6 +134,15 @@ const diagramAttachmentRecordSchema = z.object({
   compositeIncluded: z.boolean(),
 }).strict();
 
+/** Bounded metadata only; the report's JSON and screenshot are the session's promoted copy. */
+const reportAttachmentRecordSchema = z.object({
+  reportId: z.string().regex(IMMERSIVE_REPORT_ID),
+  receivedAt: dateTime,
+  kind: z.enum(['capture', 'error']),
+  screenshotIncluded: z.boolean(),
+  errorCount: z.number().int().nonnegative().max(1_000),
+}).strict();
+
 const evidenceSchema = z.object({
   elementId: z.string().max(500).optional(),
   location: z.string().max(4_096).optional(),
@@ -176,6 +187,8 @@ export const userMessageSchema = z.object({
   status: z.enum(['sending', 'sent', 'cancelled', 'failed']),
   delivery: z.enum(['not-sent', 'possibly-sent']).optional(),
   diagramAttachments: z.array(diagramAttachmentRecordSchema).max(12),
+  // Only a version 5 session may hold these; `validateSession` enforces that.
+  reportAttachments: z.array(reportAttachmentRecordSchema).min(1).max(MAX_REPORTS_PER_MESSAGE).optional(),
   mode: agentMode.optional(),
 }).strict();
 
@@ -198,10 +211,15 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 4;
+export const MAX_READABLE_SESSION_VERSION = 5;
+/**
+ * Version 5 is version 4 plus report evidence on user messages. A session is upgraded to it only by
+ * the mutation that first appends a report, so builds without report support keep reading the rest.
+ */
+export const REPORT_EVIDENCE_SESSION_VERSION = 5;
 
 const sessionBase = {
-  version: z.union([z.literal(3), z.literal(MAX_READABLE_SESSION_VERSION)]),
+  version: z.union([z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION)]),
   execution: z.enum(['local', 'docker']).optional(),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
@@ -220,13 +238,13 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4;
+    version: 3 | 4 | 5;
     execution?: 'local' | 'docker';
     id: string;
     repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
     primaryAgentId: string;
-    messages: Array<{ id: string; role: string; authorId: string; addressedParticipantId?: string }>;
+    messages: Array<{ id: string; role: string; authorId: string; addressedParticipantId?: string; reportAttachments?: unknown }>;
     pinnedDiagramIds: string[];
     annotations: Record<string, { diagramId: string }>;
     sketches: Array<{ id: string; sessionId: string }>;
@@ -236,10 +254,15 @@ function validateSession(
   if (value.version === 3 ? Object.hasOwn(value, 'execution') : value.execution === undefined) {
     ctx.addIssue({
       code: 'custom',
-      message: 'Version 3 has no execution field; version 4 requires an execution environment.',
+      message: 'Version 3 has no execution field; versions 4 and 5 require an execution environment.',
       path: ['execution'],
     });
   }
+  value.messages.forEach((message, index) => {
+    if (value.version !== REPORT_EVIDENCE_SESSION_VERSION && message.reportAttachments !== undefined) {
+      ctx.addIssue({ code: 'custom', message: 'Only a version 5 session holds report evidence.', path: ['messages', index, 'reportAttachments'] });
+    }
+  });
   validateRepositoryBindings(value.repositories, ctx);
   if (value.execution === 'docker' && (value.repositories.length !== 1 || value.repositories[0].role !== 'primary')) {
     ctx.addIssue({ code: 'custom', message: 'A Docker session requires exactly one primary repository.', path: ['repositories'] });

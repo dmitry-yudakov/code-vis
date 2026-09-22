@@ -128,8 +128,8 @@ Story 51 shipped after the user accepted the physical Quest 3S work journey on S
 Story 56 is in progress with the in-headset report action, automatic
 error forwarding, and the home-machine report store implemented; its delayed aim-before-capture change
 and Quest run remain pending. Story 63, in progress, promotes those reports into durable conversation
-evidence for CodeAI's own checkout, in three parts; Part A, which lists them in CodeAI's own project,
-is implemented. Draft Story 64 then adds an explicitly approved managed rebuild/restart loop and
+evidence for CodeAI's own checkout, in three parts; Parts A and B, which list and attach them in
+CodeAI's own flat shell, are implemented. Draft Story 64 then adds an explicitly approved managed rebuild/restart loop and
 needs only Story 63's first part. Both depended on
 [Story 65](STORY-20260921-tolerate-newer-session-format.md), a storage fix outside this epic that keeps
 the store open when an older build meets a newer session format; Story 65 has shipped.

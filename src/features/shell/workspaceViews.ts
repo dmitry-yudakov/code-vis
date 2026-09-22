@@ -1,4 +1,5 @@
-import { MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from '@/shared/limits';
+import { MAX_REPORTS_PER_MESSAGE, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from '@/shared/limits';
+import { isImmersiveReportId } from '@/shared/immersiveReport';
 import type { AgentMode, ModelSelection } from '@/shared/types';
 
 export const DEVICE_WORKSPACE_STORAGE_KEY = 'code-ai:device:v1:workspace';
@@ -43,6 +44,8 @@ export interface SpatialViewState {
 export interface DeviceViewState {
   composer: string;
   pendingAttachmentIds?: string[];
+  /** CodeAI report ids for this session's next message. Absent means none. */
+  pendingReportIds?: string[];
   unread: number;
   selectedCheckoutId?: string;
   activeDiagramId?: string;
@@ -207,9 +210,13 @@ function parseView(value: unknown): DeviceViewState {
   const surface = candidate.surface === 'flat' || candidate.surface === 'spatial' ? candidate.surface : undefined;
   const spatial = parseSpatialView(candidate.spatial);
   const modelSelections = parseModelSelections(candidate.modelSelections);
+  const pendingReports = Array.isArray(candidate.pendingReportIds)
+    ? candidate.pendingReportIds.filter(isImmersiveReportId).reduce(withPendingReport, [] as string[])
+    : [];
   return {
     composer: typeof candidate.composer === 'string' ? candidate.composer.slice(0, 8_000) : '',
     ...(pending === undefined ? {} : { pendingAttachmentIds: pending }),
+    ...(pendingReports.length ? { pendingReportIds: pendingReports } : {}),
     unread: finite(candidate.unread) ? Math.max(0, Math.min(999, Math.floor(candidate.unread))) : 0,
     ...(optionalKey(candidate.selectedCheckoutId) ? { selectedCheckoutId: candidate.selectedCheckoutId } : {}),
     ...(optionalId(candidate.activeDiagramId) ? { activeDiagramId: candidate.activeDiagramId } : {}),
@@ -259,6 +266,20 @@ export function getWorkspaceScope(workspace: DeviceWorkspace, scopeId: string): 
 
 export function getWorkspaceViewIds(workspace: DeviceWorkspace): string[] {
   return [...new Set(Object.values(workspace.scopes).flatMap((scope) => Object.keys(scope.views)))];
+}
+
+/** Adds a report to a view's next message once, keeping the per-message bound. */
+export function withPendingReport(pendingReportIds: readonly string[] | undefined, reportId: string): string[] {
+  const current = pendingReportIds || [];
+  if (current.includes(reportId) || current.length >= MAX_REPORTS_PER_MESSAGE) return [...current];
+  return [...current, reportId];
+}
+
+/** Sets a view's pending reports, dropping the field when none remain. */
+export function withPendingReports(view: DeviceViewState, pendingReportIds: readonly string[]): DeviceViewState {
+  const { pendingReportIds: prior = [], ...rest } = view;
+  if (prior.length === pendingReportIds.length && prior.every((id, index) => id === pendingReportIds[index])) return view;
+  return pendingReportIds.length ? { ...rest, pendingReportIds: [...pendingReportIds] } : rest;
 }
 
 export function replacePendingCanvasRevision(

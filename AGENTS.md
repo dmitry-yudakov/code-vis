@@ -44,8 +44,8 @@ Updated 2026-09-22. When a story ships, change the line that names it; each stor
   shell at once: one header menu, a conversation column beside a single side panel, an Arena list
   ordered by attention, and canvas history with thumbnails. It ships one part per commit.
 - **Also in flight:** [Story 63](stories/STORY-20260921-report-evidence-in-conversation.md) — headset
-  reports become attachable conversation evidence in CodeAI's own project; Part A, the Reports tab,
-  is implemented, and Parts B and C follow one commit each.
+  reports become attachable conversation evidence in CodeAI's own project; Parts A and B (the
+  Reports tab and durable message evidence) are implemented, and Part C, the headset, follows.
 - **Also in flight:** [Story 66](stories/STORY-20260922-select-model-and-effort.md) — choose the
   model and effort for an agent's next turn from the executing machine's own list; implemented with
   offline checks, and the real-provider verification remains pending.
@@ -113,7 +113,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
 | `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
-| `src/server/storage/` | Project/session store, durable server records, per-run temp attachments |
+| `src/server/storage/` | Project/session store, durable server records, promoted report evidence under `<dataDir>/attachments/`, per-run temp attachments |
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
 | `src/server/diagnostics/` | Immersive reports in the home machine's data directory, and their self-project-only reads |

@@ -7,6 +7,7 @@ import type { SessionStore } from '@/server/storage/sessionStore';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { createRunDirectory, removeRunDirectory, writeDiagramAttachments } from '@/server/storage/tempAttachments';
+import { writeReportAttachments } from '@/server/storage/reportEvidence';
 import { writeRepositoryContext } from '@/server/repository/repositoryContext';
 import { hasProposedPlan, stripPlanMarkers } from '@/shared/plan';
 import { buildConversationPrompt } from './prompt';
@@ -82,6 +83,10 @@ export async function runConversation(input: {
       maxBytes: config.maxAttachmentBytes,
       maxMermaidBytes: config.maxMermaidBytes,
     });
+    // The canonical message says which reports this turn carries; their files are the session's copies.
+    const userMessage = session.messages.find((message) => message.id === request.messageId);
+    const reports = await writeReportAttachments(directory, config.dataDir, session.id,
+      userMessage?.role === 'user' ? userMessage.reportAttachments ?? [] : []);
     emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing repository context' });
     await writeRepositoryContext(checkout.realPath, directory, config.maxGitContextBytes);
     const prompt = buildConversationPrompt({
@@ -89,6 +94,7 @@ export async function runConversation(input: {
       attachmentDirectory: directory,
       attachedCanvasNames: manifest.map((item, index) => `${item.kind === 'sketch' ? 'Sketch' : 'Diagram'} ${index + 1} (${item.diagramId})`),
       hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
+      attachedReportNames: reports.map((item, index) => `Report ${index + 1} (${item.kind}, received ${item.receivedAt}${item.imageFile ? ', with screenshot' : ''})`),
       mode,
       execution: session.execution,
       participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this CodeAI session. Your stable participant id is ${participant.id}.`,

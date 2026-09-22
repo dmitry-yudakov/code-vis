@@ -13,6 +13,10 @@ export const MAX_MODEL_LABEL_CHARS = 80;
 export const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 export const MODEL_EFFORT_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 
+/** CodeAI reports one message may carry, and the promoted report evidence one session may hold. */
+export const MAX_REPORTS_PER_MESSAGE = 4;
+export const MAX_SESSION_REPORT_EVIDENCE_BYTES = 64 * 1024 * 1024;
+
 export const DEFAULT_TRANSCRIPT_DELTA_MESSAGES = 40;
 export const DEFAULT_TRANSCRIPT_DELTA_BYTES = 24_000;
 

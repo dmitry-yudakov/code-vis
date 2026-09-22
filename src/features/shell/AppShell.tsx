@@ -7,8 +7,10 @@ import type {
   AgentEvent, AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaMachineSnapshot,
   ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact, ExecutionHealth,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
-  ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, RunDescriptor, RunDiscovery, SketchCanvas, UserMessage,
+  ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, ReportAttachmentRecord, RunDescriptor, RunDiscovery,
+  SketchCanvas, UserMessage,
 } from '@/shared/types';
+import { MAX_REPORTS_PER_MESSAGE } from '@/shared/limits';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { readNdjson } from '@/features/conversation/ndjson';
 import {
@@ -38,6 +40,7 @@ import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { useRepositoryChanges } from '@/features/repository/useRepositoryChanges';
 import { useRepositoryDiff } from '@/features/repository/useRepositoryDiff';
 import { ReportsPanel } from '@/features/reports/ReportsPanel';
+import { REPORT_ONLY_INSTRUCTION, pendingReportLabel } from '@/features/reports/reportModel';
 import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
 import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
@@ -50,7 +53,7 @@ import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import {
-  parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView,
+  parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView, withPendingReport, withPendingReports,
   type CanvasSurface, type SpatialViewState,
 } from './workspaceViews';
 import { ImmersiveBoundary } from './immersive/ImmersiveBoundary';
@@ -197,6 +200,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const selectedCheckoutId = view?.selectedCheckoutId;
   // Reports are this home machine's; a remote executor's project is never CodeAI's own checkout here.
   const reports = useImmersiveReports(workspaceMachineId ? undefined : projectId);
+  const pendingReportIds = view?.pendingReportIds ?? [];
   const setComposer = useCallback((value: SetStateAction<string>) => {
     if (!sessionId) return;
     workspace.updateView(sessionId, (current) => ({
@@ -218,6 +222,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       return { ...current, pendingAttachmentIds: typeof value === 'function' ? value(existing) : value };
     });
   }, [pendingAttachmentIds, sessionId, workspace.updateView]);
+  const setPendingReportIds = useCallback((update: (current: string[]) => string[]) => {
+    if (!sessionId) return;
+    workspace.updateView(sessionId, (current) => withPendingReports(current, update(current.pendingReportIds ?? [])));
+  }, [sessionId, workspace.updateView]);
   const setSelectedCheckoutId = useCallback((value?: string) => {
     if (!sessionId) return;
     workspace.updateView(sessionId, (current) => ({ ...current, selectedCheckoutId: value }));
@@ -765,6 +773,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     ? current.filter((item) => item !== id)
     : current.length < 4 ? [...current, id] : current), [setPendingAttachmentIds]);
 
+  const toggleReport = useCallback((id: string) => setPendingReportIds((current) => current.includes(id)
+    ? current.filter((item) => item !== id)
+    : withPendingReport(current, id)), [setPendingReportIds]);
+  const removeReport = useCallback((id: string) => setPendingReportIds((current) => current.filter((item) => item !== id)), [setPendingReportIds]);
+  const pendingReportChips = pendingReportIds.map((id) => ({
+    id, label: pendingReportLabel(id, reports.reports.find((report) => report.id === id)),
+  }));
+
   const togglePin = useCallback((canvasId: string) => {
     if (!sessionId) return;
     void enqueueSessionMutation(sessionId, (current) => {
@@ -932,6 +948,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     setComposer((current) => current.trim() ? `${current.trimEnd()}\n\n${text}` : text);
     if (handoffMode && sessionId) mutateSession(sessionId, (current) => ({ ...current, defaultMode: handoffMode }));
   }, [mutateSession, selectAgent, sessionId]);
+  /** Retry carries a message's reports along with its text; canvas attachments stay as they are. */
+  const retryMessage = useCallback((participantId: string, text: string, retryMode: AgentMode | undefined, reportIds: readonly string[]) => {
+    prefillHandoff(participantId, text, retryMode);
+    if (!reportIds.length) return;
+    const pending = reportIds.reduce(withPendingReport, pendingReportIds);
+    setPendingReportIds(() => pending);
+    if (reportIds.some((id) => !pending.includes(id))) {
+      setNotice(`A message carries at most ${MAX_REPORTS_PER_MESSAGE} reports. Remove one to attach the rest of the retried message's reports.`);
+    }
+  }, [pendingReportIds, prefillHandoff, setPendingReportIds]);
 
   const focusedPermissionTargets: PermissionTarget[] = (focusedRun?.runId ? permissions.map((request) => ({
     ...request, runId: focusedRun.runId!,
@@ -1086,9 +1112,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       const canvas = findCanvasTarget(session, id);
       return canvas ? [canvas] : [];
     });
-    // A sketch is itself the instruction, so an empty composer still makes a valid turn.
+    // Reports belong to the composed draft; an Execute plan or Continue turn does not carry them.
+    const sentReportIds = override ? [] : pendingReportIds;
+    // A sketch or a report is itself the instruction, so an empty composer still makes a valid turn.
     const typed = (override?.text ?? composer).trim();
-    const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION : '');
+    const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION
+      : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
     const turnProviderHealth = executionProviders?.[turnAgent.provider];
@@ -1149,6 +1178,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       const userId = createUuid();
       const createdAt = new Date().toISOString();
+      // Shown until the canonical message arrives; omitted unless every attached report is listed here.
+      const reportRecords = sentReportIds.flatMap((reportId): ReportAttachmentRecord[] => {
+        const summary = reports.reports.find((report) => report.id === reportId);
+        return summary ? [{
+          reportId, receivedAt: summary.receivedAt, kind: summary.kind,
+          screenshotIncluded: summary.screenshot, errorCount: summary.errorCount,
+        }] : [];
+      });
       const human = session.participants.find((participant) => participant.kind === 'human');
       if (!human) {
         setNotice('This session has no local user identity.');
@@ -1169,6 +1206,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           viewport: item.viewport,
           compositeIncluded: Boolean(item.compositePngDataUrl),
         })),
+        ...(reportRecords.length && reportRecords.length === sentReportIds.length ? { reportAttachments: reportRecords } : {}),
         mode: turnMode,
       };
       const activeAtSend = session.activeDiagramId;
@@ -1207,6 +1245,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             participantId: turnAgent.id,
             text,
             diagramAttachments: attachmentPayload,
+            reportAttachments: sentReportIds.map((reportId) => ({ reportId })),
             mode: turnMode,
             ...turnModel,
           }),
@@ -1229,7 +1268,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         streamRunId = outcome.runId;
         if (!outcome.receivedFinal && !streamError) throw new Error('Agent stream ended without a final response.');
         if (outcome.receivedFinal && !streamError && !override) {
-          workspace.updateView(session.id, (current) => ({ ...current, composer: current.composer === composer ? '' : current.composer }));
+          workspace.updateView(session.id, (current) => withPendingReports(
+            { ...current, composer: current.composer === composer ? '' : current.composer },
+            (current.pendingReportIds ?? []).filter((id) => !sentReportIds.includes(id)),
+          ));
         }
       } catch (error) {
         const cancelled = controller.signal.aborted;
@@ -1260,7 +1302,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
-  }, [activeAgent, apiPath, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, putRun, refreshSession, removeRun, session, setRunOutcome, updateRun, view?.modelSelections, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updateRun, view?.modelSelections, workspace.updateView]);
 
   const busyRunLabel = busyRun && (
     sessions.find((item) => item.id === busyRun.sessionId)?.title
@@ -1856,7 +1898,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               />
             )}
             reports={reports.available && reports.projectId ? (
-              <ReportsPanel owner={{ ...reports, projectId: reports.projectId }} machines={arena.machines} />
+              <ReportsPanel
+                owner={{ ...reports, projectId: reports.projectId }}
+                machines={arena.machines}
+                pendingIds={pendingReportIds}
+                canAttach={pendingReportIds.length < MAX_REPORTS_PER_MESSAGE}
+                onToggleAttachment={toggleReport}
+              />
             ) : undefined}
             open={panelLayout.repositoryOpen}
             tab={panelLayout.sideTab}
@@ -2004,10 +2052,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               modelSelection={modelSelection}
               onModelSelectionChange={setModelSelection}
               attached={attachedCanvases}
+              reports={pendingReportChips}
               markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), session.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
               onClose={panelLayout.closeConversation}
               onSelectDiagram={(id) => selectDiagram(id)}
-              onRetry={(text, participantId, retryMode) => prefillHandoff(participantId, text, retryMode)}
+              onRetry={(text, participantId, retryMode, reportIds) => retryMessage(participantId, text, retryMode, reportIds)}
               onComposer={setComposer}
               onModeChange={setMode}
               onSelectAgent={selectAgent}
@@ -2017,6 +2066,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onSend={() => void send()}
               onCancel={() => void cancelRun()}
               onRemoveAttachment={removeAttachment}
+              onRemoveReport={removeReport}
               onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
               onExecutePlan={executePlan}
             />

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { reportCaptureLabel, reportDescription } from '@/features/reports/reportModel';
-import type { ArenaMachineSnapshot } from '@/shared/types';
+import {
+  pendingReportLabel, reportAttachmentSummary, reportCaptureLabel, reportDescription,
+} from '@/features/reports/reportModel';
+import type { ArenaMachineSnapshot, ReportAttachmentRecord } from '@/shared/types';
 
 const MACHINE = '11111111-1111-4111-8111-111111111111';
 const PROJECT = '22222222-2222-4222-8222-222222222222';
@@ -37,5 +39,16 @@ describe('report labels', () => {
     expect(reportDescription({ kind: 'capture', note: 'Clipped', latestError: 'TypeError' })).toBe('Clipped');
     expect(reportDescription({ kind: 'error', note: 'window-error', latestError: 'TypeError' })).toBe('TypeError');
     expect(reportDescription({ kind: 'capture' })).toBe('No note or error text.');
+    expect(pendingReportLabel('2026-09-21T18-12-03.123Z-capture')).toMatch(/^CodeAI report · /);
+  });
+
+  it('states how many reports a message carried and whether they hold screenshots or errors', () => {
+    const record = (screenshotIncluded: boolean, errorCount: number): ReportAttachmentRecord => ({
+      reportId: '2026-09-21T18-12-03.123Z-capture', receivedAt: '2026-09-21T18:12:03.123Z', kind: 'capture', screenshotIncluded, errorCount,
+    });
+    expect(reportAttachmentSummary([record(true, 0)])).toBe('1 CodeAI report attached · screenshot');
+    expect(reportAttachmentSummary([record(true, 1), record(false, 2)])).toBe('2 CodeAI reports attached · 1 with screenshot · 3 errors');
+    expect(reportAttachmentSummary([record(true, 0), record(true, 0)])).toBe('2 CodeAI reports attached · screenshots');
+    expect(reportAttachmentSummary([record(false, 0)])).toBe('1 CodeAI report attached');
   });
 });

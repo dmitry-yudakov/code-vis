@@ -1,5 +1,8 @@
-import type { ImmersiveReportContext, ImmersiveReportSummary } from '@/shared/immersiveReport';
-import type { ArenaMachineSnapshot } from '@/shared/types';
+import { immersiveReportReceivedAt, type ImmersiveReportContext, type ImmersiveReportSummary } from '@/shared/immersiveReport';
+import type { ArenaMachineSnapshot, ReportAttachmentRecord } from '@/shared/types';
+
+/** Sent when the user attaches a report and sends without typing anything. */
+export const REPORT_ONLY_INSTRUCTION = 'Investigate the attached CodeAI report.';
 
 export function reportTime(receivedAt: string): string {
   return new Date(receivedAt).toLocaleString(undefined, {
@@ -20,6 +23,11 @@ export function reportTitle(summary: Pick<ImmersiveReportSummary, 'kind' | 'rece
     `${summary.kind === 'capture' ? 'Capture' : 'Error'} · ${reportTime(summary.receivedAt)}`,
     ...evidence(summary.screenshot, summary.errorCount),
   ].join(' · ');
+}
+
+/** A pending attachment's label; a report no longer listed is still named by its id. */
+export function pendingReportLabel(id: string, summary?: ImmersiveReportSummary): string {
+  return `CodeAI report · ${summary ? reportTitle(summary) : reportTime(immersiveReportReceivedAt(id))}`;
 }
 
 /** What the reporter said, or else the latest error, bounded to what a row can hold. */
@@ -48,3 +56,13 @@ export function reportCaptureLabel(
   return `Captured in ${where}`;
 }
 
+/** The transcript's statement of the reports a message carried. */
+export function reportAttachmentSummary(records: readonly ReportAttachmentRecord[]): string {
+  const screenshots = records.filter((record) => record.screenshotIncluded).length;
+  const errors = records.reduce((total, record) => total + record.errorCount, 0);
+  return [
+    `${records.length} CodeAI report${records.length === 1 ? '' : 's'} attached`,
+    screenshots ? `${screenshots === records.length ? '' : `${screenshots} with `}screenshot${screenshots === 1 ? '' : 's'}` : '',
+    errors ? `${errors} error${errors === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' · ');
+}

@@ -7,6 +7,7 @@ import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { DiagramCard } from '@/features/diagram/components/DiagramCard';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
+import { reportAttachmentSummary } from '@/features/reports/reportModel';
 
 function safeHref(href?: string): string | undefined {
   if (!href) return undefined;
@@ -30,7 +31,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   activeDiagramId?: string;
   running?: boolean;
   onSelectDiagram(id: string): void;
-  onRetry?(text: string, participantId: string, mode: AgentMode): void;
+  onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[]): void;
   onExecutePlan?(participantId: string): void;
 }) {
   const author = participants.find((participant) => participant.id === message.authorId);
@@ -44,10 +45,12 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
         </div>
         <p>{message.text}</p>
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
+        {message.reportAttachments?.length ? <div className="message-attachments report">{reportAttachmentSummary(message.reportAttachments)}</div> : null}
         {message.status !== 'sent' && (
           <div className="message-state">
             <span>{message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
-            {onRetry && <button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask')}>Retry</button>}
+            {onRetry && <button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
+              message.reportAttachments?.map((report) => report.reportId) || [])}>Retry</button>}
           </div>
         )}
       </article>

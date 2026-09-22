@@ -1,6 +1,6 @@
 # Story 63 — Use headset reports as conversation evidence
 
-**Status:** In progress (Part A implemented; Parts B and C follow) · **Type:** Full-stack · **Depends on:** [Story 47](STORY-20260905-vr-conversation-input.md), [Story 56](STORY-20260919-vr-report-from-headset.md), [Story 62](STORY-20260920-simplify-flat-shell.md); Part B also needs [Story 65](STORY-20260921-tolerate-newer-session-format.md) shipped first
+**Status:** In progress (Parts A and B implemented; Part C follows) · **Type:** Full-stack · **Depends on:** [Story 47](STORY-20260905-vr-conversation-input.md), [Story 56](STORY-20260919-vr-report-from-headset.md), [Story 62](STORY-20260920-simplify-flat-shell.md); Part B also needs [Story 65](STORY-20260921-tolerate-newer-session-format.md) shipped first
 
 **Vision slice:** the complete immersive work loop in the
 [immersive workspace epic](EPIC-20260905-immersive-workspace.md) and the intent/context side of the
@@ -312,23 +312,23 @@ Story 65's README note asks every checkout sharing a data directory to include i
 
 ### Part B
 
-- [ ] A report can be attached from Reports, removed, and sent with typed/dictated text or by itself. A
+- [x] A report can be attached from Reports, removed, and sent with typed/dictated text or by itself. A
       failed send preserves the draft and the selection; switching machine/project/session never
       retargets a pending id.
-- [ ] The message route accepts only bounded report ids, resolves every file server-side, and rejects
+- [x] The message route accepts only bounded report ids, resolves every file server-side, and rejects
       an unavailable, non-self-project, over-count, or over-ceiling report before reserving a run. A
       repeated message id is refused as today, and the comparison includes report ids.
-- [ ] Sending promotes JSON and optional JPEG at `0600` before the message is appended. A simulated
+- [x] Sending promotes JSON and optional JPEG at `0600` before the message is appended. A simulated
       failure between copy and append leaves no message, starts no run, and the next send reuses the
       copy. A message never references missing evidence.
-- [ ] The evidence survives diagnostic pruning, process restart, and session archive/restore. Retry
+- [x] The evidence survives diagnostic pruning, process restart, and session archive/restore. Retry
       re-attaches the message's reports and succeeds after the inbox copy is pruned.
-- [ ] Codex receives each promoted JPEG as `localImage`; Claude receives the same named JSON, image,
+- [x] Codex receives each promoted JPEG as `localImage`; Claude receives the same named JSON, image,
       and manifest in its allowed context directory. The prompt treats all report content as untrusted
       observed evidence.
-- [ ] The flat transcript states how many reports were attached and whether they contain a
+- [x] The flat transcript states how many reports were attached and whether they contain a
       screenshot/errors.
-- [ ] Mixed version 3/4/5 sessions load together; reads do not rewrite old records, and first
+- [x] Mixed version 3/4/5 sessions load together; reads do not rewrite old records, and first
       attachment upgrades only its owning session to version 5 without changing prior content. A build
       with Story 65 but without this part hides that session and opens the rest.
 
@@ -374,7 +374,8 @@ Each part is its own commit, in order; the bullets below map to the parts.
 - **Self project.** `config.installationRoot` is `CODEAI_INSTALLATION_ROOT` or the working directory
   ([config.ts](../src/server/config.ts#L186)); its real path is taken when compared, so a missing path
   never matches. [selfProject.ts](../src/server/repository/selfProject.ts#L12) requires a local-host
-  primary binding whose `CheckoutRegistry.resolve` real path equals it.
+  primary binding whose `CheckoutRegistry.resolve` real path equals it. A session outside a project is
+  never eligible, even when bound straight to the installation.
 - **Reports (A).** The id pattern and the summary are in
   [immersiveReport.ts](../src/shared/immersiveReport.ts#L19). Reads by id go through
   [immersiveReports.ts](../src/server/diagnostics/immersiveReports.ts#L44), which checks the id
@@ -385,6 +386,26 @@ Each part is its own commit, in order; the bullets below map to the parts.
   [ReportsPanel.tsx](../src/features/reports/ReportsPanel.tsx), fed by the one owner
   [useImmersiveReports.ts](../src/features/reports/useImmersiveReports.ts); it needs an open
   session, like the rest of the side panel, and rereads the list when shown.
+- **Evidence (B).** Pending ids are `DeviceViewState.pendingReportIds`, validated and capped at four
+  ([workspaceViews.ts](../src/features/shell/workspaceViews.ts#L272)). The route
+  ([route.ts](../src/app/api/agent/message/route.ts#L129)) refuses a request carrying an attached
+  home machine's bearer credential (so a peer cannot attach an executor's reports), a non-self
+  project, an unavailable or repeated id, a fifth report, or the 64 MB ceiling before reserving. It
+  then copies the diagnostics evidence ([reportEvidence.ts](../src/server/storage/reportEvidence.ts#L92)),
+  JPEG then JSON, each written to a temporary file and renamed, flushes the directory, and only then
+  appends. A screenshot counts only while it is a well-formed JPEG. Reserving before copying means a
+  busy session copies nothing; the copy still precedes the message. Version 5 is accepted by
+  [sessionSchema.ts](../src/shared/sessionSchema.ts#L219), which keeps report records out of version
+  3/4 messages; the append that first carries a report upgrades that session
+  ([sessionStore.ts](../src/server/storage/sessionStore.ts#L605)). New sessions stay version 4.
+  Turn preparation writes `report-N.json`, `report-N.jpg`, and `report-attachments.json`
+  ([reportEvidence.ts](../src/server/storage/reportEvidence.ts#L120)); the prompt names them as
+  untrusted observed data ([prompt.ts](../src/server/conversation/prompt.ts#L63)); Codex takes
+  `.png` and `.jpg` files as `localImage` ([codexProcessRunner.ts](../src/server/agents/codexProcessRunner.ts#L110)).
+  In the browser, `send()` carries the pending ids of a composed message only; an Execute plan or
+  Continue turn does not ([AppShell.tsx](../src/features/shell/AppShell.tsx#L1136)). They clear when
+  the turn completes, like the draft, and Retry re-adds a message's ids, saying so when the
+  four-report bound drops one ([AppShell.tsx](../src/features/shell/AppShell.tsx#L972)).
 
 ## How to verify
 

@@ -101,8 +101,9 @@ export interface ServerAgentParticipant extends AgentParticipant {
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
 export interface DurableSession {
-  version: 3 | 4;
-  /** Required in version 4; absent in version 3, whose execution is always local. */
+  /** Version 5 is version 4 plus report evidence on user messages; nothing else writes it. */
+  version: 3 | 4 | 5;
+  /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   revision: number;
   id: string;
@@ -240,6 +241,23 @@ export interface DiagramAttachmentRecord {
   compositeIncluded: boolean;
 }
 
+/**
+ * A CodeAI report carried by a user message. Metadata only: the JSON and screenshot live in the
+ * session's promoted copy on the home machine, never in the message or on the wire.
+ */
+export interface ReportAttachmentRecord {
+  reportId: string;
+  receivedAt: string;
+  kind: 'capture' | 'error';
+  screenshotIncluded: boolean;
+  errorCount: number;
+}
+
+/** The browser names a retained report by id; the server resolves every file. */
+export interface ReportAttachmentRequest {
+  reportId: string;
+}
+
 export type EvidenceStatus =
   | 'observed'
   | 'inferred'
@@ -293,6 +311,8 @@ export interface UserMessage {
   status: 'sending' | 'sent' | 'cancelled' | 'failed';
   delivery?: 'not-sent' | 'possibly-sent';
   diagramAttachments: DiagramAttachmentRecord[];
+  /** Present only on messages that carried reports, which only a version 5 session holds. */
+  reportAttachments?: ReportAttachmentRecord[];
   mode?: AgentMode;
 }
 
@@ -320,8 +340,8 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4;
-  /** Required in version 4; absent in version 3, whose execution is always local. */
+  version: 3 | 4 | 5;
+  /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   revision: number;
   id: string;
@@ -489,6 +509,8 @@ export interface AgentMessageRequest {
   participantId: string;
   text: string;
   diagramAttachments: DiagramMessageAttachment[];
+  /** CodeAI reports for a self-project session; the protocol parser defaults absence to `[]`. */
+  reportAttachments?: ReportAttachmentRequest[];
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;
   /** Omitted means Default. Must be an `id` in the addressed provider's `models`, or 400. */

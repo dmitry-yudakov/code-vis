@@ -41,6 +41,8 @@ describe.sequential('CodexProcessRunner', () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-codex-'));
     const recordPath = path.join(directory, 'codex-invocation.json');
     await writeFile(path.join(directory, 'canvas.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+    await writeFile(path.join(directory, 'report-1.jpg'), Buffer.from('ffd8ffe0ffd9', 'hex'));
+    await writeFile(path.join(directory, 'report-1.json'), '{}');
     process.env.CODEAI_FAKE_CODEX_RECORD = recordPath;
     const events: AgentProcessEvent[] = [];
     const mode = options.mode || 'ask';
@@ -78,7 +80,9 @@ describe.sequential('CodexProcessRunner', () => {
     expect(JSON.stringify(activity)).not.toContain(process.cwd());
     const turn = invocation.requests.find((request: { method: string }) => request.method === 'turn/start');
     expect(turn.params.sandboxPolicy).toEqual({ type: 'readOnly', networkAccess: false });
-    expect(turn.params.input).toContainEqual(expect.objectContaining({ type: 'localImage' }));
+    // A canvas composite and a report screenshot both reach Codex as images; the report JSON does not.
+    expect(turn.params.input.filter((item: { type: string }) => item.type === 'localImage')
+      .map((item: { path: string }) => path.basename(item.path)).sort()).toEqual(['canvas.png', 'report-1.jpg']);
     const thread = invocation.requests.find((request: { method: string }) => request.method === 'thread/start');
     expect(thread.params.config).toMatchObject({ mcp_servers: {}, features: { multi_agent: false } });
   });

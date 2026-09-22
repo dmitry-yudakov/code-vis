@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentEvent } from '@/shared/types';
 import { agentMessageRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { getConfig } from '@/server/config';
-import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { authenticatedMachineRequest, authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import {
   sessionStoreStatus, getSessionStore, primaryRepository, serverAgent,
@@ -16,6 +16,11 @@ import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { PROVIDER_LABELS } from '@/shared/participants';
+import { MAX_REPORTS_PER_MESSAGE, MAX_SESSION_REPORT_EVIDENCE_BYTES } from '@/shared/limits';
+import { resolveSelfProject } from '@/server/repository/selfProject';
+import {
+  promoteReportEvidence, promotedReportBytes, reportCopyBytes, resolveReportEvidence, type ResolvedReportEvidence,
+} from '@/server/storage/reportEvidence';
 import type { CanvasKind, DiagramArtifact, DurableSession, SketchCanvas, UserMessage } from '@/shared/types';
 
 export const runtime = 'nodejs';
@@ -39,6 +44,10 @@ export async function POST(request: Request): Promise<Response> {
   const config = getConfig();
   if (parsed.data.diagramAttachments.length > config.maxDiagramAttachments) {
     return safeJsonResponse({ error: `At most ${config.maxDiagramAttachments} diagrams may be attached.` }, { status: 400 });
+  }
+  const reportIds = parsed.data.reportAttachments.map((item) => item.reportId);
+  if (reportIds.length > MAX_REPORTS_PER_MESSAGE || new Set(reportIds).size !== reportIds.length) {
+    return safeJsonResponse({ error: `At most ${MAX_REPORTS_PER_MESSAGE} different CodeAI reports may be attached.` }, { status: 400 });
   }
   const store = getSessionStore(config.dataDir, config.hostLabel);
   let session: DurableSession;
@@ -107,12 +116,44 @@ export async function POST(request: Request): Promise<Response> {
       && priorRequest.addressedParticipantId === participant.id
       && priorRequest.text === parsed.data.text
       && (priorRequest.mode || 'ask') === mode
-      && JSON.stringify(priorRequest.diagramAttachments) === JSON.stringify(messageAttachments);
+      && JSON.stringify(priorRequest.diagramAttachments) === JSON.stringify(messageAttachments)
+      && JSON.stringify(priorRequest.reportAttachments?.map((item) => item.reportId) ?? []) === JSON.stringify(reportIds);
     return safeJsonResponse({
       error: sameRequest
         ? 'This message request was already accepted. Reload the session to see its durable state.'
         : 'This message id was already used with different content.',
     }, { status: sameRequest ? 409 : 400 });
+  }
+  // Every report file is resolved here, from the session's own copy or the diagnostics directory;
+  // the browser only names ids. Nothing is copied until the turn has a reservation.
+  let reportEvidence: ResolvedReportEvidence[] = [];
+  if (reportIds.length) {
+    // An attached home machine may run turns here, but this machine's reports stay with its own devices.
+    if (await authenticatedMachineRequest(request)) {
+      return safeJsonResponse({ error: 'CodeAI reports can be attached only from a device paired with their own machine.' }, { status: 403 });
+    }
+    let selfProject: boolean;
+    try {
+      selfProject = Boolean(await resolveSelfProject(session.projectId, config));
+    } catch (error) {
+      return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
+    }
+    if (!selfProject) {
+      return safeJsonResponse({
+        error: 'CodeAI reports can be attached only in a session of CodeAI’s own project on this machine.',
+      }, { status: 400 });
+    }
+    const resolved = await Promise.all(reportIds.map((reportId) => resolveReportEvidence(config.dataDir, session.id, reportId)));
+    if (resolved.some((item) => !item)) {
+      return safeJsonResponse({ error: 'One or more attached CodeAI reports are no longer available. Remove them and try again.' }, { status: 400 });
+    }
+    reportEvidence = resolved as ResolvedReportEvidence[];
+    const adding = reportCopyBytes(reportEvidence);
+    if (adding && await promotedReportBytes(config.dataDir, session.id) + adding > MAX_SESSION_REPORT_EVIDENCE_BYTES) {
+      return safeJsonResponse({
+        error: `This session already holds close to ${MAX_SESSION_REPORT_EVIDENCE_BYTES / 1_048_576} MB of report evidence. Continue in a new session to attach more reports.`,
+      }, { status: 413 });
+    }
   }
   try {
     await recoverDockerExecution(config);
@@ -182,8 +223,16 @@ export async function POST(request: Request): Promise<Response> {
     createdAt: new Date().toISOString(),
     status: 'sending',
     diagramAttachments: messageAttachments,
+    ...(reportEvidence.length ? { reportAttachments: reportEvidence.map((item) => item.record) } : {}),
     mode,
   };
+  // Evidence is written before the message that points at it, so no message references a missing file.
+  try {
+    await promoteReportEvidence(config.dataDir, session.id, reportEvidence);
+  } catch {
+    runRegistry.release(runId);
+    return safeJsonResponse({ error: 'The attached report could not be saved on this machine. Your draft is preserved.' }, { status: 503 });
+  }
   try {
     const accepted = await store.appendUserMessage(session.id, userMessage);
     session = accepted.session;

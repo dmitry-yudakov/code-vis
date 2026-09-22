@@ -215,9 +215,12 @@ identity fails closed; the whole `session-store-v2` directory is the backup/rest
 `conversation-store-v1` upgrade also remains supported). Older
 `threads.json` and browser records are not imported or modified.
 
-Session records accept version 3 (implicit local execution) and version 4 (required `execution:
-'local' | 'docker'`). Reads do not migrate either format; mutations, public snapshots, and exports
-preserve the version and execution metadata. New sessions remain version 3. Docker sessions keep
+Session records accept version 3 (implicit local execution), version 4 (required `execution:
+'local' | 'docker'`), and version 5 (version 4 whose user messages may carry report evidence). Reads
+do not migrate any format; mutations, public snapshots, and exports preserve the version and
+execution metadata. New sessions are version 4; the mutation that first appends a report upgrades
+only that session to version 5 (a version 3 one also gains its implicit `execution: 'local'`), so a
+build without report support hides just that session. Docker sessions keep
 their fixed single-primary-repository binding and are readable here, but the message route
 rejects their turns before provider work because this checkout has no Docker runtime.
 
@@ -228,13 +231,26 @@ A headset report (`POST /api/immersive/report`) lands in the home machine's diag
 the stored base name; every route checks it against one pattern before building a path. The report
 may carry the machine/project/session selected when it was captured, but only as a label.
 
-What decides whether reports are visible is the **self project**:
+What decides whether reports are visible and attachable is the **self project**:
 `src/server/repository/selfProject.ts` accepts a project only when its primary repository binding
 belongs to this host and resolves, through `CheckoutRegistry`, to the same real path as
 `config.installationRoot` (the working directory, or `CODEAI_INSTALLATION_ROOT` for the end-to-end
 server). `GET /api/immersive/reports`, `/reports/<id>`, and `/reports/<id>/image` take a project id,
 re-check that rule on every request, are personal-device-only, return no host paths, and answer
-`private, no-store`. Remote executors never serve reports.
+`private, no-store`. Remote executors never serve reports, and a turn requested by an attached home
+machine's bearer credential may not name any.
+
+A message names report ids, never paths or bytes. The message route re-checks the session's
+project, resolves each id from the session's promoted copy first and the diagnostics directory
+second, and refuses an unavailable report, a fifth report, or a session holding more than 64 MB of
+evidence before it reserves a run. After reservation it copies diagnostics evidence to
+`<dataDir>/attachments/<session>/reports/` (`0700` directories, `0600` files; JPEG then JSON, each
+renamed into place, then the directory flushed) and only then appends the message, whose record
+keeps bounded metadata. A crash between the two leaves an unreferenced copy that the next send
+reuses. Promoted copies are never
+pruned; they follow the session through restart and archive/restore. Turn preparation copies them
+into the run directory; the prompt names them as untrusted observed evidence, Codex receives each
+JPEG as `localImage`, and Claude reads the same files from its added directory.
 
 ## The streamed agent route
 
@@ -252,7 +268,8 @@ re-check that rule on every request, are personal-device-only, return no host pa
    eligible work elsewhere.
 4. When the scheduler starts the turn, build the historical prompt delta from the current canonical
    record and a bounded per-run temporary directory outside the repository (`code-ai-run-*`) holding
-   diagram attachments plus git status/diff snapshots from `src/server/repository/`.
+   diagram attachments, the message's promoted CodeAI reports (JSON, optional JPEG, and
+   `report-attachments.json`), plus git status/diff snapshots from `src/server/repository/`.
 5. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
    and role contract, the historical-context JSON delta, and the current request as one JSON
    value. Historical text is data, never framing.

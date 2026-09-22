@@ -576,6 +576,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .report-list-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
 .report-list-header button { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px; background: var(--raised-backdrop-button); font-size: 14px; }
 .report-item { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
+.report-item.attached { border-color: var(--plot); }
 .report-select { width: 100%; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 9px; border: 0; text-align: left; background: transparent; }
 .report-select img, .report-mark { width: 96px; height: 72px; border: 1px solid var(--line); border-radius: 6px; object-fit: cover; background: var(--sheet); }
 .report-mark { display: grid; place-items: center; color: var(--muted); font-size: 18px; }

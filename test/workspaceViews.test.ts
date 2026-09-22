@@ -12,6 +12,8 @@ import {
   reconcileSpatialView,
   resetSpatialView,
   updateWorkspaceView,
+  withPendingReport,
+  withPendingReports,
   workspaceScopeKey,
 } from '@/features/shell/workspaceViews';
 import { offeredModelSelection } from '@/shared/modelChoices';
@@ -104,6 +106,31 @@ describe('device workspace views', () => {
     ]);
     expect(replacePendingCanvasRevision([OTHER_CANVAS], CANVAS, REVISION)).toEqual([OTHER_CANVAS]);
     expect(replacePendingCanvasRevision(undefined, CANVAS, REVISION)).toBeUndefined();
+  });
+
+  it('keeps pending reports per session view, well formed, unique, and bounded to one message', () => {
+    const report = (second: number) => `2026-09-21T18-12-${String(second).padStart(2, '0')}.123Z-capture`;
+    const stored = JSON.stringify({ version: 1, scopes: { [scopeId]: { openSessionIds: [SESSION_A, SESSION_B], views: {
+      [SESSION_A]: { composer: '', unread: 0, canvasViews: {}, pendingReportIds: [
+        report(1), report(1), '../escape', 7, `${report(2)}.json`, report(2), report(3), report(4), report(5),
+      ] },
+      [SESSION_B]: { composer: '', unread: 0, canvasViews: {}, pendingReportIds: ['not-a-report'] },
+    } } } });
+    const views = getWorkspaceScope(parseDeviceWorkspace(stored), scopeId).views;
+    expect(views[SESSION_A].pendingReportIds).toEqual([report(1), report(2), report(3), report(4)]);
+    expect(views[SESSION_B]).not.toHaveProperty('pendingReportIds');
+
+    expect(withPendingReport(undefined, report(1))).toEqual([report(1)]);
+    expect(withPendingReport([report(1)], report(1))).toEqual([report(1)]);
+    expect(withPendingReport([report(1), report(2), report(3), report(4)], report(5))).toHaveLength(4);
+    const view = views[SESSION_A];
+    expect(withPendingReports(view, view.pendingReportIds!)).toBe(view);
+    expect(withPendingReports(view, [])).not.toHaveProperty('pendingReportIds');
+    // A delayed update names its own scope and session, so another view is never touched.
+    const workspace = updateWorkspaceView(parseDeviceWorkspace(stored), workspaceScopeKey(MISSING), SESSION_B,
+      (current) => withPendingReports(current, withPendingReport(current.pendingReportIds, report(9))));
+    expect(getWorkspaceScope(workspace, workspaceScopeKey(MISSING)).views[SESSION_B].pendingReportIds).toEqual([report(9)]);
+    expect(getWorkspaceScope(workspace, scopeId).views[SESSION_B]).not.toHaveProperty('pendingReportIds');
   });
 
   it('parses and bounds only device-owned fields', () => {
