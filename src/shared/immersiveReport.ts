@@ -82,6 +82,12 @@ export interface ImmersiveReportDetail {
   report: StoredImmersiveReport;
 }
 
+/** `name` keeps Story 56's meaning and equals `summary.id`. */
+export interface ImmersiveReportAccepted {
+  name: string;
+  summary: ImmersiveReportSummary;
+}
+
 export function isImmersiveReportId(value: unknown): value is string {
   return typeof value === 'string' && IMMERSIVE_REPORT_ID.test(value);
 }

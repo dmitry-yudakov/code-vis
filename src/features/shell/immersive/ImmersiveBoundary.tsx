@@ -9,6 +9,7 @@ import { probeImmersiveCapability } from '@/features/diagram/spatial/immersiveCa
 import type { ImmersiveAvailability, ImmersiveController, ImmersiveSemanticAction, ImmersiveWorkspaceProps } from '@/features/diagram/spatial/immersiveTypes';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { noteImmersiveError, setImmersiveReportContext } from './immersiveReport';
+import type { ImmersiveReportContext } from '@/shared/immersiveReport';
 import { SESSION_ACTIONS } from './sessionControls';
 import { CONVERSATION_ACTIONS } from './conversationControls';
 import { CONVERSATION_LIST_BATCH_SIZE, sortConversationChoices } from './conversationListModel';
@@ -52,8 +53,10 @@ class RendererBoundary extends Component<{ children: ReactNode; onError(message:
   render() { return this.state.failed ? null : this.props.children; }
 }
 
-type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'canvasReview' | 'sessionControls' | 'arenaControls' | 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession'> & {
+type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'canvasReview' | 'sessionControls' | 'arenaControls' | 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession' | 'onReportCaptured'> & {
   authorized: boolean;
+  /** The selected machine/project/session, recorded on each report as a label. */
+  reportContext: ImmersiveReportContext;
   onSelectCanvas(id: string): void;
   onActiveChange(active: boolean): void;
   /** Why VR cannot be entered here, for the shell's menu; undefined while checking or available. */
@@ -71,7 +74,7 @@ const ACTIONS: Array<[ImmersiveSemanticAction, string]> = [
 ];
 
 /** XR presentation state only. AppShell supplies records, navigation actions, and polling results. */
-export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, onUnavailable, ...props }: Props) {
+export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, onActiveChange, onUnavailable, ...props }: Props) {
   const panelState = useImmersiveLayout(props.viewKey);
   const [availability, setAvailability] = useState<ImmersiveAvailability>('checking');
   const [reason, setReason] = useState<string>();
@@ -86,6 +89,10 @@ export function ImmersiveBoundary({ authorized, onSelectCanvas, onActiveChange, 
 
   useEffect(() => { recordImmersiveDiagnostic('page-ready'); }, []);
   useEffect(() => { setImmersiveReportContext({ view: props.viewKey, availability }); }, [props.viewKey, availability]);
+  const { machineId: reportMachineId, projectId: reportProjectId, sessionId: reportSessionId } = reportContext;
+  useEffect(() => {
+    setImmersiveReportContext({ selection: { machineId: reportMachineId, projectId: reportProjectId, sessionId: reportSessionId } });
+  }, [reportMachineId, reportProjectId, reportSessionId]);
 
   useEffect(() => {
     let cancelled = false;

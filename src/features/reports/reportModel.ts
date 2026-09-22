@@ -56,6 +56,21 @@ export function reportCaptureLabel(
   return `Captured in ${where}`;
 }
 
+/**
+ * The session a deliberate capture waits in: the one selected when it was taken, on this machine,
+ * in a project the home machine last answered is CodeAI's own. Anything else is only saved. The
+ * message route re-checks eligibility when the report is sent.
+ */
+export function capturedReportTarget(
+  summary: Pick<ImmersiveReportSummary, 'kind' | 'context'>,
+  localMachineId: string | undefined,
+  isSelfProject: (projectId: string) => boolean,
+): { projectId: string; sessionId: string } | undefined {
+  const { machineId, projectId, sessionId } = summary.context || {};
+  if (summary.kind !== 'capture' || !localMachineId || machineId !== localMachineId || !projectId || !sessionId) return undefined;
+  return isSelfProject(projectId) ? { projectId, sessionId } : undefined;
+}
+
 /** The transcript's statement of the reports a message carried. */
 export function reportAttachmentSummary(records: readonly ReportAttachmentRecord[]): string {
   const screenshots = records.filter((record) => record.screenshotIncluded).length;

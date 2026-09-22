@@ -18,6 +18,8 @@ export interface ImmersiveReportsOwner {
   loading: boolean;
   error?: string;
   refresh(): Promise<void>;
+  /** Whether the home machine last answered that this project is CodeAI's own. */
+  isSelfProject(projectId?: string): boolean;
 }
 
 /**
@@ -27,6 +29,7 @@ export interface ImmersiveReportsOwner {
 export function useImmersiveReports(projectId?: string): ImmersiveReportsOwner {
   const [state, setState] = useState<{ projectId?: string; list?: ImmersiveReportList; loading: boolean; error?: string }>({ loading: false });
   const latestRequest = useRef(0);
+  const selfProjects = useRef(new Set<string>());
   // A refresh requested by a delayed callback reads whichever project is selected when it runs.
   const currentProjectId = useRef(projectId);
   currentProjectId.current = projectId;
@@ -45,6 +48,8 @@ export function useImmersiveReports(projectId?: string): ImmersiveReportsOwner {
       const response = await fetch(`${IMMERSIVE_REPORTS_PATH}?projectId=${encodeURIComponent(projectId)}`, { cache: 'no-store' });
       const data = await response.json().catch(() => ({})) as Partial<ImmersiveReportList> & { error?: string };
       if (!response.ok || typeof data.available !== 'boolean') throw new Error(data.error || 'Reports could not be loaded.');
+      if (data.available) selfProjects.current.add(projectId);
+      else selfProjects.current.delete(projectId);
       if (request === latestRequest.current) setState({ projectId, list: data as ImmersiveReportList, loading: false });
     } catch (error) {
       if (request === latestRequest.current) {
@@ -56,6 +61,7 @@ export function useImmersiveReports(projectId?: string): ImmersiveReportsOwner {
   useEffect(() => { void refresh(); }, [projectId, refresh]);
 
   const list = state.projectId === projectId ? state.list : undefined;
+  const isSelfProject = useCallback((id?: string) => Boolean(id && selfProjects.current.has(id)), []);
   return {
     projectId,
     available: list?.available === true,
@@ -64,5 +70,6 @@ export function useImmersiveReports(projectId?: string): ImmersiveReportsOwner {
     loading: state.projectId === projectId && state.loading,
     error: state.projectId === projectId ? state.error : undefined,
     refresh,
+    isSelfProject,
   };
 }

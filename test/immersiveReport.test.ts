@@ -82,15 +82,29 @@ describe('immersive reporting from the headset', () => {
     }
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(MAX_AUTO_REPORTS_PER_DOCUMENT));
     // A report the reporter asked for is never dropped by the automatic budget.
-    expect(await module.sendImmersiveReport({ kind: 'capture', note: 'Reported from the workspace' })).toBe('sent');
+    expect(await module.sendImmersiveReport({ kind: 'capture', note: 'Reported from the workspace' })).toEqual({ outcome: 'sent' });
     expect(fetch).toHaveBeenCalledTimes(MAX_AUTO_REPORTS_PER_DOCUMENT + 1);
+  });
+
+  it('records the selection as the report is sent and returns the stored summary', async () => {
+    const { fetch } = browser();
+    const summary = { id: '2026-09-21T18-12-03.123Z-capture', receivedAt: '2026-09-21T18:12:03.123Z', kind: 'capture', errorCount: 0, screenshot: true };
+    fetch.mockImplementation(async () => new Response(JSON.stringify({ name: summary.id, summary })));
+    const module = await import('@/features/shell/immersive/immersiveReport');
+    const selection = { machineId: crypto.randomUUID(), projectId: crypto.randomUUID(), sessionId: crypto.randomUUID() };
+    module.setImmersiveReportContext({ selection: { ...selection, sessionId: crypto.randomUUID() } });
+    module.setImmersiveReportContext({ selection });
+    expect(await module.sendImmersiveReport({ kind: 'capture', screenshot: '/9j/' })).toEqual({ outcome: 'sent', summary });
+    module.setImmersiveReportContext({ selection: { machineId: selection.machineId } });
+    await module.sendImmersiveReport({ kind: 'capture' });
+    expect(bodies(fetch).map((body) => body.context)).toEqual([selection, { machineId: selection.machineId }]);
   });
 
   it('carries the screenshot and records a diagnostic when the upload fails', async () => {
     const { fetch } = browser(false);
     const module = await import('@/features/shell/immersive/immersiveReport');
     const diagnostics = await import('@/features/shell/immersive/immersiveDiagnostics');
-    expect(await module.sendImmersiveReport({ kind: 'capture', screenshot: '/9j/', note: 'Reported from the workspace' })).toBe('failed');
+    expect(await module.sendImmersiveReport({ kind: 'capture', screenshot: '/9j/', note: 'Reported from the workspace' })).toEqual({ outcome: 'failed' });
     expect(bodies(fetch)[0]).toMatchObject({ kind: 'capture', screenshot: '/9j/' });
     expect(diagnostics.getImmersiveDiagnostics().events.map((event) => event.event)).toContain('report-failed');
   });

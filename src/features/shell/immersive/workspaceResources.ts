@@ -129,3 +129,21 @@ export function createEvidenceResource(lines: readonly string[], theme: ThemeNam
   });
   return texturePanel(canvas, [1.32, 0.99], ledger);
 }
+
+export const REPORT_PREVIEW_WORLD_SIZE = [0.5, 0.375] as const;
+const REPORT_PREVIEW_RASTER_SIZE = [512, 384] as const;
+
+/** A bounded, letterboxed copy of a report screenshot; the decoded source is not retained. */
+export function createReportPreviewResource(image: ImageBitmap, theme: ThemeName, ledger: SpatialResourceLedger) {
+  const [width, height] = REPORT_PREVIEW_RASTER_SIZE;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Report preview unavailable.');
+  context.fillStyle = immersiveTheme[theme].raised;
+  context.fillRect(0, 0, width, height);
+  const scale = Math.min(width / image.width, height / image.height);
+  context.drawImage(image, (width - image.width * scale) / 2, (height - image.height * scale) / 2, image.width * scale, image.height * scale);
+  return texturePanel(canvas, REPORT_PREVIEW_WORLD_SIZE, ledger);
+}

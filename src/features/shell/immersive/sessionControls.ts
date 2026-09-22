@@ -1,4 +1,5 @@
 import type { PendingPermission } from '@/features/agents/toolActivity';
+import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import type { AgentMode, AgentProvider, ArenaMachineSnapshot, CheckoutSummary } from '@/shared/types';
 
 export interface PermissionTarget extends PendingPermission {
@@ -39,6 +40,27 @@ export interface SessionCreation {
   mode: AgentMode;
 }
 
+/**
+ * Where a deliberate capture went: pending in the session that was active when it was taken and
+ * still is, pending in a session the user has since left, or only saved.
+ */
+export type ImmersiveReportPlacement = 'active' | 'attached' | 'saved';
+
+/** The shared report owner as the headset sees it; present only in CodeAI's own project. */
+export interface ImmersiveReportControls {
+  projectId: string;
+  reports: ImmersiveReportSummary[];
+  loading: boolean;
+  error?: string;
+  /** Report ids pending for the active session's next message. */
+  pendingIds: string[];
+  /** False without an active session, or while the pending list is full. */
+  canAttach: boolean;
+  onRefresh(): void;
+  onAttach(id: string): void;
+  onRemove(id: string): void;
+}
+
 export interface ImmersiveSessionControls {
   machines: ArenaMachineSnapshot[];
   machineId?: string;
@@ -55,6 +77,7 @@ export interface ImmersiveSessionControls {
   cancelKey?: string;
   canRetry: boolean;
   requestedPermissionKey?: string;
+  reports?: ImmersiveReportControls;
   onCreate(input: SessionCreation): Promise<boolean>;
   onAttach(checkoutId: string): Promise<void>;
   onDecide(target: PermissionTarget, decision: 'allow' | 'deny'): void;
@@ -72,6 +95,8 @@ export const SESSION_ACTIONS = {
   previous: 'Previous request', next: 'Next request', older: 'Previous details', newer: 'More details',
   allow: 'Allow', deny: 'Deny', refresh: 'Refresh status', cancel: 'Cancel run', retry: 'Retry instruction', return: 'Return to prior session',
   revoke: 'Forget this device', 'confirm-revoke': 'Confirm forget',
+  reports: 'Reports', 'previous-report': 'Previous report', 'next-report': 'Next report',
+  'attach-report': 'Attach report', 'remove-report': 'Remove report',
 } as const;
 export type SessionActionName = keyof typeof SESSION_ACTIONS;
 export type SessionAction = `session:${SessionActionName}`;

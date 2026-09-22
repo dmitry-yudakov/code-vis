@@ -4,7 +4,7 @@ import type { RootState } from '@react-three/fiber';
 import type { XRStore } from '@react-three/xr';
 import type { Mesh } from 'three';
 import { expect, test, type Page } from '@playwright/test';
-import type { ArenaMachineSnapshot, DurableProject, PublicSession } from '../src/shared/types';
+import type { ArenaMachineSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 import { validVoiceWav } from '../src/shared/voice';
 
 test.use({ launchOptions: { args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });
@@ -2309,7 +2309,8 @@ test('reports the workspace view and forwarded errors to the home machine', asyn
   const image = await readFile(path.join(directory, capture.replace('.json', '.jpg')));
   expect([...image.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
   expect(image.byteLength).toBeGreaterThan(2_000);
-  await expect.poll(async () => (await workspaceStatus(page))?.detail).toContain('Report sent with a screenshot');
+  // Outside CodeAI's own project a capture is kept on the home machine and attached nowhere.
+  await expect.poll(async () => (await workspaceStatus(page))?.detail).toBe('Report saved');
 
   await page.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'Injected workspace failure.' })));
   await expect.poll(async () => (await stored('error')).length, { timeout: 15_000 }).toBe(1);
@@ -2328,6 +2329,79 @@ test('reports the workspace view and forwarded errors to the home machine', asyn
   expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
   expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events.map((entry) => entry.event)))
     .toContain('report-failed');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
+test('captures a report into the selected CodeAI session and attaches a saved one from the immersive Reports view', async ({ page, request }) => {
+  const stamp = Date.now();
+  const { checkouts, hostId } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+  const installation = checkouts.find((item) => item.relativePath === 'installation')!;
+  const project = (await (await request.post('/api/projects', { data: { name: `Headset self ${stamp}`, checkoutIds: [installation.id] } })).json()).project as DurableProject;
+  const session = (await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json()).session as PublicSession;
+  const messages = async () => ((await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession).messages;
+  const replies = async () => (await messages()).filter((message) => message.role === 'assistant').length;
+  await installAdapter(page);
+  await page.goto('/');
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(project.name) }).click();
+  await expect(page.locator('.project-search-trigger')).toContainText(project.name);
+  await enter(page);
+  await expect(controls(page).locator('strong').first()).toHaveText(session.title);
+
+  // A deliberate capture waits in the session it was taken in, and brings its conversation forward.
+  await controls(page).locator('[data-immersive-action="report"]').click();
+  await expect.poll(async () => (await workspaceStatus(page))?.detail, { timeout: 15_000 }).toBe('Report ready to send');
+  await expect.poll(async () => (await conversationState(page))?.conversationTab).toBe('compose');
+  await expect(page.locator('.attachment-chip.report')).toHaveCount(1);
+  const input = page.locator('[data-immersive-message-input]');
+  await input.fill('The panel at the right is clipped.');
+  await conversationAction(page, 'send');
+  await expect.poll(replies, { timeout: 15_000 }).toBe(1);
+  const [captured] = await messages();
+  expect(captured).toMatchObject({ role: 'user', text: 'The panel at the right is clipped.', reportAttachments: [{ kind: 'capture', screenshotIncluded: true }] });
+  const capturedId = captured.role === 'user' ? captured.reportAttachments![0].reportId : '';
+  const stored = JSON.parse(await readFile(path.resolve('test-results/server-data/diagnostics', `${capturedId}.json`), 'utf8'));
+  expect(stored.context).toEqual({ machineId: hostId, projectId: project.id, sessionId: session.id });
+  await expect(page.locator('.attachment-chip.report')).toHaveCount(0);
+
+  // A report saved with no session selected is attached later, from the headset's own Reports view.
+  const saved = await request.post('/api/immersive/report', { data: {
+    version: 1, kind: 'capture', at: new Date().toISOString(), browser: 'E2E headset', note: `Saved for later ${stamp}`,
+    errors: [], diagnostics: { version: 1, browser: 'E2E headset', events: [] },
+  } });
+  const savedId = (await saved.json() as { name: string }).name;
+  await sessionAction(page, 'tools'); await sessionAction(page, 'reports');
+  await expect.poll(async () => (await sessionToolsState(page))?.reportId).toBe(savedId);
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain(`Saved for later ${stamp}`);
+  // The world control is what a controller reaches; the DOM controls mirror the same actions.
+  await pointAtAction(page, 'session:attach-report'); await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(async () => (await sessionToolsState(page))?.reportPending).toBe(true);
+  await sessionAction(page, 'remove-report');
+  await expect.poll(async () => (await sessionToolsState(page))?.reportPending).toBe(false);
+  // The earlier capture is next, and its screenshot is previewed beside its details.
+  await sessionAction(page, 'next-report');
+  await expect.poll(async () => (await sessionToolsState(page))?.reportId).toBe(capturedId);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Report preview')?.userData.reportPreview))
+    .toContain(capturedId);
+  await sessionAction(page, 'previous-report');
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Report preview')))).toBe(false);
+  await expect.poll(async () => (await sessionToolsState(page))?.reportId).toBe(savedId);
+  await sessionAction(page, 'attach-report');
+  await expect(page.locator('.attachment-chip.report')).toHaveCount(1);
+  await sessionAction(page, 'tools');
+  await input.fill('This one was saved earlier.');
+  await conversationAction(page, 'send');
+  await expect.poll(replies, { timeout: 15_000 }).toBe(2);
+  expect((await messages())[2]).toMatchObject({ role: 'user', reportAttachments: [{ reportId: savedId, screenshotIncluded: false }] });
+
+  // An automatic error report is kept and listed, never attached.
+  await page.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'Injected report-flow failure.' })));
+  await expect.poll(async () => {
+    const list = await (await request.get(`/api/immersive/reports?projectId=${project.id}`)).json() as { reports?: Array<{ latestError?: string }> };
+    return list.reports?.some((report) => report.latestError?.includes('Injected report-flow failure.'));
+  }, { timeout: 15_000 }).toBe(true);
+  await expect(page.locator('.attachment-chip.report')).toHaveCount(0);
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
 });

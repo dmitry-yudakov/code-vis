@@ -2,7 +2,7 @@ import { authorizePersonalDeviceRequest } from '@/server/devices/deviceAuthoriza
 import { storeImmersiveReport } from '@/server/diagnostics/immersiveReports';
 import { boundedRequestBody } from '@/server/machines/boundedBody';
 import {
-  MAX_IMMERSIVE_REPORT_BYTES, immersiveReportSchema, validImmersiveScreenshot,
+  MAX_IMMERSIVE_REPORT_BYTES, immersiveReportSchema, validImmersiveScreenshot, type ImmersiveReportAccepted,
 } from '@/shared/immersiveReport';
 import { safeJsonResponse } from '@/shared/protocol';
 
@@ -29,8 +29,9 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
   try {
-    const { name } = await storeImmersiveReport(report.data, screenshot);
-    return safeJsonResponse({ name });
+    const { name, summary } = await storeImmersiveReport(report.data, screenshot);
+    const accepted: ImmersiveReportAccepted = { name, summary };
+    return safeJsonResponse(accepted);
   } catch {
     return safeJsonResponse({ error: 'The report could not be written on the home machine.' }, { status: 503 });
   }

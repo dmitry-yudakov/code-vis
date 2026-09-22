@@ -47,8 +47,10 @@ describe.sequential('paired home immersive report route', () => {
     const response = await POST(request(report({ screenshot: jpeg.toString('base64') })));
     expect(response.status).toBe(200);
     // Named by arrival on this machine; the headset's own clock stays inside the report.
-    const { name } = await response.json();
+    const { name, summary } = await response.json();
     expect(name).toMatch(/^\d{4}-\d{2}-\d{2}T[\d-]+\.\d{3}Z-capture$/);
+    // Story 63: the stored name is the report id, summarized for the headset that sent it.
+    expect(summary).toMatchObject({ id: name, kind: 'capture', note: 'Reported from the workspace', errorCount: 0, screenshot: true });
     const directory = path.join(dataDir, 'diagnostics');
     expect((await readdir(directory)).sort()).toEqual([`${name}.jpg`, `${name}.json`]);
     const stored = JSON.parse(await readFile(path.join(directory, `${name}.json`), 'utf8'));

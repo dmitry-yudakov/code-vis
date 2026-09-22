@@ -10,6 +10,7 @@ import {
 export interface StoredImmersiveReportFile {
   name: string;
   directory: string;
+  summary: ImmersiveReportSummary;
 }
 
 /** One report's validated record, with the exact JSON bytes it was read from. */
@@ -128,5 +129,5 @@ export async function storeImmersiveReport(
     report.errors.at(-1)?.message,
   ].filter(Boolean).join(': ');
   console.error(`[vr-report] ${path.join(directory, name)}.json — ${detail}`);
-  return { name, directory };
+  return { name, directory, summary: summarizeImmersiveReport(name, record, Boolean(screenshot)) };
 }

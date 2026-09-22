@@ -236,6 +236,15 @@ describe('readable workspace text', () => {
     expect(lines[0]).toMatch(/^  const/);
     expect(lines.join('')).toBe(source.replaceAll('\n', ''));
   });
+  it('states attached canvases and CodeAI reports on a user message as the flat transcript does', () => {
+    const message: ChatMessage = {
+      id: 'u', role: 'user', authorId: 'h', addressedParticipantId: 'a', text: 'The right panel is clipped.', createdAt: '', status: 'sent',
+      diagramAttachments: [{ diagramId: 'd', kind: 'sketch', marksSnapshot: [], viewport: { viewBox: [0, 0, 1, 1] }, compositeIncluded: false }],
+      reportAttachments: [{ reportId: '2026-09-21T18-12-03.123Z-capture', receivedAt: '2026-09-21T18:12:03.123Z', kind: 'capture', screenshotIncluded: true, errorCount: 2 }],
+    };
+    expect(immersiveMessageEntry(message, new Map()).text)
+      .toBe('The right panel is clipped.\n\nAttachments: sketch.\n\n1 CodeAI report attached · screenshot · 2 errors.');
+  });
   it('pages both staged and working-tree patches without clipping long lines', () => {
     const staged = `@@ fixture @@\n+${'x'.repeat(160)}`;
     const unstaged = Array.from({ length: 80 }, (_, i) => `-  removed ${i}`).join('\n');

@@ -1,4 +1,5 @@
-import type { ImmersiveSessionControls, SessionAction } from '@/features/shell/immersive/sessionControls';
+import type { ImmersiveReportPlacement, ImmersiveSessionControls, SessionAction } from '@/features/shell/immersive/sessionControls';
+import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, SessionSnapshot } from '@/shared/types';
 import type { GitFileDiff, GitWorkingTree } from '@/shared/types';
@@ -136,6 +137,8 @@ export interface ImmersiveWorkspaceProps {
   onPreviousCanvas(): void;
   onNextCanvas(): void;
   onExit(): void;
+  /** Places a deliberate capture the home machine accepted; see `ImmersiveReportPlacement`. */
+  onReportCaptured?(summary: ImmersiveReportSummary): ImmersiveReportPlacement;
 }
 
 export interface ImmersiveTestHooks {

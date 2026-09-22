@@ -10,6 +10,7 @@ import type {
   ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, ReportAttachmentRecord, RunDescriptor, RunDiscovery,
   SketchCanvas, UserMessage,
 } from '@/shared/types';
+import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import { MAX_REPORTS_PER_MESSAGE } from '@/shared/limits';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { readNdjson } from '@/features/conversation/ndjson';
@@ -40,7 +41,7 @@ import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { useRepositoryChanges } from '@/features/repository/useRepositoryChanges';
 import { useRepositoryDiff } from '@/features/repository/useRepositoryDiff';
 import { ReportsPanel } from '@/features/reports/ReportsPanel';
-import { REPORT_ONLY_INSTRUCTION, pendingReportLabel } from '@/features/reports/reportModel';
+import { REPORT_ONLY_INSTRUCTION, capturedReportTarget, pendingReportLabel } from '@/features/reports/reportModel';
 import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
 import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
@@ -60,6 +61,7 @@ import { ImmersiveBoundary } from './immersive/ImmersiveBoundary';
 import { usePermissionDecisions } from './usePermissionDecisions';
 import { permissionKey, type PermissionTarget } from './immersive/sessionControls';
 import type { ImmersiveSessionChoice } from '@/features/diagram/spatial/immersiveTypes';
+import type { ImmersiveReportPlacement } from './immersive/sessionControls';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
@@ -161,6 +163,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   sessionsRef.current = sessions;
   const focusedSessionIdRef = useRef(sessionId);
   focusedSessionIdRef.current = sessionId;
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
   const onPermissionOutcome = useCallback((target: PermissionTarget, message: string) => {
     setNotice(`${target.sessionTitle}: ${message}`);
   }, []);
@@ -780,6 +784,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pendingReportChips = pendingReportIds.map((id) => ({
     id, label: pendingReportLabel(id, reports.reports.find((report) => report.id === id)),
   }));
+  /** A deliberate capture waits in exactly its capture-time session's next message, wherever the user is now. */
+  const placeCapturedReport = useCallback((summary: ImmersiveReportSummary): ImmersiveReportPlacement => {
+    void reports.refresh();
+    const target = capturedReportTarget(summary, localMachineId, reports.isSelfProject);
+    if (!target) return 'saved';
+    let attached = false;
+    workspace.updateViewInProject(target.projectId, target.sessionId, (current) => {
+      const pending = withPendingReport(current.pendingReportIds, summary.id);
+      attached = pending.includes(summary.id);
+      return withPendingReports(current, pending);
+    });
+    if (!attached) return 'saved';
+    const active = machineIdRef.current === localMachineId && projectIdRef.current === target.projectId
+      && focusedSessionIdRef.current === target.sessionId;
+    return active ? 'active' : 'attached';
+  }, [localMachineId, reports.isSelfProject, reports.refresh, workspace.updateViewInProject]);
 
   const togglePin = useCallback((canvasId: string) => {
     if (!sessionId) return;
@@ -1701,6 +1721,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               requestedPermissionKey: immersivePermissionRequest
                 && immersivePermissionRequest.machineId === (machineId || localMachineId)
                 && immersivePermissionRequest.sessionId === sessionId ? immersivePermissionRequest.key : undefined,
+              reports: reports.available && reports.projectId ? {
+                projectId: reports.projectId, reports: reports.reports, loading: reports.loading, error: reports.error,
+                pendingIds: pendingReportIds,
+                canAttach: Boolean(session) && pendingReportIds.length < MAX_REPORTS_PER_MESSAGE,
+                onRefresh: () => { void reports.refresh(); },
+                onAttach: (id) => setPendingReportIds((current) => withPendingReport(current, id)),
+                onRemove: removeReport,
+              } : undefined,
               onCreate: ({ provider, ...options }) => createSession(provider, { ...options, fromArena: true }),
               onAttach: (checkoutId) => updateRepositories((current) => [
                 ...current.filter((item) => item.checkoutId !== checkoutId).map((item) => ({ ...item, role: 'reference' as const })),
@@ -1711,7 +1739,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               onCancel: () => { if (session && focusedRun?.runId) void cancelRun({ machineId, sessionId: session.id, runId: focusedRun.runId }); },
               onRetry: () => {
                 const message = session?.messages.findLast((item) => item.role === 'user');
-                if (message?.role === 'user') prefillHandoff(message.addressedParticipantId, message.text, message.mode);
+                if (message?.role === 'user') {
+                  retryMessage(message.addressedParticipantId, message.text, message.mode,
+                    message.reportAttachments?.map((report) => report.reportId) || []);
+                }
               },
               onReturn: immersiveReturnChoice ? returnFromImmersiveAttention : undefined,
               onRevoke: () => {
@@ -1740,13 +1771,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             conversation={!loading && session ? {
               draft: composer,
               target: `${session.title} · ${activeAgent?.displayName || 'No agent'} · ${PROVIDER_LABELS[activeProvider]} · ${mode}`,
-              attachments: attachedCanvases.map((canvas) => {
+              attachments: [...attachedCanvases.map((canvas) => {
                 const id = canvasTargetId(canvas);
                 return `${canvas.kind === 'diagram' ? `Diagram ${canvas.artifact.ordinal}` : 'Sketch'} · ${session.annotations[id]?.marks.length || 0} marks`;
-              }),
+              }), ...pendingReportChips.map((report) => report.label)],
               canSend: !sessionRunning && !participantBusy && Boolean(activeAgent && providerHealth?.available)
                 && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
-                && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch')),
+                && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch') || pendingReportIds.length > 0),
               running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
               cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
               agents, activeAgentId: activeAgent?.id, primaryAgentId: session.primaryAgentId,
@@ -1758,6 +1789,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               onMakePrimary: (id) => { void setPrimaryAgent(id); },
             } : undefined}
             authorized={deviceAccess.authenticated && deviceAccess.transportSecure}
+            reportContext={{ machineId: machineId || localMachineId, projectId, sessionId }}
+            onReportCaptured={placeCapturedReport}
             session={loading ? undefined : session}
             viewKey={immersiveViewKey(machineId || localMachineId, projectId, sessionId)}
             evidence={{ ...repositoryDiff, machineLabel: immersiveMachine?.machine.label || health?.hostLabel || 'This machine',

@@ -1,6 +1,6 @@
 # Story 63 — Use headset reports as conversation evidence
 
-**Status:** In progress (Parts A and B implemented; Part C follows) · **Type:** Full-stack · **Depends on:** [Story 47](STORY-20260905-vr-conversation-input.md), [Story 56](STORY-20260919-vr-report-from-headset.md), [Story 62](STORY-20260920-simplify-flat-shell.md); Part B also needs [Story 65](STORY-20260921-tolerate-newer-session-format.md) shipped first
+**Status:** In progress (every box ticked; the physical Quest 3S steps of How to verify are not yet run) · **Type:** Full-stack · **Depends on:** [Story 47](STORY-20260905-vr-conversation-input.md), [Story 56](STORY-20260919-vr-report-from-headset.md), [Story 62](STORY-20260920-simplify-flat-shell.md); Part B also needs [Story 65](STORY-20260921-tolerate-newer-session-format.md) shipped first
 
 **Vision slice:** the complete immersive work loop in the
 [immersive workspace epic](EPIC-20260905-immersive-workspace.md) and the intent/context side of the
@@ -334,21 +334,21 @@ Story 65's README note asks every checkout sharing a data directory to include i
 
 ### Part C
 
-- [ ] The immersive Reports view lists, previews, refreshes, attaches, and removes through
+- [x] The immersive Reports view lists, previews, refreshes, attaches, and removes through
       controller-reachable controls mirrored by the DOM semantic controls, using the shared owners.
-- [ ] A deliberate capture made with a selected session in a self project becomes a removable pending
+- [x] A deliberate capture made with a selected session in a self project becomes a removable pending
       attachment for the session selected at capture time, and focuses the conversation only when that
       session is still active. Captures made elsewhere and automatic errors are saved and listed but
       never attached automatically.
-- [ ] The upload response carries `name` and `summary`; Story 56's criterion that the response names
+- [x] The upload response carries `name` and `summary`; Story 56's criterion that the response names
       the stored file still holds. The immersive transcript states attached reports as the flat one does.
 
 ### All parts
 
-- [ ] `npm run lint` and `npm test` pass; focused tests cover the id pattern, self-project identity,
+- [x] `npm run lint` and `npm test` pass; focused tests cover the id pattern, self-project identity,
       authorization, promotion and pruning, the duplicate-message comparison, both provider inputs, the
       limits, and old-session compatibility.
-- [ ] `npm run test:e2e`, with `CODEAI_INSTALLATION_ROOT` naming a fixture checkout, covers the flat
+- [x] `npm run test:e2e`, with `CODEAI_INSTALLATION_ROOT` naming a fixture checkout, covers the flat
       Reports tab, attach → explain → send, and in the emulated headset capture → auto-attach → send and
       later attach from the immersive Reports view.
 
@@ -376,7 +376,7 @@ Each part is its own commit, in order; the bullets below map to the parts.
   never matches. [selfProject.ts](../src/server/repository/selfProject.ts#L12) requires a local-host
   primary binding whose `CheckoutRegistry.resolve` real path equals it. A session outside a project is
   never eligible, even when bound straight to the installation.
-- **Reports (A).** The id pattern and the summary are in
+- **Reports (A).** The id pattern, summary, and `{ name, summary }` contract are in
   [immersiveReport.ts](../src/shared/immersiveReport.ts#L19). Reads by id go through
   [immersiveReports.ts](../src/server/diagnostics/immersiveReports.ts#L44), which checks the id
   before building a path and bounds every read. The three routes share
@@ -384,8 +384,8 @@ Each part is its own commit, in order; the bullets below map to the parts.
   device, then the self-project rule. The list answers `{ available: false }` with 200; detail and
   image answer it with 404. The flat tab is
   [ReportsPanel.tsx](../src/features/reports/ReportsPanel.tsx), fed by the one owner
-  [useImmersiveReports.ts](../src/features/reports/useImmersiveReports.ts); it needs an open
-  session, like the rest of the side panel, and rereads the list when shown.
+  [useImmersiveReports.ts](../src/features/reports/useImmersiveReports.ts) that the headset also
+  uses; it needs an open session, like the rest of the side panel, and rereads the list when shown.
 - **Evidence (B).** Pending ids are `DeviceViewState.pendingReportIds`, validated and capped at four
   ([workspaceViews.ts](../src/features/shell/workspaceViews.ts#L272)). The route
   ([route.ts](../src/app/api/agent/message/route.ts#L129)) refuses a request carrying an attached
@@ -406,6 +406,45 @@ Each part is its own commit, in order; the bullets below map to the parts.
   Continue turn does not ([AppShell.tsx](../src/features/shell/AppShell.tsx#L1136)). They clear when
   the turn completes, like the draft, and Retry re-adds a message's ids, saying so when the
   four-report bound drops one ([AppShell.tsx](../src/features/shell/AppShell.tsx#L972)).
+- **Headset (C).** Session tools gain **Reports** with previous/next, **Attach report**, **Remove
+  report**, and **Refresh status**, plus a bounded texture preview of the selected screenshot
+  ([SessionTools.tsx](../src/features/shell/immersive/SessionTools.tsx#L17)); the DOM semantic
+  controls mirror them through `SESSION_ACTIONS`. The report client reads the selection when a report
+  is sent. After an accepted capture, `capturedReportTarget`
+  ([reportModel.ts](../src/features/reports/reportModel.ts#L64)) names the capture-time session when
+  its project last answered as a self project on this machine, `placeCapturedReport`
+  ([AppShell.tsx](../src/features/shell/AppShell.tsx#L788)) adds the report to that view, and the workspace
+  ([ImmersiveWorkspace.tsx](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L181)) says
+  `Report ready to send` or `Report saved`, opening the compose tab only when that session is still
+  active. Story 56's three-second countdown is still not implemented; the selection is read at send
+  time, so it will stay correct when the countdown arrives.
+- **Docs.** README (headset report status, **Use reports in CodeAI's own project**, data layout,
+  `CODEAI_INSTALLATION_ROOT`), [architecture.md](../docs/architecture.md#codeai-reports),
+  [docker-execution.md](../docs/docker-execution.md), [vocabulary.md](../docs/vocabulary.md), and
+  AGENTS.md's ownership table and "Now" line.
+
+## Verification record
+
+September 22, 2026, offline only; no headset and no real provider turn.
+
+- `npm run lint` passes; `npm test` passes (80 files, 533 tests), including the new `immersiveReportList`,
+  `reportEvidence`, and `reportModel` files and the extended view, layout, transcript, report-client,
+  and Codex runner tests. Mutating the self-project rule, the route's self-project and
+  machine-credential gates, the version 3/4 strictness, or the promoted-JPEG check fails them.
+- `npm run test:e2e`: 80 of 80 pass, before and again after the review fixes, including
+  `lists CodeAI reports only in its own project, and attaches one to an explained message`
+  ([reports.spec.ts](../e2e/reports.spec.ts)) and `captures a report into the selected CodeAI
+  session and attaches a saved one from the immersive Reports view`
+  ([immersive.spec.ts](../e2e/immersive.spec.ts)), which also cover a report-only send, a failed
+  send keeping draft and chip, Retry, a controller-ray attach, and the screenshot preview.
+- A read-only review found no critical or high defect. Its medium finding (an attached home
+  machine's bearer could name an executor's reports) and lower ones (a stale refresh after a
+  project switch, no directory flush, a size-only promoted screenshot check, an unmapped store error,
+  silent Retry truncation, wording that collided with the Arena's Inbox) are fixed and tested where
+  testable.
+- Not covered automatically: a capture whose session is left before the upload answers
+  (`attached` rather than `active`); its target selection is unit-tested.
+- Pending before **Shipped**: How to verify steps 2–5 on the real installation and Quest 3S.
 
 ## How to verify
 

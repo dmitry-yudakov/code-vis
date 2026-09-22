@@ -82,10 +82,14 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
   const updateView = useCallback((sessionId: string, update: (current: DeviceViewState) => DeviceViewState) => {
     commit((current) => updateWorkspaceView(current, scopeId, sessionId, update));
   }, [commit, scopeId]);
+  /** Updates a view wherever it lives, so a delayed result reaches the session it belongs to. */
+  const updateViewInProject = useCallback((targetProjectId: string | undefined, sessionId: string, update: (current: DeviceViewState) => DeviceViewState, targetMachineId?: string) => {
+    commit((current) => updateWorkspaceView(current, workspaceScopeKey(targetProjectId, targetMachineId), sessionId, update));
+  }, [commit]);
   const getView = useCallback((sessionId: string) => (
     getWorkspaceScope(workspaceRef.current, scopeId).views[sessionId]
   ), [scopeId]);
 
   const scope = useMemo(() => getWorkspaceScope(workspace, scopeId), [scopeId, workspace]);
-  return { ready, scope, open, openInProject, ensure, close, closeInProject, reconcile, updateView, getView };
+  return { ready, scope, open, openInProject, ensure, close, closeInProject, reconcile, updateView, updateViewInProject, getView };
 }

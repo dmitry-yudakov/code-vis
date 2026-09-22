@@ -3,12 +3,36 @@ import type { ThemeName } from '@/shared/design/tokens';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type { AgentMode, AgentProvider } from '@/shared/types';
 import { immersiveChatLines } from '@/features/diagram/spatial/immersiveTranscript';
+import { reportCaptureLabel, reportDescription, reportTitle } from '@/features/reports/reportModel';
+import { immersiveReportPath } from '@/features/reports/useImmersiveReports';
 import { permissionKey, permissionRequestUpdate, SESSION_ACTIONS, type ImmersiveSessionControls, type PermissionTarget, type SessionActionName } from './sessionControls';
-import { createConversationTextResource, createWorkspaceButtonResource } from './workspaceResources';
+import { createConversationTextResource, createReportPreviewResource, createWorkspaceButtonResource } from './workspaceResources';
+import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { useTextureResource } from './useTextureResource';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
 
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
+
+/** The selected report's screenshot, decoded once, copied into a bounded texture, then released. */
+function ReportPreview({ url, theme }: { url: string; theme: ThemeName }) {
+  const [image, setImage] = useState<ImageBitmap>();
+  useEffect(() => {
+    let current = true;
+    let decoded: ImageBitmap | undefined;
+    setImage(undefined);
+    void fetch(url, { cache: 'no-store' })
+      .then((response) => response.ok ? response.blob() : Promise.reject(new Error(`Preview ${response.status}`)))
+      .then((blob) => createImageBitmap(blob))
+      .then((bitmap) => {
+        if (current) { decoded = bitmap; setImage(bitmap); } else bitmap.close();
+      })
+      .catch(() => { if (current) recordImmersiveDiagnostic('report-preview-failed'); });
+    return () => { current = false; decoded?.close(); };
+  }, [url]);
+  const resource = useTextureResource((ledger) => image ? createReportPreviewResource(image, theme, ledger) : undefined, [image, theme]);
+  return resource ? <mesh name="Report preview" geometry={resource.geometry} material={resource.material}
+    position={[0.38, 0.26, 0.002]} userData={{ reportPreview: url }} /> : null;
+}
 
 /** A single bounded viewport for session setup and complete, sanitized permission summaries. */
 export function SessionTools({ controls, theme, enabled, request, onController }: {
@@ -16,7 +40,8 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   request?: { tab: 'launcher' | 'permissions'; key: string };
   onController(perform?: (action: SessionActionName) => void): void;
 }) {
-  const [tab, setTab] = useState<'home' | 'launcher' | 'permissions'>('home');
+  const [tab, setTab] = useState<'home' | 'launcher' | 'permissions' | 'reports'>('home');
+  const [reportId, setReportId] = useState<string>();
   const [machineId, setMachineId] = useState(controls.machineId);
   const [projectId, setProjectId] = useState('');
   const [provider, setProvider] = useState<AgentProvider>('claude');
@@ -55,6 +80,12 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   useEffect(() => { if (result) setPage(0); }, [result]);
   const createEnabled = machine?.machine.state === 'online' && providers.includes(provider) && modes.includes(mode)
     && (!projectId || Boolean(project)) && !controls.creating && !busy;
+  const reportControls = controls.reports;
+  const reports = reportControls?.reports || [];
+  // Selected by id, so a report arriving at the top of the list does not move the selection.
+  const report = reports.find((item) => item.id === reportId) || reports[0];
+  const reportIndex = report ? reports.indexOf(report) : -1;
+  const reportPending = Boolean(report && reportControls?.pendingIds.includes(report.id));
   const permissionStatus = result?.message || (!selected ? 'No permission requests.' : !controls.online ? 'Machine is offline. Reconnect and refresh status.'
     : !current ? 'This request is no longer pending. It was answered elsewhere or the run ended.' : 'Review the details, then choose Allow or Deny.');
   const text = tab === 'launcher' ? [
@@ -67,28 +98,48 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   ].join('\n\n') : tab === 'permissions' ? selected ? [
     permissionStatus, selected.sessionTitle, `${selected.machineLabel} · ${selected.agentLabel}`,
     `Tool: ${selected.tool}`, selected.detail || 'No additional explanation supplied.',
-  ].join('\n\n') : permissionStatus : [
+  ].join('\n\n') : permissionStatus : tab === 'reports' ? !reportControls ? 'Reports are available in CodeAI’s own project.'
+    : reportControls.error || (!report ? reportControls.loading ? 'Reading reports…' : 'No reports yet. Use Report in the tool strip to capture what you see.' : [
+      reportTitle(report),
+      reportCaptureLabel(report.context, controls.machines, reportControls.projectId),
+      reportDescription(report),
+      reportPending ? 'Attached to the next message.'
+        : reportControls.canAttach ? 'Attach it to send with the next message.' : 'Open a session with room for another report to attach it.',
+    ].join('\n\n')) : [
     controls.status,
     `${controls.permissions.length} pending permission request(s).`,
     controls.needsRepository ? `Primary repository required before sending.\nRepository: ${checkout?.name || 'No checkout available'}` : '',
     confirmRevoke ? 'Forget this device? Private content will close. A new pairing code will be required.' : '',
   ].filter(Boolean).join('\n\n');
-  const lines = useMemo(() => immersiveChatLines(text, 976, 44), [text]);
+  // A screenshot preview takes the right side of the details, so the text wraps beside it.
+  const preview = tab === 'reports' && report?.screenshot && reportControls
+    ? immersiveReportPath(reportControls.projectId, report.id, true) : undefined;
+  const lines = useMemo(() => immersiveChatLines(text, preview ? 560 : 976, 44), [preview, text]);
   const pageCount = Math.max(1, Math.ceil(lines.length / 10));
   const safePage = Math.min(page, pageCount - 1);
   const body = useTextureResource((ledger) => createConversationTextResource(
-    `${tab === 'launcher' ? 'New session' : tab === 'permissions' ? 'Permission request' : 'Session tools'} · ${safePage + 1}/${pageCount}`,
+    `${tab === 'launcher' ? 'New session' : tab === 'permissions' ? 'Permission request'
+      : tab === 'reports' ? `Report ${reportIndex + 1} of ${reports.length}` : 'Session tools'} · ${safePage + 1}/${pageCount}`,
     lines.slice(safePage * 10, safePage * 10 + 10), theme, ledger,
-  ), [lines, safePage, pageCount, tab, theme]);
+  ), [lines, safePage, pageCount, tab, reportIndex, reports.length, theme]);
   const buttons = useTextureResource((ledger) => Object.fromEntries(Object.entries(SESSION_ACTIONS).map(([action, label]) =>
     [action, createWorkspaceButtonResource(label, theme, ledger)])), [theme]);
   const perform = (action: SessionActionName) => {
     if (!enabled || busyRef.current) return;
     if (action === 'older') setPage(Math.max(0, safePage - 1));
     else if (action === 'newer') setPage(Math.min(pageCount - 1, safePage + 1));
-    else if (action === 'launcher' || action === 'permissions' || action === 'back') {
+    else if (action === 'launcher' || action === 'permissions' || action === 'back' || (action === 'reports' && reportControls)) {
       setTab(action === 'back' ? 'home' : action); setPage(0); setConfirmRevoke(false);
-    } else if (action === 'refresh') controls.onRefresh();
+      if (action === 'reports') reportControls?.onRefresh();
+    } else if (action === 'refresh') {
+      if (tab === 'reports') reportControls?.onRefresh();
+      else controls.onRefresh();
+    } else if (tab === 'reports') {
+      if ((action === 'previous-report' || action === 'next-report') && reports.length) {
+        setReportId(reports[(reportIndex + (action === 'next-report' ? 1 : -1) + reports.length) % reports.length].id); setPage(0);
+      } else if (action === 'attach-report' && report && !reportPending && reportControls?.canAttach) reportControls.onAttach(report.id);
+      else if (action === 'remove-report' && report && reportPending) reportControls?.onRemove(report.id);
+    }
     else if (tab === 'launcher') {
       if (controls.creating) return;
       if (action === 'machine') {
@@ -130,8 +181,10 @@ export function SessionTools({ controls, theme, enabled, request, onController }
     variant={action === 'allow' || action === 'create' ? 'primary'
       : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' ? 'destructive' : 'secondary'}
     onAction={() => perform(action)} />;
-  return <group name="VR session tools" userData={{ tab, text, page: safePage, pageCount, permissionKey: selected && permissionKey(selected), permissionStatus, busy }}>
+  return <group name="VR session tools" userData={{ tab, text, page: safePage, pageCount, permissionKey: selected && permissionKey(selected), permissionStatus, busy,
+    reportId: report?.id, reportPending }}>
     {body && <mesh name="Session details" geometry={body.geometry} material={body.material} position={[0, 0.12, 0]} />}
+    {preview && <ReportPreview url={preview} theme={theme} />}
     <WorkspacePager label={`Page ${safePage + 1} of ${pageCount}`} previousAction="session:older" nextAction="session:newer"
       previousLabel="Previous details" nextLabel="More details" position={[-0.18, -0.37, 0]} theme={theme}
       previousDisabled={safePage === 0} nextDisabled={safePage >= pageCount - 1}
@@ -148,10 +201,18 @@ export function SessionTools({ controls, theme, enabled, request, onController }
       {button(controls.onReturn ? 'return' : 'back', 0.48, -0.56)}
       {button('deny', -0.22, -0.76, !current || Boolean(result) || !controls.online || !body)}
       {button('allow', 0.22, -0.76, !current || Boolean(result) || !controls.online || !body)}
+    </> : tab === 'reports' ? <>
+      <WorkspacePager label={`Report ${reportIndex + 1} of ${reports.length}`}
+        previousAction="session:previous-report" nextAction="session:next-report" previousLabel="Previous report" nextLabel="Next report"
+        position={[-0.20, -0.56, 0]} theme={theme} previousDisabled={reports.length < 2} nextDisabled={reports.length < 2}
+        onAction={(action) => perform(action.slice('session:'.length) as SessionActionName)} />
+      {button('back', 0.48, -0.56)}
+      {button('attach-report', -0.22, -0.76, !report || reportPending || !reportControls?.canAttach)}
+      {button('remove-report', 0.22, -0.76, !reportPending)}
     </> : <>
       {button('launcher', -0.44, -0.56)}{button('permissions', 0, -0.56)}{button('cancel', 0.44, -0.56, !controls.canCancel)}
       {controls.needsRepository ? <>{button('checkout', -0.44, -0.76, !checkout)}{button('attach', 0, -0.76, !checkout || !controls.canAttach)}</>
-        : button('retry', -0.44, -0.76, !controls.canRetry)}
+        : <>{button('retry', -0.44, -0.76, !controls.canRetry)}{button('reports', 0, -0.76, !reportControls)}</>}
       {button(confirmRevoke ? 'confirm-revoke' : 'revoke', 0.44, -0.76)}
     </>}
   </group>;

@@ -65,7 +65,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     session, theme, activeTarget, preview, runStatus, pendingApprovals, unread, choices, arenaControls,
     workspaceStatus, onOpenSession, onConversationScroll,
     onPreviousCanvas, onNextCanvas, onExit, onActionController, layout, editing,
-    onPanelAction, onPanelPlacement, onResetWorkspace, evidence, viewKey,
+    onPanelAction, onPanelPlacement, onResetWorkspace, evidence, viewKey, onReportCaptured,
   } = props;
   const state = useThree();
   const { camera, gl, scene } = state;
@@ -173,10 +173,18 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
       try { screenshot = captureImmersiveFrame(gl, scene, camera); }
       catch { recordImmersiveDiagnostic('capture-failed'); }
       showReportNotice(screenshot ? 'Sending report…' : 'Sending report without a screenshot…');
+      // The selection is read as this frame is sent; the placement is decided against whatever is
+      // active when the home machine answers, never against this frame's view.
       void sendImmersiveReport({ kind: 'capture', note: 'Reported from the workspace', screenshot })
-        .then((outcome) => showReportNotice(outcome === 'sent'
-          ? screenshot ? 'Report sent with a screenshot' : 'Report sent without a screenshot'
-          : 'Report failed — check the home machine'));
+        .then(({ outcome, summary }) => {
+          if (outcome !== 'sent') { showReportNotice('Report failed — check the home machine'); return; }
+          const placement = summary && onReportCaptured ? onReportCaptured(summary) : 'saved';
+          showReportNotice(`${placement === 'saved' ? 'Report saved' : 'Report ready to send'}${screenshot ? '' : ' without a screenshot'}`);
+          if (placement === 'active') {
+            setListOpen(false); setSessionToolsOpen(false); setConversationTab('compose');
+            onPanelAction('conversation', 'open'); onPanelAction('conversation', 'focus');
+          }
+        });
     }
   });
   const contentEnabled = (id: typeof PANEL_IDS[number]) => layout.panels[id].open && editing?.mode !== 'drag' && editing?.id !== id;

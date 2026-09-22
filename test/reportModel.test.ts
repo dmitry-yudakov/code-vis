@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  pendingReportLabel, reportAttachmentSummary, reportCaptureLabel, reportDescription,
+  capturedReportTarget, pendingReportLabel, reportAttachmentSummary, reportCaptureLabel, reportDescription,
 } from '@/features/reports/reportModel';
 import type { ArenaMachineSnapshot, ReportAttachmentRecord } from '@/shared/types';
 
@@ -33,6 +33,20 @@ describe('report labels', () => {
     expect(reportCaptureLabel({ machineId: MACHINE, sessionId: crypto.randomUUID() }, machines, PROJECT)).toBe('Captured outside any project');
     expect(reportCaptureLabel({ machineId: MACHINE }, machines, PROJECT)).toBe('Captured with no session selected');
     expect(reportCaptureLabel(undefined, machines, PROJECT)).toBe('Captured with no session selected');
+  });
+
+  it('places only a deliberate capture from this machine, in a session of a self project', () => {
+    const self = (projectId: string) => projectId === PROJECT;
+    const context = { machineId: MACHINE, projectId: PROJECT, sessionId: SESSION };
+    expect(capturedReportTarget({ kind: 'capture', context }, MACHINE, self)).toEqual({ projectId: PROJECT, sessionId: SESSION });
+    for (const [summary, local] of [
+      [{ kind: 'error' as const, context }, MACHINE],
+      [{ kind: 'capture' as const, context: { ...context, projectId: OTHER_PROJECT } }, MACHINE],
+      [{ kind: 'capture' as const, context: { machineId: MACHINE, projectId: PROJECT } }, MACHINE],
+      [{ kind: 'capture' as const, context: { ...context, machineId: crypto.randomUUID() } }, MACHINE],
+      [{ kind: 'capture' as const }, MACHINE],
+      [{ kind: 'capture' as const, context }, undefined],
+    ] as const) expect(capturedReportTarget(summary, local, self)).toBeUndefined();
   });
 
   it('describes a report by its note, or an error report by its latest error', () => {

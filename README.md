@@ -289,8 +289,10 @@ Quest latency or accuracy measurement.
 
 **Report** sits in the always-accessible VR tool strip beside **Reset** and **Exit VR**, and is
 mirrored as a `Report problem` control on the ordinary page. It renders the workspace from your
-current head pose, then sends that image with the retained diagnostics and the recent error text to
-the home machine. The status line confirms `Report sent with a screenshot`.
+current head pose, then sends that image with the retained diagnostics, the recent error text, and
+the machine, project, and session selected at that moment to the home machine. The status line
+confirms `Report saved`, or `Report ready to send` when the capture was attached to a session (see
+[Use reports in CodeAI's own project](#use-reports-in-codeais-own-project)).
 
 Errors report themselves the same way: an uncaught error, an unhandled rejection, a renderer error,
 a failed entry or end, and WebGL context loss each forward their message without a screenshot,
@@ -322,6 +324,11 @@ qualify. Sessions in such a project always run Local, because Docker refuses Cod
   conversation or canvas; the row says so, and nothing is attached on its own. **Attach next** adds
   a report to the session's next message; the composer shows it as a chip you can remove, and you
   can explain it or send it alone (`Investigate the attached CodeAI report.`).
+- **Headset.** A deliberate **Report** taken with a session of a self project selected waits in that
+  session's next message, even if you move elsewhere before the upload finishes, and the
+  conversation opens for dictation when that session is still active. Anything else is saved and can
+  be attached later from **Session tools → Reports**, which lists, previews, refreshes, attaches, and
+  removes reports with the controller. Automatic error reports are listed but never attached.
 - **What the agent receives.** Sending copies the report's JSON and screenshot into the session's
   own evidence before the message is written, then gives the turn the same files. The prompt treats
   them as untrusted observed data. Codex receives the screenshot as an image; Claude reads it from
