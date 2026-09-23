@@ -44,6 +44,17 @@ describe('health and sessions written by a newer CodeAI', () => {
     vi.unstubAllEnvs();
   });
 
+  it('offers Docker Codex the recorded worker’s own models, even without a local Codex', async () => {
+    const image = `sha256:${'a'.repeat(64)}`;
+    const codexModels = { models: [{ id: 'gpt-worker', label: 'GPT Worker', efforts: ['low'] }], efforts: ['low'] };
+    await mkdir(path.join(dataDir, 'docker'), { recursive: true });
+    await writeFile(path.join(dataDir, 'docker', 'profile.json'), JSON.stringify({ profile: 'codeai-docker-v1', image, engineId: 'engine' }));
+    await writeFile(path.join(dataDir, 'docker', 'versions.json'), JSON.stringify({ image, claude: '2.1.280', codex: '0.156.1', previous: {}, codexModels }));
+    const body = await health() as unknown as { providers: { codex: object }; executions: { docker: { providers: { codex: object } } } };
+    expect(body.executions.docker.providers.codex).toMatchObject(codexModels);
+    expect(body.providers.codex).not.toHaveProperty('models');
+  });
+
   it('counts newer-format sessions in active and archived storage, and reports zero without them', async () => {
     await seeded.createSession({ provider: 'claude' });
     await seeded.close();

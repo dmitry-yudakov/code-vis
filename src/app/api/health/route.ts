@@ -5,6 +5,7 @@ import { dockerProviderHealth, getProviderAdapters } from '@/server/agents/provi
 import { safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { getSessionStore } from '@/server/storage/sessionStore';
 
@@ -57,7 +58,7 @@ export async function GET(request: Request): Promise<Response> {
       local: { enabled: true, providers: { claude, codex } },
       docker: {
         enabled: config.dockerEnabled,
-        providers: dockerProviderHealth(config, docker, codex),
+        providers: dockerProviderHealth(config, docker, codex, await recordedCodexModels(config)),
       },
     },
     newerFormatSessions,

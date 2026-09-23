@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { inspectClaudeHelp } from '@/server/agents/claudePreflight';
+import type { AppConfig } from '@/server/config';
 import { checkCodexWorker } from '@/server/agents/codexPreflight';
 import { atomicWrite } from '@/server/storage/sessionStore';
 import { MAX_MODEL_EFFORTS, MAX_PROVIDER_MODELS } from '@/shared/limits';
@@ -158,6 +159,19 @@ export async function readDockerVersions(runtime: DockerRuntime): Promise<Docker
     throw error.code === 'ENOENT' ? new DockerUpdateRejected(NOT_PROVISIONED) : error;
   });
   return versionsOf(runtime, image);
+}
+
+/**
+ * The recorded worker's own Codex `model/list`, when versions.json describes the recorded image.
+ * Files only: a stale record offers nothing, and the caller falls back to the host's list.
+ */
+export async function recordedCodexModels(config: Pick<AppConfig, 'dataDir'>): Promise<ModelChoices | undefined> {
+  const [profile, record] = await Promise.all([
+    readFile(path.join(config.dataDir, 'docker', 'profile.json'), 'utf8')
+      .then((source) => JSON.parse(source) as { image?: unknown }).catch(() => undefined),
+    readVersionsRecord(config.dataDir),
+  ]);
+  return record && record.image === profile?.image ? record.codexModels : undefined;
 }
 
 export async function writeDockerVersions(dataDir: string, versions: DockerVersions): Promise<void> {

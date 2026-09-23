@@ -1,5 +1,5 @@
 import type {
-  AgentExecution, AgentProvider, AgentProviderAdapter, AgentProcessRunner, ProviderHealth,
+  AgentExecution, AgentProvider, AgentProviderAdapter, AgentProcessRunner, ModelChoices, ProviderHealth,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import { ClaudeProcessRunner } from './claudeProcessRunner';
@@ -10,6 +10,7 @@ import { checkCodex } from './codexPreflight';
 import { codexSupportedModes } from './codexInvocation';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { DockerProcessRunner } from '@/server/execution/dockerProcessRunner';
+import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 
 class ClaudeProviderAdapter implements AgentProviderAdapter {
   readonly id = 'claude' as const;
@@ -87,18 +88,21 @@ export async function cachedLocalProviderHealth(config: AppConfig): Promise<Reco
 }
 
 /**
- * Docker health checks the engine, not the providers. Docker Claude offers the fixed choices, because
- * the pinned worker documents `--effort`; Docker Codex offers what this machine's Codex lists.
+ * Docker health checks the engine, not the providers. Docker Claude offers the fixed aliases, which
+ * the worker's CLI resolves, and efforts, because every recorded worker was checked for `--effort`.
+ * Docker Codex offers its recorded worker's own `model/list` when versions.json holds it, and
+ * otherwise what this machine's Codex lists.
  */
 export function dockerProviderHealth(
-  config: AppConfig, engine: ProviderHealth, localCodex?: ProviderHealth,
+  config: AppConfig, engine: ProviderHealth, localCodex?: ProviderHealth, workerCodex?: ModelChoices,
 ): Record<AgentProvider, ProviderHealth> {
+  const codex: ModelChoices | undefined = workerCodex ?? localCodex;
   return {
     claude: { ...engine, ...claudeModelChoices(true, config.claudeModel) },
     codex: {
       ...engine,
-      ...(localCodex?.models ? { models: localCodex.models } : {}),
-      ...(localCodex?.efforts ? { efforts: localCodex.efforts } : {}),
+      ...(codex?.models ? { models: codex.models } : {}),
+      ...(codex?.efforts ? { efforts: codex.efforts } : {}),
     },
   };
 }
@@ -109,11 +113,13 @@ export function getProviderAdapters(config: AppConfig, execution: AgentExecution
     const adapter = (id: AgentProvider): AgentProviderAdapter => ({
       id, supportedModes: ['ask', 'plan', 'agent'],
       async checkHealth() {
-        const [engine, local] = await Promise.all([
+        const [engine, worker] = await Promise.all([
           getDockerRuntime(config).health(),
-          id === 'codex' ? cachedLocalProviderHealth(config) : undefined,
+          id === 'codex' ? recordedCodexModels(config) : undefined,
         ]);
-        return dockerProviderHealth(config, engine, local?.codex)[id];
+        // Only a Docker Codex without its worker's own list runs a local check.
+        const local = id === 'codex' && !worker ? (await cachedLocalProviderHealth(config)).codex : undefined;
+        return dockerProviderHealth(config, engine, local, worker)[id];
       },
       createRunner() {
         if (!identity) throw new Error('Docker execution requires an addressed session participant.');

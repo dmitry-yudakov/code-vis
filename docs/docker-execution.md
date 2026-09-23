@@ -169,6 +169,14 @@ App Server handshake and a Codex that cannot list models. They cannot catch a ch
 event stream, a new network host the CLI needs, or a changed login flow, because those need a
 signed-in turn. Those surface on the first real turn; roll back if it misbehaves.
 
+`versions.json` also holds the worker's own Codex `model/list`, so Docker Codex's model menu offers
+what that Codex knows rather than the host's list; without it, as for an installation provisioned
+before this record existed, the host's list is offered as before. Docker Claude's `fable`, `opus`,
+`sonnet` and `haiku` already resolve to the newest model the worker's CLI knows. A browser already
+open when a terminal update switches keeps its model menu until it reads readiness again, for
+example on **Refresh**. A Docker session on an attached executor lists that executor's Local Codex
+choices, while the executor checks a turn against its worker's own list.
+
 Provisioning and every switch tag the recorded image with its installation's own tag, so
 `docker image prune` keeps it even when another installation's provisioning moves
 `codeai-worker:codeai-docker-v1`. An installation provisioned before this tag existed relies on the

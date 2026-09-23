@@ -261,14 +261,14 @@ the first real turn, and rollback is one click. The setup guide says so.
 
 ### Part C
 
-- [ ] Docker Codex offers `codexModels` when `versions.json` describes the recorded image, and the
+- [x] Docker Codex offers `codexModels` when `versions.json` describes the recorded image, and the
       host's list otherwise.
 
 ### All parts
 
-- [ ] The setup guide and AGENTS.md describe updating from Arena and the command, the minimum-version
+- [x] The setup guide and AGENTS.md describe updating from Arena and the command, the minimum-version
       rule, what the checks do not cover, and rollback.
-- [ ] `npm run lint`, `npm test` and `npm run test:e2e` pass. Unit tests with fake Docker and npm
+- [x] `npm run lint`, `npm test` and `npm run test:e2e` pass. Unit tests with fake Docker and npm
       output cover validation, each check outcome, the refusals, and that no failure writes a record.
 
 ## Out of scope
@@ -304,4 +304,160 @@ the first real turn, and rollback is one click. The setup guide says so.
    message and writes nothing. After the turn, roll back; a Claude turn works afterwards.
 8. `npm run test:docker`.
 9. Record the image IDs, CLI versions and outcomes in [the experiment log](../docs/experiment-log.md).
+
+---
+
+## What shipped
+
+All three parts are implemented, verified offline, and verified against a real Docker Engine with
+the real Claude Code and Codex CLIs in a scratch data directory. The signed-in steps of **How to
+verify** (4, 5 and 7) remain for the owner's installation.
+
+### Part A — build, check and switch
+
+- **Versions.** `DOCKER_VERSIONS` is documented as the fresh-provision versions and the minimum
+  ([dockerProfile.ts](../src/server/execution/dockerProfile.ts#L14)). `isCliVersion` accepts only
+  an exact `MAJOR.MINOR.PATCH` without leading zeros, and `compareCliVersions` orders numerically
+  ([dockerProfile.ts](../src/server/execution/dockerProfile.ts#L30)). The Dockerfile takes
+  `CODEX_VERSION`, then `CLAUDE_VERSION`, as build arguments with no defaults, and `test -n` fails a
+  build without them ([Dockerfile](../docker/Dockerfile#L10)). Each CLI installs in its own layer
+  after the apt layer, so a Claude update reuses the Codex layer.
+- **The record.** `versions.json` is parsed leniently, so a newer CodeAI can add fields
+  ([dockerUpgrade.ts](../src/server/execution/dockerUpgrade.ts#L29)). A record for another image,
+  or an unreadable one, is stale. Its versions are then read from the image by `--version` and
+  cached per runtime, keyed by image ID
+  ([dockerUpgrade.ts](../src/server/execution/dockerUpgrade.ts#L132)).
+- **Checks** run in a new `--rm` container per check: CodeAI's container security, `--network
+  none`, no mounts, and a tmpfs home. The container sleeps five minutes as its own bound
+  ([dockerUpgrade.ts](../src/server/execution/dockerUpgrade.ts#L93),
+  [checkImage](../src/server/execution/dockerUpgrade.ts#L224)). There are three: both `--version`
+  outputs; `claude --help`, checked by the exported host rule `inspectClaudeHelp`
+  ([claudePreflight.ts](../src/server/agents/claudePreflight.ts#L18)); and the Codex handshake.
+  `checkCodexWorker` runs that handshake over `docker exec -i` with a 30 s bound. It stops after
+  the capability inventories, before any provider session, requires that nobody is signed in and
+  that the inventories are valid, and waits for `model/list`
+  ([codexPreflight.ts](../src/server/agents/codexPreflight.ts#L46),
+  [signed-out branch](../src/server/agents/codexPreflight.ts#L176)). The host `checkCodex` is
+  unchanged. Failures are named `build`, `version`, `claude-flags`, `codex-handshake` or
+  `codex-models`.
+- **Planning** refuses before anything is built: an unknown provider, a malformed version, one
+  below the minimum, an unprovisioned installation, a changed engine, and the recorded version. It
+  warns before a downgrade ([dockerUpgrade.ts](../src/server/execution/dockerUpgrade.ts#L174)). It
+  uses `recordedProfile()`, split from `profile()`, so it works while Docker turns are disabled
+  ([dockerRuntime.ts](../src/server/execution/dockerRuntime.ts#L67)).
+- **The run** builds under a unique `codeai-worker:candidate-<uuid>` tag and checks the candidate.
+  It then switches inside `holdProviderHome`, the login's setup hold without a worker, which refuses
+  while a turn mounts the home ([dockerRuntime.ts](../src/server/execution/dockerRuntime.ts#L164)).
+  The switch runs `replaceDockerImage`, the same-engine compare-and-swap of `profile.json`
+  ([dockerRuntime.ts](../src/server/execution/dockerRuntime.ts#L525)), then writes `versions.json`.
+  Finally it tags the image `codeai-worker:<installation>` and removes the candidate tag
+  ([runDockerUpdate](../src/server/execution/dockerUpgrade.ts#L253)). Once `profile.json` names the
+  candidate, the result is `switched`. The file decides this, not a flag, because a write can fail
+  after its rename. Every other ending removes the candidate by its tag only.
+  `DockerHomeBusyError` maps to `in-use`, naming "a turn" or "a login or another update".
+- **Turns** re-read the recorded image after admission. A turn that read the profile before a switch
+  began, but was admitted after it ended, starts from the new image
+  ([dockerRuntime.ts](../src/server/execution/dockerRuntime.ts#L387)). A turn that meets the switch's
+  hold is refused as it would be during a login. Startup recovery leaves a `check` container alone
+  while its process lives ([dockerRuntime.ts](../src/server/execution/dockerRuntime.ts#L305)).
+- **Messages.** Only CodeAI's own Docker messages leave the server (`DockerProfileError`,
+  `DockerProfileChangedError`, `DockerCommandError`). A file-system or parse error, which could name
+  a path or show file contents, becomes a fixed message in the terminal and in Arena.
+- **Commands.** `npm run docker:upgrade` prints the recorded versions, or plans and runs one update
+  ([docker.ts](../scripts/docker.ts#L30)). Provisioning refuses before building when already
+  provisioned ([docker.ts](../scripts/docker.ts#L68)). It builds with the build arguments, runs the
+  same checks, adds the installation tag, and writes `versions.json` with the worker's Codex models.
+  `test:docker` probes the recorded image, or the tag before provisioning, and accepts versions at
+  or above the minimums ([test-docker.ts](../scripts/test-docker.ts#L22)).
+
+### Part B — Arena
+
+- `dockerReleases` reads npm's dist-tags with `redirect: 'error'`, a 64 KiB bound and a 10 s
+  timeout. It keeps one answer, including a failure, for an hour, and shares one lookup in flight
+  ([dockerReleases.ts](../src/server/execution/dockerReleases.ts#L43)).
+- `offers` shows `latest` only above the recorded version and `previous` only at or above the
+  minimum. It hides `previous` when it equals the offered `latest`
+  ([dockerUpdates.ts](../src/server/execution/dockerUpdates.ts#L45)). `dockerVersionsStatus` copies
+  the operation before reading the records, so an outcome is never shown with older versions
+  ([dockerUpdates.ts](../src/server/execution/dockerUpdates.ts#L56)).
+- `startDockerUpdate` allows one update per process. It resolves `latest` only from the answer
+  Arena showed, and `previous` from the record, then plans and runs in the background. A switched
+  downgrade's message carries the planning warning
+  ([dockerUpdates.ts](../src/server/execution/dockerUpdates.ts#L80)).
+- The route is `GET`/`POST /api/execution/docker/versions`: device authorization, and the exact
+  origin for `POST` through `requestHasExactOrigin`, extracted from the Docker settings route
+  ([route.ts](../src/app/api/execution/docker/versions/route.ts#L24),
+  [deviceAuthorization.ts](../src/server/devices/deviceAuthorization.ts#L54)). The body schema is
+  strict ([protocol.ts](../src/shared/protocol.ts#L77)); the wire types are in
+  [types.ts](../src/shared/types.ts#L188).
+- `DockerVersionsView` renders the rows ([DockerVersions.tsx](../src/features/arena/DockerVersions.tsx#L34)).
+  `DockerVersions` polls on an interval while an update runs, so a failed read does not end the
+  watch ([DockerVersions.tsx](../src/features/arena/DockerVersions.tsx#L110)). It shows the POST's
+  operation at once, loads the running operation after a `409`, confirms a downgrade, and refreshes
+  readiness once a watched update switches. Arena shows it when Docker is enabled and ready
+  ([Arena.tsx](../src/features/arena/Arena.tsx#L209)).
+
+### Part C — Docker Codex models
+
+`recordedCodexModels` reads `codexModels` only when `versions.json` names the recorded image
+([dockerUpgrade.ts](../src/server/execution/dockerUpgrade.ts#L160)). `dockerProviderHealth` prefers
+it over the local list ([providerRegistry.ts](../src/server/agents/providerRegistry.ts#L96)). The
+Docker adapter runs no local Codex check when the record has models
+([providerRegistry.ts](../src/server/agents/providerRegistry.ts#L118)). Health and the Docker
+settings route pass it on ([health/route.ts](../src/app/api/health/route.ts#L61)).
+
+### Deviations from the draft, and why
+
+- **Tags.** A switch tags `codeai-worker:<installation>`; it does not move the shared
+  `codeai-worker:codeai-docker-v1`, which stays where provisioning put it. Moving the shared tag
+  could leave another installation's recorded image without a tag, and then `docker image prune`
+  deletes it. For the same reason a candidate is built under its own tag and removed by that tag,
+  never by image ID. The build cache reproduces identical image IDs, which another update or
+  installation may have recorded.
+- **Offers.** `latest` is offered only above the recorded version, as the acceptance criterion
+  says; the rule text had also allowed a lower one. An upward `previous` reads **Return to**.
+- **Provisioning** runs the full offline checks, not only `--version`, so a fresh installation
+  records its worker's Codex models at once.
+
+### Known limits
+
+- Two updates of different providers from two processes (for example the terminal and Arena) that
+  switch within the same milliseconds can lose one. Each process runs one update at a time.
+- A Codex whose `model/list` never answers fails as a `codex-handshake` timeout, not `codex-models`.
+- A remote executor's Docker Codex session lists that executor's Local choices, since executor
+  snapshots carry only Local health. A browser already open when a terminal update switches keeps
+  its menu until it reads readiness again.
+- A CodeAI restart during a build can leave a `codeai-worker:candidate-…` tag; the setup guide says
+  how to remove it.
+- An installation provisioned before this story has only the shared tag until its first update; the
+  setup guide says how to protect it from `docker image prune` meanwhile.
+- If removing the switch's own hold fails after a successful switch, the hold blocks that provider's
+  turns and logins until CodeAI restarts, as a login's leftover hold would.
+
+## Verification record
+
+September 23, 2026, on Ubuntu 26.04.1 with Docker Engine 28.5.2. The real-daemon runs used a
+scratch `CODEAI_DATA_DIR`; details are in the [experiment log](../docs/experiment-log.md).
+
+- `npm run lint` passes. `npm test` passes: 84 files, 639 tests. `npm run test:e2e` passes: 84 of
+  84, including the four Arena tests in `e2e/docker-versions.spec.ts`.
+- Mutation proof: each rule was broken in turn and a test failed, 63 mutations in all. Part A had
+  18, 7 more followed the first review, Part B had 17, Part C had 5, the second review added 6
+  server and 5 Arena mutations, and the third added 5. The Arena ones ran through `e2e/docker-versions.spec.ts`.
+- Real daemon:
+  - A build without version arguments fails.
+  - Provisioning passes every check.
+  - Claude 2.1.226→2.1.280 and Codex 0.152.0→0.156.1 switched, and rollbacks warned.
+  - Refusals happen before building.
+  - A forced `claude-flags` failure left both records byte-identical, and so did the in-use
+    refusal.
+  - No candidate tag remained, and `npm run test:docker` passed on the updated image.
+- Real browser, on a production build: Arena rolled back and updated. Progress disabled every
+  action, a reload found the outcome, and the in-use message showed with both records unchanged.
+  A wrong origin answered 403 and a version string 400, and the rows fit 360 px.
+- Real health: `/api/health` lists the Codex 0.156.1 worker's own models (`gpt-6-*`) for Docker
+  Codex and the host's list for Local.
+- Three review subagents. Their findings were fixed as listed above, except the known limits.
+- Pending before **Shipped**: How to verify steps 2–9 on the owner's installation, with signed-in
+  Claude and Codex turns.
 

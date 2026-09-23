@@ -644,8 +644,9 @@ next turn. It lists only what the executing machine offers for that agent's prov
 family aliases (`fable`, `opus`, `sonnet`, `haiku`) with `low` to `max` effort (none for Haiku or a
 Haiku `CODEAI_CLAUDE_MODEL` default, and none at all when the installed `claude --help` lacks
 `--effort`), and whatever Codex App Server's `model/list` returns, each model with its own efforts.
-Docker Claude offers the same aliases with their efforts; Docker Codex offers what the machine's
-local Codex lists. The server rejects any other model or effort with 400.
+Docker Claude offers the same aliases with their efforts; Docker Codex offers its Docker worker's
+own `model/list`, recorded when the worker was provisioned or updated, and otherwise what the
+machine's local Codex lists. The server rejects any other model or effort with 400.
 
 The choice is remembered on this device for each agent in each session, like mode; it is not part
 of the session and another device does not see it. VR turns use this device's choice. **Default**

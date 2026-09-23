@@ -101,7 +101,8 @@ unknown or unsupported mode is a 400. The model and effort must come from the ch
 machine lists in `ProviderHealth` for the addressed provider (`models`, each with its `efforts`, and
 `efforts` for the Default model); anything else is a 400 before the turn is reserved. Claude's
 choices are a fixed alias list (Docker Claude included), Codex's come from App Server's
-`model/list`, and Docker Codex offers what the machine's local Codex lists. The choice is device state kept per agent in the device
+`model/list`, and Docker Codex offers its recorded worker's own `model/list` from
+`docker/versions.json`, or else what the machine's local Codex lists. The choice is device state kept per agent in the device
 workspace, like mode. Default sends no override, so the provider session keeps whatever model and
 effort it last used, and `CODEAI_*_MODEL` still applies when it is set. This is why the client never
 sends flags, prompts-with-tools, or paths outside the selected repository: every one of those is

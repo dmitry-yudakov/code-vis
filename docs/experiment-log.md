@@ -4,6 +4,42 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
+## Story 67 — Updating a provider's Docker CLI (2026-09-23 UTC)
+
+**Outcome:** provisioning, offline candidate checks, switches, rollbacks, refusals and the Arena
+flow work against a real daemon and real CLIs. No provider was signed in and no model turn was sent,
+so How to verify steps 4, 5 and 7 remain for the owner's installation.
+
+- Host: Ubuntu 26.04.1 LTS, Docker Engine 28.5.2, Linux amd64, kernel 7.0.0-34-generic. All runs
+  used a scratch `CODEAI_DATA_DIR`; the owner's installation, its records and provider homes were
+  not touched. Its recorded image `sha256:a801adb6…` kept the shared `codeai-worker:codeai-docker-v1`
+  tag at the end.
+- `docker build` without version arguments failed at the Codex install step, as intended.
+- `npm run docker:provision` built Claude 2.1.226 and Codex 0.152.0 (`sha256:1e9e7d55…`), passed
+  every offline check, and wrote `versions.json` with that worker's own Codex model list.
+- `npm run docker:upgrade -- claude 2.1.280` switched to `sha256:072bb1b6…` in 9 s with
+  `previous.claude` recorded; `codex 0.156.1` then switched to `sha256:60307f53…` in 19 s. Its
+  offline `model/list` lists `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and four earlier models, none
+  of which 0.152.0 offered. Rolling Claude back to 2.1.226 printed the migrated-home warning and set
+  `previous.claude` to 2.1.280.
+- Refusals before any build: the recorded version, 2.1.100 (below the minimum) and
+  `0.157.0-alpha.11`. A nonexistent 2.1.999 failed the build check.
+- With `--not-a-real-flag` temporarily required for Ask, updates failed the `claude-flags` check
+  and both records kept their SHA-256. A failed candidate left no `codeai-worker:candidate-…` tag
+  behind, and the recorded image kept its `codeai-worker:<installation>` tag. The unit suite covers
+  an identical image that another reference keeps. With a container mounting the Claude home as a
+  stand-in turn,
+  the switch answered "Claude is in use by a turn" and wrote nothing.
+- `npm run test:docker` passed every probe against the updated recorded image
+  (Claude 2.1.226, Codex 0.156.1).
+- A production build against the scratch directory showed Arena's rows. **Roll back to 0.152.0**
+  asked first and switched; **Update** returned Codex to 0.156.1; a Claude rollback showed
+  "Building Claude 2.1.226…" with every action disabled, and a reload found its outcome. With the
+  stand-in turn, **Update** showed the in-use message and both records kept their SHA-256. A wrong
+  origin answered 403 and a version string 400. The rows fit 360 px without horizontal scroll.
+  `/api/health` listed the 0.156.1 worker's models for Docker Codex and the host fixture's for Local.
+- `npm run lint`, `npm test` (639 tests) and `npm run test:e2e` (84 of 84) pass.
+
 ## Story 59 — Shared Docker login and direct session creation (2026-09-09 UTC)
 
 **Outcome:** shared storage, continuation, and UI checks pass. Story 59 is shipped; Story 57's

@@ -16,6 +16,7 @@ vi.mock('@/server/execution/dockerRuntime', () => ({
 import { getConfig } from '@/server/config';
 import { dockerSettingsPath, savedDockerEnabled } from '@/server/execution/dockerSettings';
 import { dockerProviderHealth, getProviderAdapters } from '@/server/agents/providerRegistry';
+import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 import { PATCH } from '@/app/api/execution/docker/route';
 import type { ProviderHealth } from '@/shared/types';
 
@@ -74,6 +75,31 @@ describe('Docker UI settings', () => {
     vi.stubEnv('CODEAI_CLAUDE_BIN', path.resolve('test/fixtures/not-a-real-claude'));
     const withoutLocalClaude = getProviderAdapters(getConfig(), 'docker', { sessionId: 'session', participantId: 'participant' });
     await expect(withoutLocalClaude.claude.checkHealth()).resolves.toEqual(providers.claude);
+  });
+
+  it('offers Docker Codex its own worker’s models once versions.json describes the recorded image', async () => {
+    const engine: ProviderHealth = { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };
+    const worker = { models: [{ id: 'gpt-worker', label: 'GPT Worker', efforts: ['low', 'high'] }], efforts: ['low', 'high'] };
+    const image = `sha256:${'a'.repeat(64)}`;
+    await mkdir(path.join(dataDir, 'docker'), { recursive: true });
+    await writeFile(path.join(dataDir, 'docker', 'profile.json'), JSON.stringify({ profile: 'codeai-docker-v1', image, engineId: 'engine' }));
+    const record = { image, claude: '2.1.280', codex: '0.156.1', previous: {}, codexModels: worker };
+    await writeFile(path.join(dataDir, 'docker', 'versions.json'), JSON.stringify(record));
+    const local = await getProviderAdapters(getConfig()).codex.checkHealth();
+    expect(await recordedCodexModels(getConfig())).toEqual(worker);
+    expect(dockerProviderHealth(getConfig(), engine, local, worker).codex).toEqual({ ...engine, ...worker });
+
+    const docker = getProviderAdapters(getConfig(), 'docker', { sessionId: 'session', participantId: 'participant' });
+    expect(await docker.codex.checkHealth()).toMatchObject(worker);
+    expect((await (await PATCH(request({ enabled: true }))).json() as { providers: Record<'claude' | 'codex', ProviderHealth> }).providers.codex)
+      .toMatchObject(worker);
+
+    // A record for another image, or one without models, is not this worker's: the host's list again.
+    for (const stale of [{ ...record, image: `sha256:${'b'.repeat(64)}` }, { ...record, codexModels: undefined }]) {
+      await writeFile(path.join(dataDir, 'docker', 'versions.json'), JSON.stringify(stale));
+      expect(await recordedCodexModels(getConfig())).toBeUndefined();
+      expect(await docker.codex.checkHealth()).toMatchObject({ models: local.models, efforts: local.efforts });
+    }
   });
 
   it('inherits environment flags only until a private saved choice exists, and updates without restarting', async () => {

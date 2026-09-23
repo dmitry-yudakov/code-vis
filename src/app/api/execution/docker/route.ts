@@ -5,6 +5,7 @@ import { cachedLocalProviderHealth, dockerProviderHealth } from '@/server/agents
 import { authorizeDeviceRequest, requestHasExactOrigin } from '@/server/devices/deviceAuthorization';
 import { dockerSettingsPath } from '@/server/execution/dockerSettings';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 import { atomicWrite } from '@/server/storage/sessionStore';
 import { dockerSettingsSchema, safeJsonResponse } from '@/shared/protocol';
 
@@ -26,8 +27,10 @@ export async function PATCH(request: Request): Promise<Response> {
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await atomicWrite(target, parsed.data);
     const updated = getConfig();
-    const [docker, local] = await Promise.all([getDockerRuntime(updated).health(), cachedLocalProviderHealth(updated)]);
-    return safeJsonResponse({ enabled: updated.dockerEnabled, providers: dockerProviderHealth(updated, docker, local.codex) });
+    const [docker, local, worker] = await Promise.all([
+      getDockerRuntime(updated).health(), cachedLocalProviderHealth(updated), recordedCodexModels(updated),
+    ]);
+    return safeJsonResponse({ enabled: updated.dockerEnabled, providers: dockerProviderHealth(updated, docker, local.codex, worker) });
   } catch {
     return safeJsonResponse({ error: 'Could not save Docker settings. Check that CodeAI’s data directory is writable and try again.' }, { status: 503 });
   }
