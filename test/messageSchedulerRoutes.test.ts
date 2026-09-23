@@ -203,6 +203,29 @@ describe('message route scheduler integration', () => {
     await Promise.all(responses.filter((_, index) => index !== queuedIndex).map((response) => response.body?.cancel()));
   });
 
+  it('refuses a turn with a retryable 503 while CodeAI holds the maintenance lease, and appends nothing', async () => {
+    const [session] = await createSessions(1);
+    expect(runRegistry.acquireMaintenance()).toBe('acquired');
+    try {
+      const refused = await POST_MESSAGE(messageRequest(session));
+      expect(refused.status).toBe(503);
+      expect(refused.headers.get('Retry-After')).toBe('30');
+      expect((await refused.json()).error).toContain('Send again once it is back');
+      const store = getSessionStore(routeState.dataDir, 'Scheduler route host');
+      expect((await store.getSession(session.id)).messages).toEqual([]);
+      await store.close();
+      expect(routeState.started).toEqual([]);
+    } finally {
+      runRegistry.releaseMaintenance();
+    }
+    const accepted = await POST_MESSAGE(messageRequest(session));
+    expect(accepted.status).toBe(200);
+    await vi.waitFor(() => expect(routeState.started).toHaveLength(1));
+    routeState.resolvers.get(routeState.started[0])?.();
+    await vi.waitFor(() => expect(runRegistry.list().active).toEqual([]));
+    await accepted.body?.cancel();
+  });
+
   it('keeps queued work retryable and emits no false terminal event when cancellation persistence fails', async () => {
     const sessions = await createSessions(3);
     const responses = await Promise.all(sessions.map((session) => POST_MESSAGE(messageRequest(session))));

@@ -169,6 +169,34 @@ describe('machine run scheduler', () => {
     })).toMatchObject({ accepted: true });
   });
 
+  it('grants the maintenance lease only with no live run and refuses every reservation while it is held', async () => {
+    const registry = new RunRegistry(2);
+    const reservation = {
+      sessionId: 'session-a', participantId: 'agent-a', providerKey: 'provider-a', checkoutId: 'checkout-a',
+      access: 'read' as const, cancel: vi.fn(),
+    };
+    // A reservation whose canonical append has not finished is already live.
+    const reserved = crypto.randomUUID();
+    expect(registry.reserve({ ...reservation, runId: reserved })).toMatchObject({ accepted: true });
+    expect(registry.acquireMaintenance()).toBe('live-runs');
+    registry.release(reserved);
+
+    const running = turn(registry);
+    await scheduled();
+    expect(registry.acquireMaintenance()).toBe('live-runs');
+    registry.finish(running.runId);
+    // A finished run stays replayable but no longer blocks.
+    expect(registry.list().recent).toHaveLength(1);
+
+    expect(registry.acquireMaintenance()).toBe('acquired');
+    expect(registry.acquireMaintenance()).toBe('held');
+    expect(registry.reserve({ ...reservation, runId: crypto.randomUUID() })).toEqual({ accepted: false, reason: 'maintenance' });
+    expect(registry.list().active).toEqual([]);
+
+    registry.releaseMaintenance();
+    expect(registry.reserve({ ...reservation, runId: crypto.randomUUID() })).toMatchObject({ accepted: true });
+  });
+
   it('bounds waiting reservations before their canonical messages are appended', () => {
     const registry = new RunRegistry(1);
     expect(registry.start({

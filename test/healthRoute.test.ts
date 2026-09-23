@@ -55,6 +55,21 @@ describe('health and sessions written by a newer CodeAI', () => {
     expect(body.providers.codex).not.toHaveProperty('models');
   });
 
+  it('reports which managed release serves it, and that an ordinary server is unmanaged', async () => {
+    const scope = globalThis as typeof globalThis & { __codeaiManagedLifecycle?: unknown; __codeAiLifecycle?: unknown };
+    expect((await health() as unknown as { release: unknown }).release).toEqual({ managed: false });
+    scope.__codeaiManagedLifecycle = {
+      init: { type: 'lifecycle-init', installationRoot: process.cwd(), slot: '.next-managed-b', releaseId: 'release-b' },
+      connected: () => true, send: () => undefined, listen: () => undefined,
+    };
+    try {
+      expect((await health() as unknown as { release: unknown }).release).toEqual({ managed: true, releaseId: 'release-b' });
+    } finally {
+      delete scope.__codeaiManagedLifecycle;
+      delete scope.__codeAiLifecycle;
+    }
+  });
+
   it('counts newer-format sessions in active and archived storage, and reports zero without them', async () => {
     await seeded.createSession({ provider: 'claude' });
     await seeded.close();

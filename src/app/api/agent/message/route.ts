@@ -202,6 +202,11 @@ export async function POST(request: Request): Promise<Response> {
     cancel: () => abortController.abort(),
   });
   if (!reservation.accepted) {
+    if (reservation.reason === 'maintenance') {
+      return safeJsonResponse({
+        error: 'CodeAI is building a new release of itself and will restart. Send again once it is back.',
+      }, { status: 503, headers: { 'Retry-After': '30' } });
+    }
     if (reservation.reason === 'queue-full') {
       return safeJsonResponse({
         error: 'This machine already has 32 turns waiting. Cancel queued work or wait for capacity.',

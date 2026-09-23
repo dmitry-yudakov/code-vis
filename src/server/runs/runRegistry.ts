@@ -58,7 +58,16 @@ export interface RunAttachment {
 export type RunReservation =
   | { accepted: true; runId: string }
   | { accepted: false; reason: 'queue-full' }
+  | { accepted: false; reason: 'maintenance' }
   | { accepted: false; reason: 'session-conflict' | 'provider-conflict'; activeRun: RunDescriptor };
+
+export type MaintenanceAdmission = 'acquired' | 'held' | 'live-runs';
+
+/** What CodeAI's own build-and-restart needs from the scheduler (Story 64). */
+export interface MaintenanceLease {
+  acquireMaintenance(): MaintenanceAdmission;
+  releaseMaintenance(): void;
+}
 
 export interface ReserveRunInput {
   runId: string;
@@ -81,8 +90,9 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
  * Owns machine-local admission, checkout locks, and the lifetime of agent runs. A browser that
  * reloads mid-run only detaches its stream; provider execution and queued work continue here.
  */
-export class RunRegistry {
+export class RunRegistry implements MaintenanceLease {
   private readonly checkoutReaders = new Map<symbol, string>();
+  private maintenance = false;
   private readonly liveByRunId = new Map<string, RunRecord>();
   private readonly recentByRunId = new Map<string, RunRecord>();
   private readonly queue: string[] = [];
@@ -112,6 +122,7 @@ export class RunRegistry {
    */
   reserve(input: ReserveRunInput): RunReservation {
     this.evictExpired();
+    if (this.maintenance) return { accepted: false, reason: 'maintenance' };
     const sessionConflict = [...this.liveByRunId.values()].find((run) => run.sessionId === input.sessionId);
     if (sessionConflict) {
       return { accepted: false, reason: 'session-conflict', activeRun: this.descriptor(sessionConflict) };
@@ -142,6 +153,23 @@ export class RunRegistry {
       resolveCompletion: completion.resolve,
     });
     return { accepted: true, runId: input.runId };
+  }
+
+  /**
+   * Held while CodeAI builds a release of itself and may stop this server. Granted only when no
+   * run is reserved, queued, or live, and in the same synchronous step, so no turn can slip in
+   * between the check and the grant; while held, every reservation is refused. The holder releases
+   * it when the build fails; otherwise the process holding it ends.
+   */
+  acquireMaintenance(): MaintenanceAdmission {
+    if (this.maintenance) return 'held';
+    if (this.liveByRunId.size) return 'live-runs';
+    this.maintenance = true;
+    return 'acquired';
+  }
+
+  releaseMaintenance(): void {
+    this.maintenance = false;
   }
 
   /** Makes a successfully appended reservation runnable and schedules it when eligible. */

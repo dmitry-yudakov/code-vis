@@ -5,6 +5,7 @@ import { dockerProviderHealth, getProviderAdapters } from '@/server/agents/provi
 import { safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { getCodeAiLifecycle } from '@/server/lifecycle/codeAiLifecycle';
 import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { getSessionStore } from '@/server/storage/sessionStore';
@@ -48,6 +49,7 @@ export async function GET(request: Request): Promise<Response> {
   const newerFormatSessions = dataDirectoryReady
     ? await getSessionStore(config.dataDir, config.hostLabel).newerFormatSessionCount().catch(() => 0)
     : 0;
+  const lifecycle = getCodeAiLifecycle();
   return safeJsonResponse({
     ok: repositoriesRootReady && dataDirectoryReady && (providerReady || docker.available) && !recoveryMessage,
     hostLabel: config.hostLabel,
@@ -62,6 +64,9 @@ export async function GET(request: Request): Promise<Response> {
       },
     },
     newerFormatSessions,
+    // Which build serves this response, for a browser reconnecting after a managed restart.
+    // Nothing above depends on it.
+    release: lifecycle?.managed ? { managed: true, releaseId: lifecycle.releaseId } : { managed: false },
     message: recoveryMessage || readinessMessage || (!providerReady && !docker.available ? claude.message || codex.message : undefined),
   });
 }

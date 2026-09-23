@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { savedDockerEnabled } from '@/server/execution/dockerSettings';
+import { managedBridge } from '@/server/lifecycle/managedBridge';
 import {
   DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES, MAX_WIRE_TRANSCRIPT_MESSAGES,
 } from '@/shared/limits';
@@ -25,8 +26,9 @@ export interface AppConfig {
   dataDir: string;
   /**
    * This installation's own checkout. A project whose local primary repository resolves to it is a
-   * self project. Server-owned: `CODEAI_INSTALLATION_ROOT` exists so the end-to-end server can name
-   * a fixture; Docker's protected-path check keeps using the real working directory.
+   * self project. Server-owned: a server started by `start:managed` uses the root its parent
+   * verified; otherwise `CODEAI_INSTALLATION_ROOT` exists so the end-to-end server can name a
+   * fixture. Docker's protected-path check keeps using the real working directory.
    */
   installationRoot: string;
   hostLabel: string;
@@ -183,7 +185,8 @@ export function getConfig(): AppConfig {
     // may observe queued work but cannot request a wider limit.
     maxConcurrentRuns: boundedInteger('MAX_CONCURRENT_RUNS', 2, 1, 8),
     dataDir,
-    installationRoot: path.resolve(expandHome(rawSetting('INSTALLATION_ROOT') || process.cwd())),
+    installationRoot: managedBridge()?.init.installationRoot
+      || path.resolve(expandHome(rawSetting('INSTALLATION_ROOT') || process.cwd())),
     hostLabel: rawSetting('HOST_LABEL') || os.hostname(),
     maxAssistantBytes: boundedInteger('MAX_ASSISTANT_BYTES', 1_048_576, 1_024, 10_485_760),
     maxMermaidBytes: boundedInteger('MAX_MERMAID_BYTES', 100_000, 128, 1_048_576),
