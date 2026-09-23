@@ -38,7 +38,10 @@ Story 67 lets an installation change the CLI versions in its recorded image
 mount-less containers, then switched in by replacing only the image ID in `profile.json` under the
 provider's login hold. `docker/versions.json` describes the recorded image's CLI versions, the
 version each update replaced, and its own Codex `model/list`; a record for another image is stale
-and is read again from the image.
+and is read again from the image. Arena reads `GET /api/execution/docker/versions` (recorded
+versions and npm's `latest`, looked up on request and kept for an hour) and starts an update with
+a device-authorized, exact-origin `POST` naming only a provider and `latest` or `previous`. The
+server resolves the version and runs one update at a time in-process; the browser polls it.
 
 One private npm package, one Next.js 16 App Router application, no separate backend process.
 Route handlers under `src/app/api/` are the only server surface; they spawn local agent CLIs as

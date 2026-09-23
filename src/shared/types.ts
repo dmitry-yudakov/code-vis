@@ -150,6 +150,48 @@ export interface ModelSelection {
   effort?: string;
 }
 
+/** The offline check an update's candidate failed, or `build` when it could not be built. */
+export type DockerCheck = 'build' | 'version' | 'claude-flags' | 'codex-handshake' | 'codex-models';
+export type DockerUpdateState = 'building' | 'checking' | 'switching' | 'switched' | 'failed' | 'in-use';
+
+/** A version Arena may offer for one provider's Docker CLI. */
+export interface DockerCliOffer {
+  version: string;
+  /** Below the recorded version: the newer CLI may already have migrated the provider's shared home. */
+  downgrade: boolean;
+}
+
+export interface DockerCliStatus {
+  /** The version in the image this machine records. */
+  version: string;
+  /** The lowest version this CodeAI supports, which a fresh provision installs. */
+  minimum: string;
+  /** npm's `latest`, when it is above the recorded version. */
+  latest?: DockerCliOffer;
+  /** The version the last update replaced, when it is at least the minimum and not `latest`. */
+  previous?: DockerCliOffer;
+}
+
+/** One CLI update on this machine, running or finished since CodeAI started. */
+export interface DockerUpdateOperation {
+  id: string;
+  provider: AgentProvider;
+  version: string;
+  state: DockerUpdateState;
+  check?: DockerCheck;
+  message?: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+/** `GET /api/execution/docker/versions`. */
+export interface DockerVersionsStatus {
+  providers: Record<AgentProvider, DockerCliStatus>;
+  /** When npm was last asked; `failed` means that lookup failed, so it offers nothing. */
+  releases: { checkedAt: string; failed?: true };
+  operation?: DockerUpdateOperation;
+}
+
 export type ExecutionHealth = Record<AgentExecution, {
   enabled: boolean;
   providers: Record<AgentProvider, ProviderHealth>;

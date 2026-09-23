@@ -175,6 +175,15 @@ details.arena-docker-setup { margin-top: 6px; }
 details.arena-docker-setup > summary { width: fit-content; color: var(--muted); font-size: 11px; cursor: pointer; }
 .arena-docker-setup button { margin-top: 10px; min-height: 34px; padding: 0 12px; }
 .arena-docker-settings p[role="alert"] { color: var(--stop-ink); }
+.arena-docker-versions { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--plot-line-soft); }
+.arena-docker-version { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 32px; }
+.arena-docker-version strong { width: 56px; }
+.arena-docker-version-current { min-width: 64px; font-variant-numeric: tabular-nums; }
+.arena-docker-version-offer { flex: 1; color: var(--muted); }
+.arena-docker-version-actions, .arena-docker-version-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.arena-docker-version-footer { justify-content: space-between; }
+.arena-docker-version-footer p { margin: 0; }
+.arena-docker-versions button { min-height: 30px; padding: 0 12px; }
 .arena-heading-actions button, .arena-refresh-error button, .arena-inbox > header button, .arena-inbox-actions button, .arena-create-actions button { min-height: 34px; padding: 0 12px; font-size: 11px; font-weight: 700; }
 .arena .arena-primary { color: var(--on-emphasis); border-color: var(--plot); background: var(--plot); }
 .arena .arena-primary:hover:not(:disabled) { background: var(--plot-hover); }

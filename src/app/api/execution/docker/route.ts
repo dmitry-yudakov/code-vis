@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { getConfig } from '@/server/config';
 import { cachedLocalProviderHealth, dockerProviderHealth } from '@/server/agents/providerRegistry';
-import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { authorizeDeviceRequest, requestHasExactOrigin } from '@/server/devices/deviceAuthorization';
 import { dockerSettingsPath } from '@/server/execution/dockerSettings';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { atomicWrite } from '@/server/storage/sessionStore';
@@ -15,10 +15,7 @@ export async function PATCH(request: Request): Promise<Response> {
     const denied = await authorizeDeviceRequest(request);
     if (denied) return denied;
     const config = getConfig();
-    const url = new URL(request.url);
-    // Next.js may normalize request.url to its internal hostname. Host retains the browser origin.
-    const origin = config.publicOrigin || `${url.protocol}//${request.headers.get('host') || url.host}`;
-    if (request.headers.get('origin') !== origin) {
+    if (!requestHasExactOrigin(request, config)) {
       return safeJsonResponse({ error: 'Request origin is not authorized.' }, { status: 403 });
     }
     const parsed = dockerSettingsSchema.safeParse(await request.json().catch(() => undefined));

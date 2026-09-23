@@ -50,8 +50,8 @@ Updated 2026-09-23. When a story ships, change the line that names it; each stor
   model and effort for an agent's next turn from the executing machine's own list; implemented with
   offline checks, and the real-provider verification remains pending.
 - **Also in flight:** [Story 67](stories/STORY-20260923-docker-provider-upgrade.md) — update one
-  provider's Docker CLI after offline checks, and roll back. Part A (`npm run docker:upgrade`) is
-  implemented; Arena updates (Part B) and the worker's own Codex models (Part C) are pending.
+  provider's Docker CLI from Arena or `npm run docker:upgrade` after offline checks, and roll back;
+  Docker Codex offering its worker's own models (Part C) is pending.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

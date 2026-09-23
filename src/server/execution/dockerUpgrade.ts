@@ -9,7 +9,7 @@ import { MAX_MODEL_EFFORTS, MAX_PROVIDER_MODELS } from '@/shared/limits';
 import { providerModelSchema } from '@/shared/machineSchema';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import { agentEffortSchema } from '@/shared/protocol';
-import type { AgentProvider, ModelChoices } from '@/shared/types';
+import type { AgentProvider, DockerCheck, ModelChoices } from '@/shared/types';
 import { dockerCommand, localDockerEndpoint, spawnDocker, DockerCommandError } from './dockerCommand';
 import {
   compareCliVersions, containerSecurity, installationImageTag, isCliVersion, DOCKER_HOME, DOCKER_PATH, DOCKER_VERSIONS,
@@ -61,7 +61,6 @@ function dockerMessage(error: unknown, fallback: string): string {
 }
 
 export type DockerUpdateStep = 'building' | 'checking' | 'switching';
-export type DockerCheck = 'build' | 'version' | 'claude-flags' | 'codex-handshake' | 'codex-models';
 export type DockerUpdateResult =
   | { outcome: 'switched'; provider: AgentProvider; version: string; replaced: string }
   | { outcome: 'failed'; check?: DockerCheck; message: string }

@@ -248,16 +248,16 @@ the first real turn, and rollback is one click. The setup guide says so.
 
 ### Part B
 
-- [ ] Arena shows each provider's recorded version, an available `latest` above it, and a rollback
+- [x] Arena shows each provider's recorded version, an available `latest` above it, and a rollback
       target when `previous` exists and is not below the pin.
-- [ ] The lookup is cached for one hour, **Check for updates** refreshes it, and a lookup failure
+- [x] The lookup is cached for one hour, **Check for updates** refreshes it, and a lookup failure
       shows the message without affecting the rest of the section.
-- [ ] The route accepts only `{ provider, target: 'latest' | 'previous' }`; a version string, an
+- [x] The route accepts only `{ provider, target: 'latest' | 'previous' }`; a version string, an
       unknown target, or a target with nothing to resolve is `400`, and a second operation is
       `409`.
-- [ ] Progress survives a browser reload, and the switched, failed-check and in-use outcomes each
+- [x] Progress survives a browser reload, and the switched, failed-check and in-use outcomes each
       show their message.
-- [ ] Unpaired and wrong-origin requests are refused as on the Docker settings route.
+- [x] Unpaired and wrong-origin requests are refused as on the Docker settings route.
 
 ### Part C
 

@@ -682,7 +682,10 @@ login, direct-edit scope, network restrictions, and cleanup. Select Local or Doc
 creating a session in a project or Arena. Sign in once with `npm run docker:login -- claude` or
 `npm run docker:login -- codex`; new Docker conversations share that provider's login, settings and
 history in persistent Docker storage, separate from the host provider setup. Existing individual
-Docker homes retain their history in place. The conversation shows an execution badge and offers
+Docker homes retain their history in place. When Claude Code or Codex publishes a new version,
+**Update** it in Arena's Docker section, or run `npm run docker:upgrade -- <provider> <version>`:
+the new CLI is checked offline before turns use it, and **Roll back** returns to the previous one.
+The conversation shows an execution badge and offers
 **Continue in Docker/Local**, opening a fresh session on the same repositories with a recap ready
 to review and send. Docker sessions persist execution and
 one fixed primary checkout. Agent is autonomous inside the container; its dependency installs and

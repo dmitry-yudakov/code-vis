@@ -73,6 +73,11 @@ export const revokeDeviceRequestSchema = z.object({ deviceId: z.string().uuid() 
 
 export const dockerSettingsSchema = z.object({ enabled: z.boolean() }).strict();
 
+/** The browser names a provider and which offer; the server resolves the version itself. */
+export const dockerUpdateRequestSchema = z.object({
+  provider: agentProviderSchema, target: z.enum(['latest', 'previous']),
+}).strict();
+
 export const createSessionRequestSchema = z.object({
   execution: z.enum(['local', 'docker']).optional(),
   sourceSessionId: z.string().uuid().optional(),

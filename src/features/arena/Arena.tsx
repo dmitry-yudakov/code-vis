@@ -13,6 +13,7 @@ import {
   buildMultiMachineInbox, groupArenaSessions, unreadArenaAttention,
   type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
+import { DockerVersions } from './DockerVersions';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 
 const STATE_LABELS = {
@@ -205,6 +206,7 @@ export function Arena({
               Enable Docker
             </label>
           </div>
+          {docker.enabled && docker.providers.claude.available && <DockerVersions onSwitched={refresh} />}
           {dockerSetupNeeded && (
             <div className="arena-docker-setup">
               <p>{docker.providers.claude.message}</p>

@@ -47,6 +47,17 @@ export function requestHasExpectedMutationOrigin(request: Request, config: AppCo
   return request.headers.get('origin') === config.publicOrigin;
 }
 
+/**
+ * Docker mutations change what runs on this machine, so they demand the exact browser origin in
+ * every access mode: the configured public origin, or else the one the browser addressed.
+ */
+export function requestHasExactOrigin(request: Request, config: AppConfig): boolean {
+  const url = new URL(request.url);
+  // Next.js may normalize request.url to its internal hostname. Host retains the browser origin.
+  const origin = config.publicOrigin || `${url.protocol}//${request.headers.get('host') || url.host}`;
+  return request.headers.get('origin') === origin;
+}
+
 export async function deviceAuthStatus(request: Request): Promise<DeviceAuthStatus> {
   const config = getConfig();
   if (config.remoteAccess !== 'paired') {

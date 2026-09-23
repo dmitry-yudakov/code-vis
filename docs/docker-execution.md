@@ -114,6 +114,18 @@ Claude Code and Codex publish new versions every few days, and a new model often
 installation records which image it runs, so it can move one provider's CLI to another version
 without a new CodeAI.
 
+**In Arena**, once Docker is enabled and ready, the Docker section shows each provider's recorded
+version. When Arena opens it asks npm for each package's `latest`, keeps the answer for an hour,
+and **Check for updates** asks again; nothing checks on a timer. A release newer than the recorded
+one shows as **Update**, and the version the last update replaced as **Roll back to**, or
+**Return to** after a rollback. A release below the minimum is never offered. The browser names
+only the provider and which of the two it wants; the server resolves the version from its current
+answer, never a new lookup, so once that answer is an hour old, check for updates again first. The
+update runs in CodeAI, not the browser: the section shows building, checking and switching, then
+the outcome, also after a reload. One update runs at a time on a machine. Restarting CodeAI during
+an update abandons it and changes nothing, since only a successful switch writes the records.
+Arena updates the machine serving it; other executor machines keep their own Docker.
+
 **From the owner terminal**, for any exact version:
 
 ```sh
@@ -149,8 +161,8 @@ unprovisioned installation or a changed engine. It then:
 
 **Rolling back** is the same update with the previous version, printed by `npm run docker:upgrade`
 and after every switch. Docker usually still has its build layers cached, so it is quick. Going
-to a lower version prints a warning: the newer CLI may already have migrated the provider's shared
-home, so watch the first turn afterwards.
+to a lower version prints a warning, and in Arena asks first: the newer CLI may already have
+migrated the provider's shared home, so watch the first turn afterwards.
 
 **What the checks do not cover.** They catch a failed install, a removed or renamed flag, a broken
 App Server handshake and a Codex that cannot list models. They cannot catch a change in a turn's
