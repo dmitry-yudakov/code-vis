@@ -46,6 +46,10 @@ Updated 2026-09-23. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 63](stories/STORY-20260921-report-evidence-in-conversation.md) — headset
   reports become attachable conversation evidence in CodeAI's own project, flat and in VR;
   implemented with automated checks, and the Quest 3S run remains pending.
+- **Also in flight:** [Story 64](stories/STORY-20260921-managed-self-rebuild.md) — `npm run start:managed`
+  builds CodeAI's own checkout into a spare slot on request, swaps to it once it reports ready, rolls
+  back otherwise, and returns to the previous release on `kill -USR2`; verified offline and with a real
+  build, restart, rollback, and `kill -USR2` on this machine, and the Quest 3S run remains pending.
 - **Also in flight:** [Story 66](stories/STORY-20260922-select-model-and-effort.md) — choose the
   model and effort for an agent's next turn from the executing machine's own list; implemented with
   offline checks, and the real-provider verification remains pending.
@@ -70,6 +74,7 @@ npm run dev        # Next.js dev server on 3023 (Turbopack, output in .next/dev)
 npm run devs       # the same over HTTPS on the LAN for a headset — unauthenticated, see README
 npm start          # production server on 3023, after npm run build
 npm run start:remote # paired personal-device HTTPS server, after npm run build
+npm run start:managed # the same server under a parent that can build, swap, and roll back releases
 npm run device:pair # issue a ten-minute, single-use pairing code
 npm run machine:pair # issue a ten-minute, single-use executor pairing code
 npm run machine:attach -- ORIGIN CODE # attach an executor from the home machine
@@ -113,6 +118,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/features/diagram/spatial/` | Desktop spatial room, spatial diagram model, and the GPU resource ledger shared with VR |
 | `src/features/projects/` | Project selection UI |
 | `src/features/reports/` | The shared CodeAI report owner, the flat Reports tab, and report labels |
+| `src/features/lifecycle/` | Build & restart in the browser: the pure confirm/build/restart/reconnect flow, its owner, and the More-menu section |
 | `src/features/repository/` | Repository tree, status, and diff UI and client state |
 | `src/server/agents/` | Provider policies, adapters, preflight, process runners |
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
@@ -122,6 +128,7 @@ so a dev run leaves the working tree clean — edit them only through Next.js.
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
 | `src/server/diagnostics/` | Immersive reports in the home machine's data directory, and their self-project-only reads |
+| `src/server/lifecycle/` | A managed server's side of Build & restart: the private parent channel, status, and the scheduler's maintenance lease |
 | `src/server/execution/` | Optional Docker execution: container profile, runtime, recovery, and process transport |
 | `src/server/voice/` | Loopback-only transcription client for voice dictation |
 | `src/server/machines/` | Machine pairing, registry, snapshot collection, and allowlisted gateway |

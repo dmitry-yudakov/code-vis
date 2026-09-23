@@ -40,7 +40,7 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   request?: { tab: 'launcher' | 'permissions'; key: string };
   onController(perform?: (action: SessionActionName) => void): void;
 }) {
-  const [tab, setTab] = useState<'home' | 'launcher' | 'permissions' | 'reports'>('home');
+  const [tab, setTab] = useState<'home' | 'launcher' | 'permissions' | 'reports' | 'codeai'>('home');
   const [reportId, setReportId] = useState<string>();
   const [machineId, setMachineId] = useState(controls.machineId);
   const [projectId, setProjectId] = useState('');
@@ -86,6 +86,12 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   const report = reports.find((item) => item.id === reportId) || reports[0];
   const reportIndex = report ? reports.indexOf(report) : -1;
   const reportPending = Boolean(report && reportControls?.pendingIds.includes(report.id));
+  // CodeAI's own tools: its reports, and Build & restart where this server can do it.
+  const codeai = controls.codeai;
+  // Leaving the section by any route, a routed request included, withdraws a confirmation.
+  const dismissCodeAi = useRef(codeai?.onDismiss);
+  dismissCodeAi.current = codeai?.onDismiss;
+  useEffect(() => { if (tab !== 'codeai') dismissCodeAi.current?.(); }, [tab]);
   const permissionStatus = result?.message || (!selected ? 'No permission requests.' : !controls.online ? 'Machine is offline. Reconnect and refresh status.'
     : !current ? 'This request is no longer pending. It was answered elsewhere or the run ended.' : 'Review the details, then choose Allow or Deny.');
   const text = tab === 'launcher' ? [
@@ -105,7 +111,11 @@ export function SessionTools({ controls, theme, enabled, request, onController }
       reportDescription(report),
       reportPending ? 'Attached to the next message.'
         : reportControls.canAttach ? 'Attach it to send with the next message.' : 'Open a session with room for another report to attach it.',
-    ].join('\n\n')) : [
+    ].join('\n\n')) : tab === 'codeai' ? [
+      !codeai ? 'Build & restart is offered when CodeAI runs under npm run start:managed. Refresh to check again.'
+        : codeai.confirming ? codeai.confirmation : codeai.status,
+      reportControls ? 'Reports lists what you captured here, to attach to the next message.' : '',
+    ].filter(Boolean).join('\n\n') : [
     controls.status,
     `${controls.permissions.length} pending permission request(s).`,
     controls.needsRepository ? `Primary repository required before sending.\nRepository: ${checkout?.name || 'No checkout available'}` : '',
@@ -119,7 +129,7 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   const safePage = Math.min(page, pageCount - 1);
   const body = useTextureResource((ledger) => createConversationTextResource(
     `${tab === 'launcher' ? 'New session' : tab === 'permissions' ? 'Permission request'
-      : tab === 'reports' ? `Report ${reportIndex + 1} of ${reports.length}` : 'Session tools'} · ${safePage + 1}/${pageCount}`,
+      : tab === 'reports' ? `Report ${reportIndex + 1} of ${reports.length}` : tab === 'codeai' ? 'CodeAI' : 'Session tools'} · ${safePage + 1}/${pageCount}`,
     lines.slice(safePage * 10, safePage * 10 + 10), theme, ledger,
   ), [lines, safePage, pageCount, tab, reportIndex, reports.length, theme]);
   const buttons = useTextureResource((ledger) => Object.fromEntries(Object.entries(SESSION_ACTIONS).map(([action, label]) =>
@@ -128,9 +138,12 @@ export function SessionTools({ controls, theme, enabled, request, onController }
     if (!enabled || busyRef.current) return;
     if (action === 'older') setPage(Math.max(0, safePage - 1));
     else if (action === 'newer') setPage(Math.min(pageCount - 1, safePage + 1));
-    else if (action === 'launcher' || action === 'permissions' || action === 'back' || (action === 'reports' && reportControls)) {
-      setTab(action === 'back' ? 'home' : action); setPage(0); setConfirmRevoke(false);
+    else if (action === 'launcher' || action === 'permissions' || action === 'back' || (action === 'reports' && reportControls)
+      || (action === 'codeai' && (reportControls || codeai))) {
+      // Reports is reached from the CodeAI section, so it goes back there.
+      setTab(action === 'back' ? tab === 'reports' ? 'codeai' : 'home' : action); setPage(0); setConfirmRevoke(false);
       if (action === 'reports') reportControls?.onRefresh();
+      if (action === 'codeai') controls.onRefresh();
     } else if (action === 'refresh') {
       if (tab === 'reports') reportControls?.onRefresh();
       else controls.onRefresh();
@@ -139,6 +152,10 @@ export function SessionTools({ controls, theme, enabled, request, onController }
         setReportId(reports[(reportIndex + (action === 'next-report' ? 1 : -1) + reports.length) % reports.length].id); setPage(0);
       } else if (action === 'attach-report' && report && !reportPending && reportControls?.canAttach) reportControls.onAttach(report.id);
       else if (action === 'remove-report' && report && reportPending) reportControls?.onRemove(report.id);
+    } else if (tab === 'codeai') {
+      // The first activation shows the warning; only the second, a different control, starts it.
+      if (action === 'build-restart' && codeai?.canRequest) { codeai.onAsk(); setPage(0); }
+      else if (action === 'confirm-build-restart' && codeai?.confirming) codeai.onConfirm();
     }
     else if (tab === 'launcher') {
       if (controls.creating) return;
@@ -179,10 +196,10 @@ export function SessionTools({ controls, theme, enabled, request, onController }
     action={`session:${action}`} label={SESSION_ACTIONS[action]} resource={buttons?.[action]}
     iconTheme={theme} position={[x, y, 0]} disabled={!enabled || busy || disabled}
     variant={action === 'allow' || action === 'create' ? 'primary'
-      : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' ? 'destructive' : 'secondary'}
+      : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' || action === 'confirm-build-restart' ? 'destructive' : 'secondary'}
     onAction={() => perform(action)} />;
   return <group name="VR session tools" userData={{ tab, text, page: safePage, pageCount, permissionKey: selected && permissionKey(selected), permissionStatus, busy,
-    reportId: report?.id, reportPending }}>
+    reportId: report?.id, reportPending, codeaiConfirming: Boolean(codeai?.confirming) }}>
     {body && <mesh name="Session details" geometry={body.geometry} material={body.material} position={[0, 0.12, 0]} />}
     {preview && <ReportPreview url={preview} theme={theme} />}
     <WorkspacePager label={`Page ${safePage + 1} of ${pageCount}`} previousAction="session:older" nextAction="session:newer"
@@ -209,10 +226,13 @@ export function SessionTools({ controls, theme, enabled, request, onController }
       {button('back', 0.48, -0.56)}
       {button('attach-report', -0.22, -0.76, !report || reportPending || !reportControls?.canAttach)}
       {button('remove-report', 0.22, -0.76, !reportPending)}
+    </> : tab === 'codeai' ? <>
+      {button('reports', -0.44, -0.56, !reportControls)}{button('back', 0.44, -0.56)}
+      {codeai?.confirming ? button('confirm-build-restart', 0, -0.76) : button('build-restart', 0, -0.76, !codeai?.canRequest)}
     </> : <>
       {button('launcher', -0.44, -0.56)}{button('permissions', 0, -0.56)}{button('cancel', 0.44, -0.56, !controls.canCancel)}
       {controls.needsRepository ? <>{button('checkout', -0.44, -0.76, !checkout)}{button('attach', 0, -0.76, !checkout || !controls.canAttach)}</>
-        : <>{button('retry', -0.44, -0.76, !controls.canRetry)}{button('reports', 0, -0.76, !reportControls)}</>}
+        : <>{button('retry', -0.44, -0.76, !controls.canRetry)}{button('codeai', 0, -0.76, !reportControls && !codeai)}</>}
       {button(confirmRevoke ? 'confirm-revoke' : 'revoke', 0.44, -0.76)}
     </>}
   </group>;

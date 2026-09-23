@@ -61,6 +61,17 @@ export interface ImmersiveReportControls {
   onRemove(id: string): void;
 }
 
+/** Build & restart as the headset sees it; present only where this server can do it (Story 64). */
+export interface ImmersiveCodeAiControls {
+  status: string;
+  confirmation: string;
+  confirming: boolean;
+  canRequest: boolean;
+  onAsk(): void;
+  onConfirm(): void;
+  onDismiss(): void;
+}
+
 export interface ImmersiveSessionControls {
   machines: ArenaMachineSnapshot[];
   machineId?: string;
@@ -78,6 +89,7 @@ export interface ImmersiveSessionControls {
   canRetry: boolean;
   requestedPermissionKey?: string;
   reports?: ImmersiveReportControls;
+  codeai?: ImmersiveCodeAiControls;
   onCreate(input: SessionCreation): Promise<boolean>;
   onAttach(checkoutId: string): Promise<void>;
   onDecide(target: PermissionTarget, decision: 'allow' | 'deny'): void;
@@ -97,6 +109,7 @@ export const SESSION_ACTIONS = {
   revoke: 'Forget this device', 'confirm-revoke': 'Confirm forget',
   reports: 'Reports', 'previous-report': 'Previous report', 'next-report': 'Next report',
   'attach-report': 'Attach report', 'remove-report': 'Remove report',
+  codeai: 'CodeAI', 'build-restart': 'Build & restart', 'confirm-build-restart': 'Confirm build & restart',
 } as const;
 export type SessionActionName = keyof typeof SESSION_ACTIONS;
 export type SessionAction = `session:${SessionActionName}`;

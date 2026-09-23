@@ -2410,7 +2410,13 @@ test('captures a report into the selected CodeAI session and attaches a saved on
     errors: [], diagnostics: { version: 1, browser: 'E2E headset', events: [] },
   } });
   const savedId = (await saved.json() as { name: string }).name;
-  await sessionAction(page, 'tools'); await sessionAction(page, 'reports');
+  // Reports sit in Session tools' CodeAI section. This server is not managed, so it cannot restart itself.
+  await sessionAction(page, 'tools'); await sessionAction(page, 'codeai');
+  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('codeai');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('npm run start:managed');
+  await sessionAction(page, 'build-restart'); await sessionAction(page, 'confirm-build-restart');
+  expect((await sessionToolsState(page))?.codeaiConfirming).toBe(false);
+  await sessionAction(page, 'reports');
   await expect.poll(async () => (await sessionToolsState(page))?.reportId).toBe(savedId);
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain(`Saved for later ${stamp}`);
   // The world control is what a controller reaches; the DOM controls mirror the same actions.
@@ -2441,6 +2447,52 @@ test('captures a report into the selected CodeAI session and attaches a saved on
     return list.reports?.some((report) => report.latestError?.includes('Injected report-flow failure.'));
   }, { timeout: 15_000 }).toBe(true);
   await expect(page.locator('.attachment-chip.report')).toHaveCount(0);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+});
+
+test('Session tools’ CodeAI section needs a second, different control to build and restart', async ({ page, request }) => {
+  const stamp = Date.now();
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+  const installation = checkouts.find((item) => item.relativePath === 'installation')!;
+  const project = (await (await request.post('/api/projects', { data: { name: `Headset restart ${stamp}`, checkoutIds: [installation.id] } })).json()).project as DurableProject;
+  await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } });
+  // This server is unmanaged; the route stands in for a managed one.
+  const operationId = '5b0c9a1e-3f4d-4e2a-9b1c-2d3e4f5a6b7c';
+  const building = { available: true, phase: 'building', releaseId: 'release-a', operationId, startedAt: new Date().toISOString() };
+  const posted: unknown[] = [];
+  await page.route('**/api/codeai-lifecycle**', (route) => {
+    if (route.request().method() === 'POST') {
+      posted.push(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { snapshot: building } });
+    }
+    return route.fulfill({ json: posted.length ? building : { available: true, phase: 'idle', releaseId: 'release-a' } });
+  });
+  await installAdapter(page);
+  await page.goto('/');
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(project.name) }).click();
+  await expect(page.locator('.project-search-trigger')).toContainText(project.name);
+  await enter(page);
+
+  await sessionAction(page, 'tools'); await sessionAction(page, 'codeai');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Serving release release-a.');
+  // The confirming control does nothing before the warning has been shown.
+  await sessionAction(page, 'confirm-build-restart');
+  expect(posted).toEqual([]);
+  await sessionAction(page, 'build-restart');
+  await expect.poll(async () => (await sessionToolsState(page))?.codeaiConfirming).toBe(true);
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('a VR session ends');
+  // Leaving the section withdraws the confirmation.
+  await sessionAction(page, 'back');
+  await sessionAction(page, 'codeai');
+  await expect.poll(async () => (await sessionToolsState(page))?.codeaiConfirming).toBe(false);
+  await sessionAction(page, 'confirm-build-restart');
+  expect(posted).toEqual([]);
+
+  await sessionAction(page, 'build-restart'); await sessionAction(page, 'confirm-build-restart');
+  await expect.poll(() => posted).toEqual([{ action: 'build-and-restart', projectId: project.id }]);
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Building CodeAI');
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
 });

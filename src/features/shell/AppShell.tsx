@@ -43,6 +43,9 @@ import { useRepositoryDiff } from '@/features/repository/useRepositoryDiff';
 import { ReportsPanel } from '@/features/reports/ReportsPanel';
 import { REPORT_ONLY_INSTRUCTION, capturedReportTarget, pendingReportLabel } from '@/features/reports/reportModel';
 import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
+import { CodeAiLifecycleMenu } from '@/features/lifecycle/CodeAiLifecycleMenu';
+import { lifecycleConfirmation } from '@/features/lifecycle/lifecycleFlow';
+import { takeRestartProject, useCodeAiLifecycle } from '@/features/lifecycle/useCodeAiLifecycle';
 import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
@@ -204,6 +207,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const selectedCheckoutId = view?.selectedCheckoutId;
   // Reports are this home machine's; a remote executor's project is never CodeAI's own checkout here.
   const reports = useImmersiveReports(workspaceMachineId ? undefined : projectId);
+  // Build & restart operates this home machine's own installation, so it too follows a local project.
+  const lifecycle = useCodeAiLifecycle(workspaceMachineId ? undefined : projectId);
   const pendingReportIds = view?.pendingReportIds ?? [];
   const setComposer = useCallback((value: SetStateAction<string>) => {
     if (!sessionId) return;
@@ -268,6 +273,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     machineId: machineId || localMachineId || '', sessionId: sessionId || '', runId: focusedRun.runId, requestId: request.requestId,
   })]?.pending)?.requestId;
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
+  const projectCheckoutName = checkouts.find((checkout) => checkout.id
+    === selectedProject?.repositories.find((binding) => binding.role === 'primary')?.checkoutId)?.name || 'this checkout';
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
     return [...checkouts].sort((left, right) => {
@@ -457,7 +464,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       setMachineId(checkoutResult.hostId);
       const healthy = AGENT_PROVIDERS.filter((provider) => healthResult.providers[provider]?.available);
       setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
-      setProjectId(projectResult[0]?.id);
+      const restartProject = takeRestartProject();
+      setProjectId(projectResult.find((project) => project.id === restartProject)?.id ?? projectResult[0]?.id);
       setCatalogReady(true);
     }).catch((error: unknown) => {
       if (current) {
@@ -1121,6 +1129,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
     if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id)) return;
+    if (lifecycle.busy) {
+      setNotice('CodeAI is building a new release of itself. Send again once it has restarted; your draft is kept.');
+      return;
+    }
     if (!session.repositories.some((repository) => repository.role === 'primary')) {
       setNotice('Attach a repository and make it primary before running an agent turn. The canvas and participant setup remain available.');
       panelLayout.openRepository();
@@ -1322,7 +1334,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
-  }, [activeAgent, apiPath, composer, consumeStream, health, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updateRun, view?.modelSelections, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updateRun, view?.modelSelections, workspace.updateView]);
 
   const busyRunLabel = busyRun && (
     sessions.find((item) => item.id === busyRun.sessionId)?.title
@@ -1729,13 +1741,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onAttach: (id) => setPendingReportIds((current) => withPendingReport(current, id)),
                 onRemove: removeReport,
               } : undefined,
+              codeai: lifecycle.available ? {
+                status: lifecycle.status || '', confirmation: lifecycleConfirmation(projectCheckoutName),
+                confirming: lifecycle.confirming, canRequest: lifecycle.canRequest,
+                onAsk: lifecycle.ask, onConfirm: lifecycle.confirm, onDismiss: lifecycle.dismiss,
+              } : undefined,
               onCreate: ({ provider, ...options }) => createSession(provider, { ...options, fromArena: true }),
               onAttach: (checkoutId) => updateRepositories((current) => [
                 ...current.filter((item) => item.checkoutId !== checkoutId).map((item) => ({ ...item, role: 'reference' as const })),
                 { id: crypto.randomUUID(), checkoutId, hostId: hostId!, role: 'primary' },
               ]),
               onDecide: (target, decision) => { void permissionDecisions.decide(target, decision); },
-              onRefresh: () => { void permissionDecisions.refreshFailures(); void refreshDeviceAccess(); },
+              onRefresh: () => { void permissionDecisions.refreshFailures(); void refreshDeviceAccess(); void lifecycle.refresh(); },
               onCancel: () => { if (session && focusedRun?.runId) void cancelRun({ machineId, sessionId: session.id, runId: focusedRun.runId }); },
               onRetry: () => {
                 const message = session?.messages.findLast((item) => item.role === 'user');
@@ -1775,7 +1792,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 const id = canvasTargetId(canvas);
                 return `${canvas.kind === 'diagram' ? `Diagram ${canvas.artifact.ordinal}` : 'Sketch'} · ${session.annotations[id]?.marks.length || 0} marks`;
               }), ...pendingReportChips.map((report) => report.label)],
-              canSend: !sessionRunning && !participantBusy && Boolean(activeAgent && providerHealth?.available)
+              canSend: !sessionRunning && !participantBusy && !lifecycle.busy && Boolean(activeAgent && providerHealth?.available)
                 && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
                 && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch') || pendingReportIds.length > 0),
               running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
@@ -1863,8 +1880,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
               </span>
             )}
+            {lifecycle.badge && (
+              <span className="health-pill lifecycle-pill" role="status" title={lifecycle.status}><span />{lifecycle.badge}</span>
+            )}
             <DeviceMenu />
-            <details className="header-menu">
+            <details className="header-menu" onToggle={(event) => { if (event.currentTarget.open) void lifecycle.refresh(); }}>
               <summary>More</summary>
               <div>
                 <div className="theme-selector" role="group" aria-label="Theme">
@@ -1882,6 +1902,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
                 {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export session</button>}
                 {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
+                {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
               </div>
             </details>
           </>}

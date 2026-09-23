@@ -459,7 +459,8 @@ September 22, 2026, offline only; no headset and no real provider turn.
    the screenshot is still readable by the agent after its inbox source was pruned.
 4. Part C: in Quest 3S, make a deliberate report, wait for the delayed capture, dictate “the panel at
    the right is clipped”, and Send. Make another report with no session selected, return to the self
-   project, attach it from the immersive Reports view, and send it. Trigger an automatic error and
+   project, attach it from the immersive Reports view (Session tools → CodeAI → Reports since
+   Story 64), and send it. Trigger an automatic error and
    confirm it is listed but not attached.
 5. Repeat against a remote-machine session, a foreign project id, an id that is not a report name, and
    a malformed report file; none reaches a turn.

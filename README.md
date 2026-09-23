@@ -42,6 +42,7 @@ Useful commands, all run from the repository root:
 npm run dev       # Next.js development server on 3023
 npm start         # production server on 3023, after npm run build
 npm run start:remote # paired personal-device HTTPS server, after npm run build
+npm run start:managed # the same server, able to rebuild and restart itself; see below
 npm run device:pair # print a ten-minute, single-use personal-device pairing code
 npm run machine:pair # print a ten-minute, single-use execution-machine pairing code
 npm run machine:attach -- https://executor.example:3023 CODE # attach from the home machine
@@ -331,7 +332,7 @@ qualify. Sessions in such a project always run Local, because Docker refuses Cod
 - **Headset.** A deliberate **Report** taken with a session of a self project selected waits in that
   session's next message, even if you move elsewhere before the upload finishes, and the
   conversation opens for dictation when that session is still active. Anything else is saved and can
-  be attached later from **Session tools → Reports**, which lists, previews, refreshes, attaches, and
+  be attached later from **Session tools → CodeAI → Reports**, which lists, previews, refreshes, attaches, and
   removes reports with the controller. Automatic error reports are listed but never attached.
 - **What the agent receives.** Sending copies the report's JSON and screenshot into the session's
   own evidence before the message is written, then gives the turn the same files. The prompt treats
@@ -345,6 +346,76 @@ never pruned and follows its session through restarts and archive/restore. A mes
 most four reports and a session at most 64 MB of them; older evidence is never deleted to make room.
 The first report a session carries upgrades that session's record to version 5, which a CodeAI
 build without this feature hides (Story 65) while keeping every other session open.
+
+### Rebuild and restart CodeAI from CodeAI
+
+To fix CodeAI with CodeAI without running `next dev`, whose reloads interrupt a headset, start the
+paired server through a parent that can build and swap releases:
+
+```sh
+npm run build          # once, so there is a release to serve
+npm run start:managed  # the start:remote settings and origin, plus Build & restart
+```
+
+In a [self project](#use-reports-in-codeais-own-project), **More → Build & restart CodeAI** in the
+flat shell and **Session tools → CodeAI → Build & restart** in the headset start it. The first
+activation shows what will happen; a second, separate **Build and restart** starts it. Nothing an
+agent writes can press it: an agent may suggest a restart, but only you confirm one.
+
+- **It runs the code you are about to test.** The build compiles the checkout as it is, uncommitted
+  changes included, and the new release runs on this machine as you. This gives no agent a new
+  capability; Local Agent actions still need their own approvals.
+- **It waits for the machine to be idle.** It is refused while any agent turn is queued or running
+  on this machine, a peer home's turn here included. While it builds, the current release keeps
+  serving for reading, and new turns are refused with *Send again once it is back*. A turn this home
+  runs on an attached executor keeps running there, and the page finds it again after the reload.
+- **The build leaves your checkout as it was.** `next build` points `next-env.d.ts` and
+  `tsconfig.json` at its build directory; both are restored byte for byte when the build ends,
+  however it ends. An edit you make to either file while a build runs is lost.
+- **The swap.** A build goes into `.next-managed-a` or `.next-managed-b`, whichever is not serving.
+  If it fails, takes longer than 20 minutes, or produces no `BUILD_ID`, nothing else changes and the
+  menu says *the build failed*. Otherwise CodeAI says it is restarting, stops the old server (open
+  connections close after two seconds), and starts the new release. The new release counts only
+  once it tells the parent, over a private channel, that Next is prepared and TLS is listening. If it
+  does not within two minutes, it is deleted and the previous release starts again: *rolled back*.
+  A build reuses the slot of the release before the current one, so while it builds, and after it
+  fails, the previous release is whatever else remains, often `.next`. If `start:managed` itself is
+  stopped or killed, its server stops too.
+- **The browser.** The page expects the disconnect, asks the same origin again with a growing pause,
+  and reloads once CodeAI answers. The session and draft come back through their usual owners. A VR
+  session ends with the page; enter VR again. The menu then names the release that is serving and
+  the last outcome.
+
+**What the previous release covers.** A build slot holds compiled output only.
+`scripts/start-remote.mjs`, `next.config.ts`, `public/`, `node_modules`, and `.env*` are read from
+the working tree by every release, so a change that breaks one of them breaks the previous release
+too. Automatic rollback catches a release that cannot start, not one that starts with a broken page.
+For that, the terminal prints the way back after every start and swap:
+
+```
+[start:managed] Serving release kunzEL40UlNv1Uwcdqk-f (.next-managed-b). Previous release: 3fQ… (.next-managed-a).
+[start:managed] To return to the previous release without the UI, run: kill -USR2 41532
+```
+
+`kill -USR2` refuses while agent turns are live, replaces a server that does not answer within five
+seconds, and deletes the managed slot it left, so a later start cannot choose it. `.next` is never
+deleted; when it is the release left behind, a later start chooses it again until you rebuild or
+remove it. The previous release may meet sessions the newer one wrote; it hides only those
+([Story 65](stories/STORY-20260921-tolerate-newer-session-format.md)).
+
+**Which release a start serves.** The parent keeps no state. On start it serves the most recently
+built of `.next`, `.next-managed-a`, and `.next-managed-b`, by the time of each `BUILD_ID`, and keeps
+the next most recent as the previous release. A manual `npm run build` newer than both slots wins.
+
+**When neither release starts,** the parent says so, prints what to do, and exits with a non-zero
+code; it never loops. Read the server output above it, fix the cause, run `npm run build`, and start
+again; remove a managed slot that keeps being chosen and cannot start. The parent is not a crash
+supervisor either: if the server exits by itself, `start:managed` exits with the same code, as
+`start:remote` would.
+
+For acceptance, `CODEAI_MANAGED_TEST_FAIL_CANDIDATE=1 npm run start:managed` treats the next new
+release as not ready, once, and says so at start. Ordinary `npm run dev`, `npm start`, and
+`npm run start:remote` cannot restart themselves and never show the control.
 
 ### Investigate an unexpected VR exit
 
@@ -826,7 +897,7 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node);
 - `CODEAI_INSTALLATION_ROOT` — which checkout counts as this installation for
   [reports](#use-reports-in-codeais-own-project); defaults to the working directory and exists for
-  the end-to-end server, which names a fixture;
+  the end-to-end server, which names a fixture. `start:managed` ignores it and uses its own checkout;
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
 - `CODEAI_REMOTE_ACCESS` / `CODEAI_PUBLIC_ORIGIN` — opt into paired personal-device access at one
   exact HTTPS origin;

@@ -129,8 +129,11 @@ Story 56 is in progress with the in-headset report action, its three-second aim-
 countdown, automatic error forwarding, and the home-machine report store implemented; its Quest run
 remains pending. Story 63 is in progress with all three parts implemented and automated
 checks passing: those reports become durable conversation evidence for CodeAI's own checkout, flat
-and in the headset; its Quest 3S run remains pending. Draft Story 64 then adds an explicitly approved
-managed rebuild/restart loop and needs only Story 63's first part. Both depended on
+and in the headset; its Quest 3S run remains pending. Story 64 is in progress with the explicitly
+approved managed rebuild/restart loop implemented: `npm run start:managed`, Build & restart in the
+More menu and in Session tools → CodeAI, automatic rollback, and `kill -USR2` back to the previous
+release, verified with real builds and restarts on the home machine; its Quest 3S run remains
+pending. Both depended on
 [Story 65](STORY-20260921-tolerate-newer-session-format.md), a storage fix outside this epic that keeps
 the store open when an older build meets a newer session format; Story 65 has shipped.
 Story 52 is in progress with its immersive Arena/Inbox, exact cross-session permission return, and

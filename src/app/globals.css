@@ -102,6 +102,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .header-menu > div > button { width: 100%; text-align: left; }
 .header-menu p { margin: 0; display: grid; gap: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .header-menu p strong { color: var(--ink-2); font-size: 11px; }
+.lifecycle-menu { width: 100%; display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.lifecycle-menu > button { width: 100%; text-align: left; }
+.header-menu .lifecycle-warning { padding: 9px; border: 1px solid var(--wait-line); border-radius: 7px; color: var(--wait-ink-strong); background: var(--wait-wash); font-size: 11px; }
+.lifecycle-actions { display: flex; gap: 8px; }
+.header-actions .lifecycle-confirm { color: var(--wait-ink-strong); border-color: var(--wait-line-strong); background: var(--wait-wash); }
+.lifecycle-pill { color: var(--wait-ink-strong); border-color: var(--wait-line); background: var(--wait-wash); }
 .device-menu header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .device-menu header strong { font-size: 12px; }
 .device-menu header small { color: var(--muted); font: 9px/1 var(--mono); }
