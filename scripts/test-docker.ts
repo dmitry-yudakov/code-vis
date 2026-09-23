@@ -4,15 +4,22 @@ import { mkdtemp, mkdir, readdir, readFile, realpath, rename, rm, symlink, write
 import path from 'node:path';
 import os from 'node:os';
 import { promisify } from 'node:util';
+import { loadEnvConfig } from '@next/env';
 import { getConfig } from '../src/server/config';
 import { DockerRuntime, getDockerRuntime, saveDockerProvision } from '../src/server/execution/dockerRuntime';
 import { dockerCommand, dockerEnvironment, localDockerEndpoint } from '../src/server/execution/dockerCommand';
-import { containerSecurity, DOCKER_LABEL, DOCKER_PROFILE, DOCKER_VERSIONS, validateDockerCheckout } from '../src/server/execution/dockerProfile';
+import {
+  compareCliVersions, containerSecurity, DOCKER_IMAGE_TAG, DOCKER_LABEL, DOCKER_VERSIONS, validateDockerCheckout,
+} from '../src/server/execution/dockerProfile';
 import { readWorkingTree, readFileDiff } from '../src/server/repository/gitRepository';
 import { writeRepositoryContext } from '../src/server/repository/repositoryContext';
 
 const exec = promisify(execFile);
 async function main() {
+  // Probe the image this installation records, which an update may have replaced; before
+  // provisioning, the image a manual build tagged.
+  loadEnvConfig(process.cwd());
+  const recorded = await new DockerRuntime(getConfig()).provision().then((profile) => profile.image, () => undefined);
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'codeai-docker-boundary-')));
   const dataDir = path.join(root, 'data');
   const checkout = path.join(root, 'repository');
@@ -24,7 +31,7 @@ async function main() {
   const runtime = getDockerRuntime(config);
   const endpoint = await localDockerEndpoint();
   const command = (args: string[]) => dockerCommand(['--host', endpoint, ...args]);
-  const image = (await command(['image', 'inspect', `codeai-worker:${DOCKER_PROFILE}`, '--format', '{{.Id}}'])).trim();
+  const image = recorded ?? (await command(['image', 'inspect', DOCKER_IMAGE_TAG, '--format', '{{.Id}}'])).trim();
   await saveDockerProvision(dataDir, image);
   const identity = { sessionId: crypto.randomUUID(), participantId: crypto.randomUUID(), runId: crypto.randomUUID(), provider: 'codex' as const };
   let worker: Awaited<ReturnType<DockerRuntime['createWorker']>> | undefined;
@@ -70,7 +77,9 @@ async function main() {
     const before = (await readdir(checkout)).sort();
     worker = await runtime.createWorker(identity, { checkout, context, mode: 'ask' });
     for (const provider of ['claude', 'codex'] as const) {
-      assert.ok((await command(['exec', worker.worker, provider, '--version'])).includes(DOCKER_VERSIONS[provider]));
+      // DOCKER_VERSIONS are minimums: an updated installation runs newer CLIs.
+      const version = (await command(['exec', worker.worker, provider, '--version'])).match(/\d+\.\d+\.\d+/)?.[0];
+      assert.ok(version && compareCliVersions(version, DOCKER_VERSIONS[provider]) >= 0, `${provider} ${version} is below ${DOCKER_VERSIONS[provider]}`);
     }
     assert.deepEqual((await readdir(checkout)).sort(), before, 'Ask preparation must not create host directories');
     const mounts = JSON.parse(await command(['inspect', worker.worker, '--format', '{{json .Mounts}}'])) as Array<{ Type: string; Destination: string; RW: boolean }>;
@@ -243,7 +252,7 @@ finally:
     await assert.rejects(readFile(path.join(checkout, 'orphan-sentinel')));
     assert.match(await readFile(path.join(checkout, 'tracked.txt'), 'utf8'), /changed/);
     process.stdout.write('PASS replacement-instance orphan termination and retained source state without replay\n');
-    process.stdout.write(`Image: ${image}\n${await command(['version', '--format', '{{json .Server}}'])}`);
+    process.stdout.write(`Image: ${image}${recorded ? ' (recorded)' : ''}\n${await command(['version', '--format', '{{json .Server}}'])}`);
   } catch (error) {
     console.error('Boundary probe failed before cleanup:', error);
     throw error;

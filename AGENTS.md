@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-22. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-23. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -49,6 +49,9 @@ Updated 2026-09-22. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 66](stories/STORY-20260922-select-model-and-effort.md) — choose the
   model and effort for an agent's next turn from the executing machine's own list; implemented with
   offline checks, and the real-provider verification remains pending.
+- **Also in flight:** [Story 67](stories/STORY-20260923-docker-provider-upgrade.md) — update one
+  provider's Docker CLI after offline checks, and roll back. Part A (`npm run docker:upgrade`) is
+  implemented; Arena updates (Part B) and the worker's own Codex models (Part C) are pending.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
@@ -81,6 +84,7 @@ npm run test:e2e   # production build into .next-e2e + Playwright against instal
 npm run docker:provision # build the pinned worker image and record the Docker profile
 npm run docker:login -- PROVIDER # sign a provider in inside the shared Docker home
 npm run docker:cleanup -- SESSION_ID PARTICIPANT_ID # remove one participant's Docker resources
+npm run docker:upgrade # print the Docker CLI versions; -- PROVIDER VERSION checks and switches one
 npm run test:docker # probe the real Docker runtime; needs a running daemon
 ```
 

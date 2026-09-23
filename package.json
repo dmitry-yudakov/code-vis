@@ -22,6 +22,7 @@
     "docker:provision": "tsx scripts/docker.ts provision",
     "docker:login": "tsx scripts/docker.ts login",
     "docker:cleanup": "tsx scripts/docker.ts cleanup",
+    "docker:upgrade": "tsx scripts/docker.ts upgrade",
     "test:docker": "tsx scripts/test-docker.ts",
     "lint": "tsc --noEmit",
     "tokens": "tsx scripts/generate-tokens.ts",

@@ -33,6 +33,12 @@ Arena's Docker toggle writes only a boolean through the device-authorized, same-
 overrides the environment default on every config read, so new requests see changes without a
 restart. Accepted turns retain their original configuration. Provisioning and login remain terminal
 operations; the browser cannot alter the container profile.
+Story 67 lets an installation change the CLI versions in its recorded image
+(`dockerUpgrade.ts`): a candidate under its own tag is built and checked offline in new network-less,
+mount-less containers, then switched in by replacing only the image ID in `profile.json` under the
+provider's login hold. `docker/versions.json` describes the recorded image's CLI versions, the
+version each update replaced, and its own Codex `model/list`; a record for another image is stale
+and is read again from the image.
 
 One private npm package, one Next.js 16 App Router application, no separate backend process.
 Route handlers under `src/app/api/` are the only server surface; they spawn local agent CLIs as

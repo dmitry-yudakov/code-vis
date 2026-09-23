@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
-import type { ProviderHealth } from '@/shared/types';
+import type { ModelChoices, ProviderHealth } from '@/shared/types';
 import {
   buildCodexAppServerArgs, codexAmbientInstructionNote, codexIsolationIssue, codexMcpServerNames,
   codexModelChoices, codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
@@ -12,18 +12,64 @@ function record(value: unknown): JsonRecord | undefined {
   return value && typeof value === 'object' ? value as JsonRecord : undefined;
 }
 
+interface HandshakeOptions {
+  /** Starts App Server elsewhere, such as in a candidate Docker worker; the host binary otherwise. */
+  spawn?: (binary: string, args: string[]) => ChildProcessWithoutNullStreams;
+  timeoutMs?: number;
+  /**
+   * A home nobody signed in to: stop after the capability inventories, before any provider
+   * session, and wait for `model/list` as long as the check allows.
+   */
+  signedOut?: boolean;
+}
+
+/** `choices` is present only when a signed-out handshake passed. */
+type Handshake = { health: ProviderHealth; choices?: ModelChoices };
+
 /** A bounded, model-free App Server handshake that verifies login and capability isolation. */
 export async function checkCodex(
   binary: string,
   cwd: string,
   agentEnabled: boolean,
 ): Promise<ProviderHealth> {
+  return (await codexHandshake(binary, cwd, agentEnabled, {})).health;
+}
+
+export type CodexWorkerCheck =
+  | { passed: true; choices: ModelChoices }
+  | { passed: false; check: 'codex-handshake' | 'codex-models'; message: string };
+
+/**
+ * A candidate worker's check: CodeAI's handshake in a throwaway home completes, reports that nobody
+ * is signed in, and answers `model/list`. Nothing signs in and no provider session starts.
+ */
+export async function checkCodexWorker(
+  binary: string,
+  cwd: string,
+  options: Pick<HandshakeOptions, 'spawn' | 'timeoutMs'>,
+): Promise<CodexWorkerCheck> {
+  const { health, choices } = await codexHandshake(binary, cwd, false, { ...options, signedOut: true });
+  if (!choices) {
+    return { passed: false, check: 'codex-handshake', message: health.message || 'Codex App Server did not complete CodeAI’s handshake.' };
+  }
+  if (!choices.models?.length) return { passed: false, check: 'codex-models', message: 'Codex App Server did not answer model/list with any model.' };
+  return { passed: true, choices };
+}
+
+function codexHandshake(
+  binary: string,
+  cwd: string,
+  agentEnabled: boolean,
+  options: HandshakeOptions,
+): Promise<Handshake> {
   return new Promise((resolve) => {
-    const child = spawn(binary, buildCodexAppServerArgs(), {
-      cwd,
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = options.spawn
+      ? options.spawn(binary, buildCodexAppServerArgs())
+      : spawn(binary, buildCodexAppServerArgs(), {
+        cwd,
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
     const supportedModes = [...codexSupportedModes(agentEnabled)];
     const pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
     let nextId = 1;
@@ -31,13 +77,13 @@ export async function checkCodex(
     let settled = false;
     let stderr = '';
 
-    const finish = (health: ProviderHealth) => {
+    const finish = (health: ProviderHealth, choices?: ModelChoices) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       child.stdin.end();
       child.kill('SIGTERM');
-      resolve(health);
+      resolve({ health, ...(choices ? { choices } : {}) });
     };
     const request = (method: string, params: JsonRecord = {}) => {
       const id = nextId++;
@@ -62,7 +108,7 @@ export async function checkCodex(
       authenticated: 'unknown',
       supportedModes: [],
       message: 'Codex App Server readiness check timed out.',
-    }), 5_000);
+    }), options.timeoutMs ?? 5_000);
 
     child.once('error', (error) => finish({
       available: false,
@@ -127,6 +173,19 @@ export async function checkCodex(
         ]);
         const account = record(accountValue);
         const authenticated = Boolean(account?.account) || account?.requiresOpenaiAuth === false;
+        if (options.signedOut) {
+          const issue = authenticated
+            ? 'Codex App Server reports an account although nobody signed in to its new home.'
+            : !codexMcpServerNames(mcp)
+              ? 'Codex did not return a complete MCP capability inventory.'
+              : codexIsolationIssue({ mcp, hooks, skills });
+          if (issue) {
+            finish({ available: false, authenticated, supportedModes: [], message: issue });
+            return;
+          }
+          finish({ available: false, authenticated: false, supportedModes: [] }, codexModelChoices(await modelList));
+          return;
+        }
         if (!authenticated) {
           finish({
             available: false,
@@ -186,6 +245,11 @@ export async function checkCodex(
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
+        // Without a login to blame, any refused request is a protocol failure.
+        if (options.signedOut) {
+          finish({ available: false, authenticated: 'unknown', supportedModes: [], message: 'Codex App Server refused a request of CodeAI’s handshake.' });
+          return;
+        }
         finish({
           available: false,
           authenticated: /unauthori[sz]ed|auth|login/i.test(message) ? false : 'unknown',

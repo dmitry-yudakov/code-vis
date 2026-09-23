@@ -11,11 +11,21 @@ export interface ClaudePreflightResult {
   message?: string;
 }
 
-function inspectFlags(help: string): { unsupportedModes: AgentMode[]; message?: string } {
-  const missingByMode = AGENT_MODES.map((mode) => ({
-    mode,
-    missing: requiredFlagsForMode(mode).filter((flag) => !help.includes(flag)),
-  })).filter((entry) => entry.missing.length > 0);
+/**
+ * The rule every Claude check applies to `claude --help`, wherever it ran: the flags each mode needs
+ * that the text leaves out, and whether it documents `--effort`.
+ */
+export function inspectClaudeHelp(help: string): { missingByMode: Array<{ mode: AgentMode; missing: string[] }>; effortSupported: boolean } {
+  return {
+    missingByMode: AGENT_MODES.map((mode) => ({
+      mode,
+      missing: requiredFlagsForMode(mode).filter((flag) => !help.includes(flag)),
+    })).filter((entry) => entry.missing.length > 0),
+    effortSupported: help.includes('--effort'),
+  };
+}
+
+function inspectFlags(missingByMode: ReturnType<typeof inspectClaudeHelp>['missingByMode']): { unsupportedModes: AgentMode[]; message?: string } {
   if (!missingByMode.length) return { unsupportedModes: [] };
   const detail = missingByMode.map((entry) => `${entry.mode} needs ${entry.missing.join(', ')}`).join('; ');
   return {
@@ -44,12 +54,13 @@ export async function checkClaude(binary: string): Promise<ClaudePreflightResult
         resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...AGENT_MODES], effortSupported: false, message: 'Claude Code help check failed.' });
         return;
       }
-      const flags = inspectFlags(output);
+      const { missingByMode, effortSupported } = inspectClaudeHelp(output);
+      const flags = inspectFlags(missingByMode);
       resolve({
         binaryReady: true,
         flagsReady: flags.unsupportedModes.length === 0,
         unsupportedModes: flags.unsupportedModes,
-        effortSupported: output.includes('--effort'),
+        effortSupported,
         message: flags.message,
       });
     });

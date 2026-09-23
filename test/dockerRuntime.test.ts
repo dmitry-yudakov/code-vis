@@ -85,6 +85,11 @@ describe('Docker termination and orphan recovery', () => {
     add('setup-cache', 'cache', setupSession);
     add('current-worker', 'worker', crypto.randomUUID(), runtime.instance);
     add('current-cache', 'cache', crypto.randomUUID(), runtime.instance);
+    // A terminal update's offline check: it removes itself, and its terminal still needs it.
+    add('terminal-check', 'check', '');
+    // One whose process died before starting it never exits, so it never removes itself.
+    add('dead-check', 'check', '');
+    records.get('dead-check')![`${DOCKER_LABEL}.pid`] = '2147483646';
     mocks.command.mockImplementation(async (input: string[]) => {
       const args = input.slice(2);
       if (args[0] === 'info') return 'engine-original';
@@ -99,7 +104,7 @@ describe('Docker termination and orphan recovery', () => {
       throw new Error(`Unexpected recovery command: ${args[0]}`);
     });
     expect(await runtime.reconcile()).toEqual([interruptedSession]);
-    expect([...records.keys()]).toEqual(['active-setup', 'setup-egress', 'current-worker']);
+    expect([...records.keys()]).toEqual(['active-setup', 'setup-egress', 'current-worker', 'terminal-check']);
     const resumed = new DockerRuntime(runtime.config);
     mocks.command.mockImplementation(async (input: string[]) => {
       if (input[2] === 'info') return 'engine-original';
@@ -275,6 +280,26 @@ describe('Docker worker lifetime', () => {
     mocks.removeDetached.mockClear();
     (hooks[0] as (code: number) => void)(0);
     expect(mocks.removeDetached).not.toHaveBeenCalled();
+  });
+
+  it('starts from the image an update switched to while the turn waited for admission', async () => {
+    const { runtime, identity, command, containers } = await workerFixture();
+    const switched = `sha256:${'b'.repeat(64)}`;
+    const answer = command.getMockImplementation()!;
+    command.mockImplementation(async (args: string[]) => {
+      // The switch holds admission, so a turn admitted after it finds the new profile.
+      if (args[0] === 'create' && args.some((arg) => arg.endsWith('-admission'))) {
+        await writeFile(path.join(runtime.config.dataDir, 'docker', 'profile.json'), JSON.stringify({
+          profile: DOCKER_PROFILE, image: switched, engineId: 'engine-original',
+        }));
+      }
+      return answer(args);
+    });
+    const worker = await runtime.createWorker(identity, { mode: 'ask' });
+    const launches = [...containers.values()].filter((args) => args.includes(`${DOCKER_LABEL}.kind=worker`) || args.includes(`${DOCKER_LABEL}.kind=egress`));
+    expect(launches).toHaveLength(2);
+    expect(launches.every((args) => args.includes(switched))).toBe(true);
+    await worker.stop();
   });
 
   it('gives interactive setup its own longer bound', async () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import type { AppConfig } from '@/server/config';
@@ -30,6 +30,23 @@ export class DockerTerminationError extends Error {
   }
 }
 
+/** A provider's shared home is in use by a running or starting turn, or held by a login. */
+export class DockerHomeBusyError extends Error {
+  constructor(readonly holder: 'turn' | 'login', message: string) {
+    super(message);
+  }
+}
+
+/** CodeAI's own account of why the recorded profile cannot be used, safe to show on any device. */
+export class DockerProfileError extends Error {}
+
+/** profile.json no longer names the image an image replacement expected to replace. */
+export class DockerProfileChangedError extends Error {
+  constructor() {
+    super('CodeAI’s recorded Docker image changed while this update ran. Nothing was switched; try again.');
+  }
+}
+
 export class DockerRuntime {
   readonly owner: string;
   readonly instance = randomUUID();
@@ -46,21 +63,26 @@ export class DockerRuntime {
 
   async profile() {
     if (!this.config.dockerEnabled) throw new Error('Docker execution is disabled. Enable Docker in Arena on this machine.');
+    return this.recordedProfile();
+  }
+
+  /** The provisioned image on its recorded engine, whether or not Docker turns are enabled. */
+  async recordedProfile() {
     const profile = await this.provision();
     const endpoint = await localDockerEndpoint();
     const command = (args: string[]) => dockerCommand(['--host', endpoint, ...args]);
     if ((await command(['info', '--format', '{{.ID}}'])).trim() !== profile.engineId) {
-      throw new Error('The local Docker engine identity changed. Restore the previous engine, or adopt this one with npm run docker:provision -- --replace-engine.');
+      throw new DockerProfileError('The local Docker engine identity changed. Restore the previous engine, or adopt this one with npm run docker:provision -- --replace-engine.');
     }
     const version = JSON.parse(await command(['version', '--format', '{{json .Server}}'])) as { Version?: string; Os?: string };
     if (version.Os !== 'linux' || Number(version.Version?.split('.')[0]) < 28) {
-      throw new Error('Docker execution requires a local Linux Docker Engine 28 or later.');
+      throw new DockerProfileError('Docker execution requires a local Linux Docker Engine 28 or later.');
     }
     const image = JSON.parse(await command(['image', 'inspect', profile.image, '--format', '{{json .}}'])) as {
       Id: string; Config: { Labels?: Record<string, string> };
     };
     if (image.Id !== profile.image || image.Config.Labels?.[`${DOCKER_LABEL}.profile`] !== DOCKER_PROFILE) {
-      throw new Error('The pinned CodeAI image is unavailable or incompatible. Run npm run docker:provision.');
+      throw new DockerProfileError('The pinned CodeAI image is unavailable or incompatible. Run npm run docker:provision.');
     }
     return { ...profile, endpoint, command };
   }
@@ -121,14 +143,36 @@ export class DockerRuntime {
           if (labels) {
             if (labels[`${DOCKER_LABEL}.owner`] !== this.owner || labels[`${DOCKER_LABEL}.home`] !== home) throw error;
             if (labels[`${DOCKER_LABEL}.kind`] !== 'admission' && !await this.removeDeadTerminals(command).catch(() => false)) {
-              throw new Error('Docker provider setup is active. Finish the login command in your terminal before starting another turn.');
+              throw new DockerHomeBusyError('login', 'Docker provider setup is active: a login or CLI update holds this provider. Try again when it finishes.');
             }
           }
         }
-        if (Date.now() >= deadline) throw new Error('Docker provider admission is busy. Try again when the starting turn is ready.');
+        if (Date.now() >= deadline) throw new DockerHomeBusyError('turn', 'Docker provider admission is busy. Try again when the starting turn is ready.');
         await setTimeout(100);
       }
     }
+  }
+
+  /** Setup excludes any container, running or not, that still mounts the home. */
+  private async refuseActiveHome(command: DockerCommand, home: string): Promise<void> {
+    if ((await command(['container', 'ls', '-aq', '--filter', `volume=${home}`])).trim()) {
+      throw new DockerHomeBusyError('turn', 'Docker provider storage is active. Wait for its turns to finish before signing in.');
+    }
+  }
+
+  /**
+   * Holds one provider's shared home as a login does, without starting a worker, while `action`
+   * runs: no turn or login uses it meanwhile. Legacy participant homes are not held.
+   */
+  async holdProviderHome<T>(provider: AgentProvider, action: () => Promise<T>): Promise<T> {
+    const { command, image } = await this.recordedProfile();
+    const identity = { sessionId: randomUUID(), participantId: randomUUID(), runId: randomUUID(), provider };
+    const home = providerVolume(this.owner, provider);
+    const hold = await this.acquireHome(command, image, identity, home, 1000, 1000, true);
+    try {
+      await this.refuseActiveHome(command, home);
+      return await action();
+    } finally { await this.removeContainer(command, hold); }
   }
 
   /** Legacy cleanup deliberately names only participant volumes, never the shared provider home. */
@@ -260,6 +304,9 @@ export class DockerRuntime {
     // Preserve interrupted delivery identities before removing the only Docker labels naming them.
     await atomicWrite(interruptedPath, [...interrupted]);
     for (const { id, labels } of records) {
+      // An update's offline check holds nothing and removes itself once it exits; while its process
+      // lives, that may be a terminal update's. One created but never started never exits.
+      if (labels[`${DOCKER_LABEL}.kind`] === 'check' && this.terminalAlive(labels)) continue;
       // Older profiles kept disposable dependency caches alive in separate containers.
       if (labels[`${DOCKER_LABEL}.kind`] === 'cache') {
         await this.removeContainer(command, id);
@@ -338,9 +385,10 @@ export class DockerRuntime {
       }
       const admission = await this.acquireHome(command, image, identity, home, uid, gid, !!options.setup);
       resources.push(admission);
-      if (options.setup && (await command(['container', 'ls', '-aq', '--filter', `volume=${home}`])).trim()) {
-        throw new Error('Docker provider storage is active. Wait for its turns to finish before signing in.');
-      }
+      if (options.setup) await this.refuseActiveHome(command, home);
+      // A switch holds this admission while it replaces the image. A turn that read the profile
+      // before the switch began but is admitted after it ends must start from the new image.
+      const workerImage = (await this.provision()).image;
       const homeLabels = await this.volumeLabels(command, home);
       if (homeLabels) {
         if (legacyHome) this.checkParticipantVolume(homeLabels, identity);
@@ -357,7 +405,7 @@ export class DockerRuntime {
       const gateway = (await command([
         'create', ...this.labels('egress', identity), ...containerSecurity(uid, gid),
         '--network', network, '--network-alias', 'egress',
-        '--env', `CODEAI_GATEWAY_PROVIDER=${identity.provider}`, image, 'node', '/opt/codeai/gateway.mjs',
+        '--env', `CODEAI_GATEWAY_PROVIDER=${identity.provider}`, workerImage, 'node', '/opt/codeai/gateway.mjs',
       ])).trim();
       resources.push(gateway);
       await command(['network', 'connect', 'bridge', gateway]);
@@ -379,7 +427,7 @@ export class DockerRuntime {
         ] : []),
         ...(options.context ? ['--mount', `type=bind,src=${options.context},dst=${DOCKER_CONTEXT},readonly`] : []),
         '--workdir', options.checkout ? '/workspace' : DOCKER_HOME,
-        image, 'sleep', String(lifetime),
+        workerImage, 'sleep', String(lifetime),
       ])).trim();
       resources.push(worker);
       activeWorkers().set(worker, endpoint);
@@ -439,10 +487,17 @@ export function getDockerRuntime(config: AppConfig): DockerRuntime {
   return runtime;
 }
 
-/** A profile is never overwritten, except that the owner's explicit command adopts a different engine. */
-export async function saveDockerProvision(dataDir: string, image: string, replaceEngine = false): Promise<void> {
+async function currentEngineId(): Promise<string> {
   const endpoint = await localDockerEndpoint();
-  const engineId = (await dockerCommand(['--host', endpoint, 'info', '--format', '{{.ID}}'])).trim();
+  return (await dockerCommand(['--host', endpoint, 'info', '--format', '{{.ID}}'])).trim();
+}
+
+/**
+ * A profile is never overwritten, except that the owner's explicit command adopts a different engine
+ * and an update's switch replaces the image on the same one (replaceDockerImage).
+ */
+export async function saveDockerProvision(dataDir: string, image: string, replaceEngine = false): Promise<void> {
+  const engineId = await currentEngineId();
   const provision = provisionSchema.parse({ profile: DOCKER_PROFILE, image, engineId });
   const directory = path.join(dataDir, 'docker');
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -459,6 +514,24 @@ export async function saveDockerProvision(dataDir: string, image: string, replac
   }
   await writeFile(file, `${JSON.stringify(provision)}\n`, { mode: 0o600, flag: 'wx' }).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'EEXIST') throw error;
-    throw new Error('This installation is already provisioned. If the local Docker engine was replaced, run npm run docker:provision -- --replace-engine.');
+    throw new Error(ALREADY_PROVISIONED);
   });
+}
+
+export const ALREADY_PROVISIONED = 'This installation is already provisioned. If the local Docker engine was replaced, run npm run docker:provision -- --replace-engine. To change a CLI version, use npm run docker:upgrade.';
+
+/** Lets provisioning refuse before it builds; saving the profile still refuses atomically. */
+export async function dockerProvisioned(dataDir: string): Promise<boolean> {
+  return access(path.join(dataDir, 'docker', 'profile.json')).then(() => true, () => false);
+}
+
+/** An update's switch: the same engine, and only while profile.json still names `current`. */
+export async function replaceDockerImage(dataDir: string, current: string, image: string): Promise<void> {
+  const file = path.join(dataDir, 'docker', 'profile.json');
+  const recorded = provisionSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+  if (recorded.engineId !== await currentEngineId()) {
+    throw new DockerProfileError('The local Docker engine identity changed, so the recorded image was not replaced.');
+  }
+  if (recorded.image !== current) throw new DockerProfileChangedError();
+  await atomicWrite(file, provisionSchema.parse({ ...recorded, image }));
 }

@@ -64,7 +64,9 @@ while (true) {
   });
   else if (message.method === 'initialized') { /* notification */ }
   else if (message.method === 'account/read') result(message.id, {
-    account: mode === 'unauthenticated' ? null : { type: 'chatgpt', email: 'fake@example.test', planType: 'plus' },
+    // A candidate Docker worker has a throwaway home: signed out in any other mode too.
+    account: mode === 'unauthenticated' || process.env.CODEAI_FAKE_CODEX_SIGNED_OUT
+      ? null : { type: 'chatgpt', email: 'fake@example.test', planType: 'plus' },
     requiresOpenaiAuth: true,
   });
   else if (message.method === 'mcpServerStatus/list') {

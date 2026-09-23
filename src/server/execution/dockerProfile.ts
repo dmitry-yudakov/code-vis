@@ -7,11 +7,35 @@ import type { AppConfig } from '@/server/config';
 import type { AgentProvider } from '@/shared/types';
 
 export const DOCKER_PROFILE = 'codeai-docker-v1';
+/**
+ * The CLI versions a fresh provision installs, and the lowest an update may choose. The versions an
+ * installation actually runs are host state in `<dataDir>/docker/versions.json`.
+ */
 export const DOCKER_VERSIONS = { claude: '2.1.226', codex: '0.152.0', node: '22.22.0' } as const;
+/** Provisioning's build tag. Every worker and helper starts from the image ID in profile.json. */
+export const DOCKER_IMAGE_TAG = `codeai-worker:${DOCKER_PROFILE}`;
+
+/** Keeps an installation's recorded image from counting as dangling, whatever else is tagged. */
+export function installationImageTag(owner: string): string {
+  return `codeai-worker:${owner}`;
+}
 export const DOCKER_LABEL = 'io.codeai';
 export const DOCKER_CONTEXT = '/context';
 export const DOCKER_HOME = '/home/agent';
 export const DOCKER_PATH = '/usr/local/bin:/usr/bin:/bin';
+
+/** An exact release, as npm publishes one: no range, tag, prefix or pre-release. */
+const CLI_VERSION = /^(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})$/;
+
+export function isCliVersion(value: string): boolean {
+  return CLI_VERSION.test(value);
+}
+
+/** Orders two exact releases numerically; both must satisfy isCliVersion. */
+export function compareCliVersions(left: string, right: string): number {
+  const [a, b] = [left, right].map((value) => value.split('.').map(Number));
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
 
 export function within(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);

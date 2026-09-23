@@ -19,12 +19,17 @@ npm run docker:provision
 ```
 
 This builds only CodeAI's `docker/` context, with a digest-pinned Node 22.22.0 Debian base, Claude
-2.1.226, Codex 0.152.0, Git, npm, Python 3, make and a C/C++ compiler. It records the resulting
-immutable image ID and local engine identity in `<CODEAI_DATA_DIR>/docker/profile.json`. A changed
+Code and Codex at the versions in `DOCKER_VERSIONS` (Claude 2.1.226 and Codex 0.152.0 in this
+CodeAI), Git, npm, Python 3, make and a C/C++ compiler. Those versions are also the **minimum** an
+[update](#updating-a-provider-cli) can choose. The Dockerfile has no default versions, so a build
+that does not name both fails. Provisioning runs the same offline checks as an update, then records
+the resulting immutable image ID and local engine identity in `<CODEAI_DATA_DIR>/docker/profile.json`,
+and the image's CLI versions and Codex model list in `versions.json` beside it. A changed
 engine fails closed: CodeAI cannot assume a worker on the previous engine stopped. No session Dockerfile, Compose file,
 devcontainer configuration, dependency script or host provider configuration is used. Provisioning
 is explicit and cannot occur as a side effect of a turn. An existing profile is not overwritten,
-except by the explicit [engine replacement](#replacing-the-docker-engine) below.
+except by the explicit [engine replacement](#replacing-the-docker-engine) and
+[CLI updates](#updating-a-provider-cli) below.
 
 **After provisioning, keep the Docker daemon running, for Local work too.** Each CodeAI start
 completes Docker recovery before its first turn, Local included, and every status/diff/context Git
@@ -100,7 +105,68 @@ there were removed, although every worker [ends itself](#execution-contract). Re
 afterwards: a turn stranded by the switch releases its checkout, and startup recovery removes
 anything this installation once left on the adopted engine. Provider logins and native history
 do not move between engines: sign in again with `npm run docker:login`, and continue affected
-conversations in a new session.
+conversations in a new session. The adopted engine gets the `DOCKER_VERSIONS` CLIs; if you had
+updated either one, [update it again](#updating-a-provider-cli).
+
+## Updating a provider CLI
+
+Claude Code and Codex publish new versions every few days, and a new model often needs one. Each
+installation records which image it runs, so it can move one provider's CLI to another version
+without a new CodeAI.
+
+**From the owner terminal**, for any exact version:
+
+```sh
+npm run docker:upgrade                      # recorded versions, previous versions and minimums
+npm run docker:upgrade -- claude 2.1.280    # update one provider to an exact version
+```
+
+An update takes an exact `MAJOR.MINOR.PATCH` (no ranges, tags or pre-releases), at least the
+minimum and different from the recorded version. It is refused, before anything is built, on an
+unprovisioned installation or a changed engine. It then:
+
+1. **Builds a candidate** from the same `docker/` context with that version for one provider and
+   the recorded version for the other, under a `codeai-worker:candidate-…` tag of its own. It is
+   not recorded, so nothing that runs changes.
+2. **Checks it offline.** Each check runs in a new container from the candidate with CodeAI's
+   container security, no network, no mounts and a throwaway home: `claude --version` and
+   `codex --version` report the expected versions; `claude --help` documents every flag CodeAI's
+   modes require and `--effort`, by the rule the host check uses; and Codex App Server completes
+   CodeAI's handshake, reports that nobody is signed in, and answers `model/list`. Nothing signs
+   in, no model is called, and no provider home, checkout or CodeAI data is reachable. A failed
+   check is named, and `profile.json` and `versions.json` stay unchanged. The candidate's tag is
+   removed, and the image with it unless something else still references it: the build cache can
+   reproduce an image another update or installation recorded.
+3. **Switches** under the same hold on the provider's shared home that login takes. It refuses
+   while a turn or login uses that home ("Claude is in use by a turn. Try again when it
+   finishes."), and when `profile.json` names a different image than the one the candidate was
+   built from. Otherwise it replaces the image ID in `profile.json` on the same engine, records
+   the versions with the replaced one as `previous`, and tags the image `codeai-worker:<id>` with
+   this installation's own ID. The next turn, login and Git read use the new image without
+   restarting CodeAI; turns already running finish in their own containers, and the previous image
+   stays in Docker without that tag. A turn of that provider starting during the switch's moment
+   is refused ("Docker provider setup is active"); send it again.
+
+**Rolling back** is the same update with the previous version, printed by `npm run docker:upgrade`
+and after every switch. Docker usually still has its build layers cached, so it is quick. Going
+to a lower version prints a warning: the newer CLI may already have migrated the provider's shared
+home, so watch the first turn afterwards.
+
+**What the checks do not cover.** They catch a failed install, a removed or renamed flag, a broken
+App Server handshake and a Codex that cannot list models. They cannot catch a change in a turn's
+event stream, a new network host the CLI needs, or a changed login flow, because those need a
+signed-in turn. Those surface on the first real turn; roll back if it misbehaves.
+
+Provisioning and every switch tag the recorded image with its installation's own tag, so
+`docker image prune` keeps it even when another installation's provisioning moves
+`codeai-worker:codeai-docker-v1`. An installation provisioned before this tag existed relies on the
+shared tag until its first update: until then, avoid `docker image prune` after provisioning
+another installation on the same engine, or tag its recorded image (the `image` in `profile.json`)
+yourself. Legacy per-participant homes are not held during a switch; they meet the new CLI on their
+next turn. A CodeAI restart during a build can leave a `codeai-worker:candidate-…` tag behind; list
+such tags with `docker image ls 'codeai-worker:candidate-*'` and remove them with `docker image rm`
+when no update is running. A newer CodeAI may raise `DOCKER_VERSIONS` above what an installation
+records: it keeps running its recorded image, and an update is how it catches up.
 
 ## Execution contract
 
@@ -198,14 +264,18 @@ created by the earlier prerelease implementation.
 
 ```sh
 npm test
-docker build --load --tag codeai-worker:codeai-docker-v1 docker
+npm run docker:provision   # once per installation; later runs refuse before building
 npm run test:docker
 npm run lint
 npm run build
 npm run test:e2e
 ```
 
-`test:docker` uses a disposable repository, synthetic secrets and ownership-scoped cleanup, never
+`test:docker` probes the image this installation records, including one an update installed, and
+accepts CLI versions at or above the minimums. Before provisioning it probes the image tagged
+`codeai-worker:codeai-docker-v1`; a manual build must name both versions, for example
+`docker build --load --build-arg CLAUDE_VERSION=2.1.226 --build-arg CODEX_VERSION=0.152.0 --tag codeai-worker:codeai-docker-v1 docker`.
+It uses a disposable repository, synthetic secrets and ownership-scoped cleanup, never
 personal provider credentials. Run it on macOS Docker Desktop and Linux Engine. It does not clear
 the signed-in provider matrix: Ask, Plan, Agent editing/testing, images, usage/activity, native
 resume across replacement/restart, expired login and missing history need actual provider runs.
