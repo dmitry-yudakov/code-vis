@@ -3,6 +3,9 @@ node_modules/
 # Next.js build output and TypeScript build state
 .next/
 .next-e2e/
+# The two build slots `npm run start:managed` alternates between
+.next-managed-a/
+.next-managed-b/
 *.tsbuildinfo
 
 # Test and coverage output

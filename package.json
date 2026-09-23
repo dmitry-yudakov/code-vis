@@ -12,6 +12,7 @@
     "build": "next build",
     "start": "next start -p 3023",
     "start:remote": "NODE_ENV=production node scripts/start-remote.mjs",
+    "start:managed": "node --import tsx scripts/start-managed.ts",
     "device:pair": "tsx scripts/create-pairing-code.ts",
     "machine:pair": "tsx scripts/create-machine-pairing-code.ts",
     "machine:attach": "tsx scripts/attach-machine.ts",
