@@ -85,6 +85,13 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   const sessionAction = useRef<((action: SessionActionName) => void) | undefined>(undefined);
   const setSessionController = useCallback((perform?: (action: SessionActionName) => void) => { sessionAction.current = perform; }, []);
   const [sessionToolRequest, setSessionToolRequest] = useState<{ tab: 'launcher' | 'permissions'; key: string }>();
+  // Each view keeps its own layout, and archiving replaces the view. The Arena comes forward in the
+  // view that replaces the archived one, whether the archive resolves before or after that render.
+  const [arenaAfterView, setArenaAfterView] = useState<string>();
+  useEffect(() => {
+    if (!arenaAfterView || arenaAfterView === viewKey) return;
+    setArenaAfterView(undefined); onPanelAction('arena', 'open');
+  }, [arenaAfterView, viewKey, onPanelAction]);
   const arenaAction = useRef<((action: ArenaActionName) => void) | undefined>(undefined);
   const setArenaController = useCallback((perform?: (action: ArenaActionName) => void) => { arenaAction.current = perform; }, []);
   const [listOpen, setListOpen] = useState(!session);
@@ -313,7 +320,8 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
             position={[0.20, 0.81, 0]} selected={sessionToolsOpen} disabled={voicePending || !contentEnabled('conversation')}
             onAction={() => perform('session:tools')} />
           {sessionToolsOpen && props.sessionControls && <SessionTools controls={props.sessionControls} theme={theme} request={sessionToolRequest}
-            enabled={contentEnabled('conversation')} onController={setSessionController} />}
+            enabled={contentEnabled('conversation')} onController={setSessionController}
+            onArchived={() => setArenaAfterView(viewKey)} />}
           <WorldButton action="conversation:list" label="Conversation history" resource={headerControls?.history} iconTheme={theme}
             position={[0.38, 0.81, 0]} selected={listOpen} disabled={voicePending || !contentEnabled('conversation')}
             onAction={() => perform('conversation:list')} />

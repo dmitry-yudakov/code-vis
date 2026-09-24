@@ -117,6 +117,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
+  const headerMenuRef = useRef<HTMLDetailsElement>(null);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const workspaceMachineId = machineId && localMachineId && machineId !== localMachineId ? machineId : undefined;
   const workspace = useWorkspaceViews(projectId, workspaceMachineId);
@@ -146,6 +147,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [newerFormatSessions, setNewerFormatSessions] = useState(0);
   const [newerFormatNoticeDismissed, setNewerFormatNoticeDismissed] = useState(false);
   const [archiveUndo, setArchiveUndo] = useState<ArenaSessionSummary>();
+  const [archivingSessionId, setArchivingSessionId] = useState<string>();
   const [busyRun, setBusyRun] = useState<RunDescriptor>();
   const [participantBusy, setParticipantBusy] = useState(false);
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
@@ -1368,7 +1370,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     setRepositoryTree(undefined);
   }, [localMachineId, machineId, projectId, router, selectMachineCatalog, workspace.openInProject]);
 
-  const archiveArenaSession = useCallback(async (targetMachineId: string, target: ArenaSessionSummary): Promise<boolean> => {
+  const archiveArenaSession = useCallback(async (
+    targetMachineId: string, target: Pick<ArenaSessionSummary, 'id' | 'revision' | 'title' | 'projectId'>,
+  ): Promise<boolean> => {
     try {
       const response = await fetch(machineApiPath(`/api/sessions/${encodeURIComponent(target.id)}/archive`, targetMachineId, localMachineId), {
         method: 'POST',
@@ -1663,6 +1667,23 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (target) openImmersiveSession(target);
   };
   const immersiveMachine = arena.machines.find((entry) => entry.machine.id === machineId);
+  // A turn another device started reaches this one only through the Arena poll. The server refuses
+  // an archive during any live turn; this keeps the control from offering one.
+  const sessionLive = sessionRunning || Boolean(session && immersiveMachine?.runs.active.some((run) => run.sessionId === session.id));
+  const canArchiveSession = Boolean(session) && !sessionLive && archivingSessionId !== session?.id
+    && immersiveMachine?.machine.state === 'online';
+  const archiveOpenSession = async () => {
+    const targetMachineId = machineId || localMachineId;
+    if (!session || !targetMachineId) return false;
+    // Nothing refetches an open session that another device changed; the Arena poll carries its newer revision.
+    const revision = Math.max(session.revision, immersiveMachine?.sessions.find((item) => item.id === session.id)?.revision ?? 0);
+    setArchivingSessionId(session.id);
+    try {
+      return await archiveArenaSession(targetMachineId, { ...session, revision });
+    } finally {
+      setArchivingSessionId(undefined);
+    }
+  };
   const immersiveStatus = loading ? 'Loading session…'
     : immersiveMachine && immersiveMachine.machine.state !== 'online' ? `${immersiveMachine.machine.label} is Offline`
       : notice || (session ? immersiveRunStatus : arena.refreshError || 'Choose a session to open');
@@ -1722,13 +1743,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               onToggleAttachment: toggleAttachment,
             } : undefined}
             sessionControls={{
-              machines: arena.machines, machineId, sessionId: session?.id, creating: creatingSession,
+              machines: arena.machines, machineId, sessionId: session?.id, sessionTitle: session?.title, creating: creatingSession,
               status: immersiveStatus, permissions: focusedPermissionTargets, results: permissionDecisions.results,
               online: immersiveMachine?.machine.state === 'online', checkouts: orderedCheckouts,
               needsRepository: Boolean(session && !session.repositories.some((item) => item.role === 'primary')),
               canAttach: Boolean(session && !sessionRunning && session.execution !== 'docker' && immersiveMachine?.machine.state === 'online'),
               canCancel: Boolean(focusedRun?.runId),
               cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
+              canArchive: canArchiveSession,
               canRetry: Boolean(session?.messages.some((item) => item.role === 'user') && !sessionRunning),
               requestedPermissionKey: immersivePermissionRequest
                 && immersivePermissionRequest.machineId === (machineId || localMachineId)
@@ -1754,6 +1776,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onDecide: (target, decision) => { void permissionDecisions.decide(target, decision); },
               onRefresh: () => { void permissionDecisions.refreshFailures(); void refreshDeviceAccess(); void lifecycle.refresh(); },
               onCancel: () => { if (session && focusedRun?.runId) void cancelRun({ machineId, sessionId: session.id, runId: focusedRun.runId }); },
+              onArchive: archiveOpenSession,
               onRetry: () => {
                 const message = session?.messages.findLast((item) => item.role === 'user');
                 if (message?.role === 'user') {
@@ -1884,7 +1907,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="health-pill lifecycle-pill" role="status" title={lifecycle.status}><span />{lifecycle.badge}</span>
             )}
             <DeviceMenu />
-            <details className="header-menu" onToggle={(event) => { if (event.currentTarget.open) void lifecycle.refresh(); }}>
+            <details ref={headerMenuRef} className="header-menu" onToggle={(event) => { if (event.currentTarget.open) void lifecycle.refresh(); }}>
               <summary>More</summary>
               <div>
                 <div className="theme-selector" role="group" aria-label="Theme">
@@ -1901,6 +1924,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                   ))}
                 </div>
                 {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export session</button>}
+                {!arenaOpen && session && (
+                  <button
+                    type="button"
+                    disabled={!canArchiveSession}
+                    title={sessionLive ? 'Wait for the current turn to finish before archiving.'
+                      : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined}
+                    onClick={() => {
+                      if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
+                      headerMenuRef.current?.removeAttribute('open');
+                      void archiveOpenSession();
+                    }}
+                  >Archive session</button>
+                )}
                 {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
                 {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
               </div>

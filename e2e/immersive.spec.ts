@@ -1007,6 +1007,90 @@ test('archives, restores, and refuses to open Offline sessions from the immersiv
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
+test('archives the open session from Session tools after a confirmation and brings the Arena forward', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true);
+  const liveRun = (runId: string) => ({
+    runId, sessionId: SESSION, participantId: AGENT, state: 'running' as const, enqueuedAt: 1, pendingPermissionCount: 0, pendingPermissions: [],
+  });
+  let live = true;
+  await page.route('**/api/agent/runs*', (route) => route.fulfill({ json: {
+    active: live ? [liveRun('cccccccc-cccc-4ccc-8ccc-cccccccccccc')] : [], recent: [],
+  } }));
+  // A turn another device starts, and a change another device makes, reach this one only through the Arena poll.
+  let elsewhere = false;
+  let arenaRevision: number | undefined;
+  let arenaHold: Promise<void> | undefined;
+  let arenaHeld = false;
+  let arenaServed = 0;
+  await page.route('**/api/arena', async (route) => {
+    if (arenaHold) { arenaHeld = true; await arenaHold; }
+    const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
+    if (elsewhere) home.runs.active = [liveRun('dddddddd-dddd-4ddd-8ddd-dddddddddddd')];
+    if (arenaRevision !== undefined) home.sessions = home.sessions.map((item) => item.id === SESSION ? { ...item, revision: arenaRevision! } : item);
+    await route.fulfill({ json: { machines: [home, fixture.snapshot(REMOTE, 'Laptop', fixture.remote)] } });
+    arenaServed++;
+  });
+  let releaseStream!: () => void;
+  const stream = new Promise<void>((resolve) => { releaseStream = resolve; });
+  await page.route('**/api/agent/stream?*', async (route) => { await stream; await route.fulfill({ contentType: 'application/x-ndjson', body: '' }); });
+  const archives: unknown[] = [];
+  await page.route(`**/api/sessions/${SESSION}/archive`, async (route) => {
+    archives.push(route.request().postDataJSON());
+    while (arenaHold && !arenaHeld) await new Promise((resolve) => setTimeout(resolve, 50));
+    return route.fulfill({ json: { session: { id: SESSION, projectId: PROJECT, revision: 1, title: 'Canvas session',
+      archivedAt: NOW, repositoryCheckoutIds: [], agents: [], updatedAt: NOW } } });
+  });
+  const slot = () => page.evaluate(() => {
+    const found: Record<string, boolean> = {};
+    window.xrScene?.scene.traverse((object) => {
+      const action = object.userData.immersiveAction as string | undefined;
+      if (action && ['session:cancel', 'session:archive', 'session:confirm-archive'].includes(action)) found[action.slice(8)] = !object.userData.disabled;
+    });
+    return found;
+  });
+
+  await page.goto('/'); await enter(page);
+  await sessionAction(page, 'tools');
+  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('home');
+  // A live turn keeps the slot on Cancel run; Archive session appears only once the turn has ended.
+  await expect.poll(slot).toEqual({ cancel: true });
+  live = false; releaseStream();
+  await expect.poll(slot).toEqual({ archive: true });
+
+  await sessionAction(page, 'confirm-archive');
+  await page.waitForTimeout(100);
+  expect(archives).toEqual([]);
+  await sessionAction(page, 'archive');
+  await expect.poll(slot).toEqual({ 'confirm-archive': true });
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Archive “Canvas session”?');
+
+  // A turn starting withdraws the confirmation; the slot returns to Cancel run.
+  elsewhere = true;
+  await expect.poll(slot).toEqual({ cancel: false });
+  await sessionAction(page, 'confirm-archive');
+  elsewhere = false;
+  await expect.poll(slot).toEqual({ archive: true });
+  expect(archives).toEqual([]);
+  expect(await sessionToolsState(page)).not.toMatchObject({ text: expect.stringContaining('Archive “Canvas session”?') });
+
+  // Another device changed the session, which this one learns only from the Arena poll.
+  arenaRevision = fixture.local.revision + 2;
+  const served = arenaServed;
+  await expect.poll(() => arenaServed, { timeout: 6_000 }).toBeGreaterThan(served + 1);
+  // An Arena poll is in flight when the archive returns, so the archive resolves before the next render.
+  let releaseArena!: () => void;
+  arenaHold = new Promise((resolve) => { releaseArena = resolve; });
+  await sessionAction(page, 'archive'); await sessionAction(page, 'confirm-archive');
+  await expect.poll(() => archives).toEqual([{ expectedRevision: arenaRevision }]);
+  // Each view keeps its own layout, and Canvas holds focus by default in the view shown next.
+  await expect(panel(page, 'arena')).toHaveAttribute('data-focused', 'true');
+  await expect(panel(page, 'arena')).toHaveAttribute('data-open', 'true');
+  arenaHold = undefined; releaseArena();
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
 test('keeps VR and panel state through controller removal, reconnection and visibility interruptions', async ({ page }) => {
   await installAdapter(page);
   await workspaceFixture(page);

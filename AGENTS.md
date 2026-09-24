@@ -60,6 +60,10 @@ Updated 2026-09-24. When a story ships, change the line that names it; each stor
 - **Also in flight:** [Story 68](stories/STORY-20260924-personal-git-ignore.md) — CodeAI's Git
   views honor the user's personal Git ignore file (`~/.config/git/ignore`), on host Git and in the
   Docker helper alike; verified against a real helper, and a check in the running app remains pending.
+- **Also in flight:** [Story 69](stories/STORY-20260924-archive-from-conversation.md) — archive the
+  open conversation from inside it: More → Archive session on the desktop, and Session tools →
+  Archive session in VR, which then brings the Arena forward; implemented with automated checks, and
+  the Quest 3S run remains pending.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

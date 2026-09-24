@@ -35,10 +35,11 @@ function ReportPreview({ url, theme }: { url: string; theme: ThemeName }) {
 }
 
 /** A single bounded viewport for session setup and complete, sanitized permission summaries. */
-export function SessionTools({ controls, theme, enabled, request, onController }: {
+export function SessionTools({ controls, theme, enabled, request, onController, onArchived }: {
   controls: ImmersiveSessionControls; theme: ThemeName; enabled: boolean;
   request?: { tab: 'launcher' | 'permissions'; key: string };
   onController(perform?: (action: SessionActionName) => void): void;
+  onArchived(): void;
 }) {
   const [tab, setTab] = useState<'home' | 'launcher' | 'permissions' | 'reports' | 'codeai'>('home');
   const [reportId, setReportId] = useState<string>();
@@ -52,10 +53,13 @@ export function SessionTools({ controls, theme, enabled, request, onController }
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   useEffect(() => {
     if (!request) return;
-    setTab(request.tab); setPage(0); setConfirmRevoke(false);
+    setTab(request.tab); setPage(0); setConfirmRevoke(false); setConfirmArchive(false);
   }, [request]);
+  // A confirmation belongs to the session it was shown for, and only while it can be archived.
+  useEffect(() => { setConfirmArchive(false); }, [controls.machineId, controls.sessionId, controls.canArchive]);
   const machines = controls.machines.filter((item) => item.machine.state === 'online');
   // Keep an explicitly chosen offline machine selected; never silently submit to another one.
   const machine = controls.machines.find((item) => item.machine.id === machineId) || (!machineId ? machines[0] : undefined);
@@ -120,6 +124,7 @@ export function SessionTools({ controls, theme, enabled, request, onController }
     `${controls.permissions.length} pending permission request(s).`,
     controls.needsRepository ? `Primary repository required before sending.\nRepository: ${checkout?.name || 'No checkout available'}` : '',
     confirmRevoke ? 'Forget this device? Private content will close. A new pairing code will be required.' : '',
+    confirmArchive ? `Archive “${controls.sessionTitle}”? You can restore it from the Arena’s Archived list.` : '',
   ].filter(Boolean).join('\n\n');
   // A screenshot preview takes the right side of the details, so the text wraps beside it.
   const preview = tab === 'reports' && report?.screenshot && reportControls
@@ -141,7 +146,7 @@ export function SessionTools({ controls, theme, enabled, request, onController }
     else if (action === 'launcher' || action === 'permissions' || action === 'back' || (action === 'reports' && reportControls)
       || (action === 'codeai' && (reportControls || codeai))) {
       // Reports is reached from the CodeAI section, so it goes back there.
-      setTab(action === 'back' ? tab === 'reports' ? 'codeai' : 'home' : action); setPage(0); setConfirmRevoke(false);
+      setTab(action === 'back' ? tab === 'reports' ? 'codeai' : 'home' : action); setPage(0); setConfirmRevoke(false); setConfirmArchive(false);
       if (action === 'reports') reportControls?.onRefresh();
       if (action === 'codeai') controls.onRefresh();
     } else if (action === 'refresh') {
@@ -186,7 +191,13 @@ export function SessionTools({ controls, theme, enabled, request, onController }
         void controls.onAttach(checkout.id).finally(() => { busyRef.current = false; setBusy(false); });
       } else if (action === 'cancel' && controls.canCancel) controls.onCancel();
       else if (action === 'retry' && controls.canRetry) controls.onRetry();
-      else if (action === 'revoke') { setConfirmRevoke(true); setPage(0); }
+      else if (action === 'archive' && controls.canArchive) { setConfirmArchive(true); setConfirmRevoke(false); setPage(0); }
+      else if (action === 'confirm-archive' && confirmArchive && controls.canArchive) {
+        busyRef.current = true; setBusy(true); setConfirmArchive(false);
+        void controls.onArchive().then((archived) => { if (archived) onArchived(); })
+          .finally(() => { busyRef.current = false; setBusy(false); });
+      }
+      else if (action === 'revoke') { setConfirmRevoke(true); setConfirmArchive(false); setPage(0); }
       else if (action === 'confirm-revoke' && confirmRevoke) controls.onRevoke();
     }
   };
@@ -196,7 +207,8 @@ export function SessionTools({ controls, theme, enabled, request, onController }
     action={`session:${action}`} label={SESSION_ACTIONS[action]} resource={buttons?.[action]}
     iconTheme={theme} position={[x, y, 0]} disabled={!enabled || busy || disabled}
     variant={action === 'allow' || action === 'create' ? 'primary'
-      : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' || action === 'confirm-build-restart' ? 'destructive' : 'secondary'}
+      : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' || action === 'confirm-build-restart'
+        || action === 'archive' || action === 'confirm-archive' ? 'destructive' : 'secondary'}
     onAction={() => perform(action)} />;
   return <group name="VR session tools" userData={{ tab, text, page: safePage, pageCount, permissionKey: selected && permissionKey(selected), permissionStatus, busy,
     reportId: report?.id, reportPending, codeaiConfirming: Boolean(codeai?.confirming) }}>
@@ -230,7 +242,10 @@ export function SessionTools({ controls, theme, enabled, request, onController }
       {button('reports', -0.44, -0.56, !reportControls)}{button('back', 0.44, -0.56)}
       {codeai?.confirming ? button('confirm-build-restart', 0, -0.76) : button('build-restart', 0, -0.76, !codeai?.canRequest)}
     </> : <>
-      {button('launcher', -0.44, -0.56)}{button('permissions', 0, -0.56)}{button('cancel', 0.44, -0.56, !controls.canCancel)}
+      {button('launcher', -0.44, -0.56)}{button('permissions', 0, -0.56)}
+      {/* Cancel needs a live turn and archiving needs none, so the two share one slot. */}
+      {controls.canArchive ? button(confirmArchive ? 'confirm-archive' : 'archive', 0.44, -0.56)
+        : button('cancel', 0.44, -0.56, !controls.canCancel)}
       {controls.needsRepository ? <>{button('checkout', -0.44, -0.76, !checkout)}{button('attach', 0, -0.76, !checkout || !controls.canAttach)}</>
         : <>{button('retry', -0.44, -0.76, !controls.canRetry)}{button('codeai', 0, -0.76, !reportControls && !codeai)}</>}
       {button(confirmRevoke ? 'confirm-revoke' : 'revoke', 0.44, -0.76)}

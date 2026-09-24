@@ -76,6 +76,7 @@ export interface ImmersiveSessionControls {
   machines: ArenaMachineSnapshot[];
   machineId?: string;
   sessionId?: string;
+  sessionTitle?: string;
   creating: boolean;
   status: string;
   permissions: PermissionTarget[];
@@ -86,6 +87,8 @@ export interface ImmersiveSessionControls {
   canAttach: boolean;
   canCancel: boolean;
   cancelKey?: string;
+  /** False while the open session has a live turn, or its machine is offline. */
+  canArchive: boolean;
   canRetry: boolean;
   requestedPermissionKey?: string;
   reports?: ImmersiveReportControls;
@@ -95,6 +98,8 @@ export interface ImmersiveSessionControls {
   onDecide(target: PermissionTarget, decision: 'allow' | 'deny'): void;
   onRefresh(): void;
   onCancel(): void;
+  /** Archives the session open when the controls were built; resolves true once it is archived. */
+  onArchive(): Promise<boolean>;
   onRetry(): void;
   onReturn?(): void;
   onRevoke(): void;
@@ -106,6 +111,7 @@ export const SESSION_ACTIONS = {
   checkout: 'Repository', attach: 'Attach primary', permissions: 'Permissions',
   previous: 'Previous request', next: 'Next request', older: 'Previous details', newer: 'More details',
   allow: 'Allow', deny: 'Deny', refresh: 'Refresh status', cancel: 'Cancel run', retry: 'Retry instruction', return: 'Return to prior session',
+  archive: 'Archive session', 'confirm-archive': 'Confirm archive',
   revoke: 'Forget this device', 'confirm-revoke': 'Confirm forget',
   reports: 'Reports', 'previous-report': 'Previous report', 'next-report': 'Next report',
   'attach-report': 'Attach report', 'remove-report': 'Remove report',

@@ -138,6 +138,9 @@ pending. Both depended on
 the store open when an older build meets a newer session format; Story 65 has shipped.
 Story 52 is in progress with its immersive Arena/Inbox, exact cross-session permission return, and
 automated resource/navigation checks implemented; its multi-session Quest 3S run remains pending.
+Story 69 is in progress: Session tools can archive the open conversation after a second, confirming
+selection and then bring the Arena forward, and the desktop More menu gains the same action. Its
+automated checks pass, and its Quest 3S run remains pending.
 Existing Stories 43–44 remain useful foundations and retain their own status.
 
 | Story | Outcome | Depends on |
@@ -153,6 +156,7 @@ Existing Stories 43–44 remain useful foundations and retain their own status.
 | [56 — Report a VR problem from the headset](STORY-20260919-vr-report-from-headset.md) | A captured view, diagnostics, and error text reach the home machine | 45, 51 |
 | [63 — Use headset reports as conversation evidence](STORY-20260921-report-evidence-in-conversation.md) | Capture, explain, and send durable report evidence to an agent | 47, 56, 62; 65 before Part B |
 | [64 — Rebuild and restart CodeAI from CodeAI](STORY-20260921-managed-self-rebuild.md) | Safely run and verify the accepted fix from the same paired device | 63 Part A, 65 |
+| [69 — Archive the open conversation from inside it](STORY-20260924-archive-from-conversation.md) | Finish a conversation without leaving it to find its Arena card | 39, 48, 62 |
 
 The first usable release is **45–51**, including real spatial diagrams and voice. Story 52 is the
 in-progress second milestone.

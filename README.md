@@ -203,8 +203,10 @@ existing checkout as primary here before sending an agent instruction.
 **Previous details / More details**. Select **Allow** or **Deny** explicitly; speech only edits drafts.
 The card retains its result, and **Next request** deliberately selects another request. If delivery
 fails, **Refresh status** checks current state before another explicit attempt. **Retry instruction**
-copies the last instruction into the draft for review before Send. **Forget this device** requires
-a second selection and returns a paired headset to the existing pairing gate.
+copies the last instruction into the draft for review before Send. **Archive session** takes the
+place of **Cancel run** while the session has no live turn; it needs a second selection, **Confirm
+archive**, and then brings the Arena panel forward. **Forget this device** requires a second
+selection and returns a paired headset to the existing pairing gate.
 
 The Arena panel reuses the shell's single Arena poll and presents Active, Inbox, and Archived views
 six summaries at a time. Session identity is machine-qualified, Offline entries cannot be opened,
@@ -621,10 +623,11 @@ device-local tabs, drafts, or panel state in the URL.
 The header **Arena** control opens an overview of active sessions, grouped first by execution
 machine and then by project.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
-latest activity. An inactive session can be archived from its card and later restored intact from
-the **Archived** view; a session with a reserved, queued, executing, or permission-blocked turn
-cannot be archived. Use **New session** there to choose a project, provider, and initial mode before
-opening an empty session; creation never sends a prompt automatically.
+latest activity. An inactive session can be archived from its card, or from inside it with
+**More → Archive session**, and later restored intact from the **Archived** view; a session with a
+reserved, queued, executing, or permission-blocked turn cannot be archived. Use **New session**
+there to choose a project, provider, and initial mode before opening an empty session; creation
+never sends a prompt automatically.
 
 The header **Inbox** follows you into every session and aggregates all online attached machines. It
 puts live permission requests first, then

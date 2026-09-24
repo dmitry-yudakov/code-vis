@@ -853,6 +853,74 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   await expect(page.getByRole('tab')).toHaveCount(1);
 });
 
+test('archives the open session from the More menu', async ({ page, request }) => {
+  const projectName = `Menu archive ${Date.now()}`;
+  await page.goto('/');
+  await createNamedProject(page, projectName);
+  await startSession(page);
+  await startSession(page);
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  const projects = (await (await request.get('/api/projects')).json()) as { projects: Array<{ id: string; name: string }> };
+  const projectId = projects.projects.find((project) => project.name === projectName)!.id;
+  const sessionIds = async () => ((await (await request.get(`/api/sessions?projectId=${projectId}`)).json()) as {
+    sessions: Array<{ id: string }>;
+  }).sessions.map((session) => session.id);
+  const focusedId = () => page.evaluate((projectId) => {
+    const stored = JSON.parse(localStorage.getItem('code-ai:device:v1:workspace') || '{}') as {
+      scopes?: Record<string, { focusedSessionId?: string }>;
+    };
+    return stored.scopes?.[`project:${projectId}`]?.focusedSessionId;
+  }, projectId);
+  await expect.poll(focusedId).toBeTruthy();
+  const archivedId = (await focusedId())!;
+  const archiveRequests: string[] = [];
+  page.on('request', (sent) => { if (sent.method() === 'POST' && sent.url().endsWith('/archive')) archiveRequests.push(sent.url()); });
+
+  const menu = page.locator('.header-menu');
+  const archive = menu.getByRole('button', { name: 'Archive session', exact: true });
+  await ensureRepository(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await conversation.locator('textarea').fill('Wait for reload cancellation.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.workspace-tab.active')).toHaveClass(/working/);
+  await menu.locator('summary').click();
+  await expect(archive).toBeDisabled();
+  await menu.locator('summary').click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.notice-banner')).toContainText('cancelled');
+
+  await menu.locator('summary').click();
+  await expect(archive).toBeEnabled();
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await archive.click();
+  await page.waitForTimeout(100);
+  expect(archiveRequests).toEqual([]);
+  await expect(page.getByRole('tab')).toHaveCount(2);
+
+  // While the archive is in flight, the reopened menu cannot send a second one.
+  let releaseArchive!: () => void;
+  const archiveHeld = new Promise<void>((resolve) => { releaseArchive = resolve; });
+  await page.route('**/api/sessions/*/archive', async (route) => { await archiveHeld; await route.continue(); });
+  page.once('dialog', (dialog) => {
+    expect(dialog.message()).toContain('You can restore it later from Archived.');
+    return dialog.accept();
+  });
+  await archive.click();
+  await expect(menu).not.toHaveAttribute('open');
+  await menu.locator('summary').click();
+  await expect(archive).toBeDisabled();
+  await menu.locator('summary').click();
+  releaseArchive();
+  await expect(page.getByRole('tab')).toHaveCount(1);
+  expect(archiveRequests).toHaveLength(1);
+  await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
+  expect(await sessionIds()).not.toContain(archivedId);
+  expect(await sessionIds()).toHaveLength(1);
+
+  await page.getByRole('button', { name: 'Undo archive' }).click();
+  await expect.poll(sessionIds).toContain(archivedId);
+});
+
 test('separates replay from live recovery events and keeps terminal actions per session', async ({ page }) => {
   await page.goto('/');
   await createNamedProject(page, `Recovery outcomes ${Date.now()}`);
