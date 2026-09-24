@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-23. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-24. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -57,6 +57,9 @@ Updated 2026-09-23. When a story ships, change the line that names it; each stor
   provider's Docker CLI from Arena or `npm run docker:upgrade` after offline checks, roll back, and
   offer Docker Codex its worker's own models; verified against a real daemon, and signed-in turns
   on the owner's installation remain pending.
+- **Also in flight:** [Story 68](stories/STORY-20260924-personal-git-ignore.md) — CodeAI's Git
+  views honor the user's personal Git ignore file (`~/.config/git/ignore`), on host Git and in the
+  Docker helper alike; verified against a real helper, and a check in the running app remains pending.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

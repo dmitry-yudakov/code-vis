@@ -164,6 +164,11 @@ async function main() {
     assert.equal(JSON.parse(await readFile(path.join(checkout, 'node_modules', 'is-number', 'package.json'), 'utf8')).version, '7.0.0');
     assert.equal((await readFile(path.join(checkout, '.next', 'container-build.txt'), 'utf8')).trim(), 'container-build');
     assert.match((await readWorkingTree(checkout)).files.map((file) => file.path).join('\n'), /tracked.txt/);
+    // The image entrypoint runs a non-executable file named like the helper's command with node.
+    for (const name of ['sh', 'git']) await writeFile(path.join(checkout, name), 'console.log("?? forged")\n');
+    const planted = (await readWorkingTree(checkout)).files.map((file) => file.path);
+    assert.ok(planted.includes('sh') && planted.includes('git') && !planted.includes('forged'), 'A planted command must not run in the Git helper');
+    for (const name of ['sh', 'git']) await rm(path.join(checkout, name));
     const plainDirectory = path.join(root, 'plain-directory');
     await mkdir(plainDirectory);
     assert.deepEqual(await readWorkingTree(plainDirectory), { isRepository: false, files: [] });

@@ -13,6 +13,8 @@ beforeAll(async () => {
   dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-git-data-'));
   vi.stubEnv('CODEAI_DATA_DIR', dataDir);
   vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false');
+  // No personal ignore file: the developer's own must not change these results.
+  vi.stubEnv('XDG_CONFIG_HOME', dataDir);
 });
 
 afterAll(async () => {

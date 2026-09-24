@@ -14,12 +14,12 @@ export class DockerCommandError extends Error {
   }
 }
 
-export function dockerCommand(args: string[], options: { timeout?: number; maxBuffer?: number } = {}): Promise<string> {
+export function dockerCommand(args: string[], options: { timeout?: number; maxBuffer?: number; env?: Record<string, string> } = {}): Promise<string> {
   const commandIndex = args[0] === '--host' ? 2 : 0;
   const operation = args.slice(commandIndex, commandIndex + (['container', 'volume', 'image', 'network', 'context'].includes(args[commandIndex]) ? 2 : 1)).join(' ');
   return new Promise((resolve, reject) => {
     execFile('docker', args, {
-      env: dockerEnvironment(), cwd: os.tmpdir(), encoding: 'utf8',
+      env: { ...options.env, ...dockerEnvironment() }, cwd: os.tmpdir(), encoding: 'utf8',
       timeout: options.timeout ?? 60_000, maxBuffer: options.maxBuffer ?? 1_048_576,
     }, (error, stdout) => {
       // Never forward Docker/CLI output on a failure: setup/auth commands can print secrets.

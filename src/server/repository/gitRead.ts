@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, realpath } from 'node:fs/promises';
+import { access, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { getConfig } from '@/server/config';
@@ -12,7 +12,7 @@ import { runRegistry } from '@/server/runs/runRegistry';
 
 export const GIT_READ_OPTIONS = [
   '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
-  '-c', 'core.attributesFile=/dev/null', '-c', 'core.excludesFile=/dev/null',
+  '-c', 'core.attributesFile=/dev/null',
   '-c', 'diff.external=', '-c', 'diff.trustExitCode=false', '-c', 'submodule.recurse=false',
   '-c', 'core.pager=cat', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
 ];
@@ -23,6 +23,29 @@ export function gitReadEnvironment(): NodeJS.ProcessEnv {
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_OPTIONAL_LOCKS: '0',
     GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_LITERAL_PATHSPECS: '1',
   };
+}
+
+const PERSONAL_IGNORE_BYTES = 64 * 1024;
+// The helper receives the patterns, never a host path, so Docker binds nothing but the checkout.
+const HELPER_PERSONAL_IGNORE = '/tmp/personal-git-ignore';
+const WRITE_PERSONAL_IGNORE = `printf %s "$CODEAI_PERSONAL_IGNORE" > ${HELPER_PERSONAL_IGNORE} && exec git "$@"`;
+
+/** Git's default personal ignore file, located as Git locates it; a relative XDG_CONFIG_HOME is
+ * ignored, as the XDG specification says. A custom core.excludesFile is not followed: that would
+ * mean reading global Git configuration. Anything but a regular file of at most
+ * PERSONAL_IGNORE_BYTES of UTF-8 without NUL bytes, which an environment value must be, reads as no
+ * file, in both modes alike. */
+async function personalIgnore(): Promise<{ file: string; patterns: string } | undefined> {
+  const configHome = process.env.XDG_CONFIG_HOME;
+  const file = path.join(configHome && path.isAbsolute(configHome) ? configHome : path.join(os.homedir(), '.config'), 'git', 'ignore');
+  try {
+    const info = await stat(file);
+    if (!info.isFile() || info.size > PERSONAL_IGNORE_BYTES) return undefined;
+    // Checked again after reading: the file may have grown in between.
+    const bytes = await readFile(file);
+    if (bytes.length > PERSONAL_IGNORE_BYTES || bytes.includes(0)) return undefined;
+    return { file, patterns: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+  } catch { return undefined; }
 }
 
 /** Provisioning permanently switches this installation's Git reads to a credential-free helper.
@@ -46,9 +69,10 @@ async function executeGitRead(cwd: string, args: string[], options: {
   let isolated = false;
   try { await access(path.join(config.dataDir, 'docker', 'profile.json')); isolated = true; }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-  const hardenedArgs = [...GIT_READ_OPTIONS, ...args];
+  const ignore = await personalIgnore();
+  const hardenedArgs = (excludesFile: string) => [...GIT_READ_OPTIONS, '-c', `core.excludesFile=${excludesFile}`, ...args];
   if (!isolated) return new Promise((resolve, reject) => {
-    execFile('git', hardenedArgs, {
+    execFile('git', hardenedArgs(ignore?.file ?? '/dev/null'), {
       cwd, env: { ...gitReadEnvironment(), HOME: os.homedir(), GIT_CEILING_DIRECTORIES: path.dirname(cwd) },
       encoding: 'utf8', maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024,
       timeout: options.timeout ?? 8_000, windowsHide: true,
@@ -60,7 +84,7 @@ async function executeGitRead(cwd: string, args: string[], options: {
   const runtime = getDockerRuntime(config);
   const profile = await runtime.provision();
   const endpoint = await localDockerEndpoint();
-  const command = (params: string[]) => dockerCommand(['--host', endpoint, ...params]);
+  const command = (params: string[], env?: Record<string, string>) => dockerCommand(['--host', endpoint, ...params], { env });
   if ((await command(['info', '--format', '{{.ID}}'])).trim() !== profile.engineId) throw new Error('Docker engine identity changed; Git read refused.');
   // A helper intentionally accepts replaced .git: it has no host files outside this one bind.
   // Canonical root validation still precedes every mount; no parent paths are ever mounted.
@@ -72,8 +96,12 @@ async function executeGitRead(cwd: string, args: string[], options: {
     'create', '--name', `codeai-git-${randomUUID()}`, ...runtime.labels('git'), ...containerSecurity(uid, gid),
     '--network', 'none', '--mount', `type=bind,src=${cwd},dst=/workspace,readonly`, '--workdir', '/workspace',
     ...Object.entries(gitReadEnvironment()).filter(([key]) => key !== 'PATH').flatMap(([key, value]) => ['--env', `${key}=${value}`]),
-    profile.image, 'git', '-c', 'safe.directory=/workspace', ...hardenedArgs,
-  ])).trim();
+    // Docker copies this value from its own environment, so the patterns stay out of command lines.
+    // The image's entrypoint would run a non-executable checkout file named like the command with
+    // node, so the absolute shell replaces it.
+    '--env', 'CODEAI_PERSONAL_IGNORE', '--entrypoint', '/bin/sh', profile.image, '-c', WRITE_PERSONAL_IGNORE,
+    'sh', '-c', 'safe.directory=/workspace', ...hardenedArgs(HELPER_PERSONAL_IGNORE),
+  ], { CODEAI_PERSONAL_IGNORE: ignore?.patterns ?? '' })).trim();
   try {
     // The attached result carries Git's exit status; all failures are bounded and path-free.
     return await new Promise<string>((resolve, reject) => {

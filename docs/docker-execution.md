@@ -232,9 +232,18 @@ inside this profile; CodeAI never retries them on the host.
 After provisioning, CodeAI's own status/diff/context Git invocations run in read-only,
 network-disabled helpers without provider homes or other host directories. This remains true when
 Docker turns are subsequently disabled, including for Local sessions. Git hooks, fsmonitor,
-external diff/textconv, ambient configuration and optional index writes are disabled. Replacing
-`.git` or redirecting configuration cannot add a host mount. Keep the pinned image available for
-these reads. Before provisioning, Local retains host Git with executable features disabled.
+external diff/textconv, ambient configuration, optional index writes and the image's entrypoint
+are disabled. Replacing `.git` or redirecting configuration cannot add a host mount. Keep the
+pinned image available for these reads. Before provisioning, Local retains host Git with executable
+features disabled.
+Files the user ignores personally stay out of CodeAI's Git views before and after provisioning.
+CodeAI reads Git's default personal ignore file (`$XDG_CONFIG_HOME/git/ignore`, else
+`~/.config/git/ignore`) when it is a regular UTF-8 file of at most 64 KiB without NUL bytes. A
+helper receives its patterns as an environment value, never as a mount. A custom
+`core.excludesFile` is not followed, because CodeAI reads no global Git configuration. If that file
+is a symlink into a checkout that Docker Agent edits, the agent can repoint it at another of the
+user's files and infer its lines from what the Git view hides. Keep linked configuration out of such
+checkouts.
 The helper binds only the selected root: external metadata in a Local linked worktree can make
 its Git view unavailable after provisioning as well. It never adds that external directory as a mount.
 
