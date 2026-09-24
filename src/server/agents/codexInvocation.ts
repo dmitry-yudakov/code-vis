@@ -191,13 +191,25 @@ export function codexIsolationIssue(input: { mcp: unknown; hooks: unknown; skill
 
   const skills = record(input.skills);
   if (!Array.isArray(skills?.data)) return 'Codex did not return a valid skill capability inventory.';
-  const executableSkills = skills.data.flatMap((entry) => {
+  return undefined;
+}
+
+/**
+ * User and repository skills are the user's own Codex configuration, like a user-level AGENTS.md.
+ * They add instructions, not capabilities: MCP servers stay disabled and verified, and a command a
+ * skill suggests runs through the turn's sandbox. So they are reported as a readiness note rather
+ * than blocking.
+ */
+export function codexAmbientSkillNote(value: unknown): string | undefined {
+  const data = record(value)?.data;
+  if (!Array.isArray(data)) return undefined;
+  const enabled = data.flatMap((entry) => {
     const item = record(entry);
     return Array.isArray(item?.skills) ? item.skills : [];
   }).filter((skill) => {
     const item = record(skill);
     return item?.enabled === true && (item.scope === 'user' || item.scope === 'repo');
-  });
-  if (executableSkills.length) return 'Ambient user or repository Codex skills are still active.';
-  return undefined;
+  }).length;
+  if (!enabled) return undefined;
+  return `Codex also has ${enabled} user or repository skill${enabled === 1 ? '' : 's'} enabled. CodeAI asks it not to use them, and anything they run stays inside the session's sandbox.`;
 }

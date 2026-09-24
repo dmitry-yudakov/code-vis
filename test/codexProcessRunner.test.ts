@@ -5,7 +5,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
 import { checkCodex } from '@/server/agents/codexPreflight';
 import {
-  buildCodexAppServerArgs, codexAmbientInstructionNote, codexModelChoices, codexThreadPolicyIssue, codexTurnSecurity,
+  buildCodexAppServerArgs, codexAmbientInstructionNote, codexAmbientSkillNote, codexModelChoices, codexThreadPolicyIssue,
+  codexTurnSecurity,
 } from '@/server/agents/codexInvocation';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
@@ -214,7 +215,7 @@ describe.sequential('CodexProcessRunner', () => {
     await expect(run()).rejects.toMatchObject({ code: 'malformed-stream' });
     process.env.CODEAI_FAKE_CODEX_MODE = 'crash';
     await expect(run()).rejects.toMatchObject({ code: 'process-failed' });
-    process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-skill';
+    process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-hook';
     await expect(run()).rejects.toMatchObject({ code: 'unsupported-flags', delivery: 'not-sent' });
   });
 
@@ -240,6 +241,17 @@ describe.sequential('CodexProcessRunner', () => {
     expect(codexAmbientInstructionNote({ instructionSources: ['/repo/AGENTS.md'] }, '/repo')).toBeUndefined();
     expect(codexAmbientInstructionNote({ instructionSources: ['/home/user/.codex/AGENTS.md', '/repo/AGENTS.md'] }, '/repo'))
       .toMatch(/^Codex also loads 1 instruction file from outside the repository/);
+  });
+
+  it('notes user and repository skills without blocking the turn', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-skill';
+    const { result } = await run();
+    expect(result.finalText).toBe('Codex answer.');
+
+    const skills = (...entries: Record<string, unknown>[]) => ({ data: [{ cwd: '/repo', skills: entries, errors: [] }] });
+    expect(codexAmbientSkillNote(skills({ scope: 'system', enabled: true }, { scope: 'user', enabled: false }))).toBeUndefined();
+    expect(codexAmbientSkillNote(skills({ scope: 'user', enabled: true }, { scope: 'repo', enabled: true })))
+      .toMatch(/^Codex also has 2 user or repository skills enabled/);
   });
 
   it('preflights authentication, isolation, protocol support, and mode gates without a model turn', async () => {
@@ -287,6 +299,15 @@ describe.sequential('CodexProcessRunner', () => {
     await expect(checkCodex(binary, process.cwd(), true)).resolves.toMatchObject({
       available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'],
       message: expect.stringContaining('instruction file from outside the repository'),
+    });
+    process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-skill';
+    await expect(checkCodex(binary, process.cwd(), true)).resolves.toMatchObject({
+      available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'],
+      message: expect.stringContaining('1 user or repository skill enabled'),
+    });
+    process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-hook';
+    await expect(checkCodex(binary, process.cwd(), true)).resolves.toMatchObject({
+      available: false, authenticated: true, supportedModes: [],
     });
     process.env.CODEAI_FAKE_CODEX_MODE = 'ambient-mcp-unisolated';
     await expect(checkCodex(binary, process.cwd(), true)).resolves.toMatchObject({

@@ -782,10 +782,10 @@ Codex is spawned as a local [`codex app-server`](https://learn.chatgpt.com/docs/
 child for each active turn. CodeAI performs the App Server handshake, starts or resumes the
 stored Codex thread, and streams the turn without opening a listener port. Ask and Plan use a
 read-only sandbox with network disabled. Server-owned overrides disable MCP servers, apps,
-plugins, hooks, web search, subagents, custom commands, and non-system skills; preflight also
-queries the effective integration inventory and fails closed if an ambient executable capability
-remains enabled. Instruction files Codex loads from outside the repository, such as a user-level
-`AGENTS.md`, are your own Codex configuration: readiness reports them as a note instead of
+plugins, hooks, web search, subagents, and custom commands; preflight also queries the effective
+integration inventory and fails closed if an ambient MCP server or hook remains enabled. Instruction
+files Codex loads from outside the repository, such as a user-level `AGENTS.md`, and enabled user or
+repository skills are your own Codex configuration: readiness reports them as a note instead of
 withholding the provider. App Server approval requests are correlated to the active turn, sanitized, and
 resolved as one-shot allow/deny decisions through the same permission cards.
 

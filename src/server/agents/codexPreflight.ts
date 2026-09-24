@@ -2,8 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import type { ModelChoices, ProviderHealth } from '@/shared/types';
 import {
-  buildCodexAppServerArgs, codexAmbientInstructionNote, codexIsolationIssue, codexMcpServerNames,
-  codexModelChoices, codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
+  buildCodexAppServerArgs, codexAmbientInstructionNote, codexAmbientSkillNote, codexIsolationIssue,
+  codexMcpServerNames, codexModelChoices, codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
 } from './codexInvocation';
 
 type JsonRecord = Record<string, unknown>;
@@ -236,6 +236,7 @@ function codexHandshake(
         }
         const notes = [
           note,
+          codexAmbientSkillNote(skills),
           agentEnabled ? undefined : 'Codex Ask and Plan are ready. Agent remains disabled until its real approval-parity smoke passes.',
         ].filter(Boolean);
         const models = await Promise.race([modelList, new Promise((resolve) => setTimeout(resolve, 300))]);
