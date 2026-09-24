@@ -550,8 +550,8 @@ All three parts are implemented and verified offline, in the end-to-end suite, a
   after the swap; its sends get the retryable `503` during the build. A view that leaves the self
   project during an operation stops following it.
 - A parent killed with `SIGKILL` during a build stops its server through the closed channel, but it
-  cannot restore `next-env.d.ts` and `tsconfig.json`; `git checkout -- next-env.d.ts tsconfig.json`
-  does.
+  cannot restore `next-env.d.ts` and `tsconfig.json`; `git checkout -- tsconfig.json` restores the
+  tracked one, and the next `npm run dev` rewrites the git-ignored `next-env.d.ts`.
 - A Docker CLI update started from Arena (Story 67) does not block Build & restart. A restart during
   one leaves at most a `codeai-worker:candidate-…` tag, as Story 67's own limits describe.
 - The bounds are fixed: 20 minutes to build, two minutes to become ready, two seconds of flush, ten

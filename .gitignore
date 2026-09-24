@@ -7,6 +7,8 @@ node_modules/
 .next-managed-a/
 .next-managed-b/
 *.tsbuildinfo
+# Rewritten by every dev, build, and e2e run to point at its own build directory
+next-env.d.ts
 
 # Test and coverage output
 coverage/

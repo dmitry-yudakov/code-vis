@@ -100,9 +100,10 @@ npm run test:docker # probe the real Docker runtime; needs a running daemon
 `legacy/` is excluded from the TypeScript project, the Vitest include set, and the Playwright test
 directory. Nothing in the root build traverses it.
 
-`next dev` maintains two files itself: the `nextjs-agent-rules` block at the end of this document
-and `next-env.d.ts` / the generated-type entries in `tsconfig.json`. They are committed as written
-so a dev run leaves the working tree clean — edit them only through Next.js.
+`next dev` maintains two things itself: the `nextjs-agent-rules` block at the end of this document
+and the generated-type entries in `tsconfig.json`. They are committed as written so a dev run leaves
+the working tree clean — edit them only through Next.js. Next also writes `next-env.d.ts`, which is
+git-ignored as Next.js recommends: every dev, build, and e2e run points it at its own build directory.
 
 ## Source ownership
 
