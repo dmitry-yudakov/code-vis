@@ -8,7 +8,8 @@ export const LOOSE_WORKSPACE_SCOPE = 'project:none';
 const MAX_SCOPES = 100;
 const MAX_SESSIONS_PER_SCOPE = 200;
 export const MAX_CANVAS_VIEWS = 200;
-const MAX_MODEL_SELECTIONS = 16;
+/** The roster maximum, so every agent of a session keeps its own choice. */
+const MAX_MODEL_SELECTIONS = 32;
 export const SPATIAL_ROOM_BOUNDS = {
   x: [-32, 32],
   y: [-12, 16],
@@ -125,17 +126,22 @@ function parseCanvasViews(value: unknown): Record<string, CanvasViewState> {
   return result;
 }
 
+/** Keeps the well-formed fields of a stored selection. An empty selection is a chosen Default. */
+export function parseModelSelection(value: unknown): ModelSelection | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const { model, effort } = value as Record<string, unknown>;
+  return {
+    ...(typeof model === 'string' && MODEL_ID_PATTERN.test(model) ? { model } : {}),
+    ...(typeof effort === 'string' && MODEL_EFFORT_PATTERN.test(effort) ? { effort } : {}),
+  };
+}
+
 function parseModelSelections(value: unknown): Record<string, ModelSelection> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const result: Record<string, ModelSelection> = {};
   for (const [participantId, candidate] of Object.entries(value).slice(-MAX_MODEL_SELECTIONS)) {
-    if (!SESSION_ID.test(participantId) || !candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
-    const { model, effort } = candidate as Record<string, unknown>;
-    const selection: ModelSelection = {
-      ...(typeof model === 'string' && MODEL_ID_PATTERN.test(model) ? { model } : {}),
-      ...(typeof effort === 'string' && MODEL_EFFORT_PATTERN.test(effort) ? { effort } : {}),
-    };
-    if (selection.model || selection.effort) result[participantId] = selection;
+    const selection = SESSION_ID.test(participantId) ? parseModelSelection(candidate) : undefined;
+    if (selection) result[participantId] = selection;
   }
   return Object.keys(result).length ? result : undefined;
 }

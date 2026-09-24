@@ -2335,11 +2335,27 @@ test('VR launcher captures the selected remote project and mode and preserves ch
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Selected executor disconnected');
   expect(requests).toEqual([{ provider: 'claude', projectId: REMOTE_PROJECT }]);
   expect((await sessionToolsState(page))?.text).toContain('Mode: plan');
+  // A session that was not created leaves this device's last choices alone.
+  expect(await page.evaluate(() => localStorage.getItem('code-ai:device:v1:preferences'))).toBeNull();
   await showPanel(page, 'conversation'); await page.screenshot({ path: 'test-results/vr-session-launcher.png' }); await hideProjection(page);
   fixture.online = false;
   await sessionAction(page, 'refresh');
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('offline');
   await sessionAction(page, 'create'); expect(requests).toHaveLength(1);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('VR launcher opens at this device\'s last mode', async ({ page }) => {
+  await installAdapter(page); await workspaceFixture(page, true);
+  await page.addInitScript(() => localStorage.setItem('code-ai:device:v1:preferences', JSON.stringify({ version: 1, mode: 'plan' })));
+  await page.goto('/'); await enter(page);
+  // Both ways in: the Arena's New session, and Session tools' own launcher after a change was left.
+  await controls(page).locator('[data-immersive-action="arena:new"]').click();
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Mode: plan');
+  await sessionAction(page, 'mode');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Mode: ask');
+  await sessionAction(page, 'back'); await sessionAction(page, 'launcher');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Mode: plan');
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 

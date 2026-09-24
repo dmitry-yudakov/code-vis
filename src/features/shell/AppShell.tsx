@@ -56,6 +56,8 @@ import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { useWorkspaceViews } from './useWorkspaceViews';
+import { useDevicePreferences } from './useDevicePreferences';
+import { agentModelSelection, inheritedMode } from './devicePreferences';
 import {
   parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView, withPendingReport, withPendingReports,
   type CanvasSurface, type SpatialViewState,
@@ -64,7 +66,7 @@ import { ImmersiveBoundary } from './immersive/ImmersiveBoundary';
 import { usePermissionDecisions } from './usePermissionDecisions';
 import { permissionKey, type PermissionTarget } from './immersive/sessionControls';
 import type { ImmersiveSessionChoice } from '@/features/diagram/spatial/immersiveTypes';
-import type { ImmersiveReportPlacement } from './immersive/sessionControls';
+import type { ImmersiveReportPlacement, SessionCreation } from './immersive/sessionControls';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
 
 interface Health {
@@ -121,6 +123,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const workspaceMachineId = machineId && localMachineId && machineId !== localMachineId ? machineId : undefined;
   const workspace = useWorkspaceViews(projectId, workspaceMachineId);
+  const { preferences, update: updatePreferences } = useDevicePreferences();
   const arena = useArena();
   const apiPath = useCallback(
     (path: string) => machineApiPath(path, machineId, localMachineId),
@@ -131,7 +134,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const view = sessionId ? workspace.scope.views[sessionId] : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId);
   const [vrUnavailable, setVrUnavailable] = useState<string>();
-  const [newProvider, setNewProvider] = useState<AgentProvider>('claude');
+  // The creation forms fall back to an available provider when this one is not.
+  const newProvider = preferences.provider ?? 'claude';
   const [creatingSession, setCreatingSession] = useState(false);
   const creatingSessionRef = useRef(false);
   const cancellingRuns = useRef(new Set<string>());
@@ -315,13 +319,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const unsupportedModes = useMemo(() => health
     ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
     : [], [health, providerHealth]);
-  // A mode the installed CLI cannot run falls back to Ask rather than failing at send time.
-  const storedMode = session?.defaultMode || 'ask';
+  // A session without its own mode on this device shows the last one. A mode the installed CLI cannot
+  // run falls back to Ask rather than failing at send time.
+  const storedMode = session?.defaultMode || inheritedMode(preferences.mode, session?.execution);
   const mode: AgentMode = unsupportedModes.includes(storedMode)
     ? providerHealth?.supportedModes[0] || 'ask'
     : storedMode;
-  // Device state per agent. Whatever the machine no longer lists is shown and sent as Default.
-  const modelSelection = offeredModelSelection(activeAgent && view?.modelSelections?.[activeAgent.id], providerHealth);
+  // Device state per agent, else this device's last choice for the provider. Whatever the machine no
+  // longer lists is shown and sent as Default.
+  const modelSelection = offeredModelSelection(agentModelSelection(view, preferences, activeAgent), providerHealth);
   const attachedCanvases = useMemo(() => {
     if (!session) return [];
     return pendingAttachmentIds.flatMap((id) => {
@@ -464,8 +470,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       setHostId(checkoutResult.hostId);
       setLocalMachineId(checkoutResult.hostId);
       setMachineId(checkoutResult.hostId);
-      const healthy = AGENT_PROVIDERS.filter((provider) => healthResult.providers[provider]?.available);
-      setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
       const restartProject = takeRestartProject();
       setProjectId(projectResult.find((project) => project.id === restartProject)?.id ?? projectResult[0]?.id);
       setCatalogReady(true);
@@ -586,13 +590,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       dataDirectoryReady: true,
       providers: target.providers,
     });
-    const healthy = AGENT_PROVIDERS.filter((provider) => target.providers[provider]?.available);
-    setNewProvider((current) => healthy.includes(current) ? current : healthy[0] || 'claude');
   }, []);
 
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
-    options: { projectId?: string; mode?: AgentMode; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
+    options: { projectId?: string; mode?: AgentMode; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
   ): Promise<boolean> => {
     if (creatingSessionRef.current) return false;
     creatingSessionRef.current = true;
@@ -618,9 +620,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
       const targetProjectId = data.session.projectId;
       const targetWorkspaceMachineId = targetMachineId && targetMachineId !== localMachineId ? targetMachineId : undefined;
+      // The session and its first agent start at the given choices, else this device's last ones,
+      // and keep them as their own when the device's last choices change.
+      const sessionMode = options.mode ?? inheritedMode(preferences.mode, options.execution);
+      const agentSelection = options.modelSelection ?? preferences.models?.[requestedProvider] ?? {};
+      const primaryAgentId = data.session.primaryAgentId;
       workspace.openInProject(targetProjectId, data.session.id, (current) => ({
         ...current,
-        ...(options.mode ? { defaultMode: options.mode } : {}),
+        defaultMode: sessionMode,
+        modelSelections: { [primaryAgentId]: agentSelection },
         ...(options.initialComposer !== undefined ? { composer: options.initialComposer } : {}),
       }), targetWorkspaceMachineId);
       if (targetMachine && targetMachineId !== machineId) selectMachineCatalog(targetMachine);
@@ -643,7 +651,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       creatingSessionRef.current = false;
       setCreatingSession(false);
     }
-  }, [applyServerSnapshot, arena.machines, arena.refresh, localMachineId, machineId, newProvider, panelLayout.openConversationFor, projectId, router, selectMachineCatalog, workspace.openInProject]);
+  }, [applyServerSnapshot, arena.machines, arena.refresh, localMachineId, machineId, newProvider, panelLayout.openConversationFor, preferences, projectId, router, selectMachineCatalog, workspace.openInProject]);
+
+  /** The Arena's and VR's New session forms. What a session was created with becomes this device's last choice. */
+  const createChosenSession = useCallback(async ({ provider, ...options }: SessionCreation & { execution?: AgentExecution; checkoutId?: string }) => {
+    const created = await createSession(provider, { ...options, fromArena: true });
+    if (created) updatePreferences((current) => ({ ...current, provider, mode: options.mode }));
+    return created;
+  }, [createSession, updatePreferences]);
 
   const continueSession = (execution: AgentExecution) => {
     if (!session || sessionRunning || creatingSession) return;
@@ -653,7 +668,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       return `${author}: ${text.slice(0, 900)}${text.length > 900 ? '…' : ''}`;
     }).join('\n\n');
     const initialComposer = `Continue from “${session.title.slice(0, 200)}” (${session.execution === 'docker' ? 'Docker' : 'Local'} session ${session.id}). This is a fresh provider session using the same repositories.\n\nRecent visible conversation (may be incomplete):\n${recap || 'No messages yet.'}${composer.trim() ? `\n\nUnsent draft:\n${composer.slice(0, 1_400)}` : ''}\n\nPlease continue from this context.`.slice(0, 7_600);
-    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode });
+    // The agent's stored choice, not the one this execution offers: the other execution may list more.
+    const agentSelection = agentModelSelection(view, preferences, activeAgent);
+    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode, modelSelection: agentSelection });
   };
 
   const switchProject = (next?: string) => {
@@ -902,16 +919,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setMode = useCallback((next: AgentMode) => {
     if (!sessionId) return;
     mutateSession(sessionId, (current) => ({ ...current, defaultMode: next }));
-  }, [mutateSession, sessionId]);
+    updatePreferences((current) => ({ ...current, mode: next }));
+  }, [mutateSession, sessionId, updatePreferences]);
 
   const activeAgentId = activeAgent?.id;
+  const activeAgentProvider = activeAgent?.provider;
   const setModelSelection = useCallback((next: ModelSelection) => {
-    if (!sessionId || !activeAgentId) return;
-    workspace.updateView(sessionId, ({ modelSelections: { [activeAgentId]: _prior, ...others } = {}, ...current }) => {
-      const modelSelections = next.model || next.effort ? { ...others, [activeAgentId]: next } : others;
-      return Object.keys(modelSelections).length ? { ...current, modelSelections } : current;
-    });
-  }, [activeAgentId, sessionId, workspace.updateView]);
+    if (!sessionId || !activeAgentId || !activeAgentProvider) return;
+    // Default is stored too, so this agent stays on it when another agent's choice moves the device's.
+    workspace.updateView(sessionId, ({ modelSelections: { [activeAgentId]: _prior, ...others } = {}, ...current }) => (
+      { ...current, modelSelections: { ...others, [activeAgentId]: next } }
+    ));
+    updatePreferences((current) => ({ ...current, models: { ...current.models, [activeAgentProvider]: next } }));
+  }, [activeAgentId, activeAgentProvider, sessionId, updatePreferences, workspace.updateView]);
+
+  const chooseNewProvider = useCallback((provider: AgentProvider) => {
+    updatePreferences((current) => ({ ...current, provider }));
+  }, [updatePreferences]);
 
   const selectAgent = useCallback((participantId: string) => {
     if (!sessionId || sessionRunning) return;
@@ -941,13 +965,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       const added = updated.participants.find((participant) => !session.participants.some((current) => current.id === participant.id));
       if (added?.kind === 'agent') {
         mutateSession(session.id, (current) => ({ ...current, addressedAgentId: added.id }));
+        // A new agent starts at this device's last choice for its provider and keeps it as its own.
+        const selection = preferences.models?.[provider] ?? {};
+        workspace.updateView(session.id, (current) => ({ ...current, modelSelections: { ...current.modelSelections, [added.id]: selection } }));
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not add that agent.');
     } finally {
       setParticipantBusy(false);
     }
-  }, [apiPath, enqueueSessionMutation, mutateSession, participantBusy, session, sessionRunning]);
+  }, [apiPath, enqueueSessionMutation, mutateSession, participantBusy, preferences.models, session, sessionRunning, workspace.updateView]);
 
   const setPrimaryAgent = useCallback(async (participantId: string) => {
     if (!session || sessionRunning || participantBusy) return;
@@ -1160,7 +1187,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     // Each agent's own choice: an Execute plan turn may address an agent other than the selected one.
-    const turnModel = offeredModelSelection(view?.modelSelections?.[turnAgent.id], turnProviderHealth);
+    const turnModel = offeredModelSelection(agentModelSelection(view, preferences, turnAgent), turnProviderHealth);
     setNotice(undefined);
     sendingSessions.current.add(session.id);
     setPreparingSends((current) => [...current, session.id]);
@@ -1336,7 +1363,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
-  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updateRun, view?.modelSelections, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const busyRunLabel = busyRun && (
     sessions.find((item) => item.id === busyRun.sessionId)?.title
@@ -1723,7 +1750,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   error={notice}
                   newProvider={newProvider}
                   onChange={workspace.open}
-                  onNewProvider={setNewProvider}
+                  onNewProvider={chooseNewProvider}
                   onNew={createSession}
                 />
               </>
@@ -1768,7 +1795,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 confirming: lifecycle.confirming, canRequest: lifecycle.canRequest,
                 onAsk: lifecycle.ask, onConfirm: lifecycle.confirm, onDismiss: lifecycle.dismiss,
               } : undefined,
-              onCreate: ({ provider, ...options }) => createSession(provider, { ...options, fromArena: true }),
+              preferredProvider: preferences.provider,
+              preferredMode: preferences.mode,
+              onCreate: createChosenSession,
               onAttach: (checkoutId) => updateRepositories((current) => [
                 ...current.filter((item) => item.checkoutId !== checkoutId).map((item) => ({ ...item, role: 'reference' as const })),
                 { id: crypto.randomUUID(), checkoutId, hostId: hostId!, role: 'primary' },
@@ -2053,14 +2082,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           onRefresh={refreshArena}
           onSetDockerEnabled={setDockerEnabled}
           onOpenSession={openArenaSession}
-          onCreateSession={({ machineId: targetMachineId, projectId: targetProjectId, provider, mode: initialMode, execution, checkoutId }) => createSession(provider, {
-            machineId: targetMachineId,
-            projectId: targetProjectId,
-            mode: initialMode,
-            fromArena: true,
-            execution,
-            checkoutId,
-          })}
+          preferredProvider={preferences.provider}
+          preferredMode={preferences.mode}
+          onCreateSession={createChosenSession}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
           onDecidePermission={decideArenaPermission}
@@ -2083,7 +2107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             newProvider={newProvider}
             creating={creatingSession}
             error={notice}
-            onNewProvider={setNewProvider}
+            onNewProvider={chooseNewProvider}
             onNew={createSession}
           />
         </div>

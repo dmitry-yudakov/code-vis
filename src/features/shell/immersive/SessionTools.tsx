@@ -9,6 +9,7 @@ import { permissionKey, permissionRequestUpdate, SESSION_ACTIONS, type Immersive
 import { createConversationTextResource, createReportPreviewResource, createWorkspaceButtonResource } from './workspaceResources';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { useTextureResource } from './useTextureResource';
+import { launchChoice } from '@/features/shell/devicePreferences';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
 
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
@@ -57,6 +58,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   useEffect(() => {
     if (!request) return;
     setTab(request.tab); setPage(0); setConfirmRevoke(false); setConfirmArchive(false);
+    if (request.tab === 'launcher') startLauncher();
   }, [request]);
   // A confirmation belongs to the session it was shown for, and only while it can be archived.
   useEffect(() => { setConfirmArchive(false); }, [controls.machineId, controls.sessionId, controls.canArchive]);
@@ -67,6 +69,12 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   const providers = (Object.keys(machine?.providers || {}) as AgentProvider[])
     .filter((id) => machine?.providers[id].available && machine.providers[id].supportedModes.length);
   const modes = machine?.providers[provider]?.supportedModes || [];
+  // New session opens at this device's last provider and mode when this machine can run them.
+  function startLauncher() {
+    const next = launchChoice({ provider: controls.preferredProvider, mode: controls.preferredMode }, machine?.providers, { provider, mode });
+    setProvider(next.provider);
+    setMode(next.mode);
+  }
   const checkout = controls.checkouts.find((item) => item.id === checkoutId) || controls.checkouts[0];
   const current = selected && controls.permissions.find((item) => permissionKey(item) === permissionKey(selected));
   const result = selected && controls.results[permissionKey(selected)];
@@ -147,6 +155,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       || (action === 'codeai' && (reportControls || codeai))) {
       // Reports is reached from the CodeAI section, so it goes back there.
       setTab(action === 'back' ? tab === 'reports' ? 'codeai' : 'home' : action); setPage(0); setConfirmRevoke(false); setConfirmArchive(false);
+      if (action === 'launcher') startLauncher();
       if (action === 'reports') reportControls?.onRefresh();
       if (action === 'codeai') controls.onRefresh();
     } else if (action === 'refresh') {

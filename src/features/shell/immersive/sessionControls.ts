@@ -93,6 +93,9 @@ export interface ImmersiveSessionControls {
   requestedPermissionKey?: string;
   reports?: ImmersiveReportControls;
   codeai?: ImmersiveCodeAiControls;
+  /** This device's last choices; New session opens at them when the machine can run them. */
+  preferredProvider?: AgentProvider;
+  preferredMode?: AgentMode;
   onCreate(input: SessionCreation): Promise<boolean>;
   onAttach(checkoutId: string): Promise<void>;
   onDecide(target: PermissionTarget, decision: 'allow' | 'deny'): void;

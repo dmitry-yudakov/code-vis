@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
+import { launchChoice } from '@/features/shell/devicePreferences';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type {
   AgentExecution, AgentMode, AgentProvider, ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
@@ -68,6 +69,8 @@ export function Arena({
   onRefresh,
   onSetDockerEnabled,
   onOpenSession,
+  preferredProvider,
+  preferredMode,
   onCreateSession,
   onArchiveSession,
   onRestoreSession,
@@ -81,6 +84,9 @@ export function Arena({
   onRefresh(): Promise<void>;
   onOpenSession(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): void;
   executionHealth?: ExecutionHealth;
+  /** This device's last choices; the New session form opens at them when this machine can run them. */
+  preferredProvider?: AgentProvider;
+  preferredMode?: AgentMode;
   onCreateSession(input: { machineId: string; projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
@@ -119,6 +125,12 @@ export function Arena({
   const supportedModes = selectedHealth?.[provider]?.supportedModes || [];
   const [mode, setMode] = useState<AgentMode>(supportedModes[0] || 'ask');
   const [deciding, setDeciding] = useState<string>();
+  const openCreate = () => {
+    const next = launchChoice({ provider: preferredProvider, mode: preferredMode }, selectedHealth, { provider, mode });
+    setProvider(next.provider);
+    setMode(next.mode);
+    setShowCreate(true);
+  };
   const [archiving, setArchiving] = useState<string>();
   const [restoring, setRestoring] = useState<string>();
 
@@ -181,7 +193,7 @@ export function Arena({
         </div>
         <div className="arena-heading-actions">
           <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
-          <button type="button" className="arena-primary" disabled={!onlineMachines.length} onClick={() => setShowCreate(true)}>
+          <button type="button" className="arena-primary" disabled={!onlineMachines.length} onClick={openCreate}>
             New session
           </button>
         </div>

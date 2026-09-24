@@ -397,6 +397,9 @@ export interface DeviceViewState {
   `opusplan` / `best`, a model list configured by a setting, choosing a model when the Arena creates
   a session.
 - Asking the Docker worker's own Codex for its model list.
+- Where a new agent starts. Here it starts at Default. [Story 70](STORY-20260924-remember-turn-choices.md)
+  starts it at this device's last choice for its provider and keeps a chosen Default as the agent's
+  own.
 
 ## How to verify
 

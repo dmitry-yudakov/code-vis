@@ -654,8 +654,13 @@ editable recipient, prompt, and role-default mode; they never send automatically
 agent-to-agent relay, simultaneous turns inside one session, and autopilot are intentionally not
 implemented yet.
 
-New sessions default to **Plan** because their initial participant is the `coder` preset. Arena
-creation may set another supported initial mode as device-local state before the empty session opens.
+A new session starts in the last mode chosen on this device, or in **Ask** on a device that has not
+chosen one yet. A Docker session never inherits **Agent**, because Docker Agent edits without
+individual approvals; it starts in Ask unless Agent is chosen for it. The Arena's and VR's **New
+session** forms open at the last mode and provider when that machine can run them, and set the new
+session's mode explicitly. A session keeps its own mode once it has one, so changing the mode in one
+session does not change another's. A session with no mode on this device, such as one started on
+another device, shows the last mode.
 
 Independent sessions can execute at the same time. Each machine runs two eligible turns by default
 and visibly queues additional work; `CODEAI_MAX_CONCURRENT_RUNS` sets a limit from 1–8. Ask and
@@ -723,7 +728,12 @@ own `model/list`, recorded when the worker was provisioned or updated, and other
 machine's local Codex lists. The server rejects any other model or effort with 400.
 
 The choice is remembered on this device for each agent in each session, like mode; it is not part
-of the session and another device does not see it. VR turns use this device's choice. **Default**
+of the session and another device does not see it. VR turns use this device's choice. This device
+also remembers the last choice for each provider. A new agent, including the first agent of a new
+session, starts at it and keeps it as its own, and an agent with no choice on this device follows
+it. **Continue in Docker/Local** carries the current agent's choice to the new session. Choosing
+**Default** for an agent is a choice too: it stays on Default when another agent's choice changes.
+**Default**
 means no override: a new agent starts on the machine's default (`CODEAI_CLAUDE_MODEL` /
 `CODEAI_CODEX_MODEL` when set, otherwise the CLI's own), and an agent that already ran on an
 explicit choice keeps it, because a provider session keeps its last model and effort. A machine that
@@ -832,6 +842,10 @@ environment of whoever starts CodeAI.**
   per-view panels. It writes no
   transcript, canvas, roster, annotation, project, or repository-binding content there. Reloading
   or a second browser context sees committed host content after refetch, with its own layout.
+- A second device record, `code-ai:device:v1:preferences`, keeps the last mode, the last provider
+  for a new session, and the last model and effort for each provider. Execution is not remembered:
+  Docker Agent edits without individual approvals, so Docker stays an explicit choice for each new
+  session, and a Docker session never inherits Agent as its mode.
 - Later turns resume the addressed participant's host-bound native provider session and receive
   only the bounded canonical transcript delta missed since its last complete turn. The server
   defaults to 40 entries / 24 KB and never accepts a browser-supplied transcript.

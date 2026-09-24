@@ -193,13 +193,16 @@ describe('device workspace views', () => {
       'not-an-agent-id': { model: 'opus' },
       [MISSING]: { model: 42 },
       [CANVAS]: 'opus',
-    })).toEqual({ [AGENT_A]: { effort: 'max' }, [AGENT_B]: { model: 'gpt-5.5' } });
-    const many = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [
+    })).toEqual({ [AGENT_A]: { effort: 'max' }, [AGENT_B]: { model: 'gpt-5.5' }, [MISSING]: {} });
+    // An empty selection is this agent's own Default, which the device's last choice must not replace.
+    expect(stored({ [AGENT_A]: {} })).toEqual({ [AGENT_A]: {} });
+    const many = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [
       `${String(index).padStart(8, '0')}-0000-4000-8000-000000000000`, { model: 'opus' },
     ]));
-    // The writer appends the latest choice, so the oldest entries are the ones dropped.
-    expect(Object.keys(stored(many) || {})).toEqual(Object.keys(many).slice(-16));
-    for (const malformed of [null, [], 'opus', { [AGENT_A]: {} }]) expect(stored(malformed)).toBeUndefined();
+    // Every agent of a full roster keeps its choice. The writer appends the latest choice, so the
+    // oldest entries are the ones dropped.
+    expect(Object.keys(stored(many) || {})).toEqual(Object.keys(many).slice(-32));
+    for (const malformed of [null, [], 'opus', { [CANVAS]: 'opus' }]) expect(stored(malformed)).toBeUndefined();
   });
 
   it('shows and sends a stored choice the provider no longer lists as Default', () => {

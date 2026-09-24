@@ -237,6 +237,52 @@ test('continuation opens fresh sessions in both directions with an editable reca
   await expect(conversation.locator('textarea')).toHaveValue(draft);
 });
 
+test('a new Docker session never inherits Agent, and continuing carries the agent\'s own model', async ({ page, request }) => {
+  await dockerUiFixture(page, request);
+  await page.goto('/');
+  await page.locator('.welcome-screen').getByRole('button', { name: 'Create and open' }).click();
+  const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
+  const execution = conversation.getByLabel('Session execution', { exact: true });
+  await expect(execution).toHaveText('Local');
+  const localId = await page.getByRole('combobox', { name: 'Session', exact: true }).inputValue();
+  const mode = (name: string) => conversation.getByRole('radio', { name, exact: true });
+  const menu = conversation.locator('.model-menu');
+  const choose = async (model: string, effort: string) => {
+    await menu.locator('summary').click();
+    await menu.getByRole('radiogroup', { name: 'Model' }).getByRole('radio', { name: model, exact: true }).click();
+    await menu.getByRole('radiogroup', { name: 'Effort' }).getByRole('radio', { name: effort, exact: true }).click();
+    await menu.locator('summary').click();
+  };
+
+  // The main agent's own choice differs from Claude's last choice, which the reviewer made.
+  await mode('Agent').click();
+  await choose('Opus', 'High');
+  await conversation.locator('.add-agent-menu summary').click();
+  await conversation.getByLabel('Role').selectOption('reviewer');
+  await conversation.getByRole('button', { name: 'Add participant' }).click();
+  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+  await choose('Sonnet', 'Low');
+  await conversation.locator('.participant-chip').filter({ hasText: 'Main' }).click();
+  await expect(menu.locator('summary')).toHaveText('Opus · High');
+
+  // Docker Agent edits without approvals, so a Docker session starts in Ask although Agent was last.
+  await page.locator('.new-session-menu summary').click();
+  const picker = page.locator('.new-session-menu');
+  await picker.getByRole('combobox', { name: 'Execution', exact: true }).selectOption('docker');
+  await picker.getByRole('button', { name: 'Start session' }).click();
+  await expect(execution).toHaveText('Docker');
+  await expect(mode('Ask')).toHaveAttribute('aria-checked', 'true');
+
+  // The Docker worker lists no models here, yet the round trip brings the main agent's own choice back.
+  await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(localId);
+  await expect(execution).toHaveText('Local');
+  await conversation.getByRole('button', { name: 'Continue in Docker', exact: true }).click();
+  await expect(execution).toHaveText('Docker');
+  await conversation.getByRole('button', { name: 'Continue in Local', exact: true }).click();
+  await expect(execution).toHaveText('Local');
+  await expect(menu.locator('summary')).toHaveText('Opus · High');
+});
+
 test('loose Docker creation selects a checkout and failed creation keeps its options open', async ({ page, request }) => {
   const { checkouts, creations, failures } = await dockerUiFixture(page, request);
   await page.goto('/');

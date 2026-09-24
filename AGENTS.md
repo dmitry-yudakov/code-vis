@@ -64,6 +64,10 @@ Updated 2026-09-24. When a story ships, change the line that names it; each stor
   open conversation from inside it: More → Archive session on the desktop, and Session tools →
   Archive session in VR, which then brings the Arena forward; implemented with automated checks, and
   the Quest 3S run remains pending.
+- **Also in flight:** [Story 70](stories/STORY-20260924-remember-turn-choices.md) — this device
+  remembers the last mode, new-session provider, and each provider's model and effort, and new
+  sessions and agents start there; implemented with automated checks, and a check in the running app
+  remains pending.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

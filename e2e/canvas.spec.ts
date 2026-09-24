@@ -628,6 +628,8 @@ test('runs two turns, queues a third, and recovers background approval and promo
   await startSession(page);
   await attachRepository(page, 'alpha');
   await page.getByRole('button', { name: 'Make alpha primary' }).click();
+  // A new session starts in the last mode chosen, Agent here; this slot is a read-only turn.
+  await page.getByRole('radio', { name: 'Ask' }).click();
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot three');
   await page.getByRole('button', { name: 'Send' }).click();
 
@@ -1258,12 +1260,12 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   const chosen = await send('Explain the entry point briefly.');
   expect(chosen).toMatchObject({ participantId: plain.participantId, model: 'sonnet', effort: 'low' });
 
-  // A second agent starts on Default and keeps its own choice.
+  // A second agent starts at this device's last choice for its provider and keeps its own choice.
   await conversation.locator('.add-agent-menu summary').click();
   await conversation.getByLabel('Role').selectOption('reviewer');
   await conversation.getByRole('button', { name: 'Add participant' }).click();
   await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
-  await expect(summary).toHaveText('Default');
+  await expect(summary).toHaveText('Sonnet · Low');
   await choose('Opus', 'Extra high');
   await expect(summary).toHaveText('Opus · Extra high');
 
@@ -1319,6 +1321,129 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   await phoneComposer.fill('One more turn.');
   await phoneComposer.press('Enter');
   await expect(phoneMenu).not.toHaveAttribute('open');
+});
+
+test('starts new sessions and agents at this device\'s last mode, model, and effort', async ({ page, request }) => {
+  // A project of its own with a repository, so the only open views are the ones this test starts and
+  // a turn can run. The newest project opens first.
+  const projectName = `Remembered choices ${Date.now()}`;
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: { id: string }[] };
+  const { project } = await (await request.post('/api/projects', { data: { name: projectName, checkoutIds: [checkouts[0].id] } }))
+    .json() as { project: { id: string } };
+  await page.goto('/');
+  await expect(page.locator('.project-search-trigger')).toContainText(projectName);
+  await startSession(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const menu = conversation.locator('.model-menu');
+  const summary = menu.locator('summary');
+  const modeRadio = (name: string) => conversation.getByRole('radio', { name, exact: true });
+  const choose = async (model: string, effort?: string) => {
+    await summary.click();
+    await menu.getByRole('radiogroup', { name: 'Model' }).getByRole('radio', { name: model, exact: true }).click();
+    if (effort) await menu.getByRole('radiogroup', { name: 'Effort' }).getByRole('radio', { name: effort, exact: true }).click();
+    await summary.click();
+  };
+  const tabs = page.locator('.workspace-tab');
+  const openTab = async (index: number) => {
+    await tabs.nth(index).click();
+    await ensureConversationOpen(page);
+  };
+
+  // Before any choice on this device a new session starts in Ask at Default, and keeps both as its own.
+  await expect(modeRadio('Ask')).toHaveAttribute('aria-checked', 'true');
+  await expect(summary).toHaveText('Default');
+  await startSession(page);
+  await modeRadio('Plan').click();
+  await choose('Opus', 'High');
+  await expect(summary).toHaveText('Opus · High');
+  await openTab(0);
+  await expect(modeRadio('Ask')).toHaveAttribute('aria-checked', 'true');
+  await expect(summary).toHaveText('Default');
+  await openTab(1);
+
+  // A new session opens in the last mode, at the provider's last model and effort, and sends them.
+  await startSession(page);
+  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+  await expect(summary).toHaveText('Opus · High');
+  const requested = page.waitForRequest((request) => request.url().endsWith('/api/agent/message'));
+  await conversation.locator('textarea').fill('Plan a small refactor.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  expect((await requested).postDataJSON()).toMatchObject({ mode: 'plan', model: 'opus', effort: 'high' });
+  await expect(conversation.locator('.chat-message.assistant')).toHaveCount(1);
+
+  // A new agent starts there too. Every agent keeps the choice it started with, or its own, when
+  // another agent's choice moves the device's last one.
+  const chip = (role: string) => conversation.locator('.participant-chip').filter({ hasText: role });
+  const addAgent = async (role: string) => {
+    await conversation.locator('.add-agent-menu summary').click();
+    await conversation.getByLabel('Role').selectOption(role);
+    await conversation.getByRole('button', { name: 'Add participant' }).click();
+    await expect(conversation.locator('.participant-chip.active')).toContainText(`Claude ${role[0].toUpperCase()}${role.slice(1)}`);
+  };
+  await addAgent('reviewer');
+  await expect(summary).toHaveText('Opus · High');
+  await choose('Default', 'Default');
+  await expect(summary).toHaveText('Default');
+  await chip('Main').click();
+  await expect(summary).toHaveText('Opus · High');
+  await addAgent('tester');
+  await expect(summary).toHaveText('Default');
+  await chip('Main').click();
+  await choose('Sonnet', 'Low');
+  await chip('Tester').click();
+  await expect(summary).toHaveText('Default');
+  await chip('Reviewer').click();
+  await expect(summary).toHaveText('Default');
+
+  // A session keeps its own mode when another session changes the device's last mode.
+  await modeRadio('Agent').click();
+  await openTab(1);
+  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+
+  // After a reload every choice is where it was, and the next session starts at the last ones.
+  await page.reload({ waitUntil: 'networkidle' });
+  await ensureConversationOpen(page);
+  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+  await expect(summary).toHaveText('Opus · High');
+  await openTab(2);
+  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await chip('Main').click();
+  await expect(summary).toHaveText('Sonnet · Low');
+  await chip('Reviewer').click();
+  await expect(summary).toHaveText('Default');
+  await startSession(page);
+  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await expect(summary).toHaveText('Sonnet · Low');
+
+  // The new session keeps the mode it started with when another session moves the last mode.
+  await openTab(2);
+  await modeRadio('Plan').click();
+  await openTab(3);
+  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+
+  // A session started elsewhere, on another device for example, has no choices of its own on this
+  // device and shows the last ones.
+  const { session: elsewhere } = await (await request.post('/api/sessions', { data: { provider: 'claude', projectId: project.id } }))
+    .json() as { session: { id: string } };
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('.project-search-trigger')).toContainText(projectName);
+  await page.getByRole('combobox', { name: 'Session' }).selectOption(elsewhere.id);
+  await ensureConversationOpen(page);
+  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+  await expect(summary).toHaveText('Sonnet · Low');
+
+  // The Arena's form opens at the last mode, and what it creates with becomes the last choice.
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  const arena = page.getByRole('main', { name: 'Arena' });
+  await arena.getByRole('button', { name: 'New session' }).click();
+  const create = arena.getByRole('region', { name: 'Create session' });
+  await expect(create.getByRole('radio', { name: 'Plan' })).toBeChecked();
+  await create.getByRole('radio', { name: 'Agent' }).click();
+  await create.getByRole('button', { name: 'Create and open' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await startSession(page);
+  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
 });
 
 test('docks only the panels that fit the live shell width', async ({ page }) => {
