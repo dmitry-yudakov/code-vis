@@ -25,6 +25,14 @@ interface RunnerOptions {
 type RpcId = string | number;
 type JsonRecord = Record<string, unknown>;
 
+/**
+ * Bounds one App Server line, finished or not. The stream as a whole is not capped: command output
+ * and reasoning make a long turn's stream far larger than its answer, and only the unfinished line
+ * is held in memory. The answer has its own cap (`maxOutputBytes`).
+ */
+const MAX_EVENT_BYTES = 1_048_576;
+const oversizedEvent = () => new AgentRunError('oversized-output', 'Codex emitted an oversized App Server event.');
+
 class RpcResponseError extends Error {
   constructor(public readonly code: number, message: string) {
     super(message);
@@ -365,9 +373,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const processLine = (raw: string) => {
         const line = raw.trim();
         if (!line) return;
-        if (Buffer.byteLength(line) > 1_048_576) {
-          throw new AgentRunError('oversized-output', 'Codex emitted an oversized App Server event.');
-        }
+        if (Buffer.byteLength(line) > MAX_EVENT_BYTES) throw oversizedEvent();
         let message: JsonRecord;
         try { message = JSON.parse(line) as JsonRecord; }
         catch { throw new AgentRunError('malformed-stream', 'Codex emitted malformed App Server data.'); }
@@ -400,9 +406,6 @@ export class CodexProcessRunner implements AgentProcessRunner {
         if (settled || fatalError) return;
         try {
           protocolBytes += chunk.length;
-          if (protocolBytes > Math.max(4_194_304, this.options.maxOutputBytes * 8)) {
-            throw new AgentRunError('oversized-output', 'Codex App Server exceeded the configured stream limit.');
-          }
           stdoutBuffer += chunk.toString('utf8');
           let newline = stdoutBuffer.indexOf('\n');
           while (newline >= 0) {
@@ -410,6 +413,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             stdoutBuffer = stdoutBuffer.slice(newline + 1);
             newline = stdoutBuffer.indexOf('\n');
           }
+          if (Buffer.byteLength(stdoutBuffer) > MAX_EVENT_BYTES) throw oversizedEvent();
         } catch (error) { stopWith(error); }
       });
       child.stderr.on('data', (chunk: Buffer) => {

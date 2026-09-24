@@ -40,6 +40,14 @@ function sanitizeDetail(value: string): string {
 
 const PATH_INPUT_KEYS = ['file_path', 'notebook_path', 'path'] as const;
 
+/**
+ * Bounds one stream line, finished or not. The stream as a whole is not capped: tool results,
+ * thinking, and partial messages make a long turn's stream far larger than its answer, and only the
+ * unfinished line is held in memory. The answer has its own cap (`maxOutputBytes`).
+ */
+const MAX_STREAM_EVENT_BYTES = 1_048_576;
+const oversizedEvent = () => new AgentRunError('oversized-output', 'Claude emitted an oversized stream event.');
+
 function describeToolUse(
   name: string,
   input: Record<string, unknown> | undefined,
@@ -249,7 +257,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       const processLine = (raw: string) => {
         const line = raw.trim();
         if (!line) return;
-        if (Buffer.byteLength(line) > 1_048_576) throw new AgentRunError('oversized-output', 'Claude emitted an oversized stream event.');
+        if (Buffer.byteLength(line) > MAX_STREAM_EVENT_BYTES) throw oversizedEvent();
         let event: Record<string, unknown>;
         try {
           event = JSON.parse(line) as Record<string, unknown>;
@@ -340,10 +348,6 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         if (settled || fatalStreamError) return;
         try {
           outputBytes += chunk.length;
-          if (outputBytes > this.options.maxOutputBytes * 4) {
-            terminate('cancelled');
-            throw new AgentRunError('oversized-output', 'Claude response exceeded the configured output limit.');
-          }
           stdoutBuffer += chunk.toString('utf8');
           let newline = stdoutBuffer.indexOf('\n');
           while (newline >= 0) {
@@ -351,6 +355,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             stdoutBuffer = stdoutBuffer.slice(newline + 1);
             newline = stdoutBuffer.indexOf('\n');
           }
+          if (Buffer.byteLength(stdoutBuffer) > MAX_STREAM_EVENT_BYTES) throw oversizedEvent();
         } catch (error) {
           fatalStreamError = error;
           terminate('cancelled');

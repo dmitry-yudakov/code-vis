@@ -170,6 +170,17 @@ describe.sequential('ClaudeProcessRunner', () => {
     await expect(run({ action: 'start', signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' });
   });
 
+  it('bounds each stream event, not the whole stream, so a long tool-heavy turn completes', async () => {
+    // The fake emits 600 KB of tool results against a 100 KB answer limit.
+    process.env.CODEAI_FAKE_MODE = 'long-run';
+    await expect(run()).resolves.toMatchObject({ result: { finalText: 'Long run complete.' } });
+    // An unfinished event stops the run while it streams, not later at the time limit.
+    process.env.CODEAI_FAKE_MODE = 'unterminated';
+    const started = Date.now();
+    await expect(run({ timeoutMs: 3_000 })).rejects.toMatchObject({ code: 'oversized-output', message: 'Claude emitted an oversized stream event.' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it('explains an exhausted turn budget instead of reporting a generic failure', async () => {
     process.env.CODEAI_FAKE_MODE = 'max-turns';
     // Naming the setting and the fact that the session survives is the whole point of the message.

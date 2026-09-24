@@ -208,6 +208,17 @@ describe.sequential('CodexProcessRunner', () => {
     expect(record.requests).toContainEqual(expect.objectContaining({ method: 'turn/interrupt' }));
   });
 
+  it('bounds each App Server event, not the whole stream, so a long command-heavy turn completes', async () => {
+    // The fake streams 4.5 MB of command output against a 100 KB answer limit.
+    process.env.CODEAI_FAKE_CODEX_MODE = 'long-run';
+    await expect(run()).resolves.toMatchObject({ result: { finalText: 'Long run complete.' } });
+    // An unfinished event stops the run while it streams, not later at the time limit.
+    process.env.CODEAI_FAKE_CODEX_MODE = 'unterminated';
+    const started = Date.now();
+    await expect(run({ timeoutMs: 3_000 })).rejects.toMatchObject({ code: 'oversized-output', message: 'Codex emitted an oversized App Server event.' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it('classifies missing sessions, malformed JSONL, crashes, and ambient integrations', async () => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'missing-session';
     await expect(run({ action: 'resume', sessionId: 'gone' })).rejects.toMatchObject({ code: 'missing-session' });

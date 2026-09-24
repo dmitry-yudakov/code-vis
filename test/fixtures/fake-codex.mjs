@@ -130,6 +130,17 @@ while (true) {
     if (mode === 'malformed') writeSync(1, '{not-json}\n');
     else if (mode === 'crash') process.exit(2);
     else if (mode === 'wait') { /* wait for turn/interrupt */ }
+    else if (mode === 'long-run') {
+      // Command output streams back as notifications: a long turn emits far more than its answer.
+      for (let index = 0; index < 5; index += 1) {
+        emit({ method: 'item/commandExecution/outputDelta', params: { threadId, turnId, itemId: 'command-long', delta: 'x'.repeat(900_000) } });
+      }
+      completeTurn('Long run complete.');
+    }
+    else if (mode === 'unterminated') {
+      // One event that never ends; the turn stays open until interrupted.
+      writeSync(1, `{"method":"item/commandExecution/outputDelta","params":{"delta":"${'x'.repeat(1_100_000)}`);
+    }
     else if (mode === 'approval-command') {
       approvalPending = true;
       const item = {

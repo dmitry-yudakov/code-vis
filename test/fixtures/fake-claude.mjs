@@ -95,6 +95,23 @@ else if (mode === 'denied') {
   emit({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
   emit({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: sessionId });
 }
+else if (mode === 'long-run') {
+  // Tool results stream back as `user` frames: a long turn emits far more than its short answer.
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  for (let index = 0; index < 6; index += 1) {
+    const id = `toolu-long-${index}`;
+    emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Read', input: { file_path: path.join(process.cwd(), 'README.md') } }] } });
+    emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'x'.repeat(100_000) }] } });
+  }
+  const text = 'Long run complete.';
+  emit({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
+  emit({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: sessionId });
+}
+else if (mode === 'unterminated') {
+  // One event that never ends, from a process that stays alive.
+  writeOut(`{"type":"stream_event","padding":"${'x'.repeat(1_100_000)}`);
+  setTimeout(() => process.exit(0), 30_000);
+}
 else if (streamingInput) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
   const filePath = path.join(process.cwd(), 'README.md');
