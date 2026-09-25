@@ -90,6 +90,9 @@ All five stories are shipped. Story 33 is the correction pass over the running a
 Story 32 could not do from the mock alone: the flaws it found are the ones that only appear at a
 real viewport width, with real repository and transcript content in place.
 
+The flat shell's frame continues in the [workbench shell epic](EPIC-20260925-workbench-shell.md)
+(Stories 71–77), under this epic's invariants.
+
 ---
 
 ## Phases

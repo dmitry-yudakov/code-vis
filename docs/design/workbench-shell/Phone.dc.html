@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CodeAI on a phone</title>
+<script src="../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,700&amp;family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box; font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.45; color: var(--ink); background: var(--shell); {{themeVars}}">
+
+<header style="height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 4px 0 14px; border-bottom: 1px solid var(--line)">
+<span style="width: 26px; height: 26px; flex-shrink: 0; display: grid; place-items: center; border-radius: 7px; background: var(--ink); color: var(--shell); font-size: 13px; font-weight: 700">C</span>
+<button aria-label="Session: Workbench shell, running. Switch session" style="flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer">
+<span style="display: flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 600">Workbench shell<svg viewBox="0 0 24 24" aria-hidden="true" style="width: 15px; height: 15px; fill: none; stroke: var(--ink2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round"><path d="m6 9 6 6 6-6"></path></svg></span>
+<span style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink2)"><span style="width: 7px; height: 7px; border-radius: 50%; background: var(--live)"></span>Running · code-ai · Local</span>
+</button>
+<button aria-label="More" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink2); cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px; fill: currentColor; stroke: none"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button>
+</header>
+
+<div style="flex-grow: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 16px; padding: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 0 2px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted)">Claude · Coder · 10:43</span>
+<span>A turn posts to <code style="padding: 1px 4px; border-radius: 4px; background: var(--code-bg); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px">/api/agent</code>, waits for one of this machine's run slots, and the provider adapter starts the CLI.</span>
+<button style="align-self: flex-start; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--plot); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="3" width="8" height="6" rx="1"></rect><rect x="13" y="15" width="8" height="6" rx="1"></rect><path d="M7 9v3a2 2 0 0 0 2 2h8v1"></path></svg>Diagram 9 · flowchart</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised)">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted)">You → @Claude · Plan · 10:46</span>
+<span>Add the Docker transport as a revision.</span>
+<span style="font-size: 12.5px; color: var(--plot)">Diagram 9 attached</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 0 2px">
+<span aria-live="polite" style="display: flex; align-items: center; gap: 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted)"><span style="width: 7px; height: 7px; border-radius: 50%; background: var(--live)"></span>Claude · Plan · running 0:41</span>
+<div style="display: flex; flex-direction: column; gap: 4px; border-left: 1px solid var(--line)">
+<span style="padding-left: 12px; font-size: 13px; color: var(--muted)">Reading src/server/runs/runRegistry.ts</span>
+<span style="display: flex; align-items: center; gap: 6px; padding-left: 12px; font-size: 13px; color: var(--ink)"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--live)"></span>Searching docker exec</span>
+</div>
+</div>
+</div>
+
+<div style="flex-shrink: 0; padding: 8px 12px 10px; border-top: 1px solid var(--line)">
+<div style="display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--raised)">
+<textarea aria-label="Instruction" disabled="{{yes}}" placeholder="Ask about or revise the attached diagram…" rows="2" style="resize: none; border: 0; outline: none; padding: 10px 12px 4px; background: transparent; color: var(--ink); font: inherit; font-size: 16px"></textarea>
+<div style="display: flex; align-items: center; gap: 8px; padding: 0 6px 6px 8px">
+<button disabled="{{yes}}" aria-label="Attach" aria-haspopup="menu" style="width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink2); cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round"><path d="M12 5v14M5 12h14"></path></svg></button>
+<button disabled="{{yes}}" aria-label="Mode: Plan. Read-only · ends in a plan" aria-haspopup="menu" style="height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 10px 0 12px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Plan<svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round"><path d="m6 9 6 6 6-6"></path></svg></button>
+<span style="flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: var(--muted)">Read-only · ends in a plan</span>
+<button aria-label="Cancel" title="Cancel the active turn" style="width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--raised); color: var(--ink); cursor: pointer"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 2px; background: currentColor"></span></button>
+</div>
+</div>
+</div>
+
+<nav aria-label="Views" style="height: 64px; flex-shrink: 0; display: flex; padding-bottom: 6px; box-sizing: border-box; background: var(--shell-sunk); border-top: 1px solid var(--line)">
+<button style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border: 0; background: transparent; color: var(--ink2); font: inherit; font-size: 11px; cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="3" width="8" height="6" rx="1"></rect><rect x="13" y="15" width="8" height="6" rx="1"></rect><path d="M7 9v3a2 2 0 0 0 2 2h8v1"></path></svg>Canvas</button>
+<button aria-current="page" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border: 0; box-shadow: inset 0 2px 0 var(--ink); background: transparent; color: var(--ink); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Conversation</button>
+<button aria-label="Changes, 7 files" style="position: relative; flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border: 0; background: transparent; color: var(--ink2); font: inherit; font-size: 11px; cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round"><path d="M6 3v12"></path><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>Changes<span style="position: absolute; left: calc(50% + 4px); top: 6px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--ink2); color: var(--on-emphasis); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px; font-weight: 700; line-height: 16px; text-align: center">7</span></button>
+<button style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border: 0; background: transparent; color: var(--ink2); font: inherit; font-size: 11px; cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg>History</button>
+<button aria-label="Arena and Inbox, 1 session needs you" style="position: relative; flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border: 0; background: transparent; color: var(--ink2); font: inherit; font-size: 11px; cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>Arena<span style="position: absolute; left: calc(50% + 4px); top: 6px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--wait-strong); color: var(--on-emphasis); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px; font-weight: 700; line-height: 16px; text-align: center">1</span></button>
+</nav>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const themes = {
+      light: '--sheet:#ffffff; --shell:#f4f6f8; --shell-sunk:#eceff3; --raised:#ffffff; --ink:#0f1319; --ink2:#3c4453; --muted:#657084; --line:#e1e6ec; --line-strong:#cdd4de; --live:#12795c; --wait-strong:#965300; --plot:#2f5ad0; --on-emphasis:#ffffff; --code-bg:#eceff3;',
+      dark: '--sheet:#151920; --shell:#0a0c10; --shell-sunk:#06080b; --raised:#171c24; --ink:#e8ecf3; --ink2:#b9c2d0; --muted:#8a94a6; --line:#222831; --line-strong:#333b47; --live:#3fbf95; --wait-strong:#e0a252; --plot:#7d9df5; --on-emphasis:#0a0c10; --code-bg:#06080b;',
+    };
+    return { yes: true, themeVars: themes[this.props.theme ?? 'light'] || themes.light };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "is_interactive": true,
+      "title": "1440 · Story 62 default: conversation open, side panel closed · running (click the activity bar)"
+    },
+    "ArenaDark.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "is_interactive": true,
+      "title": "1440 · dark · Arena in the side panel · Docker · idle, mode menu open · another session needs you"
+    },
+    "Default1280.dc.html": {
+      "x": 0,
+      "y": 1020,
+      "w": 1280,
+      "h": 900,
+      "is_interactive": true,
+      "title": "1280 · approval waiting in this session · Agent mode · notice row"
+    },
+    "Palette.dc.html": {
+      "x": 1360,
+      "y": 1020,
+      "w": 1440,
+      "h": 900,
+      "is_interactive": true,
+      "title": "Follow-up: command palette (Ctrl K) over History"
+    },
+    "Phone.dc.html": {
+      "x": 0,
+      "y": 3060,
+      "w": 390,
+      "h": 844,
+      "title": "Phone · light"
+    },
+    "PhoneDark.dc.html": {
+      "x": 470,
+      "y": 3060,
+      "w": 390,
+      "h": 844,
+      "title": "Phone · dark"
+    },
+    "Narrow1000.dc.html": {
+      "x": 0,
+      "y": 2040,
+      "w": 1000,
+      "h": 900,
+      "is_interactive": true,
+      "title": "1000 · one dock: opening the side panel closes the conversation · execution menu, Docker not enabled"
+    },
+    "ChatWide.dc.html": {
+      "x": 1080,
+      "y": 2040,
+      "w": 1440,
+      "h": 900,
+      "is_interactive": true,
+      "title": "1440 · canvas hidden: the conversation takes the width · attach menu open"
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-25T12:45:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "title": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "CodeAI workbench shell: VS Code panes, CodeAI tokens",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "moved": {
+      "x": 940,
+      "y": 3060,
+      "w": 460,
+      "text": "What moves where\n\n• Session tabs → the title bar, so the session name appears once; views that do not fit move into All sessions\n• Arena, Inbox, the Repository toggle, the Changes / History tabs and the toolbar's History → activity bar views\n• Layout toggles → three icons: side panel, canvas, conversation. Hiding the canvas gives the conversation the width, capped at 760px for reading; the canvas and the conversation are never both hidden\n• Ask / Plan / Agent → one mode picker in the composer; each choice shows its hint, and Agent keeps its wait colour\n• A + attach menu: this session's diagrams and sketches, a new sketch, a headset report\n• Local / Docker and Continue in Docker / Local → a line under the composer, as in VS Code's chat, with the mode's hint beside it\n• More (theme, Export, VR, Build & restart, Archive) → the gear\n• Notices → a row in the layout above the status bar: it shortens the columns instead of covering them (Story 62's known defect)\n• Canvas toolbar row → a floating canvas bar that publishes its inset, like the zoom bar\n• Bordered buttons and message cards → flat panes and 1px dividers\n• The Reports icon appears only in CodeAI's own project, as the Reports tab does today; the Inbox badge counts items, as today"
+    },
+    "budget": {
+      "x": 1480,
+      "y": 3060,
+      "w": 460,
+      "text": "Budget at 1440×900, today's widths (side panel 340, conversation 460)\n\n• Visible controls in the default layout: 36 by my count, against 43 after Story 62 (the canvas toggle and + attach are paid for by folding three mode buttons into one picker)\n• Canvas, default layout: 932×836 against about 980×776 today, about 2.5% more area\n• Canvas, both panels open: 592×836 against 640×776, about the same area\n• Vertical chrome: 64px (title bar + status bar) against 124px (header + tabs + toolbar)\n• The 48px activity bar moves the dock bands: 960 → 1008 and 640 → 688"
+    },
+    "server": {
+      "x": 2020,
+      "y": 3060,
+      "w": 460,
+      "text": "Needs the server, so not in this design (separate stories)\n\n• Tool rows that stay in the transcript, with completion\n• Queueing a second instruction during a running turn\n• Diagram names\n• Machine capacity (\"2 of 2 slots\")\n• Failure detail or reply excerpts in the Inbox; Retry from the Inbox\n• Searching other sessions' diagrams\n• Issuing pairing codes from the browser\n• Attaching a file or image from this device\n• Mentioning a repository file: needs a file list; today the repository routes serve only status and diff"
+    },
+    "open": {
+      "x": 2560,
+      "y": 3060,
+      "w": 460,
+      "text": "Not drawn yet\n\n• No repository: Story 62 opens the side panel on Changes, where one is attached\n• Several repositories: which branch the status bar names\n• Provider not ready: a status bar item, shown only then\n• A second or offline machine: machine headings in the Arena view\n• Widths below 688, where the panels overlay the canvas\n• Focus mode, loading, an empty canvas, the diff inspector (stays in the side panel)\n• Enter VR on WebXR devices: title bar, left of the layout icons"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "ArenaDark.dc.html",
+    "Default1280.dc.html",
+    "Palette.dc.html",
+    "Narrow1000.dc.html",
+    "ChatWide.dc.html",
+    "Phone.dc.html",
+    "PhoneDark.dc.html"
+  ],
+  "pages": [],
+  "title": "CodeAI Workbench Shell"
+}

@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-24. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-25. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -68,12 +68,17 @@ Updated 2026-09-24. When a story ships, change the line that names it; each stor
   remembers the last mode, new-session provider, and each provider's model and effort, and new
   sessions and agents start there; implemented with automated checks, and a check in the running app
   remains pending.
+- **Next:** [Story 71](stories/STORY-20260925-compact-composer.md) — one mode picker, a `+` attach
+  menu, and an execution line under the composer; drafted as the first story of the
+  [workbench shell epic](stories/EPIC-20260925-workbench-shell.md), whose design lives in
+  `docs/design/workbench-shell/`.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the
-  [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) for VR delivery. Naming:
+  [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) for VR delivery, and the
+  [workbench shell epic](stories/EPIC-20260925-workbench-shell.md) for the flat desktop shell. Naming:
   [vocabulary.md](docs/vocabulary.md).
 
 ## Commands
