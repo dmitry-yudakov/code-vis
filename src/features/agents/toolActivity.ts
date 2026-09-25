@@ -1,4 +1,4 @@
-import type { AgentMode } from '@/shared/types';
+import type { AgentExecution, AgentMode } from '@/shared/types';
 
 export interface ToolActivityEntry {
   key: number;
@@ -60,18 +60,44 @@ export function effortLabel(effort: string): string {
   return EFFORT_LABELS[effort] ?? effort;
 }
 
-/** Short enough to sit beside the mode selector in the drawer without truncating. */
-export const AGENT_MODE_HINTS: Record<AgentMode, string> = {
+/** Short enough to sit under a mode's name, and on the composer's execution line. */
+const AGENT_MODE_HINTS: Record<AgentMode, string> = {
   ask: 'Read-only · git history',
   plan: 'Read-only · ends in a plan',
   agent: 'Edits files · asks first',
 };
 
-/** The full explanation, shown as the mode button's tooltip. */
-export const AGENT_MODE_TOOLTIPS: Record<AgentMode, string> = {
+/** The full explanation, shown as the mode choice's tooltip. */
+const AGENT_MODE_TOOLTIPS: Record<AgentMode, string> = {
   ask: 'Ask — read-only Q&A, review, and diagrams, plus the fixed git/gh history allowlist.',
   plan: 'Plan — same read-only capability as Ask, but the turn ends in an implementation plan you can execute.',
   agent: 'Agent — the full toolset in your working tree. Every side effect asks for approval first.',
 };
+
+const DOCKER_MODE_HINTS: Record<AgentMode, string> = {
+  ask: 'repository read-only',
+  plan: 'repository read-only',
+  agent: 'autonomous direct edits',
+};
+
+const DOCKER_MODE_TOOLTIPS: Record<AgentMode, string> = {
+  ask: 'The repository is mounted read-only; writable scratch space is available inside Docker.',
+  plan: 'The repository is mounted read-only; writable scratch space is available inside Docker.',
+  agent: 'Agent edits the mounted repository and runs commands without individual approvals.',
+};
+
+/** A mode's hint where nothing beside it names the execution: Docker says so, since its Agent never asks. */
+export function agentModeHint(mode: AgentMode, execution: AgentExecution = 'local'): string {
+  return execution === 'docker' ? `Docker · ${DOCKER_MODE_HINTS[mode]}` : AGENT_MODE_HINTS[mode];
+}
+
+/** A mode's hint beside a label that already names the execution. */
+export function executionModeHint(mode: AgentMode, execution: AgentExecution = 'local'): string {
+  return execution === 'docker' ? DOCKER_MODE_HINTS[mode] : AGENT_MODE_HINTS[mode];
+}
+
+export function agentModeTooltip(mode: AgentMode, execution: AgentExecution = 'local'): string {
+  return execution === 'docker' ? DOCKER_MODE_TOOLTIPS[mode] : AGENT_MODE_TOOLTIPS[mode];
+}
 
 export const MAX_TOOL_ACTIVITY_ENTRIES = 100;

@@ -105,6 +105,29 @@ test('Docker creation explains direct edits and an unavailable backend cannot cr
 
 // Real session storage and binding admission, with only Docker execution/readiness represented by
 // fixtures. Browser coverage never starts a Docker container or accesses provider credentials.
+type Scope = import('@playwright/test').Page | import('@playwright/test').Locator;
+
+/** The execution line under the composer names where the session runs. */
+function execution(scope: Scope) {
+  return scope.getByLabel(/^Execution: /);
+}
+
+/** Its menu holds the one way to continue in the other execution. */
+async function continuation(scope: Scope, target: 'Docker' | 'Local') {
+  await execution(scope).click();
+  return scope.getByRole('menu', { name: 'Execution' }).getByRole('menuitem', { name: `Continue in ${target}…`, exact: true });
+}
+
+async function continueIn(scope: Scope, target: 'Docker' | 'Local') {
+  await (await continuation(scope, target)).click();
+}
+
+async function expectContinuationDisabled(scope: Scope, target: 'Docker' | 'Local') {
+  await expect(await continuation(scope, target)).toBeDisabled();
+  await execution(scope).press('Escape');
+  await expect(scope.getByRole('menu', { name: 'Execution' })).toBeHidden();
+}
+
 async function dockerUiFixture(page: import('@playwright/test').Page, request: import('@playwright/test').APIRequestContext,
   readiness = { localAvailable: true, dockerReady: true }) {
   const { checkouts } = await (await request.get('/api/checkouts')).json();
@@ -184,10 +207,10 @@ test('project creation offers Docker without a host provider and keeps the selec
   await expect(welcome.getByRole('combobox', { name: 'New session provider' })).toHaveValue('claude');
   await welcome.getByRole('button', { name: 'Create and open' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
-  await expect(conversation.getByLabel('Session execution', { exact: true })).toHaveText('Docker');
+  await expect(execution(conversation)).toHaveText('Docker');
   await expect(page.locator('.project-search-trigger')).toContainText(project.name);
   expect(creations[0]).toEqual({ provider: 'claude', execution: 'docker', projectId: project.id });
-  await expect(conversation.getByRole('button', { name: 'Continue in Local', exact: true })).toBeDisabled();
+  await expectContinuationDisabled(conversation, 'Local');
   await page.locator('.new-session-menu summary').click();
   const picker = page.locator('.new-session-menu');
   await expect(picker.getByRole('combobox', { name: 'Execution', exact: true })).toHaveValue('docker');
@@ -207,17 +230,17 @@ test('continuation opens fresh sessions in both directions with an editable reca
   await page.goto('/');
   await page.locator('.welcome-screen').getByRole('button', { name: 'Create and open' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
-  await expect(conversation.getByLabel('Session execution', { exact: true })).toHaveText('Local');
+  await expect(execution(conversation)).toHaveText('Local');
   const sourceId = await page.getByRole('combobox', { name: 'Session', exact: true }).inputValue();
   await conversation.locator('textarea').fill('Remember this source request for the next session.');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(conversation.getByRole('button', { name: 'Continue in Docker', exact: true })).toBeDisabled();
+  await expectContinuationDisabled(conversation, 'Docker');
   await expect(conversation.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   const sourceBefore = (await (await request.get(`/api/sessions/${sourceId}`)).json()).session;
   const draft = 'Unsent original draft. '.repeat(100);
   await conversation.locator('textarea').fill(draft);
-  await conversation.getByRole('button', { name: 'Continue in Docker', exact: true }).click();
-  await expect(conversation.getByLabel('Session execution', { exact: true })).toHaveText('Docker');
+  await continueIn(conversation, 'Docker');
+  await expect(execution(conversation)).toHaveText('Docker');
   const dockerId = await page.getByRole('combobox', { name: 'Session', exact: true }).inputValue();
   expect(dockerId).not.toBe(sourceId);
   expect(creations[1]).toEqual({ provider: 'claude', execution: 'docker', sourceSessionId: sourceId });
@@ -228,8 +251,8 @@ test('continuation opens fresh sessions in both directions with an editable reca
   expect((await (await request.get(`/api/sessions/${dockerId}`)).json()).session.repositories).toEqual(sourceBefore.repositories);
   expect((await (await request.get('/api/agent/runs')).json()).active).toEqual([]);
   await conversation.locator('textarea').fill('Edited recap for Local.');
-  await conversation.getByRole('button', { name: 'Continue in Local', exact: true }).click();
-  await expect(conversation.getByLabel('Session execution', { exact: true })).toHaveText('Local');
+  await continueIn(conversation, 'Local');
+  await expect(execution(conversation)).toHaveText('Local');
   expect(creations[2]).toEqual({ provider: 'claude', execution: 'local', sourceSessionId: dockerId });
   await expect(conversation.locator('textarea')).toHaveValue(/Edited recap for Local\./);
   await expect(conversation.locator('.chat-message')).toHaveCount(0);
@@ -242,10 +265,10 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   await page.goto('/');
   await page.locator('.welcome-screen').getByRole('button', { name: 'Create and open' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
-  const execution = conversation.getByLabel('Session execution', { exact: true });
-  await expect(execution).toHaveText('Local');
+  const executionLine = execution(conversation);
+  await expect(executionLine).toHaveText('Local');
   const localId = await page.getByRole('combobox', { name: 'Session', exact: true }).inputValue();
-  const mode = (name: string) => conversation.getByRole('radio', { name, exact: true });
+  const modePicker = conversation.getByLabel(/^Mode: /);
   const menu = conversation.locator('.model-menu');
   const choose = async (model: string, effort: string) => {
     await menu.locator('summary').click();
@@ -255,7 +278,9 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   };
 
   // The main agent's own choice differs from Claude's last choice, which the reviewer made.
-  await mode('Agent').click();
+  await modePicker.click();
+  await conversation.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio', { name: 'Agent', exact: true }).click();
+  await expect(modePicker).toHaveText('Agent');
   await choose('Opus', 'High');
   await conversation.locator('.add-agent-menu summary').click();
   await conversation.getByLabel('Role').selectOption('reviewer');
@@ -270,16 +295,16 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   const picker = page.locator('.new-session-menu');
   await picker.getByRole('combobox', { name: 'Execution', exact: true }).selectOption('docker');
   await picker.getByRole('button', { name: 'Start session' }).click();
-  await expect(execution).toHaveText('Docker');
-  await expect(mode('Ask')).toHaveAttribute('aria-checked', 'true');
+  await expect(executionLine).toHaveText('Docker');
+  await expect(modePicker).toHaveText('Ask');
 
   // The Docker worker lists no models here, yet the round trip brings the main agent's own choice back.
   await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(localId);
-  await expect(execution).toHaveText('Local');
-  await conversation.getByRole('button', { name: 'Continue in Docker', exact: true }).click();
-  await expect(execution).toHaveText('Docker');
-  await conversation.getByRole('button', { name: 'Continue in Local', exact: true }).click();
-  await expect(execution).toHaveText('Local');
+  await expect(executionLine).toHaveText('Local');
+  await continueIn(conversation, 'Docker');
+  await expect(executionLine).toHaveText('Docker');
+  await continueIn(conversation, 'Local');
+  await expect(executionLine).toHaveText('Local');
   await expect(menu.locator('summary')).toHaveText('Opus · High');
 });
 
@@ -306,6 +331,6 @@ test('loose Docker creation selects a checkout and failed creation keeps its opt
   await expect(welcome.getByRole('button', { name: 'Create and open' })).toBeEnabled();
   failures.create = false;
   await welcome.getByRole('button', { name: 'Create and open' }).click();
-  await expect(page.getByLabel('Session execution', { exact: true })).toHaveText('Docker');
+  await expect(execution(page)).toHaveText('Docker');
   expect(creations[0]).toEqual({ provider: 'claude', execution: 'docker', checkoutId: checkouts[0].id });
 });

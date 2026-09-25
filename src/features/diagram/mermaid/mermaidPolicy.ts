@@ -77,11 +77,15 @@ function escapeSequenceMessageSemicolons(source: string): string {
  */
 export function normalizeMermaidSource(source: string): string {
   let normalized = source.replace(/"(?:\\.|[^"\\])*"/g, (quoted) => quoted.replaceAll('`', ''));
-  const firstStatement = normalized.split('\n').find((line) => line.trim() && !line.trim().startsWith('%%'));
-  if (firstStatement?.trim().startsWith('sequenceDiagram')) {
+  if (firstMermaidStatement(normalized)?.startsWith('sequenceDiagram')) {
     normalized = escapeSequenceMessageSemicolons(normalized);
   }
   return normalized;
+}
+
+/** The diagram header: the first line that is neither blank nor a `%%` comment, trimmed. */
+export function firstMermaidStatement(source: string): string | undefined {
+  return source.split('\n').map((line) => line.trim()).find((line) => line && !line.startsWith('%%'));
 }
 
 export function validateMermaidSource(source: string, maxBytes = 100_000): MermaidPolicyResult {

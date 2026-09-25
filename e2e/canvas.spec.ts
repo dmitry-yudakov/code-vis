@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 const WORKSPACE_NAME = `E2E workspace ${Date.now()}`;
 
@@ -52,6 +52,17 @@ async function createNamedProject(page: Page, name: string) {
   await page.getByRole('textbox', { name: 'Project name' }).fill(name);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(name);
+}
+
+/** The composer's mode picker shows the mode; its accessible name adds the mode's hint. */
+function modePicker(scope: Page | Locator) {
+  return scope.getByLabel(/^Mode: /);
+}
+
+async function chooseMode(scope: Page | Locator, name: 'Ask' | 'Plan' | 'Agent') {
+  await modePicker(scope).click();
+  await scope.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio', { name, exact: true }).click();
+  await expect(modePicker(scope)).toHaveText(name);
 }
 
 /** Theme and export live in the header's More menu, which stays open until toggled again. */
@@ -620,7 +631,7 @@ test('runs two turns, queues a third, and recovers background approval and promo
   await startSession(page);
   await attachRepository(page, 'packages/deep-app');
   await page.getByRole('button', { name: 'Make packages/deep-app primary' }).click();
-  await page.getByRole('radio', { name: 'Agent' }).click();
+  await chooseMode(page, 'Agent');
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Request an edit approval');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
@@ -629,7 +640,7 @@ test('runs two turns, queues a third, and recovers background approval and promo
   await attachRepository(page, 'alpha');
   await page.getByRole('button', { name: 'Make alpha primary' }).click();
   // A new session starts in the last mode chosen, Agent here; this slot is a read-only turn.
-  await page.getByRole('radio', { name: 'Ask' }).click();
+  await chooseMode(page, 'Ask');
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot three');
   await page.getByRole('button', { name: 'Send' }).click();
 
@@ -730,7 +741,7 @@ test('orchestrates cross-project attention and starts configured work from the A
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(alphaProject) }).click();
   const alphaConversation = page.getByRole('complementary', { name: 'Conversation' });
-  await alphaConversation.getByRole('radio', { name: 'Agent' }).click();
+  await chooseMode(alphaConversation, 'Agent');
   await alphaConversation.locator('textarea').fill('Arena permission from Alpha');
   await alphaConversation.getByRole('button', { name: 'Send' }).click();
   await expect(alphaConversation.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
@@ -791,8 +802,7 @@ test('orchestrates cross-project attention and starts configured work from the A
   await create.getByRole('button', { name: 'Create and open' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
-  await expect(page.getByRole('complementary', { name: 'Conversation' }).getByRole('radio', { name: 'Plan' }))
-    .toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(page.getByRole('complementary', { name: 'Conversation' }))).toHaveText('Plan');
   await expect(page.locator('.chat-message')).toHaveCount(0);
   expect(((await (await request.get('/api/agent/runs')).json()) as { active: unknown[] }).active).toEqual([]);
 });
@@ -935,7 +945,7 @@ test('separates replay from live recovery events and keeps terminal actions per 
   await startSession(page);
   await attachRepository(page, 'alpha');
   await page.getByRole('button', { name: 'Make alpha primary' }).click();
-  await page.getByRole('radio', { name: 'Plan' }).click();
+  await chooseMode(page, 'Plan');
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot recovery two');
   await page.getByRole('button', { name: 'Send' }).click();
 
@@ -1136,9 +1146,7 @@ test('traces an Agent run without implying progress and shifts to wait for appro
   await page.goto('/');
   await startSession(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
-  const agentMode = conversation.getByRole('radio', { name: 'Agent' });
-  await agentMode.click();
-  await expect(agentMode).toHaveAttribute('aria-checked', 'true');
+  await chooseMode(conversation, 'Agent');
 
   await conversation.locator('textarea').fill('Make one approved edit.');
   await conversation.getByRole('button', { name: 'Send' }).click();
@@ -1292,7 +1300,8 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   const row = page.getByRole('complementary', { name: 'Conversation' }).locator('.composer-actions');
   const boxes = (await Promise.all((await row.locator(':scope > *').all()).map((item) => item.boundingBox())))
     .filter((box): box is NonNullable<typeof box> => Boolean(box && box.width > 0));
-  expect(boxes).toHaveLength(3);
+  // Attach, the mode picker, the model menu, and Send.
+  expect(boxes).toHaveLength(4);
   const rowBox = (await row.boundingBox())!;
   for (const [index, box] of boxes.entries()) {
     expect(box.x).toBeGreaterThanOrEqual(rowBox.x - 0.5);
@@ -1303,11 +1312,18 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
       expect(overlaps, `${JSON.stringify(box)} overlaps ${JSON.stringify(other)}`).toBe(false);
     }
   }
-  await row.locator('.model-menu summary').click();
-  const panel = (await row.locator('.model-menu > div').boundingBox())!;
-  expect(panel.x).toBeGreaterThanOrEqual(0);
-  expect(panel.x + panel.width).toBeLessThanOrEqual(390);
-  expect(panel.y).toBeGreaterThanOrEqual(0);
+  const expectOnScreen = async (menu: Locator) => {
+    await menu.locator('summary').click();
+    const panel = (await menu.locator(':scope > div').boundingBox())!;
+    expect(panel.x).toBeGreaterThanOrEqual(0);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(390);
+    expect(panel.y).toBeGreaterThanOrEqual(0);
+  };
+  for (const menu of [row.locator('.attach-menu'), row.locator('.mode-menu'), conversation.locator('.execution-menu')]) {
+    await expectOnScreen(menu);
+    await page.keyboard.press('Escape');
+  }
+  await expectOnScreen(row.locator('.model-menu'));
 
   // Escape and a press outside close the menu, and so does a turn starting while it is open.
   const phoneMenu = row.locator('.model-menu');
@@ -1336,7 +1352,6 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const menu = conversation.locator('.model-menu');
   const summary = menu.locator('summary');
-  const modeRadio = (name: string) => conversation.getByRole('radio', { name, exact: true });
   const choose = async (model: string, effort?: string) => {
     await summary.click();
     await menu.getByRole('radiogroup', { name: 'Model' }).getByRole('radio', { name: model, exact: true }).click();
@@ -1350,20 +1365,20 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   };
 
   // Before any choice on this device a new session starts in Ask at Default, and keeps both as its own.
-  await expect(modeRadio('Ask')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Ask');
   await expect(summary).toHaveText('Default');
   await startSession(page);
-  await modeRadio('Plan').click();
+  await chooseMode(conversation, 'Plan');
   await choose('Opus', 'High');
   await expect(summary).toHaveText('Opus · High');
   await openTab(0);
-  await expect(modeRadio('Ask')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Ask');
   await expect(summary).toHaveText('Default');
   await openTab(1);
 
   // A new session opens in the last mode, at the provider's last model and effort, and sends them.
   await startSession(page);
-  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Plan');
   await expect(summary).toHaveText('Opus · High');
   const requested = page.waitForRequest((request) => request.url().endsWith('/api/agent/message'));
   await conversation.locator('textarea').fill('Plan a small refactor.');
@@ -1396,30 +1411,30 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await expect(summary).toHaveText('Default');
 
   // A session keeps its own mode when another session changes the device's last mode.
-  await modeRadio('Agent').click();
+  await chooseMode(conversation, 'Agent');
   await openTab(1);
-  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Plan');
 
   // After a reload every choice is where it was, and the next session starts at the last ones.
   await page.reload({ waitUntil: 'networkidle' });
   await ensureConversationOpen(page);
-  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Plan');
   await expect(summary).toHaveText('Opus · High');
   await openTab(2);
-  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Agent');
   await chip('Main').click();
   await expect(summary).toHaveText('Sonnet · Low');
   await chip('Reviewer').click();
   await expect(summary).toHaveText('Default');
   await startSession(page);
-  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Agent');
   await expect(summary).toHaveText('Sonnet · Low');
 
   // The new session keeps the mode it started with when another session moves the last mode.
   await openTab(2);
-  await modeRadio('Plan').click();
+  await chooseMode(conversation, 'Plan');
   await openTab(3);
-  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Agent');
 
   // A session started elsewhere, on another device for example, has no choices of its own on this
   // device and shows the last ones.
@@ -1429,7 +1444,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await page.getByRole('combobox', { name: 'Session' }).selectOption(elsewhere.id);
   await ensureConversationOpen(page);
-  await expect(modeRadio('Plan')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Plan');
   await expect(summary).toHaveText('Sonnet · Low');
 
   // The Arena's form opens at the last mode, and what it creates with becomes the last choice.
@@ -1441,9 +1456,129 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await create.getByRole('radio', { name: 'Agent' }).click();
   await create.getByRole('button', { name: 'Create and open' }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Agent');
   await startSession(page);
-  await expect(modeRadio('Agent')).toHaveAttribute('aria-checked', 'true');
+  await expect(modePicker(conversation)).toHaveText('Agent');
+});
+
+test('attaches from the composer, picks a mode from the keyboard, and names the execution under it', async ({ page, request, baseURL }) => {
+  const disabled = await request.patch('/api/execution/docker', { headers: { Origin: baseURL! }, data: { enabled: false } });
+  expect(disabled.ok()).toBe(true);
+  const projectName = `E2E composer ${Date.now()}`;
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: { id: string; name: string }[] };
+  await request.post('/api/projects', { data: { name: projectName, checkoutIds: [checkouts.find((checkout) => checkout.name === 'alpha')!.id] } });
+  await page.goto('/');
+  await expect(page.locator('.project-search-trigger')).toContainText(projectName);
+  await startSession(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const picker = modePicker(conversation);
+  const hint = conversation.locator('.execution-hint');
+
+  // The execution is named once, under the composer, followed by the mode's hint.
+  await expect(conversation.locator(':scope > header')).not.toContainText(/Local|Docker|Continue in/);
+  await expect(conversation.getByLabel(/^Execution: /)).toHaveText('Local');
+  await expect(picker).toHaveText('Ask');
+  await expect(hint).toHaveText('Read-only · git history');
+  await conversation.getByLabel(/^Execution: /).click();
+  const continuation = conversation.getByRole('menu', { name: 'Execution' }).getByRole('menuitem', { name: 'Continue in Docker…', exact: true });
+  await expect(continuation).toBeDisabled();
+  await expect(continuation).toHaveAccessibleDescription('Enable Docker in Arena to continue there.');
+  await page.keyboard.press('Escape');
+
+  await conversation.locator('textarea').fill('Show two alternatives');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(conversation.locator('.diagram-card')).toHaveCount(2);
+  await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
+  // Mermaid renders one at a time; once the cards have rendered, a thumbnail would have too.
+  await expect(conversation.locator('.diagram-card-svg svg')).toHaveCount(2);
+
+  // Closed, the attach menu renders no thumbnail; open, it renders the ones it shows.
+  const attach = conversation.getByLabel('Attach', { exact: true });
+  const attachMenu = conversation.getByRole('menu', { name: 'Attach to the next instruction' });
+  const chips = conversation.locator('.attachment-chip');
+  await expect(conversation.locator('.attach-menu .canvas-thumbnail [data-mermaid-theme]')).toHaveCount(0);
+  await attach.click();
+  const first = attachMenu.getByRole('menuitemcheckbox', { name: 'Diagram 1', exact: true });
+  const second = attachMenu.getByRole('menuitemcheckbox', { name: 'Diagram 2', exact: true });
+  await expect(attachMenu.getByRole('menuitemcheckbox')).toHaveCount(2);
+  await expect(first).toHaveAttribute('aria-checked', 'true');
+  await expect(first).toContainText('Included');
+  await expect(first).toHaveAccessibleDescription('sequence · on the canvas');
+  await expect(second).toHaveAttribute('aria-checked', 'false');
+  await expect(second).toHaveAccessibleDescription(/^state · /);
+  await expect(attachMenu.locator('.canvas-thumbnail [data-mermaid-theme] svg')).toHaveCount(2);
+  await expect(attachMenu.getByRole('menuitem', { name: 'Headset report…' })).toHaveCount(0);
+
+  // Choosing a canvas toggles the same chip History's Attach next does.
+  await expect(chips).toHaveCount(1);
+  await second.click();
+  await expect(attachMenu).toBeHidden();
+  await expect(chips).toHaveCount(2);
+  await expect(chips.nth(1)).toContainText('Additional diagram included');
+  await attach.click();
+  await expect(second).toHaveAttribute('aria-checked', 'true');
+  await second.click();
+  await expect(chips).toHaveCount(1);
+
+  await attach.click();
+  await attachMenu.getByRole('menuitem', { name: 'All history…' }).click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeVisible();
+  await expect(conversation).toBeVisible();
+  await attach.click();
+  await attachMenu.getByRole('menuitem', { name: 'New sketch' }).click();
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Sketch 1');
+  await expect(chips).toHaveCount(1);
+  await expect(chips).toContainText('Your sketch included');
+
+  // One popover at a time: opening the picker from the keyboard closes the attach menu.
+  const modes = conversation.getByRole('radiogroup', { name: 'Agent mode' });
+  await attach.click();
+  await picker.focus();
+  await page.keyboard.press('Enter');
+  await expect(modes).toBeVisible();
+  await expect(attachMenu).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(modes).toBeHidden();
+
+  // The picker opens, moves, chooses, and closes from the keyboard.
+  await picker.focus();
+  await page.keyboard.press('Enter');
+  await expect(modes).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(modes.getByRole('radio', { name: 'Ask', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(modes.getByRole('radio', { name: 'Agent', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(modes).toBeHidden();
+  await expect(picker).toBeFocused();
+  await expect(picker).toHaveText('Agent');
+  await expect(picker).toHaveAccessibleName('Mode: Agent. Edits files · asks first');
+  await expect(picker).toHaveCSS('background-color', 'rgb(168, 98, 10)');
+  await picker.hover();
+  await expect(picker).toHaveCSS('background-color', 'rgb(168, 98, 10)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(picker).toHaveCSS('background-color', 'rgb(224, 162, 82)');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(hint).toHaveText('Edits files · asks first');
+  await page.keyboard.press('Enter');
+  await expect(modes).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(modes).toBeHidden();
+  await expect(picker).toBeFocused();
+
+  // A chosen mode survives a reload (Story 70).
+  await page.reload({ waitUntil: 'networkidle' });
+  await ensureConversationOpen(page);
+  await expect(picker).toHaveText('Agent');
+
+  // On a phone the side panel is an overlay, so the composer's way to History closes the conversation.
+  await page.getByRole('button', { name: 'Close side panel' }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ensureConversationOpen(page);
+  await attach.click();
+  await attachMenu.getByRole('menuitem', { name: 'All history…' }).click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeVisible();
+  await expect(conversation).toHaveCount(0);
 });
 
 test('docks only the panels that fit the live shell width', async ({ page }) => {

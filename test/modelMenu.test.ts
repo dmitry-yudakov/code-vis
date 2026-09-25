@@ -24,12 +24,18 @@ function render(options: { choices?: Pick<ProviderHealth, 'models' | 'efforts'>;
     unsupportedModes: [],
     modelChoices: 'choices' in options ? options.choices : CHOICES,
     modelSelection: options.selection ?? {},
+    theme: 'light',
+    recentCanvases: [],
+    continuation: { onContinue: vi.fn() },
     onChange: vi.fn(),
     onModeChange: vi.fn(),
     onModelSelectionChange: vi.fn(),
     onSend: vi.fn(),
     onCancel: vi.fn(),
     onRemoveAttachment: vi.fn(),
+    onToggleAttachment: vi.fn(),
+    onOpenHistory: vi.fn(),
+    onNewSketch: vi.fn(),
   }));
 }
 
@@ -44,7 +50,7 @@ function radiogroup(markup: string, label: string) {
 }
 
 function summary(markup: string) {
-  return markup.match(/<summary[^>]*>([^<]*)<\/summary>/)?.[1];
+  return markup.match(/<details class="model-menu"[^>]*><summary[^>]*>([^<]*)<\/summary>/)?.[1];
 }
 
 describe('composer model menu', () => {
@@ -54,10 +60,11 @@ describe('composer model menu', () => {
     }
   });
 
-  it('sits between the mode selector and the hint', () => {
+  it('sits between the mode picker and Send', () => {
     const markup = render();
-    expect(markup.indexOf('mode-selector')).toBeLessThan(markup.indexOf('model-menu'));
-    expect(markup.indexOf('model-menu')).toBeLessThan(markup.indexOf('composer-hint'));
+    expect(markup.indexOf('mode-menu')).toBeGreaterThanOrEqual(0);
+    expect(markup.indexOf('mode-menu')).toBeLessThan(markup.indexOf('model-menu'));
+    expect(markup.indexOf('model-menu')).toBeLessThan(markup.indexOf('send-button'));
   });
 
   it('names the selection in its summary and offers the chosen model\'s efforts', () => {
@@ -88,8 +95,8 @@ describe('composer model menu', () => {
 
   it('is disabled while a turn runs, like mode', () => {
     const markup = render({ running: true, selection: { model: 'opus', effort: 'low' } });
-    expect(markup).toMatch(/<summary[^>]*aria-disabled="true"/);
+    expect(markup).toMatch(/<details class="model-menu"[^>]*><summary[^>]*aria-disabled="true"/);
     expect([...radiogroup(markup, 'Model')!, ...radiogroup(markup, 'Effort')!].every((item) => item.disabled)).toBe(true);
-    expect(render()).not.toContain('aria-disabled');
+    expect(render()).not.toMatch(/<details class="model-menu"[^>]*><summary[^>]*aria-disabled/);
   });
 });

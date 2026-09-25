@@ -329,13 +329,45 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .attachment-chip button { width: 17px; height: 17px; border: 0; border-radius: 50%; color: var(--plot-ink-deep); background: var(--plot-control-wash); line-height: 1; }
 .sketch-cta { margin-top: 22px; background: var(--live); box-shadow: var(--shadow); }
 .sketch-cta:hover { background: var(--live-hover); }
-.composer-actions { display: flex; align-items: center; gap: 10px; padding-left: 4px; }
-.composer-hint { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 9px/1.2 var(--mono); }
-.mode-selector { flex: none; display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--control-wash); }
-.mode-selector button { padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .02em; }
-.mode-selector button:hover:not(:disabled) { color: var(--ink); }
-.mode-selector button.active, .mode-selector.mode-plan button.active { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
-.mode-selector.mode-agent button.active { color: var(--on-emphasis); background: var(--wait); }
+.composer-actions { display: flex; align-items: center; gap: 4px; }
+.composer-actions > .send-button, .composer-actions > .cancel-button { margin-left: auto; }
+.composer-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* Attach, mode, and execution menus. Each opens upward over the composer, anchored to its left edge. */
+.composer-menu { position: static; flex: none; min-width: 0; }
+.composer-menu > summary { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; color: var(--ink-2); cursor: pointer; list-style: none; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.composer-menu > summary::-webkit-details-marker { display: none; }
+/* Agent keeps its `wait` fill when hovered or open. */
+.composer-menu:not(.mode-agent) > summary:hover:not([aria-disabled]), .composer-menu:not(.mode-agent)[open] > summary { color: var(--ink); background: var(--control-wash); }
+.composer-menu > summary[aria-disabled] { cursor: default; opacity: .55; }
+.composer-menu > div { position: absolute; z-index: 5; left: 0; bottom: calc(100% + 6px); width: min(340px, 100%); box-sizing: border-box; display: grid; padding: 4px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raised); box-shadow: var(--popover-shadow); }
+.composer-menu [role="menu"], .composer-menu [role="radiogroup"] { display: grid; }
+.composer-menu-heading { padding: 6px 8px 4px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.composer-menu [role="separator"] { height: 1px; margin: 4px 0; background: var(--line); }
+.composer-menu > div p { margin: 0; padding: 4px 8px 6px; color: var(--muted); font-size: 12px; }
+.composer-menu [role="radio"], .composer-menu [role^="menuitem"] { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 5px; color: var(--ink); background: transparent; font-size: 13px; text-align: left; }
+.composer-menu [role="radio"]:hover:not(:disabled), .composer-menu [role^="menuitem"]:hover:not(:disabled) { background: var(--control-wash); }
+.composer-menu button:disabled { color: var(--muted); cursor: default; }
+.menu-item-text { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.menu-item-text small { color: var(--ink-2); font-size: 11.5px; line-height: 1.35; }
+.menu-item-check { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); font-size: 11.5px; }
+.composer-menu .canvas-thumbnail { width: 48px; height: 32px; flex: none; border-radius: 4px; }
+.composer-menu .canvas-thumbnail-mark { width: 22px; height: 22px; font-size: 11px; }
+.attach-menu > summary { justify-content: center; width: 28px; padding: 0; }
+.attach-menu > summary .composer-icon { width: 16px; height: 16px; }
+/* In line with the entries' names, past the thumbnail column. */
+.attach-menu [role="menuitem"].attach-more { padding-left: 66px; color: var(--ink-2); }
+.mode-menu > summary { padding: 0 6px 0 9px; border-color: var(--line-strong); color: var(--ink); }
+.mode-menu.mode-agent > summary { border-color: var(--wait); color: var(--on-emphasis); background: var(--wait); }
+.mode-choice { align-items: flex-start; }
+.mode-choice > .composer-icon { margin-top: 3px; visibility: hidden; }
+.mode-choice[aria-checked="true"] > .composer-icon { visibility: visible; }
+.mode-choice .menu-item-text > span { font-weight: 600; }
+/* Agent's `wait`, as on the picker it fills. */
+.mode-choice-agent .menu-item-text > span::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--wait); }
+.execution-line { position: relative; min-width: 0; display: flex; align-items: center; gap: 4px; min-height: 22px; color: var(--ink-2); font-size: 11.5px; }
+.execution-menu > summary { height: 22px; font-size: 11.5px; font-weight: 500; color: var(--ink-2); }
+.execution-menu > div { width: min(300px, 100%); }
+.execution-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 2px; font: 11px/1.3 var(--mono); }
 /* Model and effort for the addressed agent's next turn, a compact menu like More. Its panel spans the
    composer and opens above it, so it stays inside even a phone-width drawer. */
 .model-menu { position: static; flex: none; min-width: 0; }
@@ -482,11 +514,8 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .conversation-drawer header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .provider-badge { justify-self: start; padding: 2px 7px; border-radius: 999px; color: var(--live-ink-deep); background: var(--live-wash); font: 600 8px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .provider-badge.provider-codex { color: var(--plot-ink-deep); background: var(--plot-wash); }
-.conversation-drawer header .conversation-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .execution-badge { padding: 2px 7px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink); background: var(--raised); font: 600 10px/1.3 var(--mono); }
 .execution-badge.execution-docker { border-color: var(--plot-ink-deep); color: var(--plot-ink-deep); background: var(--plot-wash); }
-.continue-execution { justify-self: start; padding: 3px 0; border: 0; background: transparent; color: var(--muted); font-size: 11px; text-decoration: underline; }
-.continuation-unavailable { color: var(--muted); font-size: 10px; line-height: 1.4; }
 .conversation-drawer header > button { width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--raised-backdrop-soft); font-size: 20px; }
 .conversation-scroll, .navigator-list { position: relative; z-index: 1; min-height: 0; overflow-y: auto; padding: 14px; }
 .conversation-scroll, .navigator-list, .repository-summary-scroll, .diff-inspector-scroll, .project-search-results { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
@@ -768,10 +797,6 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .quick-prompts { grid-template-columns: 1fr; }
   .drawing-toolbar { right: 10px; left: 10px; top: 10px; flex-wrap: wrap; width: fit-content; max-width: calc(100% - 20px); }
   .canvas-controls { right: 10px; bottom: 10px; max-width: calc(100% - 20px); overflow-x: auto; }
-  .composer-hint { display: none; }
-  .composer-actions { justify-content: space-between; }
-  /* Without the hint, the model menu stays beside the mode selector and Send keeps the far end. */
-  .composer-actions > .model-menu { margin-right: auto; }
   .arena { padding: 24px 14px 50px; }
   .arena-heading { align-items: flex-start; }
   .arena-create { grid-template-columns: 1fr 1fr; }

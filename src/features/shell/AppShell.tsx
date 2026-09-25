@@ -67,7 +67,7 @@ import { usePermissionDecisions } from './usePermissionDecisions';
 import { permissionKey, type PermissionTarget } from './immersive/sessionControls';
 import type { ImmersiveSessionChoice } from '@/features/diagram/spatial/immersiveTypes';
 import type { ImmersiveReportPlacement, SessionCreation } from './immersive/sessionControls';
-import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH } from './panelLayout';
+import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH, type SideTab } from './panelLayout';
 
 interface Health {
   ok: boolean;
@@ -800,6 +800,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [apiPath, enqueueSessionMutation, mutateSession, sessionId, sessionRunning]);
 
   const removeAttachment = useCallback((id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id)), [setPendingAttachmentIds]);
+  /** From the composer: as a phone overlay, the side panel would open underneath the conversation. */
+  const openSideFromComposer = (tab: SideTab) => {
+    panelLayout.selectSideTab(tab);
+    if (panelLayout.dockCapacity === 0) panelLayout.closeConversation();
+  };
   const toggleAttachment = useCallback((id: string) => setPendingAttachmentIds((current) => current.includes(id)
     ? current.filter((item) => item !== id)
     : current.length < 4 ? [...current, id] : current), [setPendingAttachmentIds]);
@@ -2183,6 +2188,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               onRemoveReport={removeReport}
               onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
               onExecutePlan={executePlan}
+              onToggleAttachment={toggleAttachment}
+              onOpenHistory={() => openSideFromComposer('history')}
+              onNewSketch={createSketch}
+              onOpenReports={reports.available && reports.projectId ? () => openSideFromComposer('reports') : undefined}
             />
             {panelLayout.conversationOpen && (
               <div

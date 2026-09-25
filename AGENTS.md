@@ -68,10 +68,13 @@ Updated 2026-09-25. When a story ships, change the line that names it; each stor
   remembers the last mode, new-session provider, and each provider's model and effort, and new
   sessions and agents start there; implemented with automated checks, and a check in the running app
   remains pending.
-- **Next:** [Story 71](stories/STORY-20260925-compact-composer.md) — one mode picker, a `+` attach
-  menu, and an execution line under the composer; drafted as the first story of the
+- **Also in flight:** [Story 71](stories/STORY-20260925-compact-composer.md) — one mode picker, a
+  `+` attach menu, and an execution line under the composer, the first story of the
   [workbench shell epic](stories/EPIC-20260925-workbench-shell.md), whose design lives in
-  `docs/design/workbench-shell/`.
+  `docs/design/workbench-shell/`; implemented with automated checks, and a check in the running app
+  remains pending.
+- **Next:** Story 72, layout-frame — the activity bar, layout icons, and a canvas that can be
+  hidden; planned in the workbench shell epic and written from the template when it starts.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

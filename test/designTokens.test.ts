@@ -63,6 +63,13 @@ describe('design tokens', () => {
         [colors.plotInk, colors.plotWash],
         [colors.add, colors.addWash],
         [colors.del, colors.delWash],
+        // The composer's menus and execution line (Story 71).
+        [colors.ink, colors.raised],
+        [colors.ink, colors.controlWash],
+        [colors.ink2, colors.raised],
+        [colors.ink2, colors.shellSunk],
+        [colors.ink2, colors.controlWash],
+        [colors.muted, colors.raised],
       ];
       for (const [foreground, background] of textPairs) {
         expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);

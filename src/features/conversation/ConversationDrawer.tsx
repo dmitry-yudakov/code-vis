@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import type {
   AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, ModelChoices, ModelSelection, SessionSnapshot,
@@ -8,6 +8,7 @@ import type {
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer, type PendingReportChip } from './InstructionComposer';
+import { recentCanvases } from './recentCanvases';
 import { PermissionCard } from '@/features/agents/PermissionCard';
 import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
@@ -16,7 +17,7 @@ export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, markCounts, onClose, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, onContinue,
+  continuing, continuationUnavailable, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
   session?: SessionSnapshot;
@@ -60,8 +61,14 @@ export function ConversationDrawer({
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
   onExecutePlan(participantId: string): void;
   onContinue(): void;
+  onToggleAttachment(id: string): void;
+  onOpenHistory(): void;
+  onNewSketch(): void;
+  onOpenReports?(): void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  // Streaming re-renders the drawer many times a second; the canvases change only with the session.
+  const canvases = useMemo(() => session ? recentCanvases(session, Date.now()) : [], [session]);
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: 'end' });
   }, [open, preview, toolActivity.length, permissions.length, session?.messages.length]);
@@ -72,15 +79,7 @@ export function ConversationDrawer({
       <header>
         <div>
           <strong>{session?.title || 'New session'}</strong>
-          <div className="conversation-badges">
-            {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
-            <span className={`execution-badge execution-${session?.execution || 'local'}`} aria-label="Session execution">{session?.execution === 'docker' ? 'Docker' : 'Local'}</span>
-          </div>
-          <button className="continue-execution" type="button" disabled={continuing || Boolean(continuationUnavailable)}
-            title={continuationUnavailable || 'Open a new session with an editable recap. Review it before sending.'} onClick={onContinue}>
-            {continuing ? 'Creating…' : `Continue in ${session?.execution === 'docker' ? 'Local' : 'Docker'}`}
-          </button>
-          {continuationUnavailable && <span className="continuation-unavailable">{continuationUnavailable}</span>}
+          {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
         </div>
         <button type="button" onClick={onClose} aria-label="Close conversation drawer">×</button>
       </header>
@@ -158,6 +157,9 @@ export function ConversationDrawer({
           unsupportedModes={unsupportedModes}
           modelChoices={modelChoices}
           modelSelection={modelSelection}
+          theme={theme}
+          recentCanvases={canvases}
+          continuation={{ unavailable: continuationUnavailable, busy: continuing, onContinue }}
           onChange={onComposer}
           onModeChange={onModeChange}
           onModelSelectionChange={onModelSelectionChange}
@@ -165,6 +167,10 @@ export function ConversationDrawer({
           onCancel={onCancel}
           onRemoveAttachment={onRemoveAttachment}
           onRemoveReport={onRemoveReport}
+          onToggleAttachment={onToggleAttachment}
+          onOpenHistory={onOpenHistory}
+          onNewSketch={onNewSketch}
+          onOpenReports={onOpenReports}
         />
       </div>
     </aside>

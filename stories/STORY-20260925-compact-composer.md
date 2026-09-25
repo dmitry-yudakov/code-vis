@@ -1,6 +1,6 @@
 # Story 71 — Fold the composer's modes into one picker, and add an attach menu
 
-**Status:** Draft · **Type:** Frontend-only · **Depends on:** nothing. First story of the
+**Status:** In progress · **Type:** Frontend-only · **Depends on:** nothing. First story of the
 [workbench shell epic](EPIC-20260925-workbench-shell.md).
 
 ---
@@ -117,17 +117,19 @@ The design is the composer in [docs/design/workbench-shell/](../docs/design/work
 
 ### Component contract
 
-The composer gains attachment and continuation props. No wire type changes.
+The composer gains attachment and continuation props. No wire type changes. As shipped, the checks
+come from today's `attached` list, so no `pendingAttachmentIds` prop is needed, and the composer
+names the continuation itself.
 
 ```ts
 // InstructionComposer, in addition to today's props
-recentCanvases: CanvasTarget[];            // active diagram first, then up to three recent
-pendingAttachmentIds: string[];
+theme: ThemeName;                           // for the menu's thumbnails
+recentCanvases: RecentCanvas[];             // active canvas first, then up to three newest
 onToggleAttachment(id: string): void;       // the same handler History uses
 onOpenHistory(): void;
 onNewSketch(): void;
 onOpenReports?(): void;                     // present only in CodeAI's own project
-continuation: { label: string; unavailable?: string; onContinue(): void };
+continuation: { unavailable?: string; busy?: boolean; onContinue(): void };
 ```
 
 ---
@@ -135,39 +137,39 @@ continuation: { label: string; unavailable?: string; onContinue(): void };
 ## Acceptance criteria
 
 ### Part A
-- [ ] The composer shows one mode picker instead of three buttons. Its menu offers Ask, Plan, and
+- [x] The composer shows one mode picker instead of three buttons. Its menu offers Ask, Plan, and
       Agent, each with its hint, and uses the Docker hints in a Docker session.
-- [ ] Agent fills the picker with `wait` in both themes.
-- [ ] An unsupported mode is a disabled choice that says why.
-- [ ] The picker is disabled while a turn runs, and a chosen mode survives a reload as in Story 70.
-- [ ] The picker opens, moves, chooses, and closes from the keyboard, and Escape returns focus to
+- [x] Agent fills the picker with `wait` in both themes.
+- [x] An unsupported mode is a disabled choice that says why.
+- [x] The picker is disabled while a turn runs, and a chosen mode survives a reload as in Story 70.
+- [x] The picker opens, moves, chooses, and closes from the keyboard, and Escape returns focus to
       it.
 
 ### Part B
-- [ ] `+` lists the active diagram and up to three recent canvases with thumbnails. Choosing one
+- [x] `+` lists the active diagram and up to three recent canvases with thumbnails. Choosing one
       adds or removes the same chip that History's "Attach next" does.
-- [ ] "All history…" opens History; "New sketch" starts a sketch.
-- [ ] "Headset report…" appears only in CodeAI's own project and opens Reports.
-- [ ] Opening the menu never runs more than one Mermaid render at a time.
+- [x] "All history…" opens History; "New sketch" starts a sketch.
+- [x] "Headset report…" appears only in CodeAI's own project and opens Reports.
+- [x] Opening the menu never runs more than one Mermaid render at a time.
 
 ### Part C
-- [ ] The line under the composer shows Local or Docker and the mode's hint, without a repeated
+- [x] The line under the composer shows Local or Docker and the mode's hint, without a repeated
       "Docker".
-- [ ] Its menu offers Continue in Docker or Local, disabled with the existing reason when
+- [x] Its menu offers Continue in Docker or Local, disabled with the existing reason when
       unavailable. Continuing still opens a new session with an editable recap.
-- [ ] The conversation header no longer shows the execution badge, the Continue button, or the
+- [x] The conversation header no longer shows the execution badge, the Continue button, or the
       reason line.
 
 ### All parts
-- [ ] At 1440×900 the default layout shows at most 42 visible controls (43 after Story 62). The
+- [x] At 1440×900 the default layout shows at most 42 visible controls (43 after Story 62). The
       footer drops from five controls to four; the execution button replaces Continue.
-- [ ] Every new control's text meets 4.5:1 in both themes.
-- [ ] The e2e mode steps, the Continue in Docker steps, `immersive.spec.ts`'s composer assertion, and
+- [x] Every new control's text meets 4.5:1 in both themes.
+- [x] The e2e mode steps, the Continue in Docker steps, `immersive.spec.ts`'s composer assertion, and
       `modelMenu.test.ts` use the new controls, and each was shown to fail against the old
       composer.
-- [ ] The Arena's new-session mode control is unchanged.
-- [ ] `docs/design/workbench-shell/` matches what shipped, or is updated in the same change.
-- [ ] `npm run lint`, `npm test`, and `npm run test:e2e` pass after each part.
+- [x] The Arena's new-session mode control is unchanged.
+- [x] `docs/design/workbench-shell/` matches what shipped, or is updated in the same change.
+- [x] `npm run lint`, `npm test`, and `npm run test:e2e` pass after each part.
 
 ## Out of scope
 
@@ -193,3 +195,76 @@ continuation: { label: string; unavailable?: string; onContinue(): void };
    menu offers "Continue in Local…". With Docker disabled in the Arena, a Local session's menu shows
    "Continue in Docker…" disabled, with "Enable Docker in Arena to continue there."
 7. Switch to the dark theme and repeat steps 2 and 3.
+
+## What shipped
+
+- **One menu pattern.** `ComposerMenu` wraps each popover in a `<details>` with `useMenuDismiss`,
+  closes it while disabled, and returns focus to its summary after a choice
+  ([InstructionComposer.tsx:50](../src/features/conversation/InstructionComposer.tsx#L50)). The arrow
+  keys move between enabled items and enter from the summary at either end
+  ([:34](../src/features/conversation/InstructionComposer.tsx#L34)). All four composer popovers,
+  the model menu included, share `name="composer-menu"`, so opening one closes the others. `MenuItem`
+  ([:81](../src/features/conversation/InstructionComposer.tsx#L81)) names a choice with `aria-label`
+  and describes it with its detail line and, when longer, its title.
+- **Part A.** `ModePicker` ([:107](../src/features/conversation/InstructionComposer.tsx#L107)) is a
+  radiogroup named "Agent mode" behind a summary named, for example, "Mode: Plan. Read-only · ends in
+  a plan". The hints and tooltips are `agentModeHint`, `executionModeHint`, and `agentModeTooltip`
+  in [toolActivity.ts:90](../src/features/agents/toolActivity.ts#L90). Agent fills the summary with
+  `wait`, including on hover and while open ([globals.css:360](../src/app/globals.css#L360)).
+- **Part B.** `AttachMenu` ([:138](../src/features/conversation/InstructionComposer.tsx#L138)) lists
+  `recentCanvases(session, now)`: the active canvas, then the three newest others, each titled,
+  typed by `mermaidKind`, and timed by the Arena's `relativeActivityTime`
+  ([recentCanvases.ts:29](../src/features/conversation/recentCanvases.ts#L29)). The Mermaid header
+  scan is shared with the policy as `firstMermaidStatement`
+  ([mermaidPolicy.ts:87](../src/features/diagram/mermaid/mermaidPolicy.ts#L87)). Thumbnails are
+  Story 62's `CanvasThumbnail`, which renders only once the open menu shows it. "All history…" and
+  "Headset report…" open their side views through `openSideFromComposer`, which also closes the
+  conversation where the side panel is a phone overlay
+  ([AppShell.tsx:804](../src/features/shell/AppShell.tsx#L804)). The drawer memoizes the list per
+  session ([ConversationDrawer.tsx:71](../src/features/conversation/ConversationDrawer.tsx#L71)).
+- **Part C.** `ExecutionLine` ([:197](../src/features/conversation/InstructionComposer.tsx#L197))
+  shows the execution menu, then the mode's hint, or "Creating a Docker session…" while a
+  continuation is created. The header keeps the title and the provider badge.
+
+## What shipped differently
+
+- Relative times read "1h ago", reusing the Arena's formatter; the design copy now says so. The
+  design copy's mode menu is now a radiogroup anchored at the composer's left edge, and its canvas
+  entries are `menuitemcheckbox`, as shipped.
+- The model menu keeps Story 66's style (10px, filled). The design's borderless model button
+  belongs to the flat-panes story (76).
+- Each summary carries its name as a `title`, so the icon-only `+` has a tooltip.
+- Known and left alone: with a 260px draft on a viewport about 650px tall, the attach menu can be
+  clipped by the drawer, as the model menu already can.
+
+## Verification record
+
+September 25, 2026, offline, against the fake Claude.
+
+- `npm run lint` passes; `npm test` passes 90 files / 714 tests, including
+  [composerMenus.test.ts](../test/composerMenus.test.ts),
+  [recentCanvases.test.ts](../test/recentCanvases.test.ts), and the new contrast pairs in
+  [designTokens.test.ts:66](../test/designTokens.test.ts#L66) (ink, ink-2, and muted on raised,
+  sunk, and control-wash backgrounds, in both themes).
+- `npm run test:e2e` passes 93 of 93. New:
+  `attaches from the composer, picks a mode from the keyboard, and names the execution under it`
+  ([canvas.spec.ts:1464](../e2e/canvas.spec.ts#L1464)); "Headset report…" in
+  [reports.spec.ts](../e2e/reports.spec.ts#L63); the phone row now counts four controls and checks
+  each new menu stays on screen ([canvas.spec.ts:1304](../e2e/canvas.spec.ts#L1304)).
+- Shown to fail against the old composer, with only the source changes stashed: the 12 composer
+  menu tests written by then and `modelMenu.test.ts`'s row order, and every changed e2e test (12 in canvas, docker,
+  reports, and immersive specs, plus Docker's project-creation test).
+- Mutation proofs, each restored: 17 unit mutations (active-first order, the limit, pinned, `graph`,
+  `Diagram` suffix, sketch marks, disabled while running, unsupported reason, the execution hint,
+  report availability, "Included", busy, the Docker tooltip, the `ink-2` token, and others) and six
+  e2e mutations (ArrowUp wrap, focus return, the phone overlay close, the Agent hover fill, the
+  in-view gate on thumbnails, and the shared `name`) all fail their tests.
+- Visible controls at 1440×900 in the default layout, counted with the same script on a production
+  build with the e2e fixtures and a diagram on the canvas: 46 before, 45 after. The removed control
+  is the same on any data (five footer controls become four; the execution button replaces
+  Continue), so Story 62's 43 becomes 42.
+- Screenshots of the composer, each menu, and Agent mode in both themes matched the design boards.
+- A review subagent found the phone overlay, Agent hover, hidden "Creating…", menu ARIA structure,
+  lost mode tooltips for assistive technology, and overlapping popovers; all are fixed and covered.
+- Pending before **Shipped**: **How to verify** steps 2–7 in the running app on real data, which
+  also confirms the 42 there.

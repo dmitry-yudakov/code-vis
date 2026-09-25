@@ -84,7 +84,7 @@ removed every element the browser cannot back without new server work (see *Need
 
 | # | Story | Theme | Status | Depends on |
 |---|---|---|---|---|
-| 71 | [compact-composer](STORY-20260925-compact-composer.md) | One mode picker, a `+` attach menu, and an execution line under the composer | **Draft** | — |
+| 71 | [compact-composer](STORY-20260925-compact-composer.md) | One mode picker, a `+` attach menu, and an execution line under the composer | **In progress** | — |
 | 72 | layout-frame | Activity bar (Changes, History, Reports; Arena and Inbox open the Arena page until 75); side panel, canvas, and conversation layout icons; hiding the canvas; dock bands move by 48px; More moves to the gear | Planned | — |
 | 73 | title-bar-tabs | Session tabs move into the title bar; All sessions takes overflow; the tab keyboard flow survives; decide where a tab's close control sits | Planned | 72 |
 | 74 | status-bar-and-notices | Status bar: branch, needs-you with its reason, run state while the conversation is closed, provider not ready. Notices become a row in the layout | Planned | — |

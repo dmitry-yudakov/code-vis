@@ -330,7 +330,8 @@ qualify. Sessions in such a project always run Local, because Docker refuses Cod
   was captured. A report captured while another project was open can show that project's
   conversation or canvas; the row says so, and nothing is attached on its own. **Attach next** adds
   a report to the session's next message; the composer shows it as a chip you can remove, and you
-  can explain it or send it alone (`Investigate the attached CodeAI report.`).
+  can explain it or send it alone (`Investigate the attached CodeAI report.`). The composer's **+**
+  menu opens the tab with **Headset report…**.
 - **Headset.** A deliberate **Report** taken with a session of a self project selected waits in that
   session's next message, even if you move elsewhere before the upload finishes, and the
   conversation opens for dictation when that session is still active. Anything else is saved and can
@@ -718,7 +719,7 @@ session is intact, so the agent picks up where it stopped.
 
 ### Model and effort
 
-The **Model** menu beside the mode selector chooses the model and effort for the addressed agent's
+The **Model** menu beside the mode picker chooses the model and effort for the addressed agent's
 next turn. It lists only what the executing machine offers for that agent's provider: Claude's
 family aliases (`fable`, `opus`, `sonnet`, `haiku`) with `low` to `max` effort (none for Haiku or a
 Haiku `CODEAI_CLAUDE_MODEL` default, and none at all when the installed `claude --help` lacks
@@ -731,7 +732,7 @@ The choice is remembered on this device for each agent in each session, like mod
 of the session and another device does not see it. VR turns use this device's choice. This device
 also remembers the last choice for each provider. A new agent, including the first agent of a new
 session, starts at it and keeps it as its own, and an agent with no choice on this device follows
-it. **Continue in Docker/Local** carries the current agent's choice to the new session. Choosing
+it. **Continue in Docker…/Local…** carries the current agent's choice to the new session. Choosing
 **Default** for an agent is a choice too: it stays on Default when another agent's choice changes.
 **Default**
 means no override: a new agent starts on the machine's default (`CODEAI_CLAUDE_MODEL` /
@@ -770,9 +771,9 @@ history in persistent Docker storage, separate from the host provider setup. Exi
 Docker homes retain their history in place. When Claude Code or Codex publishes a new version,
 **Update** it in Arena's Docker section, or run `npm run docker:upgrade -- <provider> <version>`:
 the new CLI is checked offline before turns use it, and **Roll back** returns to the previous one.
-The conversation shows an execution badge and offers
-**Continue in Docker/Local**, opening a fresh session on the same repositories with a recap ready
-to review and send. Docker sessions persist execution and
+The line under the composer names the execution; its menu offers
+**Continue in Docker…/Local…**, opening a fresh session on the same repositories with a recap ready
+to review and send, or says why it cannot yet. Docker sessions persist execution and
 one fixed primary checkout. Agent is autonomous inside the container; its dependency installs and
 build outputs also change the host checkout. Ask/Plan mount the entire checkout read-only.
 Dependencies may need reinstalling when switching between macOS and Linux. The Local contract
@@ -893,8 +894,12 @@ diagrams, so selection, ink, pinning, attachment, and history work identically f
 
 The active canvas is visibly attached to the next instruction by default. A diagram attachment
 contains its immutable Mermaid source, the exact vector-mark snapshot, viewport, and a local
-composite PNG when browser export succeeds. Remove its chip for a text-only turn, or use History to
-attach up to four canvases. Composite failure is non-fatal.
+composite PNG when browser export succeeds. Remove its chip for a text-only turn, or attach up to
+four canvases: the composer's **+** menu lists the active canvas and the three newest others with
+their thumbnails, toggles each one's chip, and leads to **All history…** and **New sketch**. Its
+**Mode** picker beside it chooses Ask, Plan, or Agent, and the line under the composer names where
+the turn runs, **Local** or **Docker**, followed by the mode's hint. Composite failure is
+non-fatal.
 
 A single valid result derived from the still-active attachment becomes active automatically and
 leaves **Previous version** one action away. Navigation during a run suppresses auto-activation.

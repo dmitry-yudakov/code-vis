@@ -441,7 +441,7 @@ test.describe('VR conversation input', () => {
     await conversationAction(page, 'agents');
     await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Agent')?.userData.disabled)).toBe(true);
     await conversationAction(page, 'ask');
-    await expect(page.getByRole('radio', { name: 'Ask', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByLabel(/^Mode: /)).toHaveText('Ask');
     const original = await page.evaluate(async (id) => (await (await fetch(`/api/sessions/${id}`)).json()).session as PublicSession, SESSION);
     const updated = structuredClone(original);
     const addedId = '88888888-8888-4888-8888-888888888888';

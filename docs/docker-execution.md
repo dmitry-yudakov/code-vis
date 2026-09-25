@@ -67,11 +67,12 @@ repository selector. New session creation starts with Local, or the current conv
 when opening its New session menu. Provider availability follows the selected execution, so a host
 provider installation is not required for Docker.
 
-The conversation header has a distinct **Local** or **Docker** badge. **Continue in Docker/Local**
-creates a new session in the other execution with the source session's project and exact repository
-bindings. A bounded recap and unsent draft appear in its composer for you to edit and send. The
-source conversation and its draft remain intact. Execution and Docker checkout bindings stay fixed;
-provider-native history is not moved between environments or automatically replayed.
+The line under the composer names the session's execution, **Local** or **Docker**. Its menu's
+**Continue in Docker…/Local…** creates a new session in the other execution with the source
+session's project and exact repository bindings. A bounded recap and unsent draft appear in its
+composer for you to edit and send. The source conversation and its draft remain intact. Execution
+and Docker checkout bindings stay fixed; provider-native history is not moved between environments
+or automatically replayed.
 
 Docker participants created before shared provider storage retain their existing individual volumes,
 history and login in place. Their login errors continue to give the legacy command:
