@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import type {
@@ -31,7 +30,7 @@ import { SessionCreationForm, SessionPicker } from '@/features/conversation/Sess
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { Arena } from '@/features/arena/Arena';
 import { buildMultiMachineInbox, unreadArenaAttention, type ArenaAttentionItem } from '@/features/arena/arenaModel';
-import { ARENA_SECTION_PATHS, arenaSectionForPathname } from '@/features/arena/routes';
+import { arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
@@ -55,6 +54,8 @@ import { machineApiBase, machineApiPath } from '@/features/machines/routes';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
+import { ActivityBar } from './ActivityBar';
+import { LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import { useDevicePreferences } from './useDevicePreferences';
 import { agentModelSelection, inheritedMode } from './devicePreferences';
@@ -119,7 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
-  const headerMenuRef = useRef<HTMLDetailsElement>(null);
+  const moreMenuRef = useRef<HTMLDetailsElement>(null);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const workspaceMachineId = machineId && localMachineId && machineId !== localMachineId ? machineId : undefined;
   const workspace = useWorkspaceViews(projectId, workspaceMachineId);
@@ -167,8 +168,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   machineIdRef.current = machineId;
   const mutationQueues = useRef(new Map<string, Promise<void>>());
   const annotationTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const chatOpenRef = useRef(panelLayout.conversationOpen);
-  chatOpenRef.current = panelLayout.conversationOpen;
+  const chatOpenRef = useRef(panelLayout.conversationShown);
+  chatOpenRef.current = panelLayout.conversationShown;
   sessionsRef.current = sessions;
   const focusedSessionIdRef = useRef(sessionId);
   focusedSessionIdRef.current = sessionId;
@@ -563,8 +564,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [session?.activeDiagramId, session?.addressedAgentId, session?.defaultMode, session?.id, workspace.updateView]);
 
   useEffect(() => {
-    if (session && panelLayout.conversationOpen && unread) setUnread(0);
-  }, [panelLayout.conversationOpen, session, setUnread, unread]);
+    if (session && panelLayout.conversationShown && unread) setUnread(0);
+  }, [panelLayout.conversationShown, session, setUnread, unread]);
 
   const mutateSession = useCallback((id: string, operation: (value: SessionSnapshot) => SessionSnapshot) => {
     setSessions((current) => {
@@ -1716,6 +1717,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       setArchivingSessionId(undefined);
     }
   };
+  // Only the session workspace has a canvas to hide; the Arena and the welcome screen keep the frame.
+  const canvasHidden = !loading && !arenaOpen && Boolean(session) && panelLayout.canvasHidden;
+  const reportsOffered = Boolean(reports.available && reports.projectId);
+  // The side panel shows Changes where a remembered Reports view is unavailable; the bar marks what it shows.
+  const sideView: SideTab = panelLayout.sideTab === 'reports' && !reportsOffered ? 'changes' : panelLayout.sideTab;
+  /** From the flat shell: opening a canvas, or starting one, brings a hidden canvas back. */
+  const selectShownDiagram = (id: string) => { selectDiagram(id); panelLayout.showCanvas(); };
+  const createShownSketch = () => { createSketch(); panelLayout.showCanvas(); };
   const immersiveStatus = loading ? 'Loading session…'
     : immersiveMachine && immersiveMachine.machine.state !== 'online' ? `${immersiveMachine.machine.label} is Offline`
       : notice || (session ? immersiveRunStatus : arena.refreshError || 'Choose a session to open');
@@ -1723,7 +1732,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div
       ref={shellRef}
-      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${panelLayout.focusMode ? 'focus-mode' : ''} ${arenaOpen ? 'arena-mode' : ''}`}
+      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${panelLayout.focusMode ? 'focus-mode' : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
       style={panelLayout.shellStyle}
     >
       <header className="app-header">
@@ -1762,9 +1771,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           </>}
         </nav>
-        {/* Grouped by what each control does: panels, then the session action, then readiness,
-            then the one preference — with a rule before it so four kinds of control in one row
-            stop reading as a single undifferentiated strip. */}
+        {/* VR entry, then readiness and paired devices, then the layout icons at the end. */}
         <div className="header-actions">
           <ImmersiveBoundary
             canvasReview={!loading && session ? {
@@ -1881,53 +1888,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             onUnavailable={setVrUnavailable}
           />
           {!loading && <>
-            {/* The Arena's own tabs already name these two places. */}
-            {!arenaOpen && <Link href={ARENA_SECTION_PATHS.sessions} scroll={false}>Arena</Link>}
-            {!arenaOpen && (
-              <Link
-                href={ARENA_SECTION_PATHS.inbox}
-                scroll={false}
-                className={`inbox-toggle ${arenaUnread.length ? 'has-attention' : ''}`}
-                aria-label={`Inbox${arenaUnread.length ? `, ${arenaUnread.length} unread` : ''}`}
-              >Inbox{arenaUnread.length > 0 && <span className="arena-unread-badge">{arenaUnread.length}</span>}</Link>
-            )}
-            {!arenaOpen && session && (
-              <button
-                type="button"
-                className={`repository-toggle ${repositoryTree?.files.length ? 'dirty' : ''}`}
-                aria-pressed={panelLayout.repositoryOpen && panelLayout.sideTab === 'changes'}
-                onClick={panelLayout.toggleRepository}
-              >
-                Repository{repositoryTree?.files.length ? <span>{repositoryTree.files.length}</span> : null}
-              </button>
-            )}
-            {!arenaOpen && session && (
-              <button
-                type="button"
-                className={`run-status-toggle ${focusedRun?.state === 'running' ? 'working' : ''} ${focusedRun?.state === 'queued' ? 'queued' : ''} ${focusedRun?.state === 'needs-you' ? 'awaiting-approval' : ''}`}
-                aria-pressed={panelLayout.conversationOpen}
-                aria-label={focusedRun?.state === 'needs-you'
-                  ? `${permissions.length} action${permissions.length === 1 ? '' : 's'} waiting for your approval. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
-                  : focusedRun?.state === 'queued'
-                    ? `${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
-                  : sessionRunning
-                    ? `Agent working: ${status}. ${panelLayout.conversationOpen ? 'Close' : 'Open'} conversation`
-                    : panelLayout.conversationOpen ? 'Close conversation' : 'Open conversation'}
-                title={sessionRunning || permissions.length ? status : 'Open conversation'}
-                onClick={() => {
-                  if (panelLayout.conversationOpen) panelLayout.closeConversation();
-                  else {
-                    panelLayout.openConversation();
-                    setUnread(0);
-                  }
-                }}
-              >
-                <span className="run-status-dot" aria-hidden="true" />
-                <span>{focusedRun?.state === 'needs-you' ? 'Approval needed' : sessionRunning ? status : 'Conversation'}</span>
-                {focusedRun?.state === 'needs-you' && permissions.length > 0 && <span className="approval-badge">{permissions.length}</span>}
-                {unread > 0 && <span className="unread-badge">{unread}</span>}
-              </button>
-            )}
             {/* Readiness is news only when something is wrong or the provider has something to say. */}
             {(!providerHealth?.available || providerHealth.message) && (
               <span
@@ -1941,43 +1901,64 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="health-pill lifecycle-pill" role="status" title={lifecycle.status}><span />{lifecycle.badge}</span>
             )}
             <DeviceMenu />
-            <details ref={headerMenuRef} className="header-menu" onToggle={(event) => { if (event.currentTarget.open) void lifecycle.refresh(); }}>
-              <summary>More</summary>
-              <div>
-                <div className="theme-selector" role="group" aria-label="Theme">
-                  {THEME_PREFERENCES.map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      className={themePreference === choice ? 'active' : ''}
-                      aria-pressed={themePreference === choice}
-                      onClick={() => setThemePreference(choice)}
-                    >
-                      {choice[0].toUpperCase() + choice.slice(1)}
-                    </button>
-                  ))}
-                </div>
-                {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export session</button>}
-                {!arenaOpen && session && (
-                  <button
-                    type="button"
-                    disabled={!canArchiveSession}
-                    title={sessionLive ? 'Wait for the current turn to finish before archiving.'
-                      : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined}
-                    onClick={() => {
-                      if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
-                      headerMenuRef.current?.removeAttribute('open');
-                      void archiveOpenSession();
-                    }}
-                  >Archive session</button>
-                )}
-                {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
-                {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
-              </div>
-            </details>
+            {!arenaOpen && session && (
+              <LayoutToggles
+                canvasShown={!panelLayout.canvasHidden}
+                canvasToggleable={panelLayout.dockCapacity > 0}
+                conversationShown={panelLayout.conversationShown}
+                approvals={permissions.length}
+                unread={unread}
+                onToggleCanvas={panelLayout.toggleCanvas}
+                onToggleConversation={panelLayout.toggleConversation}
+              />
+            )}
           </>}
         </div>
       </header>
+
+      {!loading && (
+        <ActivityBar
+          views={!arenaOpen && session ? ['changes', 'history', ...(reportsOffered ? ['reports' as const] : [])] : []}
+          shownView={panelLayout.sideShown ? sideView : undefined}
+          changeCount={repositoryTree?.files.length}
+          arenaSection={arenaSection}
+          unread={arenaUnread.length}
+          moreRef={moreMenuRef}
+          onMoreToggle={(event) => { if (event.currentTarget.open) void lifecycle.refresh(); }}
+          onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
+          more={<>
+            <div className="theme-selector" role="group" aria-label="Theme">
+              {THEME_PREFERENCES.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  className={themePreference === choice ? 'active' : ''}
+                  aria-pressed={themePreference === choice}
+                  onClick={() => setThemePreference(choice)}
+                >
+                  {choice[0].toUpperCase() + choice.slice(1)}
+                </button>
+              ))}
+            </div>
+            {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export session</button>}
+            {!arenaOpen && session && (
+              <button
+                type="button"
+                disabled={!canArchiveSession}
+                title={sessionLive ? 'Wait for the current turn to finish before archiving.'
+                  : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined}
+                onClick={() => {
+                  if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
+                  moreMenuRef.current?.removeAttribute('open');
+                  void archiveOpenSession();
+                }}
+              >Archive session</button>
+            )}
+            {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
+            {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
+          </>}
+        />
+      )}
 
       {!loading && !arenaOpen && (
         <WorkspaceTabs
@@ -2015,8 +1996,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 session={session}
                 theme={theme}
                 pendingAttachmentIds={pendingAttachmentIds}
-                // Docked, the list stays for browsing; as a phone overlay it would hide what was chosen.
-                onSelect={(id) => { selectDiagram(id); if (panelLayout.dockCapacity === 0) panelLayout.closeRepository(); }}
+                // Docked, the list stays for browsing unless a hidden canvas returns to its dock; as a
+                // phone overlay it would hide what was chosen.
+                onSelect={(id) => { selectShownDiagram(id); if (panelLayout.dockCapacity === 0) panelLayout.closeRepository(); }}
                 onPin={togglePin}
                 onToggleAttachment={toggleAttachment}
               />
@@ -2032,8 +2014,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             ) : undefined}
             open={panelLayout.repositoryOpen}
             tab={panelLayout.sideTab}
-            onTab={panelLayout.selectSideTab}
-            onClose={panelLayout.closeRepository}
             onInspectorOpenChange={panelLayout.setInspectorOpen}
           />
           {panelLayout.repositoryOpen && (
@@ -2119,6 +2099,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : (
         <>
           <CanvasWorkspace
+            hidden={canvasHidden}
             session={session}
             theme={theme}
             pendingApprovals={sessionRunning ? permissions.length : 0}
@@ -2132,7 +2113,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             spatial={view?.spatial}
             onComposer={setComposer}
             onOpenChat={() => { panelLayout.openConversation(); setUnread(0); }}
-            onOpenHistory={panelLayout.toggleHistory}
             onToggleFocus={panelLayout.toggleFocusMode}
             onSelectDiagram={selectDiagram}
             onNewSketch={createSketch}
@@ -2173,8 +2153,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               attached={attachedCanvases}
               reports={pendingReportChips}
               markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), session.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
-              onClose={panelLayout.closeConversation}
-              onSelectDiagram={(id) => selectDiagram(id)}
+              onSelectDiagram={selectShownDiagram}
               onRetry={(text, participantId, retryMode, reportIds) => retryMessage(participantId, text, retryMode, reportIds)}
               onComposer={setComposer}
               onModeChange={setMode}
@@ -2190,10 +2169,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               onExecutePlan={executePlan}
               onToggleAttachment={toggleAttachment}
               onOpenHistory={() => openSideFromComposer('history')}
-              onNewSketch={createSketch}
+              onNewSketch={createShownSketch}
               onOpenReports={reports.available && reports.projectId ? () => openSideFromComposer('reports') : undefined}
             />
-            {panelLayout.conversationOpen && (
+            {panelLayout.conversationOpen && !canvasHidden && (
               <div
                 className="panel-resize-handle conversation-resize-handle"
                 role="separator"

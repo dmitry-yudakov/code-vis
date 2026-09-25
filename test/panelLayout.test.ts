@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   CANVAS_MIN_WIDTH,
+  CONVERSATION_MIN_WIDTH,
   DEFAULT_PANEL_LAYOUT,
   DEFAULT_PANEL_WIDTHS,
   MAX_VIEW_PANEL_LAYOUTS,
   dockCapacityForWidth,
+  isCanvasHidden,
   parsePanelWidths,
   parseViewPanelLayouts,
   reconcilePanelLayouts,
   resolveDockWidths,
   storePanelLayout,
+  toggledCanvas,
+  withoutConversation,
+  type DockCapacity,
+  type PanelLayout,
 } from '@/features/shell/panelLayout';
 
 function viewId(index: number): string {
@@ -17,11 +23,11 @@ function viewId(index: number): string {
 }
 
 describe('panel layout geometry', () => {
-  it('derives both docking thresholds from the column minimums', () => {
-    expect(dockCapacityForWidth(639)).toBe(0);
-    expect(dockCapacityForWidth(640)).toBe(1);
-    expect(dockCapacityForWidth(959)).toBe(1);
-    expect(dockCapacityForWidth(960)).toBe(2);
+  it('derives both docking thresholds from the column minimums and the activity bar', () => {
+    expect(dockCapacityForWidth(687)).toBe(0);
+    expect(dockCapacityForWidth(688)).toBe(1);
+    expect(dockCapacityForWidth(1007)).toBe(1);
+    expect(dockCapacityForWidth(1008)).toBe(2);
   });
 
   it('clamps stored widths and safely falls back for invalid storage', () => {
@@ -58,10 +64,24 @@ describe('panel layout geometry', () => {
         inspectorOpen: true,
         focusMode: true,
         lastOpened: 'dock',
+        // Written before Story 72, when the canvas could not be hidden.
+        canvasOpen: true,
         repositoryWidth: 268,
         conversationWidth: 560,
       },
     });
+  });
+
+  it('keeps a stored hidden canvas and opens every other stored layout with the canvas', () => {
+    const id = viewId(2);
+    const parse = (canvasOpen: unknown) => parseViewPanelLayouts(JSON.stringify({ version: 1, layouts: { [id]: { conversationOpen: true, canvasOpen } } }))[id].canvasOpen;
+    expect(parse(false)).toBe(false);
+    expect(parse(true)).toBe(true);
+    expect(parse(undefined)).toBe(true);
+    expect(parse('no')).toBe(true);
+    expect(DEFAULT_PANEL_LAYOUT.canvasOpen).toBe(true);
+    // Both closed would re-hide the canvas the moment the conversation opened again.
+    expect(parseViewPanelLayouts(JSON.stringify({ version: 1, layouts: { [id]: { conversationOpen: false, canvasOpen: false } } }))[id].canvasOpen).toBe(true);
   });
 
   it('opens a view nobody has arranged with the conversation and without the side panel', () => {
@@ -131,5 +151,84 @@ describe('panel layout geometry', () => {
     });
     expect(resolved.repositoryColumnWidth).toBe(600);
     expect(960 - resolved.repositoryColumnWidth).toBe(CANVAS_MIN_WIDTH);
+  });
+});
+
+describe('hiding the canvas', () => {
+  const layout = (overrides: Partial<PanelLayout> = {}): PanelLayout => ({ ...DEFAULT_PANEL_LAYOUT, ...overrides });
+  const capacities: DockCapacity[] = [0, 1, 2];
+
+  it('hides the canvas only beside an open conversation, outside focus mode, above the overlay band', () => {
+    const hidden = layout({ canvasOpen: false, conversationOpen: true });
+    expect(isCanvasHidden(hidden, 2)).toBe(true);
+    expect(isCanvasHidden(hidden, 1)).toBe(true);
+    expect(isCanvasHidden(hidden, 0)).toBe(false);
+    expect(isCanvasHidden({ ...hidden, focusMode: true }, 2)).toBe(false);
+    // A stored layout that closed both shows the canvas: the two are never hidden together.
+    expect(isCanvasHidden({ ...hidden, conversationOpen: false }, 2)).toBe(false);
+    expect(isCanvasHidden(layout(), 2)).toBe(false);
+  });
+
+  it('hides the canvas by opening the conversation, and leaves focus mode', () => {
+    for (const capacity of [1, 2] as const) {
+      const next = toggledCanvas(layout({ conversationOpen: false, focusMode: true, repositoryOpen: true }), capacity);
+      expect(next).toMatchObject({ canvasOpen: false, conversationOpen: true, focusMode: false, repositoryOpen: true });
+      expect(isCanvasHidden(next, capacity)).toBe(true);
+    }
+  });
+
+  it('shows the canvas again, closing the side panel only where one dock fits', () => {
+    const both = layout({ canvasOpen: false, conversationOpen: true, repositoryOpen: true });
+    expect(toggledCanvas(both, 2)).toMatchObject({ canvasOpen: true, conversationOpen: true, repositoryOpen: true });
+    expect(toggledCanvas(both, 1)).toMatchObject({ canvasOpen: true, conversationOpen: true, repositoryOpen: false });
+    // At two docks a diff inspector would need the conversation's room: the side panel gives way.
+    expect(toggledCanvas(both, 2, false)).toMatchObject({ canvasOpen: true, conversationOpen: true, repositoryOpen: false });
+    expect(toggledCanvas(both, 1, true)).toMatchObject({ repositoryOpen: false });
+  });
+
+  it('shows the canvas when the conversation closes, and keeps it when the conversation returns', () => {
+    const closed = withoutConversation(layout({ canvasOpen: false, conversationOpen: true }));
+    expect(closed).toMatchObject({ canvasOpen: true, conversationOpen: false });
+    expect(isCanvasHidden({ ...closed, conversationOpen: true }, 2)).toBe(false);
+  });
+
+  it('never leaves the canvas and the conversation both hidden', () => {
+    for (const capacity of capacities) {
+      for (const canvasOpen of [true, false]) {
+        for (const conversationOpen of [true, false]) {
+          for (const focusMode of [true, false]) {
+            const next = toggledCanvas(layout({ canvasOpen, conversationOpen, focusMode }), capacity);
+            expect(next.canvasOpen || next.conversationOpen).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it('gives the side panel what the conversation minimum leaves while the canvas is hidden', () => {
+    const resolved = resolveDockWidths({
+      shellWidth: 952,
+      capacity: 1,
+      repositoryOpen: true,
+      dockOpen: true,
+      canvasShown: false,
+      inspectorOpen: false,
+      lastOpened: 'dock',
+      widths: { repositoryWidth: 480, conversationWidth: 460 },
+    });
+    expect(resolved.repositoryColumnWidth).toBe(480);
+    // The conversation takes the rest of the row, so its column is not fixed.
+    expect(resolved.conversationColumnWidth).toBe(0);
+    const narrow = resolveDockWidths({
+      shellWidth: 640,
+      capacity: 1,
+      repositoryOpen: true,
+      dockOpen: true,
+      canvasShown: false,
+      inspectorOpen: false,
+      lastOpened: 'dock',
+      widths: { repositoryWidth: 480, conversationWidth: 460 },
+    });
+    expect(narrow.repositoryColumnWidth).toBe(640 - CONVERSATION_MIN_WIDTH);
   });
 });

@@ -38,7 +38,7 @@ the repository copy in the same change.
 
 | Board | Shows |
 |---|---|
-| `Main` | 1440, Story 62's default (conversation open, side panel closed), a running turn. Interactive: the activity bar, the three layout toggles, and the composer menus work. |
+| `Main` | 1440, Story 62's default (conversation open, side panel closed), a running turn. Interactive: the activity bar, the two layout toggles, and the composer menus work. |
 | `ArenaDark` | Dark, Arena in the side panel, Docker session, mode menu open, another session needs you |
 | `Default1280` | 1280, an approval waiting in this session, Agent mode, a notice row |
 | `Narrow1000` | 1000, one dock, the execution menu with Docker not enabled |
@@ -53,7 +53,7 @@ removed every element the browser cannot back without new server work (see *Need
 
 | Today | Where | Becomes |
 |---|---|---|
-| Header: breadcrumb pickers, Arena and Inbox links, Repository and Conversation toggles, More | [AppShell.tsx:1724](../src/features/shell/AppShell.tsx#L1724), actions at [:1763](../src/features/shell/AppShell.tsx#L1763) | Title bar: identity, session tabs, three layout icons |
+| Header: breadcrumb pickers, Arena and Inbox links, Repository and Conversation toggles, More | [AppShell.tsx:1724](../src/features/shell/AppShell.tsx#L1724), actions at [:1763](../src/features/shell/AppShell.tsx#L1763) | Title bar: identity, session tabs, two layout icons (canvas, conversation); the activity bar owns the side panel |
 | Session tab strip in its own 34px row | [WorkspaceTabs.tsx:44](../src/features/conversation/WorkspaceTabs.tsx#L44), mounted at [AppShell.tsx:1978](../src/features/shell/AppShell.tsx#L1978) | Tabs inside the title bar |
 | Side panel tabs Changes, History, Reports | [RepositorySidebar.tsx:38](../src/features/repository/RepositorySidebar.tsx#L38) | Activity bar views |
 | Canvas toolbar row: Flat/Spatial, New sketch, History, Focus | [CanvasWorkspace.tsx:103](../src/features/diagram/components/CanvasWorkspace.tsx#L103) | A floating canvas bar that publishes its inset |
@@ -73,7 +73,8 @@ removed every element the browser cannot back without new server work (see *Need
    each have one home in the default layout. A second copy is allowed only where the first one is
    hidden, such as run state in the status bar while the conversation is closed.
 4. **A control budget.** Every story measures visible controls at 1440×900 in the default layout, and
-   none raises the count. The epic's target is 36, against 43 after Story 62.
+   none raises the count. The epic's target is 35, against 43 after Story 62. (It was 36 until
+   Story 72 left out the design's side panel icon, which the count could not pay for.)
 5. **Nothing covers the canvas** at docking widths. Notices become a layout row, and floating canvas
    bars publish their inset. Hiding the canvas is the user's choice, and the canvas and the
    conversation are never both hidden.
@@ -85,7 +86,7 @@ removed every element the browser cannot back without new server work (see *Need
 | # | Story | Theme | Status | Depends on |
 |---|---|---|---|---|
 | 71 | [compact-composer](STORY-20260925-compact-composer.md) | One mode picker, a `+` attach menu, and an execution line under the composer | **In progress** | — |
-| 72 | layout-frame | Activity bar (Changes, History, Reports; Arena and Inbox open the Arena page until 75); side panel, canvas, and conversation layout icons; hiding the canvas; dock bands move by 48px; More moves to the gear | Planned | — |
+| 72 | [layout-frame](STORY-20260925-layout-frame.md) | Activity bar (Changes, History, Reports; Arena and Inbox open the Arena page until 75); canvas and conversation layout icons; hiding the canvas; dock bands move by 48px; More moves to the gear | **In progress** | — |
 | 73 | title-bar-tabs | Session tabs move into the title bar; All sessions takes overflow; the tab keyboard flow survives; decide where a tab's close control sits | Planned | 72 |
 | 74 | status-bar-and-notices | Status bar: branch, needs-you with its reason, run state while the conversation is closed, provider not ready. Notices become a row in the layout | Planned | — |
 | 75 | arena-in-the-side-panel | Arena and Inbox as side-panel views sharing `arenaModel` ordering, with Open the full Arena | Planned | 72 |
@@ -99,7 +100,7 @@ template when it starts; the rows above are the scope, not the spec.
 
 ## Budget at 1440×900 with today's widths (side panel 340, conversation 460)
 
-- Visible controls in the default layout: 36 in the design, against 43 after Story 62.
+- Visible controls in the default layout: 35 in the design, against 43 after Story 62.
 - Canvas in the default layout: 932×836, against about 980×776 today, about 2.5% more area.
 - Canvas with both panels open: 592×836, against 640×776, about the same area.
 - Chrome above and below the canvas: 64px (title bar and status bar), against 124px (header, tabs,

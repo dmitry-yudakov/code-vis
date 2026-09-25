@@ -62,8 +62,9 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   await attach.click();
   await conversation.getByRole('menu', { name: 'Attach to the next instruction' }).getByRole('menuitem', { name: 'Headset report…' }).click();
   const sidePanel = page.locator('.repository-sidebar');
+  const views = page.getByRole('navigation', { name: 'Views' });
   await expect(page.getByRole('complementary', { name: 'CodeAI reports' })).toBeVisible();
-  await expect(sidePanel.getByRole('button', { name: 'Reports', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(views.getByRole('button', { name: 'Reports', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const elsewhereRow = sidePanel.locator('.report-item').filter({ hasText: `Seen elsewhere ${stamp}` });
   await expect(elsewhereRow).toContainText(`Captured in ${elsewhere.project.name}`);
   await expect(elsewhereRow.locator('img')).toHaveJSProperty('complete', true);
@@ -125,11 +126,10 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   await expect(composer).toHaveValue('Wait for reload cancellation.');
   await expect(page.locator('.attachment-chip.report')).toHaveCount(1);
 
-  // Any other project has no Reports tab, and the attach menu offers no report.
+  // Any other project has no Reports view, and the attach menu offers no report.
   await selectProject(page, elsewhere.project.name);
-  await page.locator('.repository-toggle').click();
-  await expect(sidePanel.getByRole('button', { name: 'History', exact: true })).toBeVisible();
-  await expect(sidePanel.getByRole('button', { name: 'Reports', exact: true })).toHaveCount(0);
+  await expect(views.getByRole('button', { name: 'History', exact: true })).toBeVisible();
+  await expect(views.getByRole('button', { name: 'Reports', exact: true })).toHaveCount(0);
   await attach.click();
   const attachMenu = conversation.getByRole('menu', { name: 'Attach to the next instruction' });
   await expect(attachMenu.getByRole('menuitem', { name: 'New sketch' })).toBeVisible();

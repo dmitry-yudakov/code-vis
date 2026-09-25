@@ -221,8 +221,10 @@ export function DiagramCanvas({
     };
   }, [canvasId]);
 
+  // A restored fitted view fits the size the canvas mounts at, which may differ from the stored one
+  // (the canvas was hidden, or a panel opened meanwhile). A view the user framed keeps its camera.
   useEffect(() => {
-    if (!snapshot || fittedCanvasRef.current === canvasId) return;
+    if (!snapshot || (fittedCanvasRef.current === canvasId && !viewIsFittedRef.current)) return;
     fittedCanvasRef.current = canvasId;
     fit();
   }, [canvasId, snapshot, fit]);

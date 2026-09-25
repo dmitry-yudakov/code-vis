@@ -35,9 +35,8 @@ Provider upgrade checks</button>
 <button aria-label="All sessions in code-ai, and views that do not fit" title="All sessions" style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex-shrink: 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><path d="m6 9 6 6 6-6"></path></svg></button>
 <button aria-label="New session" title="New session" style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex-shrink: 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><path d="M12 5v14M5 12h14"></path></svg></button>
 <span style="flex-grow: 1"></span>
-<button onClick="{{toggleSide}}" aria-label="Side panel" aria-pressed="{{sideOpen}}" title="Toggle side panel" style="display: flex; align-items: center; justify-content: center; width: 28px; height: 26px; padding: 0; border: 0; border-radius: 5px; cursor: pointer; {{sideToggleStyle}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
-<button onClick="{{toggleCanvas}}" aria-label="Canvas" aria-pressed="{{canvasOpen}}" title="Toggle canvas" style="display: flex; align-items: center; justify-content: center; width: 28px; height: 26px; padding: 0; border: 0; border-radius: 5px; cursor: pointer; {{canvasToggleStyle}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><rect x="7" y="8" width="5" height="3.5" rx="0.5"></rect><rect x="12" y="12.5" width="5" height="3.5" rx="0.5"></rect></svg></button>
-<button onClick="{{toggleConv}}" aria-label="{{convToggleLabel}}" aria-pressed="{{convOpen}}" title="Toggle conversation" style="position: relative; display: flex; align-items: center; justify-content: center; width: 28px; height: 26px; padding: 0; border: 0; border-radius: 5px; cursor: pointer; {{convToggleStyle}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>
+<button onClick="{{toggleCanvas}}" aria-label="Canvas" aria-pressed="{{canvasOpen}}" title="{{canvasToggleTitle}}" style="display: flex; align-items: center; justify-content: center; width: 28px; height: 26px; padding: 0; border: 0; border-radius: 5px; cursor: pointer; {{canvasToggleStyle}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><rect x="7" y="8" width="5" height="3.5" rx="0.5"></rect><rect x="12" y="12.5" width="5" height="3.5" rx="0.5"></rect></svg></button>
+<button onClick="{{toggleConv}}" aria-label="{{convToggleLabel}}" aria-pressed="{{convOpen}}" title="{{convToggleTitle}}" style="position: relative; display: flex; align-items: center; justify-content: center; width: 28px; height: 26px; padding: 0; border: 0; border-radius: 5px; cursor: pointer; {{convToggleStyle}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>
 <sc-if value="{{convBadge}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -2px; top: -3px; min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; color: var(--on-emphasis); font-size: 9.5px; font-weight: 700; line-height: 15px; text-align: center; background: {{convBadgeBg}}">1</span></sc-if>
 </button>
 </header>
@@ -65,7 +64,7 @@ Provider upgrade checks</button>
 <span style="position: absolute; right: 6px; bottom: 7px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; color: var(--on-emphasis); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px; font-weight: 700; line-height: 16px; text-align: center; background: {{inboxBadgeBg}}">{{inboxCount}}</span>
 </button>
 <span style="flex-grow: 1"></span>
-<button aria-label="More: theme, Export, VR, Build &amp; restart, archive" title="More" style="width: 48px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer">
+<button aria-label="More" title="More" style="width: 48px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer">
 <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
 </button>
 </nav>
@@ -543,7 +542,8 @@ class Component extends DCLogic {
     const openView = (v) => () => this.setState(showSide(v));
     const showConv = () => ({ convOpen: true, ...(oneDock ? { sideOpen: false } : {}) });
     const ab = (v) => (onView(v) ? 'color: var(--ink); box-shadow: inset 2px 0 0 var(--ink);' : 'color: var(--muted);');
-    const toggleOn = 'color: var(--ink); background: var(--shell-sunk);';
+    // A shown pane is marked by ink and by an edge, as in the activity bar, never by colour alone.
+    const toggleOn = 'color: var(--ink); background: var(--shell-sunk); box-shadow: inset 0 -2px 0 var(--ink);';
     const toggleOff = 'color: var(--muted); background: transparent;';
     const closePalette = () => this.setState({ palette: false });
     const closeMenu = () => this.setState({ menu: 'none' });
@@ -722,7 +722,6 @@ class Component extends DCLogic {
       goArena: toggleView('arena'),
       goInbox: toggleView('inbox'),
       needsYouGo: permissionHere && !convOpen ? () => this.setState(showConv()) : openView('inbox'),
-      toggleSide: () => this.setState(sideOpen ? { sideOpen: false } : { sideOpen: true, ...(oneDock ? { convOpen: false } : {}) }),
       // The canvas and the conversation are never both hidden.
       toggleCanvas: () => this.setState(canvasOpen
         ? { canvasOpen: false, convOpen: true }
@@ -733,20 +732,21 @@ class Component extends DCLogic {
       convColumnStyle: canvasOpen ? 'width: 460px; flex-shrink: 0; border-left: 1px solid var(--line);' : 'flex: 1 1 0; min-width: 0;',
       closePalette,
       paletteKey: (event) => { if (event && event.key === 'Escape') closePalette(); },
-      sideToggleStyle: sideOpen ? toggleOn : toggleOff,
       canvasToggleStyle: canvasOpen ? toggleOn : toggleOff,
       convToggleStyle: convOpen ? toggleOn : toggleOff,
       convBadge: hereBadge,
       convBadgeBg: permissionHere ? 'var(--wait-strong)' : 'var(--plot)',
-      convToggleLabel: hereBadge ? 'Conversation, 1 approval waiting' : 'Conversation',
+      convToggleLabel: hereBadge ? 'Conversation, 1 action waiting for your approval' : 'Conversation',
+      canvasToggleTitle: canvasOpen ? 'Hide the canvas' : 'Show the canvas',
+      convToggleTitle: convOpen ? 'Close the conversation' : 'Open the conversation',
       currentNeedsYou: permissionHere,
       currentRunning: running && !permissionHere,
       currentTabLabel: `Workbench shell, ${currentState.toLowerCase()}`,
       otherIdle: !needsYou,
       otherTabLabel: needsYou ? 'Provider upgrade checks, needs you' : 'Provider upgrade checks, idle',
       inboxCount: String(inboxItems),
-      inboxLabel: `Inbox, ${inboxItems} items${needsYou || permissionHere ? ', needs you' : ''}`,
-      inboxBadgeBg: needsYou || permissionHere ? 'var(--wait-strong)' : 'var(--ink2)',
+      inboxLabel: `Inbox, ${inboxItems} unread`,
+      inboxBadgeBg: 'var(--wait-strong)',
       hereReason,
       otherReason,
       ribbon: !running ? [] : permissionHere

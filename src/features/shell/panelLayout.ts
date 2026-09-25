@@ -6,6 +6,8 @@ export const CONVERSATION_MIN_WIDTH = 320;
 export const CONVERSATION_MAX_WIDTH = 560;
 export const CANVAS_MIN_WIDTH = 360;
 export const PANEL_HANDLE_ALLOWANCE = 12;
+/** The activity bar's column. The docks and the canvas share what is left of the shell. */
+export const ACTIVITY_BAR_WIDTH = 48;
 export const MAX_VIEW_PANEL_LAYOUTS = 200;
 
 export interface PanelWidths {
@@ -27,6 +29,8 @@ const SIDE_TABS: readonly SideTab[] = ['changes', 'history', 'reports'];
 export interface PanelLayout extends PanelWidths {
   repositoryOpen: boolean;
   conversationOpen: boolean;
+  /** False while the user has hidden the canvas; see `isCanvasHidden` for when that holds. */
+  canvasOpen: boolean;
   sideTab: SideTab;
   inspectorOpen: boolean;
   focusMode: boolean;
@@ -37,6 +41,7 @@ export interface PanelLayout extends PanelWidths {
 export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
   repositoryOpen: false,
   conversationOpen: true,
+  canvasOpen: true,
   sideTab: 'changes',
   inspectorOpen: false,
   focusMode: false,
@@ -85,6 +90,8 @@ export function parseViewPanelLayouts(value: string | null): Record<string, Pane
       result[viewId] = {
         repositoryOpen: candidate.repositoryOpen !== false,
         conversationOpen: candidate.conversationOpen === true,
+        // A layout that closed the conversation has nothing to give the canvas's width to.
+        canvasOpen: candidate.canvasOpen !== false || candidate.conversationOpen !== true,
         sideTab: SIDE_TABS.includes(candidate.sideTab as SideTab) ? candidate.sideTab as SideTab : 'changes',
         inspectorOpen: candidate.inspectorOpen === true,
         focusMode: candidate.focusMode === true,
@@ -126,10 +133,36 @@ export function reconcilePanelLayouts(
 }
 
 /** The thresholds come from the live column minimums rather than a separate CSS breakpoint. */
-export function dockCapacityForWidth(width: number): DockCapacity {
+export function dockCapacityForWidth(shellWidth: number): DockCapacity {
+  const width = shellWidth - ACTIVITY_BAR_WIDTH;
   if (width >= REPOSITORY_MIN_WIDTH + CONVERSATION_MIN_WIDTH + CANVAS_MIN_WIDTH + PANEL_HANDLE_ALLOWANCE) return 2;
   if (width >= REPOSITORY_MIN_WIDTH + CANVAS_MIN_WIDTH + PANEL_HANDLE_ALLOWANCE) return 1;
   return 0;
+}
+
+/**
+ * The canvas hides only beside an open conversation, so the two are never hidden together. Focus
+ * mode and the overlay band, where the panels float over the canvas, always show it.
+ */
+export function isCanvasHidden(layout: PanelLayout, capacity: DockCapacity): boolean {
+  return !layout.canvasOpen && layout.conversationOpen && !layout.focusMode && capacity > 0;
+}
+
+/** Closing the conversation shows the canvas, and keeps it shown when the conversation returns. */
+export function withoutConversation(layout: PanelLayout): PanelLayout {
+  return { ...layout, conversationOpen: false, canvasOpen: true };
+}
+
+/**
+ * Hiding the canvas opens the conversation to take its width. Showing it again keeps the
+ * conversation and closes the side panel where the side panel no longer fits beside the two: where
+ * only one dock fits, or where a diff inspector would need the conversation's room (`sideFits`).
+ */
+export function toggledCanvas(layout: PanelLayout, capacity: DockCapacity, sideFits = capacity === 2): PanelLayout {
+  if (isCanvasHidden(layout, capacity)) {
+    return { ...layout, canvasOpen: true, ...(capacity === 1 || !sideFits ? { repositoryOpen: false } : {}) };
+  }
+  return { ...layout, canvasOpen: false, conversationOpen: true, focusMode: false, lastOpened: 'dock' };
 }
 
 export interface ResolvedDockWidths extends PanelWidths {
@@ -146,6 +179,7 @@ export function resolveDockWidths({
   capacity,
   repositoryOpen,
   dockOpen,
+  canvasShown = true,
   inspectorOpen,
   lastOpened,
   widths,
@@ -154,6 +188,7 @@ export function resolveDockWidths({
   capacity: DockCapacity;
   repositoryOpen: boolean;
   dockOpen: boolean;
+  canvasShown?: boolean;
   inspectorOpen: boolean;
   lastOpened: LastOpenedPanel;
   widths: PanelWidths;
@@ -162,6 +197,17 @@ export function resolveDockWidths({
   let conversationWidth = clampPanelWidths(widths).conversationWidth;
   if (capacity === 0) {
     return { repositoryWidth, conversationWidth, repositoryColumnWidth: 0, conversationColumnWidth: 0 };
+  }
+  if (!canvasShown) {
+    // The conversation takes whatever the side panel leaves, and keeps at least its minimum.
+    const room = Math.max(0, shellWidth - CONVERSATION_MIN_WIDTH);
+    const wanted = inspectorOpen && capacity === 2 ? repositoryWidth * 2 : repositoryWidth;
+    return {
+      repositoryWidth: Math.min(repositoryWidth, room),
+      conversationWidth,
+      repositoryColumnWidth: repositoryOpen ? Math.min(wanted, room) : 0,
+      conversationColumnWidth: 0,
+    };
   }
 
   const repositoryVisible = repositoryOpen;

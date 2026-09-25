@@ -325,7 +325,7 @@ When you develop CodeAI with CodeAI, a report is evidence you can hand to the ag
 running from. Renaming a project changes nothing, and another checkout named `code-ai` does not
 qualify. Sessions in such a project always run Local, because Docker refuses CodeAI's own checkout.
 
-- **Flat shell.** The side panel gains a **Reports** tab beside Changes and History. It lists every
+- **Flat shell.** The activity bar gains a **Reports** view beside Changes and History. It lists every
   retained report, newest first, with its time, kind, note or latest error, a thumbnail, and where it
   was captured. A report captured while another project was open can show that project's
   conversation or canvas; the row says so, and nothing is attached on its own. **Attach next** adds
@@ -617,11 +617,11 @@ stored data. `next dev` and `next build` now use Turbopack, and `next dev` write
 ## Arena and Inbox
 
 The workspace lives at `/`; the Arena's canonical destinations are `/arena` for active sessions,
-`/arena/inbox`, and `/arena/archived`. Header controls and Arena tabs use client navigation, so
+`/arena/inbox`, and `/arena/archived`. The activity bar's links and the Arena tabs use client navigation, so
 refresh, bookmarks, and browser Back/Forward preserve the top-level destination without encoding
 device-local tabs, drafts, or panel state in the URL.
 
-The header **Arena** control opens an overview of active sessions, grouped first by execution
+**Arena** in the activity bar opens an overview of active sessions, grouped first by execution
 machine and then by project.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
 latest activity. An inactive session can be archived from its card, or from inside it with
@@ -630,7 +630,7 @@ reserved, queued, executing, or permission-blocked turn cannot be archived. Use 
 there to choose a project, provider, and initial mode before opening an empty session; creation
 never sends a prompt automatically.
 
-The header **Inbox** follows you into every session and aggregates all online attached machines. It
+**Inbox** in the activity bar follows you into every session and aggregates all online attached machines. It
 puts live permission requests first, then
 failed and completed turns, and lets you answer a background session's permission without opening
 it. Finished-item read markers are bounded device-only state. The Arena polls compact, bounded
@@ -869,8 +869,19 @@ The first valid diagram opens on the canvas.
 
 The canvas supports pan, wheel/buttons zoom, fit/reset, pen, rectangle, arrow, text, eraser,
 50-step undo/redo, confirmed clear, Mermaid source export (diagrams only), and canvas/marks JSON
-export. Chat and canvas history are drawers. Focus mode fills the application viewport while
-retaining tools, status, and the instruction composer.
+export. Focus mode fills the application viewport while retaining tools, status, and the
+instruction composer.
+
+The activity bar at the left edge picks the side panel's view: **Changes** (with the working
+tree's change count), **History**, and, in CodeAI's own project, **Reports**. Pressing the shown
+view closes the panel. **Arena** and **Inbox** follow, and the gear at the bottom holds **More**:
+the theme, Export session, Archive session, and Build & restart where offered. The header ends with
+two layout icons. **Conversation** opens and closes the conversation and, while it is closed,
+carries pending approvals or unread replies as a badge. **Canvas** hides the canvas so the
+conversation takes the width, centred for reading; closing the conversation brings the canvas
+back, so the two are never hidden together. The choice is per session view on this device.
+Opening a diagram or starting a sketch from the conversation shows the canvas again. Below 688px
+the panels overlay a canvas that always shows.
 
 Once a diagram or sketch exists, **Flat / Spatial** switches between two projections of the same
 session artifacts. Spatial lazily loads a local WebGL room containing the active canvas plus the

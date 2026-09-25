@@ -23,8 +23,8 @@ test('an unmanaged server offers no Build & restart, even in CodeAI’s own proj
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(name) }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(name);
-  await page.locator('.header-menu > summary').click();
-  await expect(page.locator('.header-menu').getByRole('button', { name: 'Export session' })).toBeVisible();
+  await page.locator('.more-menu > summary').click();
+  await expect(page.locator('.more-menu').getByRole('button', { name: 'Export session' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Build & restart CodeAI' })).toHaveCount(0);
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
 });
@@ -72,7 +72,7 @@ test('a managed server’s control confirms, follows the build and restart, and 
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(self.name) }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(self.name);
-  const menu = page.locator('.header-menu');
+  const menu = page.locator('.more-menu');
   await menu.locator('summary').click();
   await expect(menu.getByRole('status')).toContainText('Serving release release-a.');
   await menu.getByRole('button', { name: 'Build & restart CodeAI' }).click();

@@ -15,7 +15,7 @@ import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
-  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, markCounts, onClose, onSelectDiagram, onRetry,
+  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport, onDecidePermission, onExecutePlan,
   continuing, continuationUnavailable, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
@@ -44,7 +44,6 @@ export function ConversationDrawer({
   attached: CanvasTarget[];
   reports: PendingReportChip[];
   markCounts: Record<string, number>;
-  onClose(): void;
   onSelectDiagram(id: string): void;
   onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[]): void;
   onComposer(value: string): void;
@@ -81,7 +80,6 @@ export function ConversationDrawer({
           <strong>{session?.title || 'New session'}</strong>
           {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
         </div>
-        <button type="button" onClick={onClose} aria-label="Close conversation drawer">×</button>
       </header>
       <div className="conversation-scroll">
         {session?.messages.map((message) => (

@@ -70,6 +70,8 @@ describe('design tokens', () => {
         [colors.ink2, colors.shellSunk],
         [colors.ink2, colors.controlWash],
         [colors.muted, colors.raised],
+        // The activity bar's change count (Story 72); its side panel titles use ink-2 on shell-sunk.
+        [colors.onEmphasis, colors.ink2],
       ];
       for (const [foreground, background] of textPairs) {
         expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);

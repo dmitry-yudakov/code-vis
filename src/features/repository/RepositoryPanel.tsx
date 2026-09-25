@@ -13,7 +13,7 @@ import type { RepositoryDiffState } from './useRepositoryDiff';
  * Repository-view composition point. A future file-tree view belongs here beside `changes`,
  * while the sidebar chrome and each view's data controller remain independent.
  */
-export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, tab, onTab, onClose, onInspectorOpenChange }: {
+export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, tab, onInspectorOpenChange }: {
   checkoutId?: string;
   repositoryName: string;
   manager?: ReactNode;
@@ -23,8 +23,6 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
   diffState: RepositoryDiffState;
   open: boolean;
   tab: SideTab;
-  onTab(tab: SideTab): void;
-  onClose(): void;
   onInspectorOpenChange(open: boolean): void;
 }) {
 
@@ -40,8 +38,6 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
       reports={reports}
       open={open}
       tab={tab}
-      onTab={onTab}
-      onClose={onClose}
       actions={<button className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh Git status" disabled={changes.loading} onClick={changes.refresh}>↻</button>}
       inspector={checkoutId && changes.selectedFile ? (
         <RepositoryDiffInspector

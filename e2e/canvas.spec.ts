@@ -36,10 +36,25 @@ async function startSession(page: Page) {
   await expect(page.locator('.new-session-menu[open]')).toHaveCount(0);
 }
 
+/** The header's Conversation layout icon; while it is closed its name adds approvals or unread. */
+function conversationToggle(page: Page) {
+  return page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^Conversation/ });
+}
+
 async function ensureConversationOpen(page: Page) {
-  if (!await page.getByRole('complementary', { name: 'Conversation' }).count()) {
-    await page.getByRole('button', { name: /Open conversation/ }).click();
-  }
+  if (!await page.getByRole('complementary', { name: 'Conversation' }).count()) await conversationToggle(page).click();
+}
+
+async function openConversation(page: Page) {
+  await expect(conversationToggle(page)).toHaveAttribute('aria-pressed', 'false');
+  await conversationToggle(page).click();
+  await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
+}
+
+async function closeConversation(page: Page) {
+  await expect(conversationToggle(page)).toHaveAttribute('aria-pressed', 'true');
+  await conversationToggle(page).click();
+  await expect(page.getByRole('complementary', { name: 'Conversation' })).toHaveCount(0);
 }
 
 async function createWorkspace(page: Page) {
@@ -65,9 +80,18 @@ async function chooseMode(scope: Page | Locator, name: 'Ask' | 'Plan' | 'Agent')
   await expect(modePicker(scope)).toHaveText(name);
 }
 
-/** Theme and export live in the header's More menu, which stays open until toggled again. */
+/** The activity bar: the session's side-panel views, the Arena and Inbox links, and More. */
+function activityBar(page: Page) {
+  return page.getByRole('navigation', { name: 'Views' });
+}
+
+function activityView(page: Page, name: 'Changes' | 'History' | 'Reports') {
+  return activityBar(page).getByRole('button', { name: new RegExp(`^${name}`) });
+}
+
+/** Theme and export live in More, the activity bar's gear, which stays open until toggled again. */
 async function fromMoreMenu(page: Page, name: string) {
-  const menu = page.locator('.header-menu');
+  const menu = page.locator('.more-menu');
   await menu.locator('summary').click();
   await menu.getByRole('button', { name, exact: true }).click();
   await menu.locator('summary').click();
@@ -75,8 +99,8 @@ async function fromMoreMenu(page: Page, name: string) {
 
 /** The side panel starts closed unless the session has no repository yet. */
 async function openRepositoryPanel(page: Page) {
-  const toggle = page.locator('.repository-toggle');
-  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+  const changes = activityView(page, 'Changes');
+  if (await changes.getAttribute('aria-pressed') !== 'true') await changes.click();
 }
 
 async function attachRepository(page: Page, name: string) {
@@ -140,7 +164,6 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
 
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
-  const openConversation = page.getByRole('button', { name: 'Open conversation' });
 
   const composer = page.getByPlaceholder(/Ask anything about this project/);
   await composer.fill('Draw a simple architecture');
@@ -207,7 +230,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:panel-widths'))).toContain(`"repositoryWidth":${repositoryWidth + 8}`);
 
   // The canvas keeps every pixel for the diagram; the composer lives in the drawer.
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
   await expect(page.locator('.instruction-composer')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Pen (P)' }).click();
@@ -218,15 +241,15 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width * .55, box!.y + box!.height * .55, { steps: 8 });
   await page.mouse.up();
-  await openConversation.click();
+  await openConversation(page);
   await expect(page.locator('.attachment-chip')).toContainText('1 mark');
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
 
   await page.getByRole('button', { name: 'Focus' }).click();
   await expect(page.locator('.canvas-workspace')).toHaveClass(/focus-mode/);
   await expect(repository).toBeHidden();
   await page.getByRole('button', { name: 'Exit focus' }).click();
-  await openConversation.click();
+  await openConversation(page);
   const revisionComposer = page.getByPlaceholder(/Ask about or revise/);
   await revisionComposer.fill('Revise it with a context step');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -242,16 +265,18 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect(page.locator('.notice-banner')).toContainText('2 diagram results');
   await expect(page.locator('.diagram-card')).toHaveCount(4);
   await expect(page.locator('.diagram-card-svg svg')).toHaveCount(4);
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
 
-  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
+  await activityView(page, 'History').click();
+  await expect(activityView(page, 'History')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.navigator-item')).toHaveCount(4);
   // Every entry carries a picture of its canvas; the diagrams in view have rendered theirs.
   await expect(page.locator('.navigator-item .canvas-thumbnail')).toHaveCount(4);
   await expect(page.locator('.canvas-thumbnail [data-mermaid-theme] svg').first()).toBeVisible();
-  // The toolbar's History toggles its tab; the turn's notice is still over the panel's own close button.
-  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
+  // A second press on the shown view closes the side panel.
+  await activityView(page, 'History').click();
   await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeHidden();
+  await expect(activityView(page, 'History')).toHaveAttribute('aria-pressed', 'false');
 
   await page.reload();
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
@@ -285,13 +310,13 @@ test('keeps a repository-free loose session usable and durable', async ({ page }
   await startSession(page);
   const manager = page.getByRole('region', { name: 'Session repositories' });
   await expect(manager).toContainText('Attach a repository to enable agent turns');
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
   const fallbackNotice = page.getByRole('button', { name: 'Dismiss notice' });
   if (await fallbackNotice.isVisible()) await fallbackNotice.click();
 
-  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await openConversation(page);
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Try without a repository');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.notice-banner')).toContainText('Attach a repository and make it primary');
@@ -322,13 +347,13 @@ test('loads the bounded spatial room on demand and restores its device-only layo
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.diagram-card')).toHaveCount(8);
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
 
   for (let ordinal = 1; ordinal <= 5; ordinal += 1) {
     await page.getByRole('button', { name: 'New sketch' }).click();
     await expect(page.locator('.canvas-titleblock strong')).toHaveText(`Sketch ${ordinal}`);
   }
-  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
+  await activityView(page, 'History').click();
   const badDiagram = page.locator('.navigator-item').filter({ hasText: 'Diagram 4' });
   // A diagram Mermaid cannot render keeps its kind mark instead of an empty frame.
   await expect(badDiagram.locator('.canvas-thumbnail-mark')).toBeVisible();
@@ -499,7 +524,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
     await page.getByRole('button', { name: 'Send' }).click();
     await expect(page.locator('.run-ribbon')).toHaveClass(/idle/, { timeout: 12_000 });
   }
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
 
   await expect(page.getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled();
@@ -524,7 +549,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
 
   await controls.locator('[data-immersive-action="panel:conversation:focus"]').click();
   const immersiveLayoutBeforeStream = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'));
-  await page.locator('.run-status-toggle').click();
+  await openConversation(page);
   const immersiveComposer = page.getByRole('complementary', { name: 'Conversation' }).locator('textarea');
   await immersiveComposer.fill('Live immersive update');
   await page.getByRole('complementary', { name: 'Conversation' }).getByRole('button', { name: 'Send', exact: true }).click();
@@ -533,7 +558,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
   expect(await page.evaluate(() => localStorage.getItem('code-ai:device:v1:immersive-layout'))).toBe(immersiveLayoutBeforeStream);
   await controls.locator('[data-immersive-action="conversation:latest"]').click();
   await expect(controls).not.toContainText('New activity');
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
 
   const layoutBeforeExit = await persistedSpatialLayout(page);
   await page.evaluate(() => (window as Window & { __CODEAI_END_XR__?: () => void }).__CODEAI_END_XR__?.());
@@ -584,7 +609,7 @@ test('keeps multiple session views and their device layout usable during backgro
   await expect(backgroundConversation.locator('textarea')).toHaveValue('first view draft');
   await backgroundConversation.locator('textarea').fill('first view draft, edited while another turn runs');
   await expect(backgroundConversation.getByRole('button', { name: 'Send' })).toBeEnabled();
-  await backgroundConversation.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
   await page.getByRole('button', { name: 'Zoom in' }).click();
@@ -611,7 +636,7 @@ test('keeps multiple session views and their device layout usable during backgro
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('second view draft');
   await page.getByRole('tab').nth(0).click();
   await expect(page.getByRole('complementary', { name: 'Conversation' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await openConversation(page);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('first view draft, edited while another turn runs');
   await expect(page.locator('.canvas-controls > span').first()).toHaveText(firstViewZoom!);
   await page.getByRole('tab').nth(0).press('Delete');
@@ -751,8 +776,10 @@ test('orchestrates cross-project attention and starts configured work from the A
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(betaProject) }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
-  await expect(page.locator('.inbox-toggle')).toHaveAttribute('aria-label', /unread/);
-  await page.locator('.inbox-toggle').click();
+  const inbox = activityBar(page).getByRole('link', { name: /^Inbox/ });
+  await expect(inbox).toHaveAccessibleName(/^Inbox, \d+ unread$/);
+  await expect(inbox.locator('.activity-badge')).toBeVisible();
+  await inbox.click();
   await expect(page).toHaveURL(/\/arena\/inbox$/);
   const arena = page.getByRole('main', { name: 'Arena' });
   await expect(arena).toBeVisible();
@@ -888,7 +915,7 @@ test('archives the open session from the More menu', async ({ page, request }) =
   const archiveRequests: string[] = [];
   page.on('request', (sent) => { if (sent.method() === 'POST' && sent.url().endsWith('/archive')) archiveRequests.push(sent.url()); });
 
-  const menu = page.locator('.header-menu');
+  const menu = page.locator('.more-menu');
   const archive = menu.getByRole('button', { name: 'Archive session', exact: true });
   await ensureRepository(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
@@ -1070,7 +1097,7 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await page.goto('/');
   await startSession(page);
   await ensureRepository(page);
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
 
   // A sketch is reachable before any diagram exists — that is the point of it.
   await page.getByRole('button', { name: /Start a sketch/ }).click();
@@ -1085,7 +1112,7 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width * .6, box!.y + box!.height * .5, { steps: 8 });
   await page.mouse.up();
-  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await openConversation(page);
   await expect(page.locator('.attachment-chip')).toContainText('Your sketch included · 1 mark');
   // The drawing is the instruction: sending needs no typed text.
   await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
@@ -1093,10 +1120,10 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await expect(page.locator('.chat-message.user')).toContainText('1 sketch attached');
   await expect(page.locator('.chat-message.assistant')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
   await page.reload();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
-  await page.locator('.canvas-top-actions').getByRole('button', { name: /History/ }).click();
+  await activityView(page, 'History').click();
   await expect(page.locator('.navigator-item')).toContainText('Sketch 1');
 });
 
@@ -1111,7 +1138,8 @@ test('discovers, reattaches, and cancels a turn that outlives a reload', async (
   const discovery = page.waitForResponse((response) => response.url().endsWith('/api/agent/runs'));
   await page.reload();
   expect((await (await discovery).json()).active).toHaveLength(1);
-  await expect(page.locator('.run-status-toggle')).toHaveAttribute('aria-label', /Agent working/);
+  // The session's tab carries a reattached turn while the conversation is closed.
+  await expect(page.getByRole('tab', { selected: true })).toHaveClass(/working/);
   await ensureConversationOpen(page);
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -1136,7 +1164,8 @@ test('recovers a host-wide run in its canonical project scope', async ({ page })
 
   await page.reload();
   await expect(page.locator('.project-search-trigger')).toContainText(ownerProject);
-  await expect(page.locator('.run-status-toggle')).toHaveAttribute('aria-label', /Agent working/);
+  // The session's tab carries a reattached turn while the conversation is closed.
+  await expect(page.getByRole('tab', { selected: true })).toHaveClass(/working/);
   await ensureConversationOpen(page);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('.notice-banner')).toContainText('cancelled');
@@ -1210,7 +1239,7 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   const discovery = page.waitForResponse((response) => response.url().endsWith('/api/agent/runs'));
   await page.reload({ waitUntil: 'networkidle' });
   expect((await (await discovery).json()).active).toHaveLength(0);
-  await expect(page.locator('.unread-badge')).toHaveCount(0);
+  await expect(page.locator('.unread-badge, .layout-badge')).toHaveCount(0);
   await ensureConversationOpen(page);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('.participant-chip.active')).toContainText('Main');
   await expect(page.locator('.stream-preview')).toHaveCount(0);
@@ -1571,8 +1600,20 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await ensureConversationOpen(page);
   await expect(picker).toHaveText('Agent');
 
+  // A phone keeps the activity bar beside the open conversation overlay.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ensureConversationOpen(page);
+  const phoneBar = (await activityBar(page).boundingBox())!;
+  const phoneConversation = (await conversation.boundingBox())!;
+  expect(phoneBar.x + phoneBar.width).toBeLessThanOrEqual(phoneConversation.x);
+  await page.locator('.more-menu > summary').click();
+  await expect(page.locator('.more-menu').getByRole('group', { name: 'Theme' })).toBeVisible();
+  await page.locator('.more-menu > summary').click();
+  await page.setViewportSize({ width: 1280, height: 720 });
+
   // On a phone the side panel is an overlay, so the composer's way to History closes the conversation.
-  await page.getByRole('button', { name: 'Close side panel' }).click();
+  await activityView(page, 'History').click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await ensureConversationOpen(page);
   await attach.click();
@@ -1581,32 +1622,263 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await expect(conversation).toHaveCount(0);
 });
 
+test('picks side-panel views from the activity bar, leaves focus, and reaches the Arena', async ({ page, request }) => {
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: Array<{ id: string; name: string }> };
+  const name = `Activity bar ${Date.now()}`;
+  await request.post('/api/projects', { data: { name, checkoutIds: [checkouts.find((checkout) => checkout.name === 'alpha')!.id] } });
+  await page.route('**/api/repository/status?*', (route) => route.fulfill({ json: { tree: { isRepository: true, files: [
+    { path: 'one.ts', status: 'modified', staged: false, unstaged: true },
+    { path: 'two.ts', status: 'untracked', staged: false, unstaged: true },
+  ] } } }));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(name) }).click();
+  await startSession(page);
+
+  // The header keeps identity and readiness; views, the Arena, and More moved to the bar.
+  const header = page.locator('.app-header');
+  await expect(header.getByRole('link')).toHaveCount(0);
+  await expect(header.getByRole('button', { name: /^(Repository|Arena|Inbox)/ })).toHaveCount(0);
+  await expect(header.locator('details:not(.new-session-menu, .device-menu)')).toHaveCount(0);
+  const bar = activityBar(page);
+  await expect(bar.locator(':scope > :is(button, a), .more-menu > summary')).toHaveCount(5);
+  await expect(activityView(page, 'Changes')).toHaveAccessibleName('Changes, 2 files');
+  await expect(activityView(page, 'Changes').locator('.activity-badge')).toHaveText('2');
+  const [barBox, canvasBox] = await Promise.all([bar.boundingBox(), page.locator('.canvas-workspace').boundingBox()]);
+  expect(barBox!.width).toBe(48);
+  expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(canvasBox!.x + 1);
+  await expect(page.locator('.canvas-top-actions').getByRole('button', { name: /History/ })).toHaveCount(0);
+
+  // Each view toggles itself, and another view switches the panel.
+  const sidePanel = page.locator('.repository-sidebar');
+  await activityView(page, 'Changes').click();
+  await expect(page.getByRole('complementary', { name: 'Repository' })).toBeVisible();
+  await expect(sidePanel.getByRole('heading', { name: 'Changes' })).toBeVisible();
+  await expect(sidePanel.getByRole('button', { name: /Close|History|Reports/ })).toHaveCount(0);
+  await activityView(page, 'History').click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeVisible();
+  await expect(activityView(page, 'Changes')).toHaveAttribute('aria-pressed', 'false');
+  await expect(activityView(page, 'History')).toHaveAttribute('aria-pressed', 'true');
+
+  // Focus mode hides the panel; pressing its view shows it again instead of closing it unseen.
+  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeHidden();
+  await expect(activityView(page, 'History')).toHaveAttribute('aria-pressed', 'false');
+  await activityView(page, 'History').click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeVisible();
+  await expect(page.locator('.canvas-workspace')).not.toHaveClass(/focus-mode/);
+  await activityView(page, 'History').click();
+  await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeHidden();
+
+  // More opens beside the bar and stays on screen.
+  const more = page.locator('.more-menu');
+  await more.locator('summary').click();
+  const menu = more.locator(':scope > div');
+  await expect(menu.getByRole('group', { name: 'Theme' })).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'Export session' })).toBeVisible();
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.x).toBeGreaterThanOrEqual(barBox!.x + barBox!.width);
+  expect(menuBox.y).toBeGreaterThanOrEqual(0);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(900);
+  await more.locator('summary').click();
+
+  // The Arena and the Inbox are pages until they become side-panel views; the open one is marked.
+  await bar.getByRole('link', { name: 'Arena', exact: true }).click();
+  await expect(page.getByRole('main', { name: 'Arena' })).toBeVisible();
+  await expect(bar.getByRole('link', { name: 'Arena', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(bar.getByRole('button', { name: /^(Changes|History)/ })).toHaveCount(0);
+  await bar.getByRole('link', { name: /^Inbox/ }).click();
+  await expect(page).toHaveURL(/\/arena\/inbox$/);
+  await expect(bar.getByRole('link', { name: /^Inbox/ })).toHaveAttribute('aria-current', 'page');
+  await expect(bar.getByRole('link', { name: 'Arena', exact: true })).not.toHaveAttribute('aria-current', /.+/);
+});
+
+test('hides the canvas for a wide conversation, and never hides it with the conversation', async ({ page, request }) => {
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: Array<{ id: string; name: string }> };
+  const name = `Canvas toggle ${Date.now()}`;
+  await request.post('/api/projects', { data: { name, checkoutIds: [checkouts.find((checkout) => checkout.name === 'alpha')!.id] } });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(name) }).click();
+  await startSession(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await conversation.locator('textarea').fill('Draw a simple architecture');
+  await conversation.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+  await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
+
+  const layout = page.getByRole('group', { name: 'Layout' });
+  const canvasToggle = layout.getByRole('button', { name: 'Canvas', exact: true });
+  await expect(layout.getByRole('button')).toHaveCount(2);
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(conversationToggle(page)).toHaveAttribute('aria-pressed', 'true');
+  // The Conversation icon is the conversation's one close control.
+  await expect(conversation.getByRole('button', { name: /^Close/ })).toHaveCount(0);
+
+  // A mark drawn before hiding the canvas returns with it; a drawing shortcut pressed while it is
+  // hidden does nothing, because the hidden canvas is not mounted.
+  await closeConversation(page);
+  await page.getByRole('button', { name: 'Pen (P)' }).click();
+  const ink = (await page.locator('svg.ink-layer').boundingBox())!;
+  await page.mouse.move(ink.x + ink.width * .3, ink.y + ink.height * .3);
+  await page.mouse.down();
+  await page.mouse.move(ink.x + ink.width * .5, ink.y + ink.height * .5, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+
+  // Hiding the canvas opens the conversation, which reads in a centred column of up to 760px.
+  await canvasToggle.click();
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(conversation).toBeVisible();
+  await expect(page.locator('.app-shell')).toHaveClass(/canvas-hidden/);
+  await expect(page.locator('.canvas-workspace')).toHaveCSS('display', 'none');
+  await expect(page.getByRole('tabpanel')).toHaveCount(0);
+  await expect(page.locator('.diagram-canvas-shell')).toHaveCount(0);
+  await expect(conversation).toHaveCSS('border-left-width', '0px');
+  await expect(page.getByRole('separator', { name: 'Resize conversation panel' })).toHaveCount(0);
+  const [pane, composer] = await Promise.all([conversation.boundingBox(), conversation.locator('.instruction-composer').boundingBox()]);
+  expect(pane!.x).toBe(48);
+  expect(pane!.width).toBe(1440 - 48);
+  expect(composer!.width).toBeLessThanOrEqual(760);
+  expect(Math.abs(composer!.x + composer!.width / 2 - (pane!.x + pane!.width / 2))).toBeLessThan(2);
+  await canvasToggle.press('r');
+  await expect(conversation.locator('textarea')).toHaveValue('');
+
+  // Closing the conversation brings the canvas back: the two are never hidden together.
+  await closeConversation(page);
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Rectangle (R)' })).toHaveAttribute('aria-pressed', 'false');
+  await openConversation(page);
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'true');
+
+  // A hidden canvas is device layout that survives a reload; showing it again fits the new width.
+  await canvasToggle.click();
+  await page.reload();
+  await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
+  await canvasToggle.click();
+  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const stage = document.querySelector<HTMLElement>('.canvas-stage')!.getBoundingClientRect();
+    const diagram = document.querySelector<HTMLElement>('.mermaid-layer')!.getBoundingClientRect();
+    return diagram.left >= stage.left && diagram.right <= stage.right && diagram.width > stage.width / 3;
+  })).toBe(true);
+
+  // Returning at a different width, a fitted view fits the canvas it returns to.
+  await canvasToggle.click();
+  await activityView(page, 'Changes').click();
+  await canvasToggle.click();
+  await expect(page.getByRole('complementary', { name: 'Repository' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const stage = document.querySelector<HTMLElement>('.canvas-stage')!.getBoundingClientRect();
+    const diagram = document.querySelector<HTMLElement>('.mermaid-layer')!.getBoundingClientRect();
+    return diagram.left >= stage.left && diagram.right <= stage.right;
+  })).toBe(true);
+  await activityView(page, 'Changes').click();
+
+  // Opening a diagram or starting a sketch from the conversation brings a hidden canvas back.
+  await canvasToggle.click();
+  await conversation.getByRole('button', { name: 'Open on canvas' }).first().click();
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+  await canvasToggle.click();
+  await conversation.getByLabel('Attach', { exact: true }).click();
+  await conversation.getByRole('menu', { name: 'Attach to the next instruction' }).getByRole('menuitem', { name: 'New sketch' }).click();
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Sketch 1');
+  await conversation.getByRole('button', { name: 'Open on canvas' }).first().click();
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
+
+  // Focus mode gives way to a hidden canvas instead of blanking the shell.
+  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await canvasToggle.click();
+  await expect(conversation).toBeVisible();
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
+
+  // Where one dock fits beside the canvas, both panels still fit beside a hidden one.
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-1/);
+  await activityView(page, 'Changes').click();
+  await expect(page.getByRole('complementary', { name: 'Repository' })).toBeVisible();
+  await expect(conversation).toBeVisible();
+  await canvasToggle.click();
+  await expect(page.getByRole('complementary', { name: 'Repository' })).toBeHidden();
+  await expect(conversation).toBeVisible();
+  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+
+  // Below the one-dock band the panels overlay a canvas that always shows.
+  await canvasToggle.click();
+  await page.setViewportSize({ width: 600, height: 900 });
+  await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-0/);
+  await expect(canvasToggle).toHaveCount(0);
+  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
+  await canvasToggle.click();
+
+  // A closed conversation carries its pending approval on its icon.
+  await chooseMode(conversation, 'Agent');
+  await conversation.locator('textarea').fill('Make one approved edit.');
+  await conversation.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(conversation.getByLabel(/Approval required: Edit/)).toBeVisible();
+  await expect(conversationToggle(page)).toHaveAccessibleName('Conversation');
+  await closeConversation(page);
+  await expect(conversationToggle(page)).toHaveAccessibleName('Conversation, 1 action waiting for your approval');
+  await expect(conversationToggle(page).locator('.layout-badge')).toHaveText('1');
+  await expect(conversationToggle(page).locator('.layout-badge')).toHaveCSS('background-color', 'rgb(168, 98, 10)');
+  await openConversation(page);
+  await conversation.getByRole('button', { name: 'Deny' }).click();
+  await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
+});
+
 test('docks only the panels that fit the live shell width', async ({ page }) => {
-  await page.setViewportSize({ width: 800, height: 720 });
+  // The bands are the column minimums plus the 48px activity bar: one dock from 688, two from 1008.
+  await page.setViewportSize({ width: 1008, height: 720 });
   await page.goto('/');
   await startSession(page);
 
   const shell = page.locator('.app-shell');
   const repository = page.getByRole('complementary', { name: 'Repository' });
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(shell).toHaveClass(/dock-capacity-2/);
+  await page.setViewportSize({ width: 1007, height: 720 });
+  await expect(shell).toHaveClass(/dock-capacity-1/);
+  await page.setViewportSize({ width: 688, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-1/);
   await expect(conversation).toBeVisible();
   await expect(repository).toBeHidden();
 
   // At one-panel capacity, the newly opened repository replaces the conversation column.
-  await page.locator('.repository-toggle').click();
+  await activityView(page, 'Changes').click();
   await expect(repository).toBeVisible();
   await expect(conversation).toBeHidden();
 
   // Below the one-panel minimum both surfaces become overlays and can remain open together.
-  await page.setViewportSize({ width: 600, height: 720 });
+  await page.setViewportSize({ width: 687, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-0/);
-  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await page.setViewportSize({ width: 600, height: 720 });
+  await openConversation(page);
   await expect(repository).toBeVisible();
   await expect(conversation).toBeVisible();
   await expect(repository).toHaveCSS('position', 'absolute');
   await expect(page.locator('.repository-region')).toHaveCSS('position', 'fixed');
   await expect(page.locator('.conversation-region')).toHaveCSS('position', 'fixed');
+  // The side panel overlay starts beside the activity bar, which stays usable over the canvas.
+  const [barBox, overlayBox] = await Promise.all([activityBar(page).boundingBox(), repository.boundingBox()]);
+  expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(overlayBox!.x + 1);
+  await expect(activityView(page, 'Changes')).toHaveAttribute('aria-pressed', 'true');
+  // More opens over the side panel overlay rather than under it.
+  const more = page.locator('.more-menu');
+  await more.locator('summary').click();
+  const menuBox = (await more.locator(':scope > div').boundingBox())!;
+  expect(menuBox.x).toBeLessThan(overlayBox!.x + overlayBox!.width);
+  expect(await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.more-menu')),
+    [menuBox.x + menuBox.width / 2, menuBox.y + menuBox.height / 2])).toBe(true);
+  await more.locator('summary').click();
 
   const conversationSeparator = page.getByRole('separator', { name: 'Resize conversation panel' });
   const conversationWidth = Number(await conversationSeparator.getAttribute('aria-valuenow'));
@@ -1614,7 +1886,7 @@ test('docks only the panels that fit the live shell width', async ({ page }) => 
   await expect(conversationSeparator).toHaveAttribute('aria-valuenow', String(conversationWidth + 8));
 
   // Widening restores both as columns while retaining at least 360px for the canvas.
-  await page.setViewportSize({ width: 1000, height: 720 });
+  await page.setViewportSize({ width: 1100, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-2/);
   const [repositoryBox, canvasBox, conversationBox] = await Promise.all([
     repository.boundingBox(),
@@ -1647,7 +1919,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   await expect(conversation.locator('.diagram-card-svg[data-mermaid-theme="dark"] svg')).toBeVisible();
   await expect(page.locator('.tool-timeline')).toHaveCount(0);
 
-  await conversation.getByRole('button', { name: 'Close conversation drawer' }).click();
+  await closeConversation(page);
   await page.getByRole('button', { name: 'Pen (P)' }).click();
   const ink = page.locator('svg.ink-layer');
   const box = await ink.boundingBox();
@@ -1665,7 +1937,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   const transformBeforeThemeChange = await page.locator('.diagram-scene').getAttribute('style');
   await expect(page.locator('[data-mark-id]')).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Open conversation' }).click();
+  await openConversation(page);
   const darkSvg = await page.locator('.mermaid-layer svg').evaluate((element) => element.outerHTML);
   await fromMoreMenu(page, 'Light');
   await expect(root).toHaveAttribute('data-theme', 'light');

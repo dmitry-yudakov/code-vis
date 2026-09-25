@@ -24,7 +24,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .device-access-warning { display: grid; gap: 7px; padding: 13px; border: 1px solid var(--wait-line); border-radius: 8px; color: var(--wait-ink-strong); background: var(--wait-wash); font-size: 12px; }
 .device-access-error { margin: 0; color: var(--stop-ink); font-size: 11px; line-height: 1.45; }
 
-.app-shell { height: 100dvh; display: grid; grid-template-rows: 48px 34px minmax(0, 1fr); grid-template-columns: [rail] var(--repository-column-width, 0) [canvas] minmax(min(360px, 100vw), 1fr) [dock] var(--conversation-column-width, 0); grid-template-areas: "header header header" "tabs tabs tabs" "rail canvas dock"; background: var(--shell); }
+.app-shell { height: 100dvh; display: grid; grid-template-rows: 48px 34px minmax(0, 1fr); grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] minmax(min(360px, calc(100vw - 48px)), 1fr) [dock] var(--conversation-column-width, 0); grid-template-areas: "header header header header" "activity tabs tabs tabs" "activity rail canvas dock"; background: var(--shell); }
 .app-header { grid-area: header; display: flex; align-items: center; gap: 14px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--line); background: var(--header-backdrop); z-index: 20; }
 .brand { flex: none; display: flex; align-items: center; gap: 7px; font-family: var(--display); font-stretch: 112%; }
 .brand strong { font-size: 13px; line-height: 1; letter-spacing: -.01em; }
@@ -90,23 +90,24 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .welcome-screen .session-creation-form p { margin: 0; }
 .new-session-menu label { display: grid; gap: 6px; color: var(--muted); font: 500 9px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .new-session-menu select { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-family: var(--sans); font-size: 12px; text-transform: none; }
-.new-session-menu button, .header-actions button, .header-actions > a { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); font-size: 11px; font-weight: 600; }
-.new-session-menu button:hover, .header-actions button:hover, .header-actions > a:hover { background: var(--raised); border-color: var(--line-strong); }
+.new-session-menu button, .header-actions button, .more-menu button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); font-size: 11px; font-weight: 600; }
+.new-session-menu button:hover, .header-actions button:hover, .more-menu button:hover { background: var(--raised); border-color: var(--line-strong); }
 .header-actions { flex: none; display: flex; align-items: center; gap: 6px; }
-.device-menu, .header-menu { position: relative; }
-.device-menu > summary, .header-menu > summary { height: 28px; display: grid; place-items: center; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); cursor: pointer; list-style: none; font-size: 11px; font-weight: 600; }
-.device-menu > summary::-webkit-details-marker, .header-menu > summary::-webkit-details-marker { display: none; }
-.device-menu[open] > summary, .header-menu[open] > summary { border-color: var(--line-strong); background: var(--raised); }
-.device-menu > div, .header-menu > div { position: absolute; z-index: 120; top: calc(100% + 8px); right: 0; width: min(360px, calc(100vw - 24px)); display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--shell); box-shadow: var(--popover-shadow); }
-.header-menu > div { width: 220px; justify-items: start; }
-.header-menu > div > button { width: 100%; text-align: left; }
-.header-menu p { margin: 0; display: grid; gap: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
-.header-menu p strong { color: var(--ink-2); font-size: 11px; }
+.device-menu, .more-menu { position: relative; }
+.device-menu > summary { height: 28px; display: grid; place-items: center; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); cursor: pointer; list-style: none; font-size: 11px; font-weight: 600; }
+.device-menu > summary::-webkit-details-marker, .more-menu > summary::-webkit-details-marker { display: none; }
+.device-menu[open] > summary { border-color: var(--line-strong); background: var(--raised); }
+.device-menu > div, .more-menu > div { position: absolute; z-index: 120; top: calc(100% + 8px); right: 0; width: min(360px, calc(100vw - 24px)); display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--shell); box-shadow: var(--popover-shadow); }
+/* More opens beside the activity bar, from its bottom edge. */
+.more-menu > div { top: auto; right: auto; bottom: 0; left: calc(100% + 6px); width: 220px; max-height: calc(100dvh - 60px); overflow-y: auto; justify-items: start; }
+.more-menu > div > button { width: 100%; text-align: left; }
+.more-menu p { margin: 0; display: grid; gap: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.more-menu p strong { color: var(--ink-2); font-size: 11px; }
 .lifecycle-menu { width: 100%; display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
 .lifecycle-menu > button { width: 100%; text-align: left; }
-.header-menu .lifecycle-warning { padding: 9px; border: 1px solid var(--wait-line); border-radius: 7px; color: var(--wait-ink-strong); background: var(--wait-wash); font-size: 11px; }
+.more-menu .lifecycle-warning { padding: 9px; border: 1px solid var(--wait-line); border-radius: 7px; color: var(--wait-ink-strong); background: var(--wait-wash); font-size: 11px; }
 .lifecycle-actions { display: flex; gap: 8px; }
-.header-actions .lifecycle-confirm { color: var(--wait-ink-strong); border-color: var(--wait-line-strong); background: var(--wait-wash); }
+.more-menu .lifecycle-confirm { color: var(--wait-ink-strong); border-color: var(--wait-line-strong); background: var(--wait-wash); }
 .lifecycle-pill { color: var(--wait-ink-strong); border-color: var(--wait-line); background: var(--wait-wash); }
 .device-menu header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .device-menu header strong { font-size: 12px; }
@@ -121,24 +122,24 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .device-menu-error { padding: 7px; border-radius: 6px; color: var(--stop-ink) !important; background: var(--stop-wash); }
 /* One control height across the whole 48px bar. Left to their own padding these land on five
    different heights and the row reads as unaligned. */
-.header-actions > button, .header-actions > a { height: 28px; padding: 0 9px; display: inline-flex; align-items: center; color: inherit; text-decoration: none; }
-.header-divider { flex: none; width: 1px; height: 18px; margin: 0 2px; background: var(--line); }
+.header-actions > button { height: 28px; padding: 0 9px; display: inline-flex; align-items: center; color: inherit; text-decoration: none; }
 .theme-selector { flex: none; height: 28px; display: inline-flex; align-items: center; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--header-control-backdrop); }
-.header-actions .theme-selector button { height: 22px; padding: 0 7px; border: 0; background: transparent; color: var(--muted); font-size: 10px; }
-.header-actions .theme-selector button:hover { border-color: transparent; background: var(--raised); color: var(--ink); }
-.header-actions .theme-selector button.active { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
+.more-menu .theme-selector button { height: 22px; padding: 0 7px; border: 0; background: transparent; color: var(--muted); font-size: 10px; }
+.more-menu .theme-selector button:hover { border-color: transparent; background: var(--raised); color: var(--ink); }
+.more-menu .theme-selector button.active { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
 .health-pill { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 10px; white-space: nowrap; }
 .health-pill > span { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
 .health-pill.ready > span { background: var(--live); }
 .health-pill.notice > span { background: var(--wait); }
 .health-pill.warning { color: var(--wait); background: var(--wait-wash); border-color: var(--wait-line); }
-.run-status-toggle { min-width: 0; max-width: 220px; display: inline-flex; align-items: center; gap: 6px; }
-.run-status-toggle > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.run-status-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--idle); }
-.run-status-toggle.working .run-status-dot { background: var(--live); }
-.run-status-toggle.queued .run-status-dot { background: var(--faint); }
-.run-status-toggle.awaiting-approval { color: var(--wait); border-color: var(--wait-line-strong); background: var(--wait-wash); }
-.run-status-toggle.awaiting-approval .run-status-dot { background: var(--wait); }
+.layout-toggles { flex: none; display: flex; align-items: center; gap: 2px; }
+.header-actions .layout-toggle { position: relative; width: 30px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: transparent; }
+.header-actions .layout-toggle:hover { color: var(--ink); background: var(--control-wash); }
+/* As in the activity bar, a shown pane is marked by ink and by an edge, never by colour alone. */
+.header-actions .layout-toggle[aria-pressed="true"] { color: var(--ink); background: var(--shell-sunk); box-shadow: inset 0 -2px 0 var(--ink); }
+.layout-toggle .shell-icon { width: 16px; height: 16px; stroke-width: 1.6; }
+.layout-badge { position: absolute; right: -3px; top: -4px; min-width: 15px; height: 15px; padding: 0 4px; display: grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--plot); font: 700 9px/1 var(--mono); }
+.layout-badge.attention { background: var(--wait); }
 
 .workspace-tabs { grid-area: tabs; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 2px; padding: 3px 8px 0; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--sheet-sunk); z-index: 19; }
 .workspace-tabs-empty { pointer-events: none; }
@@ -159,13 +160,33 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .workspace-tab-close:hover:not(:disabled) { color: var(--ink); background: var(--control-wash); }
 
 .app-shell.arena-mode { grid-template-rows: 48px 0 minmax(0, 1fr); }
+/* With the canvas hidden the conversation takes the row, and reads in a centred column. */
+.app-shell.canvas-hidden { grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] 0 [dock] minmax(0, 1fr); }
+.canvas-workspace[hidden] { display: none; }
+/* Its neighbour, the activity bar or the side panel, already draws the dividing line. */
+.canvas-hidden .conversation-drawer { border-left: 0; box-shadow: none; }
+.canvas-hidden .conversation-drawer > header { padding-inline: max(18px, calc((100% - 760px) / 2)); }
+.canvas-hidden .conversation-scroll { padding-inline: max(14px, calc((100% - 760px) / 2)); }
+.canvas-hidden .drawer-composer { padding-inline: max(10px, calc((100% - 760px) / 2)); }
 .arena-breadcrumb { color: var(--ink-2); font: 600 12px/1 var(--mono); }
-.header-actions > :is(button, a).active { color: var(--plot-ink); border-color: var(--plot-line-soft); background: var(--plot-wash); }
-.inbox-toggle { display: inline-flex; align-items: center; gap: 5px; }
-.inbox-toggle.has-attention { color: var(--wait-ink-strong); border-color: var(--wait-line); background: var(--wait-wash); }
-.arena-unread-badge { min-width: 18px; height: 18px; margin-left: 1px; display: inline-grid; place-items: center; border-radius: 999px; color: var(--on-emphasis); background: var(--wait); font: 700 9px/1 var(--mono); }
 
-.arena { grid-column: 1 / -1; grid-row: 3; min-width: 0; min-height: 0; overflow: auto; padding: 34px clamp(20px, 5vw, 72px) 72px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
+/* The activity bar: the session's side-panel views, then the Arena and the Inbox, then More. */
+/* No z-index: More's menu has to rise above the panel overlays, so the bar opens no stacking context. */
+.activity-bar { grid-area: activity; min-height: 0; display: flex; flex-direction: column; align-items: center; padding: 4px 0 6px; border-right: 1px solid var(--line); background: var(--shell-sunk); }
+.activity-item, .more-menu > summary { position: relative; width: 48px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; color: var(--muted); background: transparent; cursor: pointer; list-style: none; }
+.activity-item:hover, .more-menu > summary:hover, .more-menu[open] > summary { color: var(--ink); }
+/* The shown view is marked twice, by ink and by an edge, so it never relies on colour alone. */
+.activity-item:is([aria-pressed="true"], [aria-current="page"]) { color: var(--ink); box-shadow: inset 2px 0 0 var(--ink); }
+.activity-item:focus-visible, .more-menu > summary:focus-visible { outline-offset: -4px; }
+.activity-divider { width: 24px; height: 1px; flex: none; margin: 6px 0; background: var(--line-strong); }
+.more-menu { margin-top: auto; }
+.shell-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+/* A change count is a fact about the repository, not a run state: it stays achromatic and leaves
+   `wait` to what needs the user. */
+.activity-badge { position: absolute; right: 5px; bottom: 6px; min-width: 16px; height: 16px; padding: 0 4px; display: grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--ink-2); font: 700 9px/1 var(--mono); }
+.activity-badge.attention { background: var(--wait); }
+
+.arena { grid-column: rail / -1; grid-row: 3; min-width: 0; min-height: 0; overflow: auto; padding: 34px clamp(20px, 5vw, 72px) 72px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
 .arena button, .arena select { border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
 .arena-heading { max-width: 1440px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 30px; }
 .arena-heading h1 { margin: 0; font: 700 20px/1.2 var(--sans); letter-spacing: -.02em; }
@@ -291,14 +312,13 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .canvas-workspace.focus-mode .canvas-topbar { background: var(--sheet-backdrop); }
 .canvas-topbar { display: flex; align-items: center; justify-content: flex-end; gap: 20px; padding: 0 12px; border-bottom: 1px solid var(--line-backdrop); background: var(--sheet-sunk); z-index: 8; }
 .canvas-surface-control { margin-right: auto; }
-.canvas-surface-control, .side-panel-tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--control-wash); }
-.canvas-surface-control button, .side-panel-tabs button { height: 22px; padding: 0 9px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 700; }
-.canvas-surface-control button[aria-pressed="true"], .side-panel-tabs button[aria-pressed="true"] { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
+.canvas-surface-control { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--control-wash); }
+.canvas-surface-control button { height: 22px; padding: 0 9px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 700; }
+.canvas-surface-control button[aria-pressed="true"] { color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
 .eyebrow { color: var(--muted); font: 500 10px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase; }
 .canvas-top-actions { display: flex; align-items: center; gap: 7px; }
 .canvas-top-actions button { height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); font-size: 11px; font-weight: 600; }
 .canvas-top-actions button:hover { border-color: var(--line-strong); }
-.button-count { margin-left: 5px; color: var(--plot); }
 .unread-badge { min-width: 18px; height: 18px; margin-left: 5px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--absolute-white); background: var(--plot); font-size: 9px; }
 .canvas-stage { --canvas-inset-top: 2px; --canvas-inset-right: 0px; --canvas-inset-bottom: 0px; --canvas-inset-left: 0px; position: relative; min-height: 0; overflow: hidden; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--grid) 1px, transparent 0); background-size: 24px 24px; }
 .canvas-stage::after { content: ""; pointer-events: none; position: absolute; inset: 0; box-shadow: inset 0 0 90px var(--canvas-vignette); }
@@ -444,7 +464,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .header-actions > .immersive-entry { position: relative; padding: 0; border: 0; background: transparent; }
 .header-actions > .immersive-entry:empty { display: none; }
 .immersive-entry > [role="alert"] { position: absolute; top: 100%; right: 0; z-index: 80; width: 260px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
-.header-actions .immersive-semantic-controls { position: fixed; bottom: 12px; left: 12px; z-index: 80; width: 250px; max-height: 40vh; overflow: auto; }
+.header-actions .immersive-semantic-controls { position: fixed; bottom: 12px; left: 60px; z-index: 80; width: 250px; max-height: 40vh; overflow: auto; }
 .immersive-semantic-controls > strong, .immersive-semantic-controls > [role="status"], .immersive-semantic-controls > [data-immersive-session] { grid-column: 1 / -1; }
 .immersive-semantic-controls fieldset { grid-column: 1 / -1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .immersive-semantic-controls fieldset[data-focused="true"] { border-color: var(--plot); }
@@ -516,7 +536,6 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .provider-badge.provider-codex { color: var(--plot-ink-deep); background: var(--plot-wash); }
 .execution-badge { padding: 2px 7px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink); background: var(--raised); font: 600 10px/1.3 var(--mono); }
 .execution-badge.execution-docker { border-color: var(--plot-ink-deep); color: var(--plot-ink-deep); background: var(--plot-wash); }
-.conversation-drawer header > button { width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--raised-backdrop-soft); font-size: 20px; }
 .conversation-scroll, .navigator-list { position: relative; z-index: 1; min-height: 0; overflow-y: auto; padding: 14px; }
 .conversation-scroll, .navigator-list, .repository-summary-scroll, .diff-inspector-scroll, .project-search-results { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 .drawer-empty { margin: 80px 30px; color: var(--muted); text-align: center; line-height: 1.6; }
@@ -658,12 +677,6 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .app-loading { gap: 15px; color: var(--muted); }
 .app-loading .brand-mark { width: 48px; height: 48px; font-size: 24px; }
 
-.repository-toggle { display: inline-flex; align-items: center; gap: 6px; }
-/* The count is the signal. An uncommitted tree is a fact about the repository, not a run state,
-   so this stays achromatic and leaves `wait` to actual approvals. */
-.repository-toggle span { min-width: 18px; height: 18px; display: inline-grid; place-items: center; border-radius: 999px; color: var(--on-emphasis); background: var(--ink-2); font: 700 9px/1 var(--mono); }
-.repository-toggle.dirty { border-color: var(--line-strong); }
-
 .repository-region { grid-area: rail; position: relative; min-width: 0; min-height: 0; z-index: 15; }
 .repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, var(--repository-panel-width)); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: var(--sidebar-shadow); }
 .repository-sidebar.has-inspector { grid-template-columns: minmax(0, var(--repository-panel-width)) minmax(0, 1fr); box-shadow: var(--sidebar-inspector-shadow); }
@@ -685,13 +698,14 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .dock-capacity-0 .repository-sidebar.has-inspector .repository-summary-panel,
 .dock-capacity-1 .repository-sidebar.has-inspector .repository-summary-panel { display: none; }
 
-/* Below the live 640px minimum, side regions return to recoverable overlays. */
-.dock-capacity-0 .repository-region { position: fixed; z-index: 60; left: 0; top: 82px; bottom: 0; width: min(var(--repository-width), 100vw); }
-.dock-capacity-0 .conversation-region { position: fixed; z-index: 60; top: 92px; right: 10px; bottom: 10px; width: min(var(--conversation-width), calc(100vw - 20px)); }
+/* Below the live 688px minimum, side regions return to recoverable overlays beside the activity bar. */
+.dock-capacity-0 .repository-region { position: fixed; z-index: 60; left: 48px; top: 82px; bottom: 0; width: min(var(--repository-width), calc(100vw - 48px)); }
+.dock-capacity-0 .conversation-region { position: fixed; z-index: 60; top: 92px; right: 10px; bottom: 10px; width: min(var(--conversation-width), calc(100vw - 68px)); }
 .dock-capacity-0 .conversation-drawer { border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--drawer-shadow); }
 .repository-panel-header, .diff-inspector-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
 .diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
 .diff-inspector-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.side-panel-title { margin: 0; overflow: hidden; color: var(--ink-2); font: 600 11px/1 var(--sans); letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .repository-header-actions { display: flex; gap: 5px; }
 .repository-name { display: block; padding: 12px 16px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .repository-header-actions button, .diff-inspector-header > button { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border: 0; border-radius: 6px; background: var(--raised-backdrop-button); font-size: 18px; }
@@ -815,8 +829,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .dock-capacity-0 .conversation-region { top: 122px; }
   .app-header { flex-wrap: wrap; row-gap: 6px; padding: 8px 10px; }
   .header-actions { flex: 1 0 100%; margin-left: 0; }
-  .header-actions > .header-menu { margin-left: auto; }
-  .header-menu > div, .device-menu > div { position: fixed; top: 52px; right: 12px; left: 12px; width: auto; }
+  .device-menu > div { position: fixed; top: 52px; right: 12px; left: 12px; width: auto; }
   .project-search-picker, .project-search-trigger { min-width: 0; }
   .canvas-titleblock { bottom: 58px; }
   .canvas-topbar { gap: 6px; padding: 0 7px; }

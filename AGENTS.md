@@ -73,8 +73,12 @@ Updated 2026-09-25. When a story ships, change the line that names it; each stor
   [workbench shell epic](stories/EPIC-20260925-workbench-shell.md), whose design lives in
   `docs/design/workbench-shell/`; implemented with automated checks, and a check in the running app
   remains pending.
-- **Next:** Story 72, layout-frame — the activity bar, layout icons, and a canvas that can be
-  hidden; planned in the workbench shell epic and written from the template when it starts.
+- **Also in flight:** [Story 72](stories/STORY-20260925-layout-frame.md) — an activity bar for the
+  side panel's views, the Arena, the Inbox, and More, plus Canvas and Conversation layout icons, and
+  a canvas that can be hidden; implemented with automated checks, and a check in the running app
+  remains pending.
+- **Next:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
+  workbench shell epic and written from the template when it starts.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

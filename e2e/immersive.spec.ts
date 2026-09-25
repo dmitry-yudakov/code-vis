@@ -1244,9 +1244,9 @@ for (const failImport of [false, true]) {
     await page.goto('/');
     if (failImport) await expect(page.locator('.immersive-entry [role="alert"]')).toContainText('The immersive renderer could not load');
     else {
-      await page.locator('.header-menu > summary').click();
+      await page.locator('.more-menu > summary').click();
       await expect(page.getByText('VR unavailable', { exact: true })).toBeVisible();
-      await page.locator('.header-menu > summary').click();
+      await page.locator('.more-menu > summary').click();
     }
     expect(await page.evaluate(() => window.__CODEAI_XR_BUNDLE_EVALUATIONS__)).toBeUndefined();
     expect(await page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__)).toBeUndefined();
@@ -1801,7 +1801,7 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
   const state = await workspaceFixture(page, true);
   await page.goto('/');
   // The desktop shows the shared diff in its side panel, which starts closed.
-  await page.locator('.repository-toggle').click();
+  await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: /^Changes/ }).click();
   await enter(page);
   await panelAction(page, 'evidence', 'open');
   await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();

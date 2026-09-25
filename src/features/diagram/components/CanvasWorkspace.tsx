@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { SessionSnapshot, DrawingMark } from '@/shared/types';
-import { canvasTargetId, findCanvasTarget, getArtifacts, getSketches } from '@/features/conversation/sessionStore';
+import { canvasTargetId, findCanvasTarget, getArtifacts } from '@/features/conversation/sessionStore';
 import { DiagramCanvas, type CanvasViewState } from './DiagramCanvas';
 import { RunRibbon } from './RunRibbon';
 import { SpatialBoundary } from '@/features/diagram/spatial/SpatialBoundary';
@@ -17,6 +17,7 @@ export interface CanvasSnapshot {
 
 export function CanvasWorkspace({
   session,
+  hidden = false,
   theme,
   pendingApprovals,
   running,
@@ -29,7 +30,6 @@ export function CanvasWorkspace({
   spatial,
   onComposer,
   onOpenChat,
-  onOpenHistory,
   onToggleFocus,
   onSelectDiagram,
   onNewSketch,
@@ -42,6 +42,8 @@ export function CanvasWorkspace({
   onArtifactError,
 }: {
   session: SessionSnapshot;
+  /** The user hid the canvas: its tab panel stays, empty, and the canvas mounts afresh on return. */
+  hidden?: boolean;
   theme: ThemeName;
   pendingApprovals: number;
   running: boolean;
@@ -54,7 +56,6 @@ export function CanvasWorkspace({
   spatial?: SpatialViewState;
   onComposer(value: string): void;
   onOpenChat(): void;
-  onOpenHistory(): void;
   onToggleFocus(): void;
   onSelectDiagram(id: string): void;
   onNewSketch(): void;
@@ -67,7 +68,6 @@ export function CanvasWorkspace({
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
 }) {
   const artifacts = useMemo(() => getArtifacts(session), [session]);
-  const sketches = useMemo(() => getSketches(session), [session]);
   const target = useMemo(() => findCanvasTarget(session, session.activeDiagramId), [session]);
   const activeId = target && canvasTargetId(target);
   const marks = activeId ? session.annotations[activeId]?.marks || [] : [];
@@ -95,6 +95,10 @@ export function CanvasWorkspace({
     if (surface === 'spatial') onSnapshot(undefined);
   }, [onSnapshot, surface]);
 
+  // Unmounted rather than hidden, so its drawing shortcuts cannot act unseen and a fitted view
+  // fits the canvas it returns to.
+  if (hidden) return <main id="active-session-view" role="tabpanel" className="canvas-workspace" hidden />;
+
   return (
     <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
@@ -109,7 +113,6 @@ export function CanvasWorkspace({
             <button type="button" onClick={() => onSelectDiagram(session.previousDiagramId!)}>← Previous version</button>
           )}
           {target && <button type="button" onClick={onNewSketch}>New sketch</button>}
-          <button type="button" onClick={onOpenHistory}>History <span className="button-count">{artifacts.length + sketches.length}</span></button>
           <button type="button" onClick={onToggleFocus}>{focusMode ? 'Exit focus' : 'Focus'}</button>
         </div>
       </div>
