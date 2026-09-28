@@ -94,7 +94,8 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
       : tab !== 'agents' ? voice.status : 'Choose an agent and mode');
   const displayedStatus = voiceStatus;
   const context = !voiceBusy && !voice.result && !showHelp && !editing && tab !== 'agents'
-    ? `${activeAgent?.displayName || 'No agent'} · ${controls?.mode || ''}${controls?.attachments.length ? ` · ${controls.attachments.join('; ')}` : ''}` : '';
+    ? controls?.sendBlocked
+      || `${activeAgent?.displayName || 'No agent'} · ${controls?.mode || ''}${controls?.attachments.length ? ` · ${controls.attachments.join('; ')}` : ''}` : '';
   const resource = useTextureResource((ledger) => !visible || !expanded ? undefined : createConversationTextResource(
     `${showHelp ? 'Voice help' : tab === 'agents' ? 'Agents' : voice.result ? 'Review your words' : 'Your message'}${pageCount > 1 ? ` · ${safePage + 1}/${pageCount}` : ''}`,
     lines.slice(safePage * 10, safePage * 10 + 10), theme, ledger,
@@ -102,7 +103,8 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
   // Give recording and recovery messages a separate, readable three-line surface.
   const statusLines = workspaceTextLines(context ? `${displayedStatus}\n${context}` : displayedStatus, 48);
   const inlineStatus = voice.phase === 'recording' ? `Listening · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} · Stop to transcribe`
-    : voiceBusy || error || !['Ready to dictate', 'Ready to send', 'Draft preserved'].includes(voice.status) ? displayedStatus.split('\n')[0] : context;
+    : context && controls?.sendBlocked && !controls.running ? context
+      : voiceBusy || error || !['Ready to dictate', 'Ready to send', 'Draft preserved'].includes(voice.status) ? displayedStatus.split('\n')[0] : context;
   const statusResource = useTextureResource((ledger) => !visible ? undefined : createConversationTextResource(
     '', expanded ? statusLines.slice(0, 3) : workspaceTextLines(inlineStatus, 58).slice(0, 1), theme, ledger, true, !expanded,
   ), [visible, expanded, displayedStatus, inlineStatus, context, theme]);
@@ -241,7 +243,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     return reviewPositions[action] || [(index - 2) * 0.22, -0.73, 0];
   };
   return <group name="Conversation tools" visible={visible} userData={{ conversationTab: tab, draft, voicePhase: voice.phase, voiceResult: voice.result, voiceStatus: displayedStatus,
-    voiceLevel: voice.activity.level, voiceSeconds: voice.activity.seconds, editing, selectedWord: selected?.text }}>
+    context, voiceLevel: voice.activity.level, voiceSeconds: voice.activity.seconds, editing, selectedWord: selected?.text }}>
     {renderHistory(visible && !expanded)}
     {resource && <mesh name="VR draft and agents" geometry={resource.geometry} material={resource.material}
       position={[0, 0.2, 0]} />}

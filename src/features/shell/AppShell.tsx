@@ -1835,7 +1835,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               onToggleAttachment: toggleAttachment,
             } : undefined}
             sessionControls={{
-              machines: arena.machines, machineId, sessionId: session?.id, sessionTitle: session?.title, creating: creatingSession,
+              machines: arena.machines, machineId, sessionId: session?.id, sessionTitle: session?.title, projectId: session?.projectId,
+              creating: creatingSession,
               status: immersiveStatus, permissions: focusedPermissionTargets, results: permissionDecisions.results,
               online: immersiveMachine?.machine.state === 'online', checkouts: orderedCheckouts,
               needsRepository: Boolean(session && !session.repositories.some((item) => item.role === 'primary')),
@@ -1912,6 +1913,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               canSend: !sessionRunning && !participantBusy && !lifecycle.busy && Boolean(activeAgent && providerHealth?.available)
                 && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
                 && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch') || pendingReportIds.length > 0),
+              sendBlocked: session.repositories.some((repository) => repository.role === 'primary')
+                ? undefined : 'To send, attach a repository in Session tools.',
               running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
               cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
               agents, activeAgentId: activeAgent?.id, primaryAgentId: session.primaryAgentId,

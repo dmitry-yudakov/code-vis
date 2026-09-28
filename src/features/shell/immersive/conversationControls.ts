@@ -6,6 +6,8 @@ export interface ImmersiveConversationControls {
   target: string;
   attachments: string[];
   canSend: boolean;
+  /** What must be fixed elsewhere before Send can work; shown in place of the agent and mode line. */
+  sendBlocked?: string;
   running: boolean;
   runStatus: string;
   runId?: string;

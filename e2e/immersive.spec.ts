@@ -2169,9 +2169,28 @@ const sessionToolsState = (page: Page) => page.evaluate(() => window.xrScene?.sc
 
 test('VR session tools create a repository-free session, attach a checkout, and complete real allow and deny turns', async ({ page, request }) => {
   await installAdapter(page);
+  await page.route('**/api/voice', (route) => route.fulfill({ json: { configured: false, language: 'en' } }));
+  // Read the text painted into the displayed texture, rather than unused scene metadata.
+  await page.addInitScript(() => {
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (...args: Parameters<typeof fillText>) {
+      this.canvas.dataset.paintedText = [this.canvas.dataset.paintedText, args[0]].filter(Boolean).join('\n');
+      return fillText.apply(this, args);
+    };
+  });
+  const paintedStatus = () => page.evaluate(() => {
+    const mesh = window.xrScene?.scene.getObjectByName('Voice status') as Mesh | undefined;
+    const material = mesh?.material as import('three').MeshBasicMaterial | undefined;
+    return (material?.map?.image as HTMLCanvasElement | undefined)?.dataset.paintedText;
+  });
   await page.goto('/'); await enter(page);
   await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
   await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('launcher');
+  // The launcher opens in the open session's project; this journey starts without one.
+  for (let turn = 0; turn < 20 && !String((await sessionToolsState(page))?.text).includes('Project: No project'); turn++) {
+    await sessionAction(page, 'project');
+  }
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Project: No project');
   const created = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
   await page.evaluate(() => {
     const create = document.querySelector<HTMLButtonElement>('[data-immersive-action="session:create"]')!;
@@ -2183,10 +2202,19 @@ test('VR session tools create a repository-free session, attach a checkout, and 
   expect(session.repositories).toEqual([]);
   await expect(controls(page).locator('strong').first()).toHaveText(session.title);
   await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Message input')))).toBe(true);
+  // With voice unavailable, a typed draft still explains why Send is disabled.
+  await page.locator('[data-immersive-message-input]').fill('Draft before a repository');
+  await expect.poll(async () => (await conversationState(page))?.voiceStatus).toContain('Voice unavailable');
+  await expect.poll(paintedStatus).toBe('To send, attach a repository in Session tools.');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Send')?.userData.disabled)).toBe(true);
   await sessionAction(page, 'tools');
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Primary repository required');
   const attached = page.waitForResponse((res) => res.url().endsWith(`/sessions/${session.id}/repositories`) && res.request().method() === 'PUT');
   await sessionAction(page, 'attach'); expect((await attached).ok()).toBe(true);
+  await sessionAction(page, 'tools');
+  await expect.poll(paintedStatus).toContain('Voice unavailable');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Send')?.userData.disabled)).toBe(false);
+  await sessionAction(page, 'tools');
   for (const decision of ['allow', 'deny'] as const) {
     await sessionAction(page, 'tools');
     await conversationAction(page, 'agents'); await conversationAction(page, 'agent'); await conversationAction(page, 'agents');

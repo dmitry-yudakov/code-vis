@@ -69,11 +69,13 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   const providers = (Object.keys(machine?.providers || {}) as AgentProvider[])
     .filter((id) => machine?.providers[id].available && machine.providers[id].supportedModes.length);
   const modes = machine?.providers[provider]?.supportedModes || [];
-  // New session opens at this device's last provider and mode when this machine can run them.
+  // New session opens at this device's last provider and mode when this machine can run them, and in
+  // the open session's project, so a session started from a conversation can send without attaching.
   function startLauncher() {
     const next = launchChoice({ provider: controls.preferredProvider, mode: controls.preferredMode }, machine?.providers, { provider, mode });
     setProvider(next.provider);
     setMode(next.mode);
+    setProjectId(controls.projectId && machine?.projects.some((item) => item.id === controls.projectId) ? controls.projectId : '');
   }
   const checkout = controls.checkouts.find((item) => item.id === checkoutId) || controls.checkouts[0];
   const current = selected && controls.permissions.find((item) => permissionKey(item) === permissionKey(selected));
