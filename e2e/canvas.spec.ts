@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Locator, Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
 const WORKSPACE_NAME = `E2E workspace ${Date.now()}`;
 
@@ -16,24 +16,18 @@ test.afterEach(async ({ request }) => {
 async function startSession(page: Page) {
   const openViews = page.getByRole('tab');
   const before = await openViews.count();
-  const dismissNotice = page.getByRole('button', { name: 'Dismiss notice' });
+  // Toasts sit under the header's menus, so none can cover Start session.
   await page.locator('.new-session-menu summary').click();
-  const start = page.getByRole('button', { name: 'Start session' });
-  let clicked = false;
-  for (let attempt = 0; attempt < 10 && !clicked; attempt += 1) {
-    if (await dismissNotice.isVisible()) await dismissNotice.click();
-    try {
-      await start.click({ timeout: 500 });
-      clicked = true;
-    } catch {
-      await page.waitForTimeout(100);
-    }
-  }
-  expect(clicked).toBe(true);
+  await page.getByRole('button', { name: 'Start session' }).click();
   await expect(openViews).toHaveCount(before + 1);
   // The conversation is already open, so its composer can be typed into before the new session
   // replaces the old one. The menu closes once creation has been applied.
   await expect(page.locator('.new-session-menu[open]')).toHaveCount(0);
+}
+
+/** A toast in the Notifications stack, found by its text. */
+function toast(page: Page, text: string | RegExp) {
+  return page.getByRole('region', { name: 'Notifications' }).locator('.toast').filter({ hasText: text });
 }
 
 /** The header's Conversation layout icon; while it is closed its name adds approvals or unread. */
@@ -262,7 +256,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await page.getByPlaceholder(/Ask about or revise/).fill('Show two alternatives');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
-  await expect(page.locator('.notice-banner')).toContainText('2 diagram results');
+  await expect(toast(page, '2 diagram results')).toHaveAttribute('data-tone', 'info');
   await expect(page.locator('.diagram-card')).toHaveCount(4);
   await expect(page.locator('.diagram-card-svg svg')).toHaveCount(4);
   await closeConversation(page);
@@ -313,13 +307,13 @@ test('keeps a repository-free loose session usable and durable', async ({ page }
   await closeConversation(page);
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
-  const fallbackNotice = page.getByRole('button', { name: 'Dismiss notice' });
+  const fallbackNotice = page.getByRole('button', { name: 'Dismiss notification' }).first();
   if (await fallbackNotice.isVisible()) await fallbackNotice.click();
 
   await openConversation(page);
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Try without a repository');
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.locator('.notice-banner')).toContainText('Attach a repository and make it primary');
+  await expect(toast(page, 'Attach a repository and make it primary')).toHaveAttribute('data-tone', 'warning');
   await expect(page.locator('.chat-message.user')).toHaveCount(0);
 
   await page.reload();
@@ -359,7 +353,7 @@ test('loads the bounded spatial room on demand and restores its device-only layo
   await expect(badDiagram.locator('.canvas-thumbnail-mark')).toBeVisible();
   await badDiagram.locator('.navigator-select').click();
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 4');
-  const fixtureNotice = page.getByRole('button', { name: 'Dismiss notice' });
+  const fixtureNotice = page.getByRole('button', { name: 'Dismiss notification' }).first();
   if (await fixtureNotice.isVisible()) await fixtureNotice.click();
 
   const scriptsBeforeEntry = [...scripts];
@@ -627,7 +621,7 @@ test('keeps multiple session views and their device layout usable during backgro
   await page.getByRole('tab').nth(1).click();
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.locator('.notice-banner')).toContainText('cancelled');
+  await expect(toast(page, 'cancelled')).toHaveAttribute('data-tone', 'info');
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('second view draft');
 
   await page.reload();
@@ -926,7 +920,7 @@ test('archives the open session from the More menu', async ({ page, request }) =
   await expect(archive).toBeDisabled();
   await menu.locator('summary').click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.locator('.notice-banner')).toContainText('cancelled');
+  await expect(toast(page, 'cancelled')).toHaveAttribute('data-tone', 'info');
 
   await menu.locator('summary').click();
   await expect(archive).toBeEnabled();
@@ -958,6 +952,164 @@ test('archives the open session from the More menu', async ({ page, request }) =
 
   await page.getByRole('button', { name: 'Undo archive' }).click();
   await expect.poll(sessionIds).toContain(archivedId);
+});
+
+test('stacks notices as toasts in the canvas corner and lets only what can wait time out', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await createNamedProject(page, `Toasts ${Date.now()}`);
+  await startSession(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const away = () => page.mouse.move(5, 700);
+  // A toast that has begun to leave still shows while its row closes, so a toast is checked as
+  // staying only once any leave would have finished.
+  const settle = () => page.waitForTimeout(500);
+
+  // A refused send is a warning in the canvas's top-right corner: under the canvas toolbar, left of
+  // the conversation. Sending again counts it instead of stacking a second one.
+  await conversation.locator('textarea').fill('Try without a repository');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  const refused = toast(page, 'Attach a repository and make it primary');
+  await expect(refused).toHaveAttribute('data-tone', 'warning');
+  await expect(refused).toHaveAttribute('role', 'status');
+  // It slides in, so it is measured where it comes to rest.
+  await refused.evaluate((element) => Promise.all(element.closest('.toast-slot')!.getAnimations().map((running) => running.finished)));
+  const stage = (await page.locator('.canvas-stage').boundingBox())!;
+  const dock = (await conversation.boundingBox())!;
+  const placed = (await refused.boundingBox())!;
+  expect(placed.y).toBeGreaterThanOrEqual(stage.y);
+  expect(placed.x).toBeGreaterThanOrEqual(stage.x);
+  expect(placed.x + placed.width).toBeLessThanOrEqual(dock.x - 12);
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(refused.locator('.toast-count [aria-hidden="true"]')).toHaveText('×2');
+  await expect(page.locator('.toast')).toHaveCount(1);
+
+  // A warning waits while the pointer rests on it, then leaves 10 s after its last raise.
+  await refused.hover();
+  await page.clock.fastForward(12_000);
+  await settle();
+  await expect(refused).toBeVisible();
+  await away();
+  await page.clock.fastForward(11_000);
+  await expect(refused).toHaveCount(0);
+
+  // A send refused by a busy run offers to cancel that run.
+  await ensureRepository(page);
+  await page.route('**/api/agent/message', (route) => route.fulfill({ status: 409, json: {
+    error: 'Another turn is using this provider session.', activeRun: { runId: 'run-busy', sessionId: 'session-busy' },
+  } }), { times: 1 });
+  await page.route('**/api/agent/cancel', (route) => route.fulfill({ json: { ok: true } }));
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  const busy = toast(page, 'Another turn is using this provider session.');
+  await expect(busy).toHaveAttribute('data-tone', 'error');
+  const cancel = page.waitForRequest((sent) => sent.url().endsWith('/api/agent/cancel'));
+  await busy.getByRole('button', { name: 'Cancel session session-' }).click();
+  expect((await cancel).postDataJSON()).toEqual({ runId: 'run-busy' });
+  await expect(toast(page, 'Cancellation requested for session session-.')).toHaveAttribute('data-tone', 'success');
+  await expect(busy).toHaveCount(0);
+
+  // An error is announced as an alert and stays until dismissed.
+  await page.route('**/api/sessions/*/sketches', (route) => route.fulfill({ status: 500, json: { error: 'Simulated sketch failure.' } }));
+  await page.getByRole('button', { name: /Start a sketch/ }).click();
+  const failure = page.getByRole('alert').filter({ hasText: 'Simulated sketch failure.' });
+  await expect(failure).toHaveAttribute('data-tone', 'error');
+  // On a phone the stack rises above the panel overlays, and the header's menus above the stack.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.new-session-menu summary').click();
+  await page.getByRole('button', { name: 'Start session' }).click({ trial: true });
+  await page.locator('.new-session-menu summary').click();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.clock.fastForward(60_000);
+  await settle();
+  await expect(failure).toBeVisible();
+  await failure.getByRole('button', { name: 'Dismiss notification' }).click();
+  await expect(failure).toHaveCount(0);
+
+  // Undo archive turns into the restored toast, which leaves 6 s later once the pointer is away.
+  const menu = page.locator('.more-menu');
+  await menu.locator('summary').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await menu.getByRole('button', { name: 'Archive session', exact: true }).click();
+  const archived = toast(page, /^Archived “/);
+  await expect(archived).toHaveAttribute('data-tone', 'success');
+  await archived.getByRole('button', { name: 'Undo archive' }).click();
+  const restored = toast(page, /^Restored “/);
+  await expect(restored).toBeVisible();
+  await expect(archived).toHaveCount(0);
+  await away();
+  await page.clock.fastForward(5_000);
+  await settle();
+  await expect(restored).toBeVisible();
+  await page.clock.fastForward(2_000);
+  await expect(restored).toHaveCount(0);
+});
+
+/** A project of its own, bound to the alpha fixture, which the shell opens first as the newest. */
+async function openAlphaProject(page: Page, request: APIRequestContext, name: string) {
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: Array<{ id: string; name: string }> };
+  const alpha = checkouts.find((checkout) => checkout.name === 'alpha')!;
+  await request.post('/api/projects', { data: { name: `${name} ${Date.now()}`, checkoutIds: [alpha.id] } });
+  await page.goto('/');
+  await startSession(page);
+}
+
+test('keeps Refresh approval status until the approval status is confirmed', async ({ page, request }) => {
+  await openAlphaProject(page, request, 'Approval refresh');
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await chooseMode(conversation, 'Agent');
+  await conversation.locator('textarea').fill('Make one approved edit.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  const approval = conversation.getByLabel(/Approval required: Edit/);
+  await expect(approval).toBeVisible();
+
+  // The decision never arrives, and at first its status cannot be read either.
+  const statusRead = /\/api\/agent\/runs\?sessionId=/;
+  await page.route('**/api/agent/permission', (route) => route.abort());
+  await page.route(statusRead, (route) => route.abort());
+  await approval.getByRole('button', { name: 'Allow' }).click();
+  const unknown = toast(page, 'Delivery could not be confirmed');
+  await expect(unknown).toHaveAttribute('data-tone', 'error');
+  const refresh = unknown.getByRole('button', { name: 'Refresh approval status' });
+  const failedRead = page.waitForEvent('requestfailed', (failed) => statusRead.test(failed.url()));
+  await refresh.click();
+  await failedRead;
+  await page.waitForTimeout(500);
+  await expect(refresh).toBeVisible();
+  // Dismissed while the status is still unknown, it comes back with its Refresh.
+  await unknown.getByRole('button', { name: 'Dismiss notification' }).click();
+  await expect(page.locator('.toast-slot.leaving')).toHaveCount(0);
+  await expect(refresh).toBeVisible();
+
+  // Once the status reads, the request is still waiting: the toast goes and the card decides again.
+  await page.unroute(statusRead);
+  await page.unroute('**/api/agent/permission');
+  await refresh.click();
+  await expect(unknown).toHaveCount(0);
+  await approval.getByRole('button', { name: 'Deny' }).click();
+  await expect(approval).toHaveCount(0);
+  await expect(conversation.locator('.chat-message.assistant')).toContainText('Edit denied');
+});
+
+test('keeps a toast on screen beside the Spatial room, at every width', async ({ page, request }) => {
+  await openAlphaProject(page, request, 'Spatial toasts');
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await conversation.locator('textarea').fill('Draw a simple architecture');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
+  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
+  await page.route('**/api/sessions/*/sketches', (route) => route.fulfill({ status: 503, json: { error: 'Simulated sketch failure.' } }));
+  await page.getByRole('button', { name: 'New sketch' }).click();
+  const failure = toast(page, 'Simulated sketch failure.');
+  await expect(failure).toBeVisible();
+
+  for (const width of [1440, 800, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await failure.evaluate((element) => Promise.all(element.closest('.toast-slot')!.getAnimations().map((running) => running.finished)));
+    const placed = (await failure.boundingBox())!;
+    expect(placed.x, `left edge at ${width}px`).toBeGreaterThanOrEqual(48);
+    expect(placed.x + placed.width, `right edge at ${width}px`).toBeLessThanOrEqual(width);
+  }
 });
 
 test('separates replay from live recovery events and keeps terminal actions per session', async ({ page }) => {
@@ -1004,17 +1156,17 @@ test('separates replay from live recovery events and keeps terminal actions per 
   });
 
   await page.reload();
-  await expect(page.locator('.notice-banner')).toContainText('Synthetic limit');
+  await expect(toast(page, 'Synthetic limit')).toHaveAttribute('data-tone', 'warning');
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
-  const firstFailure = await page.locator('.notice-banner > span').textContent();
+  const firstFailure = await toast(page, 'Synthetic limit').locator('p').textContent();
 
   // The replayed permission does not count, while a terminal error buffered in the attachment gap
   // restores one attention marker without duplicating an unread already persisted on this device.
   await expect(secondTab.locator('.unread-badge')).toHaveText('1');
   await secondTab.click();
-  await expect(page.locator('.notice-banner')).toContainText('Synthetic limit');
+  await expect(toast(page, 'Synthetic limit')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
-  const secondFailure = await page.locator('.notice-banner > span').textContent();
+  const secondFailure = await toast(page, 'Synthetic limit').locator('p').textContent();
   expect(secondFailure).not.toBe(firstFailure);
 
   const continuation = page.waitForRequest((request) => (
@@ -1025,7 +1177,7 @@ test('separates replay from live recovery events and keeps terminal actions per 
   expect((await continuation).postDataJSON()).toMatchObject({ mode: 'plan' });
 
   await firstTab.click();
-  await expect(page.locator('.notice-banner')).toContainText(firstFailure!);
+  await expect(toast(page, firstFailure!)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
 });
 
@@ -1046,7 +1198,7 @@ test('preserves device views when the session catalog request fails', async ({ p
     });
   });
   await page.reload();
-  await expect(page.locator('.notice-banner')).toContainText('Temporary catalog failure');
+  await expect(page.getByRole('alert').filter({ hasText: 'Temporary catalog failure' })).toHaveClass('toast');
   await expect(page.getByRole('button', { name: 'Continue in new session' })).toHaveCount(0);
   const after = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
   expect(JSON.parse(after!)).toEqual(JSON.parse(before!));
@@ -1078,7 +1230,7 @@ test('explains sessions hidden because a newer CodeAI wrote them, only while the
   await arena.getByRole('region', { name: projectName }).getByRole('button', { name: /^Open / }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await expect(notice).toHaveText(/^2 sessions were written by a newer CodeAI and are hidden here\./);
-  await notice.getByRole('button', { name: 'Dismiss notice' }).click();
+  await notice.getByRole('button', { name: 'Dismiss notification' }).click();
   await expect(notice).toHaveCount(0);
 
   newerFormatSessions = 1;
@@ -1143,7 +1295,7 @@ test('discovers, reattaches, and cancels a turn that outlives a reload', async (
   await ensureConversationOpen(page);
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.locator('.notice-banner')).toContainText('cancelled');
+  await expect(toast(page, 'cancelled')).toHaveAttribute('data-tone', 'info');
   await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
 });
 
@@ -1168,7 +1320,7 @@ test('recovers a host-wide run in its canonical project scope', async ({ page })
   await expect(page.getByRole('tab', { selected: true })).toHaveClass(/working/);
   await ensureConversationOpen(page);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.locator('.notice-banner')).toContainText('cancelled');
+  await expect(toast(page, 'cancelled')).toHaveAttribute('data-tone', 'info');
 });
 
 test('traces an Agent run without implying progress and shifts to wait for approval', async ({ page }) => {
@@ -1243,7 +1395,7 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   await ensureConversationOpen(page);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('.participant-chip.active')).toContainText('Main');
   await expect(page.locator('.stream-preview')).toHaveCount(0);
-  await expect(page.locator('.notice-banner')).toHaveCount(0);
+  await expect(page.locator('.toast')).toHaveCount(0);
 
   const reloadedConversation = page.getByRole('complementary', { name: 'Conversation' });
   await reloadedConversation.locator('.participant-chip').filter({ hasText: 'Reviewer' }).click();

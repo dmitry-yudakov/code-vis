@@ -59,7 +59,7 @@ removed every element the browser cannot back without new server work (see *Need
 | Canvas toolbar row: Flat/Spatial, New sketch, History, Focus | [CanvasWorkspace.tsx:103](../src/features/diagram/components/CanvasWorkspace.tsx#L103) | A floating canvas bar that publishes its inset |
 | Composer mode radios, hint, Send/Cancel | [InstructionComposer.tsx:152](../src/features/conversation/InstructionComposer.tsx#L152) | Mode picker, attach menu, execution line |
 | Conversation header: execution badge, Continue in Docker/Local, reason | [ConversationDrawer.tsx:72](../src/features/conversation/ConversationDrawer.tsx#L72) | The execution line under the composer |
-| Notice banner floating over the layout | [AppShell.tsx:2052](../src/features/shell/AppShell.tsx#L2052) | A notice row in the layout |
+| Notice banner floating over the layout | [AppShell.tsx:2052](../src/features/shell/AppShell.tsx#L2052) | A stack of toasts in the canvas's top-right corner ([Story 78](STORY-20260928-toast-notifications.md)) |
 | Shell grid: header, tabs, and rail · canvas · dock | [globals.css:27](../src/app/globals.css#L27) | Title bar, activity bar · side panel · canvas · conversation, status bar |
 | Dock capacity bands (960 and 640) from column minimums | [panelLayout.ts:129](../src/features/shell/panelLayout.ts#L129) | The same rule plus the 48px activity bar (1008 and 688) |
 
@@ -75,9 +75,11 @@ removed every element the browser cannot back without new server work (see *Need
 4. **A control budget.** Every story measures visible controls at 1440×900 in the default layout, and
    none raises the count. The epic's target is 35, against 43 after Story 62. (It was 36 until
    Story 72 left out the design's side panel icon, which the count could not pay for.)
-5. **Nothing covers the canvas** at docking widths. Notices become a layout row, and floating canvas
-   bars publish their inset. Hiding the canvas is the user's choice, and the canvas and the
-   conversation are never both hidden.
+5. **Nothing covers the canvas** at docking widths. Floating canvas bars publish their inset. Hiding
+   the canvas is the user's choice, and the canvas and the conversation are never both hidden. The
+   one exception is toasts ([Story 78](STORY-20260928-toast-notifications.md)): small, transient,
+   and in the canvas's top-right corner. On September 28, 2026 the user chose them over the notice
+   row this epic first planned.
 6. **Every story ships alone.** Stored layouts written before a story still parse. Keyboard flows
    such as Delete closing a tab and focusing its neighbour survive a move.
 
@@ -88,14 +90,16 @@ removed every element the browser cannot back without new server work (see *Need
 | 71 | [compact-composer](STORY-20260925-compact-composer.md) | One mode picker, a `+` attach menu, and an execution line under the composer | **In progress** | — |
 | 72 | [layout-frame](STORY-20260925-layout-frame.md) | Activity bar (Changes, History, Reports; Arena and Inbox open the Arena page until 75); canvas and conversation layout icons; hiding the canvas; dock bands move by 48px; More moves to the gear | **In progress** | — |
 | 73 | title-bar-tabs | Session tabs move into the title bar; All sessions takes overflow; the tab keyboard flow survives; decide where a tab's close control sits | Planned | 72 |
-| 74 | status-bar-and-notices | Status bar: branch, needs-you with its reason, run state while the conversation is closed, provider not ready. Notices become a row in the layout | Planned | — |
+| 74 | status-bar | Status bar: branch, needs-you with its reason, run state while the conversation is closed, provider not ready. Notices moved to Story 78 | Planned | — |
 | 75 | arena-in-the-side-panel | Arena and Inbox as side-panel views sharing `arenaModel` ordering, with Open the full Arena | Planned | 72 |
 | 76 | flat-panes | Pane and section headers, borderless icon buttons, flat message rows, the floating canvas bar, and the remaining eyebrow labels | Planned | 72–75 |
 | 77 | phone-bottom-bar | Below 688px a bottom bar replaces the activity bar; Inbox lives inside Arena, Reports in More | Planned | 72 |
+| 78 | [toast-notifications](STORY-20260928-toast-notifications.md) | Notices become a stack of toasts in the canvas's top-right corner, with a tone, actions, and a lifetime | **In progress** | — |
 
 Story 71 comes first because the user asked for it directly, it is self-contained, and it pays for
-itself: three mode buttons fold into one picker. Story 74 is also independent and fixes Story 62's
-known defect. Stories 73, 75, 76, and 77 need the frame from Story 72. Write each story from the
+itself: three mode buttons fold into one picker. Story 74 is also independent. Story 78, which the
+user asked for directly, fixes Story 62's known defect: the centred banner no longer exists to cover
+the side panel's close button. Stories 73, 75, 76, and 77 need the frame from Story 72. Write each story from the
 template when it starts; the rows above are the scope, not the spec.
 
 ## Budget at 1440×900 with today's widths (side panel 340, conversation 460)
@@ -137,7 +141,8 @@ domain words.
 - **Activity bar**: the 48px icon column that picks the side panel's view.
 - **Side panel**: the left column (Changes, History, Reports, Arena, Inbox).
 - **Status bar**: the 24px bottom row of ambient facts.
-- **Notice row**: a transient message that takes a row in the layout instead of floating over it.
+- **Toast**: a transient notice in the canvas's top-right corner, with a tone (info, success,
+  warning, error), optional actions, and a lifetime (Story 78). It replaced the planned notice row.
 - **Mode picker**, **attach menu**, **execution line**: the composer's controls from Story 71.
 
 ## Risks to watch

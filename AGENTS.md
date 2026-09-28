@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-25. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-28. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -77,6 +77,10 @@ Updated 2026-09-25. When a story ships, change the line that names it; each stor
   side panel's views, the Arena, the Inbox, and More, plus Canvas and Conversation layout icons, and
   a canvas that can be hidden; implemented with automated checks, and a check in the running app
   remains pending.
+- **Also in flight:** [Story 78](stories/STORY-20260928-toast-notifications.md) — notices become a
+  stack of toasts in the canvas's top-right corner, each with a tone, actions, and a lifetime, which
+  pauses while the pointer rests on the stack; implemented with automated checks, and a check in the
+  running app remains pending.
 - **Next:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
   workbench shell epic and written from the template when it starts.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a

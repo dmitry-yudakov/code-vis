@@ -655,10 +655,44 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .report-errors code { white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.45 var(--mono); }
 .report-error { margin: 0; color: var(--wait); font-size: 11px; }
 
-.notice-banner { position: fixed; z-index: 90; left: 50%; top: 90px; width: min(700px, calc(100vw - 32px)); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 15px; border: 1px solid var(--wait-line-strong); border-radius: 10px; color: var(--stop-ink); background: var(--plot-wash-soft); box-shadow: var(--shadow); font-size: 11px; }
-.notice-banner > span { flex: 1; }
-.notice-banner button { border: 0; border-radius: 6px; padding: 5px 8px; color: var(--stop-ink); background: var(--stop-wash-strong); font-size: 10px; font-weight: 600; }
-.notice-banner button:last-child { width: 25px; height: 25px; padding: 0; border-radius: 50%; font-size: 16px; }
+/* Toasts sit in the canvas's top-right corner: under the canvas toolbar, clear of the drawing tools
+   (top-left) and the zoom bar (bottom-right), and left of a docked conversation. The one deliberate
+   exception to "the canvas is never occluded" (Story 78). However narrow the canvas, the stack's left
+   edge stays 16px clear of the 48px activity bar: `--toast-right` is where it would like to sit, and
+   `100vw - 424px` is as far left as a 360px stack may go (below 440px the stack narrows instead).
+   Docked, the stack rises above the canvas and the panels (12, 15) but stays under the tabs and the
+   header's menus (19, 20); as a phone overlay a panel rises to 60, and the stack above it, so a
+   refused send is seen from the conversation. */
+.toast-region { --toast-right: 16px; position: fixed; z-index: 18; top: 136px; right: min(var(--toast-right), max(16px, calc(100vw - 424px))); width: min(360px, calc(100vw - 80px)); display: flex; flex-direction: column; pointer-events: none; }
+.dock-capacity-0 .toast-region { z-index: 70; }
+/* The header's menus stay above both: its own box ends above the overlays, which start under the tabs. */
+.dock-capacity-0 .app-header { z-index: 75; }
+.toast-region.in-workspace { --toast-right: calc(var(--conversation-column-width, 0px) + 16px); }
+/* The spatial room keeps its controls in a 252px column at the canvas's right edge. */
+.toast-region.beside-spatial { --toast-right: calc(var(--conversation-column-width, 0px) + 268px); }
+/* The slot's row opens as a toast arrives and closes as it leaves, so its neighbours glide rather
+   than jump. The clip's padding leaves the card's shadow room, and its bottom sets the 8px gap. */
+.toast-slot { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .24s cubic-bezier(.2, .8, .2, 1), opacity .2s ease, translate .24s cubic-bezier(.2, .8, .2, 1); }
+@starting-style { .toast-slot { grid-template-rows: 0fr; opacity: 0; translate: 16px 0; } }
+.toast-slot.leaving { grid-template-rows: 0fr; opacity: 0; translate: 16px 0; }
+.toast-clip { min-height: 0; overflow: hidden; margin: -4px -24px -16px; padding: 4px 24px 24px; }
+.toast { pointer-events: auto; display: grid; grid-template-columns: 22px minmax(0, 1fr) 24px; align-items: start; gap: 10px; padding: 11px 8px 11px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--raised); box-shadow: var(--shadow); }
+/* An error stays until dismissed, so its edge says so too. */
+.toast[data-tone="error"] { border-color: var(--stop-line); }
+/* Tone is a glyph's shape and its disc's tint, never colour alone; news stays achromatic. */
+.toast-glyph { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; color: var(--ink-2); background: var(--control-wash); }
+.toast[data-tone="success"] .toast-glyph { color: var(--live-ink); background: var(--live-wash); }
+.toast[data-tone="warning"] .toast-glyph { color: var(--wait-ink-strong); background: var(--wait-wash); }
+.toast[data-tone="error"] .toast-glyph { color: var(--stop-ink); background: var(--stop-wash); }
+.toast-glyph svg, .toast-dismiss svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.toast-body { min-width: 0; padding-top: 2px; }
+.toast-body p { margin: 0; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.toast-count { margin-left: 6px; padding: 1px 5px; border-radius: 999px; color: var(--ink-2); background: var(--control-wash); font: 600 9px/1.4 var(--mono); vertical-align: 1px; }
+.toast-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.toast-actions button { height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--raised); font-size: 11px; font-weight: 600; }
+.toast-actions button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--control-wash); }
+.toast-dismiss { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: transparent; }
+.toast-dismiss:hover { color: var(--ink); background: var(--control-wash); }
 
 .welcome-screen, .fatal-empty, .app-loading { grid-area: canvas; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 35px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
 .welcome-screen { overflow-y: auto; justify-content: safe center; }
@@ -817,6 +851,9 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .arena-create fieldset { grid-column: 1 / -1; }
   .arena-inbox-item { grid-template-columns: 76px minmax(0, 1fr); }
   .arena-inbox-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  /* The drawing tools span the canvas's top here, so the toasts start below them. */
+  .toast-region { top: 186px; }
+  .toast-region.beside-spatial { --toast-right: calc(var(--conversation-column-width, 0px) + 226px); }
 }
 
 @media (max-width: 620px) {
@@ -832,6 +869,9 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .device-menu > div { position: fixed; top: 52px; right: 12px; left: 12px; width: auto; }
   .project-search-picker, .project-search-trigger { min-width: 0; }
   .canvas-titleblock { bottom: 58px; }
+  .toast-region { top: 216px; }
+  /* The spatial room's controls move under the canvas here. */
+  .toast-region.beside-spatial { --toast-right: calc(var(--conversation-column-width, 0px) + 16px); }
   .canvas-topbar { gap: 6px; padding: 0 7px; }
   .canvas-surface-control button { padding: 0 6px; }
   .spatial-room { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 1fr) minmax(150px, 36%); }

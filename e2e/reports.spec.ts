@@ -100,7 +100,7 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   await page.route('**/api/agent/message', (route) => outages-- > 0
     ? route.fulfill({ status: 503, json: { error: 'Simulated outage.' } }) : route.fallback());
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Simulated outage.' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Simulated outage.' })).toBeVisible();
   await expect(composer).toHaveValue('Draft kept');
   await expect(page.locator('.attachment-chip.report')).toHaveCount(1);
   await composer.fill('');

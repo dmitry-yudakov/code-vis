@@ -6,14 +6,14 @@ import type { RunDiscovery } from '@/shared/types';
 import { permissionKey, type PermissionResult, type PermissionTarget } from './immersive/sessionControls';
 
 /** One command owner for DOM and XR; a same-frame second selection cannot issue another POST. */
-export function usePermissionDecisions(localMachineId: string | undefined, refresh: () => Promise<void>, refreshAccess: () => Promise<void>, onOutcome: (target: PermissionTarget, message: string) => void) {
+export function usePermissionDecisions(localMachineId: string | undefined, refresh: () => Promise<void>, refreshAccess: () => Promise<void>, onOutcome: (target: PermissionTarget, result: PermissionResult, delivered: boolean) => void) {
   const [results, setResults] = useState<Record<string, PermissionResult>>({});
   const submitted = useRef(new Map<string, { target: PermissionTarget; result: PermissionResult }>());
   const publishResults = () => setResults(Object.fromEntries([...submitted.current].map(([key, entry]) => [key, entry.result])));
   const decide = useCallback(async (target: PermissionTarget, decision: 'allow' | 'deny') => {
     const key = permissionKey(target);
     if (submitted.current.has(key)) return;
-    const publish = (result: PermissionResult) => {
+    const publish = (result: PermissionResult, delivered = false) => {
       submitted.current.set(key, { target, result });
       // Device-only recent outcomes; never grow with the lifetime of the application.
       for (const [oldKey, old] of submitted.current) {
@@ -21,7 +21,7 @@ export function usePermissionDecisions(localMachineId: string | undefined, refre
         if (!old.result.pending && oldKey !== key) submitted.current.delete(oldKey);
       }
       publishResults();
-      if (!result.pending) onOutcome(target, result.message);
+      if (!result.pending) onOutcome(target, result, delivered);
     };
     publish({ pending: true, message: `Submitting ${decision}…` });
     try {
@@ -31,7 +31,7 @@ export function usePermissionDecisions(localMachineId: string | undefined, refre
       });
       const data = await response.json().catch(() => ({})) as { error?: string };
       publish({ pending: false, retryable: response.status >= 500, message: response.ok ? decision === 'allow' ? 'Allowed.' : 'Denied.'
-        : data.error || `Decision failed (${response.status}). Refresh status before trying again.` });
+        : data.error || `Decision failed (${response.status}). Refresh status before trying again.` }, response.ok);
       if (response.status === 401 || response.status === 403) await refreshAccess();
     } catch {
       publish({ pending: false, retryable: true, message: 'Delivery could not be confirmed. Refresh status; do not assume the action was approved.' });
@@ -39,7 +39,8 @@ export function usePermissionDecisions(localMachineId: string | undefined, refre
       await refresh();
     }
   }, [localMachineId, refresh, refreshAccess, onOutcome]);
-  const refreshFailures = useCallback(async () => {
+  /** Resolves to the keys whose decision still cannot be confirmed. */
+  const refreshFailures = useCallback(async (): Promise<string[]> => {
     for (const [key, entry] of [...submitted.current]) {
       if (!entry.result.retryable || entry.result.pending) continue;
       const { target } = entry;
@@ -57,6 +58,7 @@ export function usePermissionDecisions(localMachineId: string | undefined, refre
     }
     publishResults();
     await refresh();
+    return [...submitted.current].flatMap(([key, entry]) => entry.result.retryable && !entry.result.pending ? [key] : []);
   }, [localMachineId, refresh, refreshAccess]);
   return { results, decide, refreshFailures };
 }

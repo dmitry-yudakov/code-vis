@@ -65,7 +65,10 @@ import {
 } from './workspaceViews';
 import { ImmersiveBoundary } from './immersive/ImmersiveBoundary';
 import { usePermissionDecisions } from './usePermissionDecisions';
-import { permissionKey, type PermissionTarget } from './immersive/sessionControls';
+import { permissionKey, type PermissionResult, type PermissionTarget } from './immersive/sessionControls';
+import { ToastStack } from './ToastStack';
+import { runOutcomeTone, standingToast, type Toast } from './toasts';
+import { useToasts } from './useToasts';
 import type { ImmersiveSessionChoice } from '@/features/diagram/spatial/immersiveTypes';
 import type { ImmersiveReportPlacement, SessionCreation } from './immersive/sessionControls';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH, type SideTab } from './panelLayout';
@@ -147,13 +150,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [runsBySession, setRunsBySession] = useState<Record<string, RunPresentation>>({});
   const [runOutcomesBySession, setRunOutcomesBySession] = useState<Record<string, SessionRunOutcome>>({});
   const [repositoryTree, setRepositoryTree] = useState<GitWorkingTree>();
-  const [notice, setNotice] = useState<string>();
+  const { toasts, latest: latestToast, notify, dismiss: dismissToast, supersede } = useToasts();
+  const notifyError = useCallback((error: unknown, fallback: string, key?: string) => {
+    notify({ key, tone: 'error', message: error instanceof Error ? error.message : fallback });
+  }, [notify]);
   // Kept apart from health, which a remote machine's catalog replaces; the count is this machine's.
   const [newerFormatSessions, setNewerFormatSessions] = useState(0);
   const [newerFormatNoticeDismissed, setNewerFormatNoticeDismissed] = useState(false);
-  const [archiveUndo, setArchiveUndo] = useState<ArenaSessionSummary>();
   const [archivingSessionId, setArchivingSessionId] = useState<string>();
-  const [busyRun, setBusyRun] = useState<RunDescriptor>();
   const [participantBusy, setParticipantBusy] = useState(false);
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
   const sendingSessions = useRef(new Set<string>());
@@ -175,10 +179,27 @@ export function AppShell({ children }: { children: ReactNode }) {
   focusedSessionIdRef.current = sessionId;
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
-  const onPermissionOutcome = useCallback((target: PermissionTarget, message: string) => {
-    setNotice(`${target.sessionTitle}: ${message}`);
-  }, []);
+  // The decisions hook is created from this callback, so its refresh is reached through a ref.
+  const refreshPermissionFailures = useRef<() => Promise<string[]>>(async () => []);
+  // An unconfirmed decision blocks its card until its status reads, so its toast offers the refresh
+  // until then: Refresh keeps it while the status is unknown, and dismissing it then brings it back.
+  const onPermissionOutcome = useCallback(function raise(target: PermissionTarget, result: PermissionResult, delivered: boolean) {
+    const decision = permissionKey(target);
+    const key = `permission:${decision}`;
+    const unconfirmed = async () => (await refreshPermissionFailures.current()).includes(decision);
+    notify({
+      key,
+      tone: delivered ? 'success' : 'error',
+      message: `${target.sessionTitle}: ${result.message}`,
+      ...(result.retryable ? {
+        persistent: true,
+        actions: [{ label: 'Refresh approval status', onSelect: () => void unconfirmed().then((open) => { if (!open) dismissToast(key); }) }],
+        onDismiss: () => void unconfirmed().then((open) => { if (open) raise(target, result, delivered); }),
+      } : {}),
+    });
+  }, [dismissToast, notify]);
   const permissionDecisions = usePermissionDecisions(localMachineId, arena.refresh, refreshDeviceAccess, onPermissionOutcome);
+  refreshPermissionFailures.current = permissionDecisions.refreshFailures;
 
   const putRun = useCallback((run: RunPresentation) => {
     const next = { ...runsBySessionRef.current, [run.sessionId]: run };
@@ -406,12 +427,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     try { setSavedCheckoutId(loadSelectedCheckoutId(localStorage, workspaceMachineId)); } catch { /* Device preference is optional. */ }
   }, [workspaceMachineId]);
 
-  useEffect(() => {
-    if (!archiveUndo) return;
-    const timer = window.setTimeout(() => setArchiveUndo(undefined), 10_000);
-    return () => window.clearTimeout(timer);
-  }, [archiveUndo]);
-
   const setDockerEnabled = async (enabled: boolean) => {
     const response = await fetch('/api/execution/docker', {
       method: 'PATCH',
@@ -442,7 +457,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNewerFormatSessions(next.newerFormatSessions || 0);
       setLocalExecutionHealth(next.executions);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not refresh machine readiness.');
+      notifyError(error, 'Could not refresh machine readiness.');
     }
   };
 
@@ -476,7 +491,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setCatalogReady(true);
     }).catch((error: unknown) => {
       if (current) {
-        setNotice(error instanceof Error ? error.message : 'Could not start CodeAI.');
+        notifyError(error, 'Could not start CodeAI.');
         setLoading(false);
       }
     });
@@ -505,14 +520,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         setSessions(hydrated);
         const retainedViewIds = workspace.reconcile(hydrated.map((item) => item.id));
         panelLayout.reconcile(retainedViewIds);
-        setNotice(undefined);
+        supersede('sessions-load');
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (!current) return;
         sessionsRef.current = [];
         setSessions([]);
-        setNotice(error instanceof Error ? error.message : 'Sessions could not be loaded.');
+        notifyError(error, 'Sessions could not be loaded.', 'sessions-load');
         setLoading(false);
       });
     return () => { current = false; };
@@ -583,7 +598,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     setProjects(target.projects);
     setCheckouts(target.checkouts);
     setRecentCheckoutIds(target.recentCheckoutIds);
-    setBusyRun(undefined);
     setHealth({
       ok: Object.values(target.providers).some((provider) => provider.available),
       hostLabel: target.machine.label,
@@ -599,7 +613,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   ): Promise<boolean> => {
     if (creatingSessionRef.current) return false;
     creatingSessionRef.current = true;
-    setNotice(undefined);
+    supersede('session-create');
     setCreatingSession(true);
     try {
       const requestedProjectId = options.fromArena ? options.projectId : projectId;
@@ -646,7 +660,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       void arena.refresh();
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not create a session.');
+      notifyError(error, 'Could not create a session.', 'session-create');
       return false;
     } finally {
       creatingSessionRef.current = false;
@@ -695,7 +709,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setProjects((current) => [data.project!, ...current]);
       switchProject(data.project.id);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not create the project.');
+      notifyError(error, 'Could not create the project.');
     }
   }, [apiPath, projectId, running]);
 
@@ -713,7 +727,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       setProjects((current) => [data.project!, ...current.filter((item) => item.id !== project.id)]);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not rename the project.');
+      notifyError(error, 'Could not rename the project.');
     }
   }, [apiPath, refreshProjects]);
 
@@ -731,9 +745,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       setProjects((current) => current.filter((item) => item.id !== project.id));
       if (projectId === project.id) switchProject(undefined);
-      setNotice(`${data.detachedSessionCount || 0} session${data.detachedSessionCount === 1 ? '' : 's'} moved to No project.`);
+      notify({ tone: 'success', message: `${data.detachedSessionCount || 0} session${data.detachedSessionCount === 1 ? '' : 's'} moved to No project.` });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not delete the project.');
+      notifyError(error, 'Could not delete the project.');
     }
   }, [apiPath, projectId, refreshProjects]);
 
@@ -760,7 +774,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       if (updated.projectId) void refreshProjects().catch(() => undefined);
     }).catch((error: unknown) => {
-      setNotice(error instanceof Error ? error.message : 'Could not update session repositories.');
+      notifyError(error, 'Could not update session repositories.');
     });
   }, [apiPath, enqueueSessionMutation, refreshProjects, selectedCheckoutId, session, sessionRunning]);
 
@@ -796,7 +810,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setPendingAttachmentIds([sketch.id]);
       snapshotRef.current = undefined;
     }).catch((error: unknown) => {
-      setNotice(error instanceof Error ? error.message : 'Could not create the sketch.');
+      notifyError(error, 'Could not create the sketch.');
     });
   }, [apiPath, enqueueSessionMutation, mutateSession, sessionId, sessionRunning]);
 
@@ -846,7 +860,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         body: JSON.stringify({ expectedRevision: current.revision, pinnedDiagramIds }),
       });
     }).catch((error: unknown) => {
-      setNotice(error instanceof Error ? error.message : 'Could not update the pinned canvases.');
+      notifyError(error, 'Could not update the pinned canvases.');
     });
   }, [apiPath, enqueueSessionMutation, sessionId]);
 
@@ -872,7 +886,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           body: JSON.stringify({ expectedRevision: current.revision, annotation }),
         });
       }).catch((error: unknown) => {
-        setNotice(error instanceof Error ? error.message : 'Could not save the drawing.');
+        notifyError(error, 'Could not save the drawing.');
       });
     }, 250));
   }, [apiPath, enqueueSessionMutation, mutateSession, sessionId]);
@@ -954,7 +968,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const addAgent = useCallback(async (provider: AgentProvider, role: AgentRole) => {
     if (!session || sessionRunning || participantBusy) return;
     setParticipantBusy(true);
-    setNotice(undefined);
+    supersede('participants');
     const requestKey = `${session.id}:${provider}:${role}`;
     const requestId = participantRequestIds.current.get(requestKey) || createUuid();
     participantRequestIds.current.set(requestKey, requestId);
@@ -976,7 +990,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         workspace.updateView(session.id, (current) => ({ ...current, modelSelections: { ...current.modelSelections, [added.id]: selection } }));
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not add that agent.');
+      notifyError(error, 'Could not add that agent.', 'participants');
     } finally {
       setParticipantBusy(false);
     }
@@ -985,7 +999,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setPrimaryAgent = useCallback(async (participantId: string) => {
     if (!session || sessionRunning || participantBusy) return;
     setParticipantBusy(true);
-    setNotice(undefined);
+    supersede('participants');
     try {
       await enqueueSessionMutation(session.id, (current) => fetch(
         apiPath(`/api/sessions/${encodeURIComponent(session.id)}/participants`),
@@ -1000,7 +1014,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         addressedAgentId: participantId,
       }));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not change the main agent.');
+      notifyError(error, 'Could not change the main agent.', 'participants');
     } finally {
       setParticipantBusy(false);
     }
@@ -1018,7 +1032,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const pending = reportIds.reduce(withPendingReport, pendingReportIds);
     setPendingReportIds(() => pending);
     if (reportIds.some((id) => !pending.includes(id))) {
-      setNotice(`A message carries at most ${MAX_REPORTS_PER_MESSAGE} reports. Remove one to attach the rest of the retried message's reports.`);
+      notify({ tone: 'warning', message: `A message carries at most ${MAX_REPORTS_PER_MESSAGE} reports. Remove one to attach the rest of the retried message's reports.` });
     }
   }, [pendingReportIds, prefillHandoff, setPendingReportIds]);
 
@@ -1083,7 +1097,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       if (event.type === 'permission-resolved') {
         if (event.decision === 'timeout' && focusedSessionIdRef.current === turn.sessionId) {
-          setNotice('An approval request expired and was denied automatically.');
+          notify({ tone: 'warning', message: 'An approval request expired and was denied automatically.' });
         }
       }
       if (event.type === 'error') {
@@ -1155,7 +1169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             unread: unreadAfterRunAttention(current.unread, replayed),
           }));
         }
-        if (ready.length > 1) setNotice(`${ready.length} diagram results are ready in history. The active canvas was preserved.`);
+        if (ready.length > 1) notify({ tone: 'info', message: `${ready.length} diagram results are ready in history. The active canvas was preserved.` });
         await refreshSession(turn.sessionId);
       }
     }
@@ -1165,11 +1179,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
     if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id)) return;
     if (lifecycle.busy) {
-      setNotice('CodeAI is building a new release of itself. Send again once it has restarted; your draft is kept.');
+      notify({ key: 'send', tone: 'warning', message: 'CodeAI is building a new release of itself. Send again once it has restarted; your draft is kept.' });
       return;
     }
     if (!session.repositories.some((repository) => repository.role === 'primary')) {
-      setNotice('Attach a repository and make it primary before running an agent turn. The canvas and participant setup remain available.');
+      notify({ key: 'send', tone: 'warning', message: 'Attach a repository and make it primary before running an agent turn. The canvas and participant setup remain available.' });
       panelLayout.openRepository();
       return;
     }
@@ -1189,16 +1203,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     const turnMode: AgentMode = override?.mode ?? mode;
     const turnProviderHealth = executionProviders?.[turnAgent.provider];
     if (!turnProviderHealth?.available || !turnProviderHealth.supportedModes.includes(turnMode)) {
-      setNotice(turnProviderHealth?.message || `${PROVIDER_LABELS[turnAgent.provider]} is not available for ${turnMode} mode.`);
+      notify({ key: 'send', tone: 'warning', message: turnProviderHealth?.message || `${PROVIDER_LABELS[turnAgent.provider]} is not available for ${turnMode} mode.` });
       return;
     }
     // Each agent's own choice: an Execute plan turn may address an agent other than the selected one.
     const turnModel = offeredModelSelection(agentModelSelection(view, preferences, turnAgent), turnProviderHealth);
-    setNotice(undefined);
+    supersede('send');
     sendingSessions.current.add(session.id);
     setPreparingSends((current) => [...current, session.id]);
     try {
-      setBusyRun(undefined);
       setRunOutcome(session.id);
       const attachmentPayload: DiagramMessageAttachment[] = [];
       let compositeWarning = false;
@@ -1238,9 +1251,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         throw new Error('The marked canvas could not be exported. Your draft and attachment are preserved; retry after reopening the canvas.');
       }
       if (compositeWarning) {
-        setNotice(selected.every((canvas) => canvas.kind === 'sketch')
+        notify({ key: 'send', tone: 'warning', message: selected.every((canvas) => canvas.kind === 'sketch')
           ? 'Composite image export was unavailable; the vector marks are still attached.'
-          : 'Composite image export was unavailable; Mermaid source and vector marks are still attached.');
+          : 'Composite image export was unavailable; Mermaid source and vector marks are still attached.' });
       }
 
       const userId = createUuid();
@@ -1255,7 +1268,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       });
       const human = session.participants.find((participant) => participant.kind === 'human');
       if (!human) {
-        setNotice('This session has no local user identity.');
+        notify({ key: 'send', tone: 'error', message: 'This session has no local user identity.' });
         return;
       }
       const userMessage: UserMessage = {
@@ -1301,6 +1314,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       runControllers.current.set(session.id, controller);
       let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
       let streamRunId: string | undefined;
+      let blockingRun: RunDescriptor | undefined;
 
       try {
         const response = await fetch(apiPath('/api/agent/message'), {
@@ -1320,7 +1334,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         });
         if (!response.ok) {
           const data = await response.json().catch(() => ({})) as { error?: string; activeRun?: RunDescriptor };
-          if (data.activeRun) setBusyRun(data.activeRun);
+          blockingRun = data.activeRun;
           throw new Error(data.error || `Agent request failed (${response.status}).`);
         }
         const outcome = await consumeStream(response, {
@@ -1351,6 +1365,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             runId: streamRunId,
             message,
             missingProviderSession: false,
+            ...(cancelled ? { cancelled: true } : {}),
+            ...(blockingRun ? { blockingRun } : {}),
           });
           if (focusedSessionIdRef.current !== session.id || !chatOpenRef.current) {
             workspace.updateView(session.id, (current) => ({ ...current, unread: current.unread + 1 }));
@@ -1364,18 +1380,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         removeRun(session.id, streamRunId);
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not prepare this instruction. The draft is preserved.');
+      notifyError(error, 'Could not prepare this instruction. The draft is preserved.', 'send');
     } finally {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
   }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
-  const busyRunLabel = busyRun && (
-    sessions.find((item) => item.id === busyRun.sessionId)?.title
-    || `session ${busyRun.sessionId.slice(0, 8)}`
-  );
-  const displayedNotice = focusedRunOutcome?.message || notice;
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
     : undefined;
@@ -1427,12 +1438,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       removeRun(target.id);
       setRunOutcome(target.id);
-      setArchiveUndo({ ...data.session, machineId: targetMachineId });
-      setNotice(`Archived “${target.title}”. You can restore it from the Arena archive.`);
+      const archived = { ...data.session, machineId: targetMachineId };
+      notify({
+        key: `archive:${target.id}`,
+        tone: 'success',
+        message: `Archived “${target.title}”. You can restore it from the Arena archive.`,
+        actions: [{ label: 'Undo archive', onSelect: () => void restoreSessionRef.current(targetMachineId, archived) }],
+      });
       await arena.refresh();
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not archive the session.');
+      notifyError(error, 'Could not archive the session.');
       return false;
     }
   }, [arena.refresh, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject]);
@@ -1450,15 +1466,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         throw new Error(data.error || 'Could not restore the session.');
       }
       if (targetMachineId === machineId && data.session.projectId === projectId) await refreshSession(data.session.id);
-      setArchiveUndo((current) => current?.id === target.id ? undefined : current);
-      setNotice(`Restored “${data.session.title}”.`);
+      notify({ key: `archive:${target.id}`, tone: 'success', message: `Restored “${data.session.title}”.` });
       await arena.refresh();
       return true;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not restore the session.');
+      notifyError(error, 'Could not restore the session.');
       return false;
     }
   }, [arena.refresh, localMachineId, machineId, projectId, refreshSession]);
+  // Undo runs seconds after the archive, so it reaches the restore of that moment, not of the archive's.
+  const restoreSessionRef = useRef(restoreArenaSession);
+  restoreSessionRef.current = restoreArenaSession;
 
   const decideArenaPermission = async (targetMachineId: string, runId: string, requestId: string, decision: 'allow' | 'deny') => {
     const machine = arena.machines.find((item) => item.machine.id === targetMachineId);
@@ -1470,21 +1488,23 @@ export function AppShell({ children }: { children: ReactNode }) {
     }, decision);
   };
 
-  const cancelBusyRun = useCallback(async () => {
-    if (!busyRun) return;
+  const runSessionLabel = (run: RunDescriptor) => sessions.find((item) => item.id === run.sessionId)?.title
+    || `session ${run.sessionId.slice(0, 8)}`;
+  /** Cancels the run that refused a send; the refused session's outcome goes once the request is made. */
+  const cancelBlockingRun = useCallback(async (refusedSessionId: string, run: RunDescriptor, label: string) => {
     try {
       const response = await fetch(apiPath('/api/agent/cancel'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: busyRun.runId }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: run.runId }),
       });
       const data = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(data.error || 'That agent run could not be cancelled.');
-      const label = busyRunLabel;
-      setBusyRun(undefined);
-      setNotice(`Cancellation requested for ${label}.`);
+      setRunOutcomesBySession((current) => current[refusedSessionId]?.blockingRun?.runId === run.runId
+        ? withSessionRunOutcome(current, refusedSessionId) : current);
+      notify({ key: 'cancel', tone: 'success', message: `Cancellation requested for ${label}.` });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'That agent run could not be cancelled.');
+      notifyError(error, 'That agent run could not be cancelled.', 'cancel');
     }
-  }, [apiPath, busyRun, busyRunLabel]);
+  }, [apiPath, notify, notifyError]);
 
   /** Cancelling is explicit now: a closed tab detaches, only this stops the run. */
   const cancelRun = useCallback(async (target?: { machineId?: string; sessionId: string; runId: string }) => {
@@ -1560,7 +1580,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           relevant.push({ run, session: owningSession });
         }
 
-        if (relevant.length) setNotice(`Reconnected to ${relevant.length} active turn${relevant.length === 1 ? '' : 's'}.`);
+        if (relevant.length) notify({ tone: 'info', message: `Reconnected to ${relevant.length} active turn${relevant.length === 1 ? '' : 's'}.` });
         await Promise.allSettled(relevant.map(async ({ run, session: owningSession }) => {
           workspace.ensure(run.sessionId);
           setRunOutcome(run.sessionId);
@@ -1621,7 +1641,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         }));
       } catch (error) {
         if (!discoveryController.signal.aborted) {
-          setNotice(error instanceof Error ? error.message : 'Could not recover running turns.');
+          notifyError(error, 'Could not recover running turns.');
         }
       }
     })();
@@ -1635,7 +1655,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const planAgent = findAgentParticipant(session?.participants || [], participantId);
     const planHealth = planAgent && executionProviders?.[planAgent.provider];
     if (!planAgent || !planHealth?.supportedModes.includes('agent')) {
-      setNotice(planHealth?.message || 'That agent cannot execute in Agent mode.');
+      notify({ key: 'send', tone: 'warning', message: planHealth?.message || 'That agent cannot execute in Agent mode.' });
       return;
     }
     void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent', participantId });
@@ -1653,14 +1673,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     const targetMachine = arena.machines.find((entry) => entry.machine.id === choice.machineId);
     const target = targetMachine?.sessions.find((item) => item.id === choice.sessionId && item.projectId === choice.projectId);
     if (!targetMachine || targetMachine.machine.state !== 'online') {
-      setNotice(`${targetMachine?.machine.label || 'Machine'} is Offline. Choose another session or reconnect the machine.`);
+      notify({ key: 'open-session', tone: 'warning', message: `${targetMachine?.machine.label || 'Machine'} is Offline. Choose another session or reconnect the machine.` });
       return;
     }
     if (!target) {
-      setNotice('That session is unavailable. Choose another session.');
+      notify({ key: 'open-session', tone: 'warning', message: 'That session is unavailable. Choose another session.' });
       return;
     }
-    setNotice(undefined);
+    supersede('open-session');
     openArenaSession(targetMachine, target);
   };
   const clearImmersiveAttentionRoute = () => {
@@ -1674,7 +1694,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const run = targetMachine?.runs.active.find((entry) => entry.runId === item.runId && entry.sessionId === item.sessionId);
     const request = run?.pendingPermissions.find((entry) => entry.requestId === item.requestId);
     if (!targetMachine || targetMachine.machine.state !== 'online' || !targetSession || !run || !request) {
-      setNotice('That permission request is no longer available. Refresh the Arena.');
+      notify({ tone: 'warning', message: 'That permission request is no longer available. Refresh the Arena.' });
       void arena.refresh();
       return;
     }
@@ -1725,9 +1745,42 @@ export function AppShell({ children }: { children: ReactNode }) {
   /** From the flat shell: opening a canvas, or starting one, brings a hidden canvas back. */
   const selectShownDiagram = (id: string) => { selectDiagram(id); panelLayout.showCanvas(); };
   const createShownSketch = () => { createSketch(); panelLayout.showCanvas(); };
+  const sessionCreateError = toasts.find((toast) => toast.key === 'session-create')?.message;
+  // Oldest first, so on screen the raised toasts sit above the focused session's outcome, and that
+  // above the explanation for hidden sessions.
+  const blockingRun = focusedRunOutcome?.blockingRun;
+  const shownToasts: Toast[] = [
+    ...(newerFormatNotice ? [standingToast('newer-format', {
+      tone: 'info', message: newerFormatNotice, onDismiss: () => setNewerFormatNoticeDismissed(true),
+    })] : []),
+    ...(focusedRunOutcome && sessionId ? [standingToast(`run-outcome:${sessionId}`, {
+      tone: runOutcomeTone(focusedRunOutcome),
+      message: focusedRunOutcome.message,
+      onDismiss: () => setRunOutcome(sessionId),
+      actions: [
+        ...(blockingRun ? [{
+          label: `Cancel ${runSessionLabel(blockingRun)}`,
+          onSelect: () => void cancelBlockingRun(sessionId, blockingRun, runSessionLabel(blockingRun)),
+        }] : []),
+        ...(focusedRunOutcome.missingProviderSession ? [{
+          label: 'Continue in new session',
+          disabled: sessionRunning || creatingSession,
+          onSelect: () => continueSession(session?.execution || 'local'),
+        }] : []),
+        ...(focusedRunOutcome.continueMode && !sessionRunning ? [{
+          label: 'Continue',
+          onSelect: () => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! }),
+        }] : []),
+      ],
+    })] : []),
+    ...toasts,
+  ];
+  // In the session workspace the stack keeps clear of a docked conversation, and of the spatial controls.
+  const toastPlacement = loading || arenaOpen || !session ? undefined
+    : view?.surface === 'spatial' && session.activeDiagramId ? 'in-workspace beside-spatial' : 'in-workspace';
   const immersiveStatus = loading ? 'Loading session…'
     : immersiveMachine && immersiveMachine.machine.state !== 'online' ? `${immersiveMachine.machine.label} is Offline`
-      : notice || (session ? immersiveRunStatus : arena.refreshError || 'Choose a session to open');
+      : latestToast?.message || (session ? immersiveRunStatus : arena.refreshError || 'Choose a session to open');
 
   return (
     <div
@@ -1761,7 +1814,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   checkouts={orderedCheckouts}
                   hostId={hostId}
                   creating={creatingSession}
-                  error={notice}
+                  error={sessionCreateError}
                   newProvider={newProvider}
                   onChange={workspace.open}
                   onNewProvider={chooseNewProvider}
@@ -1827,13 +1880,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               },
               onReturn: immersiveReturnChoice ? returnFromImmersiveAttention : undefined,
               onRevoke: () => {
-                if (!deviceAccess.device) { setNotice('This browser is not a paired device.'); return; }
+                if (!deviceAccess.device) { notify({ tone: 'warning', message: 'This browser is not a paired device.' }); return; }
                 void fetch('/api/auth/devices', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ deviceId: deviceAccess.device.id }),
                 }).then(async (response) => {
-                  if (!response.ok) setNotice('Could not forget this device. Try again.');
+                  if (!response.ok) notify({ tone: 'error', message: 'Could not forget this device. Try again.' });
                   await refreshDeviceAccess();
-                }).catch(() => setNotice('Could not forget this device. Try again.'));
+                }).catch(() => notify({ tone: 'error', message: 'Could not forget this device. Try again.' }));
               },
             }}
             arenaControls={{
@@ -2033,27 +2086,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      {!loading && displayedNotice && (
-        <div className="notice-banner" role="status">
-          <span>{displayedNotice}</span>
-          {archiveUndo?.machineId && <button type="button" onClick={() => void restoreArenaSession(archiveUndo.machineId!, archiveUndo)}>Undo archive</button>}
-          {!focusedRunOutcome && busyRun && <button type="button" onClick={() => void cancelBusyRun()}>Cancel {busyRunLabel}</button>}
-          {Object.values(permissionDecisions.results).some((result) => result.retryable) && <button type="button" onClick={() => void permissionDecisions.refreshFailures()}>Refresh approval status</button>}
-          {focusedRunOutcome?.missingProviderSession && <button type="button" disabled={sessionRunning || creatingSession} onClick={() => continueSession(session?.execution || 'local')}>Continue in new session</button>}
-          {focusedRunOutcome?.continueMode && !sessionRunning && <button type="button" onClick={() => void send({ text: 'Continue where you stopped.', mode: focusedRunOutcome.continueMode! })}>Continue</button>}
-          <button type="button" aria-label="Dismiss notice" onClick={() => {
-            if (focusedRunOutcome && sessionId) setRunOutcome(sessionId);
-            else { setNotice(undefined); setBusyRun(undefined); setArchiveUndo(undefined); }
-          }}>×</button>
-        </div>
-      )}
-      {/* The standing explanation for hidden sessions waits while a transient notice holds the slot. */}
-      {!loading && !displayedNotice && newerFormatNotice && (
-        <div className="notice-banner" role="status">
-          <span>{newerFormatNotice}</span>
-          <button type="button" aria-label="Dismiss notice" onClick={() => setNewerFormatNoticeDismissed(true)}>×</button>
-        </div>
-      )}
+      <ToastStack toasts={shownToasts} className={toastPlacement} onRemove={dismissToast} />
 
       {loading ? (
         <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>
@@ -2091,7 +2124,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             hostId={hostId}
             newProvider={newProvider}
             creating={creatingSession}
-            error={notice}
+            error={sessionCreateError}
             onNewProvider={chooseNewProvider}
             onNew={createSession}
           />

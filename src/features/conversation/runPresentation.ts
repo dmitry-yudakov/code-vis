@@ -2,7 +2,7 @@ import {
   MAX_TOOL_ACTIVITY_ENTRIES, permissionLabel, toolActivityLabel,
   type PendingPermission, type ToolActivityEntry,
 } from '@/features/agents/toolActivity';
-import type { AgentEvent, AgentMode, ChatMessage, RunState, UserMessage } from '@/shared/types';
+import type { AgentEvent, AgentMode, ChatMessage, RunDescriptor, RunState, UserMessage } from '@/shared/types';
 
 export interface RunPresentation {
   runId?: string;
@@ -24,6 +24,10 @@ export interface SessionRunOutcome {
   message: string;
   missingProviderSession: boolean;
   continueMode?: AgentMode;
+  /** The user stopped the turn; nothing failed. */
+  cancelled?: boolean;
+  /** The run that refused this send, which the user may cancel. */
+  blockingRun?: RunDescriptor;
 }
 
 export type SessionRunOutcomes = Record<string, SessionRunOutcome>;
@@ -57,6 +61,7 @@ export function runOutcomeFromError(
     message: event.message,
     missingProviderSession: event.code === 'missing-session',
     ...(event.code === 'max-turns' ? { continueMode: mode } : {}),
+    ...(event.code === 'cancelled' ? { cancelled: true } : {}),
   };
 }
 

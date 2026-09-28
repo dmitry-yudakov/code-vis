@@ -48,7 +48,10 @@ achromatic instrument around it. The reference mock lives at
    because `tool-activity` has no call id, no completion event, and no total.
 4. **The canvas is never occluded.** From Story 31 onward, no panel covers the sheet at docking
    widths, and anything that still floats publishes its footprint as a canvas inset that
-   fit-to-view consumes. A feature that cannot honor this docks or does not ship.
+   fit-to-view consumes. A feature that cannot honor this docks or does not ship. The one exception,
+   chosen by the user on September 28, 2026, is toasts
+   ([Story 78](STORY-20260928-toast-notifications.md)): small, transient, and in the canvas's
+   top-right corner, where fit-to-view usually leaves empty sheet.
 5. **Both themes are first-class.** After Story 30, work lands in light and dark or it does not
    land. Theme blocks redefine custom properties only — a component style declared inside a
    `@media (prefers-color-scheme)` or `[data-theme]` block is the bug that renders one theme's

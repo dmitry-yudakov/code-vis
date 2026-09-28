@@ -87,7 +87,7 @@ test('a managed server’s control confirms, follows the build and restart, and 
   const composer = page.getByPlaceholder(/Ask anything about this project/);
   await composer.fill('Kept for after the restart');
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.locator('.notice-banner')).toContainText('building a new release of itself');
+  await expect(page.locator('.toast').filter({ hasText: 'building a new release of itself' })).toHaveAttribute('data-tone', 'warning');
   await expect(composer).toHaveValue('Kept for after the restart');
 
   phase = 'restarting';
