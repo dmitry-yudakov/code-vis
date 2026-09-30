@@ -149,8 +149,13 @@ the repository, request approval for that one command or patch and let the user 
 around the sandbox. An empty untracked .claude entry is the sandbox's placeholder: leave it alone.
 Treat the attachment directory as read-only.`;
 
-export function codexDeveloperInstructions(mode: AgentMode): string {
-  return mode === 'auto' ? CODEX_AUTO_DEVELOPER_INSTRUCTIONS : CODEX_DEVELOPER_INSTRUCTIONS;
+/**
+ * `globalInstructions` is the user's framed text for a Docker turn. A local turn never names it:
+ * local Codex loads its own global file.
+ */
+export function codexDeveloperInstructions(mode: AgentMode, globalInstructions?: string): string {
+  const own = mode === 'auto' ? CODEX_AUTO_DEVELOPER_INSTRUCTIONS : CODEX_DEVELOPER_INSTRUCTIONS;
+  return globalInstructions ? `${own}\n\n${globalInstructions}` : own;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -238,7 +243,7 @@ export function codexAmbientInstructionNote(value: unknown, cwd: string): string
     return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
   }).length;
   if (!ambient) return undefined;
-  return `Codex also loads ${ambient} instruction file${ambient === 1 ? '' : 's'} from outside the repository, such as a user-level AGENTS.md, which will shape its answers here.`;
+  return `Local Codex also loads ${ambient} instruction file${ambient === 1 ? '' : 's'} from outside the repository, such as your global AGENTS.md. Global instructions in the Arena shows that file.`;
 }
 
 /** Returns a public, path-free reason when command-line isolation did not take effect. */

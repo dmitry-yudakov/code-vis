@@ -5,6 +5,7 @@ export default defineConfig({
     environment: 'node',
     include: ['test/**/*.test.ts'],
     exclude: ['legacy/**', 'node_modules/**'],
+    setupFiles: ['test/setup.ts'],
     testTimeout: 10_000,
     // Provider suites spawn child Node processes; bounding file workers avoids OS-level spawn
     // failures while preserving useful parallelism across the offline suite.

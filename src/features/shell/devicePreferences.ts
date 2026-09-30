@@ -1,10 +1,14 @@
-import type { AgentExecution, AgentMode, AgentParticipant, AgentProvider, ModelSelection, ProviderHealth } from '@/shared/types';
+import type {
+  AgentExecution, AgentMode, AgentParticipant, AgentProvider, GlobalInstructionsChoice, ModelSelection, ProviderHealth,
+} from '@/shared/types';
 import { LAUNCH_MODES, isAgentMode, type LaunchMode } from '@/shared/agentModes';
+import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { parseModelSelection, type DeviceViewState } from './workspaceViews';
 
 export const DEVICE_PREFERENCES_STORAGE_KEY = 'code-ai:device:v1:preferences';
 
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
+const INSTRUCTION_CHOICES: readonly GlobalInstructionsChoice[] = ['global', 'isolated'];
 
 /**
  * The last choices made on this device. A session, an agent, or a new-session form without its own
@@ -16,6 +20,8 @@ export interface DevicePreferences {
   provider?: AgentProvider;
   /** Model and effort for an agent of each provider. An empty selection is Default. */
   models?: Partial<Record<AgentProvider, ModelSelection>>;
+  /** Global instructions for a new session. Absent is Default: follow the machine's switch. */
+  instructions?: GlobalInstructionsChoice;
 }
 
 export function parseDevicePreferences(value: string | null): DevicePreferences {
@@ -32,6 +38,8 @@ export function parseDevicePreferences(value: string | null): DevicePreferences 
       ...(isAgentMode(parsed.mode) ? { mode: parsed.mode } : {}),
       ...(AGENT_PROVIDERS.includes(parsed.provider as AgentProvider) ? { provider: parsed.provider as AgentProvider } : {}),
       ...(Object.keys(models).length ? { models } : {}),
+      ...(INSTRUCTION_CHOICES.includes(parsed.instructions as GlobalInstructionsChoice)
+        ? { instructions: parsed.instructions as GlobalInstructionsChoice } : {}),
     };
   } catch {
     return {};
@@ -64,6 +72,33 @@ export function agentModelSelection(
 ): ModelSelection | undefined {
   if (!agent) return undefined;
   return view?.modelSelections?.[agent.id] ?? preferences.models?.[agent.provider];
+}
+
+/**
+ * The Global instructions choice a New session form shows and sends: what was chosen, except that
+ * Isolate gives way to Default for local Codex, which always loads its own global file.
+ */
+export function launchInstructions(
+  choice: GlobalInstructionsChoice | undefined,
+  execution: AgentExecution,
+  provider: AgentProvider | undefined,
+): GlobalInstructionsChoice | undefined {
+  return provider && isolatesLocalCodex(choice, execution, provider) ? undefined : choice;
+}
+
+/** What a New session form names for its creation: `default` follows the machine's switch. */
+export type LaunchInstructions = GlobalInstructionsChoice | 'default';
+
+/**
+ * What a form hands its creation. A choice the form had to set aside is not named at all, so the
+ * session follows the machine's switch and the device keeps remembering what the user chose.
+ */
+export function namedLaunchInstructions(
+  choice: GlobalInstructionsChoice | undefined,
+  execution: AgentExecution,
+  provider: AgentProvider | undefined,
+): LaunchInstructions | undefined {
+  return launchInstructions(choice, execution, provider) === choice ? choice ?? 'default' : undefined;
 }
 
 type LaunchChoice = { provider: AgentProvider; mode: LaunchMode };

@@ -6,6 +6,8 @@ export function buildClaudeArgs(input: {
   policy: ResolvedAgentPolicy;
   model?: string;
   effort?: string;
+  /** The user's framed global instructions. Safe mode stays on: this adds words, nothing else. */
+  appendSystemPrompt?: string;
 }): string[] {
   const args = [
     '-p',
@@ -31,6 +33,7 @@ export function buildClaudeArgs(input: {
   }
   if (input.model) args.push('--model', input.model);
   if (input.effort) args.push('--effort', input.effort);
+  if (input.appendSystemPrompt) args.push('--append-system-prompt', input.appendSystemPrompt);
   return args;
 }
 
@@ -70,6 +73,7 @@ export const UNPROBED_CLAUDE_FLAGS = ['--max-turns', '--permission-prompt-tool']
 const BASE_CLAUDE_FLAGS = [
   '--output-format', '--verbose', '--include-partial-messages', '--safe-mode', '--permission-mode',
   '--allowedTools', '--strict-mcp-config', '--disable-slash-commands', '--session-id', '--resume', '--add-dir',
+  '--append-system-prompt',
 ] as const;
 
 /**

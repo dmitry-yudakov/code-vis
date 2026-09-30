@@ -14,6 +14,7 @@ import { buildConversationPrompt } from './prompt';
 import { parseAssistantResponse } from './responseParser';
 import { serverAgent } from '@/server/storage/sessionStore';
 import { roleContract } from '@/server/agents/agentRoles';
+import { turnGlobalInstructions } from '@/server/agents/globalInstructions';
 
 export async function publishCompletedAssistant(input: {
   runId: string;
@@ -101,6 +102,10 @@ export async function runConversation(input: {
       roleContract: roleContract(participant.role),
       transcriptDelta,
     });
+    // Resolved for every turn: a switch made in the Arena reaches the next one.
+    const instructions = await turnGlobalInstructions(config, {
+      provider: participant.provider, execution: session.execution ?? 'local', choice: session.instructions,
+    });
     const result = await runner.run({
       runId,
       checkout,
@@ -117,6 +122,7 @@ export async function runConversation(input: {
       signal,
       model: request.model,
       effort: request.effort,
+      ...instructions,
       emit(event) {
         if (event.type === 'session-started' && event.sessionId) {
           sessionMark = sessionMark

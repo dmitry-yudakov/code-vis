@@ -4,6 +4,122 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
+## Story 80 — Global instructions probes (2026-09-30 UTC)
+
+**Outcome:** the rules [Story 80](../stories/STORY-20260929-global-instructions.md) rests on hold
+with the real CLIs. Claude follows a marker in the file CodeAI passes when the choice is on and not
+when it is off, and a Claude conversation keeps the prompt it started with. Codex picks its global
+file as CodeAI does. A real Docker worker sees the allowlisted entries read-only and nothing else.
+One check remains: a signed-in Docker Codex turn, which needs the owner's own installation.
+
+- Host: Ubuntu 26.04.1 LTS, kernel 7.0.0-34-generic, Docker Engine 28.5.2. CLIs: Claude Code
+  2.1.284 (`--model haiku`), codex-cli 0.159.2; the recorded Docker image holds Claude Code 2.1.283
+  and codex-cli 0.158.0.
+- No probe edited the user's own instruction files or provider folders. Every probe file lived in a
+  scratch folder that was removed afterwards, with the `~/.claude/projects/` folder the Claude turns
+  left for the scratch checkout.
+
+### Claude: which file it reads (no model turn)
+
+`claude -p` was run signed out under `strace`, with `CLAUDE_CONFIG_DIR` naming a scratch folder that
+holds a `CLAUDE.md`.
+
+1. **`CLAUDE_CONFIG_DIR` is where Claude reads the user file: pass.** From a working directory
+   outside the home directory, Claude opened `$CLAUDE_CONFIG_DIR/CLAUDE.md` and never touched
+   `~/.claude/CLAUDE.md`. This confirms design decision 3.
+2. From a working directory under the home directory it also opened `~/.claude/CLAUDE.md`, as the
+   project file of the ancestor folder `~`. That is Claude's own project-file search, which safe
+   mode turns off with the rest.
+3. A relative `CLAUDE_CONFIG_DIR` makes Claude use a folder under its working directory, which for a
+   turn is the checkout. CodeAI never reads that as the user's own and uses `~/.claude` instead.
+4. With `--safe-mode` Claude opened neither file, as the story's draft recorded.
+5. `claude --help` documents `--append-system-prompt` in 2.1.284, in the worker image's 2.1.283, and
+   in 2.1.226, the lowest version a fresh provision installs.
+
+### Claude: real turns through `ClaudeProcessRunner`
+
+CodeAI resolved a scratch `CLAUDE.md` naming a secret word; the real CLI then ran with the user's own
+login, `--safe-mode`, and Haiku, in a scratch checkout. Each turn asked for the word, or `NONE`.
+
+| Turn | `--append-system-prompt` passed | Answer |
+|---|---|---|
+| No settings record, new conversation | yes | the word |
+| Claude switched off, new conversation | no | `NONE` |
+| Claude switched off, session choice Use, new conversation | yes | the word |
+| Claude switched on, session choice Isolate, new conversation | no | `NONE` |
+| Started with the text (first question unrelated), resumed after switching off | no | the word |
+| Started without the text (first question unrelated), resumed after switching on | yes | `NONE` |
+
+The last two rows are design decision 6: a Claude conversation keeps the prompt it started with, in
+both directions, so a change takes effect in new Claude conversations.
+
+The reviews changed how the file is resolved and read. After the second and after the third, two
+more turns ran through the code as it then stood, with the scratch `CLAUDE.md` a link into a
+checkout under a scratch repositories root, as on this machine: switched on, the word; switched
+off, `NONE`.
+
+### The link and read rules (no model turn)
+
+The second review ran these against the code as it stood before its fixes.
+
+- A loop that renamed the instruction file between a regular file and a link to another file, writing
+  only inside the repositories root, made 2,832 of 22,309 resolutions (12.7%) return the other file's
+  text: the path was checked and then opened by name. The read now opens one handle and requires the
+  kernel's name for it (`/proc/self/fd`) to be the resolved path. A test swaps the file, and a folder
+  above it, between the resolution and the read, and gets a refusal each time.
+- A link to `/proc/self/pagemap` took the process to about 4 GiB, because the size came from `stat`
+  and the read ran to the end of the file. The read is now bounded to one byte past the limit.
+- The same swap was simulated for a Docker bind source: of 432 attempts that passed both checks, 99
+  had the path naming another folder immediately afterwards. Nothing under the repositories root or
+  a temp directory is a bind source any more.
+
+The third review ran these against the second review's fixes.
+
+- A tight loop saving a file that no turn can reach, by writing a copy and renaming it over, made
+  1,099 of 3,000 resolutions refuse it: the proof was asked of every file, and a replaced file
+  looks like a swapped one. Proof is now asked only of a file a turn can reach, and a refusal is
+  tried once more.
+- With the repositories root set to the home directory, `~/.claude/CLAUDE.md` linked to
+  `~/.codex/AGENTS.md` was refused and every Docker entry left out, although no turn can write
+  either folder. Those two folders, directly in the root, are now the user's own.
+
+### Codex: which file it reads (no model turn)
+
+`thread/start` in a signed-out scratch `CODEX_HOME`, reading `instructionSources`.
+
+| Scratch home holds | `instructionSources` |
+|---|---|
+| `AGENTS.md` | `AGENTS.md` |
+| `AGENTS.md` and `AGENTS.override.md` | `AGENTS.override.md` only |
+| an empty or blank `AGENTS.override.md` | `AGENTS.md` |
+| an unreadable `AGENTS.override.md` (mode 000) | `AGENTS.md` |
+| an `AGENTS.override.md` that is not UTF-8 | `AGENTS.override.md` |
+| `AGENTS.md` as a symbolic link | the link's own path |
+| a 40 KiB `AGENTS.md` | `AGENTS.md` |
+| neither | none |
+
+A relative `CODEX_HOME` is resolved against Codex's working directory. CodeAI follows the first four
+rows and the link. It differs on purpose where it cannot pass a file whole: an override that is too
+large or not text stays the answer with its reason, and `AGENTS.md` is never passed in its place.
+
+### Docker: what a worker sees (`npm run test:docker`, real daemon)
+
+With a synthetic `CODEX_HOME` outside the temp directory, holding `AGENTS.md`, `skills/`,
+`auth.json`, `config.toml`, and a `prompts` link to a temp folder that holds the data directory, a
+worker created for a turn whose choice
+is on had exactly two extra mounts, both read-only binds: `/user/codex/AGENTS.md` and
+`/user/codex/skills`. It could read both, could not write to either or create anything under
+`/user/codex`, saw neither `auth.json` nor `config.toml`, and had no copy in its provider home. The
+`prompts` link was left out. A worker for an isolated turn had no `/user` at all. The rest of the
+boundary probe passed unchanged, before and after the rules of the reviews were added.
+
+### Not verified here
+
+- A signed-in Docker Codex turn that follows a marker when the choice is on and not when it is off.
+  The worker's login lives in the owner's installation, whose data directory this session did not
+  use. The offline suite shows the framed text in `developerInstructions` at `thread/start` and
+  `thread/resume`.
+
 ## Story 79 — Auto probes (2026-09-30 UTC)
 
 **Outcome:** Codex meets design decisions 2–5 of

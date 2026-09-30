@@ -267,7 +267,7 @@ describe('host-owned session store', () => {
       { ...versionThree, execution: null },
       { ...versionThree, version: 4 },
       { ...session, version: 4, execution: 'unknown' },
-      { ...session, version: 7, execution: 'local' },
+      { ...session, version: 8, execution: 'local' },
       { ...versionThree, version: 5 },
       { ...versionThree, version: 6 },
       { ...session, version: 4, execution: 'docker', repositories: [] },

@@ -628,8 +628,8 @@ Cards show Idle, Running, Needs you, Queued, or Failed state plus their reposito
 latest activity. An inactive session can be archived from its card, or from inside it with
 **More → Archive session**, and later restored intact from the **Archived** view; a session with a
 reserved, queued, executing, or permission-blocked turn cannot be archived. Use **New session**
-there to choose a project, provider, and initial mode before opening an empty session; creation
-never sends a prompt automatically.
+there to choose a project, provider, [Global instructions](#global-instructions) choice, and initial
+mode before opening an empty session; creation never sends a prompt automatically.
 
 **Inbox** in the activity bar follows you into every session and aggregates all online attached machines. It
 puts live permission requests first, then
@@ -796,6 +796,67 @@ means no override: a new agent starts on the machine's default (`CODEAI_CLAUDE_M
 explicit choice keeps it, because a provider session keeps its last model and effort. A machine that
 sets `CODEAI_*_MODEL` sends that model on every Default turn.
 
+### Global instructions
+
+Your own instructions for a provider (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) apply in CodeAI
+too, and you decide where. **Global instructions** in the Arena shows, for each provider on this
+machine, a switch, the file it resolves to, and the file's text, read-only. Both switches are on
+until you change one.
+
+- **Claude** runs in safe mode, which turns its own `CLAUDE.md` loading off together with hooks,
+  skills, plugins and MCP. So CodeAI reads the file itself and passes its text with
+  `--append-system-prompt`, in every mode, Local and Docker. Safe mode stays on: the file adds words
+  and nothing else. `@path` imports in it are passed as written and not followed. The text travels
+  on Claude's command line, so while a turn runs another account on the same machine can read it in
+  the process list.
+- **Local Codex** loads its own `AGENTS.md` whatever CodeAI sends, so the switch cannot turn it off
+  there; the Arena says so. The Codex switch applies to **Docker Codex**, which gets the text in its
+  developer instructions.
+- CodeAI reads the file the provider reads: `$CLAUDE_CONFIG_DIR/CLAUDE.md`, or
+  `$CODEX_HOME/AGENTS.override.md` when it holds text and else `$CODEX_HOME/AGENTS.md`, when the
+  variable is an absolute path, and the folders in your home directory otherwise. Your own symbolic
+  links are followed, and a file both providers share is shown once.
+- The file must be a regular UTF-8 file of at most 32 KiB without NUL bytes. One that is not is
+  left out whole, never truncated, and the Arena and readiness say why.
+- Two kinds of link are refused, with the reason shown. One that lives under the repositories root
+  (`CODEAI_REPOSITORIES_ROOT`) or a temp directory, because a turn that edits a checkout could
+  repoint it at any file you can read and the next turn would be handed that file. And one that ends
+  in a provider folder's private files, such as `auth.json`. You can keep the file itself under the
+  repositories root: the Arena marks it, and a turn there can then change what it says, as it can
+  change any file in its checkout. On Linux CodeAI proves that the file it opened is the one it
+  resolved; on a system where it cannot (macOS), a file under the repositories root is not read.
+  `~/.claude` and `~/.codex` themselves stay yours even when the repositories root is your home
+  directory.
+- Only that one file is passed: nothing it imports, and no other file of the folder.
+- The text is framed under CodeAI's own contract: where the two conflict, CodeAI's instructions
+  apply. Instructions are guidance, never a boundary. No mode, sandbox, or approval depends on
+  them.
+
+A change reaches **Docker Codex's next turn** and **a Claude agent's next provider session**: Claude
+keeps the prompt its provider session started with, so an agent that already ran keeps what it
+started with.
+
+A session can carry its own choice, made when it is created: **Default** follows the machine's
+switch at each turn, **Use** and **Isolate** hold whatever the switch says. The conversation's
+**＋** menu and the Arena's **New session** form offer it, and this device remembers the last choice;
+VR sessions follow the machine's switch. An isolated local session refuses a Codex agent, because
+local Codex cannot be isolated: use Docker for an isolated Codex. The line under the composer shows
+what applies to the addressed agent on this machine: **global instructions**, **isolated**, or
+**global instructions unavailable** when they are on but the machine has none it can give. For a
+Claude agent that already ran, the line describes its next provider session. For a session on an
+executor it shows only a choice the session itself carries. A session made with
+**Continue in Docker…/Local…** keeps its source's choice.
+
+Use or Isolate is stored in the session's record at version 7, which a CodeAI without this choice
+cannot open. That build hides only that session
+([Story 65](stories/STORY-20260921-tolerate-newer-session-format.md)); a session on Default keeps
+its version.
+
+In Docker a turn whose choice is on also sees an allowlist of your provider folder, read-only, at
+`/user/claude` or `/user/codex`: see
+[the Docker execution contract](docs/docker-execution.md#your-global-instructions-and-customizations).
+Each machine uses its own switches and its own files; the Arena shows the home machine's.
+
 ### Claude Git read allowlist
 
 Claude modes add `Bash`, gated by a fixed server-owned rule set:
@@ -835,15 +896,19 @@ build outputs also change the host checkout. Ask/Plan mount the entire checkout 
 Dependencies may need reinstalling when switching between macOS and Linux. The Local contract
 below and its Codex Agent gate remain in force for Local sessions.
 
-Every run uses a server-owned provider profile. The browser can name a supported mode and nothing
-else: provider, executable, tool list, allowlist, permission mode, model flags, environment
-variables, sandbox, and settings all stay server-owned. An unknown mode is a 400, and a mode the
+Every run uses a server-owned provider profile. The browser can name a supported mode, a listed
+[model and effort](#model-and-effort), and whether a session or this machine uses your
+[global instructions](#global-instructions), and nothing else: provider, executable, tool list,
+allowlist, permission mode, model flags, environment variables, sandbox, settings, and the
+instruction file's path and text all stay server-owned. An unknown mode is a 400, and a mode the
 addressed provider does not advertise is a 409.
 
 Claude is spawned without a shell in the primary repository's checkout directory with:
 
 - safe mode (repository hooks, skills, MCP, and custom commands stay disabled), strict empty MCP
   configuration, and slash commands disabled, in every mode;
+- your [global instructions](#global-instructions) as appended system-prompt text, when they are on
+  for the turn;
 - the fixed git/gh allowlist, and in Ask/Plan the `Read,Glob,Grep,Bash` tool list with plan
   permissions;
 - a bounded turn count, timeout, output size, and one global active process;
@@ -858,9 +923,9 @@ approval reviewer and is refused if App Server reports another one, such as `aut
 Codex config. Server-owned overrides disable MCP servers, apps,
 plugins, hooks, web search, subagents, and custom commands; preflight also queries the effective
 integration inventory and fails closed if an ambient MCP server or hook remains enabled. Instruction
-files Codex loads from outside the repository, such as a user-level `AGENTS.md`, and enabled user or
+files local Codex loads from outside the repository, such as your global `AGENTS.md`, and enabled user or
 repository skills are your own Codex configuration: readiness reports them as a note instead of
-withholding the provider. App Server approval requests are correlated to the active turn, sanitized, and
+withholding the provider, and [Global instructions](#global-instructions) in the Arena shows that file. App Server approval requests are correlated to the active turn, sanitized, and
 resolved as one-shot allow/deny decisions through the same permission cards.
 
 A checkout need not be a Git repository. CodeAI's own Git reads never adopt a folder as a repository
@@ -911,7 +976,7 @@ environment of whoever starts CodeAI.**
   transcript, canvas, roster, annotation, project, or repository-binding content there. Reloading
   or a second browser context sees committed host content after refetch, with its own layout.
 - A second device record, `code-ai:device:v1:preferences`, keeps the last mode, the last provider
-  for a new session, and the last model and effort for each provider. Execution is not remembered:
+  and Global instructions choice for a new session, and the last model and effort for each provider. Execution is not remembered:
   Docker Agent edits without individual approvals, so Docker stays an explicit choice for each new
   session, and a Docker session never inherits Agent as its mode.
 - Later turns resume the addressed participant's host-bound native provider session and receive

@@ -35,6 +35,7 @@ async function main() {
   await saveDockerProvision(dataDir, image);
   const identity = { sessionId: crypto.randomUUID(), participantId: crypto.randomUUID(), runId: crypto.randomUUID(), provider: 'codex' as const };
   let worker: Awaited<ReturnType<DockerRuntime['createWorker']>> | undefined;
+  const providerHomes: string[] = [];
   process.stdout.write(`Disposable fixture: ${root}\n`);
   // This fixture contains synthetic state only; preserve command errors for useful probe failures.
   const shell = async (text: string) => (await exec('docker', ['--host', endpoint, 'exec', worker!.worker, 'sh', '-c', text], {
@@ -145,6 +146,43 @@ async function main() {
     } finally { await other.stop(); }
     await worker.stop(); worker = undefined;
     process.stdout.write('PASS npm metadata gateway and denied methods, direct registry, IPv4/IPv6, proxy bypass, private/host/other-worker destinations and separate provider homes\n');
+    // The user's own customizations: an allowlist of a synthetic provider folder, read-only under /user.
+    // Not under the temp directory: a turn can write there, so nothing in it is ever bound.
+    const providerHome = await realpath(await mkdtemp(path.join('/var/tmp', 'codeai-docker-provider-home-')));
+    providerHomes.push(providerHome);
+    await mkdir(path.join(providerHome, 'skills', 'review'), { recursive: true });
+    await writeFile(path.join(providerHome, 'AGENTS.md'), 'SYNTHETIC_GLOBAL_INSTRUCTIONS\n');
+    await writeFile(path.join(providerHome, 'skills', 'review', 'SKILL.md'), 'SYNTHETIC_SKILL\n');
+    await writeFile(path.join(providerHome, 'auth.json'), 'SYNTHETIC_PROVIDER_CREDENTIAL');
+    await writeFile(path.join(providerHome, 'config.toml'), 'SYNTHETIC_PROVIDER_SETTING');
+    // An allowed name that resolves to a temp folder, here one holding the data directory, is never bound.
+    await symlink(root, path.join(providerHome, 'prompts'));
+    process.env.CODEX_HOME = providerHome;
+    worker = await runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { checkout, context, mode: 'ask', customizations: true });
+    assert.deepEqual(worker.customizations, ['AGENTS.md', 'skills']);
+    const userMounts = (JSON.parse(await command(['inspect', worker.worker, '--format', '{{json .Mounts}}'])) as Array<{ Type: string; Destination: string; RW: boolean }>)
+      .filter((mount) => mount.Destination.startsWith('/user'));
+    assert.deepEqual(userMounts.map((mount) => `${mount.Type} ${mount.Destination} ${mount.RW}`).sort(), [
+      'bind /user/codex/AGENTS.md false', 'bind /user/codex/skills false',
+    ]);
+    assert.equal((await shell('cat /user/codex/AGENTS.md')).trim(), 'SYNTHETIC_GLOBAL_INSTRUCTIONS');
+    assert.equal((await shell('cat /user/codex/skills/review/SKILL.md')).trim(), 'SYNTHETIC_SKILL');
+    assert.deepEqual((await shell('ls -A /user/codex')).trim().split('\n').sort(), ['AGENTS.md', 'skills']);
+    assert.ok(!(await shell('ls -AR /user; cat /user/codex/AGENTS.md /user/codex/skills/*/*')).includes('SYNTHETIC_PROVIDER'));
+    for (const write of ['echo forbidden > /user/codex/AGENTS.md', 'echo forbidden > /user/codex/skills/review/SKILL.md', 'touch /user/codex/skills/new', 'touch /user/codex/new']) {
+      await assert.rejects(shell(write), write);
+    }
+    // They sit outside the provider home, which holds the worker's own configuration.
+    await assert.rejects(shell('test -e /home/agent/.codex/AGENTS.md'));
+    await worker.stop(); worker = undefined;
+    // An isolated turn, and one on a machine without these entries, has no /user at all.
+    worker = await runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { checkout, context, mode: 'ask', customizations: false });
+    assert.deepEqual(worker.customizations, []);
+    await assert.rejects(shell('test -e /user'));
+    await worker.stop(); worker = undefined;
+    delete process.env.CODEX_HOME;
+    assert.equal(await readFile(path.join(providerHome, 'AGENTS.md'), 'utf8'), 'SYNTHETIC_GLOBAL_INSTRUCTIONS\n');
+    process.stdout.write('PASS allowlisted user customizations are read-only under /user, outside the provider home, and absent when isolated\n');
     const setup = await runtime.createWorker({ ...identity, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID() }, { mode: 'ask', setup: true });
     try {
       const replacement = new DockerRuntime(config);
@@ -270,6 +308,7 @@ finally:
     const volumes = (await command(['volume', 'ls', '-q', '--filter', `label=${DOCKER_LABEL}.owner=${runtime.owner}`])).trim().split('\n').filter(Boolean);
     for (const id of volumes) await command(['volume', 'rm', id]);
     await rm(root, { recursive: true, force: true });
+    for (const providerHome of providerHomes) await rm(providerHome, { recursive: true, force: true });
   }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

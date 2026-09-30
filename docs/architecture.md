@@ -94,10 +94,12 @@ capability.
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
 | Mode selection (`ask` / `plan` / `agent` / `auto`) | Browser names it, server resolves it |
 | Model and effort for a turn | The browser names one of the machine's choices, and the server resolves it |
+| Global instructions | The browser names a provider's switch on this machine and a new session's choice; the server resolves the file, its text, and every Docker bind |
 | Pairing challenges and device credential digests | Separate host device-auth record |
 | Machine challenge and inbound credential digests | Separate executor machine-auth record |
 
-The browser can name a supported mode and, optionally, a model and an effort, and nothing else. An
+The browser can name a supported mode and, optionally, a model and an effort, a new session's
+global-instructions choice, and this machine's switch for a provider, and nothing else. An
 unknown mode is a 400, and a mode the addressed provider does not advertise is a 409. The model and effort must come from the choices the executing
 machine lists in `ProviderHealth` for the addressed provider (`models`, each with its `efforts`, and
 `efforts` for the Default model); anything else is a 400 before the turn is reserved. Claude's
@@ -111,6 +113,26 @@ effort it last used, and `CODEAI_*_MODEL` still applies when it is set. This is 
 sends flags, prompts-with-tools, or paths outside the selected repository: every one of those is
 derived server-side from `src/server/config.ts` plus the resolved policy in
 `src/server/agents/agentPolicy.ts`.
+
+The user's global instructions follow the same rule. `src/server/agents/globalInstructions.ts`
+resolves the file each provider itself reads and reads it whole or not at all
+(`src/server/boundedTextFile.ts`: a regular UTF-8 file of at most 32 KiB, read from one handle).
+`resolveUserPath` follows the user's own links but refuses one that lives under the repositories
+root or a temp directory, where a turn could repoint it, and any path that ends in a provider
+folder's private files. For a file that lies where a turn can write, the read then proves, from the
+kernel's name for the open handle, that it holds the resolved file; where a system cannot, such a
+file is not read. For every turn
+`conversationService` resolves the effective choice (`effectiveInstructions` in
+`src/shared/globalInstructions.ts`: the session's `instructions`, else the machine's switch in
+`<dataDir>/instructions/settings.json`, and always on for local Codex, which loads its own file) and
+hands the runner the text as `AgentProcessRun.globalInstructions`. Claude gets it framed as
+`--append-system-prompt`, and Docker Codex inside `developerInstructions`; local Codex gets nothing
+from CodeAI. `GET`/`PATCH /api/instructions` serve the Arena's view and switches to the home
+machine's own devices and are not part of the executor gateway; health carries each provider's
+switch and whether a file is there (`MachineInstructions`), which is what the line under the
+composer reads. A Docker turn whose choice is on
+also binds an allowlist of the provider folder read-only (`src/server/execution/dockerCustomizations.ts`).
+Instructions are guidance, never a boundary: no mode, sandbox, or approval depends on them.
 
 ## Browser snapshots and device state
 
@@ -229,13 +251,16 @@ identity fails closed; the whole `session-store-v2` directory is the backup/rest
 `threads.json` and browser records are not imported or modified.
 
 Session records accept version 3 (implicit local execution), version 4 (required `execution:
-'local' | 'docker'`), and version 5 (version 4 whose user messages may carry report evidence). Reads
+'local' | 'docker'`), version 5 (version 4 whose user messages may carry report evidence), version 6
+(version 5 whose messages may be Auto), and version 7 (version 6 that may hold the session's own
+`instructions: 'global' | 'isolated'`). Reads
 do not migrate any format; mutations, public snapshots, and exports preserve the version and
-execution metadata. New sessions are version 4; the mutation that first appends a report upgrades
-only that session to version 5 (a version 3 one also gains its implicit `execution: 'local'`), so a
-build without report support hides just that session. Docker sessions keep
-their fixed single-primary-repository binding and are readable here, but the message route
-rejects their turns before provider work because this checkout has no Docker runtime.
+execution metadata. New sessions are version 4, except one created with its own global-instructions
+choice, which starts at version 7; the mutation that first appends a report upgrades
+only that session to version 5 and the first Auto message to version 6 (a version 3 one also gains
+its implicit `execution: 'local'`), and no upgrade lowers a version. A build without the feature a
+version stands for hides just that session. Docker sessions keep
+their fixed single-primary-repository binding.
 
 ## CodeAI reports
 

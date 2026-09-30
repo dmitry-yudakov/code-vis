@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { agentModelSelection, inheritedMode, launchChoice, launchModes, parseDevicePreferences } from '@/features/shell/devicePreferences';
+import {
+  agentModelSelection, inheritedMode, launchChoice, launchInstructions, launchModes, namedLaunchInstructions, parseDevicePreferences,
+  serializeDevicePreferences,
+} from '@/features/shell/devicePreferences';
 import type { AgentMode } from '@/shared/types';
 import { emptyDeviceView } from '@/features/shell/workspaceViews';
 
@@ -35,6 +38,36 @@ describe('device preferences', () => {
     for (const malformed of [null, '', '{', '[]', '"agent"', JSON.stringify({ version: 2, mode: 'agent' })]) {
       expect(parseDevicePreferences(malformed)).toEqual({});
     }
+  });
+
+  it('remembers the last Global instructions choice, where Default is simply no choice', () => {
+    for (const instructions of ['global', 'isolated'] as const) {
+      expect(parseDevicePreferences(serializeDevicePreferences({ mode: 'plan', instructions }))).toEqual({ mode: 'plan', instructions });
+    }
+    expect(parseDevicePreferences(serializeDevicePreferences({ mode: 'plan', instructions: undefined }))).toEqual({ mode: 'plan' });
+    for (const unknown of ['default', 'everything', true, { path: '/etc/passwd' }]) {
+      expect(parseDevicePreferences(JSON.stringify({ version: 1, instructions: unknown }))).toEqual({});
+    }
+  });
+
+  it('opens a New session form at the remembered choice, except Isolate for local Codex', () => {
+    expect(launchInstructions('isolated', 'local', 'claude')).toBe('isolated');
+    expect(launchInstructions('isolated', 'docker', 'codex')).toBe('isolated');
+    // Local Codex always loads its own global file, so the form shows and sends Default instead.
+    expect(launchInstructions('isolated', 'local', 'codex')).toBeUndefined();
+    expect(launchInstructions('global', 'local', 'codex')).toBe('global');
+    expect(launchInstructions(undefined, 'docker', 'codex')).toBeUndefined();
+    // No provider is available yet: the choice is kept for when one is.
+    expect(launchInstructions('isolated', 'local', undefined)).toBe('isolated');
+  });
+
+  it('names a choice to the creation, Default included, but not one the form had to set aside', () => {
+    // Naming it is what makes it this device's last choice.
+    expect(namedLaunchInstructions('isolated', 'docker', 'codex')).toBe('isolated');
+    expect(namedLaunchInstructions('global', 'local', 'codex')).toBe('global');
+    expect(namedLaunchInstructions(undefined, 'local', 'codex')).toBe('default');
+    // One local Codex session must not make a user who isolates forget that they do.
+    expect(namedLaunchInstructions('isolated', 'local', 'codex')).toBeUndefined();
   });
 
   it('prefers an agent\'s own choice, else its provider\'s last choice', () => {

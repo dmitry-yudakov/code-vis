@@ -52,7 +52,8 @@ function threadResult(params, id = threadId) {
         type: 'workspaceWrite', writableRoots: mode === 'auto-extra-root' ? ['/tmp/fake-codex/extra'] : [],
         networkAccess: mode === 'auto-network', excludeTmpdirEnvVar: false, excludeSlashTmp: false,
       }
-      : { type: 'readOnly', networkAccess: false },
+      // Docker's own container is the sandbox, so its threads run without one.
+      : params.sandbox === 'danger-full-access' ? { type: 'dangerFullAccess' } : { type: 'readOnly', networkAccess: false },
     activePermissionProfile: !profile || mode === 'auto-no-profile' ? null
       : { id: mode === 'auto-other-profile' ? 'wide' : profile, extends: ':workspace' },
     reasoningEffort: 'medium',

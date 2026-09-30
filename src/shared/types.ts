@@ -52,6 +52,8 @@ export interface GitFileDiff {
 export type AgentProvider = 'claude' | 'codex';
 export type AgentExecution = 'local' | 'docker';
 export type AgentRole = 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom';
+/** A session's own answer to "do its agents get the user's global instructions?". Absent: the machine's switch. */
+export type GlobalInstructionsChoice = 'global' | 'isolated';
 
 export type ProviderSessionRef =
   | { provider: AgentProvider; started: false; sessionId?: never; hostId?: never }
@@ -106,11 +108,14 @@ export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 export interface DurableSession {
   /**
    * Version 5 is version 4 plus report evidence on user messages; version 6 is version 5 plus Auto
-   * messages. Each is written only by the first message that needs it.
+   * messages. Each is written only by the first message that needs it. Version 7 is version 6 plus
+   * `instructions`, and only a session created with that choice is written at it.
    */
-  version: 3 | 4 | 5 | 6;
+  version: 3 | 4 | 5 | 6 | 7;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
+  /** Fixed at creation and held only by a version 7 session. Absent: each turn follows the machine's switch. */
+  instructions?: GlobalInstructionsChoice;
   revision: number;
   id: string;
   title: string;
@@ -154,6 +159,52 @@ export type ModelChoices = Pick<ProviderHealth, 'models' | 'efforts'>;
 export interface ModelSelection {
   model?: string;
   effort?: string;
+}
+
+/**
+ * Why a global instruction file is not passed. `missing` is the ordinary case of having none;
+ * `agent-link` is a symbolic link an agent turn could repoint, `protected` a path that ends in a
+ * provider folder's private files, and `unverified` a file a turn can reach on a system that cannot
+ * prove which file was opened.
+ */
+export type InstructionFileIssue =
+  | 'missing' | 'not-file' | 'too-large' | 'not-text' | 'unreadable' | 'agent-link' | 'protected' | 'unverified';
+
+/**
+ * One machine's Global instructions, as its health reports them: each provider's switch, whether
+ * CodeAI has text to pass, and whether a file is there for local Codex to load itself.
+ */
+export type MachineInstructions = Record<AgentProvider, { enabled: boolean; passable: boolean; present: boolean }>;
+
+/** What the line under the composer says applies to the addressed agent; `unavailable` is on with nothing to give. */
+export type InstructionsLine = GlobalInstructionsChoice | 'unavailable';
+
+/** One provider's global instructions on this machine. */
+export interface ProviderInstructions {
+  /** This machine's switch for the provider. */
+  enabled: boolean;
+  /** Relative to the home directory; a symbolic link shows its target after an arrow. */
+  displayPath: string;
+  /** Present when the file can be passed. It is never a truncated file. */
+  text?: string;
+  issue?: InstructionFileIssue;
+  /** Claude only: the text holds `@path` imports, which are passed as written and not followed. */
+  imports: boolean;
+  /** Codex only: local Codex loads this file itself, whatever the switch says. */
+  localAlways?: true;
+  /** The file lies under the repositories root or a temp directory, where a turn can change what it says. */
+  agentEditable?: true;
+  /** What a Docker worker sees read-only under `/user/<provider>`, and the entries left out. */
+  docker: { entries: string[]; skipped: string[] };
+}
+
+/** `GET /api/instructions`: the home machine's global instructions, for its own devices only. */
+export interface GlobalInstructionsView {
+  providers: Record<AgentProvider, ProviderInstructions>;
+  /** Both providers resolve to one file. */
+  shared: boolean;
+  /** The settings record is damaged, so both switches read as off until one is saved. */
+  damaged?: true;
 }
 
 /** The offline check an update's candidate failed, or `build` when it could not be built. */
@@ -392,9 +443,10 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6;
+  version: 3 | 4 | 5 | 6 | 7;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
+  instructions?: GlobalInstructionsChoice;
   revision: number;
   id: string;
   title: string;
@@ -625,6 +677,12 @@ export interface AgentProcessEvent {
   decision?: PermissionResolution;
 }
 
+/** The user's global instruction file for one turn, read on the server. */
+export interface GlobalInstructions {
+  displayPath: string;
+  text: string;
+}
+
 export interface AgentProcessRun {
   runId: string;
   checkout: ServerCheckout;
@@ -638,6 +696,13 @@ export interface AgentProcessRun {
   /** Already validated. Undefined model means the installation default; undefined effort sends none. */
   model?: string;
   effort?: string;
+  /**
+   * Server-resolved; undefined means isolated, a file that cannot be passed, or local Codex, which
+   * loads its own file.
+   */
+  globalInstructions?: GlobalInstructions;
+  /** Server-resolved; Docker only: the turn's choice is on, so the worker may see the allowlisted entries. */
+  userCustomizations?: boolean;
 }
 
 export interface AgentProcessResult {

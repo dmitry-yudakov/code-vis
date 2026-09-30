@@ -19,12 +19,12 @@ const emit = (event) => writeOut(`${JSON.stringify(event)}\n`);
 if (args.includes('--help')) {
   // Mirrors real `claude --help`, which documents neither --max-turns nor --permission-prompt-tool
   // even though it supports both. Preflight must stay green against exactly this.
-  const current = '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --input-format --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --model';
+  const current = '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --input-format --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt --model';
   const help = {
     // Story 18's flag set: no allowlist, no streaming input.
-    legacy: '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir',
+    legacy: '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt',
     // A CLI new enough for Ask/Plan but not for agent-mode permissions.
-    'no-input-format': '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir',
+    'no-input-format': '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt',
     // Every mode works, but effort cannot be chosen.
     'no-effort': current,
   }[process.env.CODEAI_FAKE_HELP] || `${current} --effort`;
@@ -158,7 +158,11 @@ else {
   const spatialFixture = Array.from({ length: 8 }, (_, index) => (
     `\`\`\`mermaid\nflowchart LR\n  Panel${index + 1}[Panel ${index + 1}] --> Room[Spatial room]${index === 3 ? '\n  click Room "https://example.test"' : ''}\n\`\`\``
   )).join('\n\n');
-  let text = asked('Spatial fixture')
+  // Proves whether the user's global instructions reached this turn, by the marker line they hold.
+  const marker = valueAfter('--append-system-prompt')?.match(/^CODEAI-FIXTURE-MARKER: (.+)$/m)?.[1];
+  let text = asked('Quote the global instructions marker')
+    ? marker ? `Your global instructions say: ${marker}.` : 'I have no global instructions.'
+    : asked('Spatial fixture')
     ? `Eight spatial fixture panels; panel four is deliberately non-ready.\n\n${spatialFixture}`
     : asked('Draw a simple architecture')
     ? 'Here is one architecture map.\n\n```mermaid\nflowchart LR\n  UI["`.claude/settings.local.json`<br/>M · +3 / −0"] --> API[Agent API]\n  API --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'

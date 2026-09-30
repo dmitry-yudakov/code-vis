@@ -39,6 +39,9 @@ export default defineConfig({
       CODEAI_DATA_DIR: path.resolve('test-results/server-data'),
       CODEAI_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'),
       CODEAI_CODEX_BIN: path.resolve('test/fixtures/not-a-real-codex'),
+      // The developer's own global instructions must not reach the suite; these fixtures stand in.
+      CLAUDE_CONFIG_DIR: path.resolve('test/fixtures/provider-homes/claude'),
+      CODEX_HOME: path.resolve('test/fixtures/provider-homes/codex'),
       CODEAI_MAX_CONCURRENT_RUNS: '2',
       CODEAI_FAKE_TOOL_DELAY_MS: '600',
       CODEAI_DIST_DIR: process.env.CODEAI_DIST_DIR || process.env.CODEAI_WEB2_DIST_DIR || '.next-e2e',

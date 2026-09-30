@@ -12,9 +12,12 @@ import {
   buildCodexAppServerArgs, codexDeveloperInstructions, codexIsolationIssue,
   codexMcpServerNames, codexThreadConfig, codexThreadPolicyIssue, codexTurnSecurity,
 } from './codexInvocation';
+import { frameGlobalInstructions } from './globalInstructions';
 
 interface RunnerOptions {
   transport?: ProcessTransport;
+  /** Docker only: where the worker sees the user's allowlisted customizations. */
+  customizationsPath?: string;
   imagePaths?: string[];
   binary: string;
   model?: string;
@@ -554,7 +557,9 @@ export class CodexProcessRunner implements AgentProcessRunner {
             ...(security.sandbox ? { sandbox: security.sandbox } : {}),
             ...(security.approvalsReviewer ? { approvalsReviewer: security.approvalsReviewer } : {}),
             config: codexThreadConfig(mcpServerNames, security),
-            developerInstructions: codexDeveloperInstructions(input.policy.mode),
+            // Docker only: local Codex loads its own global file, so it never gets the text twice.
+            developerInstructions: codexDeveloperInstructions(input.policy.mode, input.policy.execution === 'docker'
+              ? frameGlobalInstructions(input.globalInstructions, this.options.customizationsPath) : undefined),
             ...(model ? { model } : {}),
           };
           const threadResult = record(await request(

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import { AGENT_MODES } from '@/shared/agentModes';
-import type { AgentExecution, AgentMode, CanvasTarget, ModelChoices, ModelSelection } from '@/shared/types';
+import type { AgentExecution, AgentMode, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection } from '@/shared/types';
 import { canvasTargetId } from '@/features/conversation/sessionStore';
 import type { RecentCanvas } from '@/features/conversation/recentCanvases';
 import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip, effortLabel, executionModeHint } from '@/features/agents/toolActivity';
@@ -190,19 +190,34 @@ interface ComposerContinuation {
   onContinue(): void;
 }
 
+// Claude keeps the prompt its provider session started with, so the line is about what starts next.
+const TAKES_EFFECT = 'A change reaches the next Docker Codex turn and a Claude agent\'s next provider session.';
+const INSTRUCTIONS_LINE: Record<InstructionsLine, { label: string; title: string }> = {
+  global: { label: 'global instructions', title: `This agent gets your global instructions. ${TAKES_EFFECT}` },
+  isolated: { label: 'isolated', title: `This agent runs without your global instructions. ${TAKES_EFFECT}` },
+  unavailable: {
+    label: 'global instructions unavailable',
+    title: 'Global instructions are on for this agent, but this machine has none it can give it. Global instructions in the Arena shows why.',
+  },
+};
+
 /**
  * Where the turn runs, as a menu that continues the session in the other execution, then the mode's
- * hint, or that a continuation is being created.
+ * hint, or that a continuation is being created, and last whether the addressed agent gets the
+ * user's global instructions.
  */
-function ExecutionLine({ execution, mode, continuation }: {
+function ExecutionLine({ execution, mode, continuation, instructions }: {
   execution: AgentExecution;
   mode: AgentMode;
   continuation: ComposerContinuation;
+  instructions?: InstructionsLine;
 }) {
   const name = execution === 'docker' ? 'Docker' : 'Local';
   const other = execution === 'docker' ? 'Local' : 'Docker';
   return (
     <div className="execution-line">
+      {/* Two pieces: where a narrow panel has no room for both, the second moves under the first whole. */}
+      <div className="execution-part">
       <ComposerMenu className="execution-menu" label={`Execution: ${name}`}
         summary={<><Icon name={execution === 'docker' ? 'docker' : 'local'} />{name}<Icon name="chevronUp" /></>}>
         {(close) => (<>
@@ -218,6 +233,13 @@ function ExecutionLine({ execution, mode, continuation }: {
       <span className="execution-hint">
         {continuation.busy ? `Creating a ${other} session…` : executionModeHint(mode, execution)}
       </span>
+      </div>
+      {instructions && (
+        <div className="execution-part">
+          <span aria-hidden="true">·</span>
+          <span className="execution-instructions" title={INSTRUCTIONS_LINE[instructions].title}>{INSTRUCTIONS_LINE[instructions].label}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -282,10 +304,12 @@ export function InstructionComposer({
   value, running, cancelReady = true, turnBlocked, autoFocus, attached, reports = [], activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
   onRemoveAttachment, onRemoveReport, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
-  execution = 'local',
+  execution = 'local', instructions,
 }: {
   value: string;
   execution?: AgentExecution;
+  /** What the addressed agent's next turn gets; absent while the executing machine's switch is unknown. */
+  instructions?: InstructionsLine;
   theme: ThemeName;
   /** The attach menu's canvases: the active one first, then the newest others. */
   recentCanvases: RecentCanvas[];
@@ -398,7 +422,7 @@ export function InstructionComposer({
         </button>
       </div>
     </div>
-    <ExecutionLine execution={execution} mode={mode} continuation={continuation} />
+    <ExecutionLine execution={execution} mode={mode} continuation={continuation} instructions={instructions} />
     </>
   );
 }

@@ -8,6 +8,7 @@ import type { AgentMode, AgentProvider, ProviderHealth } from '@/shared/types';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { atomicWrite } from '@/server/storage/sessionStore';
 import { dockerCommand, localDockerEndpoint, removeContainerDetached, spawnDocker } from './dockerCommand';
+import { resolveDockerCustomizations } from './dockerCustomizations';
 import {
   containerSecurity, dockerOwner, participantVolume, providerVolume, validateDockerCheckout,
   DOCKER_CONTEXT, DOCKER_HOME, DOCKER_LABEL, DOCKER_PATH, DOCKER_PROFILE,
@@ -327,6 +328,8 @@ export class DockerRuntime {
 
   async createWorker(identity: WorkerIdentity, options: {
     checkout?: string; context?: string; mode: AgentMode; setup?: boolean;
+    /** Bind the user's allowlisted customizations read-only. Never for a setup terminal. */
+    customizations?: boolean;
   }) {
     const profile = await this.profile();
     const { command, image, endpoint } = profile;
@@ -418,6 +421,8 @@ export class DockerRuntime {
         DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         NODE_USE_ENV_PROXY: '1', LANG: 'C.UTF-8',
       };
+      const customizations = options.customizations && !options.setup
+        ? (await resolveDockerCustomizations(identity.provider, this.config)).mounts : [];
       const worker = (await command([
         'create', ...this.labels(options.setup ? 'setup' : 'worker', identity), ...containerSecurity(uid, gid, true),
         '--network', network, '--dns', '127.0.0.1',
@@ -428,6 +433,7 @@ export class DockerRuntime {
           '--mount', `type=bind,src=${options.checkout},dst=/workspace${options.mode === 'agent' ? '' : ',readonly'}`,
         ] : []),
         ...(options.context ? ['--mount', `type=bind,src=${options.context},dst=${DOCKER_CONTEXT},readonly`] : []),
+        ...customizations.flatMap((mount) => ['--mount', `type=bind,src=${mount.source},dst=${mount.target},readonly`]),
         '--workdir', options.checkout ? '/workspace' : DOCKER_HOME,
         workerImage, 'sleep', String(lifetime),
       ])).trim();
@@ -435,6 +441,9 @@ export class DockerRuntime {
       activeWorkers().set(worker, endpoint);
       // Recheck the bind source immediately before Docker actually attaches it on start.
       if (options.checkout) await validateDockerCheckout(options.checkout, this.config);
+      if (customizations.length && JSON.stringify((await resolveDockerCustomizations(identity.provider, this.config)).mounts) !== JSON.stringify(customizations)) {
+        throw new Error('Your provider customizations changed while the Docker worker was starting. Send the message again.');
+      }
       await command(['start', worker]);
       if (options.checkout) {
         try { await command(['exec', worker, 'node', '/opt/codeai/worker.mjs', 'access', options.mode]); }
@@ -447,6 +456,8 @@ export class DockerRuntime {
       }
       return {
         worker, endpoint, stop,
+        /** The names bound under `/user/<provider>`. */
+        customizations: customizations.map((mount) => mount.name),
         spawn: (binary: string, args: string[]) => spawnDocker(endpoint, ['exec', '-i', worker, binary, ...args]),
         authenticate: async () => {
           try {

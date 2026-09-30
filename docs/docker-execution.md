@@ -197,7 +197,9 @@ writable. Every turn gets a new worker. New participants share one persistent pr
 per CodeAI installation and provider; Claude and Codex have separate homes. Each participant still
 resumes its own native conversation ID, but its tools can read and modify other conversations,
 settings and login in that shared provider home. Changing the provider account affects all new
-conversations using that home. Host provider storage remains separate. Older participant volumes
+conversations using that home. Host provider storage remains separate, with the one read-only
+exception under [Your global instructions and customizations](#your-global-instructions-and-customizations).
+Older participant volumes
 remain in use until explicitly cleaned up; their contents are never read or copied by CodeAI.
 Missing native history fails visibly and requires a new provider participant/session, without
 automatic replay. Local sessions retain their existing policies and separate Codex Agent gate.
@@ -247,6 +249,69 @@ user's files and infer its lines from what the Git view hides. Keep linked confi
 checkouts.
 The helper binds only the selected root: external metadata in a Local linked worktree can make
 its Git view unavailable after provisioning as well. It never adds that external directory as a mount.
+
+### Your global instructions and customizations
+
+A Docker worker's provider home is its own volume, so it never sees the instructions you keep for
+the provider on the host. When a turn's **Global instructions** choice is on (the session's own
+choice, else this machine's switch in Arena), CodeAI does two things:
+
+- **It passes the text.** The server reads the file the provider itself would read
+  (`~/.claude/CLAUDE.md`, or `~/.codex/AGENTS.override.md` and then `~/.codex/AGENTS.md`; under
+  `CLAUDE_CONFIG_DIR` or `CODEX_HOME` when that is an absolute path) and hands it to the worker's
+  CLI as words: `--append-system-prompt` for Claude, `developerInstructions` for Codex. The file
+  must be a regular UTF-8 file of at most 32 KiB without NUL bytes. A file that is not is left out
+  whole, never truncated, and Arena and readiness say why.
+- **It binds an allowlist read-only**, each entry only when it exists, outside the provider home:
+
+  | Provider | At | Entries |
+  |----------|----|---------|
+  | Claude | `/user/claude` | `CLAUDE.md`, `skills/`, `agents/`, `commands/` |
+  | Codex | `/user/codex` | `AGENTS.md`, `AGENTS.override.md`, `skills/`, `prompts/` |
+
+This is the only host provider storage a worker ever sees, and it is an allowlist because the rest
+of those folders is not yours to share with a container: credentials, `settings.json` and
+`config.toml` (which can carry tokens), and every other project's transcripts. Nothing else in the
+folder is bound, whatever it is called.
+
+Each entry is bound from the path it resolves to, so your own symbolic link works. An entry is left
+out, and Arena names it, when:
+
+- it is reached through a link that lives under the repositories root (`CODEAI_REPOSITORIES_ROOT`)
+  or a temp directory, or its path ends there. A turn can write in those places: it could repoint
+  such a link at any folder you can read, or swap a folder before Docker attaches it, and the next
+  worker would see what it chose. `~/.claude` and `~/.codex` themselves are not such places, even
+  when the repositories root is your home directory;
+- its path ends in a provider folder but is not one of the allowlisted entries, such as
+  `~/.codex/sessions` or `auth.json`. When one provider folder is nested in the other, the inner one
+  decides;
+- its path is any part of CodeAI's data directory, the running installation, `~/.docker` or
+  `~/.config`, or holds one of them, as for a checkout. A provider folder you keep under `~/.config`
+  still has its own entries bound;
+- its path is, or holds, your home directory or a provider folder, including `~/.claude` and
+  `~/.codex` when a variable names another folder;
+- it cannot be read, it is not the expected kind (a file for the two instruction files, a folder
+  for the rest), or Docker cannot mount its path.
+
+The entries are resolved again immediately before the worker starts; if they changed, the turn is
+refused and nothing starts.
+
+The instruction file whose text is passed follows the same two link rules, with one difference: it
+may live under the repositories root, because CodeAI opens it itself and, on Linux, proves that the
+file it opened is the one it resolved. On a system that cannot prove that (macOS), such a file is
+not read. A file no turn can reach needs no proof. If you keep your instructions in a repository that agents edit, a turn there can change
+what they say, as it can change any file in that checkout, and Arena marks the file. It cannot make
+them point somewhere else.
+
+An isolated Docker Codex turn gets nothing from the host. It still loads an `AGENTS.md` in its own
+provider home, the shared Docker volume, if one was put there, and any earlier Docker Codex turn can
+write that volume.
+
+The bound entries are reference material. Workers still run the provider with safe mode and
+CodeAI's disabled features, so a skill, agent or command there is not loaded as one: the model is
+told where the folder is and can read it. An **isolated** turn gets neither the text nor the binds,
+and a login terminal never gets the binds. Anything the worker reads there can reach the provider's
+endpoints like the rest of its context, so keep secrets out of those entries.
 
 Local and Docker turns share the existing machine scheduler and checkout locks, including overlapping
 parent/child checkout paths. Helpers protect their bind sources from enclosing writers. Reloading a browser

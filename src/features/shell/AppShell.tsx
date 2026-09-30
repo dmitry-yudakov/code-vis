@@ -6,7 +6,7 @@ import type {
   AgentEvent, AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaMachineSnapshot,
   ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact, ExecutionHealth,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
-  ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, ReportAttachmentRecord, RunDescriptor, RunDiscovery,
+  GlobalInstructionsChoice, MachineInstructions, ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, ReportAttachmentRecord, RunDescriptor, RunDiscovery,
   SketchCanvas, UserMessage,
 } from '@/shared/types';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
@@ -52,13 +52,14 @@ import { DeviceMenu } from '@/features/devices/DeviceMenu';
 import { useDeviceAccess } from '@/features/devices/DeviceAccess';
 import { machineApiBase, machineApiPath } from '@/features/machines/routes';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
+import { instructionsLine, isolatesLocalCodex, LOCAL_CODEX_ISOLATION_MESSAGE } from '@/shared/globalInstructions';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { ActivityBar } from './ActivityBar';
 import { LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import { useDevicePreferences } from './useDevicePreferences';
-import { agentModelSelection, inheritedMode } from './devicePreferences';
+import { agentModelSelection, inheritedMode, type LaunchInstructions } from './devicePreferences';
 import { changesCheckout, unsupportedModes as unsupportedAgentModes, type LaunchMode } from '@/shared/agentModes';
 import {
   parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView, withPendingReport, withPendingReports,
@@ -83,6 +84,8 @@ interface Health {
   executions?: ExecutionHealth;
   /** Session files on this machine that only a newer CodeAI can open; absent for a remote machine. */
   newerFormatSessions?: number;
+  /** This machine's Global instructions switches and files; absent for a remote machine, whose own they are. */
+  instructions?: MachineInstructions;
   message?: string;
 }
 
@@ -113,6 +116,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
   const [health, setHealth] = useState<Health>();
   const [localExecutionHealth, setLocalExecutionHealth] = useState<ExecutionHealth>();
+  // Kept beside the health of whichever machine is shown: these are the home machine's own.
+  const [localInstructions, setLocalInstructions] = useState<MachineInstructions>();
   const [projects, setProjects] = useState<DurableProject[]>([]);
   const [checkouts, setCheckouts] = useState<CheckoutSummary[]>([]);
   const [recentCheckoutIds, setRecentCheckoutIds] = useState<string[]>([]);
@@ -336,7 +341,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     : !continuationHealth?.available || !continuationHealth.supportedModes.length ? `${PROVIDER_LABELS[activeProvider]} needs ${continuationExecution === 'docker' ? 'Docker' : 'Local'} setup.`
     : continuationExecution === 'docker' && (session?.repositories.length !== 1 || session.repositories[0].role !== 'primary'
       || session.repositories[0].hostId !== hostId || !checkouts.some((checkout) => checkout.id === session.repositories[0].checkoutId))
-      ? 'Docker needs exactly one primary repository on this machine.' : undefined;
+      ? 'Docker needs exactly one primary repository on this machine.'
+    // The new session copies this one's choice, and local Codex cannot be isolated.
+    : isolatesLocalCodex(session?.instructions, continuationExecution, activeProvider) ? LOCAL_CODEX_ISOLATION_MESSAGE : undefined;
+  // What the addressed agent's next turn gets. An executor's own switches and files are not known here.
+  const instructionsChoice = activeAgent && instructionsLine({
+    provider: activeAgent.provider, execution: session?.execution, choice: session?.instructions,
+    machine: workspaceMachineId ? undefined : localInstructions,
+  });
   const providerHealth = executionProviders?.[activeProvider];
   const unsupportedModes = useMemo(
     () => unsupportedAgentModes(health ? providerHealth?.supportedModes ?? [] : undefined, session?.execution),
@@ -457,6 +469,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setHealth(next);
       setNewerFormatSessions(next.newerFormatSessions || 0);
       setLocalExecutionHealth(next.executions);
+      setLocalInstructions(next.instructions);
     } catch (error) {
       notifyError(error, 'Could not refresh machine readiness.');
     }
@@ -480,6 +493,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (!current) return;
       setHealth(healthResult);
       setLocalExecutionHealth(healthResult.executions);
+      setLocalInstructions(healthResult.instructions);
       setNewerFormatSessions(healthResult.newerFormatSessions || 0);
       setProjects(projectResult);
       setCheckouts(checkoutResult.checkouts || []);
@@ -610,7 +624,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
-    options: { projectId?: string; mode?: LaunchMode; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
+    options: {
+      projectId?: string; mode?: LaunchMode; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string;
+      /** Named by a form that offers the choice; a continuation copies its source's on the server. */
+      instructions?: LaunchInstructions;
+    } = {},
   ): Promise<boolean> => {
     if (creatingSessionRef.current) return false;
     creatingSessionRef.current = true;
@@ -629,11 +647,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: requestedProvider, ...(options.execution ? { execution: options.execution } : {}),
+          ...(options.instructions && options.instructions !== 'default' ? { instructions: options.instructions } : {}),
           ...(options.sourceSessionId ? { sourceSessionId: options.sourceSessionId }
             : { ...(requestedProjectId ? { projectId: requestedProjectId } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }) }),
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
+      // What a form created a session with becomes this device's last choice, Default included.
+      const named = options.instructions;
+      if (named) updatePreferences((current) => ({ ...current, instructions: named === 'default' ? undefined : named }));
       const targetProjectId = data.session.projectId;
       const targetWorkspaceMachineId = targetMachineId && targetMachineId !== localMachineId ? targetMachineId : undefined;
       // The session and its first agent start at the given choices, else this device's last ones,
@@ -667,10 +689,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       creatingSessionRef.current = false;
       setCreatingSession(false);
     }
-  }, [applyServerSnapshot, arena.machines, arena.refresh, localMachineId, machineId, newProvider, panelLayout.openConversationFor, preferences, projectId, router, selectMachineCatalog, workspace.openInProject]);
+  }, [applyServerSnapshot, arena.machines, arena.refresh, localMachineId, machineId, newProvider, panelLayout.openConversationFor, preferences, projectId, router, selectMachineCatalog, updatePreferences, workspace.openInProject]);
 
   /** The Arena's and VR's New session forms. What a session was created with becomes this device's last choice. */
-  const createChosenSession = useCallback(async ({ provider, ...options }: SessionCreation & { execution?: AgentExecution; checkoutId?: string }) => {
+  const createChosenSession = useCallback(async ({ provider, ...options }: SessionCreation & {
+    execution?: AgentExecution; checkoutId?: string; instructions?: LaunchInstructions;
+  }) => {
     const created = await createSession(provider, { ...options, fromArena: true });
     if (created) updatePreferences((current) => ({ ...current, provider, mode: options.mode }));
     return created;
@@ -1819,6 +1843,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   creating={creatingSession}
                   error={sessionCreateError}
                   newProvider={newProvider}
+                  preferredInstructions={preferences.instructions}
                   onChange={workspace.open}
                   onNewProvider={chooseNewProvider}
                   onNew={createSession}
@@ -2108,6 +2133,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onOpenSession={openArenaSession}
           preferredProvider={preferences.provider}
           preferredMode={preferences.mode}
+          preferredInstructions={preferences.instructions}
           onCreateSession={createChosenSession}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
@@ -2129,6 +2155,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             checkouts={orderedCheckouts}
             hostId={hostId}
             newProvider={newProvider}
+            preferredInstructions={preferences.instructions}
             creating={creatingSession}
             error={sessionCreateError}
             onNewProvider={chooseNewProvider}
@@ -2180,6 +2207,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               cancelReady={Boolean(focusedRun?.runId)}
               continuing={creatingSession}
               continuationUnavailable={continuationUnavailable}
+              instructions={instructionsChoice}
               onContinue={() => continueSession(continuationExecution)}
               turnBlocked={false}
               status={sessionRunning ? status : 'Ready for an instruction'}

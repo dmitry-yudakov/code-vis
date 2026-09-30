@@ -192,7 +192,8 @@ describe.sequential('Auto mode on the message route and in session records', () 
     const session = await sessionFor('codex');
     await send(session, 'auto');
     const six = await store.getSession(session.id);
-    expect(MAX_READABLE_SESSION_VERSION).toBe(6);
+    expect(AUTO_MODE_SESSION_VERSION).toBe(6);
+    expect(MAX_READABLE_SESSION_VERSION).toBeGreaterThanOrEqual(AUTO_MODE_SESSION_VERSION);
     expect(durableSessionSchema.safeParse(six).success).toBe(true);
     for (const version of [4, 5]) expect(durableSessionSchema.safeParse({ ...six, version }).success, `version ${version}`).toBe(false);
     // The assistant's own Auto message needs version 6 as much as the user's.

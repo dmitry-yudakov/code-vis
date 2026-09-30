@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, readFile, realpath, stat } from 'node:fs/promises';
+import { access, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { readBoundedTextFile } from '@/server/boundedTextFile';
 import { getConfig } from '@/server/config';
 import { dockerCommand, localDockerEndpoint } from '@/server/execution/dockerCommand';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
@@ -51,14 +52,8 @@ const WRITE_PERSONAL_IGNORE = `printf %s "$CODEAI_PERSONAL_IGNORE" > ${HELPER_PE
 async function personalIgnore(): Promise<{ file: string; patterns: string } | undefined> {
   const configHome = process.env.XDG_CONFIG_HOME;
   const file = path.join(configHome && path.isAbsolute(configHome) ? configHome : path.join(os.homedir(), '.config'), 'git', 'ignore');
-  try {
-    const info = await stat(file);
-    if (!info.isFile() || info.size > PERSONAL_IGNORE_BYTES) return undefined;
-    // Checked again after reading: the file may have grown in between.
-    const bytes = await readFile(file);
-    if (bytes.length > PERSONAL_IGNORE_BYTES || bytes.includes(0)) return undefined;
-    return { file, patterns: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
-  } catch { return undefined; }
+  const read = await readBoundedTextFile(file, PERSONAL_IGNORE_BYTES);
+  return 'text' in read ? { file, patterns: read.text } : undefined;
 }
 
 /** Provisioning permanently switches this installation's Git reads to a credential-free helper.

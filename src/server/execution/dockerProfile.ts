@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppConfig } from '@/server/config';
+import { defaultProviderFolder, providerFolder } from '@/server/agents/providerFolder';
 import type { AgentProvider } from '@/shared/types';
 
 export const DOCKER_PROFILE = 'codeai-docker-v1';
@@ -74,7 +75,9 @@ export async function validateDockerCheckout(checkout: string, config: Pick<AppC
     throw new Error('Docker requires a canonical checkout path without mount delimiters.');
   }
   const protectedPaths = [
-    process.cwd(), config.dataDir, path.join(os.homedir(), '.codex'), path.join(os.homedir(), '.claude'),
+    process.cwd(), config.dataDir, defaultProviderFolder('codex'), defaultProviderFolder('claude'),
+    // The provider folders in use, when their variables name other places than the two above.
+    providerFolder('codex'), providerFolder('claude'),
     path.join(os.homedir(), '.docker'), path.join(os.homedir(), '.config'),
   ];
   for (const source of protectedPaths) {

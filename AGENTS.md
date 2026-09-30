@@ -86,6 +86,12 @@ Updated 2026-09-30. When a story ships, change the line that names it; each stor
   Codex and verified with real turns, and Codex's approval reviewer is pinned to the user. Claude
   Auto is not implemented: its sandbox could not be probed on this machine without `sudo`
   (`socat`, and an AppArmor profile for bubblewrap).
+- **Also in flight:** [Story 80](stories/STORY-20260929-global-instructions.md) — agents get your
+  global instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) as text by default, the Arena
+  shows them and holds a switch per provider, a session can carry its own Use or Isolate choice
+  (session format 7), and a Docker worker sees an allowlist of the provider folder read-only;
+  verified with real Claude turns and a real Docker daemon, and a signed-in Docker Codex turn and a
+  check in the running app remain pending.
 - **Next:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
   workbench shell epic and written from the template when it starts.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
@@ -142,7 +148,7 @@ git-ignored as Next.js recommends: every dev, build, and e2e run points it at it
 | `src/features/shell/` | Application composition (`AppShell`) |
 | `src/features/shell/immersive/` | The VR workspace: panels, tools, layout, input, capture, and reports |
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
-| `src/features/arena/` | Host-wide session cards, Inbox derivation, polling, and device read state |
+| `src/features/arena/` | Host-wide session cards, Inbox derivation, polling, device read state, and the machine's Docker and Global instructions sections |
 | `src/features/devices/` | Personal-device pairing gate and paired-device management UI |
 | `src/features/conversation/` | Transcript, composer, drawer, session selection, public snapshot helpers |
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
@@ -153,16 +159,17 @@ git-ignored as Next.js recommends: every dev, build, and e2e run points it at it
 | `src/features/reports/` | The shared CodeAI report owner, the flat Reports tab, and report labels |
 | `src/features/lifecycle/` | Build & restart in the browser: the pure confirm/build/restart/reconnect flow, its owner, and the More-menu section |
 | `src/features/repository/` | Repository tree, status, and diff UI and client state |
-| `src/server/agents/` | Provider policies, adapters, preflight, process runners |
+| `src/server/agents/` | Provider policies, adapters, preflight, process runners, and the user's global instructions: file resolution, the machine's switches in `<dataDir>/instructions/`, and the framed text |
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
 | `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
 | `src/server/storage/` | Project/session store, durable server records, promoted report evidence under `<dataDir>/attachments/`, per-run attachment directories under `<dataDir>/run-attachments/` |
 | `src/server/config.ts` | Environment resolution and limits |
+| `src/server/boundedTextFile.ts` | Whole-or-nothing reads of the user's own small text files (personal Git ignore, global instructions) |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
 | `src/server/diagnostics/` | Immersive reports in the home machine's data directory, and their self-project-only reads |
 | `src/server/lifecycle/` | A managed server's side of Build & restart: the private parent channel, status, and the scheduler's maintenance lease |
-| `src/server/execution/` | Optional Docker execution: container profile, runtime, recovery, and process transport |
+| `src/server/execution/` | Optional Docker execution: container profile, runtime, recovery, process transport, and the allowlist of user customizations a worker may see |
 | `src/server/voice/` | Loopback-only transcription client for voice dictation |
 | `src/server/machines/` | Machine pairing, registry, snapshot collection, and allowlisted gateway |
 | `src/shared/` | Wire schemas, limits, identities, types crossing the browser/server boundary |
@@ -180,9 +187,10 @@ importing file's own directory; keep `./…` for same-directory siblings.
 - **`src/shared` must stay side-effect free** — no Node built-ins, no DOM access. It is imported
   from both sides.
 - Provider capability is server-owned. The browser names a supported mode and, optionally, a model
-  and effort from the choices the executing machine lists for that provider, and nothing else; the
-  executable, tool list, allowlist, permission mode, sandbox, and model flags are resolved on the
-  server. An unknown mode, or an unlisted model or effort, is a 400; a mode the addressed provider
+  and effort from the choices the executing machine lists for that provider, a new session's
+  global-instructions choice, and this machine's switch for a provider, and nothing else; the
+  executable, tool list, allowlist, permission mode, sandbox, model flags, and the instruction
+  file's path and text are resolved on the server. An unknown mode, or an unlisted model or effort, is a 400; a mode the addressed provider
   does not advertise is a 409.
 - Local Agent edits the real working tree after per-action approval and runs as the desktop user.
   Local Auto (Story 79, Codex only) runs without individual approval inside the provider's
@@ -197,7 +205,23 @@ importing file's own directory; keep `./…` for same-directory siblings.
   Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
   separate working copy or rollback. New Docker participants share a persistent provider home per
   installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host
-  storage; see [the Docker execution contract](docs/docker-execution.md).
+  storage; see [the Docker execution contract](docs/docker-execution.md). The one exception
+  (Story 80): a Docker turn whose Global instructions choice is on binds a fixed allowlist of the
+  user's provider folder read-only under `/user/<provider>` (the instruction files, `skills/`,
+  `agents/`, `commands/`, `prompts/`), never the folder. Do not add an entry to
+  `PROVIDER_CUSTOMIZATIONS` or loosen `resolveUserPath` or the protected-path check without a
+  recorded review: everything else in those folders holds credentials, tokens, or other projects'
+  transcripts. A link that lives where a turn can write (the repositories root, a temp directory)
+  is never followed, and nothing there is ever a bind source.
+- The user's global instructions reach a provider as text only (`--append-system-prompt` for
+  Claude, `developerInstructions` for Docker Codex), read on the server whole or not at all, through
+  `resolveUserPath`: never through a symbolic link under the repositories root or a temp directory,
+  and never from a provider folder's private files. A file that lies where a turn can write is read
+  only with proof that the open handle is the resolved file (`readBoundedTextFile` with `exactly`):
+  there, a path is only as good as the moment it was checked. Claude
+  stays in safe mode and Codex keeps its disabled features: never load hooks, skills, plugins, MCP,
+  or settings natively to honor them. Instructions are guidance, never a boundary: no mode, sandbox,
+  or approval may depend on them.
 - Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
   device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode. The
   one exception is the README's development-only headset loop (`npm run devs`): it is

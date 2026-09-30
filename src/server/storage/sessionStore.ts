@@ -8,18 +8,21 @@ import path from 'node:path';
 import { z } from 'zod';
 import type {
   AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
-  Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
+  GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
-  AUTO_MODE_SESSION_VERSION, MAX_READABLE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
+  AUTO_MODE_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION,
+  durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema,
 } from '@/shared/sessionSchema';
+import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
 
 const STORE_FORMAT_VERSION = 1;
-// New sessions stay at version 4 so builds without report or Auto support keep reading them.
+// New sessions stay at version 4 so builds without report or Auto support keep reading them. One
+// created with its own global-instructions choice starts at the version that holds that field.
 const SESSION_RECORD_VERSION = 4;
 const PROJECT_RECORD_VERSION = 1;
 const STORE_DIRECTORY = 'session-store-v2';
@@ -517,6 +520,7 @@ export class SessionStore {
     projectId?: string;
     provider: AgentProvider;
     role?: AgentRole;
+    instructions?: GlobalInstructionsChoice;
   }): Promise<DurableSession> {
     return this.enqueue(async () => {
       await this.openStore();
@@ -546,9 +550,15 @@ export class SessionStore {
         || repositories[0].role !== 'primary' || repositories[0].hostId !== this.manifest!.host.id)) {
         throw new Error('Docker requires exactly one primary repository on this machine.');
       }
+      // A continuation keeps its source's choice unless the request names its own.
+      const instructions = input.instructions ?? source?.instructions;
+      if (isolatesLocalCodex(instructions, input.execution, input.provider)) {
+        throw new SessionStoreError('conflict', LOCAL_CODEX_ISOLATION_MESSAGE);
+      }
       const session: DurableSession = {
-        version: SESSION_RECORD_VERSION,
+        version: instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
         execution: input.execution || 'local',
+        ...(instructions ? { instructions } : {}),
         revision: 0,
         id,
         title: `Session ${currentCount + 1}`,
@@ -600,7 +610,7 @@ export class SessionStore {
         throw new Error('The addressed participant is not an agent in this session');
       }
       // The first report needs version 5 and the first Auto message version 6. Nothing else raises a
-      // version, and nothing lowers one: a report on a version 6 session leaves it at 6.
+      // version, and nothing lowers one: a report on a version 6 or 7 session leaves it where it is.
       const needed = message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
         : message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
       if (session.version < needed) {
@@ -672,6 +682,9 @@ export class SessionStore {
           throw new Error('Participant request id was already used with different parameters');
         }
         return { result: session, changed: false };
+      }
+      if (isolatesLocalCodex(session.instructions, session.execution, provider)) {
+        throw new SessionStoreError('conflict', LOCAL_CODEX_ISOLATION_MESSAGE);
       }
       if (session.participants.filter((item) => item.kind === 'agent').length >= 8) {
         throw new Error('A session can contain at most 8 agents');

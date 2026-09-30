@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { AgentExecution, AgentProvider, CheckoutSummary, DurableProject, ExecutionHealth, ProviderHealth, SessionSnapshot } from '@/shared/types';
+import type {
+  AgentExecution, AgentProvider, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
+  SessionSnapshot,
+} from '@/shared/types';
+import { launchInstructions, namedLaunchInstructions, type LaunchInstructions } from '@/features/shell/devicePreferences';
+import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 
 interface SessionCreationProps {
@@ -13,22 +18,30 @@ interface SessionCreationProps {
   checkouts: CheckoutSummary[];
   hostId?: string;
   newProvider: AgentProvider;
+  /** This device's last Global instructions choice; absent is Default. */
+  preferredInstructions?: GlobalInstructionsChoice;
   creating: boolean;
   submitLabel?: string;
   error?: string;
   onNewProvider(value: AgentProvider): void;
-  onNew(provider: AgentProvider, options: { execution: AgentExecution; checkoutId?: string }): Promise<boolean>;
+  onNew(provider: AgentProvider, options: {
+    execution: AgentExecution; checkoutId?: string;
+    /** Absent only when the form had to set the choice aside. */
+    instructions?: LaunchInstructions;
+  }): Promise<boolean>;
 }
 
 export function SessionCreationForm({ initialExecution = 'local', executionHealth, providerHealth, project, checkouts, hostId,
-  newProvider, creating, submitLabel = 'Start session', error, onNewProvider, onNew }: SessionCreationProps) {
+  newProvider, preferredInstructions, creating, submitLabel = 'Start session', error, onNewProvider, onNew }: SessionCreationProps) {
   const dockerEnabled = Boolean(executionHealth?.docker.enabled);
   const [execution, setExecution] = useState<AgentExecution>(initialExecution === 'docker' && dockerEnabled ? 'docker' : 'local');
   const [checkoutId, setCheckoutId] = useState(checkouts[0]?.id || '');
   const [failed, setFailed] = useState(false);
+  const [chosenInstructions, setChosenInstructions] = useState(preferredInstructions);
   const selectedHealth = execution === 'docker' ? executionHealth?.docker.providers : executionHealth?.local.providers || providerHealth;
   const providers = (['claude', 'codex'] as AgentProvider[]).filter((provider) => selectedHealth?.[provider].available && selectedHealth[provider].supportedModes.length);
   const provider = providers.includes(newProvider) ? newProvider : providers[0];
+  const instructions = launchInstructions(chosenInstructions, execution, provider);
   const bindings = project?.repositories || [];
   const invalidBinding = execution === 'docker' && (project
     ? bindings.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== hostId
@@ -42,7 +55,10 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
       event.preventDefault();
       if (creating || !provider || invalidBinding) return;
       setFailed(false);
-      void onNew(provider, { execution, ...(execution === 'docker' && !project ? { checkoutId } : {}) })
+      void onNew(provider, {
+        execution, ...(execution === 'docker' && !project ? { checkoutId } : {}),
+        instructions: namedLaunchInstructions(chosenInstructions, execution, provider),
+      })
         .then((created) => setFailed(!created));
     }}>
       <label>
@@ -70,6 +86,18 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
           onChange={(event) => onNewProvider(event.target.value as AgentProvider)}>
           {!providers.length && <option value="">No provider available</option>}
           {providers.map((value) => <option value={value} key={value}>{PROVIDER_LABELS[value]}</option>)}
+        </select>
+      </label>
+      <label>
+        <span>Global instructions</span>
+        <select value={instructions ?? 'default'} disabled={creating} onChange={(event) => (
+          setChosenInstructions(event.target.value === 'default' ? undefined : event.target.value as GlobalInstructionsChoice)
+        )}>
+          <option value="default">Default</option>
+          <option value="global">Use</option>
+          {provider && isolatesLocalCodex('isolated', execution, provider)
+            ? <option value="isolated" disabled title={LOCAL_CODEX_ISOLATION_MESSAGE}>Isolate · Docker only for Codex</option>
+            : <option value="isolated">Isolate</option>}
         </select>
       </label>
       {!providers.length && <p role="status">{execution === 'docker'

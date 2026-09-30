@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChatMessage } from '@/features/conversation/ChatMessage';
 import { InstructionComposer } from '@/features/conversation/InstructionComposer';
 import type { RecentCanvas } from '@/features/conversation/recentCanvases';
-import type { AgentExecution, AgentMode, ChatMessage as ChatMessageRecord, DiagramArtifact, Participant } from '@/shared/types';
+import type {
+  AgentExecution, AgentMode, ChatMessage as ChatMessageRecord, DiagramArtifact, InstructionsLine, Participant,
+} from '@/shared/types';
 
 const artifact: DiagramArtifact = {
   id: 'diagram-8', sessionId: 't1', messageId: 'message-1', ordinal: 8, source: 'flowchart LR\n  A --> B',
@@ -27,11 +29,13 @@ function render(options: {
   reports?: boolean;
   unavailable?: string;
   busy?: boolean;
+  instructions?: InstructionsLine;
 } = {}) {
   const attachedIds = options.attachedIds ?? [];
   return renderToStaticMarkup(createElement(InstructionComposer, {
     value: '',
     execution: options.execution,
+    instructions: options.instructions,
     running: options.running ?? false,
     attached: CANVASES.filter((canvas) => attachedIds.includes(canvas.id)).map((canvas) => canvas.target),
     activeDiagramId: 'diagram-8',
@@ -210,6 +214,21 @@ describe('composer execution line', () => {
     expect(markup).toMatch(/<span class="execution-hint">autonomous direct edits<\/span>/);
     expect(render({ mode: 'plan' })).toMatch(/<span class="execution-hint">Read-only · ends in a plan<\/span>/);
     expect(menu(render(), 'execution-menu')!.label).toBe('Execution: Local');
+  });
+
+  it('ends with whether the addressed agent gets the user\'s global instructions, once that is known', () => {
+    const line = (markup: string) => markup.match(/<div class="execution-line">[\s\S]*?<\/details>([\s\S]*?)<\/div>$/)![1].replace(/<[^>]+>/g, '');
+    expect(line(render({ mode: 'plan', instructions: 'global' }))).toBe('·Read-only · ends in a plan·global instructions');
+    expect(line(render({ mode: 'plan', instructions: 'isolated' }))).toBe('·Read-only · ends in a plan·isolated');
+    // An executor's own switch is not known on this machine, so nothing is claimed.
+    expect(line(render({ mode: 'plan' }))).toBe('·Read-only · ends in a plan');
+    // On but with nothing to give: the clean installation a user must be able to see.
+    expect(line(render({ mode: 'plan', instructions: 'unavailable' }))).toBe('·Read-only · ends in a plan·global instructions unavailable');
+    expect(render({ instructions: 'unavailable' })).toContain('this machine has none it can give it');
+    // Claude keeps the prompt a provider session started with, so both settings say when a change arrives.
+    for (const instructions of ['global', 'isolated'] as const) {
+      expect(render({ instructions })).toMatch(/title="This agent (gets|runs without) your global instructions\. A change reaches the next Docker Codex turn and a Claude agent&#x27;s next provider session\."/);
+    }
   });
 
   it('continues in the other execution, or says why it cannot', () => {

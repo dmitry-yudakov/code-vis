@@ -5,6 +5,7 @@ import type { AppConfig } from '@/server/config';
 import { ClaudeProcessRunner } from '@/server/agents/claudeProcessRunner';
 import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
 import { AgentRunError } from '@/server/agents/agentRunError';
+import { dockerCustomizationsPath } from './dockerCustomizations';
 import { getDockerRuntime, DockerTerminationError } from './dockerRuntime';
 
 export class DockerProcessRunner implements AgentProcessRunner {
@@ -31,7 +32,7 @@ export class DockerProcessRunner implements AgentProcessRunner {
       if (input.signal.aborted) throw new AgentRunError('cancelled', 'The request was cancelled.', 'not-sent');
       const context = await realpath(input.attachmentDirectory);
       const worker = await runtime.createWorker({ ...this.identity, provider: this.provider, runId: input.runId }, {
-        checkout: input.checkout.realPath, context, mode: input.policy.mode,
+        checkout: input.checkout.realPath, context, mode: input.policy.mode, customizations: input.userCustomizations,
       });
       stop = worker.stop;
       try { await worker.authenticate(); }
@@ -42,7 +43,10 @@ export class DockerProcessRunner implements AgentProcessRunner {
         checkout: { ...input.checkout, realPath: '/workspace' }, attachmentDirectory: '/context',
         prompt: input.prompt.replaceAll(input.attachmentDirectory, '/context').replaceAll(input.checkout.realPath, '/workspace'),
       };
-      const common = { transport: worker, maxOutputBytes: this.config.maxAssistantBytes, debug: false };
+      const common = {
+        transport: worker, maxOutputBytes: this.config.maxAssistantBytes, debug: false,
+        ...(worker.customizations.length ? { customizationsPath: dockerCustomizationsPath(this.provider) } : {}),
+      };
       const runner = this.provider === 'claude'
         ? new ClaudeProcessRunner({ ...common, binary: '/usr/local/bin/claude', model: this.config.claudeModel })
         : new CodexProcessRunner({ ...common, binary: '/usr/local/bin/codex', model: this.config.codexModel,

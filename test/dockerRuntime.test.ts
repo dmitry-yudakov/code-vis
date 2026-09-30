@@ -1,10 +1,11 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getConfig } from '@/server/config';
 import { DockerRuntime, saveDockerProvision } from '@/server/execution/dockerRuntime';
 import { DOCKER_HOME, DOCKER_LABEL, DOCKER_PROFILE, participantVolume, providerVolume } from '@/server/execution/dockerProfile';
+import { userOwnedParent } from './userOwned';
 
 const mocks = vi.hoisted(() => ({ command: vi.fn(), removeDetached: vi.fn() }));
 vi.mock('@/server/execution/dockerCommand', () => ({
@@ -28,6 +29,7 @@ async function fixture() {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   vi.resetAllMocks();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
@@ -235,6 +237,66 @@ describe('Docker checkout mounts', () => {
     await worker.stop();
     expect(command).toHaveBeenCalledTimes(stoppedCalls);
     expect(command.mock.calls.some(([args]) => args[0] === 'volume' && args[1] === 'rm')).toBe(false);
+  });
+
+  it('binds exactly the allowlisted customizations that exist, read-only under /user, and none for an isolated turn or a login', async () => {
+    const { runtime, identity, home, checkout, context, containers } = await workerFixture();
+    const codexHome = await realpath(await mkdtemp(path.join(userOwnedParent(), 'codeai-codex-home-')));
+    directories.push(codexHome);
+    vi.stubEnv('CODEX_HOME', codexHome);
+    await writeFile(path.join(codexHome, 'AGENTS.md'), 'Be brief.\n');
+    await mkdir(path.join(codexHome, 'skills'));
+    // The folder is outside the temp directory, where a turn could swap an entry before Docker binds it.
+    // Everything else in the folder stays on the host: credentials, settings, other projects' history.
+    for (const name of ['auth.json', 'config.toml', 'history.jsonl']) await writeFile(path.join(codexHome, name), 'private');
+    await mkdir(path.join(codexHome, 'sessions'));
+    const customizations = [
+      `type=bind,src=${path.join(codexHome, 'AGENTS.md')},dst=/user/codex/AGENTS.md,readonly`,
+      `type=bind,src=${path.join(codexHome, 'skills')},dst=/user/codex/skills,readonly`,
+    ];
+    const base = [`type=volume,src=${home},dst=${DOCKER_HOME}`, `type=bind,src=${checkout},dst=/workspace`, `type=bind,src=${context},dst=/context,readonly`];
+
+    const worker = await runtime.createWorker(identity, { checkout, context, mode: 'agent', customizations: true });
+    expect(worker.customizations).toEqual(['AGENTS.md', 'skills']);
+    // The checkout is writable in Agent; the user's own files never are.
+    expect(mounts(containers.get(worker.worker)!)).toEqual([...base, ...customizations]);
+    // Only the worker sees them: not the lease, the preparer, the admission, or the egress gateway.
+    for (const [id, container] of containers) if (id !== worker.worker) expect(mounts(container).join()).not.toContain('/user/');
+    await worker.stop();
+
+    const isolated = await runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { checkout, context, mode: 'agent', customizations: false });
+    expect(isolated.customizations).toEqual([]);
+    expect(mounts(containers.get(isolated.worker)!)).toEqual(base);
+    await isolated.stop();
+
+    const login = await runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { mode: 'ask', setup: true, customizations: true });
+    expect(mounts(containers.get(login.worker)!)).toEqual([`type=volume,src=${home},dst=${DOCKER_HOME}`]);
+    await login.stop();
+  });
+
+  it('refuses to start a worker whose customizations changed after they were resolved', async () => {
+    const { runtime, identity, checkout, context, command, containers } = await workerFixture();
+    const codexHome = await realpath(await mkdtemp(path.join(userOwnedParent(), 'codeai-codex-home-')));
+    const elsewhere = await realpath(await mkdtemp(path.join(userOwnedParent(), 'codeai-codex-elsewhere-')));
+    directories.push(codexHome, elsewhere);
+    vi.stubEnv('CODEX_HOME', codexHome);
+    await mkdir(path.join(codexHome, 'skills'));
+    // The entry is swapped for a link once the worker exists, before Docker attaches its binds.
+    const create = command.getMockImplementation()!;
+    let worker: string | undefined;
+    command.mockImplementation(async (args: string[]) => {
+      const result = await create(args);
+      if (args[0] === 'create' && args.includes(`${DOCKER_LABEL}.kind=worker`)) {
+        worker = result;
+        await rm(path.join(codexHome, 'skills'), { recursive: true });
+        await symlink(elsewhere, path.join(codexHome, 'skills'));
+      }
+      return result;
+    });
+    await expect(runtime.createWorker(identity, { checkout, context, mode: 'ask', customizations: true })).rejects.toThrow('customizations changed');
+    expect(worker).toBeDefined();
+    expect(command).not.toHaveBeenCalledWith(['start', worker]);
+    expect(containers.size).toBe(0);
   });
 
   it('reuses the owned legacy participant home for interactive setup without exposing a checkout', async () => {

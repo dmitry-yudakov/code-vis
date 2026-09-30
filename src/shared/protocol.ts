@@ -3,7 +3,7 @@ import { AGENT_MODES } from './agentModes';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_MESSAGE_TEXT_CHARS, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from './limits';
 import {
-  diagramAnnotationSchema, drawingMarkSchema, repositoryBindingSchema, sketchCanvasSchema,
+  diagramAnnotationSchema, drawingMarkSchema, globalInstructionsChoiceSchema, repositoryBindingSchema, sketchCanvasSchema,
 } from './sessionSchema';
 
 export {
@@ -74,6 +74,12 @@ export const revokeDeviceRequestSchema = z.object({ deviceId: z.string().uuid() 
 
 export const dockerSettingsSchema = z.object({ enabled: z.boolean() }).strict();
 
+/** `<dataDir>/instructions/settings.json`: whether each provider gets the user's global instructions. */
+export const instructionSettingsSchema = z.object({ claude: z.boolean(), codex: z.boolean() }).strict();
+
+/** The browser names a provider and its switch; the server resolves the file and its text. */
+export const instructionSwitchRequestSchema = z.object({ provider: agentProviderSchema, enabled: z.boolean() }).strict();
+
 /** The browser names a provider and which offer; the server resolves the version itself. */
 export const dockerUpdateRequestSchema = z.object({
   provider: agentProviderSchema, target: z.enum(['latest', 'previous']),
@@ -86,6 +92,8 @@ export const createSessionRequestSchema = z.object({
   projectId: z.string().uuid().optional(),
   provider: agentProviderSchema,
   role: agentRoleSchema.optional(),
+  // Omitted means Default: each turn follows the executing machine's switch.
+  instructions: globalInstructionsChoiceSchema.optional(),
 }).strict().refine((input) => input.sourceSessionId
   ? Boolean(input.execution && !input.checkoutId && !input.projectId)
   : (!input.checkoutId || input.execution === 'docker') && !(input.checkoutId && input.projectId), {

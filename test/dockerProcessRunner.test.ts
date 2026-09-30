@@ -33,7 +33,10 @@ async function fixture() {
     attachmentDirectory: context, prompt: `Read ${context}/canvas.png in /fixture/checkout`,
     policy: resolveAgentPolicy(config, 'agent', 'docker'), signal: signal.signal, emit: vi.fn(),
   };
-  const worker = { stop: vi.fn().mockResolvedValue(undefined), authenticate: vi.fn().mockResolvedValue(undefined), spawn: vi.fn() };
+  const worker = {
+    stop: vi.fn().mockResolvedValue(undefined), authenticate: vi.fn().mockResolvedValue(undefined), spawn: vi.fn(),
+    customizations: [] as string[],
+  };
   mocks.create.mockResolvedValue(worker);
   mocks.run.mockResolvedValue({ finalText: 'Done', sessionId: 'native-history', durationMs: 1, outputBytes: 4 });
   return { worker, input, signal, runner: new DockerProcessRunner(config, 'codex', { sessionId: 'session', participantId: 'participant' }) };
@@ -61,6 +64,27 @@ describe('Docker protocol transport lifecycle', () => {
     await runner.run(input);
     expect(mocks.run.mock.lastCall![0]).not.toHaveProperty('model');
     expect(mocks.run.mock.lastCall![0]).not.toHaveProperty('effort');
+  });
+
+  it('binds the user\'s customizations only for a turn whose choice is on, and names their folder only when some were bound', async () => {
+    const { runner, input, worker } = await fixture();
+    const instructions = { displayPath: '~/.codex/AGENTS.md', text: 'Be brief.' };
+    // Isolated, or a turn resolved before the choice existed: no binds and no sentence.
+    await runner.run(input);
+    expect(mocks.create.mock.lastCall![1]).toMatchObject({ customizations: undefined });
+    expect(mocks.options.mock.lastCall![0]).not.toHaveProperty('customizationsPath');
+    await runner.run({ ...input, userCustomizations: false });
+    expect(mocks.create.mock.lastCall![1]).toMatchObject({ customizations: false });
+
+    // On, but nothing on this machine to bind: the text still reaches the runner, without a folder.
+    await runner.run({ ...input, userCustomizations: true, globalInstructions: instructions });
+    expect(mocks.create.mock.lastCall![1]).toMatchObject({ customizations: true });
+    expect(mocks.options.mock.lastCall![0]).not.toHaveProperty('customizationsPath');
+    expect(mocks.run).toHaveBeenLastCalledWith(expect.objectContaining({ globalInstructions: instructions }));
+
+    worker.customizations = ['AGENTS.md', 'skills'];
+    await runner.run({ ...input, userCustomizations: true, globalInstructions: instructions });
+    expect(mocks.options.mock.lastCall![0]).toMatchObject({ customizationsPath: '/user/codex' });
   });
 
   it('does not deliver a prompt after participant authentication fails or cancellation arrives during preflight', async () => {

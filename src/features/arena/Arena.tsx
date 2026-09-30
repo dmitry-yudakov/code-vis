@@ -4,18 +4,22 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
-import { launchChoice, launchModes } from '@/features/shell/devicePreferences';
+import {
+  launchChoice, launchInstructions, launchModes, namedLaunchInstructions, type LaunchInstructions,
+} from '@/features/shell/devicePreferences';
 import { LAUNCH_MODES, type LaunchMode } from '@/shared/agentModes';
+import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type {
   AgentExecution, AgentMode, AgentProvider, ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
-  ExecutionHealth,
+  ExecutionHealth, GlobalInstructionsChoice,
 } from '@/shared/types';
 import {
   buildMultiMachineInbox, groupArenaSessions, unreadArenaAttention,
   type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
 import { DockerVersions } from './DockerVersions';
+import { GlobalInstructions } from './GlobalInstructions';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 
 const STATE_LABELS = {
@@ -72,6 +76,7 @@ export function Arena({
   onOpenSession,
   preferredProvider,
   preferredMode,
+  preferredInstructions,
   onCreateSession,
   onArchiveSession,
   onRestoreSession,
@@ -88,7 +93,12 @@ export function Arena({
   /** This device's last choices; the New session form opens at them when this machine can run them. */
   preferredProvider?: AgentProvider;
   preferredMode?: AgentMode;
-  onCreateSession(input: { machineId: string; projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: LaunchMode }): Promise<boolean>;
+  preferredInstructions?: GlobalInstructionsChoice;
+  onCreateSession(input: {
+    machineId: string; projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: LaunchMode;
+    /** Absent only when the form had to set the choice aside. */
+    instructions?: LaunchInstructions;
+  }): Promise<boolean>;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
@@ -126,11 +136,14 @@ export function Arena({
   // A new session never starts in Auto: it is chosen inside a session, by the user.
   const supportedModes = launchModes(selectedHealth?.[provider]?.supportedModes);
   const [mode, setMode] = useState<LaunchMode>(supportedModes[0] || 'ask');
+  const [chosenInstructions, setChosenInstructions] = useState<GlobalInstructionsChoice>();
+  const instructions = launchInstructions(chosenInstructions, execution, provider);
   const [deciding, setDeciding] = useState<string>();
   const openCreate = () => {
     const next = launchChoice({ provider: preferredProvider, mode: preferredMode }, selectedHealth, { provider, mode });
     setProvider(next.provider);
     setMode(next.mode);
+    setChosenInstructions(preferredInstructions);
     setShowCreate(true);
   };
   const [archiving, setArchiving] = useState<string>();
@@ -233,11 +246,13 @@ export function Arena({
             <summary>Setup and sign-in</summary>
             <p>Make Docker available for new sessions on this machine. Local remains the default.</p>
             <p>Sign in once for each provider you use: <code>npm run docker:login -- claude</code> or <code>npm run docker:login -- codex</code>.</p>
-            <p>New Docker conversations share that provider’s login, settings and history in persistent Docker storage. Your host provider setup stays separate.</p>
+            <p>New Docker conversations share that provider’s login, settings and history in persistent Docker storage. Your host provider setup stays separate, apart from what Global instructions passes on.</p>
           </details>
           {dockerError && <p role="alert">{dockerError}</p>}
         </section>
       )}
+
+      <GlobalInstructions dockerEnabled={docker?.enabled} refreshing={refreshing} onChanged={refresh} />
 
       {refreshError && (
         <div className="arena-refresh-error" role="status">
@@ -315,6 +330,18 @@ export function Arena({
               {availableProviders.map((value) => <option value={value} key={value}>{PROVIDER_LABELS[value]}</option>)}
             </select>
           </label>
+          <label>
+            <span>Global instructions</span>
+            <select value={instructions ?? 'default'} onChange={(event) => (
+              setChosenInstructions(event.target.value === 'default' ? undefined : event.target.value as GlobalInstructionsChoice)
+            )}>
+              <option value="default">Default</option>
+              <option value="global">Use</option>
+              {isolatesLocalCodex('isolated', execution, provider)
+                ? <option value="isolated" disabled title={LOCAL_CODEX_ISOLATION_MESSAGE}>Isolate · Docker only for Codex</option>
+                : <option value="isolated">Isolate</option>}
+            </select>
+          </label>
           <fieldset>
             <legend>Mode</legend>
             <div className="arena-mode-options">
@@ -349,6 +376,7 @@ export function Arena({
                   execution,
                   ...(execution === 'docker' && projectId === 'none' ? { checkoutId } : {}),
                   mode,
+                  instructions: namedLaunchInstructions(chosenInstructions, execution, provider),
                 }).then((created) => { if (created) setShowCreate(false); }).finally(() => setCreating(false));
               }}
             >

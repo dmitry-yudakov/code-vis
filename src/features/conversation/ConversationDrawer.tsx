@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import type {
-  AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, ModelChoices, ModelSelection, SessionSnapshot,
+  AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection,
+  SessionSnapshot,
 } from '@/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
@@ -17,7 +18,7 @@ export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  continuing, continuationUnavailable, instructions, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
   session?: SessionSnapshot;
@@ -34,6 +35,8 @@ export function ConversationDrawer({
   cancelReady: boolean;
   continuing: boolean;
   continuationUnavailable?: string;
+  /** Whether the addressed agent's next turn gets the user's global instructions. */
+  instructions?: InstructionsLine;
   turnBlocked?: boolean;
   status: string;
   composer: string;
@@ -142,6 +145,7 @@ export function ConversationDrawer({
         <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{turnBlocked && !running ? 'Another session is running' : status || 'Ready for an instruction'}</div>
         <InstructionComposer
           execution={session?.execution}
+          instructions={instructions}
           value={composer}
           running={running}
           cancelReady={cancelReady}

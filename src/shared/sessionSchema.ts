@@ -10,6 +10,7 @@ const checkoutId = z.string().trim().min(1).max(128);
 const agentProvider = z.enum(['claude', 'codex']);
 const agentRole = z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']);
 const agentMode = z.enum(AGENT_MODES);
+export const globalInstructionsChoiceSchema = z.enum(['global', 'isolated']);
 /** A role default is never Auto. */
 const roleDefaultMode = z.enum(LAUNCH_MODES);
 
@@ -215,7 +216,7 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 6;
+export const MAX_READABLE_SESSION_VERSION = 7;
 /**
  * Version 5 is version 4 plus report evidence on user messages. A session is upgraded to it only by
  * the mutation that first appends a report, so builds without report support keep reading the rest.
@@ -226,10 +227,20 @@ export const REPORT_EVIDENCE_SESSION_VERSION = 5;
  * message, so a build without Auto keeps reading every other session. No upgrade lowers a version.
  */
 export const AUTO_MODE_SESSION_VERSION = 6;
+/**
+ * Version 7 is version 6 plus the session's own global-instructions choice. Only a session created
+ * with that choice is written at it, so a build without the choice keeps reading every other session.
+ */
+export const INSTRUCTIONS_SESSION_VERSION = 7;
 
 const sessionBase = {
-  version: z.union([z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION)]),
+  version: z.union([
+    z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION),
+    z.literal(INSTRUCTIONS_SESSION_VERSION),
+  ]),
   execution: z.enum(['local', 'docker']).optional(),
+  // Only a version 7 session may hold this; `validateSession` enforces that.
+  instructions: globalInstructionsChoiceSchema.optional(),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(200),
@@ -247,8 +258,9 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6;
+    version: 3 | 4 | 5 | 6 | 7;
     execution?: 'local' | 'docker';
+    instructions?: string;
     id: string;
     repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
@@ -266,6 +278,9 @@ function validateSession(
       message: 'Version 3 has no execution field; later versions require an execution environment.',
       path: ['execution'],
     });
+  }
+  if (value.version < INSTRUCTIONS_SESSION_VERSION && value.instructions !== undefined) {
+    ctx.addIssue({ code: 'custom', message: 'Only a version 7 session holds its own global-instructions choice.', path: ['instructions'] });
   }
   value.messages.forEach((message, index) => {
     if (value.version < REPORT_EVIDENCE_SESSION_VERSION && message.reportAttachments !== undefined) {

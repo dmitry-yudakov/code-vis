@@ -7,6 +7,7 @@ import type {
 } from '@/shared/types';
 import { changesCheckout } from '@/shared/agentModes';
 import { buildClaudeArgs } from './claudeInvocation';
+import { frameGlobalInstructions } from './globalInstructions';
 import { AgentRunError } from './agentRunError';
 import type { ProcessTransport } from '@/server/execution/processTransport';
 
@@ -14,6 +15,8 @@ export { AgentRunError } from './agentRunError';
 
 interface RunnerOptions {
   transport?: ProcessTransport;
+  /** Docker only: where the worker sees the user's allowlisted customizations. */
+  customizationsPath?: string;
   binary: string;
   model?: string;
   maxOutputBytes: number;
@@ -139,11 +142,14 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       policy: input.policy,
       model: input.model ?? this.options.model,
       effort: input.effort,
+      appendSystemPrompt: frameGlobalInstructions(input.globalInstructions, this.options.customizationsPath),
     });
     const log = this.options.debug
       ? (message: string) => console.error(`[agent ${input.runId.slice(0, 8)}] +${((Date.now() - startedAt) / 1000).toFixed(1)}s ${message}`)
       : undefined;
-    log?.(`spawn ${path.basename(this.options.binary)} ${args.join(' ')} (prompt ${Buffer.byteLength(input.prompt)}B)`);
+    // The appended prompt is the user's own file: its size is logged, never its text.
+    const logged = args.map((arg, index) => args[index - 1] === '--append-system-prompt' ? `<${Buffer.byteLength(arg)}B>` : arg);
+    log?.(`spawn ${path.basename(this.options.binary)} ${logged.join(' ')} (prompt ${Buffer.byteLength(input.prompt)}B)`);
 
     return new Promise<AgentProcessResult>((resolve, reject) => {
       // The environment is inherited untouched: whatever login, base URL, or token the user's own
