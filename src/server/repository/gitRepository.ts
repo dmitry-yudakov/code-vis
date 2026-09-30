@@ -1,4 +1,4 @@
-import { runGitRead } from './gitRead';
+import { isNotRepositoryOutput, runGitRead } from './gitRead';
 import type { GitChangedFile, GitFileDiff, GitFileStatus, GitWorkingTree } from '@/shared/types';
 
 const DIFF_BUFFER_BYTES = 2 * 1024 * 1024;
@@ -63,7 +63,7 @@ export function parseGitStatus(output: string): GitWorkingTree {
 
 function isNotRepository(error: unknown): boolean {
   const failure = error as GitFailure;
-  return failure.code === 128 && Boolean(failure.stderr?.toLocaleLowerCase().includes('not a git repository'));
+  return failure.code === 128 && isNotRepositoryOutput(failure.stderr);
 }
 
 function boundedGitError(error: unknown, operation: 'status' | 'diff'): Error {

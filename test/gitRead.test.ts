@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -64,6 +64,31 @@ describe('Git read isolation', () => {
     const diff = await readFileDiff(repository, findChangedFile(tree, 'new note.md')!);
     expect(diff.unstaged).toContain('+# untracked');
     expect(mocks.command).not.toHaveBeenCalled();
+  });
+
+  it('never takes a folder for a repository because of repository files at its root', async () => {
+    // A checkout need not be a Git repository. An Auto turn may write any file in one except `.git`,
+    // `.codex`, and `.claude`, so it could lay out a repository at the root whose config names a
+    // filter. Host Git must not adopt that layout, or the filter would run outside the sandbox.
+    const folder = await realpath(await mkdtemp(path.join(os.tmpdir(), 'codeai-git-read-folder-')));
+    directories.push(folder);
+    const ran = path.join(folder, 'ran-on-the-host');
+    const git = (...args: string[]) => execute('git', ['--git-dir', folder, '--work-tree', folder, ...args], { cwd: folder });
+    await execute('git', ['init', '--bare', '-b', 'main', folder]);
+    await git('config', 'core.bare', 'false');
+    await git('config', 'core.worktree', folder);
+    await writeFile(path.join(folder, 'note.txt'), 'first\n');
+    await git('add', 'note.txt');
+    await git('config', 'filter.escape.clean', `sh -c 'touch "${ran}"; cat'`);
+    await writeFile(path.join(folder, '.gitattributes'), '* filter=escape\n');
+    await writeFile(path.join(folder, 'note.txt'), 'second, and longer\n');
+
+    const tree = await readWorkingTree(folder);
+    // What the Changes view does next with a file it was told about.
+    const changed = findChangedFile(tree, 'note.txt');
+    if (changed) await readFileDiff(folder, changed).catch(() => undefined);
+    const filterRan = await stat(ran).then(() => true, () => false);
+    expect({ isRepository: tree.isRepository, files: tree.files, filterRan }).toEqual({ isRepository: false, files: [], filterRan: false });
   });
 
   it('isolates reads once provisioned, even with Docker turns disabled, and refuses a different engine', async () => {

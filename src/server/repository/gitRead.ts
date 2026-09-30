@@ -11,11 +11,24 @@ import { containerSecurity } from '@/server/execution/dockerProfile';
 import { runRegistry } from '@/server/runs/runRegistry';
 
 export const GIT_READ_OPTIONS = [
+  // A checkout need not be a repository, and an Auto turn may write any file at its root except
+  // `.git`. Without this, `HEAD`, `objects`, `refs`, and `config` there would make Git adopt the
+  // folder itself as a repository and obey that config, filters included.
+  '-c', 'safe.bareRepository=explicit',
   '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
   '-c', 'core.attributesFile=/dev/null',
   '-c', 'diff.external=', '-c', 'diff.trustExitCode=false', '-c', 'submodule.recurse=false',
   '-c', 'core.pager=cat', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
 ];
+
+/**
+ * Whether Git's failure says the directory is no repository. That includes a folder Git would have
+ * adopted as a bare repository from the files at its root, had `safe.bareRepository` allowed it.
+ */
+export function isNotRepositoryOutput(stderr: string | undefined): boolean {
+  const text = stderr?.toLowerCase() ?? '';
+  return text.includes('not a git repository') || text.includes('cannot use bare repository');
+}
 
 export function gitReadEnvironment(): NodeJS.ProcessEnv {
   return {
@@ -113,8 +126,7 @@ async function executeGitRead(cwd: string, args: string[], options: {
         else reject(Object.assign(new Error('Isolated Git read failed or exceeded its limits.'), {
           code: error.code, killed: error.killed,
           // Classify only; never expose repository-controlled error text.
-          stderr: error.code === 128 && stderr.toLowerCase().includes('not a git repository')
-            ? 'not a git repository' : undefined,
+          stderr: error.code === 128 && isNotRepositoryOutput(stderr) ? 'not a git repository' : undefined,
         }));
       });
     });
