@@ -38,25 +38,43 @@ export function codexSupportedModes(agentEnabled: boolean): readonly AgentMode[]
   return agentEnabled ? [...CODEX_BASE_MODES, 'agent'] : CODEX_BASE_MODES;
 }
 
-export function codexTurnSecurity(mode: AgentMode, execution: AgentExecution = 'local') {
+/** What one turn asks App Server to enforce, and what the thread echo is checked against. */
+export interface CodexTurnSecurity {
+  approvalPolicy: 'never' | 'on-request';
+  /** Sent at `turn/start`. */
+  sandboxPolicy:
+    | { type: 'readOnly'; networkAccess: false }
+    | { type: 'externalSandbox'; networkAccess: 'restricted' };
+  /** Sent at `thread/start` and `thread/resume`; the thread echoes the policy it resolved to. */
+  sandbox: 'read-only' | 'danger-full-access';
+  /**
+   * Who answers an escalation. Named only for `on-request`: a `never` turn raises no approval, so it
+   * neither sends nor checks a reviewer. Codex otherwise takes it from the user's own config, where
+   * `auto_review` would hand CodeAI's cards to a model.
+   */
+  approvalsReviewer?: 'user';
+}
+
+export function codexTurnSecurity(mode: AgentMode, execution: AgentExecution = 'local'): CodexTurnSecurity {
   if (execution === 'docker') return {
-    approvalPolicy: 'never' as const,
-    sandboxPolicy: { type: 'externalSandbox' as const, networkAccess: 'restricted' as const },
-    sandbox: 'danger-full-access' as const,
+    approvalPolicy: 'never',
+    sandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
+    sandbox: 'danger-full-access',
   };
   if (mode === 'agent') {
     // Read-only is deliberate: a write or command escalation must cross App Server's approval
     // protocol before it can affect the working tree. An accepted request is one-shot.
     return {
-      approvalPolicy: 'on-request' as const,
-      sandboxPolicy: { type: 'readOnly' as const, networkAccess: false },
-      sandbox: 'read-only' as const,
+      approvalPolicy: 'on-request',
+      sandboxPolicy: { type: 'readOnly', networkAccess: false },
+      sandbox: 'read-only',
+      approvalsReviewer: 'user',
     };
   }
   return {
-    approvalPolicy: 'never' as const,
-    sandboxPolicy: { type: 'readOnly' as const, networkAccess: false },
-    sandbox: 'read-only' as const,
+    approvalPolicy: 'never',
+    sandboxPolicy: { type: 'readOnly', networkAccess: false },
+    sandbox: 'read-only',
   };
 }
 
@@ -128,18 +146,14 @@ export function codexModelChoices(value: unknown): ModelChoices {
 }
 
 /** Verifies that App Server honored the server-owned thread policy and reported its instruction sources. */
-export function codexThreadPolicyIssue(
-  value: unknown,
-  cwd: string,
-  approvalPolicy: 'never' | 'on-request',
-  execution: AgentExecution = 'local',
-): string | undefined {
+export function codexThreadPolicyIssue(value: unknown, cwd: string, expected: CodexTurnSecurity): string | undefined {
   const response = record(value);
   const sandbox = record(response?.sandbox);
-  if (response?.cwd !== cwd || response?.approvalPolicy !== approvalPolicy
-    || (execution === 'docker'
-      ? sandbox?.type !== 'dangerFullAccess'
-      : sandbox?.type !== 'readOnly' || sandbox.networkAccess !== false)) {
+  const sandboxApplied = expected.sandbox === 'danger-full-access'
+    ? sandbox?.type === 'dangerFullAccess'
+    : sandbox?.type === 'readOnly' && sandbox.networkAccess === false;
+  if (response?.cwd !== cwd || response?.approvalPolicy !== expected.approvalPolicy || !sandboxApplied
+    || (expected.approvalsReviewer !== undefined && response.approvalsReviewer !== expected.approvalsReviewer)) {
     return 'Codex did not apply CodeAI\'s required provider-session sandbox and approval policy.';
   }
   if (!Array.isArray(response.instructionSources)) {

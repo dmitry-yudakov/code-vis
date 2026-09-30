@@ -34,7 +34,9 @@ function threadResult(params, id = threadId) {
     model: 'fake-model', modelProvider: 'openai', serviceTier: null, cwd: params.cwd,
     instructionSources: mode === 'ambient-instructions' ? ['/tmp/fake-codex/AGENTS.md'] : [],
     approvalPolicy: params.approvalPolicy,
-    approvalsReviewer: 'user', sandbox: { type: 'readOnly', networkAccess: false }, reasoningEffort: 'medium',
+    // Codex falls back to the user's own config for a reviewer the request does not name.
+    approvalsReviewer: mode === 'reviewer-auto' ? 'auto_review' : params.approvalsReviewer || 'user',
+    sandbox: { type: 'readOnly', networkAccess: false }, reasoningEffort: 'medium',
   };
 }
 

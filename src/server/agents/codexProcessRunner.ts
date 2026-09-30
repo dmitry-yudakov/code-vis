@@ -504,6 +504,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
             sandbox: security.sandbox,
+            ...(security.approvalsReviewer ? { approvalsReviewer: security.approvalsReviewer } : {}),
             config: codexThreadConfig(mcpServerNames),
             developerInstructions: CODEX_DEVELOPER_INSTRUCTIONS,
             ...(model ? { model } : {}),
@@ -522,7 +523,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             throw new AgentRunError('missing-session', 'Codex resumed an unexpected native provider session.', 'not-sent');
           }
           sessionId = providerThread.id;
-          const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security.approvalPolicy, input.policy.execution);
+          const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security);
           if (policyIssue) {
             throw new AgentRunError('unsupported-flags', policyIssue, 'not-sent', false);
           }
@@ -550,6 +551,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
             sandboxPolicy: security.sandboxPolicy,
+            ...(security.approvalsReviewer ? { approvalsReviewer: security.approvalsReviewer } : {}),
             ...(model ? { model } : {}),
             // Effort applies to this turn and those after it, so it is never part of the thread.
             ...(input.effort ? { effort: input.effort } : {}),

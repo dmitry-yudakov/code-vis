@@ -154,6 +154,45 @@ describe.sequential('CodexProcessRunner', () => {
     });
   });
 
+  it('pins the approval reviewer to the user on every on-request request and fails closed on any other', async () => {
+    const params = (invocation: { requests: RecordedRequest[] }, method: string) => (
+      invocation.requests.find((request) => request.method === method)!.params
+    );
+    const started = (await run({ mode: 'agent' })).invocation;
+    expect(params(started, 'thread/start').approvalsReviewer).toBe('user');
+    expect(params(started, 'turn/start').approvalsReviewer).toBe('user');
+    const resumed = (await run({ mode: 'agent', action: 'resume', sessionId: 'codex-thread-resume' })).invocation;
+    expect(params(resumed, 'thread/resume').approvalsReviewer).toBe('user');
+    expect(params(resumed, 'turn/start').approvalsReviewer).toBe('user');
+
+    // The user's own Codex config may name a model reviewer; App Server then echoes it.
+    process.env.CODEAI_FAKE_CODEX_MODE = 'reviewer-auto';
+    await expect(run({ mode: 'agent' })).rejects.toMatchObject({
+      code: 'unsupported-flags', delivery: 'not-sent',
+      message: 'Codex did not apply CodeAI\'s required provider-session sandbox and approval policy.',
+    });
+    const refused = JSON.parse(await readFile(process.env.CODEAI_FAKE_CODEX_RECORD!, 'utf8')) as { requests: RecordedRequest[] };
+    expect(refused.requests.map((request) => request.method)).not.toContain('turn/start');
+    // A `never` turn raises no approval, so it neither names nor checks a reviewer.
+    await expect(run()).resolves.toMatchObject({ result: { finalText: 'Codex answer.' } });
+
+    const thread = { cwd: '/repo', instructionSources: [], sandbox: { type: 'readOnly', networkAccess: false } };
+    const agent = codexTurnSecurity('agent');
+    expect(agent.approvalsReviewer).toBe('user');
+    expect(codexTurnSecurity('ask')).not.toHaveProperty('approvalsReviewer');
+    expect(codexTurnSecurity('agent', 'docker')).not.toHaveProperty('approvalsReviewer');
+    expect(codexThreadPolicyIssue({ ...thread, approvalPolicy: 'on-request', approvalsReviewer: 'user' }, '/repo', agent)).toBeUndefined();
+    for (const approvalsReviewer of ['auto_review', 'guardian_subagent', undefined]) {
+      expect(codexThreadPolicyIssue({ ...thread, approvalPolicy: 'on-request', approvalsReviewer }, '/repo', agent))
+        .toMatch(/required provider-session sandbox and approval policy/);
+    }
+    expect(codexThreadPolicyIssue({ ...thread, approvalPolicy: 'never', approvalsReviewer: 'auto_review' }, '/repo', codexTurnSecurity('ask'))).toBeUndefined();
+    expect(codexThreadPolicyIssue(
+      { cwd: '/workspace', instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'auto_review', sandbox: { type: 'dangerFullAccess' } },
+      '/workspace', codexTurnSecurity('agent', 'docker'),
+    )).toBeUndefined();
+  });
+
   it('makes denial model-visible and continues the turn', async () => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'approval-file';
     const permissions = new PermissionBroker(5_000);
@@ -247,8 +286,8 @@ describe.sequential('CodexProcessRunner', () => {
     expect(result.finalText).toBe('Codex answer.');
 
     const thread = { cwd: '/repo', approvalPolicy: 'never', sandbox: { type: 'readOnly', networkAccess: false } };
-    expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['/home/user/.codex/AGENTS.md'] }, '/repo', 'never')).toBeUndefined();
-    expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['relative/AGENTS.md'] }, '/repo', 'never')).toMatch(/invalid instruction source/);
+    expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['/home/user/.codex/AGENTS.md'] }, '/repo', codexTurnSecurity('ask'))).toBeUndefined();
+    expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['relative/AGENTS.md'] }, '/repo', codexTurnSecurity('ask'))).toMatch(/invalid instruction source/);
     expect(codexAmbientInstructionNote({ instructionSources: ['/repo/AGENTS.md'] }, '/repo')).toBeUndefined();
     expect(codexAmbientInstructionNote({ instructionSources: ['/home/user/.codex/AGENTS.md', '/repo/AGENTS.md'] }, '/repo'))
       .toMatch(/^Codex also loads 1 instruction file from outside the repository/);

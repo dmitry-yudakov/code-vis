@@ -4,6 +4,7 @@ import type { ModelChoices, ProviderHealth } from '@/shared/types';
 import {
   buildCodexAppServerArgs, codexAmbientInstructionNote, codexAmbientSkillNote, codexIsolationIssue,
   codexMcpServerNames, codexModelChoices, codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
+  codexTurnSecurity,
 } from './codexInvocation';
 
 type JsonRecord = Record<string, unknown>;
@@ -201,7 +202,7 @@ function codexHandshake(
           ? codexIsolationIssue({ mcp: { data: [] }, hooks, skills })
           : 'Codex did not return a complete MCP capability inventory.';
         if (!issue && mcpServerNames) {
-          const security = { approvalPolicy: 'never' as const, sandbox: 'read-only' as const };
+          const security = codexTurnSecurity('ask');
           const threadResult = record(await request('thread/start', {
             cwd,
             approvalPolicy: security.approvalPolicy,
@@ -215,7 +216,7 @@ function codexHandshake(
           if (typeof thread?.id !== 'string') {
             issue = 'Codex App Server could not create an isolated readiness provider session.';
           } else {
-            issue = codexThreadPolicyIssue(threadResult, cwd, security.approvalPolicy);
+            issue = codexThreadPolicyIssue(threadResult, cwd, security);
             note = codexAmbientInstructionNote(threadResult, cwd);
             if (!issue) {
               const scopedMcp = await request('mcpServerStatus/list', {

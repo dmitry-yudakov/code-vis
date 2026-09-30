@@ -130,7 +130,7 @@ describe('Docker execution contract', () => {
     expect(buildClaudeArgs({ session: { id: crypto.randomUUID(), action: 'start' }, attachmentDirectory: '/context', policy }).join(' ')).toContain('--permission-mode bypassPermissions');
     expect(codexTurnSecurity('agent', 'docker')).toMatchObject({ approvalPolicy: 'never', sandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' } });
     expect(codexTurnSecurity('agent', 'local')).toMatchObject({ approvalPolicy: 'on-request', sandboxPolicy: { type: 'readOnly', networkAccess: false } });
-    expect(codexThreadPolicyIssue({ cwd: '/workspace', approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' }, instructionSources: [] }, '/workspace', 'never', 'docker')).toBeUndefined();
+    expect(codexThreadPolicyIssue({ cwd: '/workspace', approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' }, instructionSources: [] }, '/workspace', codexTurnSecurity('agent', 'docker'))).toBeUndefined();
     const input = { policy } as AgentProcessRun;
     for (const Runner of [ClaudeProcessRunner, CodexProcessRunner]) {
       await expect(new Runner({ binary: 'must-never-spawn', maxOutputBytes: 1024 }).run(input)).rejects.toThrow('verified container transport');
