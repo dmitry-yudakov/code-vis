@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GIT_READ_ALLOWLIST, resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import {
-  AGENT_MODES, buildClaudeArgs, CHOICE_CLAUDE_FLAGS, REQUIRED_CLAUDE_FLAGS, requiredFlagsForMode, UNPROBED_CLAUDE_FLAGS,
+  buildClaudeArgs, CHOICE_CLAUDE_FLAGS, CLAUDE_MODES, REQUIRED_CLAUDE_FLAGS, requiredFlagsForMode, UNPROBED_CLAUDE_FLAGS,
 } from '@/server/agents/claudeInvocation';
 import { getConfig } from '@/server/config';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
@@ -9,6 +9,8 @@ import { RunRegistry } from '@/server/runs/runRegistry';
 import { agentMessageRequestSchema, permissionDecisionRequestSchema } from '@/shared/protocol';
 import { hasProposedPlan, PLAN_END_MARKER, PLAN_START_MARKER, stripPlanMarkers } from '@/shared/plan';
 import { buildConversationPrompt } from '@/server/conversation/prompt';
+import { AGENT_MODES, LAUNCH_MODES, changesCheckout, unsupportedModes } from '@/shared/agentModes';
+import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip } from '@/features/agents/toolActivity';
 import type { AgentEvent, AgentMode } from '@/shared/types';
 
 const config = getConfig();
@@ -67,6 +69,56 @@ describe('agent modes', () => {
     expect(agent.timeoutMs).toBeGreaterThan(ask.timeoutMs);
   });
 
+  it('gives Auto the same policy as Agent under its own sandboxed profile', () => {
+    const agent = resolveAgentPolicy(config, 'agent');
+    const auto = resolveAgentPolicy(config, 'auto', 'local');
+    expect(auto).toMatchObject({
+      mode: 'auto', profile: 'auto-sandboxed', interactivePermissions: true,
+      maxTurns: config.buildMaxTurns, timeoutMs: config.buildTimeoutMs, approvalTimeoutMs: config.approvalTimeoutMs,
+    });
+    expect(Object.isFrozen(auto)).toBe(true);
+    // Nothing else differs: the sandbox itself is each provider's own arguments.
+    expect({ ...auto, profile: agent.profile, mode: agent.mode }).toEqual({ ...agent });
+    // Docker never offers Auto; if it were ever asked, the checkout stays read-only.
+    expect(resolveAgentPolicy(config, 'auto', 'docker')).toMatchObject({
+      profile: 'ask-readonly', tools: ['Read', 'Glob', 'Grep', 'Bash'], maxTurns: config.agentMaxTurns, timeoutMs: config.agentTimeoutMs,
+    });
+  });
+
+  it('names every mode once, the ones that may change the checkout, and the ones a new session may start in', () => {
+    expect(AGENT_MODES).toEqual(['ask', 'plan', 'agent', 'auto']);
+    expect(AGENT_MODES.filter(changesCheckout)).toEqual(['agent', 'auto']);
+    expect(LAUNCH_MODES).toEqual(['ask', 'plan', 'agent']);
+    // Claude Auto did not pass Story 79's probes, so Claude is never checked or run for it.
+    expect(CLAUDE_MODES).toEqual(['ask', 'plan', 'agent']);
+  });
+
+  it('marks the modes a turn cannot use, and Auto whenever it is not plainly advertised for Local', () => {
+    expect(unsupportedModes(['ask', 'plan', 'agent', 'auto'], 'local')).toEqual([]);
+    expect(unsupportedModes(['ask', 'plan'], 'local')).toEqual(['agent', 'auto']);
+    expect(unsupportedModes([], 'local')).toEqual(['ask', 'plan', 'agent', 'auto']);
+    // Before readiness is known nothing is marked, except Auto.
+    expect(unsupportedModes(undefined, 'local')).toEqual(['auto']);
+    expect(unsupportedModes(undefined, undefined)).toEqual(['auto']);
+    // An executor's Docker session is shown with that executor's Local readiness: never Auto.
+    expect(unsupportedModes(['ask', 'plan', 'agent', 'auto'], 'docker')).toEqual(['auto']);
+  });
+
+  it('labels Auto and says what it asks for', () => {
+    expect(AGENT_MODE_LABELS.auto).toBe('Auto');
+    expect(agentModeHint('auto')).toBe('Edits in a sandbox · asks beyond it');
+    expect(agentModeTooltip('auto')).toBe(
+      'Auto — edits the working tree and runs sandboxed commands without asking; anything outside the sandbox asks you. '
+      + 'Network, commits, and writes outside the checkout always ask.',
+    );
+    for (const mode of AGENT_MODES) {
+      for (const execution of ['local', 'docker'] as const) {
+        expect(agentModeHint(mode, execution)).toBeTruthy();
+        expect(agentModeTooltip(mode, execution)).toBeTruthy();
+      }
+    }
+  });
+
   it('never allows a write-capable or network-capable git command', () => {
     for (const rule of GIT_READ_ALLOWLIST) {
       expect(rule).toMatch(/^Bash\((git|gh pr) [a-z]+:\*\)$/);
@@ -91,7 +143,7 @@ describe('agent modes', () => {
     expect(valueAfter(agent, '--permission-prompt-tool')).toBe('stdio');
     expect(agent).toContain('--safe-mode');
 
-    for (const mode of AGENT_MODES) {
+    for (const mode of CLAUDE_MODES) {
       expect(args(mode)).toContain('--strict-mcp-config');
       expect(args(mode)).toContain('--disable-slash-commands');
       expect(args(mode)).not.toContain('--dangerously-skip-permissions');
@@ -112,7 +164,7 @@ describe('agent modes', () => {
   });
 
   it('requires the union of every shipped mode’s flags at preflight', () => {
-    for (const mode of AGENT_MODES) {
+    for (const mode of CLAUDE_MODES) {
       for (const flag of requiredFlagsForMode(mode)) expect(REQUIRED_CLAUDE_FLAGS).toContain(flag);
     }
     expect(REQUIRED_CLAUDE_FLAGS).toContain('--input-format');
@@ -121,7 +173,7 @@ describe('agent modes', () => {
   it('probes every flag it passes except the ones the CLI hides from help', () => {
     // Probing an undocumented flag reports a healthy install as outdated and disables every mode,
     // so each flag we actually pass must be deliberately classified one way or the other.
-    for (const mode of AGENT_MODES) {
+    for (const mode of CLAUDE_MODES) {
       const passed = args(mode, { model: 'sonnet', effort: 'low' }).filter((value) => value.startsWith('--'));
       expect(passed).toEqual(expect.arrayContaining([...CHOICE_CLAUDE_FLAGS]));
       for (const flag of passed) {
@@ -136,7 +188,7 @@ describe('agent modes', () => {
     for (const flag of CHOICE_CLAUDE_FLAGS) expect(REQUIRED_CLAUDE_FLAGS).not.toContain(flag);
   });
 
-  it('accepts only the three mode names over the wire', () => {
+  it('accepts only the four mode names over the wire', () => {
     const base = {
       sessionId: crypto.randomUUID(),
       messageId: crypto.randomUUID(),
@@ -148,7 +200,7 @@ describe('agent modes', () => {
     for (const mode of AGENT_MODES) {
       expect(agentMessageRequestSchema.safeParse({ ...base, mode }).success).toBe(true);
     }
-    for (const mode of ['bypass', 'AGENT', '', null, { tools: ['Bash'] }]) {
+    for (const mode of ['bypass', 'AGENT', 'Auto', 'turbo', '', null, { tools: ['Bash'] }]) {
       expect(agentMessageRequestSchema.safeParse({ ...base, mode }).success).toBe(false);
     }
     // The browser can name a mode and nothing else about the policy.
@@ -187,8 +239,14 @@ describe('agent modes', () => {
     for (const mode of AGENT_MODES) {
       const prompt = buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [], mode });
       expect(prompt).toContain(`Mode: ${mode.toUpperCase()}`);
-      expect(prompt).toContain('gh pr view/diff/list');
+      // Auto runs any command inside its sandbox, so the allowlist is not its contract.
+      if (mode !== 'auto') expect(prompt).toContain('gh pr view/diff/list');
     }
+    const auto = buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [], mode: 'auto' });
+    expect(auto).toContain('inside a sandbox without asking');
+    expect(auto).toContain('except .git, .codex, and .claude');
+    expect(auto).toContain('a commit, a network request, a protected path, or a path outside the repository');
+    expect(auto).not.toContain('denied automatically');
     expect(buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [] })).toContain('Mode: ASK');
     expect(buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [], mode: 'plan' })).toContain(PLAN_START_MARKER);
   });

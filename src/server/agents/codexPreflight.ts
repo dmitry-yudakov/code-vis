@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import type { ModelChoices, ProviderHealth } from '@/shared/types';
 import {
-  buildCodexAppServerArgs, codexAmbientInstructionNote, codexAmbientSkillNote, codexIsolationIssue,
+  buildCodexAppServerArgs, buildCodexSandboxCheckArgs, codexAmbientInstructionNote, codexAmbientSkillNote, codexIsolationIssue,
   codexMcpServerNames, codexModelChoices, codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
   codexTurnSecurity,
 } from './codexInvocation';
@@ -27,13 +27,36 @@ interface HandshakeOptions {
 /** `choices` is present only when a signed-out handshake passed. */
 type Handshake = { health: ProviderHealth; choices?: ModelChoices };
 
-/** A bounded, model-free App Server handshake that verifies login and capability isolation. */
+/**
+ * A bounded, model-free App Server handshake that verifies login and capability isolation. Auto is
+ * also withheld unless the workspace sandbox starts, so a turn whose sandbox cannot start is
+ * refused with that reason instead of turning every command into an approval request.
+ */
 export async function checkCodex(
   binary: string,
   cwd: string,
   agentEnabled: boolean,
 ): Promise<ProviderHealth> {
-  return (await codexHandshake(binary, cwd, agentEnabled, {})).health;
+  const [{ health }, sandboxStarts] = await Promise.all([
+    codexHandshake(binary, cwd, agentEnabled, {}),
+    agentEnabled ? codexSandboxStarts(binary, cwd) : false,
+  ]);
+  if (sandboxStarts || !health.supportedModes.includes('auto')) return health;
+  return {
+    ...health,
+    supportedModes: health.supportedModes.filter((mode) => mode !== 'auto'),
+    message: [health.message, 'Codex\'s sandbox cannot start on this machine, so Auto is withheld.'].filter(Boolean).join(' '),
+  };
+}
+
+/** Whether `codex sandbox` can run a command here. It spawns no App Server and no model turn. */
+function codexSandboxStarts(binary: string, cwd: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(binary, buildCodexSandboxCheckArgs(), { cwd, shell: false, stdio: 'ignore' });
+    const timer = setTimeout(() => { child.kill('SIGKILL'); resolve(false); }, 3_000);
+    child.once('error', () => { clearTimeout(timer); resolve(false); });
+    child.once('close', (code) => { clearTimeout(timer); resolve(code === 0); });
+  });
 }
 
 export type CodexWorkerCheck =

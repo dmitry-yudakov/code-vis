@@ -1,9 +1,10 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { ChatMessage } from '@/features/conversation/ChatMessage';
 import { InstructionComposer } from '@/features/conversation/InstructionComposer';
 import type { RecentCanvas } from '@/features/conversation/recentCanvases';
-import type { AgentExecution, AgentMode, DiagramArtifact } from '@/shared/types';
+import type { AgentExecution, AgentMode, ChatMessage as ChatMessageRecord, DiagramArtifact, Participant } from '@/shared/types';
 
 const artifact: DiagramArtifact = {
   id: 'diagram-8', sessionId: 't1', messageId: 'message-1', ordinal: 8, source: 'flowchart LR\n  A --> B',
@@ -36,7 +37,8 @@ function render(options: {
     activeDiagramId: 'diagram-8',
     markCounts: {},
     mode: options.mode ?? 'plan',
-    unsupportedModes: options.unsupportedModes ?? [],
+    // As for Claude and for Docker, which never advertise Auto.
+    unsupportedModes: options.unsupportedModes ?? ['auto'],
     modelSelection: {},
     theme: 'light',
     recentCanvases: CANVASES,
@@ -98,6 +100,40 @@ describe('composer mode picker', () => {
     expect(markup).toMatch(/role="radiogroup" aria-label="Agent mode"/);
     // The hint and the long explanation both reach assistive technology.
     expect(picker.items[1].description).toBe('Read-only · ends in a plan | Plan — same read-only capability as Ask, but the turn ends in an implementation plan you can execute.');
+  });
+
+  it('offers Auto after Agent only when the provider advertises it, with its hint and explanation', () => {
+    const names = (unsupportedModes: AgentMode[]) => menu(render({ unsupportedModes }), 'mode-menu')!.items.map((item) => item.name);
+    // Not advertised means not offered: unlike Agent, Auto is never shown as a disabled choice.
+    expect(names(['auto'])).toEqual(['Ask', 'Plan', 'Agent']);
+    expect(names(['agent', 'auto'])).toEqual(['Ask', 'Plan', 'Agent']);
+    expect(names([])).toEqual(['Ask', 'Plan', 'Agent', 'Auto']);
+    const picker = menu(render({ unsupportedModes: [], mode: 'auto' }), 'mode-menu')!;
+    expect(picker.text).toBe('Auto');
+    expect(picker.label).toBe('Mode: Auto. Edits in a sandbox · asks beyond it');
+    expect(picker.className).toContain('mode-auto');
+    expect(picker.items[3]).toMatchObject({
+      role: 'radio', name: 'Auto', detail: 'Edits in a sandbox · asks beyond it', checked: true, disabled: false,
+      title: 'Auto — edits the working tree and runs sandboxed commands without asking; anything outside the sandbox asks you. '
+        + 'Network, commits, and writes outside the checkout always ask.',
+    });
+    // The execution line under the composer carries the same hint.
+    expect(render({ unsupportedModes: [], mode: 'auto' })).toContain('Edits in a sandbox · asks beyond it');
+  });
+
+  it('tags a message sent in Auto, and its answer, with the mode', () => {
+    const participants: Participant[] = [
+      { id: 'human', kind: 'human', displayName: 'You' },
+      { id: 'agent-1', kind: 'agent', displayName: 'Codex', provider: 'codex', role: 'coder', defaultMode: 'plan' },
+    ];
+    const chat = (message: ChatMessageRecord) => renderToStaticMarkup(createElement(ChatMessage, {
+      message, theme: 'light', participants, onSelectDiagram: vi.fn(),
+    }));
+    const base = { id: 'm1', createdAt: '2026-09-30T10:00:00.000Z' };
+    expect(chat({ ...base, role: 'user', authorId: 'human', addressedParticipantId: 'agent-1', text: 'Add the test.', status: 'sent', diagramAttachments: [], mode: 'auto' }))
+      .toContain('<em class="mode-tag mode-auto">Auto</em>');
+    expect(chat({ ...base, role: 'assistant', authorId: 'agent-1', status: 'complete', rawMarkdown: 'Done.', blocks: [{ kind: 'markdown', markdown: 'Done.' }], mode: 'auto' }))
+      .toContain('<em class="mode-tag mode-auto">Auto</em>');
   });
 
   it('uses the Docker hints and explanations in a Docker session', () => {

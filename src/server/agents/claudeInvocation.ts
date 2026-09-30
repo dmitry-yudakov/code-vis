@@ -72,19 +72,24 @@ const BASE_CLAUDE_FLAGS = [
   '--allowedTools', '--strict-mcp-config', '--disable-slash-commands', '--session-id', '--resume', '--add-dir',
 ] as const;
 
+/**
+ * The modes Claude runs. Auto is absent: Claude's sandbox did not pass Story 79's probes on the
+ * machine they ran on, so Claude never advertises it and is never checked or run for it.
+ */
+export const CLAUDE_MODES = ['ask', 'plan', 'agent'] as const satisfies readonly AgentMode[];
+export type ClaudeMode = (typeof CLAUDE_MODES)[number];
+
 /** Per-mode additions, all documented in `claude --help`. */
-const MODE_CLAUDE_FLAGS: Record<AgentMode, readonly string[]> = {
+const MODE_CLAUDE_FLAGS: Record<ClaudeMode, readonly string[]> = {
   ask: ['--tools'],
   plan: ['--tools'],
   agent: ['--input-format'],
 };
 
-export const AGENT_MODES: readonly AgentMode[] = ['ask', 'plan', 'agent'];
-
-export function requiredFlagsForMode(mode: AgentMode): readonly string[] {
+export function requiredFlagsForMode(mode: ClaudeMode): readonly string[] {
   return [...BASE_CLAUDE_FLAGS, ...MODE_CLAUDE_FLAGS[mode]];
 }
 
 export const REQUIRED_CLAUDE_FLAGS: readonly string[] = [
-  ...new Set(AGENT_MODES.flatMap((mode) => requiredFlagsForMode(mode))),
+  ...new Set(CLAUDE_MODES.flatMap((mode) => requiredFlagsForMode(mode))),
 ];

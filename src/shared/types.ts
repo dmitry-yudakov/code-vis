@@ -1,3 +1,5 @@
+import type { LaunchMode } from './agentModes';
+
 export interface CheckoutSummary {
   id: string;
   name: string;
@@ -86,7 +88,8 @@ export interface AgentParticipant {
   displayName: string;
   provider: AgentProvider;
   role: AgentRole;
-  defaultMode: AgentMode;
+  /** A role's default is never Auto: Auto is chosen for a session, by the user. */
+  defaultMode: LaunchMode;
 }
 
 export type Participant = HumanParticipant | AgentParticipant;
@@ -101,8 +104,11 @@ export interface ServerAgentParticipant extends AgentParticipant {
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
 export interface DurableSession {
-  /** Version 5 is version 4 plus report evidence on user messages; nothing else writes it. */
-  version: 3 | 4 | 5;
+  /**
+   * Version 5 is version 4 plus report evidence on user messages; version 6 is version 5 plus Auto
+   * messages. Each is written only by the first message that needs it.
+   */
+  version: 3 | 4 | 5 | 6;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   revision: number;
@@ -341,7 +347,11 @@ export type AssistantBlock =
   | { kind: 'code'; language?: string; source: string; warning?: string }
   | { kind: 'diagram'; artifact: DiagramArtifact };
 
-export type AgentMode = 'ask' | 'plan' | 'agent';
+/**
+ * `auto` is CodeAI's sandboxed mode: what the provider's operating-system sandbox contains runs
+ * without a card, and anything that leaves it asks. See `src/shared/agentModes.ts`.
+ */
+export type AgentMode = 'ask' | 'plan' | 'agent' | 'auto';
 
 export interface UserMessage {
   id: string;
@@ -382,7 +392,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5;
+  version: 3 | 4 | 5 | 6;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   revision: number;
@@ -579,7 +589,7 @@ export interface PermissionDecisionRequest {
 
 export interface ResolvedAgentPolicy {
   execution?: AgentExecution;
-  profile: 'ask-readonly' | 'plan-readonly' | 'agent-full';
+  profile: 'ask-readonly' | 'plan-readonly' | 'agent-full' | 'auto-sandboxed';
   mode: AgentMode;
   /** Undefined means the CLI default toolset (agent mode). */
   tools?: readonly string[];

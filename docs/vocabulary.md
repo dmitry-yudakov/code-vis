@@ -86,6 +86,11 @@ Three conclusions:
   *Participant* stays a data-model word covering both, as it does in meeting products.
 - **Turn** — one instruction and the agent work it causes. Internally addressed as a **run**
   (`runId`), which is what a cancel, a permission answer, or a reattach resolves against.
+- **Auto** — CodeAI's sandboxed mode: what the provider's operating-system sandbox contains runs
+  without a card, and anything that leaves it asks you. It is *not* Claude Code's `auto` permission
+  mode, where a classifier model approves or blocks each action, and not Codex's `auto_review`
+  reviewer. CodeAI uses neither. Both providers also call their own relaxed presets "Auto", which is
+  why the word is kept; **Sandboxed** is the alternative if the overlap confuses.
 
 ### Across machines and devices
 

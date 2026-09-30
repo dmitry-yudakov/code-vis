@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AGENT_MODES, LAUNCH_MODES } from './agentModes';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_REPORTS_PER_MESSAGE } from './limits';
 
@@ -8,7 +9,9 @@ const participantId = z.string().trim().min(1).max(160);
 const checkoutId = z.string().trim().min(1).max(128);
 const agentProvider = z.enum(['claude', 'codex']);
 const agentRole = z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']);
-const agentMode = z.enum(['ask', 'plan', 'agent']);
+const agentMode = z.enum(AGENT_MODES);
+/** A role default is never Auto. */
+const roleDefaultMode = z.enum(LAUNCH_MODES);
 
 const point = z.object({
   x: finite,
@@ -101,7 +104,7 @@ export const publicAgentParticipantSchema = z.object({
   displayName: z.string().trim().min(1).max(160),
   provider: agentProvider,
   role: agentRole,
-  defaultMode: agentMode,
+  defaultMode: roleDefaultMode,
 }).strict();
 
 export const serverAgentParticipantSchema = publicAgentParticipantSchema.extend({
@@ -187,8 +190,9 @@ export const userMessageSchema = z.object({
   status: z.enum(['sending', 'sent', 'cancelled', 'failed']),
   delivery: z.enum(['not-sent', 'possibly-sent']).optional(),
   diagramAttachments: z.array(diagramAttachmentRecordSchema).max(12),
-  // Only a version 5 session may hold these; `validateSession` enforces that.
+  // Only a session at version 5 or later may hold these; `validateSession` enforces that.
   reportAttachments: z.array(reportAttachmentRecordSchema).min(1).max(MAX_REPORTS_PER_MESSAGE).optional(),
+  // `auto` needs a version 6 session; `validateSession` enforces that for both roles.
   mode: agentMode.optional(),
 }).strict();
 
@@ -211,15 +215,20 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 5;
+export const MAX_READABLE_SESSION_VERSION = 6;
 /**
  * Version 5 is version 4 plus report evidence on user messages. A session is upgraded to it only by
  * the mutation that first appends a report, so builds without report support keep reading the rest.
  */
 export const REPORT_EVIDENCE_SESSION_VERSION = 5;
+/**
+ * Version 6 is version 5 plus Auto messages. A session is upgraded to it only by its first Auto
+ * message, so a build without Auto keeps reading every other session. No upgrade lowers a version.
+ */
+export const AUTO_MODE_SESSION_VERSION = 6;
 
 const sessionBase = {
-  version: z.union([z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION)]),
+  version: z.union([z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION)]),
   execution: z.enum(['local', 'docker']).optional(),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
@@ -238,13 +247,13 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5;
+    version: 3 | 4 | 5 | 6;
     execution?: 'local' | 'docker';
     id: string;
     repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
     primaryAgentId: string;
-    messages: Array<{ id: string; role: string; authorId: string; addressedParticipantId?: string; reportAttachments?: unknown }>;
+    messages: Array<{ id: string; role: string; authorId: string; addressedParticipantId?: string; reportAttachments?: unknown; mode?: string }>;
     pinnedDiagramIds: string[];
     annotations: Record<string, { diagramId: string }>;
     sketches: Array<{ id: string; sessionId: string }>;
@@ -254,13 +263,16 @@ function validateSession(
   if (value.version === 3 ? Object.hasOwn(value, 'execution') : value.execution === undefined) {
     ctx.addIssue({
       code: 'custom',
-      message: 'Version 3 has no execution field; versions 4 and 5 require an execution environment.',
+      message: 'Version 3 has no execution field; later versions require an execution environment.',
       path: ['execution'],
     });
   }
   value.messages.forEach((message, index) => {
-    if (value.version !== REPORT_EVIDENCE_SESSION_VERSION && message.reportAttachments !== undefined) {
-      ctx.addIssue({ code: 'custom', message: 'Only a version 5 session holds report evidence.', path: ['messages', index, 'reportAttachments'] });
+    if (value.version < REPORT_EVIDENCE_SESSION_VERSION && message.reportAttachments !== undefined) {
+      ctx.addIssue({ code: 'custom', message: 'Only a session at version 5 or later holds report evidence.', path: ['messages', index, 'reportAttachments'] });
+    }
+    if (value.version < AUTO_MODE_SESSION_VERSION && message.mode === 'auto') {
+      ctx.addIssue({ code: 'custom', message: 'Only a version 6 session holds Auto messages.', path: ['messages', index, 'mode'] });
     }
   });
   validateRepositoryBindings(value.repositories, ctx);

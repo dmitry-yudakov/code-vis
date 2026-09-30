@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { agentModelSelection, inheritedMode, launchChoice, parseDevicePreferences } from '@/features/shell/devicePreferences';
+import { agentModelSelection, inheritedMode, launchChoice, launchModes, parseDevicePreferences } from '@/features/shell/devicePreferences';
+import type { AgentMode } from '@/shared/types';
 import { emptyDeviceView } from '@/features/shell/workspaceViews';
 
 const AGENT_A = '12121212-1212-4121-8121-121212121212';
@@ -58,6 +59,21 @@ describe('device preferences', () => {
     // Docker Agent edits without individual approvals, so it has to be chosen for that session.
     expect(inheritedMode('agent', 'docker')).toBe('ask');
     expect(inheritedMode(undefined, 'local')).toBe('ask');
+  });
+
+  it('remembers Auto as the last mode but never starts another session in it', () => {
+    expect(parseDevicePreferences(JSON.stringify({ version: 1, mode: 'auto', provider: 'codex' }))).toEqual({ mode: 'auto', provider: 'codex' });
+    for (const execution of ['local', 'docker', undefined] as const) expect(inheritedMode('auto', execution)).toBe('ask');
+
+    const health = (modes: AgentMode[]) => ({ available: true, supportedModes: modes });
+    const machine = { claude: health(['ask', 'plan', 'agent']), codex: health(['ask', 'plan', 'agent', 'auto']) };
+    // Ask, not the mode the form happened to show, and not Auto even where the provider offers it.
+    expect(launchChoice({ provider: 'codex', mode: 'auto' }, machine, { provider: 'claude', mode: 'agent' })).toEqual({ provider: 'codex', mode: 'ask' });
+    expect(launchChoice({ mode: 'auto' }, machine, { provider: 'codex', mode: 'plan' })).toEqual({ provider: 'codex', mode: 'ask' });
+    // A machine that lists Auto first still opens the form at a mode a new session may use.
+    expect(launchChoice({ provider: 'codex' }, { codex: health(['auto', 'plan']) }, { provider: 'codex', mode: 'agent' })).toEqual({ provider: 'codex', mode: 'plan' });
+    expect(launchModes(['ask', 'plan', 'agent', 'auto'])).toEqual(['ask', 'plan', 'agent']);
+    expect(launchModes(undefined)).toEqual([]);
   });
 
   it('opens a New session form at the last provider and mode only when the machine can run them', () => {

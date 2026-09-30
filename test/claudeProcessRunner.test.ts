@@ -71,6 +71,29 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(second.invocation.args).not.toContain('--dangerously-skip-permissions');
   });
 
+  it('never runs or advertises Auto for Claude, and Docker advertises it for nobody', async () => {
+    // The route refuses first; if an Auto policy still arrived, the CLI must not start as if it were Agent's.
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-fake-'));
+    const runner = new ClaudeProcessRunner({ binary, maxOutputBytes: 100_000, killGraceMs: 50 });
+    await expect(runner.run({
+      runId: crypto.randomUUID(),
+      checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
+      session: { id: crypto.randomUUID(), action: 'start' },
+      prompt: 'unique first question', attachmentDirectory: directory,
+      policy: resolveAgentPolicy(getConfig(), 'auto'),
+      signal: new AbortController().signal, emit() {},
+    })).rejects.toMatchObject({ code: 'unsupported-flags', delivery: 'not-sent', retryable: false });
+    await expect(readFile(path.join(directory, 'fake-invocation.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const config = { ...getConfig(), claudeBin: binary, codexAgentEnabled: true };
+    expect((await getProviderAdapters(config).claude.checkHealth()).supportedModes).toEqual(['ask', 'plan', 'agent']);
+    expect(getProviderAdapters(config).claude.supportedModes).toEqual(['ask', 'plan', 'agent']);
+    expect(getProviderAdapters(config).codex.supportedModes).toEqual(['ask', 'plan', 'agent', 'auto']);
+    expect(getProviderAdapters({ ...config, codexAgentEnabled: false }).codex.supportedModes).toEqual(['ask', 'plan']);
+    const docker = getProviderAdapters(config, 'docker', { sessionId: crypto.randomUUID(), participantId: 'agent-1' });
+    expect([docker.claude.supportedModes, docker.codex.supportedModes]).toEqual([['ask', 'plan', 'agent'], ['ask', 'plan', 'agent']]);
+  });
+
   it('passes the fixed git allowlist and no interactive flags in read-only modes', async () => {
     for (const mode of ['ask', 'plan'] as const) {
       const { invocation } = await run({ mode });

@@ -9,7 +9,8 @@ import { permissionKey, permissionRequestUpdate, SESSION_ACTIONS, type Immersive
 import { createConversationTextResource, createReportPreviewResource, createWorkspaceButtonResource } from './workspaceResources';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { useTextureResource } from './useTextureResource';
-import { launchChoice } from '@/features/shell/devicePreferences';
+import { launchChoice, launchModes } from '@/features/shell/devicePreferences';
+import type { LaunchMode } from '@/shared/agentModes';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
 
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
@@ -47,7 +48,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   const [machineId, setMachineId] = useState(controls.machineId);
   const [projectId, setProjectId] = useState('');
   const [provider, setProvider] = useState<AgentProvider>('claude');
-  const [mode, setMode] = useState<AgentMode>('ask');
+  const [mode, setMode] = useState<LaunchMode>('ask');
   const [checkoutId, setCheckoutId] = useState('');
   const [selected, setSelected] = useState<PermissionTarget>();
   const [page, setPage] = useState(0);
@@ -68,7 +69,8 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   const project = machine?.projects.find((item) => item.id === projectId);
   const providers = (Object.keys(machine?.providers || {}) as AgentProvider[])
     .filter((id) => machine?.providers[id].available && machine.providers[id].supportedModes.length);
-  const modes = machine?.providers[provider]?.supportedModes || [];
+  // A new session never starts in Auto: it is chosen inside a session, by the user.
+  const modes = launchModes(machine?.providers[provider]?.supportedModes);
   // New session opens at this device's last provider and mode when this machine can run them, and in
   // the open session's project, so a session started from a conversation can send without attaching.
   function startLauncher() {
@@ -179,7 +181,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
         setMachineId(nextValue(machines.map((item) => item.machine.id), machine?.machine.id || ''));
         setProjectId(''); setPage(0);
       } else if (action === 'project') { setProjectId(nextValue(['', ...machine?.projects.map((item) => item.id) || []], projectId)); setPage(0); }
-      else if (action === 'provider') { const next = nextValue(providers, provider); if (next) { setProvider(next); setMode(machine!.providers[next].supportedModes[0]); } }
+      else if (action === 'provider') { const next = nextValue(providers, provider); if (next) { setProvider(next); setMode(launchModes(machine!.providers[next].supportedModes)[0] || 'ask'); } }
       else if (action === 'mode') { const next = nextValue(modes, mode); if (next) setMode(next); }
       else if (action === 'create' && createEnabled && machine) {
         busyRef.current = true; setBusy(true);

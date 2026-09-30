@@ -15,12 +15,12 @@ const workspaceStatus = (page: Page) => page.evaluate(() => window.xrScene?.scen
 
 test.describe('VR conversation input', () => {
 
-  async function setupVoice(page: Page) {
+  async function setupVoice(page: Page, supportedModes = ['ask', 'plan']) {
     await installAdapter(page);
     await workspaceFixture(page, true);
     await page.route('**/api/health', (route) => route.fulfill({ json: {
       ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true,
-      providers: { claude: { available: true, authenticated: true, supportedModes: ['ask', 'plan'] },
+      providers: { claude: { available: true, authenticated: true, supportedModes },
         codex: { available: false, authenticated: 'unknown', supportedModes: [] } },
     } }));
     const voice = { text: 'Edit badpath', requests: 0, fail: false, pending: undefined as Promise<void> | undefined };
@@ -468,6 +468,48 @@ test.describe('VR conversation input', () => {
         await expect.poll(() => page.evaluate((action) => Boolean(window.xrScene?.scene.getObjectByName(action === 'agents' ? 'VR draft and agents' : 'Message input')), action)).toBe(true);
       }
     }
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+  });
+
+  test('offers Auto in the agents row only where the provider advertises it, without crowding the row', async ({ page }) => {
+    const row = () => page.evaluate(() => ['Ask', 'Plan', 'Agent', 'Auto', 'Make main', 'Agent mode selector'].map((name) => {
+      const mesh = window.xrScene?.scene.getObjectByName(name === 'Agent mode selector' ? name : `${name} background`) as Mesh | undefined;
+      if (!mesh) return undefined;
+      mesh.geometry.computeBoundingBox();
+      const half = (mesh.geometry.boundingBox!.max.x - mesh.geometry.boundingBox!.min.x) / 2;
+      const x = name === 'Agent mode selector' ? mesh.position.x : mesh.parent!.parent!.position.x;
+      return { name, left: x - half, right: x + half };
+    }));
+
+    // Not advertised: the row is as it was, with no Auto control at all.
+    await setupVoice(page);
+    await conversationAction(page, 'agents');
+    await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Agent')))).toBe(true);
+    expect(await page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Auto')))).toBe(false);
+    // The shared action exists for every mode; one that is not in the row does nothing.
+    await conversationAction(page, 'plan');
+    await expect(page.getByLabel(/^Mode: /)).toHaveText('Plan');
+    await conversationAction(page, 'auto');
+    await expect(page.getByLabel(/^Mode: /)).toHaveText('Plan');
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    await setupVoice(page, ['ask', 'plan', 'agent', 'auto']);
+    await conversationAction(page, 'agents');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Auto')?.userData.disabled)).toBe(false);
+    await conversationAction(page, 'auto');
+    await expect(page.getByLabel(/^Mode: /)).toHaveText('Auto');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Auto')?.userData.selected)).toBe(true);
+    const [ask, plan, agent, auto, makeMain, group] = (await row()) as Array<{ name: string; left: number; right: number }>;
+    // Left to right with a visible gap, inside the panel, the four modes on their shared surface.
+    for (const [before, after] of [[ask, plan], [plan, agent], [agent, auto], [auto, makeMain]]) {
+      expect(after.left - before.right, `${before.name} then ${after.name}`).toBeGreaterThan(0.015);
+    }
+    expect(ask.left).toBeGreaterThan(-0.66);
+    expect(makeMain.right).toBeLessThan(0.66);
+    expect(group.left).toBeLessThan(ask.left);
+    expect(group.right).toBeGreaterThan(auto.right);
+    expect(group.right).toBeLessThan(makeMain.left);
     await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
   });
 
@@ -2187,7 +2229,8 @@ test('VR session tools create a repository-free session, attach a checkout, and 
   await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
   await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('launcher');
   // The launcher opens in the open session's project; this journey starts without one.
-  for (let turn = 0; turn < 20 && !String((await sessionToolsState(page))?.text).includes('Project: No project'); turn++) {
+  // The shared e2e data directory holds every project the suites before this one created.
+  for (let turn = 0; turn < 80 && !String((await sessionToolsState(page))?.text).includes('Project: No project'); turn++) {
     await sessionAction(page, 'project');
   }
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Project: No project');

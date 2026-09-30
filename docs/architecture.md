@@ -58,7 +58,7 @@ device authorization at every route handler (src/server/devices)
 route domain operations (src/app/api/**)
    │
    ├── src/server/repository   checkout discovery, fixed read-only git reads, bounded context files
-   ├── src/server/storage      durable projects/sessions, writer lock, per-run temp attachments
+   ├── src/server/storage      durable projects/sessions, writer lock, per-run attachment directories
    ├── src/server/runs         bounded scheduler, checkout locks, run registry, permission brokers
    ├── src/server/agents       provider policy → claude / codex app-server child
    └── src/server/machines     bounded registry + allowlisted same-origin gateway
@@ -92,13 +92,13 @@ capability.
 | Arena finished-item read markers | Versioned browser device state |
 | Checkout discovery and opaque checkout ids | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
-| Mode selection (`ask` / `plan` / `agent`) | Browser names it, server resolves it |
+| Mode selection (`ask` / `plan` / `agent` / `auto`) | Browser names it, server resolves it |
 | Model and effort for a turn | The browser names one of the machine's choices, and the server resolves it |
 | Pairing challenges and device credential digests | Separate host device-auth record |
 | Machine challenge and inbound credential digests | Separate executor machine-auth record |
 
 The browser can name a supported mode and, optionally, a model and an effort, and nothing else. An
-unknown or unsupported mode is a 400. The model and effort must come from the choices the executing
+unknown mode is a 400, and a mode the addressed provider does not advertise is a 409. The model and effort must come from the choices the executing
 machine lists in `ProviderHealth` for the addressed provider (`models`, each with its `efforts`, and
 `efforts` for the Default model); anything else is a 400 before the turn is reserved. Claude's
 choices are a fixed alias list (Docker Claude included), Codex's come from App Server's
@@ -280,7 +280,8 @@ JPEG as `localImage`, and Claude reads the same files from its added directory.
    an exclusive writer, and a waiting writer blocks later readers on that checkout without blocking
    eligible work elsewhere.
 4. When the scheduler starts the turn, build the historical prompt delta from the current canonical
-   record and a bounded per-run temporary directory outside the repository (`code-ai-run-*`) holding
+   record and a bounded per-run directory under `<dataDir>/run-attachments/` (`code-ai-run-*`), outside
+   the repository and outside the system temp directory an Auto sandbox leaves writable, holding
    diagram attachments, the message's promoted CodeAI reports (JSON, optional JPEG, and
    `report-attachments.json`), plus git status/diff snapshots from `src/server/repository/`.
 5. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
@@ -293,7 +294,7 @@ JPEG as `localImage`, and Claude reads the same files from its added directory.
    fenced Mermaid blocks, validated by `src/features/diagram/mermaid/mermaidPolicy.ts`, plus
    evidence comments.
 8. Commit the assistant message, user delivery state, and participant cursor in one revision before
-   emitting the durable assistant event. Remove the temporary directory, always.
+   emitting the durable assistant event. Remove the run directory, always.
 
 `GET /api/agent/runs` discovers queued, running, needs-you, and recently finished descriptors.
 `GET /api/agent/stream` reattaches a detached browser by run id; `POST /api/agent/cancel` ends

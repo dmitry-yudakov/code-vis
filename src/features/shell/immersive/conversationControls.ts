@@ -35,7 +35,7 @@ export const CONVERSATION_ACTIONS = {
   'previous-word': 'Previous word', 'next-word': 'Next word', delete: 'Delete word', clear: 'Clear draft',
   undo: 'Undo edit', newline: 'New line', 'draft-older': 'Previous page', 'draft-newer': 'Next page',
   send: 'Send', cancel: 'Cancel run', 'previous-agent': 'Previous agent', 'next-agent': 'Next agent',
-  ask: 'Ask', plan: 'Plan', agent: 'Agent', 'make-primary': 'Make main',
+  ask: 'Ask', plan: 'Plan', agent: 'Agent', auto: 'Auto', 'make-primary': 'Make main',
   provider: 'Provider', role: 'Role', add: 'Add agent',
   edit: 'Speech tools', done: 'Done',
   list: 'Conversations', back: 'Back to conversation',

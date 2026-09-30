@@ -68,7 +68,7 @@ function modePicker(scope: Page | Locator) {
   return scope.getByLabel(/^Mode: /);
 }
 
-async function chooseMode(scope: Page | Locator, name: 'Ask' | 'Plan' | 'Agent') {
+async function chooseMode(scope: Page | Locator, name: 'Ask' | 'Plan' | 'Agent' | 'Auto') {
   await modePicker(scope).click();
   await scope.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio', { name, exact: true }).click();
   await expect(modePicker(scope)).toHaveText(name);
@@ -1640,6 +1640,70 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await expect(modePicker(conversation)).toHaveText('Agent');
   await startSession(page);
   await expect(modePicker(conversation)).toHaveText('Agent');
+});
+
+test('offers Auto only where the provider advertises it, keeps it for its session, and starts no session in it', async ({ page, request }) => {
+  const projectName = `Auto mode ${Date.now()}`;
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: { id: string }[] };
+  await request.post('/api/projects', { data: { name: projectName, checkoutIds: [checkouts[0].id] } });
+  await page.goto('/');
+  await expect(page.locator('.project-search-trigger')).toContainText(projectName);
+  await startSession(page);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  const modes = conversation.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio');
+
+  // This server's Claude does not advertise Auto, so the picker does not list it, even disabled.
+  await modePicker(conversation).click();
+  await expect(modes).toHaveText([/^Ask/, /^Plan/, /^Agent/]);
+  await modePicker(conversation).click();
+
+  // A provider that advertises it: readiness is what the picker reads.
+  await page.route('**/api/health', async (route) => {
+    const response = await route.fetch();
+    type Providers = { claude: { supportedModes: string[] } };
+    const body = await response.json() as { providers: Providers; executions: { local: { providers: Providers } } };
+    // Local only: Docker never advertises Auto.
+    for (const providers of [body.providers, body.executions.local.providers]) providers.claude.supportedModes.push('auto');
+    await route.fulfill({ response, json: body });
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await ensureConversationOpen(page);
+  await modePicker(conversation).click();
+  await expect(modes).toHaveText([/^Ask/, /^Plan/, /^Agent/, /^Auto/]);
+  await expect(modes.nth(3)).toHaveAttribute('title', /anything outside the sandbox asks you\. Network, commits, and writes outside the checkout always ask\.$/);
+  await modePicker(conversation).click();
+  await chooseMode(conversation, 'Auto');
+  await expect(modePicker(conversation)).toHaveAccessibleName('Mode: Auto. Edits in a sandbox · asks beyond it');
+  await expect(conversation.locator('.execution-line')).toContainText('Edits in a sandbox · asks beyond it');
+
+  // The turn names Auto and nothing else about its policy. The real server still refuses it for a
+  // provider that does not advertise it, whatever the browser believed.
+  const requested = page.waitForRequest((sent) => sent.url().endsWith('/api/agent/message'));
+  await conversation.locator('textarea').fill('Add a test file.');
+  await conversation.getByRole('button', { name: 'Send' }).click();
+  expect((await requested).postDataJSON()).toMatchObject({ mode: 'auto' });
+  expect(Object.keys((await requested).postDataJSON()).sort()).toEqual(['diagramAttachments', 'messageId', 'mode', 'participantId', 'reportAttachments', 'sessionId', 'text']);
+  await expect(toast(page, 'Claude is not healthy for auto mode in this CodeAI configuration.')).toBeVisible();
+
+  // Auto stays with its session across a reload, and the next session starts in Ask.
+  await page.reload({ waitUntil: 'networkidle' });
+  await ensureConversationOpen(page);
+  await expect(modePicker(conversation)).toHaveText('Auto');
+  await startSession(page);
+  await expect(modePicker(conversation)).toHaveText('Ask');
+  await page.locator('.workspace-tab').first().click();
+  await ensureConversationOpen(page);
+  await expect(modePicker(conversation)).toHaveText('Auto');
+
+  // The Arena's form has no Auto, and opens at Ask although Auto was the last mode chosen here.
+  await chooseMode(conversation, 'Auto');
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  const arena = page.getByRole('main', { name: 'Arena' });
+  await arena.getByRole('button', { name: 'New session' }).click();
+  const create = arena.getByRole('region', { name: 'Create session' });
+  await expect(create.getByRole('radio')).toHaveCount(3);
+  await expect(create.getByRole('radio', { name: 'Auto' })).toHaveCount(0);
+  await expect(create.getByRole('radio', { name: 'Ask' })).toBeChecked();
 });
 
 test('attaches from the composer, picks a mode from the keyboard, and names the execution under it', async ({ page, request, baseURL }) => {

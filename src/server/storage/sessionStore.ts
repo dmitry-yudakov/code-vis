@@ -11,7 +11,7 @@ import type {
   Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
-  MAX_READABLE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
+  AUTO_MODE_SESSION_VERSION, MAX_READABLE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema,
 } from '@/shared/sessionSchema';
 import {
@@ -19,7 +19,7 @@ import {
 } from '@/shared/participants';
 
 const STORE_FORMAT_VERSION = 1;
-// New sessions stay at version 4 so builds without report support keep reading them.
+// New sessions stay at version 4 so builds without report or Auto support keep reading them.
 const SESSION_RECORD_VERSION = 4;
 const PROJECT_RECORD_VERSION = 1;
 const STORE_DIRECTORY = 'session-store-v2';
@@ -599,10 +599,14 @@ export class SessionStore {
       if (!serverAgent(session, message.addressedParticipantId)) {
         throw new Error('The addressed participant is not an agent in this session');
       }
-      if (message.reportAttachments?.length && session.version !== REPORT_EVIDENCE_SESSION_VERSION) {
-        // The first report is the only change that needs version 5; version 3 names its implicit Local.
+      // The first report needs version 5 and the first Auto message version 6. Nothing else raises a
+      // version, and nothing lowers one: a report on a version 6 session leaves it at 6.
+      const needed = message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
+        : message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
+      if (session.version < needed) {
+        // Version 3 names its implicit Local.
         if (session.version === 3) session.execution = 'local';
-        session.version = REPORT_EVIDENCE_SESSION_VERSION;
+        session.version = needed;
       }
       session.messages.push(structuredClone(message));
       if (session.messages.length === 1) session.title = message.text.trim().slice(0, 56) || 'Sketch session';

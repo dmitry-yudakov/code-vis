@@ -59,6 +59,7 @@ import { LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import { useDevicePreferences } from './useDevicePreferences';
 import { agentModelSelection, inheritedMode } from './devicePreferences';
+import { changesCheckout, unsupportedModes as unsupportedAgentModes, type LaunchMode } from '@/shared/agentModes';
 import {
   parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView, withPendingReport, withPendingReports,
   type CanvasSurface, type SpatialViewState,
@@ -85,7 +86,6 @@ interface Health {
   message?: string;
 }
 
-const AGENT_MODES: readonly AgentMode[] = ['ask', 'plan', 'agent'];
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
 const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'system'];
 
@@ -338,9 +338,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       || session.repositories[0].hostId !== hostId || !checkouts.some((checkout) => checkout.id === session.repositories[0].checkoutId))
       ? 'Docker needs exactly one primary repository on this machine.' : undefined;
   const providerHealth = executionProviders?.[activeProvider];
-  const unsupportedModes = useMemo(() => health
-    ? AGENT_MODES.filter((agentMode) => !providerHealth?.supportedModes.includes(agentMode))
-    : [], [health, providerHealth]);
+  const unsupportedModes = useMemo(
+    () => unsupportedAgentModes(health ? providerHealth?.supportedModes ?? [] : undefined, session?.execution),
+    [health, providerHealth, session?.execution],
+  );
   // A session without its own mode on this device shows the last one. A mode the installed CLI cannot
   // run falls back to Ask rather than failing at send time.
   const storedMode = session?.defaultMode || inheritedMode(preferences.mode, session?.execution);
@@ -609,7 +610,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
-    options: { projectId?: string; mode?: AgentMode; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
+    options: { projectId?: string; mode?: LaunchMode; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string } = {},
   ): Promise<boolean> => {
     if (creatingSessionRef.current) return false;
     creatingSessionRef.current = true;
@@ -685,7 +686,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     const initialComposer = `Continue from “${session.title.slice(0, 200)}” (${session.execution === 'docker' ? 'Docker' : 'Local'} session ${session.id}). This is a fresh provider session using the same repositories.\n\nRecent visible conversation (may be incomplete):\n${recap || 'No messages yet.'}${composer.trim() ? `\n\nUnsent draft:\n${composer.slice(0, 1_400)}` : ''}\n\nPlease continue from this context.`.slice(0, 7_600);
     // The agent's stored choice, not the one this execution offers: the other execution may list more.
     const agentSelection = agentModelSelection(view, preferences, activeAgent);
-    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode, modelSelection: agentSelection });
+    // The continuation keeps the mode, except Auto, which no session starts in.
+    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode: mode === 'auto' ? 'ask' : mode, modelSelection: agentSelection });
   };
 
   const switchProject = (next?: string) => {
@@ -1302,7 +1304,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         participantId: turnAgent.id,
         mode: turnMode,
         state: 'running',
-        status: turnMode === 'agent'
+        status: changesCheckout(turnMode)
           ? `Starting ${turnAgent.displayName}`
           : `Starting read-only ${turnAgent.displayName}`,
         preview: '',
@@ -1658,6 +1660,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       notify({ key: 'send', tone: 'warning', message: planHealth?.message || 'That agent cannot execute in Agent mode.' });
       return;
     }
+    // Always Agent, never Auto.
     void send({ text: EXECUTE_PLAN_INSTRUCTION, mode: 'agent', participantId });
   }, [health, send, session?.participants]);
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
+import { AGENT_MODES } from '@/shared/agentModes';
 import type { AgentExecution, AgentMode, CanvasTarget, ModelChoices, ModelSelection } from '@/shared/types';
 import { canvasTargetId } from '@/features/conversation/sessionStore';
 import type { RecentCanvas } from '@/features/conversation/recentCanvases';
@@ -9,8 +10,6 @@ import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip, effortLabel, execut
 import { useMenuDismiss } from '@/features/agents/useMenuDismiss';
 import { CanvasThumbnail } from '@/features/diagram/components/CanvasThumbnail';
 import { offeredEfforts, offeredModelSelection } from '@/shared/modelChoices';
-
-const MODES: AgentMode[] = ['ask', 'plan', 'agent'];
 
 // Opening one of the composer's popovers closes the others, which would overlap.
 const MENU_GROUP = 'composer-menu';
@@ -117,7 +116,8 @@ function ModePicker({ mode, execution, unsupportedModes, disabled, onChange }: {
       summary={<>{AGENT_MODE_LABELS[mode]}<Icon name="chevronDown" /></>}>
       {(close) => (
         <div role="radiogroup" aria-label="Agent mode">
-          {MODES.map((item) => {
+          {/* Auto is offered only where the provider advertises it; the other modes show disabled with a reason. */}
+          {AGENT_MODES.filter((item) => item !== 'auto' || !unsupportedModes.includes('auto')).map((item) => {
             const reason = unsupportedModes.includes(item)
               ? `${AGENT_MODE_LABELS[item]} is unavailable for this provider and execution. Check provider setup.`
               : undefined;

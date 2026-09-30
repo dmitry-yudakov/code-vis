@@ -196,6 +196,39 @@ Claude Code also created an empty `.claude/.cc-writes` directory in the checkout
   covers only `.git/hooks`, `.git/config` and Claude's settings files. `allowUnsandboxedCommands`
   stays undecided: `true` gives a card for a commit or an install, and `false` refuses them.
 
+### Through CodeAI, after Part C
+
+A production build served the scratch repository with `CODEAI_CODEX_AGENT=1` and a scratch data
+directory under the home directory. One session, real Codex, every turn on one provider session:
+
+- Readiness: Codex advertised `ask`, `plan`, `agent`, `auto`; Claude `ask`, `plan`, `agent`; Docker
+  nothing.
+- Auto, "add a file and run the tests": the patch and `npm test` ran with **no card** (41 s). The
+  session record went to version 6, and the run directory under the data directory was gone after
+  the turn.
+- Auto, "write `$HOME/codeai-auto-probe`", "fetch https://example.com", and "commit": each raised
+  **one card** whose detail began `outside the sandbox:` and carried the command and Codex's reason.
+  Denied, each turn continued and finished; nothing was written, fetched, or committed.
+- Auto, "commit" again, allowed: one card, then the commit existed.
+- Agent on the same provider session: `npm test` raised Agent's own card, with its reason and
+  without the sandbox prefix. Ask then answered read-only.
+- Part A: with Codex started as `codex … -c 'approvals_reviewer="auto_review"'`, which outranks
+  `config.toml`, an Agent turn's file change still raised a card for the user; denied, nothing was
+  written. (A command that writes nothing, such as a test run that only prints, runs inside
+  Agent's read-only sandbox without a card, with or without this change.)
+- Claude with `mode: "auto"`: 409, "Claude is not healthy for auto mode in this CodeAI
+  configuration."
+- After the second review changed the card and the Git reads, against the final build: a patch to
+  `~/codeai-auto-probe-note.txt` raised the card "~/codeai-auto-probe-note.txt — may write outside
+  the sandbox" and was not written when denied; `rm -rf build-dir` inside the checkout raised
+  "/bin/bash -lc 'rm -rf build-dir' — may run outside the sandbox" with no reason, and ran when
+  allowed. A plain folder laid out as a repository whose `config` named a filter was read by the
+  app as "not a repository", and the filter did not run. The cards in the earlier bullets had the
+  previous wording, which began "outside the sandbox:".
+- The untouched build before this story (format 5 at most), opened on the same data directory,
+  listed the other session, reported one session hidden as written by a newer CodeAI, and answered
+  409 for the Auto session.
+
 ## Story 67 — Updating a provider's Docker CLI (2026-09-23 UTC)
 
 **Outcome:** provisioning, offline candidate checks, switches, rollbacks, refusals and the Arena

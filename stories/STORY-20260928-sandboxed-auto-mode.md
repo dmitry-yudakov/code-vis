@@ -1,6 +1,6 @@
 # Story 79 — Add an Auto mode that asks only for what leaves the sandbox
 
-**Status:** Draft · **Type:** Full-stack · **Depends on:**
+**Status:** In progress · **Type:** Full-stack · **Depends on:**
 [Story 19](STORY-20260806-web2-conversation-modes.md) (modes),
 [Story 20](STORY-20260817-web2-codex-provider.md) (Codex App Server),
 [Story 65](STORY-20260921-tolerate-newer-session-format.md) (a newer session hides only itself),
@@ -48,6 +48,9 @@ checks which reviewer Codex uses for approvals.
 ---
 
 ## Current behavior (where the code is)
+
+This section describes the code before the story, and its line anchors are from that commit.
+*What shipped*, at the end, has the current ones.
 
 ### Policy and providers
 
@@ -262,6 +265,19 @@ block reaches CodeAI at all.
 **Decision:** for each provider, write down whether it meets decisions 2–5, the exact arguments
 Part C sends, and the chosen `allowUnsandboxedCommands` value.
 
+**Outcome (September 30, 2026).** The results are in
+[docs/experiment-log.md](../docs/experiment-log.md#story-79--auto-probes-2026-09-30-utc).
+
+- **Codex passes**, with different arguments from the ones planned above. The plain
+  `workspace-write` sandbox leaves `.claude/` writable, which breaks decision 4. A Codex permission
+  profile that extends `:workspace` and makes `.claude` read-only closes that, and App Server echoes
+  the profile so it can be verified. Part C sends the profile and no legacy sandbox.
+- **Claude could not be verified**, so by decision 8 Part C does not implement Claude Auto. Its
+  sandbox refuses to start without `socat` (good), but with `socat` every sandboxed command fails
+  under Ubuntu's AppArmor profile for bubblewrap. Both fixes need `sudo`, which the session did not
+  have. The file-tool half of the probes ran and is recorded for the follow-up.
+- `socat` was unpacked into a scratch directory for the probes, not installed.
+
 ### Part C — Auto mode
 
 #### Policy (server-owned)
@@ -269,32 +285,52 @@ Part C sends, and the chosen `allowUnsandboxedCommands` value.
 - `AgentMode` gains `'auto'`. `resolveAgentPolicy(config, 'auto', 'local')` returns a frozen
   `auto-sandboxed` profile with Agent's budget, timeout, and approval timeout, and
   `interactivePermissions: true`.
-- **Codex:** `codexTurnSecurity('auto', 'local')` returns the Part B arguments: `workspace-write`
-  at thread start with `sandbox_workspace_write` overridden through `codexThreadConfig`,
-  `workspaceWrite` with `networkAccess: false` and no extra roots at turn start, `on-request`, and
-  reviewer `user`. `codexThreadPolicyIssue` accepts exactly that echo for Auto.
-  `buildCodexAppServerArgs` disables `request_permissions_tool` and `exec_permission_approvals` for
-  every turn, and any `item/permissions/requestApproval` keeps today's unsupported answer. Codex
-  Auto is advertised only with `CODEAI_CODEX_AGENT`, because its escalations use the path Agent's
-  release gate protects.
-- **Claude:** Auto sends the Part B arguments: `--permission-mode acceptEdits`, the sandbox settings
-  object through `--settings` (a server constant including `failIfUnavailable: true`),
-  `--permission-prompt-tool stdio`, the git read allowlist, and `--disallowedTools` rules for the
-  Edit, Write, and NotebookEdit tools on `.git/**`, `.claude/**`, `.codex/**`, and the attachment
-  directory.
+- **Codex:** `codexTurnSecurity('auto', 'local')` returns `on-request`, reviewer `user`, and the
+  permission profile `codeai-auto`, with no legacy `sandbox` and no `sandboxPolicy`: App Server
+  drops a profile when a legacy sandbox is named beside it. `codexThreadConfig` defines and selects
+  the profile for the thread (extends `:workspace`; `.claude` read-only; network off).
+  `codexThreadPolicyIssue` accepts exactly this echo for Auto: `on-request`, reviewer `user`,
+  `activePermissionProfile` `codeai-auto` extending `:workspace`, and a `workspaceWrite` sandbox
+  with no network and no writable roots. `buildCodexAppServerArgs` disables
+  `request_permissions_tool` and `exec_permission_approvals` for every turn, and any
+  `item/permissions/requestApproval` keeps today's unsupported answer. Codex Auto is advertised only
+  with `CODEAI_CODEX_AGENT`, because its escalations use the path Agent's release gate protects.
+  Auto has its own developer instructions: with Agent's ("Never broaden the configured sandbox")
+  a real turn reported a blocked commit and stopped instead of asking.
+- **Claude:** not implemented (see the Part B outcome). Claude never advertises Auto, and its runner
+  refuses an Auto policy.
 - **Attachments:** every run's attachment directory, in every mode, is created under the data
-  directory instead of the system temp directory, still per run, private, and removed after the
-  turn. Leftovers from a crash are removed at startup.
-- **Readiness:** Auto is implemented only for providers that passed Part B. Preflight advertises it
-  only when the CLI shows the required flags and choices. For Claude on Linux, a missing `bwrap` or
-  `socat` makes the readiness line say so and withholds Auto. This is a hint only; decision 3's
-  guarantee comes from `failIfUnavailable`, and a turn whose sandbox cannot start fails.
+  directory (`<dataDir>/run-attachments/`) instead of the system temp directory, still per run,
+  private, and removed after the turn. Leftovers from a crash are removed once per server process,
+  before that process creates its first run directory. That is the earliest point at which the
+  process is known to hold the session store's writer lock, so the sweep cannot remove a directory
+  another live server is using.
+- **Readiness:** Codex advertises Auto only when `codex sandbox` can run a command here, checked
+  without a model turn each time readiness is read. If it cannot, the readiness line says so and
+  Auto is withheld, which is how decision 3 holds for Codex: inside a turn, a sandbox that cannot
+  start makes every command fail and ask, never run unsandboxed.
 - **Docker:** Docker execution does not advertise Auto. Docker Agent is already autonomous inside its
   container.
-- **Cards:** Auto's command and file approvals become the same cards as Agent's. A
-  `SandboxNetworkAccess` card names the host and, if Part B showed it, says the host stays allowed
-  for the rest of the turn. An unsandboxed-command card says "outside the sandbox". A Codex
-  escalation card shows its reason.
+- **Cards:** Auto's command and file approvals become the same cards as Agent's, one action per
+  card. A Codex card, in Agent as well as Auto, shows what Allow would do, in this order:
+  - the whole command, or every changed file with those outside the checkout first and named by
+    their full path. A command too long to show keeps both ends and says how many characters are
+    missing between them;
+  - the network host, when Codex supplies one (`networkApprovalContext`);
+  - in Auto, "may run outside the sandbox" (or "may write"). Codex asks for what leaves the sandbox
+    and also for commands its own rules treat as destructive, such as `rm -rf` inside the checkout,
+    and a request does not say which it is, so the card states the most Allow can mean;
+  - the reason, labelled "reason given", because the model wrote it.
+
+  Nothing Codex grants is wider than one action (probe 8), so no card has a wider grant to state.
+- **What the sandbox covers.** Decision 4 holds for `.git`, `.codex`, and `.claude` at the
+  checkout's root. A directory of the same name deeper in the checkout is an ordinary path to the
+  sandbox (see open question 6).
+- **Host Git reads.** A checkout need not be a Git repository, and `HEAD`, `config`, `objects`, and
+  `refs` at its root are not protected names. CodeAI's Git reads pass `safe.bareRepository=explicit`
+  so they never adopt such a folder as a repository and obey the `config` in it.
+- **The data directory.** Auto is refused, with 409, while `CODEAI_DATA_DIR` lies inside the checkout
+  or a temp directory, where the sandbox would let a turn rewrite CodeAI's own records.
 - **Prompt:** `MODE_CONTRACT` gains an Auto contract: edit and run commands inside the sandbox;
   anything outside it asks the user; network, protected paths, and commits ask.
 
@@ -321,13 +357,18 @@ gains `'auto'` where Auto belongs, or says in a comment why not.
 #### Controls
 
 - The composer's picker and VR's agents row offer **Auto** after Agent when the addressed provider
-  advertises it. The VR action fits the existing control budget.
-- Local hint: "Auto edits the working tree and runs sandboxed commands without asking; anything
-  outside the sandbox asks you." The tooltip adds that network, commits, and writes outside the
-  checkout always ask.
+  advertises it. The flat shell gains no visible control: Auto is an item in the existing picker. In
+  VR the four modes and Make main are laid out from their label widths when Auto is offered, and
+  keep the three-mode layout otherwise.
+- The tooltip: "Auto — edits the working tree and runs sandboxed commands without asking; anything
+  outside the sandbox asks you. Network, commits, and writes outside the checkout always ask." The
+  hint under the mode's name and on the execution line is the short form the other modes use:
+  "Edits in a sandbox · asks beyond it". Auto takes Agent's `wait` emphasis on the picker and tag.
+- Unlike the other modes, an Auto that is not advertised is not listed at all, even disabled.
 - Messages sent in Auto carry an **Auto** mode tag.
 - Auto is remembered for its session on this device, like any mode, and stays selected for an agent
-  added to that session later. It never carries into a new session: `inheritedMode` and
+  added to that session later whose provider offers it; for one that does not, the session shows
+  and sends that provider's first mode until an agent that offers Auto is addressed again. It never carries into a new session: `inheritedMode` and
   `launchChoice` turn a last mode of `'auto'` into Ask, and the Arena and VR new-session forms do not
   offer Auto.
 - **Execute plan** still sends Agent.
@@ -347,21 +388,31 @@ gains `'auto'` where Auto belongs, or says in a comment why not.
 
 ### Type contract
 
+As shipped. Claude's `settings` and `disallowedTools` fields were not added, because Claude Auto
+is not implemented.
+
 ```ts
-// src/shared/types.ts — and the three schema enums in protocol.ts, machineSchema.ts, sessionSchema.ts
+// src/shared/types.ts
 export type AgentMode = 'ask' | 'plan' | 'agent' | 'auto';
 
 export interface ResolvedAgentPolicy {
   profile: 'ask-readonly' | 'plan-readonly' | 'agent-full' | 'auto-sandboxed';
-  permissionMode: 'plan' | 'default' | 'bypassPermissions' | 'acceptEdits';
-  /** Claude Auto only: the server-owned object passed with `--settings`. */
-  settings?: Readonly<Record<string, unknown>>;
-  /** Claude Auto only: server-owned deny rules passed with `--disallowedTools`. */
-  disallowedTools?: readonly string[];
-  // …unchanged fields
+  // …unchanged fields. Auto's policy equals Agent's apart from `profile` and `mode`.
 }
 
+// src/shared/agentModes.ts — the one list of modes, used by every schema and parser
+export const AGENT_MODES = ['ask', 'plan', 'agent', 'auto'] as const;
+export const LAUNCH_MODES = ['ask', 'plan', 'agent'] as const; // a new session, a role default
+export function changesCheckout(mode: AgentMode): boolean;      // agent or auto
+
 // src/server/agents/codexInvocation.ts
+export interface CodexTurnSecurity {
+  approvalPolicy: 'never' | 'on-request';
+  sandboxPolicy?: …;             // absent for Auto
+  sandbox?: 'read-only' | 'danger-full-access'; // absent for Auto
+  approvalsReviewer?: 'user';    // named for every `on-request` turn
+  permissionProfile?: 'codeai-auto'; // Auto only
+}
 export function codexThreadPolicyIssue(value: unknown, cwd: string, expected: CodexTurnSecurity): string | undefined;
 ```
 
@@ -371,62 +422,71 @@ export function codexThreadPolicyIssue(value: unknown, cwd: string, expected: Co
 
 ### Part A — Codex reviewer
 
-- [ ] Local `on-request` turns send `approvalsReviewer: 'user'` at thread start, thread resume, and
+- [x] Local `on-request` turns send `approvalsReviewer: 'user'` at thread start, thread resume, and
       turn start.
-- [ ] A thread echo with any other reviewer fails closed with the existing policy message, including
+- [x] A thread echo with any other reviewer fails closed with the existing policy message, including
       when the user's Codex config sets `auto_review`. Docker turns are unaffected.
 
 ### Part B — probes
 
-- [ ] Every Codex and Claude probe above has a recorded result in `docs/experiment-log.md`.
-- [ ] The model-reviewer probes are recorded.
-- [ ] Each provider has a written pass or fail against decisions 2–5, the arguments Part C sends,
-      and the chosen `allowUnsandboxedCommands` value.
+- [x] Every Codex and Claude probe above has a recorded result in `docs/experiment-log.md`. Claude
+      probes 3 and 5, and the Bash halves of 4, 7, and 8, are recorded as not testable on this
+      machine, with the reason.
+- [x] The model-reviewer probes are recorded.
+- [x] Each provider has a written pass or fail against decisions 2–5 and the arguments Part C sends.
+      Codex passes. Claude is recorded as not verified, and its `allowUnsandboxedCommands` value is
+      left undecided for the follow-up.
 
 ### Part C — policy and providers
 
-- [ ] `resolveAgentPolicy(config, 'auto', 'local')` returns the `auto-sandboxed` profile with Agent's
+- [x] `resolveAgentPolicy(config, 'auto', 'local')` returns the `auto-sandboxed` profile with Agent's
       budget, timeout, and approval timeout.
-- [ ] Codex Auto sends exactly the Part B arguments, and a thread echo reporting anything else fails
+- [x] Codex Auto sends exactly the Part B arguments, and a thread echo reporting anything else fails
       closed. Codex Auto is advertised only with `CODEAI_CODEX_AGENT`.
-- [ ] `buildCodexAppServerArgs` disables `request_permissions_tool` and `exec_permission_approvals`.
+- [x] `buildCodexAppServerArgs` disables `request_permissions_tool` and `exec_permission_approvals`.
 - [ ] Claude Auto sends exactly the Part B arguments, including `failIfUnavailable: true` and the
-      `--disallowedTools` rules. No browser input reaches them.
-- [ ] A Claude Auto turn whose sandbox cannot start fails and runs no command.
+      `--disallowedTools` rules. No browser input reaches them. **Not implemented:** Claude did not
+      pass Part B (decision 8).
+- [ ] A Claude Auto turn whose sandbox cannot start fails and runs no command. **Not implemented**,
+      as above.
 - [ ] Claude Auto is withheld on Linux, with a readiness line naming the missing dependency, when
-      `bwrap` or `socat` is not on `PATH`.
-- [ ] Attachment directories are created under the data directory, removed after each turn, and swept
-      at startup, in every mode.
-- [ ] A provider that did not pass Part B, and Docker execution, do not advertise Auto; a request
+      `bwrap` or `socat` is not on `PATH`. **Not implemented**, as above. Codex has the equivalent:
+      Auto is withheld, with a readiness line, when its sandbox cannot start.
+- [x] Attachment directories are created under the data directory, removed after each turn, and swept
+      once per server process before its first run directory is created, in every mode.
+- [x] A provider that did not pass Part B, and Docker execution, do not advertise Auto; a request
       naming Auto for them returns 409, and an unknown mode string still returns 400.
-- [ ] Auto's approvals produce the same one-shot cards and timeout as Agent. Network cards name the
-      host, unsandboxed-command cards say so, and any grant wider than one action is stated on the
-      card.
-- [ ] Every non-Docker `=== 'agent'` mode check uses the shared helper or keeps `'agent'` with a
+- [x] Auto's approvals produce the same one-shot cards and timeout as Agent. A card shows the whole
+      action, names the network host when Codex supplies one (in the probes it supplied none, and
+      the command carried the URL), and says the action may run outside the sandbox. Codex grants
+      nothing wider than one action, so there is no wider grant to state.
+- [x] Every non-Docker `=== 'agent'` mode check uses the shared helper or keeps `'agent'` with a
       comment saying why, and every hard-coded mode list is updated or commented. An Auto turn takes
       exclusive checkout access in the scheduler.
-- [ ] `MODE_CONTRACT` has an Auto contract.
+- [x] `MODE_CONTRACT` has an Auto contract.
 
 ### Part C — records and controls
 
-- [ ] `'auto'` is accepted by the message route, the machine snapshot schema, the session schema, and
+- [x] `'auto'` is accepted by the message route, the machine snapshot schema, the session schema, and
       both device-state parsers, and survives a reload.
-- [ ] Writing an Auto message upgrades the session to version 6. Attaching a report to a version 6
+- [x] Writing an Auto message upgrades the session to version 6. Attaching a report to a version 6
       session keeps version 6. A session without an Auto message keeps its version, and a build that
       reads at most version 5 hides only the upgraded session.
-- [ ] The flat picker and VR's agents row offer Auto only when the provider advertises it, with the
-      hint and tooltip above.
-- [ ] Auto messages show an Auto mode tag.
-- [ ] `inheritedMode('auto', …)` and `launchChoice` with a last mode of `'auto'` return Ask, and the
+- [x] The flat picker and VR's agents row offer Auto only when the provider advertises it. The flat
+      picker carries the hint and tooltip above; VR's row is a button labelled "Auto".
+- [x] Auto messages show an Auto mode tag.
+- [x] `inheritedMode('auto', …)` and `launchChoice` with a last mode of `'auto'` return Ask, and the
       Arena and VR new-session forms do not offer Auto.
-- [ ] README, AGENTS.md, architecture.md, vocabulary.md, and vision.md are updated as described.
+- [x] README, AGENTS.md, architecture.md, vocabulary.md, and vision.md are updated as described.
 
 ### All
 
-- [ ] Tests for Part A and Part C are written first, and each is shown to fail when the rule it covers
+- [x] Tests for Part A and Part C are written first, and each is shown to fail when the rule it covers
       is mutated.
-- [ ] `npm run lint`, `npm test`, and `npm run test:e2e` pass after each part.
-- [ ] How to verify passes on this machine for each provider that passed Part B.
+- [x] `npm run lint`, `npm test`, and `npm run test:e2e` pass after each part. After Part A, e2e had
+      one failure that the untouched master had too; see the verification record.
+- [x] How to verify passes on this machine for each provider that passed Part B. Steps 1–3, 5, and 6
+      pass for Codex. Step 4 is Claude's. VR was checked in the desktop XR adapter, not on a Quest.
 
 ## Out of scope
 
@@ -441,6 +501,7 @@ export function codexThreadPolicyIssue(value: unknown, cwd: string, expected: Co
 - **Turn-wide permission grants.**
 - **Hardening host Git reads against checkout-defined filters for Agent mode.** Agent asks before
   every edit; Auto protects `.git` instead.
+- **Claude Auto.** It follows once Claude's sandbox can be probed; see *Open questions*.
 
 ## Open questions
 
@@ -456,20 +517,178 @@ export function codexThreadPolicyIssue(value: unknown, cwd: string, expected: Co
    keep "Auto" in the UI and record the difference in vocabulary.md; "Sandboxed" is the alternative
    if the overlap confuses.
 
+4. **Claude Auto.** It needs two things done with `sudo` on this machine before its probes can
+   finish: `sudo apt install socat`, and the AppArmor profile for `bwrap` from Claude Code's
+   sandboxing guide (Ubuntu 24.04 and later). Then Part B's Claude probes 3 and 5 and the Bash halves
+   of 4, 7, and 8 can run, `allowUnsandboxedCommands` can be chosen, and Claude Auto is a small
+   follow-up: the policy, scheduler, records, and controls are already provider-neutral. What the
+   finished probes already require is in the experiment log's decision. Recommendation: a follow-up
+   story, since the AppArmor change is the user's to make.
+5. **Codex marks an Auto checkout as trusted.** Starting a writable-sandbox thread writes
+   `trust_level = "trusted"` for the checkout into `~/.codex/config.toml`, after which Codex loads
+   that checkout's `.codex/config.toml`. CodeAI's echo check refuses a turn if that file widens the
+   profile's writable roots or network, and the sandbox keeps `.codex` read-only, so an Auto turn
+   cannot plant one. The README says this happens. Recommendation: accept it; it is what Codex's own
+   CLI does.
+
+6. **A repository nested in the checkout is not protected.** Found in review. The profile protects
+   only the root's `.git`, `.codex`, and `.claude`; a profile cannot make a glob read-only. So an
+   Auto turn can write `sub/.git/config` without a card. If `sub` is itself a checkout opened in
+   CodeAI (possible with `CODEAI_REPOSITORIES_DEPTH` above 1, or a repository cloned inside
+   another), CodeAI's next `git status` there runs whatever filter that config names, on the host.
+   The README says not to use Auto in such a checkout. Recommendation: close it at the source with
+   the item already listed under *Out of scope*, hardening host Git reads against checkout-defined
+   filters, which also removes the reason `.git` needs protecting at all. Until then, an interim
+   guard could refuse Auto for a checkout that contains another discovered checkout. The related
+   case of a checkout with no `.git` at all is closed (see *What the sandbox covers*).
+
 ## How to verify
 
 1. `npm run lint && npm test`. The fake Claude and Codex fixtures cover the arguments, the policy
    checks, the reviewer check, the version upgrade, and the mode rules.
 2. **Part A, real Codex:** set `approvals_reviewer = "auto_review"` in `~/.codex/config.toml`, run a
    Codex Agent turn with `CODEAI_CODEX_AGENT=1`, and confirm its escalations still arrive as cards.
-   Restore the config.
+   Restore the config. Without editing your config, point `CODEAI_CODEX_BIN` at a script that runs
+   `codex "$@" -c 'approvals_reviewer="auto_review"'`: `-c` outranks `config.toml`.
 3. **Real Codex Auto:** in a scratch repository, choose Codex and Auto, and ask it to add a file and
    run the tests. Expect no card. Ask it to write `$HOME/codeai-auto-probe`: expect a card; deny it
    and see the turn continue. Ask it to `curl` a URL and to commit: expect a card or a refusal each
    time, never a silent success.
 4. **Real Claude Auto,** with `socat` installed: repeat step 3; the network card names the host.
    Then remove `socat` from `PATH`: expect Auto to be withheld with a readiness line naming it.
+   Not applicable until Claude Auto is implemented (open question 4).
 5. Start a new session from the conversation, the Arena, and VR: none starts in Auto, even though
    Auto was the last mode.
 6. Open the same data directory with a build that reads at most version 5: only the session with an
    Auto message is hidden.
+
+## What shipped
+
+Parts A and C, for Codex. Claude Auto is not implemented (see the Part B outcome and open
+question 4).
+
+- **Codex reviewer (Part A).** Every `on-request` turn names `approvalsReviewer: 'user'` at
+  `thread/start`, `thread/resume`, and `turn/start`
+  ([codexProcessRunner.ts](../src/server/agents/codexProcessRunner.ts#L549)), and
+  `codexThreadPolicyIssue` takes the expected security and refuses any other echoed reviewer
+  ([codexInvocation.ts](../src/server/agents/codexInvocation.ts#L212)). A
+  `never` turn, Docker included, neither names nor checks one.
+- **One list of modes.** [agentModes.ts](../src/shared/agentModes.ts#L4) holds
+  `AGENT_MODES`, `LAUNCH_MODES` (a new session, a role default), `isAgentMode`, and
+  `changesCheckout`. The wire, machine, and session schemas and both device-state parsers read it,
+  so the next mode cannot be silently dropped by one of them.
+- **Policy.** `resolveAgentPolicy` gives Auto Agent's policy under the `auto-sandboxed` profile
+  ([agentPolicy.ts](../src/server/agents/agentPolicy.ts#L46)). The scheduler's exclusive
+  access ([route.ts](../src/app/api/agent/message/route.ts#L207)), the build
+  budget message, and the run status use `changesCheckout`. The Docker-only `=== 'agent'` checks
+  stay, each with a comment.
+- **Codex Auto.** The profile is `CODEX_AUTO_PROFILE`
+  ([codexInvocation.ts](../src/server/agents/codexInvocation.ts#L64));
+  `codexTurnSecurity('auto')` names it and no legacy sandbox
+  ([codexInvocation.ts](../src/server/agents/codexInvocation.ts#L92));
+  `codexThreadConfig` defines and selects it; the runner omits `sandbox` and `sandboxPolicy` when the
+  security has none; and the echo check requires the profile, no network, and no writable roots
+  ([codexInvocation.ts](../src/server/agents/codexInvocation.ts#L196)). The two
+  turn-wide permission features are disabled for every turn
+  ([codexInvocation.ts](../src/server/agents/codexInvocation.ts#L10)). Auto has its own
+  developer instructions ([codexInvocation.ts](../src/server/agents/codexInvocation.ts#L145)).
+- **Readiness.** `checkCodex` runs `codex sandbox … -- true` beside the handshake when the release
+  gate is set, and withholds Auto with "Codex's sandbox cannot start on this machine, so Auto is
+  withheld." when it fails ([codexPreflight.ts](../src/server/agents/codexPreflight.ts#L35)).
+- **Cards.** A Codex approval card shows the whole command (both ends of one too long to show,
+  with the count between them) or every changed file, those outside the checkout first and by full
+  path; then the network host when Codex names one; in Auto, "may run outside the sandbox"; and
+  last the reason, labelled "reason given" ([codexProcessRunner.ts](../src/server/agents/codexProcessRunner.ts#L324)).
+  Only whole path prefixes are shortened, so a sibling of the checkout keeps its name. Answers stay
+  `accept`, `decline`, or `cancel`.
+- **Host Git reads.** `safe.bareRepository=explicit` in `GIT_READ_OPTIONS`
+  ([gitRead.ts](../src/server/repository/gitRead.ts#L17)), and Git's
+  refusal reads as "not a repository".
+- **Data directory guard.** `autoDataDirectoryIssue`
+  ([agentPolicy.ts](../src/server/agents/agentPolicy.ts#L78)) makes the
+  route answer 409 for Auto while the data directory is inside the checkout or a temp directory.
+- **Claude and Docker.** `CLAUDE_MODES` is what Claude is checked and run for
+  ([claudeInvocation.ts](../src/server/agents/claudeInvocation.ts#L79)); the Claude runner
+  refuses an Auto policy ([claudeProcessRunner.ts](../src/server/agents/claudeProcessRunner.ts#L126));
+  the Docker adapters and the Docker engine's readiness list no Auto.
+- **Prompt.** `MODE_CONTRACT.auto` ([prompt.ts](../src/server/conversation/prompt.ts#L34))
+  states the sandbox, what asks, and that uncommitted work has no backup. It does not carry the git
+  allowlist text, which says other commands are denied.
+- **Run directories.** `createRunDirectory(dataDir)` makes `<dataDir>/run-attachments/code-ai-run-*`
+  (both 0700), and the once-per-process sweep removes what a crash left
+  ([tempAttachments.ts](../src/server/storage/tempAttachments.ts#L14)).
+- **Records.** Format 6 ([sessionSchema.ts](../src/shared/sessionSchema.ts#L228));
+  the first Auto message raises a session to it and nothing lowers a version
+  ([sessionStore.ts](../src/server/storage/sessionStore.ts#L604)); validation allows Auto
+  messages, the user's or the assistant's, only at version 6, and report evidence from version 5
+  ([sessionSchema.ts](../src/shared/sessionSchema.ts#L274)). A role
+  default cannot be Auto, in the type and in the schema.
+- **Flat controls.** The picker lists Auto after Agent only when it is not among the unsupported
+  modes ([InstructionComposer.tsx](../src/features/conversation/InstructionComposer.tsx#L120)).
+  `unsupportedModes` ([agentModes.ts](../src/shared/agentModes.ts#L30)) counts
+  Auto as unsupported until readiness is known, and always in a Docker session. Label, hint, and
+  tooltip are in [toolActivity.ts](../src/features/agents/toolActivity.ts#L69); the mode
+  tag comes from the same label. Auto shares Agent's `wait` emphasis
+  ([globals.css](../src/app/globals.css#L380)).
+- **Mode memory.** `inheritedMode` and `launchChoice` turn a last mode of Auto into Ask,
+  `launchModes` is what the Arena and VR forms offer, and session creation takes a `LaunchMode`, so
+  a continuation in the other execution cannot carry Auto either
+  ([devicePreferences.ts](../src/features/shell/devicePreferences.ts#L46)).
+- **VR.** `auto` is a conversation action; the agents row includes it only when offered, and then
+  lays the four modes and Make main out from their label widths, because the three-mode spacing
+  does not fit five controls ([ConversationTools.tsx](../src/features/shell/immersive/ConversationTools.tsx#L231)).
+- **Fixtures.** `fake-codex.mjs` echoes a permission profile only when no legacy sandbox is named,
+  answers `codex sandbox`, and has modes for a dropped, foreign, widened, or networked profile, a
+  model reviewer, and a sandbox that cannot start.
+- **An e2e test that was already failing.** `VR session tools create a repository-free session…`
+  cycled at most 20 projects to reach "No project", and the suite now creates more than 30. Its
+  bound is 80. The untouched master failed it the same way.
+- **Docs.** README (modes table, an **Auto** section, machines, safety model, configuration, known
+  limitations), AGENTS.md, architecture.md, vocabulary.md, vision.md, and the experiment log.
+
+## Verification record
+
+September 30, 2026. Codex 0.156.1 and Claude Code 2.1.284 on Ubuntu 26.04.1.
+
+- `npm run lint`: passes.
+- `npm test`: 769 tests in 93 files pass.
+- `npm run test:e2e`: 100 of 100 pass in installed Chrome, including
+  [the flat picker test](../e2e/canvas.spec.ts#L1645) and
+  [the VR agents row test](../e2e/immersive.spec.ts#L474).
+  After Part A alone the run was 97 passed and 1 failed; the same test failed on an untouched
+  worktree of master, and is the one fixed above.
+- **Tests first, then mutation.** Part A: four mutations (the echo check, the reviewer at thread
+  start, at turn start, and in the security) each failed the reviewer test. Part C: 48 mutations of
+  single rules, one at a time, each failed at least one unit test, and none survived; 18 more after
+  the second review (the card rules, the data-directory guard, the Git read option, the Docker
+  engine's modes, and `unsupportedModes`) were caught the same way. They cover the
+  policy, `changesCheckout`, the scheduler access, the profile's contents, each part of the echo
+  check, the release gate, the disabled features, the legacy sandbox at thread and turn start, both
+  card rules, the sandbox readiness check, Claude and Docker not advertising or running Auto, the
+  version upgrade and both validations, the role default, the run directory's location, sweep, and
+  permissions, the four device rules, both parsers, the picker, the tooltip, and the prompt
+  contract. Two more in a scratch build (the VR row offering Auto regardless, the Arena form
+  offering Auto) failed the two e2e tests.
+- **Real providers.** Part B's probes and the real turns through a production build are in
+  [docs/experiment-log.md](../docs/experiment-log.md#story-79--auto-probes-2026-09-30-utc): an Auto
+  turn edited and ran the tests with no card; a write to `$HOME`, a `curl`, and a commit each
+  raised one card and were not done when denied; an allowed commit happened; Agent and Ask followed
+  on the same provider session; and with Codex configured for `auto_review`, an Agent file change
+  still raised a card for the user. How to verify step 2 used `-c` instead of editing
+  `~/.codex/config.toml`.
+- **Older build.** The untouched master build, opened on the data directory those turns wrote,
+  listed the version 4 session, reported one session as written by a newer CodeAI, and answered 409
+  for the version 6 one.
+- **Reviews.** Two independent review subagents read the diff.
+  - The first confirmed no defect. Its concern that another config layer might re-open `.git` or
+    `.codex` unnoticed was probed: each such entry appears in `writableRoots` and the turn is
+    refused. It found that only root-level directories are protected (open question 6).
+  - The second found a host escape in a checkout with no `.git`: the sandbox lets a turn lay out a
+    repository at the root, and CodeAI's own `git diff` then ran the filter its `config` named. It
+    is reproduced in a test and closed by `safe.bareRepository=explicit`. It also found that a card
+    named a file outside the checkout by its base name only, cut a long command silently, and
+    claimed "outside the sandbox" for requests Codex raises inside it; that nothing kept the data
+    directory out of the sandbox's reach; and several smaller gaps. All are fixed, except the VR
+    permission review's paging and the comma limit on a Docker data directory, which is documented.
+- **Not done here.** Claude's sandboxed-command probes and everything that depends on them (needs
+  `sudo`); a physical Quest check of the VR agents row, which was checked in the desktop XR adapter.

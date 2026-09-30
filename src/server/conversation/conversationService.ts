@@ -77,7 +77,7 @@ export async function runConversation(input: {
   if (permissions) input.onPermissionBroker?.(permissions);
 
   try {
-    directory = await createRunDirectory();
+    directory = await createRunDirectory(config.dataDir);
     const manifest = await writeDiagramAttachments(directory, request.diagramAttachments, {
       maxCount: config.maxDiagramAttachments,
       maxBytes: config.maxAttachmentBytes,

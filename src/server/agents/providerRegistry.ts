@@ -4,7 +4,7 @@ import type {
 import type { AppConfig } from '@/server/config';
 import { ClaudeProcessRunner } from './claudeProcessRunner';
 import { checkClaude } from './claudePreflight';
-import { claudeModelChoices } from './claudeInvocation';
+import { CLAUDE_MODES, claudeModelChoices } from './claudeInvocation';
 import { CodexProcessRunner } from './codexProcessRunner';
 import { checkCodex } from './codexPreflight';
 import { codexSupportedModes } from './codexInvocation';
@@ -14,7 +14,8 @@ import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 
 class ClaudeProviderAdapter implements AgentProviderAdapter {
   readonly id = 'claude' as const;
-  readonly supportedModes = ['ask', 'plan', 'agent'] as const;
+  // No Auto: see `CLAUDE_MODES`.
+  readonly supportedModes = CLAUDE_MODES;
 
   constructor(private readonly config: AppConfig) {}
 
@@ -111,6 +112,7 @@ export function getProviderAdapters(config: AppConfig, execution: AgentExecution
   identity?: { sessionId: string; participantId: string }): ProviderRegistry {
   if (execution === 'docker') {
     const adapter = (id: AgentProvider): AgentProviderAdapter => ({
+      // No Auto in Docker: Docker Agent is already autonomous inside its container.
       id, supportedModes: ['ask', 'plan', 'agent'],
       async checkHealth() {
         const [engine, worker] = await Promise.all([

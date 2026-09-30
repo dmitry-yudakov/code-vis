@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-28. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-09-30. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -81,6 +81,11 @@ Updated 2026-09-28. When a story ships, change the line that names it; each stor
   stack of toasts in the canvas's top-right corner, each with a tone, actions, and a lifetime, which
   pauses while the pointer rests on the stack; implemented with automated checks, and a check in the
   running app remains pending.
+- **Also in flight:** [Story 79](stories/STORY-20260928-sandboxed-auto-mode.md) — a fourth mode, Auto,
+  runs what the provider's sandbox contains without a card and asks for what leaves it; shipped for
+  Codex and verified with real turns, and Codex's approval reviewer is pinned to the user. Claude
+  Auto is not implemented: its sandbox could not be probed on this machine without `sudo`
+  (`socat`, and an AppArmor profile for bubblewrap).
 - **Next:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
   workbench shell epic and written from the template when it starts.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
@@ -152,7 +157,7 @@ git-ignored as Next.js recommends: every dev, build, and e2e run points it at it
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
 | `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
-| `src/server/storage/` | Project/session store, durable server records, promoted report evidence under `<dataDir>/attachments/`, per-run temp attachments |
+| `src/server/storage/` | Project/session store, durable server records, promoted report evidence under `<dataDir>/attachments/`, per-run attachment directories under `<dataDir>/run-attachments/` |
 | `src/server/config.ts` | Environment resolution and limits |
 | `src/server/devices/` | Hashed pairing/device records, cookies, transport and route authorization |
 | `src/server/diagnostics/` | Immersive reports in the home machine's data directory, and their self-project-only reads |
@@ -177,8 +182,17 @@ importing file's own directory; keep `./…` for same-directory siblings.
 - Provider capability is server-owned. The browser names a supported mode and, optionally, a model
   and effort from the choices the executing machine lists for that provider, and nothing else; the
   executable, tool list, allowlist, permission mode, sandbox, and model flags are resolved on the
-  server. An unknown or unsupported mode, or an unlisted model or effort, is a 400.
+  server. An unknown mode, or an unlisted model or effort, is a 400; a mode the addressed provider
+  does not advertise is a 409.
 - Local Agent edits the real working tree after per-action approval and runs as the desktop user.
+  Local Auto (Story 79, Codex only) runs without individual approval inside the provider's
+  operating-system sandbox: the checkout except `.git`, `.codex`, and `.claude` at its root (a
+  nested repository is not protected), with no network.
+  Anything that leaves the sandbox raises Agent's card. CodeAI never detects dangerous commands
+  itself and never lets a model answer an escalation. Do not widen the sandbox profile
+  (`CODEX_AUTO_PROFILE`) or relax its echo check without a recorded real-provider probe. Two rules
+  outside the sandbox keep it meaningful: host Git reads keep `safe.bareRepository=explicit`, and
+  Auto is refused while the data directory is inside the checkout or a temp directory.
   Optional Docker execution (Story 57, release verification pending) uses a pinned non-root worker:
   Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
   separate working copy or rollback. New Docker participants share a persistent provider home per

@@ -1,4 +1,5 @@
-import type { AgentMode, AgentParticipant, AgentProvider, AgentRole, Participant } from './types';
+import type { LaunchMode } from './agentModes';
+import type { AgentParticipant, AgentProvider, AgentRole, Participant } from './types';
 
 export const AGENT_ROLES: readonly AgentRole[] = ['orchestrator', 'coder', 'reviewer', 'tester', 'custom'];
 
@@ -10,7 +11,7 @@ export const AGENT_ROLE_LABELS: Record<AgentRole, string> = {
   custom: 'Custom',
 };
 
-export const AGENT_ROLE_DEFAULT_MODES: Record<AgentRole, AgentMode> = {
+export const AGENT_ROLE_DEFAULT_MODES: Record<AgentRole, LaunchMode> = {
   orchestrator: 'plan',
   coder: 'plan',
   reviewer: 'ask',

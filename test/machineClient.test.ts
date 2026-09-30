@@ -55,7 +55,8 @@ describe('execution machine client', () => {
       efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
     };
     const codex = {
-      available: true, authenticated: true, supportedModes: ['ask', 'plan'],
+      // An executor that advertises Auto: all four modes fit the snapshot.
+      available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent', 'auto'],
       models: Array.from({ length: 50 }, (_, index) => ({ id: `gpt-${index}.5`, label: 'L'.repeat(80), efforts: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] })),
       efforts: [],
     };
@@ -64,7 +65,9 @@ describe('execution machine client', () => {
       await expect(fetchExecutorSnapshot(connection)).resolves.toMatchObject({ providers: { claude: { available: true } } });
     }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(snapshot({ claude, codex })))));
-    expect((await fetchExecutorSnapshot(connection)).providers.claude.models?.map((model) => model.id)).toEqual(['opus', 'haiku']);
+    const fetched = await fetchExecutorSnapshot(connection);
+    expect(fetched.providers.claude.models?.map((model) => model.id)).toEqual(['opus', 'haiku']);
+    expect(fetched.providers.codex.supportedModes).toEqual(['ask', 'plan', 'agent', 'auto']);
   });
 
   it.each([
@@ -79,6 +82,8 @@ describe('execution machine client', () => {
     ['a non-string effort', { models: [{ id: 'm', label: 'M', efforts: [3] }] }],
     ['an unknown model field', { models: [{ id: 'm', label: 'M', efforts: [], flags: ['--yolo'] }] }],
     ['a models object', { models: { id: 'm' } }],
+    ['a mode that does not exist', { supportedModes: ['ask', 'turbo'] }],
+    ['more modes than exist', { supportedModes: ['ask', 'plan', 'agent', 'auto', 'ask'] }],
   ])('rejects a snapshot with %s', async (_label, choices) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(snapshot({
       claude: { available: true, authenticated: 'unknown', supportedModes: ['ask'], ...choices },

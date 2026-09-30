@@ -1,4 +1,5 @@
 import { MAX_REPORTS_PER_MESSAGE, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from '@/shared/limits';
+import { isAgentMode } from '@/shared/agentModes';
 import { isImmersiveReportId } from '@/shared/immersiveReport';
 import type { AgentMode, ModelSelection } from '@/shared/types';
 
@@ -17,7 +18,6 @@ export const SPATIAL_ROOM_BOUNDS = {
 } as const;
 const SPATIAL_CAMERA_BOUNDS = 64;
 const SESSION_ID = /^[0-9a-f-]{36}$/i;
-const AGENT_MODES = new Set<AgentMode>(['ask', 'plan', 'agent']);
 
 export interface CanvasViewState {
   zoom: number;
@@ -210,9 +210,7 @@ function parseView(value: unknown): DeviceViewState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return emptyDeviceView();
   const candidate = value as Partial<DeviceViewState>;
   const pending = candidate.pendingAttachmentIds === undefined ? undefined : ids(candidate.pendingAttachmentIds).slice(0, 4);
-  const mode = typeof candidate.defaultMode === 'string' && AGENT_MODES.has(candidate.defaultMode as AgentMode)
-    ? candidate.defaultMode as AgentMode
-    : undefined;
+  const mode = isAgentMode(candidate.defaultMode) ? candidate.defaultMode : undefined;
   const surface = candidate.surface === 'flat' || candidate.surface === 'spatial' ? candidate.surface : undefined;
   const spatial = parseSpatialView(candidate.spatial);
   const modelSelections = parseModelSelections(candidate.modelSelections);

@@ -11,7 +11,7 @@ import {
 import {
   dockerVersionsPath, planDockerUpdate, readDockerVersions, runDockerUpdate, DockerUpdateRejected,
 } from '@/server/execution/dockerUpgrade';
-import { AGENT_MODES, requiredFlagsForMode } from '@/server/agents/claudeInvocation';
+import { CLAUDE_MODES, requiredFlagsForMode } from '@/server/agents/claudeInvocation';
 
 const mocks = vi.hoisted(() => ({ command: vi.fn(), spawn: vi.fn(), failAfterRename: '' }));
 vi.mock('@/server/storage/sessionStore', async (importOriginal) => {
@@ -36,7 +36,7 @@ const FAKE_CODEX = path.resolve('test/fixtures/fake-codex.mjs');
 const BASE = `sha256:${'a'.repeat(64)}`;
 const CANDIDATE = `sha256:${'c'.repeat(64)}`;
 const OTHER = `sha256:${'d'.repeat(64)}`;
-const FULL_HELP = [...new Set(AGENT_MODES.flatMap((mode) => requiredFlagsForMode(mode))), '--model', '--effort'].join(' ');
+const FULL_HELP = [...new Set(CLAUDE_MODES.flatMap((mode) => requiredFlagsForMode(mode))), '--model', '--effort'].join(' ');
 
 const directories: string[] = [];
 afterEach(async () => {

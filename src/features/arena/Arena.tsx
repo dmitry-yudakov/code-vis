@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
-import { launchChoice } from '@/features/shell/devicePreferences';
+import { launchChoice, launchModes } from '@/features/shell/devicePreferences';
+import { LAUNCH_MODES, type LaunchMode } from '@/shared/agentModes';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type {
   AgentExecution, AgentMode, AgentProvider, ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
@@ -87,7 +88,7 @@ export function Arena({
   /** This device's last choices; the New session form opens at them when this machine can run them. */
   preferredProvider?: AgentProvider;
   preferredMode?: AgentMode;
-  onCreateSession(input: { machineId: string; projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: AgentMode }): Promise<boolean>;
+  onCreateSession(input: { machineId: string; projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: LaunchMode }): Promise<boolean>;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
@@ -122,8 +123,9 @@ export function Arena({
   const invalidDockerBinding = execution === 'docker' && (projectId === 'none' ? !checkoutId
     : bindings.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== selectedMachine?.machine.id);
   const [provider, setProvider] = useState<AgentProvider>(availableProviders[0] || 'claude');
-  const supportedModes = selectedHealth?.[provider]?.supportedModes || [];
-  const [mode, setMode] = useState<AgentMode>(supportedModes[0] || 'ask');
+  // A new session never starts in Auto: it is chosen inside a session, by the user.
+  const supportedModes = launchModes(selectedHealth?.[provider]?.supportedModes);
+  const [mode, setMode] = useState<LaunchMode>(supportedModes[0] || 'ask');
   const [deciding, setDeciding] = useState<string>();
   const openCreate = () => {
     const next = launchChoice({ provider: preferredProvider, mode: preferredMode }, selectedHealth, { provider, mode });
@@ -155,7 +157,7 @@ export function Arena({
   }, [availableProviders, provider]);
 
   useEffect(() => {
-    const availableModes = selectedHealth?.[provider]?.supportedModes || [];
+    const availableModes = launchModes(selectedHealth?.[provider]?.supportedModes);
     if (!availableModes.includes(mode)) setMode(availableModes[0] || 'ask');
   }, [mode, provider, selectedHealth]);
 
@@ -316,7 +318,7 @@ export function Arena({
           <fieldset>
             <legend>Mode</legend>
             <div className="arena-mode-options">
-              {(['ask', 'plan', 'agent'] as AgentMode[]).map((value) => (
+              {LAUNCH_MODES.map((value) => (
                 <label key={value}>
                   <input
                     type="radio"

@@ -137,7 +137,7 @@ export async function writeReportAttachments(
       reportId: record.reportId, receivedAt: record.receivedAt, kind: record.kind, errorCount: record.errorCount,
       reportFile: `${stem}.json`,
     };
-    // `runDirectory` is a per-run temp directory, never a repository path; no build tracing is needed.
+    // `runDirectory` is a per-run directory, never a repository path; no build tracing is needed.
     await writeFile(path.join(/* turbopackIgnore: true */ runDirectory, entry.reportFile), source.json, { mode: 0o600 });
     if (jpeg) {
       entry.imageFile = `${stem}.jpg`;

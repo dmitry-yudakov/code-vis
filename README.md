@@ -4,8 +4,8 @@ A local-first Next.js application for working on a repository through a persiste
 conversation and a canvas with Flat, desktop Spatial, and immersive WebXR projections. Choose
 Claude Code or Codex as the first main agent, then add more provider/role participants to the same
 session. Conversation is the command/history channel, and once a diagram exists the canvas becomes
-the primary workspace. Each message runs in one of three modes — **Ask**, **Plan**, or **Agent** —
-subject to the selected provider's supported modes.
+the primary workspace. Each message runs in one of four modes — **Ask**, **Plan**, **Agent**, or
+**Auto** — subject to the selected provider's supported modes.
 
 **CodeAI** is the working product name until a naming decision replaces it. The superseded
 static-analysis server, React Flow client, and VS Code extension are archived under
@@ -564,7 +564,8 @@ replicated between machines.
 
 Update the home machine before its executors. A home checks each executor's snapshot against its own
 machine contract, so an older home rejects a newer executor's snapshot (for example, one that lists
-provider model choices) and shows that executor as **Offline** until the home is updated. An
+provider model choices, or advertises Auto) and shows that executor as **Offline** until the home is
+updated. An
 executor's composer lists that executor's own model choices, and the executor checks each turn
 against them.
 
@@ -661,12 +662,14 @@ individual approvals; it starts in Ask unless Agent is chosen for it. The Arena'
 session** forms open at the last mode and provider when that machine can run them, and set the new
 session's mode explicitly. A session keeps its own mode once it has one, so changing the mode in one
 session does not change another's. A session with no mode on this device, such as one started on
-another device, shows the last mode.
+another device, shows the last mode. **Auto** is the exception: it stays with the session it was
+chosen in. No session inherits it, a last mode of Auto starts the next session in Ask, and the **New
+session** forms do not offer it.
 
 Independent sessions can execute at the same time. Each machine runs two eligible turns by default
 and visibly queues additional work; `CODEAI_MAX_CONCURRENT_RUNS` sets a limit from 1–8. Ask and
-Plan turns may share a checkout, while Agent takes an exclusive checkout execution lock and keeps
-its slot while an approval is pending. Every tab owns its own status, preview, activity,
+Plan turns may share a checkout, while Agent and Auto take an exclusive checkout execution lock and
+keep their slot while an approval is pending. Every tab owns its own status, preview, activity,
 permissions, cancellation, and reload recovery.
 
 ## Conversation modes
@@ -675,13 +678,13 @@ Every message carries a mode. The browser sends only the mode name; the server r
 fixed provider policy. A session can change modes and recipients; later turns resume only the
 addressed participant's private provider-owned session.
 
-| | Ask (wire fallback; reviewer/tester/custom default) | Plan (orchestrator/coder default) | Agent |
-|---|---|---|---|
-| Purpose | Q&A, review, diagrams | An approvable implementation plan | Building in the working tree |
-| Provider policy | server-owned read-only profile | server-owned read-only profile | provider approval profile |
-| Side effects | never | never | only after you approve each one |
-| Prompts you | never | never | permission cards in the chat |
-| Budget per message | 20 turns / 5 min | 20 turns / 5 min | 200 turns / 30 min |
+| | Ask (wire fallback; reviewer/tester/custom default) | Plan (orchestrator/coder default) | Agent | Auto |
+|---|---|---|---|---|
+| Purpose | Q&A, review, diagrams | An approvable implementation plan | Building in the working tree | Building in the working tree with fewer interruptions |
+| Provider policy | server-owned read-only profile | server-owned read-only profile | provider approval profile | provider sandbox profile |
+| Side effects | never | never | only after you approve each one | inside the sandbox without asking; outside it only after you approve each one |
+| Prompts you | never | never | permission cards in the chat | permission cards for what leaves the sandbox |
+| Budget per message | 20 turns / 5 min | 20 turns / 5 min | 200 turns / 30 min | as Agent |
 
 **Ask** is the read-only conversation plus the git allowlist below. **Plan** has identical
 capability and differs by contract: the turn ends with a delimited plan and the message gains an
@@ -695,15 +698,68 @@ unanswered card is auto-denied after `CODEAI_APPROVAL_TIMEOUT_MS` (default 10 mi
 the run's own timeout clock is paused while a card is pending. Cancelling resolves pending cards as
 denied before terminating the child.
 
-Agent mode edits **the real working tree** of the session's primary repository, exactly like the corresponding
+Agent and Auto edit **the real working tree** of the session's primary repository, exactly like the corresponding
 terminal agent. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
 deliberately out of scope for now.
 
-Claude currently supports all three modes. Codex supports Ask and Plan by default. Codex Agent is
-a release gate: set `CODEAI_CODEX_AGENT=1` only after the installed App Server has passed the
+Claude supports Ask, Plan, and Agent. Codex supports Ask and Plan by default. Codex Agent and Auto
+share a release gate: set `CODEAI_CODEX_AGENT=1` only after the installed App Server has passed the
 real write, command, network-escalation, denial, and cancellation approval matrix documented in
 [docs/experiment-log.md](docs/experiment-log.md). Without that opt-in, the UI reports Codex Agent as
-unsupported rather than silently granting workspace writes.
+unsupported, and does not offer Auto, rather than silently granting workspace writes.
+
+### Auto
+
+**Auto** is Agent with a sandbox under it
+([Story 79](stories/STORY-20260928-sandboxed-auto-mode.md)). What the provider's operating-system
+sandbox contains runs without a card. Anything that leaves the sandbox raises the same card as
+Agent, with the same timeout. The card shows the whole command or every file, says that it *may run
+outside the sandbox*, and ends with the reason the model gave, labelled as such. CodeAI does not
+detect dangerous commands itself: the sandbox contains the turn, and you decide what may leave it.
+
+- **Inside the sandbox, without asking:** edits and commands that write in the checkout, and in
+  `/tmp`, which build and test tools need. Commands can read the whole disk, as in every mode.
+  Codex still asks before a command its own rules treat as destructive, such as `rm -rf`, even
+  inside the checkout.
+- **Always asks, or is refused:** writes to `.git`, `.codex`, and `.claude` at the checkout's root, so
+  a commit asks; any path outside the checkout; and all network access, so a dependency install asks.
+- **One action per card.** Allowing a commit allows that commit. The next one asks again.
+- **What it does not protect:** uncommitted work. An Auto turn can overwrite or delete files in the
+  checkout without asking, and there is no checkpoint or undo. Commit first if that matters.
+- **Nor what runs the checkout's files later.** A file an Auto turn writes is contained while the
+  turn's own commands touch it. A dev server, a file watcher, a Git hook manager, or you running the
+  project afterwards execute it outside the sandbox.
+- **Nor a repository inside the checkout.** Only the root's `.git`, `.codex`, and `.claude` are
+  protected. A nested repository's own `.git/config`, and a `.claude` or `.codex` directory in a
+  subdirectory, are ordinary files to the sandbox. Do not use Auto in a checkout that contains
+  another checkout you open in CodeAI: a turn could change that repository's Git configuration, and
+  CodeAI's own `git status` there would then run what it names.
+
+Auto is chosen in the composer's mode picker, or in VR's agents row, where the addressed provider
+offers it. The picker lists it only there. **Execute plan** still runs in Agent.
+
+Providers:
+
+- **The data directory must be out of the sandbox's reach.** Auto is refused while
+  `CODEAI_DATA_DIR` is inside the checkout or a temporary directory, where a turn could rewrite
+  CodeAI's own records. The default, under your home directory, is fine.
+- **Codex** offers Auto with `CODEAI_CODEX_AGENT=1` when its sandbox can start on this machine. On
+  Linux that needs bubblewrap and unprivileged user namespaces; if `codex sandbox` cannot run a
+  command, readiness says so and withholds Auto. CodeAI runs the turn on a Codex permission profile
+  of its own and refuses the turn unless App Server reports exactly that profile, no network, no
+  extra writable directory, and you as the approval reviewer. Codex records the checkout as a
+  trusted project in your `~/.codex/config.toml` the first time Auto runs there, as its own CLI
+  does; it then also loads that checkout's `.codex/config.toml`.
+- **Claude** does not offer Auto yet. Its sandbox could not be verified: on Linux it needs
+  `bubblewrap` and `socat`, and on Ubuntu 24.04 and later also the AppArmor profile from Claude
+  Code's sandboxing guide. [docs/experiment-log.md](docs/experiment-log.md) records what was tested
+  and what remains.
+- **Docker** sessions do not offer Auto. Docker Agent is already autonomous inside its container.
+
+The first Auto message upgrades its session's record to version 6, which a CodeAI without Auto
+cannot open. That build hides only that session
+([Story 65](stories/STORY-20260921-tolerate-newer-session-format.md)); a session that never used
+Auto keeps its version.
 
 **A run outlives the page that started it.** Closing the tab, reloading, or a dev-server refresh
 only detaches the browser — the agent keeps working, and reopening the conversation reattaches to
@@ -781,7 +837,8 @@ below and its Codex Agent gate remain in force for Local sessions.
 
 Every run uses a server-owned provider profile. The browser can name a supported mode and nothing
 else: provider, executable, tool list, allowlist, permission mode, model flags, environment
-variables, sandbox, and settings all stay server-owned. An unknown or unsupported mode is a 400.
+variables, sandbox, and settings all stay server-owned. An unknown mode is a 400, and a mode the
+addressed provider does not advertise is a 409.
 
 Claude is spawned without a shell in the primary repository's checkout directory with:
 
@@ -795,7 +852,10 @@ Claude is spawned without a shell in the primary repository's checkout directory
 Codex is spawned as a local [`codex app-server`](https://learn.chatgpt.com/docs/app-server) stdio
 child for each active turn. CodeAI performs the App Server handshake, starts or resumes the
 stored Codex thread, and streams the turn without opening a listener port. Ask and Plan use a
-read-only sandbox with network disabled. Server-owned overrides disable MCP servers, apps,
+read-only sandbox with network disabled; Agent uses the same sandbox and asks before anything that
+writes or leaves it; [Auto](#auto) uses CodeAI's own permission profile. Every turn that can ask names you as the
+approval reviewer and is refused if App Server reports another one, such as `auto_review` from your
+Codex config. Server-owned overrides disable MCP servers, apps,
 plugins, hooks, web search, subagents, and custom commands; preflight also queries the effective
 integration inventory and fails closed if an ambient MCP server or hook remains enabled. Instruction
 files Codex loads from outside the repository, such as a user-level `AGENTS.md`, and enabled user or
@@ -803,13 +863,20 @@ repository skills are your own Codex configuration: readiness reports them as a 
 withholding the provider. App Server approval requests are correlated to the active turn, sanitized, and
 resolved as one-shot allow/deny decisions through the same permission cards.
 
+A checkout need not be a Git repository. CodeAI's own Git reads never adopt a folder as a repository
+because of `HEAD`, `config`, `objects`, and `refs` files at its root (`safe.bareRepository=explicit`),
+so a turn cannot make them obey a configuration it wrote there.
+
 Status and diff context are generated by fixed, read-only, no-shell Git invocations and placed with
-diagram snapshots in a per-run temporary directory outside the repository. It is always removed after
-the turn.
+diagram snapshots in a per-run directory under `CODEAI_DATA_DIR/run-attachments`, outside the
+repository and outside the system temp directory, which an Auto sandbox leaves writable. It is
+always removed after the turn, and what a crashed server left there is removed before the next
+server's first turn.
 
 This is a capability restriction, **not a separate operating-system or container boundary**. The
 selected CLI still runs as your desktop user, and in Agent mode it changes real files once you
-approve. Use CodeAI
+approve. Auto adds the provider's sandbox around the commands and edits of one turn; the CLI itself
+still runs as you, and an action you approve runs outside that sandbox. Use CodeAI
 only with repositories you trust. Paired access is for your own devices over trusted HTTPS; CodeAI
 is not designed for Internet-facing hosting, multi-user use, or untrusted repositories.
 
@@ -908,7 +975,7 @@ contains its immutable Mermaid source, the exact vector-mark snapshot, viewport,
 composite PNG when browser export succeeds. Remove its chip for a text-only turn, or attach up to
 four canvases: the composer's **+** menu lists the active canvas and the three newest others with
 their thumbnails, toggles each one's chip, and leads to **All history…** and **New sketch**. Its
-**Mode** picker beside it chooses Ask, Plan, or Agent, and the line under the composer names where
+**Mode** picker beside it chooses Ask, Plan, Agent, or Auto where the provider offers it, and the line under the composer names where
 the turn runs, **Local** or **Docker**, followed by the mode's hint. Composite failure is
 non-fatal.
 
@@ -926,8 +993,10 @@ See [.env.example](.env.example). The most useful options are:
   model is the Default that the composer's **Model** menu can override for one turn;
 - `CODEAI_CODEX_BIN` / `CODEAI_CODEX_MODEL` — local Codex executable and optional model, also the
   composer's Default;
-- `CODEAI_CODEX_AGENT` — explicit Codex Agent release gate; unset means Ask/Plan only;
-- `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node);
+- `CODEAI_CODEX_AGENT` — explicit release gate for Codex Agent and Auto; unset means Ask/Plan only;
+- `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node). Keep it
+  outside every checkout and outside the temp directories, or Auto is refused; Docker execution also
+  needs a path without a comma, because each run's context is mounted from under it;
 - `CODEAI_INSTALLATION_ROOT` — which checkout counts as this installation for
   [reports](#use-reports-in-codeais-own-project); defaults to the working directory and exists for
   the end-to-end server, which names a fixture. `start:managed` ignores it and uses its own checkout;
@@ -938,10 +1007,10 @@ See [.env.example](.env.example). The most useful options are:
   development-only asset/HMR origin guard;
 - `CODEAI_TLS_CERT` / `CODEAI_TLS_KEY` and optional `CODEAI_BIND_*` — dedicated `start:remote`
   listener configuration;
-- `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent permission card waits before auto-denying;
+- `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent or Auto permission card waits before auto-denying;
 - `CODEAI_MAX_CONCURRENT_RUNS` — machine-wide execution slots, from 1–8 (default `2`);
 - `CODEAI_AGENT_*` / `CODEAI_BUILD_*` — per-message turn and time budgets for Ask/Plan
-  and for Agent respectively;
+  and for Agent and Auto respectively;
 - `CODEAI_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_MAX_TRANSCRIPT_BYTES` — server-side prompt bounds
   applied to the canonical host transcript;
 - response, Mermaid, attachment, and Git-context bounds.
@@ -986,9 +1055,10 @@ over-capable provider is reported without making a healthy provider unusable.
 - A sketch is a fixed-size sheet the agent can read but not draw on; it never becomes a diagram
   artifact, and the agent answers with prose or a new Mermaid diagram instead.
 - Mermaid subgraphs cannot be generically collapsed; large diagrams use pan/zoom/fit and agent revision.
-- Agent mode works directly in the checked-out tree: no worktree isolation, no apply/discard
+- Agent and Auto work directly in the checked-out tree: no worktree isolation, no apply/discard
   checkpoints, and no policy on pre-existing uncommitted changes. Review with `git`.
-- Every shipped Agent side effect prompts; there is no "always allow" or `acceptEdits` tier yet.
+- Every Agent side effect prompts, and so does everything that leaves an Auto sandbox; there is no
+  "always allow". Auto is available for Codex only, and no model reviews an escalation for you.
 - Source excerpts and editor deep links are still outside the experiment.
 - Native provider session history remains owned by its CLI; deleting local browser data does not
   delete that history.

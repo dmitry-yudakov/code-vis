@@ -272,7 +272,9 @@ rename before step 3, so every story after it is written once in the settled nou
   forward in [Story 57](../stories/STORY-20260908-local-docker-execution.md), with its own release gates.
 - Portable repository identity across machines (the checkout/identity split is prepared, not built).
 - Cloud autonomous apply. Explicitly selected local Docker Agent sessions in Story 57 authorize
-  direct repository edits and commands inside a bounded container; Local keeps per-action approvals.
+  direct repository edits and commands inside a bounded container; Local keeps per-action approvals
+  for anything that leaves the provider's sandbox
+  ([Story 79](../stories/STORY-20260928-sandboxed-auto-mode.md)).
 - Anything that makes the single-machine, single-person product worse in order to be ready for the
   multi-machine one.
 

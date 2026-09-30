@@ -1,9 +1,9 @@
 import type { AgentExecution, AgentMode, AgentParticipant, AgentProvider, ModelSelection, ProviderHealth } from '@/shared/types';
+import { LAUNCH_MODES, isAgentMode, type LaunchMode } from '@/shared/agentModes';
 import { parseModelSelection, type DeviceViewState } from './workspaceViews';
 
 export const DEVICE_PREFERENCES_STORAGE_KEY = 'code-ai:device:v1:preferences';
 
-const AGENT_MODES = new Set<unknown>(['ask', 'plan', 'agent']);
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
 
 /**
@@ -29,7 +29,7 @@ export function parseDevicePreferences(value: string | null): DevicePreferences 
       if (selection) models[provider] = selection;
     }
     return {
-      ...(AGENT_MODES.has(parsed.mode) ? { mode: parsed.mode as AgentMode } : {}),
+      ...(isAgentMode(parsed.mode) ? { mode: parsed.mode } : {}),
       ...(AGENT_PROVIDERS.includes(parsed.provider as AgentProvider) ? { provider: parsed.provider as AgentProvider } : {}),
       ...(Object.keys(models).length ? { models } : {}),
     };
@@ -42,12 +42,18 @@ export function serializeDevicePreferences(preferences: DevicePreferences): stri
   return JSON.stringify({ version: 1, ...preferences });
 }
 
+/** The modes a New session form may offer: what the provider supports, never Auto. */
+export function launchModes(supportedModes: readonly AgentMode[] | undefined): LaunchMode[] {
+  return LAUNCH_MODES.filter((mode) => supportedModes?.includes(mode));
+}
+
 /**
  * The mode of a session without its own: this device's last mode, or Ask. Docker Agent edits without
- * individual approvals, so a Docker session never inherits Agent; it has to be chosen there.
+ * individual approvals, so a Docker session never inherits Agent; it has to be chosen there. Auto
+ * edits without individual approvals too, so no session inherits it: it is chosen in the session.
  */
-export function inheritedMode(lastMode: AgentMode | undefined, execution: AgentExecution | undefined): AgentMode {
-  return !lastMode || (lastMode === 'agent' && execution === 'docker') ? 'ask' : lastMode;
+export function inheritedMode(lastMode: AgentMode | undefined, execution: AgentExecution | undefined): LaunchMode {
+  return !lastMode || lastMode === 'auto' || (lastMode === 'agent' && execution === 'docker') ? 'ask' : lastMode;
 }
 
 /** The agent's own choice on this device, or else the last choice made here for its provider. */
@@ -60,11 +66,11 @@ export function agentModelSelection(
   return view?.modelSelections?.[agent.id] ?? preferences.models?.[agent.provider];
 }
 
-type LaunchChoice = { provider: AgentProvider; mode: AgentMode };
+type LaunchChoice = { provider: AgentProvider; mode: LaunchMode };
 
 /**
  * Where a New session form opens: this device's last provider and mode when the machine can run
- * them, else what the form already shows.
+ * them, else what the form already shows. A last mode of Auto opens the form at Ask.
  */
 export function launchChoice(
   preferences: Pick<DevicePreferences, 'provider' | 'mode'>,
@@ -73,7 +79,8 @@ export function launchChoice(
 ): LaunchChoice {
   const preferred = preferences.provider && health?.[preferences.provider];
   const provider = preferred && preferred.available && preferred.supportedModes.length ? preferences.provider! : current.provider;
-  const modes = health?.[provider]?.supportedModes || [];
-  const mode = [preferences.mode, current.mode].find((item) => item && modes.includes(item)) || modes[0] || current.mode;
+  const modes = launchModes(health?.[provider]?.supportedModes);
+  const lastMode = preferences.mode === 'auto' ? 'ask' : preferences.mode;
+  const mode = [lastMode, current.mode].find((item) => item && modes.includes(item)) || modes[0] || current.mode;
   return { provider, mode };
 }

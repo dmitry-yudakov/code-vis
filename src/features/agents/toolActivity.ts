@@ -45,6 +45,7 @@ export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
   ask: 'Ask',
   plan: 'Plan',
   agent: 'Agent',
+  auto: 'Auto',
 };
 
 const EFFORT_LABELS: Record<string, string> = {
@@ -65,6 +66,7 @@ const AGENT_MODE_HINTS: Record<AgentMode, string> = {
   ask: 'Read-only · git history',
   plan: 'Read-only · ends in a plan',
   agent: 'Edits files · asks first',
+  auto: 'Edits in a sandbox · asks beyond it',
 };
 
 /** The full explanation, shown as the mode choice's tooltip. */
@@ -72,18 +74,23 @@ const AGENT_MODE_TOOLTIPS: Record<AgentMode, string> = {
   ask: 'Ask — read-only Q&A, review, and diagrams, plus the fixed git/gh history allowlist.',
   plan: 'Plan — same read-only capability as Ask, but the turn ends in an implementation plan you can execute.',
   agent: 'Agent — the full toolset in your working tree. Every side effect asks for approval first.',
+  auto: 'Auto — edits the working tree and runs sandboxed commands without asking; anything outside the sandbox asks you. '
+    + 'Network, commits, and writes outside the checkout always ask.',
 };
 
 const DOCKER_MODE_HINTS: Record<AgentMode, string> = {
   ask: 'repository read-only',
   plan: 'repository read-only',
   agent: 'autonomous direct edits',
+  // Docker never offers Auto: its Agent is already autonomous inside the container.
+  auto: 'not offered in Docker',
 };
 
 const DOCKER_MODE_TOOLTIPS: Record<AgentMode, string> = {
   ask: 'The repository is mounted read-only; writable scratch space is available inside Docker.',
   plan: 'The repository is mounted read-only; writable scratch space is available inside Docker.',
   agent: 'Agent edits the mounted repository and runs commands without individual approvals.',
+  auto: 'Auto is not offered in Docker. Docker Agent is already autonomous inside its container.',
 };
 
 /** A mode's hint where nothing beside it names the execution: Docker says so, since its Agent never asks. */

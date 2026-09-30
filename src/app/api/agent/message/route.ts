@@ -9,11 +9,13 @@ import {
 } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { AgentRunError } from '@/server/agents/agentRunError';
+import { autoDataDirectoryIssue } from '@/server/agents/agentPolicy';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runConversation } from '@/server/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
+import { changesCheckout } from '@/shared/agentModes';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import { MAX_REPORTS_PER_MESSAGE, MAX_SESSION_REPORT_EVIDENCE_BYTES } from '@/shared/limits';
@@ -170,6 +172,10 @@ export async function POST(request: Request): Promise<Response> {
         || `${participant.provider === 'codex' ? 'Codex' : 'Claude'} is not healthy for ${mode} mode in this CodeAI configuration.`,
     }, { status: 409 });
   }
+  if (mode === 'auto') {
+    const issue = await autoDataDirectoryIssue(config.dataDir, checkout.realPath);
+    if (issue) return safeJsonResponse({ error: issue }, { status: 409 });
+  }
   // The browser may name only a model and effort this machine lists for the addressed provider.
   const { model, effort } = parsed.data;
   const offered = offeredModelSelection({ model, effort }, providerHealth);
@@ -198,7 +204,7 @@ export async function POST(request: Request): Promise<Response> {
     providerKey,
     checkoutId: repository.checkoutId,
     checkoutPath: checkout.realPath,
-    access: mode === 'agent' ? 'write' : 'read',
+    access: changesCheckout(mode) ? 'write' : 'read',
     cancel: () => abortController.abort(),
   });
   if (!reservation.accepted) {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
+import { AGENT_MODES, isAgentMode } from '@/shared/agentModes';
 import type { ThemeName } from '@/shared/design/tokens';
 import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 import { draftTokens, editVoiceDraft, spellVoiceText } from '@/features/conversation/voiceEditing';
@@ -12,7 +13,7 @@ import { workspaceTextLines } from './workspaceText';
 import { useTextureResource } from './useTextureResource';
 import { ControlGroupSurface, WorkspacePager, WorldButton } from './WorkspacePanel';
 import { InlineConversationInput } from './InlineConversationInput';
-import { immersiveTheme } from './immersiveTheme';
+import { IMMERSIVE_CONTROL_HEIGHT, immersiveTheme } from './immersiveTheme';
 
 type Tab = 'read' | 'compose' | 'agents';
 
@@ -109,8 +110,11 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     '', expanded ? statusLines.slice(0, 3) : workspaceTextLines(inlineStatus, 58).slice(0, 1), theme, ledger, true, !expanded,
   ), [visible, expanded, displayedStatus, inlineStatus, context, theme]);
 
+  // Auto joins the row only where the addressed provider advertises it; it is never shown disabled.
+  const offersAuto = Boolean(controls && !controls.unsupportedModes.includes('auto'));
+  const modeActions = AGENT_MODES.filter((item) => item !== 'auto' || offersAuto);
   const actions: ConversationActionName[] = showHelp ? ['done']
-    : tab === 'agents' ? controls?.running ? ['read'] : ['read', 'previous-agent', 'next-agent', 'make-primary', 'ask', 'plan', 'agent', 'provider', 'role', 'add']
+    : tab === 'agents' ? controls?.running ? ['read'] : ['read', 'previous-agent', 'next-agent', 'make-primary', ...modeActions, 'provider', 'role', 'add']
       : voiceBusy ? ['stop', 'discard']
         : controls?.running ? ['record']
           : voice.result ? editing
@@ -148,7 +152,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     if (action === 'delete' || action === 'replace') return !selected;
     if (action === 'undo') return !undo.current.length;
     if (action === 'clear') return !draft;
-    if (action === 'ask' || action === 'plan' || action === 'agent') return controls.unsupportedModes.includes(action);
+    if (isAgentMode(action)) return controls.unsupportedModes.includes(action);
     if (action === 'add' || action === 'provider') return !provider;
     if (action === 'make-primary') return !activeAgent || activeAgent.id === controls.primaryAgentId;
     if (action === 'previous-agent' || action === 'next-agent') return controls.agents.length < 2;
@@ -198,7 +202,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
         edit(editVoiceDraft(draftRef.current, replacement, action === 'replace-all'
           ? { start: 0, end: draftRef.current.length, text: draftRef.current } : action === 'replace' ? selected : undefined));
         voice.clearResult(); setWord(-1); setPage(0);
-      } else if (action === 'ask' || action === 'plan' || action === 'agent') controls?.onMode(action);
+      } else if (isAgentMode(action)) controls?.onMode(action);
       else if (action === 'previous-agent' || action === 'next-agent') {
         const agents = controls?.agents || [];
         const index = agents.findIndex((agent) => agent.id === controls?.activeAgentId);
@@ -221,6 +225,15 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
   const editingRow = centeredControlRow((['retry', 'help', 'clear', 'done'] as ConversationActionName[])
     .filter((action) => editing && !voice.result && actions.includes(action))
     .map((action) => ({ key: action, width: labels?.[action]?.icon.width || 0.14 })));
+  // Four modes and Make main do not fit at the three-mode spacing, so with Auto the row is laid out
+  // from the labels' own widths.
+  const controlWidth = (action: ConversationActionName) => Math.max(IMMERSIVE_CONTROL_HEIGHT, labels?.[action]?.icon.width || 0.2);
+  const autoRow = offersAuto
+    ? centeredControlRow<ConversationActionName>([...modeActions, 'make-primary' as const].map((key) => ({ key, width: controlWidth(key) })), 0.03)
+    : undefined;
+  const modeSurface = autoRow
+    ? [autoRow.get('ask')! - controlWidth('ask') / 2 - 0.015, autoRow.get('auto')! + controlWidth('auto') / 2 + 0.015]
+    : [-0.55, 0.27];
   const actionPosition = (action: ConversationActionName, index: number): [number, number, number] => {
     if (action === 'cancel') return [0.48, expanded ? -0.34 : -0.43, 0];
     if (!expanded) return action === 'send' || action === 'discard' ? [0.55, -0.70, 0]
@@ -230,7 +243,8 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
         read: [-0.51, 0.48, 0], ask: [-0.42, -0.44, 0], plan: [-0.14, -0.44, 0], agent: [0.14, -0.44, 0],
         'make-primary': [0.46, -0.44, 0], provider: [-0.40, -0.68, 0], role: [0, -0.68, 0], add: [0.40, -0.68, 0],
       };
-      return positions[action] || [0, -0.68, 0];
+      const autoX = autoRow?.get(action);
+      return autoX !== undefined ? [autoX, -0.44, 0] : positions[action] || [0, -0.68, 0];
     }
     const editingX = editingRow.get(action);
     if (editingX !== undefined) return [editingX, -0.73, 0];
@@ -261,8 +275,8 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
       previousAction="conversation:previous-agent" nextAction="conversation:next-agent" previousLabel="Previous agent" nextLabel="Next agent"
       position={[0.18, 0.48, 0]} theme={theme} previousDisabled={(controls?.agents.length || 0) < 2} nextDisabled={(controls?.agents.length || 0) < 2}
       onAction={(action) => perform(action.slice('conversation:'.length) as ConversationActionName)} />}
-    {tab === 'agents' && expanded && <ControlGroupSurface name="Agent mode selector" width={0.82}
-      position={[-0.14, -0.44, 0]} theme={theme} />}
+    {tab === 'agents' && expanded && <ControlGroupSurface name="Agent mode selector" width={modeSurface[1] - modeSurface[0]}
+      position={[(modeSurface[0] + modeSurface[1]) / 2, -0.44, 0]} theme={theme} />}
     {editing && !voiceBusy && <WorkspacePager label={`Selected: ${selected?.text === '\n' ? 'New line' : selected?.text || 'None'}`}
       previousAction="conversation:previous-word" nextAction="conversation:next-word" previousLabel="Previous word" nextLabel="Next word"
       position={[0, -0.32, 0]} theme={theme} previousDisabled={word < 0} nextDisabled={word >= tokens.length - 1}

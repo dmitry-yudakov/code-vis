@@ -5,6 +5,7 @@ import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
   ResolvedAgentPolicy,
 } from '@/shared/types';
+import { changesCheckout } from '@/shared/agentModes';
 import { buildClaudeArgs } from './claudeInvocation';
 import { AgentRunError } from './agentRunError';
 import type { ProcessTransport } from '@/server/execution/processTransport';
@@ -105,7 +106,7 @@ function classifyResultError(
   action: 'start' | 'resume',
 ): AgentRunError {
   if (subtype === 'error_max_turns') {
-    const setting = policy.mode === 'agent' ? 'CODEAI_BUILD_MAX_TURNS' : 'CODEAI_AGENT_MAX_TURNS';
+    const setting = changesCheckout(policy.mode) ? 'CODEAI_BUILD_MAX_TURNS' : 'CODEAI_AGENT_MAX_TURNS';
     return new AgentRunError(
       'max-turns',
       `The agent used all ${policy.maxTurns} tool turns allowed for one message before it finished. `
@@ -121,6 +122,11 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
   async run(input: AgentProcessRun): Promise<AgentProcessResult> {
     if (input.policy.execution === 'docker' && !this.options.transport) {
       throw new AgentRunError('unsupported-flags', 'Docker requires its verified container transport.', 'not-sent', false);
+    }
+    if (input.policy.mode === 'auto') {
+      // Claude never advertises Auto, so the route refuses it first. This keeps an Auto policy from
+      // ever reaching the CLI as if it were Agent's.
+      throw new AgentRunError('unsupported-flags', 'Claude does not run Auto in this CodeAI version.', 'not-sent', false);
     }
     const startedAt = Date.now();
     const providerSessionId = input.session.id;

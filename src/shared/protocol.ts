@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AGENT_MODES } from './agentModes';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_MESSAGE_TEXT_CHARS, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from './limits';
 import {
@@ -34,7 +35,7 @@ export const diagramAttachmentSchema = z.object({
   }
 });
 
-export const agentModeSchema = z.enum(['ask', 'plan', 'agent']);
+export const agentModeSchema = z.enum(AGENT_MODES);
 export const agentProviderSchema = z.enum(['claude', 'codex']);
 export const agentRoleSchema = z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']);
 

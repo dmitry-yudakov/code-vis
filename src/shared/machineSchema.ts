@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MAX_MODEL_EFFORTS, MAX_MODEL_LABEL_CHARS, MAX_PROVIDER_MODELS } from './limits';
-import { agentEffortSchema, agentModelIdSchema } from './protocol';
+import { AGENT_MODES } from './agentModes';
+import { agentEffortSchema, agentModeSchema, agentModelIdSchema } from './protocol';
 import { durableProjectSchema } from './sessionSchema';
 
 const dateTime = z.string().datetime();
@@ -19,7 +20,7 @@ export const providerModelSchema = z.object({
 const providerHealthSchema = z.object({
   available: z.boolean(),
   authenticated: z.union([z.boolean(), z.literal('unknown')]),
-  supportedModes: z.array(z.enum(['ask', 'plan', 'agent'])).max(3),
+  supportedModes: z.array(agentModeSchema).max(AGENT_MODES.length),
   message: z.string().max(500).optional(),
   models: z.array(providerModelSchema).max(MAX_PROVIDER_MODELS).optional(),
   efforts: z.array(agentEffortSchema).max(MAX_MODEL_EFFORTS).optional(),

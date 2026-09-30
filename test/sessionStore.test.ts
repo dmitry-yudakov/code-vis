@@ -254,6 +254,8 @@ describe('host-owned session store', () => {
     const { execution: _execution, ...legacySession } = session;
     const versionThree = { ...legacySession, version: 3 as const };
     expect(durableSessionSchema.safeParse(versionThree).success).toBe(true);
+    // Version 6 is the newest this build reads; a session without Auto messages is valid at it too.
+    expect(durableSessionSchema.safeParse({ ...session, version: 6 }).success).toBe(true);
     for (const execution of ['local', 'docker'] as const) {
       const current = { ...session, version: 4, execution };
       expect(durableSessionSchema.safeParse(current).success).toBe(true);
@@ -265,8 +267,9 @@ describe('host-owned session store', () => {
       { ...versionThree, execution: null },
       { ...versionThree, version: 4 },
       { ...session, version: 4, execution: 'unknown' },
-      { ...session, version: 6, execution: 'local' },
+      { ...session, version: 7, execution: 'local' },
       { ...versionThree, version: 5 },
+      { ...versionThree, version: 6 },
       { ...session, version: 4, execution: 'docker', repositories: [] },
       { ...session, version: 4, execution: 'docker', repositories: [
         session.repositories[0],

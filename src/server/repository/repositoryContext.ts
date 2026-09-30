@@ -37,7 +37,7 @@ export async function writeRepositoryContext(
         timeout: 15_000,
       });
       const snapshot = bounded(stdout, perFileLimit);
-      // `directory` is a per-run temp directory, never a repository path; no build tracing is needed.
+      // `directory` is a per-run directory, never a repository path; no build tracing is needed.
       await writeFile(path.join(/* turbopackIgnore: true */ directory, command.file), snapshot.content || '(no changes)\n', { mode: 0o600 });
       records.push({
         file: command.file,

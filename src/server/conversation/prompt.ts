@@ -29,6 +29,11 @@ Write prose, findings, and any diagrams before the opening marker. Emit the mark
 ${GIT_CAPABILITY}
 
 Every side effect (Edit, Write, non-allowlisted Bash, …) raises an approval card in the user's chat before it runs. A denial is a decision, not an error: do not retry the same action, and either continue with what is allowed or explain what you would need. Prefer small, reviewable steps, and finish by summarising what you changed so the user can review it with git.`,
+
+  // No allowlist here: the sandbox, not a command list, is what bounds an Auto turn.
+  auto: `Mode: AUTO. You are working in the user's real working tree. Make the change the user asked for.
+
+Edits and commands run inside a sandbox without asking: the working tree is writable, except .git, .codex, and .claude at its root, and there is no network. Anything that leaves the sandbox needs the user's approval first: a commit, a network request, a protected path, or a path outside the repository. Request approval for that one action and wait. A denial is a decision, not an error: do not retry the same action or work around the sandbox, and either continue with what is allowed or explain what you would need. Uncommitted work has no backup, so do not delete or overwrite files the task does not require. Finish by summarising what you changed so the user can review it with git.`,
 };
 
 export function buildConversationPrompt(input: {
@@ -45,6 +50,7 @@ export function buildConversationPrompt(input: {
 }): string {
   const mode = input.mode || 'ask';
   const directory = input.attachmentDirectory;
+  // The Docker contract keeps `mode === 'agent'`: Docker never runs Auto.
   const modeContract = input.execution === 'docker'
     ? `Execution: Docker. The repository is at /workspace and prepared context is at /context.
 ${mode === 'agent'

@@ -90,6 +90,7 @@ export class DockerRuntime {
   async health(): Promise<ProviderHealth> {
     try {
       await this.profile();
+      // No Auto in Docker: Docker Agent is already autonomous inside its container.
       return { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };
     } catch {
       return {
@@ -423,6 +424,7 @@ export class DockerRuntime {
         ...Object.entries(environment).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
         '--mount', `type=volume,src=${home},dst=${DOCKER_HOME}`,
         ...(options.checkout ? [
+          // `=== 'agent'`, not `changesCheckout`: Docker never runs Auto, and any other mode mounts read-only.
           '--mount', `type=bind,src=${options.checkout},dst=/workspace${options.mode === 'agent' ? '' : ',readonly'}`,
         ] : []),
         ...(options.context ? ['--mount', `type=bind,src=${options.context},dst=${DOCKER_CONTEXT},readonly`] : []),

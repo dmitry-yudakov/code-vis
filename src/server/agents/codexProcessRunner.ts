@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
@@ -8,7 +9,7 @@ import type {
 import { AgentRunError } from './agentRunError';
 import type { ProcessTransport } from '@/server/execution/processTransport';
 import {
-  buildCodexAppServerArgs, CODEX_DEVELOPER_INSTRUCTIONS, codexIsolationIssue,
+  buildCodexAppServerArgs, codexDeveloperInstructions, codexIsolationIssue,
   codexMcpServerNames, codexThreadConfig, codexThreadPolicyIssue, codexTurnSecurity,
 } from './codexInvocation';
 
@@ -44,16 +45,39 @@ function record(value: unknown): JsonRecord | undefined {
   return value && typeof value === 'object' ? value as JsonRecord : undefined;
 }
 
-function sanitizeDetail(value: string): string {
+function cleanDetail(value: string): string {
   // eslint-disable-next-line no-control-regex
-  const clean = value.replaceAll(/[\u0000-\u001f\u007f]+/g, ' ').replaceAll(/\s+/g, ' ').trim();
+  return value.replaceAll(/[\u0000-\u001f\u007f]+/g, ' ').replaceAll(/\s+/g, ' ').trim();
+}
+
+function sanitizeDetail(value: string): string {
+  const clean = cleanDetail(value);
   return clean.length > 160 ? `${clean.slice(0, 159)}…` : clean;
 }
 
+/** Shortens the run's own paths. Whole path prefixes only: `/repo-secrets` is not inside `/repo`. */
+function withoutRunPaths(value: string, repositoryRoot: string, attachmentDirectory: string): string {
+  const prefix = (root: string) => new RegExp(`${root.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'g');
+  return value.replaceAll(prefix(repositoryRoot), '.').replaceAll(prefix(attachmentDirectory), '[attachment]');
+}
+
 function sanitizeRunDetail(value: string, repositoryRoot: string, attachmentDirectory: string): string {
-  return sanitizeDetail(value
-    .replaceAll(repositoryRoot, '.')
-    .replaceAll(attachmentDirectory, '[attachment]'));
+  return sanitizeDetail(withoutRunPaths(value, repositoryRoot, attachmentDirectory));
+}
+
+const APPROVAL_HEAD_CHARS = 560;
+const APPROVAL_TAIL_CHARS = 240;
+
+/**
+ * What an approval card asks about. It is never cut silently: a long command keeps both ends, where
+ * what it runs last is, and says how much is missing between them.
+ */
+function approvalSubject(value: string, repositoryRoot: string, attachmentDirectory: string): string {
+  const clean = cleanDetail(withoutRunPaths(value, repositoryRoot, attachmentDirectory));
+  const omitted = clean.length - APPROVAL_HEAD_CHARS - APPROVAL_TAIL_CHARS;
+  return omitted > 0
+    ? `${clean.slice(0, APPROVAL_HEAD_CHARS)} …[${omitted} characters not shown]… ${clean.slice(-APPROVAL_TAIL_CHARS)}`
+    : clean;
 }
 
 function codexErrorKind(value: unknown): string {
@@ -68,14 +92,26 @@ function relativeWithin(root: string, target: string): string | undefined {
   return relative.split(path.sep).join('/');
 }
 
-function describeFileChanges(item: JsonRecord, repositoryRoot: string): string | undefined {
-  if (!Array.isArray(item.changes)) return undefined;
-  const paths = item.changes.flatMap((change) => {
-    const value = record(change);
-    if (typeof value?.path !== 'string') return [];
-    return [relativeWithin(repositoryRoot, value.path) || path.basename(value.path)];
-  });
-  return paths.length ? sanitizeDetail(paths.slice(0, 4).join(', ')) : undefined;
+/**
+ * The files one change touches. A path outside the checkout is named whole and listed first: it is
+ * what an approval is about, and its file name alone would say nothing.
+ */
+function changedPaths(item: JsonRecord, repositoryRoot: string): string[] {
+  if (!Array.isArray(item.changes)) return [];
+  const inside: string[] = [];
+  const outside: string[] = [];
+  for (const change of item.changes) {
+    const target = record(change)?.path;
+    if (typeof target !== 'string') continue;
+    const relative = relativeWithin(repositoryRoot, target);
+    if (relative) inside.push(relative);
+    else outside.push(target.startsWith(`${os.homedir()}${path.sep}`) ? `~${target.slice(os.homedir().length)}` : target);
+  }
+  return [...outside, ...inside];
+}
+
+function listPaths(paths: string[], limit: number): string {
+  return paths.length > limit ? `${paths.slice(0, limit).join(', ')}, and ${paths.length - limit} more` : paths.join(', ');
 }
 
 function classifyCodexFailure(
@@ -249,9 +285,10 @@ export class CodexProcessRunner implements AgentProcessRunner {
           if (detail) itemDetails.set(id, detail);
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Shell', detail });
         } else if (type === 'fileChange') {
-          const detail = describeFileChanges(item, input.checkout.realPath);
-          if (detail) itemDetails.set(id, detail);
-          if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Edit', detail });
+          const paths = changedPaths(item, input.checkout.realPath);
+          // An approval card lists many more paths than an activity line has room for.
+          if (paths.length) itemDetails.set(id, listPaths(paths, 12));
+          if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Edit', detail: paths.length ? sanitizeDetail(listPaths(paths, 4)) : undefined });
         } else if (type === 'imageView') {
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'View image' });
         } else if (['mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch', 'hookPrompt'].includes(type)) {
@@ -284,10 +321,21 @@ export class CodexProcessRunner implements AgentProcessRunner {
         }
         const itemId = typeof params?.itemId === 'string' ? params.itemId : '';
         const tool = isCommand ? 'Shell' : 'Edit';
-        const rawDetail = isCommand
-          ? (typeof params?.command === 'string' ? params.command : typeof params?.reason === 'string' ? params.reason : '')
-          : (itemDetails.get(itemId) || (typeof params?.reason === 'string' ? params.reason : typeof params?.grantRoot === 'string' ? params.grantRoot : ''));
-        const detail = sanitizeRunDetail(rawDetail, input.checkout.realPath, input.attachmentDirectory);
+        const command = typeof params?.command === 'string' ? params.command : '';
+        const subject = !isCommand ? itemDetails.get(itemId) || (typeof params?.grantRoot === 'string' ? params.grantRoot : '')
+          // `writeStdin` is text typed into a command that is already running, not a new command.
+          : params?.kind === 'writeStdin' ? `input to a running command: ${command}` : command;
+        const networkHost = record(params?.networkApprovalContext)?.host;
+        const reason = typeof params?.reason === 'string' ? params.reason : '';
+        const detail = [
+          approvalSubject(subject, input.checkout.realPath, input.attachmentDirectory),
+          typeof networkHost === 'string' && networkHost ? `network access to ${sanitizeDetail(networkHost)}` : '',
+          // Codex asks in Auto for what leaves the sandbox, and also for commands its own rules flag.
+          // The request does not say which, so the card says what Allow can mean at most.
+          input.policy.mode === 'auto' ? `may ${isCommand ? 'run' : 'write'} outside the sandbox` : '',
+          // The reason is the model's own words, so it is labelled and comes last.
+          reason ? `reason given: ${sanitizeRunDetail(reason, input.checkout.realPath, input.attachmentDirectory)}` : '',
+        ].filter(Boolean).join(' — ');
         const requestId = randomUUID();
         let answered = false;
         const settle = (resolution: PermissionResolution) => {
@@ -503,10 +551,10 @@ export class CodexProcessRunner implements AgentProcessRunner {
           const common = {
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
-            sandbox: security.sandbox,
+            ...(security.sandbox ? { sandbox: security.sandbox } : {}),
             ...(security.approvalsReviewer ? { approvalsReviewer: security.approvalsReviewer } : {}),
-            config: codexThreadConfig(mcpServerNames),
-            developerInstructions: CODEX_DEVELOPER_INSTRUCTIONS,
+            config: codexThreadConfig(mcpServerNames, security),
+            developerInstructions: codexDeveloperInstructions(input.policy.mode),
             ...(model ? { model } : {}),
           };
           const threadResult = record(await request(
@@ -550,7 +598,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             input: turnInput,
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
-            sandboxPolicy: security.sandboxPolicy,
+            ...(security.sandboxPolicy ? { sandboxPolicy: security.sandboxPolicy } : {}),
             ...(security.approvalsReviewer ? { approvalsReviewer: security.approvalsReviewer } : {}),
             ...(model ? { model } : {}),
             // Effort applies to this turn and those after it, so it is never part of the thread.

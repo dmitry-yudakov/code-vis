@@ -1,15 +1,43 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { CanvasKind, DiagramMessageAttachment } from '@/shared/types';
 import { validateMermaidSource } from '@/features/diagram/mermaid/mermaidPolicy';
 
-export async function createRunDirectory(): Promise<string> {
-  return mkdtemp(path.join(os.tmpdir(), 'code-ai-run-'));
+const RUN_DIRECTORY_PREFIX = 'code-ai-run-';
+const globals = globalThis as typeof globalThis & { __codeAiRunDirectorySweeps?: Map<string, Promise<void>> };
+
+/**
+ * Removes the run directories a crashed or killed server left behind. It runs once per process and
+ * data directory, before that process creates its first run directory, so it can never remove a
+ * live one. The session store's writer lock keeps a second server off the same data directory.
+ */
+function sweepRunDirectories(root: string): Promise<void> {
+  const sweeps = globals.__codeAiRunDirectorySweeps ??= new Map();
+  let sweep = sweeps.get(root);
+  if (!sweep) {
+    sweep = (async () => {
+      const entries = await readdir(root).catch(() => [] as string[]);
+      await Promise.all(entries.filter((name) => name.startsWith(RUN_DIRECTORY_PREFIX))
+        .map((name) => rm(path.join(root, name), { recursive: true, force: true }).catch(() => undefined)));
+    })();
+    sweeps.set(root, sweep);
+  }
+  return sweep;
+}
+
+/**
+ * One private directory per run. It is kept out of the system temp directory because an Auto turn's
+ * sandbox leaves that writable for build and test tools; the data directory is outside the sandbox.
+ */
+export async function createRunDirectory(dataDir: string): Promise<string> {
+  const root = path.join(dataDir, 'run-attachments');
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await sweepRunDirectories(root);
+  return mkdtemp(path.join(root, RUN_DIRECTORY_PREFIX));
 }
 
 export async function removeRunDirectory(directory: string): Promise<void> {
-  if (!path.basename(directory).startsWith('code-ai-run-')) throw new Error('Refusing to remove an unexpected directory');
+  if (!path.basename(directory).startsWith(RUN_DIRECTORY_PREFIX)) throw new Error('Refusing to remove an unexpected directory');
   await rm(directory, { recursive: true, force: true });
 }
 
@@ -44,7 +72,7 @@ export async function writeDiagramAttachments(
       if (!policy.ok) throw new Error(`Attached diagram is unsafe: ${policy.error}`);
       record.sourceFile = `${stem}.mmd`;
       totalBytes += Buffer.byteLength(attachment.source);
-      // `directory` is a per-run temp directory, never a repository path; no build tracing is needed.
+      // `directory` is a per-run directory, never a repository path; no build tracing is needed.
       await writeFile(path.join(/* turbopackIgnore: true */ directory, record.sourceFile), attachment.source, { mode: 0o600 });
     } else if (attachment.source.trim()) {
       throw new Error('A sketch attachment cannot carry Mermaid source.');

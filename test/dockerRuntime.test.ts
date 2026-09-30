@@ -42,6 +42,18 @@ describe('Docker termination and orphan recovery', () => {
     expect(command.mock.calls.every(([args]) => args[0] === 'info')).toBe(true);
   });
 
+  it('advertises Ask, Plan, and Agent for a provisioned engine, and never Auto', async () => {
+    // This list is what the message route checks a Docker turn's mode against.
+    const { runtime } = await fixture();
+    mocks.command.mockImplementation(async (args: string[]) => {
+      if (args.includes('info')) return 'engine-original';
+      if (args.includes('version')) return JSON.stringify({ Version: '28.5.2', Os: 'linux' });
+      if (args.includes('inspect')) return JSON.stringify({ Id: `sha256:${'a'.repeat(64)}`, Config: { Labels: { [`${DOCKER_LABEL}.profile`]: DOCKER_PROFILE } } });
+      throw new Error(`Unexpected docker ${args.join(' ')}`);
+    });
+    await expect(runtime.health()).resolves.toEqual({ available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] });
+  });
+
   it('requires an authoritative empty inventory after removal and retries a failed removal', async () => {
     const { runtime } = await fixture();
     let present = true;

@@ -4,6 +4,7 @@ import {
   closeWorkspaceView,
   ensureWorkspaceView,
   getWorkspaceScope,
+  LOOSE_WORKSPACE_SCOPE,
   getWorkspaceViewIds,
   openWorkspaceView,
   parseDeviceWorkspace,
@@ -170,6 +171,15 @@ describe('device workspace views', () => {
         [CANVAS]: { zoom: 8, pan: { x: 100_000, y: -100_000 }, fitted: false },
       },
     });
+  });
+
+  it('keeps a session\'s Auto mode across a reload, and drops a mode that does not exist', () => {
+    const view = (defaultMode: unknown) => getWorkspaceScope(parseDeviceWorkspace(JSON.stringify({
+      version: 1, scopes: { [LOOSE_WORKSPACE_SCOPE]: { openSessionIds: [SESSION_A], views: { [SESSION_A]: { composer: '', unread: 0, canvasViews: {}, defaultMode } } } },
+    })), LOOSE_WORKSPACE_SCOPE).views[SESSION_A];
+    expect(view('auto').defaultMode).toBe('auto');
+    expect(view('agent').defaultMode).toBe('agent');
+    expect(view('turbo')).not.toHaveProperty('defaultMode');
   });
 
   it('keeps each agent\'s model choice per session view across a reload, bounded and well formed', () => {

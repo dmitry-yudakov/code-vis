@@ -1,11 +1,10 @@
 import { spawn } from 'node:child_process';
-import type { AgentMode } from '@/shared/types';
-import { AGENT_MODES, requiredFlagsForMode } from './claudeInvocation';
+import { CLAUDE_MODES, requiredFlagsForMode, type ClaudeMode } from './claudeInvocation';
 
 export interface ClaudePreflightResult {
   binaryReady: boolean;
   flagsReady: boolean;
-  unsupportedModes: AgentMode[];
+  unsupportedModes: ClaudeMode[];
   /** Whether `claude --help` documents `--effort`. It decides only whether efforts are offered. */
   effortSupported: boolean;
   message?: string;
@@ -15,9 +14,9 @@ export interface ClaudePreflightResult {
  * The rule every Claude check applies to `claude --help`, wherever it ran: the flags each mode needs
  * that the text leaves out, and whether it documents `--effort`.
  */
-export function inspectClaudeHelp(help: string): { missingByMode: Array<{ mode: AgentMode; missing: string[] }>; effortSupported: boolean } {
+export function inspectClaudeHelp(help: string): { missingByMode: Array<{ mode: ClaudeMode; missing: string[] }>; effortSupported: boolean } {
   return {
-    missingByMode: AGENT_MODES.map((mode) => ({
+    missingByMode: CLAUDE_MODES.map((mode) => ({
       mode,
       missing: requiredFlagsForMode(mode).filter((flag) => !help.includes(flag)),
     })).filter((entry) => entry.missing.length > 0),
@@ -25,7 +24,7 @@ export function inspectClaudeHelp(help: string): { missingByMode: Array<{ mode: 
   };
 }
 
-function inspectFlags(missingByMode: ReturnType<typeof inspectClaudeHelp>['missingByMode']): { unsupportedModes: AgentMode[]; message?: string } {
+function inspectFlags(missingByMode: ReturnType<typeof inspectClaudeHelp>['missingByMode']): { unsupportedModes: ClaudeMode[]; message?: string } {
   if (!missingByMode.length) return { unsupportedModes: [] };
   const detail = missingByMode.map((entry) => `${entry.mode} needs ${entry.missing.join(', ')}`).join('; ');
   return {
@@ -40,18 +39,18 @@ export async function checkClaude(binary: string): Promise<ClaudePreflightResult
     let output = '';
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
-      resolve({ binaryReady: true, flagsReady: false, unsupportedModes: [...AGENT_MODES], effortSupported: false, message: 'Claude Code help check timed out.' });
+      resolve({ binaryReady: true, flagsReady: false, unsupportedModes: [...CLAUDE_MODES], effortSupported: false, message: 'Claude Code help check timed out.' });
     }, 5_000);
     child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString('utf8').slice(0, 1_000_000); });
     child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString('utf8').slice(0, 1_000_000); });
     child.once('error', () => {
       clearTimeout(timer);
-      resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...AGENT_MODES], effortSupported: false, message: 'Claude Code executable was not found.' });
+      resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...CLAUDE_MODES], effortSupported: false, message: 'Claude Code executable was not found.' });
     });
     child.once('close', (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...AGENT_MODES], effortSupported: false, message: 'Claude Code help check failed.' });
+        resolve({ binaryReady: false, flagsReady: false, unsupportedModes: [...CLAUDE_MODES], effortSupported: false, message: 'Claude Code help check failed.' });
         return;
       }
       const { missingByMode, effortSupported } = inspectClaudeHelp(output);
