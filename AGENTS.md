@@ -9,6 +9,9 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 Updated 2026-10-01. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
+- **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
+  agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
+  for the next ready item.
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
   dictation/correction and shared conversation/agent controls are implemented in the
   [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md).
@@ -96,7 +99,7 @@ Updated 2026-10-01. When a story ships, change the line that names it; each stor
   into the composer, or dropped on it, becomes a chip and is sent with the next message for that
   turn only; the message records its type and size (session format 8). Implemented with automated
   checks; a real screenshot with real Claude and Codex turns remains pending.
-- **Next:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
+- **Next shell story:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
   workbench shell epic and written from the template when it starts.
 - **Shipped:** [Story 82](stories/STORY-20261001-native-security-level.md) — Native Local Claude and
   Codex writing modes load your own setup, with Accept edits, Auto, and Full access alongside Agent;
