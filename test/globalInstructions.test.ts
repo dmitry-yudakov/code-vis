@@ -847,7 +847,7 @@ describe.sequential('a session\'s own choice', () => {
 
   it('stores the choice at the next session format, and leaves a session without one where it was', async () => {
     expect(INSTRUCTIONS_SESSION_VERSION).toBe(7);
-    expect(MAX_READABLE_SESSION_VERSION).toBe(7);
+    expect(MAX_READABLE_SESSION_VERSION).toBeGreaterThanOrEqual(INSTRUCTIONS_SESSION_VERSION);
     const plain = await created({ provider: 'claude', projectId: await projectId() });
     expect(plain.version).toBe(4);
     expect(plain).not.toHaveProperty('instructions');

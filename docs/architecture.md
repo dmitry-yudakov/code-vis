@@ -252,12 +252,14 @@ identity fails closed; the whole `session-store-v2` directory is the backup/rest
 
 Session records accept version 3 (implicit local execution), version 4 (required `execution:
 'local' | 'docker'`), version 5 (version 4 whose user messages may carry report evidence), version 6
-(version 5 whose messages may be Auto), and version 7 (version 6 that may hold the session's own
-`instructions: 'global' | 'isolated'`). Reads
+(version 5 whose messages may be Auto), version 7 (version 6 that may hold the session's own
+`instructions: 'global' | 'isolated'`), and version 8 (version 7 whose user messages may carry
+`imageAttachments`). Reads
 do not migrate any format; mutations, public snapshots, and exports preserve the version and
 execution metadata. New sessions are version 4, except one created with its own global-instructions
 choice, which starts at version 7; the mutation that first appends a report upgrades
-only that session to version 5 and the first Auto message to version 6 (a version 3 one also gains
+only that session to version 5, the first Auto message to version 6, and the first message with an
+image to version 8 (a version 3 one also gains
 its implicit `execution: 'local'`), and no upgrade lowers a version. A build without the feature a
 version stands for hides just that session. Docker sessions keep
 their fixed single-primary-repository binding.
@@ -290,6 +292,23 @@ pruned; they follow the session through restart and archive/restore. Turn prepar
 into the run directory; the prompt names them as untrusted observed evidence, Codex receives each
 JPEG as `localImage`, and Claude reads the same files from its added directory.
 
+## Message images
+
+An image pasted into the composer or dropped on it is the turn's, not the session's. The browser
+(`src/features/conversation/imageAttachments.ts`) decodes it and draws it again on a canvas, so the
+request carries a fresh PNG or JPEG data URL of at most 2048 px and `MAX_IMAGE_BYTES`; the prepared
+images wait in browser memory per session, never in `localStorage`. The shell refuses a file dragged
+anywhere but the composer, with the conversation open or closed, so a missed drop never navigates
+away. The message route decodes each
+one before it reserves a run and refuses a fifth image, another type, a PNG or JPEG without its
+format's signature and end marker (a mislabelled or cut-short image; the inside is the provider's to
+decode), and anything over the byte bound (`decodeImageAttachments` in
+`src/server/storage/tempAttachments.ts`). The user message keeps `{ mediaType, bytes }` per image
+and nothing else. Turn preparation writes `image-N.png|jpg` and `image-attachments.json` into the
+run directory, which is removed with the turn; the prompt names them, Codex receives each as
+`localImage` (local and Docker), and Claude reads the files from its added directory. There is no
+stored copy and no route that serves one.
+
 ## The streamed agent route
 
 `POST /api/agent/message` is the one turn-executing endpoint.
@@ -308,7 +327,8 @@ JPEG as `localImage`, and Claude reads the same files from its added directory.
    record and a bounded per-run directory under `<dataDir>/run-attachments/` (`code-ai-run-*`), outside
    the repository and outside the system temp directory an Auto sandbox leaves writable, holding
    diagram attachments, the message's promoted CodeAI reports (JSON, optional JPEG, and
-   `report-attachments.json`), plus git status/diff snapshots from `src/server/repository/`.
+   `report-attachments.json`), the request's images (`image-N.png|jpg` and
+   `image-attachments.json`), plus git status/diff snapshots from `src/server/repository/`.
 5. Compose the prompt in `src/server/conversation/prompt.ts`: mode contract, participant identity
    and role contract, the historical-context JSON delta, and the current request as one JSON
    value. Historical text is data, never framing.

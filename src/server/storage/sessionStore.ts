@@ -11,8 +11,8 @@ import type {
   GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
-  AUTO_MODE_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION,
-  durableProjectSchema, durableSessionSchema,
+  AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
+  REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
@@ -600,7 +600,8 @@ export class SessionStore {
           && prior.text === message.text
           && prior.mode === message.mode
           && same(prior.diagramAttachments, message.diagramAttachments)
-          && same(prior.reportAttachments ?? [], message.reportAttachments ?? []);
+          && same(prior.reportAttachments ?? [], message.reportAttachments ?? [])
+          && same(prior.imageAttachments ?? [], message.imageAttachments ?? []);
         if (!sameLogicalRequest) throw new Error('Message id was already used with different content');
         return { result: { session, appended: false }, changed: false };
       }
@@ -609,9 +610,11 @@ export class SessionStore {
       if (!serverAgent(session, message.addressedParticipantId)) {
         throw new Error('The addressed participant is not an agent in this session');
       }
-      // The first report needs version 5 and the first Auto message version 6. Nothing else raises a
-      // version, and nothing lowers one: a report on a version 6 or 7 session leaves it where it is.
-      const needed = message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
+      // The first report needs version 5, the first Auto message version 6, and the first image
+      // version 8. Nothing else raises a version, and nothing lowers one: a report on a version 6
+      // or later session leaves it where it is.
+      const needed = message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
+        : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
         : message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
       if (session.version < needed) {
         // Version 3 names its implicit Local.

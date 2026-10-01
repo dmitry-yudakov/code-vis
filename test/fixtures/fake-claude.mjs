@@ -178,6 +178,11 @@ else {
     ? readdirSync(attachmentDirectory).filter((name) => name.startsWith('report-')).sort()
     : [];
   if (reportFiles.length) text = `${text}\n\nReport files: ${reportFiles.join(', ')}.`;
+  // The same proof for a message's pasted or dropped images.
+  const imageFiles = attachmentDirectory
+    ? readdirSync(attachmentDirectory).filter((name) => name.startsWith('image-')).sort()
+    : [];
+  if (imageFiles.length) text = `${text}\n\nImage files: ${imageFiles.join(', ')}.`;
   const delta = JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
   writeOut(delta.slice(0, 17));
   await new Promise((resolve) => setTimeout(resolve, 5));

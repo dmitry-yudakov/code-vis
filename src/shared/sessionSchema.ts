@@ -147,6 +147,15 @@ const reportAttachmentRecordSchema = z.object({
   errorCount: z.number().int().nonnegative().max(1_000),
 }).strict();
 
+/**
+ * Metadata only: the image existed for that message's turn and is not kept. The bounds are fixed
+ * here, not tied to the send limits, so lowering a limit never invalidates a stored record.
+ */
+const imageAttachmentRecordSchema = z.object({
+  mediaType: z.enum(['image/png', 'image/jpeg']),
+  bytes: z.number().int().positive().max(64 * 1024 * 1024),
+}).strict();
+
 const evidenceSchema = z.object({
   elementId: z.string().max(500).optional(),
   location: z.string().max(4_096).optional(),
@@ -193,6 +202,8 @@ export const userMessageSchema = z.object({
   diagramAttachments: z.array(diagramAttachmentRecordSchema).max(12),
   // Only a session at version 5 or later may hold these; `validateSession` enforces that.
   reportAttachments: z.array(reportAttachmentRecordSchema).min(1).max(MAX_REPORTS_PER_MESSAGE).optional(),
+  // Only a version 8 session may hold these; `validateSession` enforces that.
+  imageAttachments: z.array(imageAttachmentRecordSchema).min(1).max(16).optional(),
   // `auto` needs a version 6 session; `validateSession` enforces that for both roles.
   mode: agentMode.optional(),
 }).strict();
@@ -216,7 +227,7 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 7;
+export const MAX_READABLE_SESSION_VERSION = 8;
 /**
  * Version 5 is version 4 plus report evidence on user messages. A session is upgraded to it only by
  * the mutation that first appends a report, so builds without report support keep reading the rest.
@@ -232,11 +243,16 @@ export const AUTO_MODE_SESSION_VERSION = 6;
  * with that choice is written at it, so a build without the choice keeps reading every other session.
  */
 export const INSTRUCTIONS_SESSION_VERSION = 7;
+/**
+ * Version 8 is version 7 plus images on user messages. A session is upgraded to it only by its
+ * first message that carries one, so a build without them keeps reading every other session.
+ */
+export const IMAGE_ATTACHMENT_SESSION_VERSION = 8;
 
 const sessionBase = {
   version: z.union([
     z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION),
-    z.literal(INSTRUCTIONS_SESSION_VERSION),
+    z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION),
   ]),
   execution: z.enum(['local', 'docker']).optional(),
   // Only a version 7 session may hold this; `validateSession` enforces that.
@@ -258,14 +274,17 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7;
+    version: 3 | 4 | 5 | 6 | 7 | 8;
     execution?: 'local' | 'docker';
     instructions?: string;
     id: string;
     repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
     primaryAgentId: string;
-    messages: Array<{ id: string; role: string; authorId: string; addressedParticipantId?: string; reportAttachments?: unknown; mode?: string }>;
+    messages: Array<{
+      id: string; role: string; authorId: string; addressedParticipantId?: string;
+      reportAttachments?: unknown; imageAttachments?: unknown; mode?: string;
+    }>;
     pinnedDiagramIds: string[];
     annotations: Record<string, { diagramId: string }>;
     sketches: Array<{ id: string; sessionId: string }>;
@@ -288,6 +307,9 @@ function validateSession(
     }
     if (value.version < AUTO_MODE_SESSION_VERSION && message.mode === 'auto') {
       ctx.addIssue({ code: 'custom', message: 'Only a version 6 session holds Auto messages.', path: ['messages', index, 'mode'] });
+    }
+    if (value.version < IMAGE_ATTACHMENT_SESSION_VERSION && message.imageAttachments !== undefined) {
+      ctx.addIssue({ code: 'custom', message: 'Only a version 8 session holds message images.', path: ['messages', index, 'imageAttachments'] });
     }
   });
   validateRepositoryBindings(value.repositories, ctx);

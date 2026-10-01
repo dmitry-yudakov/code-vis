@@ -152,7 +152,8 @@ export class CodexProcessRunner implements AgentProcessRunner {
     if (input.session.action === 'resume' && !input.session.id) {
       throw new AgentRunError('missing-session', 'The native Codex provider session id is missing. Continue in a new provider session.', 'not-sent');
     }
-    // Canvas composites are PNG and report screenshots JPEG; both were validated and bounded when written.
+    // Canvas composites are PNG, report screenshots JPEG, and a message's images either; each was
+    // validated and bounded when written.
     const imagePaths = this.options.imagePaths ?? (await readdir(input.attachmentDirectory))
       .filter((name) => /\.(png|jpg)$/.test(name))
       .map((name) => path.join(input.attachmentDirectory, name));

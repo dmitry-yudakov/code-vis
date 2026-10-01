@@ -10,7 +10,8 @@ import type {
   SketchCanvas, UserMessage,
 } from '@/shared/types';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
-import { MAX_REPORTS_PER_MESSAGE } from '@/shared/limits';
+import { MAX_IMAGES_PER_MESSAGE, MAX_REPORTS_PER_MESSAGE } from '@/shared/limits';
+import { IMAGE_ONLY_INSTRUCTION, carriesFiles, prepareImage, type PendingImage } from '@/features/conversation/imageAttachments';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { readNdjson } from '@/features/conversation/ndjson';
 import {
@@ -91,6 +92,8 @@ interface Health {
 
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
 const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'system'];
+
+const NO_IMAGES: PendingImage[] = [];
 
 /** Sent when the user draws and hits send without typing anything. */
 const SKETCH_ONLY_INSTRUCTION = 'I drew the attached sketch. Read it as my instruction: say what you understand it to mean, then answer it against this repository.';
@@ -857,6 +860,64 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pendingReportChips = pendingReportIds.map((id) => ({
     id, label: pendingReportLabel(id, reports.reports.find((report) => report.id === id)),
   }));
+  // Images for each session's next message. Browser memory only: they are too large for the device
+  // record, so a reload drops them.
+  const [pendingImagesBySession, setPendingImagesBySession] = useState<Record<string, PendingImage[]>>({});
+  const pendingImagesRef = useRef<Record<string, PendingImage[]>>({});
+  const pendingImages = (sessionId && pendingImagesBySession[sessionId]) || NO_IMAGES;
+  const updatePendingImages = useCallback((targetSessionId: string, update: (current: PendingImage[]) => PendingImage[]) => {
+    const { [targetSessionId]: current = NO_IMAGES, ...others } = pendingImagesRef.current;
+    const images = update(current);
+    if (images === current) return;
+    const next = images.length ? { ...others, [targetSessionId]: images } : others;
+    pendingImagesRef.current = next;
+    setPendingImagesBySession(next);
+  }, []);
+  /** Pasted or dropped files wait, prepared, in the session that was focused when they arrived. */
+  const addImages = useCallback(async (files: File[]) => {
+    const targetSessionId = focusedSessionIdRef.current;
+    if (!targetSessionId) return;
+    supersede('attach-image');
+    const images = files.filter((file) => file.type.startsWith('image/'));
+    if (images.length < files.length) notify({ key: 'attach-image', tone: 'warning', message: 'Only images can be attached here.' });
+    const refuseIfFull = () => {
+      if ((pendingImagesRef.current[targetSessionId] ?? NO_IMAGES).length < MAX_IMAGES_PER_MESSAGE) return false;
+      notify({ key: 'attach-image', tone: 'warning', message: `A message carries at most ${MAX_IMAGES_PER_MESSAGE} images. Remove one to attach another.` });
+      return true;
+    };
+    for (const file of images) {
+      // Counted before preparing, which is work, and again after: another paste may have taken the
+      // last place meanwhile.
+      if (refuseIfFull()) return;
+      try {
+        const image = { id: createUuid(), ...await prepareImage(file) };
+        if (refuseIfFull()) return;
+        updatePendingImages(targetSessionId, (current) => [...current, image]);
+      } catch (error) {
+        notifyError(error, 'That image could not be read.', 'attach-image');
+      }
+    }
+  }, [notify, notifyError, supersede, updatePendingImages]);
+  const removeImage = useCallback((id: string) => {
+    const targetSessionId = focusedSessionIdRef.current;
+    if (targetSessionId) updatePendingImages(targetSessionId, (current) => current.filter((image) => image.id !== id));
+  }, [updatePendingImages]);
+  // A file dropped anywhere but on the composer is refused, open conversation or not: the browser
+  // would replace CodeAI with the file, and the images waiting here with it. The composer's own
+  // handlers run first, from React's root, and have cancelled theirs.
+  useEffect(() => {
+    const refuse = (event: DragEvent) => {
+      if (!carriesFiles(event.dataTransfer) || event.defaultPrevented) return;
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = 'none';
+    };
+    window.addEventListener('dragover', refuse);
+    window.addEventListener('drop', refuse);
+    return () => {
+      window.removeEventListener('dragover', refuse);
+      window.removeEventListener('drop', refuse);
+    };
+  }, []);
   /** A deliberate capture waits in exactly its capture-time session's next message, wherever the user is now. */
   const placeCapturedReport = useCallback((summary: ImmersiveReportSummary): ImmersiveReportPlacement => {
     void reports.refresh();
@@ -1051,16 +1112,24 @@ export function AppShell({ children }: { children: ReactNode }) {
     setComposer((current) => current.trim() ? `${current.trimEnd()}\n\n${text}` : text);
     if (handoffMode && sessionId) mutateSession(sessionId, (current) => ({ ...current, defaultMode: handoffMode }));
   }, [mutateSession, selectAgent, sessionId]);
-  /** Retry carries a message's reports along with its text; canvas attachments stay as they are. */
-  const retryMessage = useCallback((participantId: string, text: string, retryMode: AgentMode | undefined, reportIds: readonly string[]) => {
+  /**
+   * Retry carries a message's reports along with its text; canvas attachments stay as they are. Its
+   * images were that turn's alone, so unless the composer still holds some, it says to attach them again.
+   */
+  const retryMessage = useCallback((participantId: string, text: string, retryMode: AgentMode | undefined, reportIds: readonly string[], imageCount = 0) => {
     prefillHandoff(participantId, text, retryMode);
+    if (imageCount && sessionId && !pendingImagesRef.current[sessionId]?.length) {
+      notify({ tone: 'info', message: imageCount === 1
+        ? 'That message carried an image, which is not kept after its turn. Attach it again to include it.'
+        : `That message carried ${imageCount} images, which are not kept after their turn. Attach them again to include them.` });
+    }
     if (!reportIds.length) return;
     const pending = reportIds.reduce(withPendingReport, pendingReportIds);
     setPendingReportIds(() => pending);
     if (reportIds.some((id) => !pending.includes(id))) {
       notify({ tone: 'warning', message: `A message carries at most ${MAX_REPORTS_PER_MESSAGE} reports. Remove one to attach the rest of the retried message's reports.` });
     }
-  }, [pendingReportIds, prefillHandoff, setPendingReportIds]);
+  }, [notify, pendingReportIds, prefillHandoff, sessionId, setPendingReportIds]);
 
   const focusedPermissionTargets: PermissionTarget[] = (focusedRun?.runId ? permissions.map((request) => ({
     ...request, runId: focusedRun.runId!,
@@ -1219,12 +1288,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       const canvas = findCanvasTarget(session, id);
       return canvas ? [canvas] : [];
     });
-    // Reports belong to the composed draft; an Execute plan or Continue turn does not carry them.
+    // Reports and images belong to the composed draft; an Execute plan or Continue turn does not carry them.
     const sentReportIds = override ? [] : pendingReportIds;
-    // A sketch or a report is itself the instruction, so an empty composer still makes a valid turn.
+    const sentImages = override ? NO_IMAGES : pendingImagesRef.current[session.id] ?? NO_IMAGES;
+    // A sketch, a report, or an image is itself the instruction, so an empty composer still makes a valid turn.
     const typed = (override?.text ?? composer).trim();
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION
-      : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : '');
+      : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : sentImages.length ? IMAGE_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
     const turnProviderHealth = executionProviders?.[turnAgent.provider];
@@ -1313,6 +1383,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           compositeIncluded: Boolean(item.compositePngDataUrl),
         })),
         ...(reportRecords.length && reportRecords.length === sentReportIds.length ? { reportAttachments: reportRecords } : {}),
+        ...(sentImages.length ? { imageAttachments: sentImages.map(({ mediaType, bytes }) => ({ mediaType, bytes })) } : {}),
         mode: turnMode,
       };
       const activeAtSend = session.activeDiagramId;
@@ -1353,6 +1424,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             text,
             diagramAttachments: attachmentPayload,
             reportAttachments: sentReportIds.map((reportId) => ({ reportId })),
+            // Named only when there are some, so an executor on an older CodeAI still takes every other message.
+            ...(sentImages.length ? { imageAttachments: sentImages.map(({ dataUrl }) => ({ dataUrl })) } : {}),
             mode: turnMode,
             ...turnModel,
           }),
@@ -1379,6 +1452,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             { ...current, composer: current.composer === composer ? '' : current.composer },
             (current.pendingReportIds ?? []).filter((id) => !sentReportIds.includes(id)),
           ));
+          if (sentImages.length) updatePendingImages(session.id, (current) => current.filter((image) => !sentImages.includes(image)));
         }
       } catch (error) {
         const cancelled = controller.signal.aborted;
@@ -1411,7 +1485,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
-  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updateRun, view?.modelSelections, preferences, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
@@ -1904,7 +1978,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 const message = session?.messages.findLast((item) => item.role === 'user');
                 if (message?.role === 'user') {
                   retryMessage(message.addressedParticipantId, message.text, message.mode,
-                    message.reportAttachments?.map((report) => report.reportId) || []);
+                    message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length);
                 }
               },
               onReturn: immersiveReturnChoice ? returnFromImmersiveAttention : undefined,
@@ -1937,10 +2011,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               attachments: [...attachedCanvases.map((canvas) => {
                 const id = canvasTargetId(canvas);
                 return `${canvas.kind === 'diagram' ? `Diagram ${canvas.artifact.ordinal}` : 'Sketch'} · ${session.annotations[id]?.marks.length || 0} marks`;
-              }), ...pendingReportChips.map((report) => report.label)],
+              }), ...pendingReportChips.map((report) => report.label), ...pendingImages.map((_, index) => `Image ${index + 1}`)],
               canSend: !sessionRunning && !participantBusy && !lifecycle.busy && Boolean(activeAgent && providerHealth?.available)
                 && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
-                && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch') || pendingReportIds.length > 0),
+                && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch') || pendingReportIds.length > 0
+                  || pendingImages.length > 0),
               sendBlocked: session.repositories.some((repository) => repository.role === 'primary')
                 ? undefined : 'To send, attach a repository in Session tools.',
               running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
@@ -2219,9 +2294,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               onModelSelectionChange={setModelSelection}
               attached={attachedCanvases}
               reports={pendingReportChips}
+              images={pendingImages}
               markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), session.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
               onSelectDiagram={selectShownDiagram}
-              onRetry={(text, participantId, retryMode, reportIds) => retryMessage(participantId, text, retryMode, reportIds)}
+              onRetry={(text, participantId, retryMode, reportIds, imageCount) => retryMessage(participantId, text, retryMode, reportIds, imageCount)}
               onComposer={setComposer}
               onModeChange={setMode}
               onSelectAgent={selectAgent}
@@ -2232,6 +2308,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               onCancel={() => void cancelRun()}
               onRemoveAttachment={removeAttachment}
               onRemoveReport={removeReport}
+              onAddImages={(files) => void addImages(files)}
+              onRemoveImage={removeImage}
               onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
               onExecutePlan={executePlan}
               onToggleAttachment={toggleAttachment}

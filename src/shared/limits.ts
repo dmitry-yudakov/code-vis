@@ -17,6 +17,14 @@ export const MODEL_EFFORT_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 export const MAX_REPORTS_PER_MESSAGE = 4;
 export const MAX_SESSION_REPORT_EVIDENCE_BYTES = 64 * 1024 * 1024;
 
+/**
+ * Images one message may carry, and the bytes of each once the browser has prepared it. Four of
+ * them at the bound take about 4.2 MB of the message route's 6 MB once base64-encoded, leaving about
+ * 1.8 MB for canvas attachments: a message beyond that is refused whole, and its draft is kept.
+ */
+export const MAX_IMAGES_PER_MESSAGE = 4;
+export const MAX_IMAGE_BYTES = 768 * 1024;
+
 export const DEFAULT_TRANSCRIPT_DELTA_MESSAGES = 40;
 export const DEFAULT_TRANSCRIPT_DELTA_BYTES = 24_000;
 

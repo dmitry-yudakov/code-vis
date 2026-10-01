@@ -57,6 +57,14 @@ describe('Docker protocol transport lifecycle', () => {
     expect(worker.stop).toHaveBeenCalledOnce();
   });
 
+  it('gives Codex the context directory\'s JPEG images as well as its PNG ones, and nothing else', async () => {
+    const { runner, input } = await fixture();
+    await writeFile(path.join(input.attachmentDirectory, 'image-1.jpg'), 'synthetic-image');
+    await writeFile(path.join(input.attachmentDirectory, 'image-attachments.json'), '[]');
+    await runner.run(input);
+    expect([...mocks.options.mock.lastCall![0].imagePaths].sort()).toEqual(['/context/canvas.png', '/context/image-1.jpg']);
+  });
+
   it('gives the worker runner the same chosen model and effort, and neither under Default', async () => {
     const { runner, input } = await fixture();
     await runner.run({ ...input, model: 'gpt-5.5', effort: 'high' });

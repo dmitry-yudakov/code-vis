@@ -109,9 +109,10 @@ export interface DurableSession {
   /**
    * Version 5 is version 4 plus report evidence on user messages; version 6 is version 5 plus Auto
    * messages. Each is written only by the first message that needs it. Version 7 is version 6 plus
-   * `instructions`, and only a session created with that choice is written at it.
+   * `instructions`, and only a session created with that choice is written at it. Version 8 is
+   * version 7 plus images on user messages, written by the first message that carries one.
    */
-  version: 3 | 4 | 5 | 6 | 7;
+  version: 3 | 4 | 5 | 6 | 7 | 8;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   /** Fixed at creation and held only by a version 7 session. Absent: each turn follows the machine's switch. */
@@ -357,6 +358,22 @@ export interface ReportAttachmentRequest {
   reportId: string;
 }
 
+export type ImageMediaType = 'image/png' | 'image/jpeg';
+
+/** An image the user pasted or dropped into the composer, as the browser prepared it: a PNG or JPEG data URL. */
+export interface ImageAttachmentRequest {
+  dataUrl: string;
+}
+
+/**
+ * An image carried by a user message. Metadata only: the bytes existed in that turn's run
+ * directory and are kept nowhere.
+ */
+export interface ImageAttachmentRecord {
+  mediaType: ImageMediaType;
+  bytes: number;
+}
+
 export type EvidenceStatus =
   | 'observed'
   | 'inferred'
@@ -416,6 +433,8 @@ export interface UserMessage {
   diagramAttachments: DiagramAttachmentRecord[];
   /** Present only on messages that carried reports, which only a version 5 session holds. */
   reportAttachments?: ReportAttachmentRecord[];
+  /** Present only on messages that carried images, which only a version 8 session holds. */
+  imageAttachments?: ImageAttachmentRecord[];
   mode?: AgentMode;
 }
 
@@ -443,7 +462,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7;
+  version: 3 | 4 | 5 | 6 | 7 | 8;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   instructions?: GlobalInstructionsChoice;
@@ -615,6 +634,8 @@ export interface AgentMessageRequest {
   diagramAttachments: DiagramMessageAttachment[];
   /** CodeAI reports for a self-project session; the protocol parser defaults absence to `[]`. */
   reportAttachments?: ReportAttachmentRequest[];
+  /** Pasted or dropped images for this turn only; the protocol parser defaults absence to `[]`. */
+  imageAttachments?: ImageAttachmentRequest[];
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;
   /** Omitted means Default. Must be an `id` in the addressed provider's `models`, or 400. */

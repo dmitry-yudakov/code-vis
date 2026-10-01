@@ -1,6 +1,9 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { CanvasKind, DiagramMessageAttachment } from '@/shared/types';
+import type {
+  CanvasKind, DiagramMessageAttachment, ImageAttachmentRecord, ImageAttachmentRequest, ImageMediaType,
+} from '@/shared/types';
+import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from '@/shared/limits';
 import { validateMermaidSource } from '@/features/diagram/mermaid/mermaidPolicy';
 
 const RUN_DIRECTORY_PREFIX = 'code-ai-run-';
@@ -92,5 +95,72 @@ export async function writeDiagramAttachments(
     manifest.push(record);
   }
   await writeFile(path.join(directory, 'diagram-attachments.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+  return manifest;
+}
+
+const IMAGE_FORMATS: Record<ImageMediaType, { header: string; extension: string; framed(bytes: Buffer): boolean }> = {
+  'image/png': {
+    header: 'data:image/png;base64',
+    extension: 'png',
+    // The signature, and the IEND chunk every complete PNG closes with.
+    framed: (bytes) => bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+      && bytes.subarray(-8).toString('hex') === '49454e44ae426082',
+  },
+  'image/jpeg': {
+    header: 'data:image/jpeg;base64',
+    extension: 'jpg',
+    // The start-of-image and end-of-image markers.
+    framed: (bytes) => bytes.subarray(0, 3).toString('hex') === 'ffd8ff' && bytes.subarray(-2).toString('hex') === 'ffd9',
+  },
+};
+const IMAGE_MEDIA_TYPES = Object.keys(IMAGE_FORMATS) as ImageMediaType[];
+
+export interface DecodedImageAttachment {
+  record: ImageAttachmentRecord;
+  bytes: Buffer;
+}
+
+/**
+ * Decodes a message's images, or throws what the user should read. Each must be within the byte
+ * bound and framed as the PNG or JPEG its data URL declares: it opens with that format's signature
+ * and closes with its end marker. That catches a mislabelled or cut-short image, not a damaged one
+ * inside; the browser drew it, and the provider decodes it.
+ */
+export function decodeImageAttachments(attachments: readonly ImageAttachmentRequest[]): DecodedImageAttachment[] {
+  if (attachments.length > MAX_IMAGES_PER_MESSAGE) {
+    throw new Error(`At most ${MAX_IMAGES_PER_MESSAGE} images may be attached to a message.`);
+  }
+  return attachments.map(({ dataUrl }) => {
+    const separator = dataUrl.indexOf(',');
+    const header = dataUrl.slice(0, Math.max(0, separator));
+    const mediaType = IMAGE_MEDIA_TYPES.find((type) => IMAGE_FORMATS[type].header === header);
+    if (!mediaType) throw new Error('An attached image is not a PNG or JPEG.');
+    const encoded = dataUrl.slice(separator + 1);
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error('An attached image is malformed.');
+    const bytes = Buffer.from(encoded, 'base64');
+    if (bytes.length > MAX_IMAGE_BYTES) throw new Error(`An attached image is larger than ${MAX_IMAGE_BYTES / 1024} KB.`);
+    if (!IMAGE_FORMATS[mediaType].framed(bytes)) throw new Error('An attached image is malformed.');
+    return { record: { mediaType, bytes: bytes.length }, bytes };
+  });
+}
+
+export interface ImageManifestRecord extends ImageAttachmentRecord {
+  imageFile: string;
+}
+
+/** Writes a message's images into the per-run directory beside a manifest, checking them again. */
+export async function writeImageAttachments(
+  directory: string,
+  attachments: readonly ImageAttachmentRequest[],
+): Promise<ImageManifestRecord[]> {
+  if (!attachments.length) return [];
+  const manifest: ImageManifestRecord[] = [];
+  for (const [index, image] of decodeImageAttachments(attachments).entries()) {
+    const imageFile = `image-${index + 1}.${IMAGE_FORMATS[image.record.mediaType].extension}`;
+    // `directory` is a per-run directory, never a repository path; no build tracing is needed.
+    await writeFile(path.join(/* turbopackIgnore: true */ directory, imageFile), image.bytes, { mode: 0o600 });
+    manifest.push({ imageFile, ...image.record });
+  }
+  await writeFile(path.join(directory, 'image-attachments.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   return manifest;
 }

@@ -987,6 +987,8 @@ environment of whoever starts CodeAI.**
 - CodeAI reports attached to a message are the one kind of evidence kept outside the record:
   `<data directory>/attachments/<session id>/reports/`, user-only, referenced by bounded metadata in
   the message. The pending reports for a session's next message are device state, like its draft.
+- An image pasted or dropped into a message is kept nowhere: it exists in that turn's run directory
+  and is removed with it. The message records only each image's type and size.
 - Export includes the roster and expanded author/provider/role metadata for every entry, plus
   diagram/mark state, without provider session ids, credentials, or server paths.
 
@@ -1043,6 +1045,15 @@ their thumbnails, toggles each one's chip, and leads to **All history…** and *
 **Mode** picker beside it chooses Ask, Plan, Agent, or Auto where the provider offers it, and the line under the composer names where
 the turn runs, **Local** or **Docker**, followed by the mode's hint. Composite failure is
 non-fatal.
+
+Paste an image into the composer, or drop one on it, to show the agent a screenshot. Nothing is put
+into the text: the image becomes a chip with its thumbnail, up to four per message, and an image
+alone is enough to send. A file dropped elsewhere on the page is refused rather than opened in
+place of CodeAI. The browser draws each image again before it is sent, as a PNG or JPEG of
+at most 2048 px and 768 KB, so nothing of the original file but its pixels leaves the device. A
+paste that also holds plain text, such as a copied spreadsheet range, stays a text paste. The image
+belongs to that one turn: the conversation states `1 image attached`, and the picture itself is not
+kept, so a reload drops images still waiting in the composer and Retry asks for them again.
 
 A single valid result derived from the still-active attachment becomes active automatically and
 leaves **Previous version** one action away. Navigation during a run suppresses auto-activation.
@@ -1119,6 +1130,9 @@ over-capable provider is reported without making a healthy provider unusable.
 - Ink does not snap to Mermaid elements and is not geometrically transferred to a revised diagram.
 - A sketch is a fixed-size sheet the agent can read but not draw on; it never becomes a diagram
   artifact, and the agent answers with prose or a new Mermaid diagram instead.
+- A pasted or dropped image is sent once and not kept: the conversation does not show it again, it
+  cannot be opened on the canvas or drawn over, and a later turn does not see it unless the
+  provider's own session remembers it.
 - Mermaid subgraphs cannot be generically collapsed; large diagrams use pan/zoom/fit and agent revision.
 - Agent and Auto work directly in the checked-out tree: no worktree isolation, no apply/discard
   checkpoints, and no policy on pre-existing uncommitted changes. Review with `git`.

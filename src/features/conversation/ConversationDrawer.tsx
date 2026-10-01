@@ -9,6 +9,7 @@ import type {
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
 import { InstructionComposer, type PendingReportChip } from './InstructionComposer';
+import type { PendingImage } from './imageAttachments';
 import { recentCanvases } from './recentCanvases';
 import { PermissionCard } from '@/features/agents/PermissionCard';
 import { ParticipantControls } from '@/features/agents/ParticipantControls';
@@ -16,8 +17,9 @@ import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
-  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, markCounts, onSelectDiagram, onRetry,
-  onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport, onDecidePermission, onExecutePlan,
+  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, markCounts, onSelectDiagram, onRetry,
+  onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
+  onAddImages, onRemoveImage, onDecidePermission, onExecutePlan,
   continuing, continuationUnavailable, instructions, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
@@ -46,9 +48,10 @@ export function ConversationDrawer({
   modelSelection: ModelSelection;
   attached: CanvasTarget[];
   reports: PendingReportChip[];
+  images: PendingImage[];
   markCounts: Record<string, number>;
   onSelectDiagram(id: string): void;
-  onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[]): void;
+  onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number): void;
   onComposer(value: string): void;
   onModeChange(mode: AgentMode): void;
   onModelSelectionChange(selection: ModelSelection): void;
@@ -60,6 +63,8 @@ export function ConversationDrawer({
   onCancel(): void;
   onRemoveAttachment(id: string): void;
   onRemoveReport(id: string): void;
+  onAddImages(files: File[]): void;
+  onRemoveImage(id: string): void;
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
   onExecutePlan(participantId: string): void;
   onContinue(): void;
@@ -153,6 +158,7 @@ export function ConversationDrawer({
           autoFocus
           attached={attached}
           reports={reports}
+          images={images}
           activeDiagramId={session?.activeDiagramId}
           markCounts={markCounts}
           mode={mode}
@@ -169,6 +175,8 @@ export function ConversationDrawer({
           onCancel={onCancel}
           onRemoveAttachment={onRemoveAttachment}
           onRemoveReport={onRemoveReport}
+          onAddImages={onAddImages}
+          onRemoveImage={onRemoveImage}
           onToggleAttachment={onToggleAttachment}
           onOpenHistory={onOpenHistory}
           onNewSketch={onNewSketch}

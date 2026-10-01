@@ -50,7 +50,9 @@ export class DockerProcessRunner implements AgentProcessRunner {
       const runner = this.provider === 'claude'
         ? new ClaudeProcessRunner({ ...common, binary: '/usr/local/bin/claude', model: this.config.claudeModel })
         : new CodexProcessRunner({ ...common, binary: '/usr/local/bin/codex', model: this.config.codexModel,
-          imagePaths: (await readdir(context)).filter((name) => name.endsWith('.png')).map((name) => `/context/${name}`) });
+          // The same files local Codex receives: canvas composites (PNG), report screenshots (JPEG), and a
+          // message's images (PNG or JPEG), each validated and bounded when written.
+          imagePaths: (await readdir(context)).filter((name) => /\.(png|jpg)$/.test(name)).map((name) => `/context/${name}`) });
       return await runner.run(translated);
     } catch (error) {
       if (error instanceof DockerTerminationError) await finishStopping(error.stop);

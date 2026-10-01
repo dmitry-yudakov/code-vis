@@ -2,6 +2,7 @@ import type { ChatMessage, SessionSnapshot } from '@/shared/types';
 import type { ImmersiveTranscriptEntry } from './immersiveTypes';
 import { dpToWorld } from '@/features/shell/immersive/immersiveTheme';
 import { reportAttachmentSummary } from '@/features/reports/reportModel';
+import { imageAttachmentSummary } from '@/features/conversation/imageAttachments';
 
 // History layout and rasterization share text geometry.
 const IMMERSIVE_TEXT_PIXELS_PER_METER = 1_000;
@@ -57,7 +58,8 @@ function attachmentSummary(message: Extract<ChatMessage, { role: 'user' }>): str
   const canvases = summaries.length ? `\n\nAttachments: ${summaries.join(', ')}.` : '';
   // The same statement the flat transcript makes.
   const reports = message.reportAttachments?.length ? `\n\n${reportAttachmentSummary(message.reportAttachments)}.` : '';
-  return `${canvases}${reports}`;
+  const images = message.imageAttachments?.length ? `\n\n${imageAttachmentSummary(message.imageAttachments)}.` : '';
+  return `${canvases}${reports}${images}`;
 }
 
 function assistantText(message: Extract<ChatMessage, { role: 'assistant' }>): string {

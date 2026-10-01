@@ -92,6 +92,10 @@ Updated 2026-09-30. When a story ships, change the line that names it; each stor
   (session format 7), and a Docker worker sees an allowlist of the provider folder read-only;
   verified with real Claude turns and a real Docker daemon, and a signed-in Docker Codex turn and a
   check in the running app remain pending.
+- **Also in flight:** [Story 81](stories/STORY-20260930-paste-image-into-chat.md) — an image pasted
+  into the composer, or dropped on it, becomes a chip and is sent with the next message for that
+  turn only; the message records its type and size (session format 8). Implemented with automated
+  checks; a real screenshot with real Claude and Codex turns remains pending.
 - **Next:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
   workbench shell epic and written from the template when it starts.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
@@ -150,7 +154,7 @@ git-ignored as Next.js recommends: every dev, build, and e2e run points it at it
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
 | `src/features/arena/` | Host-wide session cards, Inbox derivation, polling, device read state, and the machine's Docker and Global instructions sections |
 | `src/features/devices/` | Personal-device pairing gate and paired-device management UI |
-| `src/features/conversation/` | Transcript, composer, drawer, session selection, public snapshot helpers |
+| `src/features/conversation/` | Transcript, composer, drawer, session selection, public snapshot helpers, and the preparation of pasted or dropped images |
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |
 | `src/features/diagram/mermaid/` | Mermaid validation policy and SVG renderer |
 | `src/features/diagram/annotations/` | Drawing state and composite export |

@@ -359,6 +359,11 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
    which left `wait` meaning two different things in one composer. */
 .attachment-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border: 1px solid var(--plot-line-soft); border-radius: 999px; color: var(--plot-ink-deep); background: var(--plot-wash-soft); font-size: 10px; font-weight: 600; }
 .attachment-chip button { width: 17px; height: 17px; border: 0; border-radius: 50%; color: var(--plot-ink-deep); background: var(--plot-control-wash); line-height: 1; }
+/* An image's chip leads with its thumbnail, so it is a rounded box rather than a pill. */
+.attachment-chip.image { padding-left: 3px; border-radius: 8px; }
+.attachment-chip.image img { width: 40px; height: 28px; border-radius: 5px; object-fit: cover; background: var(--control-wash); }
+/* A file dragged over the composer can be dropped on it. */
+.instruction-composer.drop-target { outline: 2px dashed var(--plot); outline-offset: 2px; }
 .sketch-cta { margin-top: 22px; background: var(--live); box-shadow: var(--shadow); }
 .sketch-cta:hover { background: var(--live-hover); }
 .composer-actions { display: flex; align-items: center; gap: 4px; }

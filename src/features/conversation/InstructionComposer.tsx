@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import { AGENT_MODES } from '@/shared/agentModes';
 import type { AgentExecution, AgentMode, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection } from '@/shared/types';
@@ -10,6 +10,7 @@ import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip, effortLabel, execut
 import { useMenuDismiss } from '@/features/agents/useMenuDismiss';
 import { CanvasThumbnail } from '@/features/diagram/components/CanvasThumbnail';
 import { offeredEfforts, offeredModelSelection } from '@/shared/modelChoices';
+import { carriesFiles, pastedImageFiles, pendingImageDetail, type PendingImage } from './imageAttachments';
 
 // Opening one of the composer's popovers closes the others, which would overlap.
 const MENU_GROUP = 'composer-menu';
@@ -301,9 +302,9 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  value, running, cancelReady = true, turnBlocked, autoFocus, attached, reports = [], activeDiagramId, markCounts, mode, unsupportedModes,
+  value, running, cancelReady = true, turnBlocked, autoFocus, attached, reports = [], images = [], activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
-  onRemoveAttachment, onRemoveReport, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions,
 }: {
   value: string;
@@ -321,6 +322,8 @@ export function InstructionComposer({
   attached: CanvasTarget[];
   /** CodeAI reports for the next message; each is enough to send on its own. */
   reports?: PendingReportChip[];
+  /** Pasted or dropped images for the next message; each is enough to send on its own. */
+  images?: PendingImage[];
   activeDiagramId?: string;
   markCounts: Record<string, number>;
   mode: AgentMode;
@@ -336,6 +339,9 @@ export function InstructionComposer({
   onCancel(): void;
   onRemoveAttachment(id: string): void;
   onRemoveReport?(id: string): void;
+  /** Files pasted into the field, which are all images, or dropped on the composer, which may be anything. */
+  onAddImages?(files: File[]): void;
+  onRemoveImage?(id: string): void;
   /** The same toggle as History's Attach next. */
   onToggleAttachment(id: string): void;
   onOpenHistory(): void;
@@ -344,8 +350,33 @@ export function InstructionComposer({
   onOpenReports?(): void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  // A drawing or a report is an instruction in itself, so such a turn does not need typed text.
-  const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0;
+  const [dropTarget, setDropTarget] = useState(false);
+  // A drawing, a report, or an image is an instruction in itself, so such a turn does not need typed text.
+  const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0;
+  const takesDrop = Boolean(onAddImages) && !running;
+  // A dragged file is always taken here: left to the browser, a drop would replace the page with the file.
+  const dragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!carriesFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = takesDrop ? 'copy' : 'none';
+    setDropTarget(takesDrop);
+  };
+  const dragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(false);
+  };
+  const drop = (event: DragEvent<HTMLDivElement>) => {
+    if (!carriesFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    setDropTarget(false);
+    if (takesDrop) onAddImages?.(Array.from(event.dataTransfer.files));
+  };
+  // An image on the clipboard becomes a chip, and nothing is put into the text.
+  const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = pastedImageFiles(event.clipboardData);
+    if (!files.length || !onAddImages) return;
+    event.preventDefault();
+    onAddImages(files);
+  };
   useEffect(() => { if (autoFocus) ref.current?.focus(); }, [autoFocus]);
   useEffect(() => {
     const field = ref.current;
@@ -355,8 +386,8 @@ export function InstructionComposer({
   }, [value]);
   return (
     <>
-    <div className="instruction-composer">
-      {attached.length + reports.length > 0 && (
+    <div className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
+      {attached.length + reports.length + images.length > 0 && (
         <div className="attachment-chips" aria-label="Attachments">
           {attached.map((canvas) => {
             const id = canvasTargetId(canvas);
@@ -377,6 +408,13 @@ export function InstructionComposer({
               <button type="button" aria-label="Remove report attachment" onClick={() => onRemoveReport?.(report.id)}>×</button>
             </span>
           ))}
+          {images.map((image, index) => (
+            <span className="attachment-chip image" key={image.id}>
+              <img src={image.dataUrl} alt="" />
+              <span>{`Image ${index + 1} · ${pendingImageDetail(image)}`}</span>
+              <button type="button" aria-label={`Remove image ${index + 1}`} onClick={() => onRemoveImage?.(image.id)}>×</button>
+            </span>
+          ))}
         </div>
       )}
       <textarea
@@ -388,8 +426,10 @@ export function InstructionComposer({
         placeholder={attached.some((canvas) => canvas.kind === 'sketch')
           ? 'Describe what you drew, or just send the sketch…'
           : reports.length ? 'Explain what the report shows, or just send it…'
+          : images.length ? 'Say what to do with the image, or just send it…'
           : attached.length ? 'Ask about or revise the attached diagram…' : 'Ask anything about this project…'}
         onChange={(event) => onChange(event.target.value)}
+        onPaste={paste}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();

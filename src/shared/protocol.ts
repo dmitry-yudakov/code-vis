@@ -35,6 +35,14 @@ export const diagramAttachmentSchema = z.object({
   }
 });
 
+/**
+ * A pasted or dropped image as the browser prepared it. Shape only: the message route checks its
+ * type, size, and bytes, and answers with what is wrong.
+ */
+export const imageAttachmentSchema = z.object({
+  dataUrl: z.string().startsWith('data:image/').max(6_000_000),
+}).strict();
+
 export const agentModeSchema = z.enum(AGENT_MODES);
 export const agentProviderSchema = z.enum(['claude', 'codex']);
 export const agentRoleSchema = z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']);
@@ -52,6 +60,8 @@ export const agentMessageRequestSchema = z.object({
   diagramAttachments: z.array(diagramAttachmentSchema),
   // Only the id crosses the wire. The route enforces the per-message count with a clear message.
   reportAttachments: z.array(z.object({ reportId: z.string().regex(IMMERSIVE_REPORT_ID) }).strict()).max(32).default([]),
+  // The route enforces the per-message count and each image's bounds with a clear message.
+  imageAttachments: z.array(imageAttachmentSchema).max(32).default([]),
   mode: agentModeSchema.optional(),
   model: agentModelIdSchema.optional(),
   effort: agentEffortSchema.optional(),

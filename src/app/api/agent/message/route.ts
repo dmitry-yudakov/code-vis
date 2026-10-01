@@ -23,7 +23,10 @@ import { resolveSelfProject } from '@/server/repository/selfProject';
 import {
   promoteReportEvidence, promotedReportBytes, reportCopyBytes, resolveReportEvidence, type ResolvedReportEvidence,
 } from '@/server/storage/reportEvidence';
-import type { CanvasKind, DiagramArtifact, DurableSession, SketchCanvas, UserMessage } from '@/shared/types';
+import { decodeImageAttachments } from '@/server/storage/tempAttachments';
+import type {
+  CanvasKind, DiagramArtifact, DurableSession, ImageAttachmentRecord, SketchCanvas, UserMessage,
+} from '@/shared/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,6 +53,13 @@ export async function POST(request: Request): Promise<Response> {
   const reportIds = parsed.data.reportAttachments.map((item) => item.reportId);
   if (reportIds.length > MAX_REPORTS_PER_MESSAGE || new Set(reportIds).size !== reportIds.length) {
     return safeJsonResponse({ error: `At most ${MAX_REPORTS_PER_MESSAGE} different CodeAI reports may be attached.` }, { status: 400 });
+  }
+  // Images are checked whole before anything is reserved or stored; the message keeps only what they were.
+  let imageRecords: ImageAttachmentRecord[];
+  try {
+    imageRecords = decodeImageAttachments(parsed.data.imageAttachments).map((image) => image.record);
+  } catch (error) {
+    return safeJsonResponse({ error: publicError(error) }, { status: 400 });
   }
   const store = getSessionStore(config.dataDir, config.hostLabel);
   let session: DurableSession;
@@ -119,7 +129,8 @@ export async function POST(request: Request): Promise<Response> {
       && priorRequest.text === parsed.data.text
       && (priorRequest.mode || 'ask') === mode
       && JSON.stringify(priorRequest.diagramAttachments) === JSON.stringify(messageAttachments)
-      && JSON.stringify(priorRequest.reportAttachments?.map((item) => item.reportId) ?? []) === JSON.stringify(reportIds);
+      && JSON.stringify(priorRequest.reportAttachments?.map((item) => item.reportId) ?? []) === JSON.stringify(reportIds)
+      && JSON.stringify(priorRequest.imageAttachments ?? []) === JSON.stringify(imageRecords);
     return safeJsonResponse({
       error: sameRequest
         ? 'This message request was already accepted. Reload the session to see its durable state.'
@@ -235,6 +246,7 @@ export async function POST(request: Request): Promise<Response> {
     status: 'sending',
     diagramAttachments: messageAttachments,
     ...(reportEvidence.length ? { reportAttachments: reportEvidence.map((item) => item.record) } : {}),
+    ...(imageRecords.length ? { imageAttachments: imageRecords } : {}),
     mode,
   };
   // Evidence is written before the message that points at it, so no message references a missing file.
