@@ -106,6 +106,10 @@ Updated 2026-10-01. When a story ships, change the line that names it; each stor
   Guarded remains the default. Real-provider probes, automated checks, and review passed. Claude
   Ask/Plan use tightened noninteractive permissions and user-only settings, and Native messages use
   session format 9. The first story of the [security levels epic](stories/EPIC-20261001-security-levels.md).
+- **Shipped:** [Story 83](stories/STORY-20261001-turn-checkpoints.md) — writing turns save a private
+  eligible-file checkpoint on the executing machine, and desktop/VR share explicit checkout Undo;
+  failure/concurrency tests, production-browser checks and review passed. Recovery currently
+  requires Linux; Git history/index, ignored/private files and external effects are excluded.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
@@ -217,7 +221,8 @@ importing file's own directory; keep `./…` for same-directory siblings.
   Auto is refused while the data directory is inside the checkout or a temp directory.
   Optional Docker execution (Story 57, release verification pending) uses a pinned non-root worker:
   Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
-  separate working copy or rollback. New Docker participants share a persistent provider home per
+  separate working copy. Writing turns save bounded eligible-file checkpoints on the executing host,
+  outside worker mounts; explicit Undo refuses newer changes and changed Git HEAD/index. New Docker participants share a persistent provider home per
   installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host
   storage; see [the Docker execution contract](docs/docker-execution.md). The one exception
   (Story 80): a Docker turn whose Global instructions choice is on binds a fixed allowlist of the
@@ -242,7 +247,9 @@ importing file's own directory; keep `./…` for same-directory siblings.
   Codex still disables `request_permissions_tool` and `exec_permission_approvals`, because CodeAI
   handles one approval at a time. Native Agent, Accept edits (Claude), Auto, and Full access take
   exclusive checkout access and the build budget. Full access reaches everything the desktop user
-  can reach; there is no checkpoint or undo. CodeAI never reads provider credentials itself.
+  can reach, including checkpoint storage. Undo covers eligible checkout files only; it never
+  restores private/ignored files, Git history/index, external actions or writes elsewhere.
+  CodeAI never reads provider credentials itself.
   Ask and Plan keep Guarded isolation at both levels: Local Claude uses noninteractive default
   permissions and user-only setting sources, so planted project rules cannot grant shell writes.
   Docker keeps its existing profile and customization allowlist. Pairing, exact HTTPS origins,

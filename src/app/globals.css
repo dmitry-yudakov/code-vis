@@ -918,3 +918,18 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition-duration: .01ms !important; }
 }
+/* Recovery belongs to the writing instruction and uses the conversation's theme tokens. */
+.turn-checkpoint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.turn-checkpoint span { flex: 1 1 180px; }
+.turn-checkpoint button { padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); font: inherit; cursor: pointer; }
+.turn-checkpoint button:disabled { cursor: default; opacity: 0.5; }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, readSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
@@ -122,6 +122,20 @@ else if (mode === 'unterminated') {
   // One event that never ends, from a process that stays alive.
   writeOut(`{"type":"stream_event","padding":"${'x'.repeat(1_100_000)}`);
   setTimeout(() => process.exit(0), 30_000);
+}
+else if (mode === 'checkpoint' && streamingInput) {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  emit({ type: 'control_request', request_id: 'checkpoint-edit', request: {
+    subtype: 'can_use_tool', tool_name: 'Edit', input: { file_path: path.join(process.cwd(), 'a.txt'), old_string: 'human work', new_string: 'provider edit' },
+  } });
+  const control = readJsonLine();
+  if (control.response?.response?.behavior === 'allow') {
+    writeFileSync('a.txt', 'provider edit');
+    rmSync('local.txt', { force: true });
+    writeFileSync('new.txt', 'provider new');
+    writeFileSync('.env.local', 'synthetic private later');
+  }
+  emit({ type: 'result', subtype: 'success', result: 'Checkpoint fixture finished.', session_id: sessionId });
 }
 else if (streamingInput) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });

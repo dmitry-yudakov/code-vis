@@ -12,6 +12,7 @@ import { useTextureResource } from './useTextureResource';
 import { launchChoice, launchModes } from '@/features/shell/devicePreferences';
 import type { LaunchMode } from '@/shared/agentModes';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
+import { CHECKPOINT_SCOPE } from '@/shared/turnCheckpoint';
 
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
 
@@ -137,6 +138,10 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
     controls.needsRepository ? `Primary repository required before sending.\nRepository: ${checkout?.name || 'No checkout available'}` : '',
     confirmRevoke ? 'Forget this device? Private content will close. A new pairing code will be required.' : '',
     confirmArchive ? `Archive “${controls.sessionTitle}”? You can restore it from the Arena’s Archived list.` : '',
+    controls.recovery?.error || (controls.recovery?.confirming ? CHECKPOINT_SCOPE
+      : controls.recovery?.checkpoint?.state === 'ready'
+        ? `Undo this turn: ${controls.recovery.checkpoint.changedFiles} file(s). Expires ${controls.recovery.checkpoint.expiresAt.slice(0, 10)}. ${CHECKPOINT_SCOPE}`
+        : controls.recovery?.checkpoint?.reason) || '',
   ].filter(Boolean).join('\n\n');
   // A screenshot preview takes the right side of the details, so the text wraps beside it.
   const preview = tab === 'reports' && report?.screenshot && reportControls
@@ -204,6 +209,9 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
         void controls.onAttach(checkout.id).finally(() => { busyRef.current = false; setBusy(false); });
       } else if (action === 'cancel' && controls.canCancel) controls.onCancel();
       else if (action === 'retry' && controls.canRetry) controls.onRetry();
+      else if (action === 'undo') { controls.recovery?.onAsk(); setPage(0); }
+      else if (action === 'confirm-undo') controls.recovery?.onConfirm();
+      else if (action === 'keep-changes') controls.recovery?.onDismiss();
       else if (action === 'archive' && controls.canArchive) { setConfirmArchive(true); setConfirmRevoke(false); setPage(0); }
       else if (action === 'confirm-archive' && confirmArchive && controls.canArchive) {
         busyRef.current = true; setBusy(true); setConfirmArchive(false);
@@ -221,7 +229,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
     iconTheme={theme} position={[x, y, 0]} disabled={!enabled || busy || disabled}
     variant={action === 'allow' || action === 'create' ? 'primary'
       : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' || action === 'confirm-build-restart'
-        || action === 'archive' || action === 'confirm-archive' ? 'destructive' : 'secondary'}
+        || action === 'archive' || action === 'confirm-archive' || action === 'confirm-undo' ? 'destructive' : 'secondary'}
     onAction={() => perform(action)} />;
   return <group name="VR session tools" userData={{ tab, text, page: safePage, pageCount, permissionKey: selected && permissionKey(selected), permissionStatus, busy,
     reportId: report?.id, reportPending, codeaiConfirming: Boolean(codeai?.confirming) }}>
@@ -232,7 +240,10 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       previousDisabled={safePage === 0} nextDisabled={safePage >= pageCount - 1}
       onAction={(action) => perform(action.slice('session:'.length) as SessionActionName)} />
     {button('refresh', 0.48, -0.37)}
-    {tab === 'launcher' ? <>
+    {controls.recovery?.confirming && tab === 'home' ? <>
+      {button('confirm-undo', -0.22, -0.56, controls.recovery.busy)}
+      {button('keep-changes', 0.22, -0.56, controls.recovery.busy)}
+    </> : tab === 'launcher' ? <>
       {button('machine', -0.44, -0.56, controls.creating)}{button('project', 0, -0.56, controls.creating)}{button('provider', 0.44, -0.56, controls.creating)}
       {button('mode', -0.44, -0.76, controls.creating)}{button('create', 0, -0.76, !createEnabled)}{button('back', 0.44, -0.76)}
     </> : tab === 'permissions' ? <>
@@ -260,7 +271,8 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       {controls.canArchive ? button(confirmArchive ? 'confirm-archive' : 'archive', 0.44, -0.56)
         : button('cancel', 0.44, -0.56, !controls.canCancel)}
       {controls.needsRepository ? <>{button('checkout', -0.44, -0.76, !checkout)}{button('attach', 0, -0.76, !checkout || !controls.canAttach)}</>
-        : <>{button('retry', -0.44, -0.76, !controls.canRetry)}{button('codeai', 0, -0.76, !reportControls && !codeai)}</>}
+        : <>{controls.recovery?.checkpoint?.state === 'ready' ? button('undo', -0.44, -0.76, controls.recovery.busy)
+          : button('retry', -0.44, -0.76, !controls.canRetry)}{button('codeai', 0, -0.76, !reportControls && !codeai)}</>}
       {button(confirmRevoke ? 'confirm-revoke' : 'revoke', 0.44, -0.76)}
     </>}
   </group>;

@@ -15,13 +15,15 @@ import { PermissionCard } from '@/features/agents/PermissionCard';
 import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
+import { TurnCheckpoint } from './TurnCheckpoint';
+import type { TurnCheckpointControls } from './useTurnCheckpoint';
 
 export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, instructions, securityLevel, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  continuing, continuationUnavailable, instructions, securityLevel, recovery, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
   session?: SessionSnapshot;
@@ -41,6 +43,7 @@ export function ConversationDrawer({
   /** Whether the addressed agent's next turn gets the user's global instructions. */
   instructions?: InstructionsLine;
   securityLevel?: SecurityLevel;
+  recovery?: TurnCheckpointControls;
   sendBlocked?: string;
   status: string;
   composer: string;
@@ -93,6 +96,7 @@ export function ConversationDrawer({
       </header>
       <div className="conversation-scroll">
         {session?.messages.map((message) => (
+          <div key={message.id}>
           <ChatMessage
             key={message.id}
             message={message}
@@ -108,7 +112,10 @@ export function ConversationDrawer({
             onRetry={onRetry}
             onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined}
           />
+          {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
+          </div>
         ))}
+        {recovery?.error && !recovery.checkpoint && <TurnCheckpoint controls={recovery} />}
         {running && toolActivity.length > 0 && (
           <div className="tool-timeline" aria-label="Agent tool activity">
             <span className="tool-timeline-title">Working in the repository</span>

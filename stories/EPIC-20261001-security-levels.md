@@ -98,7 +98,7 @@ it closes the gap Story 79 left open: uncommitted work has no backup.
 | # | Story | Theme | Status | Depends on |
 |---|---|---|---|---|
 | 82 | [native-security-level](STORY-20261001-native-security-level.md) | The level setting, and Native for Local Claude and Codex: their own setup and permission modes, plus Accept edits and Full access | Shipped | 79, 80 |
-| 83 | turn-checkpoints | A checkpoint of the working tree before each turn that can change it, and Undo this turn, at both levels | Planned | — |
+| 83 | [turn-checkpoints](STORY-20261001-turn-checkpoints.md) | A private eligible-file checkpoint before each writing turn and explicit checkout Undo at both levels | Shipped | 82 |
 | 84 | claude-sandboxed-auto | Guarded Auto for Claude ([Story 79](STORY-20260928-sandboxed-auto-mode.md)'s open question 4): the remaining probes, then the policy | Blocked on this machine: `socat` and the AppArmor profile for `bwrap` need `sudo` | 79 |
 
 Story 82 comes first because the user asked for it directly. Story 83 is independent and can run

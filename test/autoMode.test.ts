@@ -122,8 +122,11 @@ describe.sequential('Auto mode on the message route and in session records', () 
       const project = await local.createProject('Project', ['checkout-a']);
       const session = await local.createSession({ provider: 'codex', projectId: project.id });
       const auto = await send(session, 'auto');
-      // Every other mode still runs: they ask before each write, or cannot write at all.
-      expect((await send(session, 'agent')).status).toBe(200);
+      // Story 83 also refuses a writing turn when its recovery storage is inside this checkout.
+      // Outside the checkout, Agent still works with recovery storage under /tmp.
+      const agent = await send(session, 'agent');
+      expect(agent.status).toBe(200);
+      if (directory.startsWith(routeState.checkout + path.sep)) expect(agent.body).toContain('Recovery storage must be outside the checkout');
       await local.close();
       return [auto.status, JSON.parse(auto.body).error];
     };
@@ -134,7 +137,7 @@ describe.sequential('Auto mode on the message route and in session records', () 
     // A checkout outside the temp directories, holding the data directory itself.
     routeState.checkout = await realpath(await mkdtemp(path.join(DATA_ROOT, 'checkout-')));
     expect(await refusal(path.join(routeState.checkout, '.codeai-data'))).toEqual([409, message]);
-    expect(routeState.runs.map((run) => run.mode)).toEqual(['agent', 'agent']);
+    expect(routeState.runs.map((run) => run.mode)).toEqual(['agent']);
   });
 
   it('upgrades a session to version 6 with its first Auto message, and only that session', async () => {

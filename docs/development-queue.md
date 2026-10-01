@@ -39,38 +39,40 @@ feature has shipped. The order is priority, not a new dependency chain.
 
 | Priority | ID | Work | Queue status | Next action |
 |---|---|---|---|---|
-| 1 | Q1 | Story 83 turn checkpoints and undo | Queued | Write the story; the epic currently carries only its scope |
+| 1 | Q1 | [Story 83 turn checkpoints and undo](../stories/STORY-20261001-turn-checkpoints.md) | Done | Verified and reviewed; continue with Q2 |
 | 2 | Q2 | Verify already implemented features | Queued | Run available checks below; record exact access or device gaps |
 | 3 | Q3 | Story 73 title-bar tabs | Queued | Write the story against the implemented Story 72 frame |
 | 4 | Q4 | Story 6 first software-model producer | Queued | Write the story and test identity stability on repeated agent output |
 
 ## Q1 Turn checkpoints and undo
 
-**Why next:** [Story 82](../stories/STORY-20261001-native-security-level.md) shipped Native writing
-modes, while writing turns still edit the real checkout without backing up uncommitted work.
+**Why first:** [Story 82](../stories/STORY-20261001-native-security-level.md) shipped Native writing
+modes, which needed a recovery contract for uncommitted checkout work.
 [The security epic](../stories/EPIC-20261001-security-levels.md#catching-mistakes-without-asking)
-reserves Story 83 for a checkpoint before each writing turn and **Undo this turn**, at both levels.
+defines Story 83's checkpoint before each writing turn and **Undo this turn**, at both levels.
 
-Write the spec before choosing a snapshot mechanism. Resolve staged, unstaged, and untracked file
-handling, ignored/private-file exclusions, Git changes made during a turn, and Local, Docker, and
-executor behavior. Preserve the existing credential and Docker boundaries.
+Story 83 specifies and implements staged, unstaged and untracked file handling, ignored/private-file
+exclusions, Git-change refusal, and Local, Docker and executor behavior. Private, bounded backups
+stay on the executing machine outside the checkout and Docker mounts. Recovery currently requires
+Linux; capture failures prevent writing execution.
 
-The story should establish these completion criteria:
+Completed criteria:
 
-- [ ] A checkpoint is captured before provider execution without changing the user's current work.
-- [ ] Undo preserves pre-existing work and refuses to overwrite newer human edits or another
+- [x] A checkpoint is captured before provider execution without changing the user's current work.
+- [x] Undo preserves pre-existing work and refuses to overwrite newer human edits or another
       session's changes. Capture and restore use the checkout scheduler's access rules.
-- [ ] Failed and cancelled turns have defined recovery behavior; checkpoint failure, process
+- [x] Failed and cancelled turns have defined recovery behavior; checkpoint failure, process
       restart, retention, and storage limits have explicit contracts.
-- [ ] The UI shows when Undo is available and explains its scope: checkout recovery cannot undo
+- [x] The UI shows when Undo is available and explains its scope: checkout recovery cannot undo
       external actions or writes elsewhere under Full access.
-- [ ] Focused failure and concurrency checks, the story's How to verify, and review pass.
+- [x] Focused failure and concurrency checks, the story's How to verify, and review pass.
 
-Start with [runRegistry.ts](../src/server/runs/runRegistry.ts#L90),
-[the message route](../src/app/api/agent/message/route.ts#L215),
-[gitRead.ts](../src/server/repository/gitRead.ts#L14), and the durable
-[session store](../src/server/storage/sessionStore.ts#L270). These are starting anchors, not a
-requirement to put all checkpoint logic in those files.
+**Evidence:** 104 test files / 968 tests, TypeScript and production build passed. The production
+browser journey passed in both themes with a fake provider; desktop screenshots were inspected
+and automated VR controls passed. The review subagent reported no remaining findings after fixes.
+See [Story 83's verification evidence](../stories/STORY-20261001-turn-checkpoints.md#verification-evidence--october-1-2026)
+for scope, failure checks and code anchors. Physical Quest and real-provider runs are additional
+checks, not Story 83's completion gates. Q2 is next.
 
 ## Q2 Verify already implemented features
 

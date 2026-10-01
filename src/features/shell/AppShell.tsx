@@ -43,6 +43,7 @@ import { useRepositoryDiff } from '@/features/repository/useRepositoryDiff';
 import { ReportsPanel } from '@/features/reports/ReportsPanel';
 import { REPORT_ONLY_INSTRUCTION, capturedReportTarget, pendingReportLabel } from '@/features/reports/reportModel';
 import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
+import { useTurnCheckpoint } from '@/features/conversation/useTurnCheckpoint';
 import { CodeAiLifecycleMenu } from '@/features/lifecycle/CodeAiLifecycleMenu';
 import { lifecycleConfirmation } from '@/features/lifecycle/lifecycleFlow';
 import { takeRestartProject, useCodeAiLifecycle } from '@/features/lifecycle/useCodeAiLifecycle';
@@ -291,6 +292,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const focusedRun = sessionId ? runsBySession[sessionId] : undefined;
   const focusedRunOutcome = sessionId ? runOutcomesBySession[sessionId] : undefined;
   const sessionRunning = Boolean(focusedRun) || Boolean(sessionId && preparingSends.includes(sessionId));
+  const recovery = useTurnCheckpoint({ sessionId, revision: session?.revision, running: sessionRunning, apiPath,
+    onRestored: () => { repositoryChanges.refresh(); notify({ tone: 'success', message: 'Checkout files restored. The conversation stays.' }); },
+  });
   const running = Object.keys(runsBySession).length > 0;
   const status = focusedRun?.status || 'Ready for an instruction';
   const preview = focusedRun?.preview || '';
@@ -359,7 +363,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const mode = composerMode(storedMode, unsupportedModes);
   const securityLevel = health?.securityLevel || 'guarded';
   const nativeIsolation = nativeClaudeIsolationIssue({ provider: activeProvider, execution: session?.execution, level: securityLevel, mode, choice: session?.instructions });
-  const composerBlocked = nativeIsolation || (health && (!providerHealth?.available || unsupportedModes.includes(mode))
+  const composerBlocked = (recovery.busy && !sessionRunning ? 'Restoring checkout files. Wait for Undo to finish.' : undefined) || nativeIsolation || (health && (!providerHealth?.available || unsupportedModes.includes(mode))
     ? providerHealth?.message || `${PROVIDER_LABELS[activeProvider]} is unavailable for ${mode} mode. Check provider setup.` : undefined);
   const instructionsChoice = activeAgent && instructionsLine({
     provider: activeAgent.provider, execution: session?.execution, choice: session?.instructions,
@@ -1276,7 +1280,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [mutateSession, refreshSession, setRunOutcome, updateRun, workspace.updateView]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
-    if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id)) return;
+    if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id) || recovery.busy) return;
     if (lifecycle.busy) {
       notify({ key: 'send', tone: 'warning', message: 'CodeAI is building a new release of itself. Send again once it has restarted; your draft is kept.' });
       return;
@@ -1495,7 +1499,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
-  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updateRun, view?.modelSelections, preferences, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, recovery.busy, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
@@ -1957,6 +1961,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
               canArchive: canArchiveSession,
               canRetry: Boolean(session?.messages.some((item) => item.role === 'user') && !sessionRunning),
+              recovery,
               requestedPermissionKey: immersivePermissionRequest
                 && immersivePermissionRequest.machineId === (machineId || localMachineId)
                 && immersivePermissionRequest.sessionId === sessionId ? immersivePermissionRequest.key : undefined,
@@ -2296,6 +2301,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onContinue={() => continueSession(continuationExecution)}
               sendBlocked={composerBlocked}
               securityLevel={securityLevel}
+              recovery={recovery}
               status={sessionRunning ? status : 'Ready for an instruction'}
               composer={composer}
               mode={mode}

@@ -2,6 +2,7 @@ import type { PendingPermission } from '@/features/agents/toolActivity';
 import type { LaunchMode } from '@/shared/agentModes';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import type { AgentMode, AgentProvider, ArenaMachineSnapshot, CheckoutSummary } from '@/shared/types';
+import type { TurnCheckpointControls } from '@/features/conversation/useTurnCheckpoint';
 
 export interface PermissionTarget extends PendingPermission {
   machineId: string;
@@ -96,6 +97,7 @@ export interface ImmersiveSessionControls {
   requestedPermissionKey?: string;
   reports?: ImmersiveReportControls;
   codeai?: ImmersiveCodeAiControls;
+  recovery?: TurnCheckpointControls;
   /** This device's last choices; New session opens at them when the machine can run them. */
   preferredProvider?: AgentProvider;
   preferredMode?: AgentMode;
@@ -118,6 +120,7 @@ export const SESSION_ACTIONS = {
   previous: 'Previous request', next: 'Next request', older: 'Previous details', newer: 'More details',
   allow: 'Allow', deny: 'Deny', refresh: 'Refresh status', cancel: 'Cancel run', retry: 'Retry instruction', return: 'Return to prior session',
   archive: 'Archive session', 'confirm-archive': 'Confirm archive',
+  undo: 'Undo this turn', 'confirm-undo': 'Confirm Undo', 'keep-changes': 'Keep changes',
   revoke: 'Forget this device', 'confirm-revoke': 'Confirm forget',
   reports: 'Reports', 'previous-report': 'Previous report', 'next-report': 'Next report',
   'attach-report': 'Attach report', 'remove-report': 'Remove report',

@@ -25,6 +25,8 @@ import { GET as GET_RUNS } from '@/app/api/agent/runs/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { POST as POST_CANCEL } from '@/app/api/agent/cancel/route';
 import { POST as POST_PERMISSION } from '@/app/api/agent/permission/route';
+import { POST as POST_UNDO } from '@/app/api/agent/undo/route';
+import { GET as GET_CHECKPOINT } from '@/app/api/agent/checkpoint/route';
 import { PATCH as PATCH_DOCKER } from '@/app/api/execution/docker/route';
 import { DeviceAuthStore } from '@/server/devices/deviceAuthStore';
 
@@ -89,6 +91,8 @@ describe.sequential('paired device route boundary', () => {
     expect((await POST_MESSAGE(request('/api/agent/message', { method: 'POST' }))).status).toBe(401);
     expect((await POST_CANCEL(request('/api/agent/cancel', { method: 'POST' }))).status).toBe(401);
     expect((await POST_PERMISSION(request('/api/agent/permission', { method: 'POST' }))).status).toBe(401);
+    expect((await POST_UNDO(request('/api/agent/undo', { method: 'POST' }))).status).toBe(401);
+    expect((await GET_CHECKPOINT(request('/api/agent/checkpoint'))).status).toBe(401);
     expect((await PATCH_DOCKER(request('/api/execution/docker', { method: 'PATCH' }))).status).toBe(401);
   });
 

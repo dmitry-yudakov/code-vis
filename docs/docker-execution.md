@@ -340,6 +340,12 @@ limit bind-mount disk growth. Cancellation is not rollback. Host editors, watche
 later execution of changed code are outside CodeAI's container and scheduler and can run changes
 as your desktop user.
 
+Writing turns now capture an eligible-file checkpoint on the executing host before starting the
+worker; the backup is never mounted in a container. Explicit **Undo this turn** can recover the
+checkout after cancellation or failure, while preserving pre-existing work. Git HEAD/index changes,
+newer edits, private/ignored files and external effects are outside automatic recovery. See
+[Turn checkpoints and Undo](../README.md#turn-checkpoints-and-undo) for limits and interrupted recovery.
+
 Archiving retains history and provider homes. To explicitly remove an inactive **legacy**
 participant's individual home:
 

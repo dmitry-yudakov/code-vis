@@ -599,7 +599,10 @@ These are real and deliberate, and they bound what can be built next:
   state; sessions and projects are neither moved nor replicated between machines;
 - attachment is direct: there is no discovery, relay, NAT traversal, transitive federation, or
   coordinator-owned continuity;
-- Agent mode edits the real working tree: no worktree isolation, no apply/discard checkpoint;
+- writing modes edit the real working tree, with private, bounded before-turn file checkpoints on
+  the executing machine. `turnCheckpoints.ts` finalizes recovery before releasing checkout access;
+  authenticated status/Undo routes share the scheduler's exclusive checkout lease. Desktop and VR
+  use one recovery owner. Git/private/ignored files and external effects remain outside Undo;
 - a capability restriction, not an OS or container boundary — the CLI runs as the desktop user.
 
 The direction past this direct home/executor topology — durable continuity and spatial surfaces —

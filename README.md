@@ -705,7 +705,42 @@ denied before terminating the child.
 
 All writing modes edit **the real working tree** of the session's primary repository, exactly like the corresponding
 terminal agent. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
-deliberately out of scope for now.
+outside the current model; writing turns instead save a recovery checkpoint before execution.
+
+### Turn checkpoints and Undo
+
+Before every writing turn, CodeAI backs up eligible files without touching the working tree, Git
+index or HEAD. After a completed, failed or cancelled turn, **Undo this turn** appears under its
+instruction in the conversation and in VR **Session tools**, when eligible files changed. Confirm
+the scope to restore the original bytes and permissions, including pre-existing staged, unstaged
+and nonignored untracked work. The conversation and provider history stay.
+
+Undo refuses newer checkout edits, even an edit followed by a content revert, and waits for no
+active or queued checkout work, repository helper reads, or build. Do not edit files during Undo.
+Commits, staging, index flags or a branch/HEAD change during the turn disable recovery: Git history,
+the index and other `.git` metadata are never restored. Ignored files (including personal ignores),
+private/provider folders, `.env*` except `.env.example`, recognized credential filenames and key/certificate files are
+excluded, even if tracked. External actions and writes elsewhere in Full access cannot be undone.
+The initial ignored path inventory stays excluded if a turn removes ignore rules. Privacy uses
+fixed filename exclusions, including `.codex`, `.claude`, `.aws`, `.ssh`, `.config`, `.docker`,
+`.kube`, `.gnupg` and `.azure` directories and files such as `auth.json`, `credentials.json`,
+`.npmrc`, `.netrc` and `.pypirc`; it does not recognize secrets in arbitrary source files.
+
+Recovery currently requires **Linux** to prove file-handle paths before reading or restoring data.
+Writing turns fail before execution if capture cannot finish safely: nonexcluded links, special
+files, submodules/nested repositories, more than 10,000 eligible paths or ignored inventory entries,
+a file over 4 MiB, or eligible content over 32 MiB. Keep generated files ignored.
+`CODEAI_DATA_DIR` must be outside the checkout.
+Checkpoints stay on the executing machine, outside Docker mounts, at
+`<dataDir>/turn-checkpoints/<checkpointId>.json`, privately readable by the owner. At most ten
+records fit within 512 MiB; records expire after seven days and are pruned on subsequent captures.
+The small `.summary` files index recovery status; no session-format upgrade is needed.
+
+If the process stops before saving the terminal fingerprint, automatic Undo is unavailable. If
+Undo fails or is interrupted, some files may already be restored and automatic retry stays
+disabled. The original backup remains until expiry/pruning for manual recovery: each `before.files`
+entry holds its relative `path`, permission `mode` and base64 `content`. Inspect/copy that backup
+before repairing individual files; CodeAI never forces a restore over intervening edits.
 
 At Guarded, Claude supports Ask, Plan, and Agent. Codex supports Ask and Plan by default. Codex Agent and Auto
 share a release gate: set `CODEAI_CODEX_AGENT=1` only after the installed App Server has passed the
@@ -756,8 +791,8 @@ detect dangerous commands itself: the sandbox contains the turn, and you decide 
 - **Always asks, or is refused:** writes to `.git`, `.codex`, and `.claude` at the checkout's root, so
   a commit asks; any path outside the checkout; and all network access, so a dependency install asks.
 - **One action per card.** Allowing a commit allows that commit. The next one asks again.
-- **What it does not protect:** uncommitted work. An Auto turn can overwrite or delete files in the
-  checkout without asking, and there is no checkpoint or undo. Commit first if that matters.
+- **Recovery:** an Auto turn can overwrite or delete eligible files without asking; the turn
+  checkpoint offers checkout recovery afterward, subject to the exclusions above.
 - **Nor what runs the checkout's files later.** A file an Auto turn writes is contained while the
   turn's own commands touch it. A dev server, a file watcher, a Git hook manager, or you running the
   project afterwards execute it outside the sandbox.
@@ -1179,15 +1214,16 @@ over-capable provider is reported without making a healthy provider unusable.
   cannot be opened on the canvas or drawn over, and a later turn does not see it unless the
   provider's own session remembers it.
 - Mermaid subgraphs cannot be generically collapsed; large diagrams use pan/zoom/fit and agent revision.
-- All writing modes work directly in the checked-out tree: no worktree isolation, no apply/discard
-  checkpoints, and no policy on pre-existing uncommitted changes. Review with `git`.
+- All writing modes work directly in the checked-out tree, with a recovery checkpoint and explicit
+  Undo afterward. There is no separate working copy or multi-file atomic restore. Review with `git`.
 - At Guarded, every Agent side effect prompts, and so does everything that leaves an Auto sandbox;
   there is no "always allow". Guarded Auto is available for Codex only; you answer escalations.
 - Native follows your CLI's trust state: a previously untrusted repository may need to be trusted
   in your terminal first. Native writing can plant provider settings that later writing turns load,
   including after switching back to Guarded Agent. Ask/Plan exclude those project settings.
 - Full access reaches everything your desktop user can reach, including CodeAI's data directory and
-  the provider's credential files. Uncommitted work still has no checkpoint or undo.
+  the provider's credential files. Checkout recovery excludes credentials, private/ignored files
+  and writes elsewhere; Full access can also reach the checkpoint storage itself.
 - A turn allowed to write CodeAI's own checkout can change `.env.local`, just as it can change the
   application code; either change takes effect on restart. The running process's level stays fixed.
 - Older builds hide Native sessions (format 9). A build predating this story can also report its

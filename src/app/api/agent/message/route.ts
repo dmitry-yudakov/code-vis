@@ -17,6 +17,7 @@ import { runConversation } from '@/server/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
 import { changesCheckout, nativeMessageLevel } from '@/shared/agentModes';
+import { getTurnCheckpoints } from '@/server/repository/turnCheckpoints';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import { MAX_REPORTS_PER_MESSAGE, MAX_SESSION_REPORT_EVIDENCE_BYTES } from '@/shared/limits';
@@ -275,19 +276,40 @@ export async function POST(request: Request): Promise<Response> {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
   // Every event goes through the registry so it is buffered for replay, then out to this stream.
-  const emit = (event: AgentEvent) => runRegistry.record(runId, event);
+  let doneEvent: Extract<AgentEvent, { type: 'done' }> | undefined;
+  const emit = (event: AgentEvent) => {
+    // A terminal event also promises that recovery has been finalized under checkout access.
+    if (event.type === 'done') doneEvent = event;
+    else runRegistry.record(runId, event);
+  };
 
   const execute = async () => {
     let currentParticipant = serverAgent(session, participant.id)!;
+    let checkpointId: string | undefined;
+    let providerInvoked = false;
     try {
       // Queued work resolves its canonical snapshot and repository context only when it actually
       // starts, so it sees the checkout at execution time and holds no temporary directory early.
       session = await store.getSession(session.id);
       currentParticipant = serverAgent(session, participant.id) || currentParticipant;
+      if (changesCheckout(mode)) {
+        emit({ type: 'status', runId, phase: 'starting', label: 'Saving turn checkpoint' });
+        try {
+          checkpointId = await getTurnCheckpoints(config.dataDir).capture({
+            runId, sessionId: session.id, messageId: parsed.data.messageId,
+            checkoutId: checkout.id, checkoutPath: checkout.realPath,
+          });
+        } catch (error) {
+          throw new AgentRunError('internal', error instanceof Error && error.name === 'CheckpointError'
+            ? error.message : 'The turn checkpoint could not be saved. The agent did not start. Check recovery storage and try again.', 'not-sent');
+        }
+      }
+      if (abortController.signal.aborted) throw new AgentRunError('cancelled', 'The request was cancelled before the provider started.', 'not-sent');
       const transcriptDelta = buildTranscriptDelta(session, currentParticipant, canonicalTranscript(session.messages), {
         maxMessages: config.maxTranscriptMessages,
         maxBytes: config.maxTranscriptBytes,
       }).text;
+      providerInvoked = true;
       await runConversation({
         runId,
         request: parsed.data,
@@ -303,7 +325,7 @@ export async function POST(request: Request): Promise<Response> {
       });
     } catch (error: unknown) {
       const known = error instanceof AgentRunError ? error : undefined;
-      const delivery = known?.delivery || (abortController.signal.aborted || currentParticipant.session.started ? 'possibly-sent' : 'not-sent');
+      const delivery = known?.delivery || (providerInvoked && (abortController.signal.aborted || currentParticipant.session.started) ? 'possibly-sent' : 'not-sent');
       await store.failUserMessage(
         session.id,
         parsed.data.messageId,
@@ -319,6 +341,13 @@ export async function POST(request: Request): Promise<Response> {
         delivery,
       });
       emit({ type: 'done', runId, durationMs: 0, cancelled: known?.code === 'cancelled' || abortController.signal.aborted });
+    } finally {
+      if (checkpointId) {
+        await getTurnCheckpoints(config.dataDir).finish(checkpointId).catch(() => {
+          emit({ type: 'status', runId, phase: 'completed', label: 'Undo unavailable: recovery fingerprint could not be saved. The original checkpoint is retained.' });
+        });
+      }
+      if (doneEvent) runRegistry.record(runId, doneEvent);
     }
   };
 
@@ -337,6 +366,7 @@ export async function POST(request: Request): Promise<Response> {
         delivery: 'not-sent',
       });
       emit({ type: 'done', runId, durationMs: 0, cancelled: true });
+      if (doneEvent) runRegistry.record(runId, doneEvent);
     },
   });
   if (!activated) {

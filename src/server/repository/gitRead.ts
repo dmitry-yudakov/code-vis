@@ -61,8 +61,10 @@ async function personalIgnore(): Promise<{ file: string; patterns: string } | un
  */
 export async function runGitRead(cwd: string, args: string[], options: {
   allowedExitCodes?: number[]; maxBuffer?: number; timeout?: number;
+  /** An exclusive recovery holder may read Git under its own scheduler lease. */
+  checkoutWriteLease?: symbol;
 } = {}): Promise<string> {
-  const release = runRegistry.acquireCheckoutRead(cwd);
+  const release = runRegistry.acquireCheckoutRead(cwd, options.checkoutWriteLease);
   if (!release) throw new Error('An enclosing checkout is being edited. Retry this Git read after that turn finishes.');
   try { return await executeGitRead(cwd, args, options); }
   finally { release(); }

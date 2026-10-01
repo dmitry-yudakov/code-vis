@@ -1,12 +1,13 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentMode, DurableSession, SecurityLevel } from '@/shared/types';
 const runs = vi.hoisted(() => [] as Array<{ mode: AgentMode; level: SecurityLevel }>);
 const healthModes = vi.hoisted(() => [] as Array<AgentMode | undefined>);
+const repository = vi.hoisted(() => ({ path: '' }));
 vi.mock('@/server/repository/checkoutRegistry', () => ({ getCheckoutRegistry: () => ({
-  resolve: async () => ({ id: 'checkout', name: 'fixture', relativePath: '.', realPath: process.cwd() }),
+  resolve: async () => ({ id: 'checkout', name: 'fixture', relativePath: '.', realPath: repository.path }),
 }) }));
 vi.mock('@/server/agents/providerRegistry', () => ({ getProviderAdapters: (config: { securityLevel: SecurityLevel }, execution: string = 'local') => {
   const native = config.securityLevel === 'native' && execution === 'local';
@@ -30,8 +31,12 @@ let store: ReturnType<typeof getSessionStore>;
 beforeEach(async () => {
   delete cached.__codeaiSecurityLevel; runs.length = 0; healthModes.length = 0;
   dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-native-route-'));
-  vi.stubEnv('CODEAI_DATA_DIR', dataDir); vi.stubEnv('CODEAI_SECURITY_LEVEL', 'native');
-  store = getSessionStore(dataDir, 'fixture');
+  repository.path = path.join(dataDir, 'checkout');
+  await mkdir(repository.path); await writeFile(path.join(repository.path, 'package.json'), '{}');
+  // Recovery scans stable, private fixture content rather than the concurrently tested app tree.
+  const storeDirectory = path.join(dataDir, 'data');
+  vi.stubEnv('CODEAI_DATA_DIR', storeDirectory); vi.stubEnv('CODEAI_SECURITY_LEVEL', 'native');
+  store = getSessionStore(storeDirectory, 'fixture');
 });
 afterEach(async () => { await store.close(); await rm(dataDir, { recursive: true, force: true }); delete cached.__codeaiSecurityLevel; vi.unstubAllEnvs(); });
 async function session(provider: 'claude' | 'codex' = 'claude', extra: { execution?: 'docker'; instructions?: 'isolated' } = {}) {

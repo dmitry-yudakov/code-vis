@@ -92,6 +92,7 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
  */
 export class RunRegistry implements MaintenanceLease {
   private readonly checkoutReaders = new Map<symbol, string>();
+  private readonly checkoutWriters = new Map<symbol, string>();
   private maintenance = false;
   private readonly liveByRunId = new Map<string, RunRecord>();
   private readonly recentByRunId = new Map<string, RunRecord>();
@@ -107,13 +108,26 @@ export class RunRegistry implements MaintenanceLease {
    * An existing writer at the exact root cannot rename its own mounted root; UI Git reads
    * can still observe that checkout while it runs. New overlapping writers wait for this read.
    */
-  acquireCheckoutRead(checkoutPath: string): (() => void) | undefined {
+  acquireCheckoutRead(checkoutPath: string, writeLease?: symbol): (() => void) | undefined {
+    if ([...this.checkoutWriters.entries()].some(([token, writer]) => token !== writeLease && pathsOverlap(writer, checkoutPath))) return undefined;
     if ([...this.liveByRunId.values()].some((run) => run.access === 'write'
       && (run.state === 'running' || run.state === 'needs-you') && run.checkoutPath
       && run.checkoutPath !== checkoutPath && pathContains(run.checkoutPath, checkoutPath))) return undefined;
     const token = Symbol();
     this.checkoutReaders.set(token, checkoutPath);
     return () => { this.checkoutReaders.delete(token); this.schedule(); };
+  }
+
+  /** Recovery takes exclusive checkout access without queuing a provider turn. Even queued and
+   * reserved work blocks it: a user's Undo must not reorder already accepted work. */
+  acquireCheckoutWrite(checkoutPath: string): ((() => void) & { token: symbol }) | undefined {
+    if (this.maintenance
+      || [...this.checkoutReaders.values(), ...this.checkoutWriters.values()].some((held) => pathsOverlap(held, checkoutPath))
+      || [...this.liveByRunId.values()].some((run) => run.checkoutPath
+        ? pathsOverlap(run.checkoutPath, checkoutPath) : run.access === 'write')) return undefined;
+    const token = Symbol();
+    this.checkoutWriters.set(token, checkoutPath);
+    return Object.assign(() => { this.checkoutWriters.delete(token); this.schedule(); }, { token });
   }
 
   /**
@@ -163,7 +177,7 @@ export class RunRegistry implements MaintenanceLease {
    */
   acquireMaintenance(): MaintenanceAdmission {
     if (this.maintenance) return 'held';
-    if (this.liveByRunId.size) return 'live-runs';
+    if (this.liveByRunId.size || this.checkoutWriters.size || this.checkoutReaders.size) return 'live-runs';
     this.maintenance = true;
     return 'acquired';
   }
@@ -395,6 +409,8 @@ export class RunRegistry implements MaintenanceLease {
   }
 
   private eligible(candidate: RunRecord): boolean {
+    if (candidate.checkoutPath
+      && [...this.checkoutWriters.values()].some((writer) => pathsOverlap(writer, candidate.checkoutPath!))) return false;
     if (candidate.access === 'write' && candidate.checkoutPath
       && [...this.checkoutReaders.values()].some((reader) => pathsOverlap(candidate.checkoutPath!, reader))) return false;
     const sameCheckout = (other: RunRecord) => other.checkoutId === candidate.checkoutId
