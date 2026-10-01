@@ -4,6 +4,134 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
+## Story 82 — Native probes (2026-10-01)
+
+**Decision:** Native ships Claude Agent, Accept edits, Auto, and Full access, and Codex Agent, Auto,
+and Full access. Guarded stays the default. Probe 13 requires one tightening of Claude Ask/Plan:
+`--permission-mode default --setting-sources user`, with no interactive permission flags. Keeping
+`plan` with user-only settings did **not** enforce read-only shell access.
+
+Versions: Claude Code 2.1.285 initially; its interactive trust flow automatically updated it to
+2.1.286, which ran the final trusted and read-only matrices. Codex CLI 0.159.2. Ubuntu on this
+installation, using the owner's existing sign-ins; no credential files were read or copied.
+Repositories lived under `/home/dmitry/codeai-native-probes-20261001/<probe>`. Each contained only
+scratch markers, a `CLAUDE.md` marker instruction, a SessionStart hook that touches a marker, and a
+small stdio MCP server with `read_marker` and `write_marker`. Network probes used
+`curl -I --max-time 5 https://example.com`; outside writes/deletion targeted this disposable root.
+
+### Exact invocation shapes
+
+Claude writing probes used these arguments (UUID and directory changed per run):
+
+```text
+-p --output-format stream-json --verbose --include-partial-messages
+--permission-mode <default|acceptEdits|auto|bypassPermissions>
+--allowedTools Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git branch:*),Bash(git blame:*),Bash(git shortlog:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*)
+--max-turns 15 --session-id <UUID> --add-dir <scratch checkout>
+--input-format stream-json --permission-prompt-tool stdio --model sonnet
+```
+
+No safe mode, strict MCP config, slash-command restriction, or appended global instructions. The
+MCP requests in Agent were explicitly allowed by the test host; other host requests were denied.
+The MCP config enabled the project's probe server and no unrelated MCP tool was invoked.
+
+Codex writing probes used `app-server --stdio --strict-config --disable request_permissions_tool
+--disable exec_permission_approvals`, plus these simulated user configuration overrides:
+
+```text
+-c approvals_reviewer="auto_review"
+-c sandbox_workspace_write.network_access=true
+-c projects."<scratch checkout>".trust_level="trusted"
+-c mcp_servers.probe.command="node"
+-c mcp_servers.probe.args=["<scratch checkout>/mcp.mjs"]
+```
+
+The trust override alone did not establish persisted project trust. A preliminary, model-free
+`thread/start` with `sandbox: "workspace-write"`, `approvalPolicy: "never"`, `ephemeral: true` let
+Codex add its own trust entry, before the trusted-project follow-ups. The tested writing requests
+used `thread/start` or `thread/resume` with the checkout `cwd`, the two disabled features in `config`,
+no `approvalsReviewer`, and model `gpt-6-sol`; turns used effort `low`. Agent sent `sandbox:
+"read-only"`, `approvalPolicy: "on-request"`, and `sandboxPolicy: { type: "readOnly",
+networkAccess: false }` at turn start. Auto sent `sandbox: "workspace-write"`, `on-request`, and no
+turn sandbox policy. Full access sent `sandbox: "danger-full-access"`, `never`, and no turn sandbox
+policy. Native developer instructions only constrained the harmless requested scratch experiment
+and said to treat the attachment directory as read-only.
+
+### Results by story probe
+
+| Probe | Observed result |
+|---|---|
+| 1 | Claude's project hook ran, the MCP server was callable, and the final answer included the `CLAUDE.md` marker. A trusted project's `Bash(touch:*)` allowed the command without a host request. Untrusted print mode ignored the allow rule and reported why. Trust was accepted through Claude's own interactive dialog for each fixture. |
+| 2 | Agent's allowed `touch` ran without a request; `Write` raised `can_use_tool`. MCP calls raised cards and ran after allowance. Built-in harmless `printf` also ran without asking, consistent with the terminal's own read-only command rules; “other commands ask” means commands requiring the provider's permission. |
+| 3 | Accept edits changed the scratch file without asking; `curl` and `Write` to a sibling outside the checkout each raised `can_use_tool` and were denied. |
+| 4 | Auto edited in the checkout, wrote a named scratch file under the home directory, and removed the named disposable sibling directory without a host request. The classifier later blocked a planted broad allow rule as self-modification, as a tool denial, with no `can_use_tool`. It is not an OS sandbox. |
+| 5 | `bypassPermissions` alone worked with stdio permission handling retained. File edit, shell command, network request (HTTP 200), `.git/config` append, and `.claude/settings.json` edit ran without requests; no extra bypass flag was necessary. |
+| 6 | Claude stream types: `system`, `stream_event`, `assistant`, `user`, `control_request`, `rate_limit_event`, `result`. The only control request observed was `can_use_tool`. |
+| 7 | Codex Agent listed and called the read and write MCP tools, with no host approval under the configured model reviewer. A trusted planted MCP server was also listed and callable. |
+| 8 | Agent echoed `readOnly`, no network; Auto echoed `workspaceWrite`, network enabled, no extra writable roots; Full access echoed `dangerFullAccess`. All echoed the sent checkout and approval policy and `approvalsReviewer: "auto_review"`. |
+| 9 | Auto's `curl` returned HTTP 200 without a host request. An outside write was blocked by the sandbox, retried once with escalation, approved by the configured model reviewer, and succeeded. `item/autoApprovalReview/started` and `/completed` reported `inProgress` and `approved`; no host request arrived. |
+| 10 | Full access wrote a sibling marker outside the checkout and completed a network request without a host request. |
+| 11 | Guarded Ask → Native Agent resume enabled scoped MCP tools and changed the echo to `on-request`, `readOnly`, configured reviewer. Native Auto → Guarded Ask resume disabled all scoped MCP tools and echoed `never`, `readOnly`, no network. Neither retained the old thread's security or MCP policy. |
+| 12 | Codex items observed: `userMessage`, `reasoning`, `agentMessage`, `commandExecution`, `mcpToolCall`. Notifications included thread/turn lifecycle, MCP startup, token/rate usage, `configWarning`, `guardianWarning`, and both auto-review notifications. No server request reached the host in the Native model-reviewed matrix; no turn-wide grant request appeared. |
+| 13 | Claude Accept edits wrote `.codex/config.toml` without a card; it requested the three Claude/MCP configuration writes, which were denied. Claude Auto wrote the hook, MCP config and Codex config, but its classifier denied the broad local permission rule. Full access and Codex Auto wrote all four fixtures without host cards. Subsequent Native Agent turns loaded the planted hook/permissions/MCP according to the provider's trust and configuration; explicit thread security still won over planted Codex sandbox/approval keys. Guarded Codex Ask/Plan kept read-only echoes, disabled scoped MCP and blocked marker writes. Claude's original `plan` policy allowed marker writes, including committed rules, user-only settings, clean repositories, and `--restricted` with explicit Bash. The corrected noninteractive `default` plus user-only settings denied `touch` and shell redirection, allowed `git status`, and loaded no hook or MCP server in Ask/Plan against all four planting fixtures. |
+
+The read-only probes added a controlled `--append-system-prompt` instruction to attempt each harmless
+Bash call once and rely on runtime enforcement, rather than accepting a model's refusal as proof.
+Final probes used text input on stdin and **no** `--input-format` or `--permission-prompt-tool`, just
+as CodeAI's read-only turns do. Marker absence was checked on disk; hook markers were removed before
+each final Claude turn. An early interactive read-only harness was corrected and the matrix repeated.
+
+**Cleanup:** no provider configuration was hand-edited to set up any probe. Claude's CLI-added
+project entries and project-scoped state were removed with `claude project purge --yes <scratch
+checkout>`, including the scratch parent. Seven Codex-added scratch project trust tables were
+recorded and removed exactly, leaving all other settings intact. Claude's CLI warns that its own
+rotating backups can still contain those historical project entries; those backups were left alone.
+Scratch repositories are disposable; recorded probe data contains arguments, requested scratch
+operations and protocol metadata, never credentials.
+
+Codex's documented thread/turn protocol is described in the [official App Server
+documentation](https://developers.openai.com/codex/app-server); these decisions follow the installed
+CLI probes rather than assuming a documentation example is an enforcement boundary.
+
+### Implemented runner verification
+
+The actual `ClaudeProcessRunner` and `CodexProcessRunner` repeated the matrix with the same
+installed CLIs after implementation. Claude Agent ran the fixture's allowed `touch`, raised Write
+and MCP requests, and continued after denial. Accept edits changed `edit-me.txt` without a request
+and raised a `curl` card; Auto wrote its named marker and Full access wrote a sibling marker.
+Ask/Plan denied shell writes, allowed `git status`, and produced no project hook marker. A Guarded
+Claude Agent turn still raised and respected its Write denial. Codex Native Agent and Auto called
+the planted MCP `read_marker`, now visible as `MCP` activity; Auto wrote inside the checkout, Full
+access wrote a sibling marker, and Guarded Auto still wrote inside its pinned profile. No credential
+or unrelated files were accessed. The repeated Claude project entry was purged and the one
+repeated Codex trust entry reverted.
+
+Offline checks cover level freezing, argument contracts, mode readiness, echo checks, activity,
+isolated-session 409s, format 9, rollback to a format-8 reader, and snapshot cache compatibility.
+The mutation run used an isolated source copy: its 70-test baseline passed, and all 24 deliberate
+policy/record/control mutations failed their focused tests. Browser checks include a separate Native
+server, retained permission cards, reload/mode memory, isolation, remote executor level selection,
+and Native VR control geometry. A disposable copy of the actual preceding HEAD source confirmed
+that its format-8 reader hides only the Native session without touching its bytes, and its old
+registry rejects a cached Native snapshot as documented. The review found and corrected home/executor health replacement
+on Arena refresh and overlapping VR status/mode surfaces.
+
+### External review corrections
+
+The follow-up fixes prevent a fallback to any writing mode, apply Docker's inheritance to a
+continuation, and restore Guarded Claude's unknown-control behavior. Native Codex readiness retains
+Guarded model choices and notes, waits up to 1.5 seconds for its own model list, and retains verified
+choices for ten seconds when a response is missing. A chosen turn checks one policy handshake and
+reports only that mode; authentication and policy are still checked afresh. Isolation now has its
+own composer reason, an earlier Ask retry remains usable, and VR's Agents text and errors are
+reachable through pages with the six-mode controls inside the frame and clear of the toolbar.
+Docker readiness checks only its own invocation's flags, and the offline suite pins Guarded.
+
+Final checks: lint passes, 922 offline tests across 101 files pass with Native exported, and all
+112 browser checks pass. A fresh build after the last selected-mode readiness refinement passes
+four focused Native browser checks. The review subagent confirmed no remaining actionable
+findings. Native is renumbered to Story 82; the existing image-paste story keeps 81.
+
 ## Story 80 — Global instructions probes (2026-09-30 UTC)
 
 **Outcome:** the rules [Story 80](../stories/STORY-20260929-global-instructions.md) rests on hold

@@ -100,7 +100,8 @@ describe.sequential('ClaudeProcessRunner', () => {
       const allowed = invocation.args[invocation.args.indexOf('--allowedTools') + 1] as string;
       expect(allowed.split(',')).toContain('Bash(git log:*)');
       expect(allowed).not.toContain('git push');
-      expect(invocation.args).toContain('plan');
+      expect(invocation.args[invocation.args.indexOf('--permission-mode') + 1]).toBe('default');
+      expect(invocation.args[invocation.args.indexOf('--setting-sources') + 1]).toBe('user');
       expect(invocation.args).not.toContain('--input-format');
       expect(invocation.args).not.toContain('--permission-prompt-tool');
     }

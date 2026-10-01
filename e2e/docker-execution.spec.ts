@@ -303,6 +303,7 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   await expect(executionLine).toHaveText('Local');
   await continueIn(conversation, 'Docker');
   await expect(executionLine).toHaveText('Docker');
+  await expect(modePicker).toHaveText('Ask');
   await continueIn(conversation, 'Local');
   await expect(executionLine).toHaveText('Local');
   await expect(menu.locator('summary')).toHaveText('Opus · High');

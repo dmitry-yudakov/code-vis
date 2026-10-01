@@ -1,8 +1,17 @@
 import type {
-  AgentExecution, AgentProvider, GlobalInstructionsChoice, InstructionFileIssue, InstructionsLine, MachineInstructions,
+  AgentExecution, AgentMode, AgentProvider, GlobalInstructionsChoice, InstructionFileIssue, InstructionsLine, MachineInstructions, SecurityLevel,
 } from './types';
+import { changesCheckout } from './agentModes';
 
 export const LOCAL_CODEX_ISOLATION_MESSAGE = 'Local Codex always loads your global AGENTS.md. Use Docker for an isolated Codex.';
+export const NATIVE_CLAUDE_ISOLATION_MESSAGE = 'This session runs without your global instructions, and Claude loads them itself in Native writing modes.';
+
+export function nativeClaudeIsolationIssue(input: {
+  provider: AgentProvider; execution?: AgentExecution; level?: SecurityLevel; mode: AgentMode; choice?: GlobalInstructionsChoice;
+}): string | undefined {
+  return input.provider === 'claude' && (input.execution ?? 'local') === 'local' && input.level === 'native'
+    && changesCheckout(input.mode) && input.choice === 'isolated' ? NATIVE_CLAUDE_ISOLATION_MESSAGE : undefined;
+}
 
 /** The largest instruction file CodeAI passes. A larger one is not passed at all, never truncated. */
 export const GLOBAL_INSTRUCTIONS_BYTES = 32 * 1024;
@@ -58,7 +67,11 @@ export function instructionsLine(input: {
   execution?: AgentExecution;
   choice?: GlobalInstructionsChoice;
   machine?: MachineInstructions;
+  level?: SecurityLevel;
+  mode?: AgentMode;
 }): InstructionsLine | undefined {
+  if (input.provider === 'claude' && (input.execution ?? 'local') === 'local' && input.level === 'native'
+    && input.mode && changesCheckout(input.mode)) return 'global';
   const { machine } = input;
   if (!machine) return localCodex(input.provider, input.execution) ? undefined : input.choice;
   const choice = effectiveInstructions({ ...input, machine: { claude: machine.claude.enabled, codex: machine.codex.enabled } });

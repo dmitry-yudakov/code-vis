@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
-import type { ModelChoices, ProviderHealth } from '@/shared/types';
+import type { AgentMode, ModelChoices, ProviderHealth, SecurityLevel } from '@/shared/types';
+import { changesCheckout } from '@/shared/agentModes';
 import {
   buildCodexAppServerArgs, buildCodexSandboxCheckArgs, codexAmbientInstructionNote, codexAmbientSkillNote, codexIsolationIssue,
   codexMcpServerNames, codexModelChoices, codexSupportedModes, codexThreadConfig, codexThreadPolicyIssue,
@@ -22,10 +23,15 @@ interface HandshakeOptions {
    * session, and wait for `model/list` as long as the check allows.
    */
   signedOut?: boolean;
+  level?: SecurityLevel;
 }
 
 /** `choices` is present only when a signed-out handshake passed. */
 type Handshake = { health: ProviderHealth; choices?: ModelChoices };
+
+// A turn still checks its policy afresh. Only verified model choices survive a transient missing
+// response, for the same 10 s as Local provider health; no browser choice enters this cache.
+let nativeChoices: { key: string; checkedAt: number; choices: ModelChoices } | undefined;
 
 /**
  * A bounded, model-free App Server handshake that verifies login and capability isolation. Auto is
@@ -36,11 +42,39 @@ export async function checkCodex(
   binary: string,
   cwd: string,
   agentEnabled: boolean,
+  level: SecurityLevel = 'guarded',
+  mode?: AgentMode,
 ): Promise<ProviderHealth> {
-  const [{ health }, sandboxStarts] = await Promise.all([
-    codexHandshake(binary, cwd, agentEnabled, {}),
-    agentEnabled ? codexSandboxStarts(binary, cwd) : false,
+  // The picker needs both policies; a selected turn needs only the one it will execute.
+  const nativeWriting = level === 'native' && mode !== undefined && changesCheckout(mode);
+  const [guarded, native, sandboxStarts] = await Promise.all([
+    nativeWriting ? undefined : codexHandshake(binary, cwd, agentEnabled, {}),
+    level === 'native' && (mode === undefined || nativeWriting) ? codexHandshake(binary, cwd, agentEnabled, { level }) : undefined,
+    agentEnabled && (mode === undefined || mode === 'auto') ? codexSandboxStarts(binary, cwd) : false,
   ]);
+  const guardedHealth = guarded?.health;
+  const guardedNote = !native?.health.available || !guardedHealth ? undefined
+    : guardedHealth.available ? guardedHealth.message && `Ask and Plan: ${guardedHealth.message}`
+      : `Ask and Plan unavailable: ${guardedHealth.message || 'Guarded isolation failed.'}`;
+  let health: ProviderHealth = native
+    ? { ...native.health,
+      supportedModes: native.health.available
+        ? codexSupportedModes(agentEnabled, level).filter((mode) => changesCheckout(mode) || guardedHealth?.supportedModes.includes(mode)) : [],
+      message: [native.health.message, guardedNote].filter(Boolean).join(' ') || undefined,
+      // Both handshakes use the same provider account. Keep its verified choices when the shorter
+      // Native handshake cannot list them, rather than dropping the Guarded result.
+      ...(!native.health.models?.length && guardedHealth?.models?.length
+        ? { models: guardedHealth.models, efforts: guardedHealth.efforts } : {}),
+    } : guarded!.health;
+  if (level === 'native') {
+    const key = `${binary}\0${cwd}\0${process.env.CODEX_HOME || ''}`;
+    if (health.available && health.models?.length) {
+      nativeChoices = { key, checkedAt: Date.now(), choices: structuredClone({ models: health.models, efforts: health.efforts }) };
+    } else if (health.available && nativeChoices?.key === key && Date.now() - nativeChoices.checkedAt < 10_000) {
+      health = { ...health, ...structuredClone(nativeChoices.choices) };
+    } else if (health.authenticated === false) nativeChoices = undefined;
+  }
+  if (mode !== undefined) health = { ...health, supportedModes: health.supportedModes.filter((ready) => ready === mode) };
   if (sandboxStarts || !health.supportedModes.includes('auto')) return health;
   return {
     ...health,
@@ -88,13 +122,13 @@ function codexHandshake(
 ): Promise<Handshake> {
   return new Promise((resolve) => {
     const child = options.spawn
-      ? options.spawn(binary, buildCodexAppServerArgs())
-      : spawn(binary, buildCodexAppServerArgs(), {
+      ? options.spawn(binary, buildCodexAppServerArgs(options.level))
+      : spawn(binary, buildCodexAppServerArgs(options.level), {
         cwd,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-    const supportedModes = [...codexSupportedModes(agentEnabled)];
+    const supportedModes = [...codexSupportedModes(agentEnabled, options.level)];
     const pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
     let nextId = 1;
     let buffer = '';
@@ -186,9 +220,20 @@ function codexHandshake(
           capabilities: null,
         });
         child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
-        // Choices are optional and never awaited with the handshake: a Codex without this method, or
-        // one slow to answer it, still runs every turn on Default.
+        // Choices are optional and bounded. Start the request early so inventory checks give it
+        // time to finish. Native has no inventories, so it gives the list its own bounded wait.
         const modelList = request('model/list', { includeHidden: false, limit: 50 }).catch(() => undefined);
+        if (options.level === 'native') {
+          const account = record(await request('account/read', { refreshToken: false }));
+          const authenticated = Boolean(account?.account) || account?.requiresOpenaiAuth === false;
+          const models = authenticated
+            ? await Promise.race([modelList, new Promise((resolve) => setTimeout(resolve, 1_500))]) : undefined;
+          finish({ available: authenticated, authenticated, supportedModes: authenticated ? supportedModes : [],
+            message: authenticated ? undefined : 'Codex is not authenticated. Run `codex login` locally and sign in.',
+            ...codexModelChoices(models),
+          });
+          return;
+        }
         const [accountValue, mcp, hooks, skills] = await Promise.all([
           request('account/read', { refreshToken: false }),
           request('mcpServerStatus/list', { cursor: null, limit: 100, detail: 'toolsAndAuthOnly' }),

@@ -35,7 +35,7 @@ describe('agent modes', () => {
     const ask = resolveAgentPolicy(config, 'ask');
     expect(ask.profile).toBe('ask-readonly');
     expect(ask.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
-    expect(ask.permissionMode).toBe('plan');
+    expect(ask.permissionMode).toBe('default');
     expect(ask.interactivePermissions).toBe(false);
     expect(ask.allowedTools).toEqual(GIT_READ_ALLOWLIST);
   });
@@ -53,7 +53,7 @@ describe('agent modes', () => {
     expect(agent.tools).toBeUndefined();
     expect(agent.permissionMode).toBe('default');
     expect(agent.interactivePermissions).toBe(true);
-    expect(agent.safeMode).toBe(true);
+    expect(agent.level).toBe('guarded');
     expect(agent.approvalTimeoutMs).toBe(config.approvalTimeoutMs);
   });
 
@@ -86,22 +86,22 @@ describe('agent modes', () => {
   });
 
   it('names every mode once, the ones that may change the checkout, and the ones a new session may start in', () => {
-    expect(AGENT_MODES).toEqual(['ask', 'plan', 'agent', 'auto']);
-    expect(AGENT_MODES.filter(changesCheckout)).toEqual(['agent', 'auto']);
+    expect(AGENT_MODES).toEqual(['ask', 'plan', 'agent', 'edits', 'auto', 'full']);
+    expect(AGENT_MODES.filter(changesCheckout)).toEqual(['agent', 'edits', 'auto', 'full']);
     expect(LAUNCH_MODES).toEqual(['ask', 'plan', 'agent']);
     // Claude Auto did not pass Story 79's probes, so Claude is never checked or run for it.
     expect(CLAUDE_MODES).toEqual(['ask', 'plan', 'agent']);
   });
 
   it('marks the modes a turn cannot use, and Auto whenever it is not plainly advertised for Local', () => {
-    expect(unsupportedModes(['ask', 'plan', 'agent', 'auto'], 'local')).toEqual([]);
-    expect(unsupportedModes(['ask', 'plan'], 'local')).toEqual(['agent', 'auto']);
-    expect(unsupportedModes([], 'local')).toEqual(['ask', 'plan', 'agent', 'auto']);
+    expect(unsupportedModes(['ask', 'plan', 'agent', 'auto'], 'local')).toEqual(['edits', 'full']);
+    expect(unsupportedModes(['ask', 'plan'], 'local')).toEqual(['agent', 'edits', 'auto', 'full']);
+    expect(unsupportedModes([], 'local')).toEqual(['ask', 'plan', 'agent', 'edits', 'auto', 'full']);
     // Before readiness is known nothing is marked, except Auto.
-    expect(unsupportedModes(undefined, 'local')).toEqual(['auto']);
-    expect(unsupportedModes(undefined, undefined)).toEqual(['auto']);
+    expect(unsupportedModes(undefined, 'local')).toEqual(['edits', 'auto', 'full']);
+    expect(unsupportedModes(undefined, undefined)).toEqual(['edits', 'auto', 'full']);
     // An executor's Docker session is shown with that executor's Local readiness: never Auto.
-    expect(unsupportedModes(['ask', 'plan', 'agent', 'auto'], 'docker')).toEqual(['auto']);
+    expect(unsupportedModes(['ask', 'plan', 'agent', 'auto'], 'docker')).toEqual(['edits', 'auto', 'full']);
   });
 
   it('labels Auto and says what it asks for', () => {
@@ -132,7 +132,7 @@ describe('agent modes', () => {
   it('builds mode-specific CLI arguments', () => {
     const ask = args('ask');
     expect(valueAfter(ask, '--tools')).toBe('Read,Glob,Grep,Bash');
-    expect(valueAfter(ask, '--permission-mode')).toBe('plan');
+    expect(valueAfter(ask, '--permission-mode')).toBe('default');
     expect(valueAfter(ask, '--allowedTools')).toBe(GIT_READ_ALLOWLIST.join(','));
     expect(ask).not.toContain('--input-format');
 
@@ -150,11 +150,11 @@ describe('agent modes', () => {
     }
   });
 
-  it('keeps Default arguments exactly as they were and appends only the chosen model and effort', () => {
+  it('keeps the probed read-only arguments fixed and appends only the chosen model and effort', () => {
     const today = [
       '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--safe-mode',
-      '--permission-mode', 'plan', '--tools', 'Read,Glob,Grep,Bash', '--allowedTools', GIT_READ_ALLOWLIST.join(','),
-      '--strict-mcp-config', '--disable-slash-commands', '--max-turns', String(config.agentMaxTurns),
+      '--permission-mode', 'default', '--tools', 'Read,Glob,Grep,Bash', '--allowedTools', GIT_READ_ALLOWLIST.join(','),
+      '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'user', '--max-turns', String(config.agentMaxTurns),
       '--session-id', '11111111-2222-3333-4444-555555555555', '--add-dir', '/tmp/codeai-run',
     ];
     expect(args('ask')).toEqual(today);
@@ -188,7 +188,7 @@ describe('agent modes', () => {
     for (const flag of CHOICE_CLAUDE_FLAGS) expect(REQUIRED_CLAUDE_FLAGS).not.toContain(flag);
   });
 
-  it('accepts only the four mode names over the wire', () => {
+  it('accepts only the six mode names over the wire', () => {
     const base = {
       sessionId: crypto.randomUUID(),
       messageId: crypto.randomUUID(),
@@ -236,7 +236,7 @@ describe('agent modes', () => {
   });
 
   it('states the mode contract and git allowlist in the prompt', () => {
-    for (const mode of AGENT_MODES) {
+    for (const mode of ['ask', 'plan', 'agent', 'auto'] as const) {
       const prompt = buildConversationPrompt({ userText: 'hi', attachmentDirectory: '/tmp/run', attachedCanvasNames: [], mode });
       expect(prompt).toContain(`Mode: ${mode.toUpperCase()}`);
       // Auto runs any command inside its sandbox, so the allowlist is not its contract.

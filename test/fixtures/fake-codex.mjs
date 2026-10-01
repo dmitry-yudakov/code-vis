@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { readSync, writeFileSync, writeSync } from 'node:fs';
+import { appendFileSync, readSync, writeFileSync, writeSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 
 const args = process.argv.slice(2);
@@ -8,6 +9,7 @@ const mode = process.env.CODEAI_FAKE_CODEX_MODE || 'normal';
 const recordPath = process.env.CODEAI_FAKE_CODEX_RECORD;
 // `codex sandbox … -- true` is CodeAI's model-free check that the workspace sandbox can start.
 if (args[0] === 'sandbox') process.exit(mode === 'sandbox-unavailable' ? 1 : 0);
+if (process.env.CODEAI_FAKE_CODEX_STARTS) appendFileSync(process.env.CODEAI_FAKE_CODEX_STARTS, `${JSON.stringify(args)}\n`);
 const transcript = { args, requests: [], responses: [] };
 const persist = () => { if (recordPath) writeFileSync(recordPath, JSON.stringify(transcript)); };
 const emit = (value) => writeSync(1, `${JSON.stringify(value)}\n`);
@@ -53,6 +55,7 @@ function threadResult(params, id = threadId) {
         networkAccess: mode === 'auto-network', excludeTmpdirEnvVar: false, excludeSlashTmp: false,
       }
       // Docker's own container is the sandbox, so its threads run without one.
+      : params.sandbox === 'workspace-write' ? { type: 'workspaceWrite', networkAccess: true, writableRoots: ['/native-extra'] }
       : params.sandbox === 'danger-full-access' ? { type: 'dangerFullAccess' } : { type: 'readOnly', networkAccess: false },
     activePermissionProfile: !profile || mode === 'auto-no-profile' ? null
       : { id: mode === 'auto-other-profile' ? 'wide' : profile, extends: ':workspace' },
@@ -105,6 +108,7 @@ while (true) {
   }
   // A Codex that never answers must not hold up readiness.
   else if (message.method === 'model/list' && mode === 'silent-model-list') {}
+  else if (message.method === 'model/list' && mode === 'native-no-model-list' && !args.includes('mcp_servers={}')) error(message.id, -32601, 'Unsupported method');
   else if (message.method === 'model/list' && mode !== 'no-model-list') {
     const model = (id, displayName, efforts, extra = {}) => ({
       id, model: id, displayName, description: '', hidden: false, isDefault: false,
@@ -112,14 +116,19 @@ while (true) {
       defaultReasoningEffort: efforts[0], ...extra,
     });
     // App Server was asked for visible models only; the hidden entry proves CodeAI filters anyway.
-    result(message.id, {
+    const models = {
       data: [
         model('fake-hidden', 'Fake Hidden', ['low'], { hidden: true }),
         model('fake-large', 'Fake Large', ['low', 'medium', 'high', 'ultra'], { isDefault: true }),
         model('fake-small', 'Fake Small', ['minimal', 'low', 'medium', 'high', 'xhigh']),
       ],
       nextCursor: null,
-    });
+    };
+    if (mode === 'slow-model-list') {
+      // The fixture's synchronous stdin loop cannot run a timer, so another process writes the
+      // delayed response while this one continues answering authentication and inventory requests.
+      spawn(process.execPath, ['-e', `setTimeout(() => require('node:fs').writeSync(1, ${JSON.stringify(JSON.stringify({ id: message.id, result: models }) + '\n')}), 700)`], { stdio: ['ignore', 1, 'ignore'] });
+    } else result(message.id, models);
   }
   else if (message.method === 'hooks/list') result(message.id, {
     data: [{ cwd: process.cwd(), hooks: mode === 'ambient-hook' ? [{ name: 'ambient' }] : [], warnings: [], errors: [] }],
@@ -149,7 +158,17 @@ while (true) {
   else if (message.method === 'turn/start') {
     turnId = 'codex-turn-1';
     result(message.id, { turn: { id: turnId, items: [], itemsView: 'full', status: 'inProgress', error: null } });
-    if (mode === 'malformed') writeSync(1, '{not-json}\n');
+    if (mode === 'native-events') {
+      for (const type of ['mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch', 'hookPrompt']) {
+        emit({ method: 'item/started', params: { threadId, turnId, item: { id: type, type, server: 'probe', tool: 'read_marker', status: 'inProgress' } } });
+      }
+      emit({ method: 'item/autoApprovalReview/started', params: { threadId, turnId, reviewId: 'review-1', review: { status: 'inProgress' } } });
+      emit({ method: 'item/autoApprovalReview/completed', params: { threadId, turnId, reviewId: 'review-1', review: { status: 'approved', rationale: 'Harmless marker.' } } });
+      emit({ id: 'elicitation-1', method: 'mcpServer/elicitation/request', params: { threadId, turnId } });
+      const answer = readJsonLine(); transcript.responses.push(answer); persist();
+      completeTurn('Native integrations complete.');
+    }
+    else if (mode === 'malformed') writeSync(1, '{not-json}\n');
     else if (mode === 'crash') process.exit(2);
     else if (mode === 'wait') { /* wait for turn/interrupt */ }
     else if (mode === 'long-run') {

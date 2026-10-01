@@ -8,14 +8,15 @@ import path from 'node:path';
 import { z } from 'zod';
 import type {
   AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
-  GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
+  ChatMessage, GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
-  REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
+  NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
+import { isNativeMessage } from '@/shared/agentModes';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
@@ -33,6 +34,16 @@ const LOCK_STALE_MS = 30_000;
 const HEARTBEAT_MS = 10_000;
 const MAX_SESSIONS = 1_000;
 const MAX_PROJECTS = 1_000;
+
+function upgradeForMessage(session: DurableSession, message: ChatMessage): void {
+  const needed = isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
+    : message.role === 'user' && message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
+    : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
+    : message.role === 'user' && message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
+  if (session.version >= needed) return;
+  if (session.version === 3) session.execution = 'local';
+  session.version = needed;
+}
 
 const manifestSchema = z.object({
   version: z.literal(1),
@@ -599,6 +610,7 @@ export class SessionStore {
           && prior.addressedParticipantId === message.addressedParticipantId
           && prior.text === message.text
           && prior.mode === message.mode
+          && prior.level === message.level
           && same(prior.diagramAttachments, message.diagramAttachments)
           && same(prior.reportAttachments ?? [], message.reportAttachments ?? [])
           && same(prior.imageAttachments ?? [], message.imageAttachments ?? []);
@@ -610,17 +622,7 @@ export class SessionStore {
       if (!serverAgent(session, message.addressedParticipantId)) {
         throw new Error('The addressed participant is not an agent in this session');
       }
-      // The first report needs version 5, the first Auto message version 6, and the first image
-      // version 8. Nothing else raises a version, and nothing lowers one: a report on a version 6
-      // or later session leaves it where it is.
-      const needed = message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
-        : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
-        : message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
-      if (session.version < needed) {
-        // Version 3 names its implicit Local.
-        if (session.version === 3) session.execution = 'local';
-        session.version = needed;
-      }
+      upgradeForMessage(session, message);
       session.messages.push(structuredClone(message));
       if (session.messages.length === 1) session.title = message.text.trim().slice(0, 56) || 'Sketch session';
       return { result: { session, appended: true }, changed: true };
@@ -664,6 +666,7 @@ export class SessionStore {
       }
       user.status = 'sent';
       delete user.delivery;
+      upgradeForMessage(session, assistant);
       session.messages.push(structuredClone(assistant));
       participant.lastObservedMessageId = assistant.id;
       return { result: session, changed: true };

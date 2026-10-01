@@ -92,7 +92,8 @@ capability.
 | Arena finished-item read markers | Versioned browser device state |
 | Checkout discovery and opaque checkout ids | Server |
 | Provider executable, tool list, allowlist, sandbox, model flags | Server |
-| Mode selection (`ask` / `plan` / `agent` / `auto`) | Browser names it, server resolves it |
+| Mode selection (`ask` / `plan` / `agent` / `edits` / `auto` / `full`) | Browser names it, server resolves it |
+| Security level (`guarded` / `native`) | Server-owned, machine-set, fixed for the process; Ask/Plan and Docker remain Guarded |
 | Model and effort for a turn | The browser names one of the machine's choices, and the server resolves it |
 | Global instructions | The browser names a provider's switch on this machine and a new session's choice; the server resolves the file, its text, and every Docker bind |
 | Pairing challenges and device credential digests | Separate host device-auth record |

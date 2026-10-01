@@ -111,8 +111,9 @@ export interface DurableSession {
    * messages. Each is written only by the first message that needs it. Version 7 is version 6 plus
    * `instructions`, and only a session created with that choice is written at it. Version 8 is
    * version 7 plus images on user messages, written by the first message that carries one.
+   * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   /** Fixed at creation and held only by a version 7 session. Absent: each turn follows the machine's switch. */
@@ -419,7 +420,8 @@ export type AssistantBlock =
  * `auto` is CodeAI's sandboxed mode: what the provider's operating-system sandbox contains runs
  * without a card, and anything that leaves it asks. See `src/shared/agentModes.ts`.
  */
-export type AgentMode = 'ask' | 'plan' | 'agent' | 'auto';
+export type SecurityLevel = 'guarded' | 'native';
+export type AgentMode = 'ask' | 'plan' | 'agent' | 'edits' | 'auto' | 'full';
 
 export interface UserMessage {
   id: string;
@@ -436,6 +438,8 @@ export interface UserMessage {
   /** Present only on messages that carried images, which only a version 8 session holds. */
   imageAttachments?: ImageAttachmentRecord[];
   mode?: AgentMode;
+  /** Native Agent/Auto need a level; the two Native-only modes identify themselves. */
+  level?: 'native';
 }
 
 export interface AssistantMessage {
@@ -448,6 +452,7 @@ export interface AssistantMessage {
   blocks: AssistantBlock[];
   metrics?: { durationMs: number; outputBytes: number };
   mode?: AgentMode;
+  level?: 'native';
   planProposed?: boolean;
 }
 
@@ -462,7 +467,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   instructions?: GlobalInstructionsChoice;
@@ -612,6 +617,8 @@ export interface ArenaSnapshot {
 /** A machine-owned projection. It never includes transcripts, provider handles, absolute paths, or credentials. */
 export interface ExecutorSnapshot {
   machine: MachineIdentity;
+  /** Omitted at Guarded for compatibility with older homes. */
+  securityLevel?: 'native';
   projects: DurableProject[];
   checkouts: CheckoutSummary[];
   recentCheckoutIds: string[];
@@ -662,15 +669,15 @@ export interface PermissionDecisionRequest {
 
 export interface ResolvedAgentPolicy {
   execution?: AgentExecution;
-  profile: 'ask-readonly' | 'plan-readonly' | 'agent-full' | 'auto-sandboxed';
+  level: SecurityLevel;
+  profile: 'ask-readonly' | 'plan-readonly' | 'agent-full' | 'auto-sandboxed' | 'native';
   mode: AgentMode;
   /** Undefined means the CLI default toolset (agent mode). */
   tools?: readonly string[];
   /** Server-owned permission rules, e.g. `Bash(git log:*)`. Never browser-configurable. */
   allowedTools: readonly string[];
-  permissionMode: 'plan' | 'default' | 'bypassPermissions';
+  permissionMode: 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions';
   interactivePermissions: boolean;
-  safeMode: true;
   sessionPersistence: true;
   maxTurns: number;
   timeoutMs: number;
@@ -741,6 +748,7 @@ export interface AgentProcessRunner {
 export interface AgentProviderAdapter {
   readonly id: AgentProvider;
   readonly supportedModes: readonly AgentMode[];
-  checkHealth(): Promise<ProviderHealth>;
+  /** With a mode, checks only the policy needed by that turn; otherwise lists all ready modes. */
+  checkHealth(mode?: AgentMode): Promise<ProviderHealth>;
   createRunner(): AgentProcessRunner;
 }

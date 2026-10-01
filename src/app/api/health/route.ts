@@ -63,6 +63,7 @@ export async function GET(request: Request): Promise<Response> {
   return safeJsonResponse({
     ok: repositoriesRootReady && dataDirectoryReady && (providerReady || docker.available) && !recoveryMessage,
     hostLabel: config.hostLabel,
+    securityLevel: config.securityLevel,
     repositoriesRootReady,
     dataDirectoryReady,
     providers: { claude, codex },

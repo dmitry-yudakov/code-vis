@@ -32,6 +32,9 @@ export default defineConfig({
     timeout: 30_000,
     env: {
       ...process.env,
+      // Local deployment settings must not turn the offline fixtures into a paired/Native server.
+      CODEAI_REMOTE_ACCESS: 'local',
+      CODEAI_SECURITY_LEVEL: 'guarded',
       CODEAI_REPOSITORIES_ROOT: path.resolve('test/fixtures/projects'),
       CODEAI_REPOSITORIES_DEPTH: '2',
       // A project whose primary repository is this fixture is CodeAI's own for the report flows.

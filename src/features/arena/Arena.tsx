@@ -118,6 +118,7 @@ export function Arena({
   const [refreshing, setRefreshing] = useState(false);
   const [dockerError, setDockerError] = useState<string>();
   const docker = executionHealth?.docker;
+  const securityLevel = machines.find((machine) => machine.machine.kind === 'local')?.securityLevel || 'guarded';
   const dockerSetupNeeded = Boolean(docker?.enabled && !docker.providers.claude.available);
   const dockerAvailableForSelected = selectedMachine?.machine.kind === 'local' && docker?.enabled;
   const [checkoutId, setCheckoutId] = useState(selectedMachine?.checkouts[0]?.id || '');
@@ -214,6 +215,11 @@ export function Arena({
         </div>
       </header>
 
+      <section className="arena-docker-settings" aria-label="Security level">
+        <div className="arena-docker-setting"><strong>Security level</strong></div>
+        <p>{securityLevel === 'native' ? 'Native — Local Claude and Codex write with your own setup' : 'Guarded — CodeAI sets the rules for Local turns'}</p>
+        <p>Set <code>CODEAI_SECURITY_LEVEL</code> on this computer and restart CodeAI to change it.</p>
+      </section>
       {docker && (
         <section className="arena-docker-settings" aria-label="Docker execution">
           <div className="arena-docker-setting">
@@ -252,7 +258,7 @@ export function Arena({
         </section>
       )}
 
-      <GlobalInstructions dockerEnabled={docker?.enabled} refreshing={refreshing} onChanged={refresh} />
+      <GlobalInstructions dockerEnabled={docker?.enabled} securityLevel={securityLevel} refreshing={refreshing} onChanged={refresh} />
 
       {refreshError && (
         <div className="arena-refresh-error" role="status">

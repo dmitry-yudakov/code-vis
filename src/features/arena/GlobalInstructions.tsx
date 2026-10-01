@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { INSTRUCTION_ISSUE_TEXT } from '@/shared/globalInstructions';
 import { PROVIDER_LABELS } from '@/shared/participants';
-import type { AgentProvider, GlobalInstructionsView as InstructionsView, ProviderInstructions } from '@/shared/types';
+import type { AgentProvider, GlobalInstructionsView as InstructionsView, ProviderInstructions, SecurityLevel } from '@/shared/types';
 
 const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
 
@@ -25,12 +25,13 @@ function dockerLine(provider: AgentProvider, docker: ProviderInstructions['docke
   ].filter(Boolean).join(' ');
 }
 
-export function GlobalInstructionsView({ view, error, saving, dockerEnabled, onSwitch }: {
+export function GlobalInstructionsView({ view, error, saving, dockerEnabled, securityLevel = 'guarded', onSwitch }: {
   view?: InstructionsView;
   error?: string;
   saving?: boolean;
   /** Docker is enabled on this machine, so what a worker sees is worth a line. */
   dockerEnabled?: boolean;
+  securityLevel?: SecurityLevel;
   onSwitch(provider: AgentProvider, enabled: boolean): void;
 }) {
   return (
@@ -39,6 +40,7 @@ export function GlobalInstructionsView({ view, error, saving, dockerEnabled, onS
         <strong>Global instructions</strong>
         <span>Takes effect on the next Docker Codex turn and in a Claude agent’s next provider session.</span>
       </div>
+      {securityLevel === 'native' && <p>Local Claude loads its own global instructions in Native writing modes. Its switch applies to Ask, Plan, and Docker.</p>}
       {view?.damaged && <p role="status">This machine’s setting is damaged, so Claude and Docker Codex run without them. Set either switch to repair it.</p>}
       {view && PROVIDERS.map((provider) => {
         const instructions = view.providers[provider];
@@ -80,8 +82,9 @@ export function GlobalInstructionsView({ view, error, saving, dockerEnabled, onS
  * This machine's global instructions: one switch per provider and the file each one reads. The
  * server resolves every path and text; this view names only a provider and its switch.
  */
-export function GlobalInstructions({ dockerEnabled, refreshing, onChanged }: {
+export function GlobalInstructions({ dockerEnabled, securityLevel = 'guarded', refreshing, onChanged }: {
   dockerEnabled?: boolean;
+  securityLevel?: SecurityLevel;
   /** The Arena is refreshing: the files may have changed too, so they are read again once it is done. */
   refreshing: boolean;
   onChanged(): void;
@@ -115,5 +118,5 @@ export function GlobalInstructions({ dockerEnabled, refreshing, onChanged }: {
     }).then((saved) => { if (saved) onChanged(); }).finally(() => setSaving(false));
   };
 
-  return <GlobalInstructionsView view={view} error={error} saving={saving} dockerEnabled={dockerEnabled} onSwitch={onSwitch} />;
+  return <GlobalInstructionsView view={view} error={error} saving={saving} dockerEnabled={dockerEnabled} securityLevel={securityLevel} onSwitch={onSwitch} />;
 }

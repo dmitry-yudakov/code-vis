@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-09-30. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-01. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
@@ -98,13 +98,20 @@ Updated 2026-09-30. When a story ships, change the line that names it; each stor
   checks; a real screenshot with real Claude and Codex turns remains pending.
 - **Next:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
   workbench shell epic and written from the template when it starts.
+- **Shipped:** [Story 82](stories/STORY-20261001-native-security-level.md) — Native Local Claude and
+  Codex writing modes load your own setup, with Accept edits, Auto, and Full access alongside Agent;
+  Guarded remains the default. Real-provider probes, automated checks, and review passed. Claude
+  Ask/Plan use tightened noninteractive permissions and user-only settings, and Native messages use
+  session format 9. The first story of the [security levels epic](stories/EPIC-20261001-security-levels.md).
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the
   [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md) for VR delivery, and the
-  [workbench shell epic](stories/EPIC-20260925-workbench-shell.md) for the flat desktop shell. Naming:
+  [workbench shell epic](stories/EPIC-20260925-workbench-shell.md) for the flat desktop shell, and the
+  [security levels epic](stories/EPIC-20261001-security-levels.md) for how much a machine lets agents
+  do on their own. Naming:
   [vocabulary.md](docs/vocabulary.md).
 
 ## Commands
@@ -196,7 +203,7 @@ importing file's own directory; keep `./…` for same-directory siblings.
   executable, tool list, allowlist, permission mode, sandbox, model flags, and the instruction
   file's path and text are resolved on the server. An unknown mode, or an unlisted model or effort, is a 400; a mode the addressed provider
   does not advertise is a 409.
-- Local Agent edits the real working tree after per-action approval and runs as the desktop user.
+- At **Guarded**, Local Agent edits the real working tree after per-action approval and runs as the desktop user.
   Local Auto (Story 79, Codex only) runs without individual approval inside the provider's
   operating-system sandbox: the checkout except `.git`, `.codex`, and `.claude` at its root (a
   nested repository is not protected), with no network.
@@ -217,15 +224,28 @@ importing file's own directory; keep `./…` for same-directory siblings.
   recorded review: everything else in those folders holds credentials, tokens, or other projects'
   transcripts. A link that lives where a turn can write (the repositories root, a temp directory)
   is never followed, and nothing there is ever a bind source.
-- The user's global instructions reach a provider as text only (`--append-system-prompt` for
-  Claude, `developerInstructions` for Docker Codex), read on the server whole or not at all, through
+- At Guarded and in Docker, the user's global instructions reach a provider as text only
+  (`--append-system-prompt` for Claude, `developerInstructions` for Docker Codex), read on the server whole or not at all, through
   `resolveUserPath`: never through a symbolic link under the repositories root or a temp directory,
   and never from a provider folder's private files. A file that lies where a turn can write is read
   only with proof that the open handle is the resolved file (`readBoundedTextFile` with `exactly`):
-  there, a path is only as good as the moment it was checked. Claude
+  there, a path is only as good as the moment it was checked. At Guarded, Claude
   stays in safe mode and Codex keeps its disabled features: never load hooks, skills, plugins, MCP,
   or settings natively to honor them. Instructions are guidance, never a boundary: no mode, sandbox,
   or approval may depend on them.
+- **Native** is machine-set with `CODEAI_SECURITY_LEVEL`, fixed for the process, and Local only.
+  Local writing turns load the user's provider setup: Claude omits safe mode and isolation flags;
+  Codex leaves integrations, network/writable-root settings, and the approval reviewer to the user.
+  Codex still disables `request_permissions_tool` and `exec_permission_approvals`, because CodeAI
+  handles one approval at a time. Native Agent, Accept edits (Claude), Auto, and Full access take
+  exclusive checkout access and the build budget. Full access reaches everything the desktop user
+  can reach; there is no checkpoint or undo. CodeAI never reads provider credentials itself.
+  Ask and Plan keep Guarded isolation at both levels: Local Claude uses noninteractive default
+  permissions and user-only setting sources, so planted project rules cannot grant shell writes.
+  Docker keeps its existing profile and customization allowlist. Pairing, exact HTTPS origins,
+  server-owned capability resolution, budgets, cancellation, and session persistence hold at both
+  levels. No browser request may set the level. A Native writing turn can plant provider settings
+  that later writing turns load. An explicitly isolated session cannot run Native Claude writing.
 - Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
   device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode. The
   one exception is the README's development-only headset loop (`npm run devs`): it is

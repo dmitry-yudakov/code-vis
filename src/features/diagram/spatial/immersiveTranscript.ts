@@ -3,6 +3,7 @@ import type { ImmersiveTranscriptEntry } from './immersiveTypes';
 import { dpToWorld } from '@/features/shell/immersive/immersiveTheme';
 import { reportAttachmentSummary } from '@/features/reports/reportModel';
 import { imageAttachmentSummary } from '@/features/conversation/imageAttachments';
+import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 
 // History layout and rasterization share text geometry.
 const IMMERSIVE_TEXT_PIXELS_PER_METER = 1_000;
@@ -79,7 +80,7 @@ export function immersiveMessageEntry(
 ): ImmersiveTranscriptEntry {
   const participant = participants.get(message.authorId);
   const author = participant?.displayName || (message.role === 'user' ? 'You' : 'Agent');
-  const mode = message.mode ? ` · ${titleCase(message.mode)}` : '';
+  const mode = message.mode ? ` · ${message.level === 'native' ? 'Native · ' : ''}${AGENT_MODE_LABELS[message.mode]}` : '';
   const participantRole = participant?.kind === 'agent' ? ` · ${titleCase(participant.role)}` : '';
   const delivery = message.role === 'user' && message.delivery === 'possibly-sent' ? ' · delivery uncertain' : '';
   return {

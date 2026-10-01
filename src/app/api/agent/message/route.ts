@@ -9,13 +9,14 @@ import {
 } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { AgentRunError } from '@/server/agents/agentRunError';
-import { autoDataDirectoryIssue } from '@/server/agents/agentPolicy';
+import { autoDataDirectoryIssue, resolveAgentPolicy } from '@/server/agents/agentPolicy';
+import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runConversation } from '@/server/conversation/conversationService';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
-import { changesCheckout } from '@/shared/agentModes';
+import { changesCheckout, nativeMessageLevel } from '@/shared/agentModes';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import { MAX_REPORTS_PER_MESSAGE, MAX_SESSION_REPORT_EVIDENCE_BYTES } from '@/shared/limits';
@@ -176,14 +177,17 @@ export async function POST(request: Request): Promise<Response> {
   // Version 3 records predate the field; absence is Local.
   const execution = session.execution ?? 'local';
   const adapter = getProviderAdapters(config, execution, { sessionId: session.id, participantId: participant.id })[participant.provider];
-  const providerHealth = await adapter.checkHealth();
+  const providerHealth = await adapter.checkHealth(mode);
   if (!providerHealth.available || !providerHealth.supportedModes.includes(mode)) {
     return safeJsonResponse({
       error: providerHealth.message
         || `${participant.provider === 'codex' ? 'Codex' : 'Claude'} is not healthy for ${mode} mode in this CodeAI configuration.`,
     }, { status: 409 });
   }
-  if (mode === 'auto') {
+  const policy = resolveAgentPolicy(config, mode, execution);
+  const isolationIssue = nativeClaudeIsolationIssue({ provider: participant.provider, execution, level: policy.level, mode, choice: session.instructions });
+  if (isolationIssue) return safeJsonResponse({ error: isolationIssue }, { status: 409 });
+  if (mode === 'auto' && policy.level === 'guarded') {
     const issue = await autoDataDirectoryIssue(config.dataDir, checkout.realPath);
     if (issue) return safeJsonResponse({ error: issue }, { status: 409 });
   }
@@ -248,6 +252,7 @@ export async function POST(request: Request): Promise<Response> {
     ...(reportEvidence.length ? { reportAttachments: reportEvidence.map((item) => item.record) } : {}),
     ...(imageRecords.length ? { imageAttachments: imageRecords } : {}),
     mode,
+    ...(nativeMessageLevel(mode, policy.level) ? { level: 'native' as const } : {}),
   };
   // Evidence is written before the message that points at it, so no message references a missing file.
   try {

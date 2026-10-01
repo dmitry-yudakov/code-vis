@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import type {
   AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection,
-  SessionSnapshot,
+  SecurityLevel, SessionSnapshot,
 } from '@/shared/types';
 import { toolActivityLabel, type PendingPermission, type ToolActivityEntry } from '@/features/agents/toolActivity';
 import { ChatMessage } from './ChatMessage';
@@ -14,13 +14,14 @@ import { recentCanvases } from './recentCanvases';
 import { PermissionCard } from '@/features/agents/PermissionCard';
 import { ParticipantControls } from '@/features/agents/ParticipantControls';
 import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
+import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 
 export function ConversationDrawer({
-  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, turnBlocked,
+  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, instructions, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  continuing, continuationUnavailable, instructions, securityLevel, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
   session?: SessionSnapshot;
@@ -39,7 +40,8 @@ export function ConversationDrawer({
   continuationUnavailable?: string;
   /** Whether the addressed agent's next turn gets the user's global instructions. */
   instructions?: InstructionsLine;
-  turnBlocked?: boolean;
+  securityLevel?: SecurityLevel;
+  sendBlocked?: string;
   status: string;
   composer: string;
   mode: AgentMode;
@@ -97,7 +99,11 @@ export function ConversationDrawer({
             theme={theme}
             participants={session.participants}
             activeDiagramId={session.activeDiagramId}
-            running={running || Boolean(turnBlocked)}
+            running={running}
+            executePlanBlocked={nativeClaudeIsolationIssue({
+              provider: agents.find((agent) => agent.id === message.authorId)?.provider || 'claude',
+              execution: session.execution, level: securityLevel, mode: 'agent', choice: session.instructions,
+            })}
             onSelectDiagram={onSelectDiagram}
             onRetry={onRetry}
             onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined}
@@ -147,14 +153,17 @@ export function ConversationDrawer({
           onAdd={onAddAgent}
           onHandoff={onHandoff}
         />
-        <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{turnBlocked && !running ? 'Another session is running' : status || 'Ready for an instruction'}</div>
+        <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{!running && sendBlocked || status || 'Ready for an instruction'}</div>
         <InstructionComposer
           execution={session?.execution}
+          securityLevel={securityLevel}
+          provider={activeAgent?.provider}
+          isolated={session?.instructions === 'isolated'}
           instructions={instructions}
           value={composer}
           running={running}
           cancelReady={cancelReady}
-          turnBlocked={turnBlocked}
+          sendBlocked={sendBlocked}
           autoFocus
           attached={attached}
           reports={reports}

@@ -25,12 +25,13 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, running, onSelectDiagram, onRetry, onExecutePlan }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, running, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan }: {
   message: ChatMessageType;
   theme: ThemeName;
   participants: Participant[];
   activeDiagramId?: string;
   running?: boolean;
+  executePlanBlocked?: string;
   onSelectDiagram(id: string): void;
   onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number): void;
   onExecutePlan?(participantId: string): void;
@@ -41,7 +42,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
     return (
       <article className={`chat-message user ${message.status}`}>
         <div className="message-meta">
-          <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+          <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{message.level === 'native' ? 'Native · ' : ''}{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
           <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
         </div>
         <p>{message.text}</p>
@@ -62,7 +63,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   return (
     <article className={`chat-message assistant ${message.status}`}>
       <div className="message-meta">
-        <span>{author?.displayName || 'Agent'}{author?.kind === 'agent' ? ` · ${PROVIDER_LABELS[author.provider]}/${AGENT_ROLE_LABELS[author.role]}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+        <span>{author?.displayName || 'Agent'}{author?.kind === 'agent' ? ` · ${PROVIDER_LABELS[author.provider]}/${AGENT_ROLE_LABELS[author.role]}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{message.level === 'native' ? 'Native · ' : ''}{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
         <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       </div>
       <div className="assistant-blocks">
@@ -98,8 +99,8 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
       </div>
       {message.planProposed && onExecutePlan && (
         <div className="plan-approval">
-          <span>Nothing runs until you approve. Executing resumes this same session in Agent mode.</span>
-          <button type="button" disabled={running} onClick={() => onExecutePlan(message.authorId)}>Execute plan</button>
+          <span>{executePlanBlocked || 'Nothing runs until you approve. Executing resumes this same session in Agent mode.'}</span>
+          <button type="button" disabled={running || Boolean(executePlanBlocked)} title={executePlanBlocked} onClick={() => onExecutePlan(message.authorId)}>Execute plan</button>
         </div>
       )}
     </article>

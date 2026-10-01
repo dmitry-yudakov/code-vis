@@ -34,6 +34,7 @@ function remoteProjection(
     projects: cached?.projects || [],
     checkouts: cached?.checkouts || [],
     recentCheckoutIds: cached?.recentCheckoutIds || [],
+    ...(cached?.securityLevel === 'native' ? { securityLevel: 'native' as const } : {}),
     providers: state === 'online' && cached
       ? cached.providers
       : { claude: unavailableProvider, codex: unavailableProvider },

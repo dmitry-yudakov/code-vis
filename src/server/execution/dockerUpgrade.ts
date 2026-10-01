@@ -241,7 +241,7 @@ async function checkImage(access: DockerAccess, image: string, expected: CliVers
   const help = await inCheckContainer(access, image, (container) => access.command(['exec', container, 'claude', '--help']))
     .catch(() => undefined);
   if (help === undefined) return { passed: false, check: 'claude-flags', message: 'claude --help failed.' };
-  const { missingByMode, effortSupported } = inspectClaudeHelp(help);
+  const { missingByMode, effortSupported } = inspectClaudeHelp(help, 'guarded', 'docker');
   const missing = [...new Set([...missingByMode.flatMap((entry) => entry.missing), ...(effortSupported ? [] : ['--effort'])])];
   if (missing.length) {
     return { passed: false, check: 'claude-flags', message: `claude --help does not document ${missing.join(', ')}, which CodeAI requires.` };

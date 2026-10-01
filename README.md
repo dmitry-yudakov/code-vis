@@ -4,8 +4,8 @@ A local-first Next.js application for working on a repository through a persiste
 conversation and a canvas with Flat, desktop Spatial, and immersive WebXR projections. Choose
 Claude Code or Codex as the first main agent, then add more provider/role participants to the same
 session. Conversation is the command/history channel, and once a diagram exists the canvas becomes
-the primary workspace. Each message runs in one of four modes — **Ask**, **Plan**, **Agent**, or
-**Auto** — subject to the selected provider's supported modes.
+the primary workspace. Each message chooses **Ask**, **Plan**, **Agent**, or **Auto**; Native adds **Accept edits** and
+**Full access** — subject to the selected provider's supported modes.
 
 **CodeAI** is the working product name until a naming decision replaces it. The superseded
 static-analysis server, React Flow client, and VS Code extension are archived under
@@ -662,17 +662,22 @@ individual approvals; it starts in Ask unless Agent is chosen for it. The Arena'
 session** forms open at the last mode and provider when that machine can run them, and set the new
 session's mode explicitly. A session keeps its own mode once it has one, so changing the mode in one
 session does not change another's. A session with no mode on this device, such as one started on
-another device, shows the last mode. **Auto** is the exception: it stays with the session it was
-chosen in. No session inherits it, a last mode of Auto starts the next session in Ask, and the **New
-session** forms do not offer it.
+another device, shows the last mode. **Auto**, **Accept edits**, and **Full access** stay with the session they were chosen in. No
+session inherits them: the next session starts in Ask, and the **New session** forms do not offer
+them.
 
 Independent sessions can execute at the same time. Each machine runs two eligible turns by default
 and visibly queues additional work; `CODEAI_MAX_CONCURRENT_RUNS` sets a limit from 1–8. Ask and
-Plan turns may share a checkout, while Agent and Auto take an exclusive checkout execution lock and
+Plan turns may share a checkout, while all writing modes take an exclusive checkout execution lock and
 keep their slot while an approval is pending. Every tab owns its own status, preview, activity,
 permissions, cancellation, and reload recovery.
 
 ## Conversation modes
+
+`CODEAI_SECURITY_LEVEL` fixes this machine’s level for the running process: **Guarded** (default)
+or **Native**. Set it on the executing computer and restart CodeAI; the browser cannot change it.
+Ask and Plan stay read-only at both levels, and Docker keeps its existing contract. The table and
+Auto sandbox description below describe Guarded.
 
 Every message carries a mode. The browser sends only the mode name; the server resolves it to a
 fixed provider policy. A session can change modes and recipients; later turns resume only the
@@ -698,15 +703,42 @@ unanswered card is auto-denied after `CODEAI_APPROVAL_TIMEOUT_MS` (default 10 mi
 the run's own timeout clock is paused while a card is pending. Cancelling resolves pending cards as
 denied before terminating the child.
 
-Agent and Auto edit **the real working tree** of the session's primary repository, exactly like the corresponding
+All writing modes edit **the real working tree** of the session's primary repository, exactly like the corresponding
 terminal agent. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
 deliberately out of scope for now.
 
-Claude supports Ask, Plan, and Agent. Codex supports Ask and Plan by default. Codex Agent and Auto
+At Guarded, Claude supports Ask, Plan, and Agent. Codex supports Ask and Plan by default. Codex Agent and Auto
 share a release gate: set `CODEAI_CODEX_AGENT=1` only after the installed App Server has passed the
 real write, command, network-escalation, denial, and cancellation approval matrix documented in
 [docs/experiment-log.md](docs/experiment-log.md). Without that opt-in, the UI reports Codex Agent as
 unsupported, and does not offer Auto, rather than silently granting workspace writes.
+
+### Native writing modes
+
+Native Local turns load the provider's own settings, hooks, MCP servers, skills, plugins, and
+commands as in your terminal. CodeAI retains session persistence, turn budgets, cancellation,
+attachments, and permission cards for requests the provider sends. Integrations and Codex model
+review decisions appear in the activity stream.
+
+| Mode | Claude | Codex |
+|---|---|---|
+| Agent | Your permission rules decide; the rest asks you | Read-only sandbox, on-request approval; your configured reviewer may be a model |
+| Accept edits | File edits without asking; commands follow your rules | Not offered |
+| Auto | Claude's classifier model approves or blocks actions | Workspace sandbox with your network and writable-root settings; your configured reviewer handles escalations |
+| Full access | Bypass permissions | Full disk access, no approvals |
+
+Codex Agent and Auto retain `CODEAI_CODEX_AGENT=1`; Auto requires a working Codex sandbox.
+Full access is offered without that gate. Claude's extra modes require an installed CLI that lists
+the corresponding permission choice. These modes are chosen inside a session: new sessions and
+continuations turn Accept edits, Auto, and Full access into Ask. Execute plan still sends Agent.
+The composer names Native before sending, message tags show Native · Agent or Native · Auto,
+and Arena shows the level read-only.
+
+Local Claude loads its global instructions itself in Native writing modes, regardless of the
+machine's switch. An explicitly isolated session disables those modes; Ask and Plan remain
+available. The switch still applies to Claude Ask/Plan and Docker. Local Codex continues to load
+its own global instructions. Native messages upgrade their session to format 9; earlier builds hide
+only those sessions, while image-only sessions remain at format 8.
 
 ### Auto
 
@@ -803,12 +835,14 @@ too, and you decide where. **Global instructions** in the Arena shows, for each 
 machine, a switch, the file it resolves to, and the file's text, read-only. Both switches are on
 until you change one.
 
-- **Claude** runs in safe mode, which turns its own `CLAUDE.md` loading off together with hooks,
+- **At Guarded, Claude** runs in safe mode, which turns its own `CLAUDE.md` loading off together with hooks,
   skills, plugins and MCP. So CodeAI reads the file itself and passes its text with
-  `--append-system-prompt`, in every mode, Local and Docker. Safe mode stays on: the file adds words
+  `--append-system-prompt` for Guarded Local turns and all Docker turns. Safe mode stays on: the file adds words
   and nothing else. `@path` imports in it are passed as written and not followed. The text travels
   on Claude's command line, so while a turn runs another account on the same machine can read it in
   the process list.
+- **At Native, Local Claude** loads its own file in writing modes; the switch still applies to
+  Ask/Plan and Docker. Explicitly isolated sessions disable Native Claude writing modes.
 - **Local Codex** loads its own `AGENTS.md` whatever CodeAI sends, so the switch cannot turn it off
   there; the Arena says so. The Codex switch applies to **Docker Codex**, which gets the text in its
   developer instructions.
@@ -903,18 +937,18 @@ allowlist, permission mode, model flags, environment variables, sandbox, setting
 instruction file's path and text all stay server-owned. An unknown mode is a 400, and a mode the
 addressed provider does not advertise is a 409.
 
-Claude is spawned without a shell in the primary repository's checkout directory with:
+At **Guarded**, Claude is spawned without a shell in the primary repository's checkout directory with:
 
 - safe mode (repository hooks, skills, MCP, and custom commands stay disabled), strict empty MCP
   configuration, and slash commands disabled, in every mode;
 - your [global instructions](#global-instructions) as appended system-prompt text, when they are on
   for the turn;
-- the fixed git/gh allowlist, and in Ask/Plan the `Read,Glob,Grep,Bash` tool list with plan
-  permissions;
+- the fixed git/gh allowlist, and in Ask/Plan the `Read,Glob,Grep,Bash` tool list with noninteractive default
+  permissions and user-only setting sources;
 - a bounded turn count, timeout, output size, and one global active process;
 - native session persistence (`--session-id` first, `--resume` later).
 
-Codex is spawned as a local [`codex app-server`](https://learn.chatgpt.com/docs/app-server) stdio
+At **Guarded**, Codex is spawned as a local [`codex app-server`](https://learn.chatgpt.com/docs/app-server) stdio
 child for each active turn. CodeAI performs the App Server handshake, starts or resumes the
 stored Codex thread, and streams the turn without opening a listener port. Ask and Plan use a
 read-only sandbox with network disabled; Agent uses the same sandbox and asks before anything that
@@ -937,6 +971,14 @@ diagram snapshots in a per-run directory under `CODEAI_DATA_DIR/run-attachments`
 repository and outside the system temp directory, which an Auto sandbox leaves writable. It is
 always removed after the turn, and what a crashed server left there is removed before the next
 server's first turn.
+
+At **Native**, writing turns use the provider's own setup. Claude's isolation flags and appended
+global text are omitted. Codex leaves integrations and the approval reviewer to your configuration;
+only `request_permissions_tool` and `exec_permission_approvals` stay disabled, because CodeAI
+supports one approval request at a time. Its thread still explicitly selects the mode's sandbox and
+approval policy. Ask and Plan retain Guarded isolation, with Claude excluding project settings so
+that a planted hook, MCP server, or permission rule cannot run there. Device pairing, exact HTTPS
+origins, server-owned capability resolution, and CodeAI's credential handling hold at both levels.
 
 This is a capability restriction, **not a separate operating-system or container boundary**. The
 selected CLI still runs as your desktop user, and in Agent mode it changes real files once you
@@ -1069,9 +1111,12 @@ See [.env.example](.env.example). The most useful options are:
   model is the Default that the composer's **Model** menu can override for one turn;
 - `CODEAI_CODEX_BIN` / `CODEAI_CODEX_MODEL` — local Codex executable and optional model, also the
   composer's Default;
-- `CODEAI_CODEX_AGENT` — explicit release gate for Codex Agent and Auto; unset means Ask/Plan only;
+- `CODEAI_SECURITY_LEVEL` — `guarded` (default) or `native`, machine-wide and read once per process;
+  restart after changing it. The former `CODEAI_WEB2_SECURITY_LEVEL` spelling also works;
+- `CODEAI_CODEX_AGENT` — explicit release gate for Codex Agent and Auto at both levels; Native Full
+  access is independent of this gate;
 - `CODEAI_DATA_DIR` — canonical host session store root (tilde expansion is handled in Node). Keep it
-  outside every checkout and outside the temp directories, or Auto is refused; Docker execution also
+  outside every checkout and outside the temp directories, or Guarded Auto is refused; Docker execution also
   needs a path without a comma, because each run's context is mounted from under it;
 - `CODEAI_INSTALLATION_ROOT` — which checkout counts as this installation for
   [reports](#use-reports-in-codeais-own-project); defaults to the working directory and exists for
@@ -1134,10 +1179,21 @@ over-capable provider is reported without making a healthy provider unusable.
   cannot be opened on the canvas or drawn over, and a later turn does not see it unless the
   provider's own session remembers it.
 - Mermaid subgraphs cannot be generically collapsed; large diagrams use pan/zoom/fit and agent revision.
-- Agent and Auto work directly in the checked-out tree: no worktree isolation, no apply/discard
+- All writing modes work directly in the checked-out tree: no worktree isolation, no apply/discard
   checkpoints, and no policy on pre-existing uncommitted changes. Review with `git`.
-- Every Agent side effect prompts, and so does everything that leaves an Auto sandbox; there is no
-  "always allow". Auto is available for Codex only, and no model reviews an escalation for you.
+- At Guarded, every Agent side effect prompts, and so does everything that leaves an Auto sandbox;
+  there is no "always allow". Guarded Auto is available for Codex only; you answer escalations.
+- Native follows your CLI's trust state: a previously untrusted repository may need to be trusted
+  in your terminal first. Native writing can plant provider settings that later writing turns load,
+  including after switching back to Guarded Agent. Ask/Plan exclude those project settings.
+- Full access reaches everything your desktop user can reach, including CodeAI's data directory and
+  the provider's credential files. Uncommitted work still has no checkpoint or undo.
+- A turn allowed to write CodeAI's own checkout can change `.env.local`, just as it can change the
+  application code; either change takes effect on restart. The running process's level stays fixed.
+- Older builds hide Native sessions (format 9). A build predating this story can also report its
+  machine registry corrupt after caching a Native executor's snapshot. Use this build or detach
+  the executor before rolling back; new builds discard an incompatible cached snapshot and retain
+  the machine attachment.
 - Source excerpts and editor deep links are still outside the experiment.
 - Native provider session history remains owned by its CLI; deleting local browser data does not
   delete that history.

@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { AGENT_MODES, isAgentMode } from '@/shared/agentModes';
+import { AGENT_MODES, isAgentMode, isLaunchMode } from '@/shared/agentModes';
+import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
+import { AGENT_MODE_LABELS, executionModeHint } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
 import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 import { draftTokens, editVoiceDraft, spellVoiceText } from '@/features/conversation/voiceEditing';
 import { useVoiceDraft } from '@/features/conversation/useVoiceDraft';
 import { immersiveChatLines } from '@/features/diagram/spatial/immersiveTranscript';
-import { centeredControlRow, CONVERSATION_ACTIONS, type ConversationActionName, type ImmersiveConversationControls } from './conversationControls';
+import { centeredControlRow, centeredControlRows, CONVERSATION_ACTIONS, type ConversationActionName, type ImmersiveConversationControls } from './conversationControls';
 import { createConversationTextResource, createWorkspaceButtonResource } from './workspaceResources';
 import { createWorkspaceIconResource, isWorkspaceIconAction } from './workspaceIcons';
 import { workspaceTextLines } from './workspaceText';
@@ -79,8 +81,10 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     controls?.target || 'Open a session first.',
     `${activeAgent?.displayName || 'No agent'} · ${activeAgent ? AGENT_ROLE_LABELS[activeAgent.role] : ''}`,
     `Main: ${controls?.agents.find((agent) => agent.id === controls.primaryAgentId)?.displayName || 'None'}`,
+    controls ? `${AGENT_MODE_LABELS[controls.mode]} · ${executionModeHint(controls.mode, controls.execution, controls.securityLevel, activeAgent?.provider)}` : '',
     `Add: ${provider ? PROVIDER_LABELS[provider] : 'No provider available'} · ${AGENT_ROLE_LABELS[role]}`,
     controls?.busy ? 'Updating agents…' : controls?.running ? 'Agent controls available after this run.' : 'Select an agent and a supported mode.',
+    error || (controls?.running ? controls.runStatus : controls?.sendBlocked) || '',
   ].join('\n\n') : voice.result || draft || (voice.phase === 'recording'
     ? 'Listening…\n\nYour words will appear here after you stop recording.'
     : voice.phase === 'transcribing' ? 'Turning your speech into a message…'
@@ -92,27 +96,28 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
   const recordingStatus = `${voice.status}\n${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} / 1:00`;
   const voiceStatus = error || (controls?.running ? controls.runStatus
     : voice.phase === 'recording' ? recordingStatus
-      : tab !== 'agents' ? voice.status : 'Choose an agent and mode');
+      : tab !== 'agents' ? voice.status : controls?.sendBlocked || 'Choose an agent and mode');
   const displayedStatus = voiceStatus;
   const context = !voiceBusy && !voice.result && !showHelp && !editing && tab !== 'agents'
     ? controls?.sendBlocked
-      || `${activeAgent?.displayName || 'No agent'} · ${controls?.mode || ''}${controls?.attachments.length ? ` · ${controls.attachments.join('; ')}` : ''}` : '';
+      || `${activeAgent?.displayName || 'No agent'} · ${controls?.securityLevel === 'native' && controls.execution !== 'docker' ? 'Native · ' : ''}${controls ? AGENT_MODE_LABELS[controls.mode] : ''}${controls?.attachments.length ? ` · ${controls.attachments.join('; ')}` : ''}` : '';
   const resource = useTextureResource((ledger) => !visible || !expanded ? undefined : createConversationTextResource(
     `${showHelp ? 'Voice help' : tab === 'agents' ? 'Agents' : voice.result ? 'Review your words' : 'Your message'}${pageCount > 1 ? ` · ${safePage + 1}/${pageCount}` : ''}`,
     lines.slice(safePage * 10, safePage * 10 + 10), theme, ledger,
   ), [visible, expanded, tab, text, showHelp, safePage, pageCount, theme]);
   // Give recording and recovery messages a separate, readable three-line surface.
   const statusLines = workspaceTextLines(context ? `${displayedStatus}\n${context}` : displayedStatus, 48);
+  const expandedStatus = expanded && (tab !== 'agents' || statusLines.length > 1);
+  const multilineAgentStatus = tab === 'agents' && expandedStatus;
   const inlineStatus = voice.phase === 'recording' ? `Listening · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} · Stop to transcribe`
     : context && controls?.sendBlocked && !controls.running ? context
       : voiceBusy || error || !['Ready to dictate', 'Ready to send', 'Draft preserved'].includes(voice.status) ? displayedStatus.split('\n')[0] : context;
   const statusResource = useTextureResource((ledger) => !visible ? undefined : createConversationTextResource(
-    '', expanded ? statusLines.slice(0, 3) : workspaceTextLines(inlineStatus, 58).slice(0, 1), theme, ledger, true, !expanded,
-  ), [visible, expanded, displayedStatus, inlineStatus, context, theme]);
+    '', expandedStatus ? statusLines.slice(0, 3) : tab === 'agents' ? statusLines.slice(0, 1) : workspaceTextLines(inlineStatus, 58).slice(0, 1),
+    theme, ledger, true, !expandedStatus,
+  ), [visible, expanded, tab, displayedStatus, inlineStatus, context, theme]);
 
-  // Auto joins the row only where the addressed provider advertises it; it is never shown disabled.
-  const offersAuto = Boolean(controls && !controls.unsupportedModes.includes('auto'));
-  const modeActions = AGENT_MODES.filter((item) => item !== 'auto' || offersAuto);
+  const modeActions = AGENT_MODES.filter((item) => isLaunchMode(item) || Boolean(controls && !controls.unsupportedModes.includes(item)));
   const actions: ConversationActionName[] = showHelp ? ['done']
     : tab === 'agents' ? controls?.running ? ['read'] : ['read', 'previous-agent', 'next-agent', 'make-primary', ...modeActions, 'provider', 'role', 'add']
       : voiceBusy ? ['stop', 'discard']
@@ -152,7 +157,10 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     if (action === 'delete' || action === 'replace') return !selected;
     if (action === 'undo') return !undo.current.length;
     if (action === 'clear') return !draft;
-    if (isAgentMode(action)) return controls.unsupportedModes.includes(action);
+    if (isAgentMode(action)) return controls.unsupportedModes.includes(action) || Boolean(nativeClaudeIsolationIssue({
+      provider: activeAgent?.provider || 'claude', execution: controls.execution, level: controls.securityLevel, mode: action,
+      choice: controls.isolated ? 'isolated' : undefined,
+    }));
     if (action === 'add' || action === 'provider') return !provider;
     if (action === 'make-primary') return !activeAgent || activeAgent.id === controls.primaryAgentId;
     if (action === 'previous-agent' || action === 'next-agent') return controls.agents.length < 2;
@@ -207,7 +215,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
         const agents = controls?.agents || [];
         const index = agents.findIndex((agent) => agent.id === controls?.activeAgentId);
         const next = agents[(index + (action === 'next-agent' ? 1 : -1) + agents.length) % agents.length];
-        if (next) controls?.onSelectAgent(next.id);
+        if (next) { controls?.onSelectAgent(next.id); setPage(0); }
       } else if (action === 'make-primary' && activeAgent) controls?.onMakePrimary(activeAgent.id);
       else if (action === 'provider') setProviderIndex((index) => index + 1);
       else if (action === 'role') setRoleIndex((index) => (index + 1) % AGENT_ROLES.length);
@@ -219,32 +227,26 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     action={`conversation:${action}`} label={actionLabel(action)} resource={labels?.[action]?.icon}
     iconTheme={theme} position={position}
     disabled={disabled(action)} selected={action === tab || action === controls?.mode}
-    variant={action === 'send' ? 'primary' : action === 'discard' || action === 'cancel' ? 'destructive' : 'secondary'}
+    variant={action === 'send' ? 'primary' : action === 'discard' || action === 'cancel' || action === 'full' ? 'destructive' : 'secondary'}
     onAction={() => perform(action)} />;
   const pagerActions = new Set<ConversationActionName>(['previous-word', 'next-word', 'draft-older', 'draft-newer', 'previous-agent', 'next-agent']);
   const editingRow = centeredControlRow((['retry', 'help', 'clear', 'done'] as ConversationActionName[])
     .filter((action) => editing && !voice.result && actions.includes(action))
     .map((action) => ({ key: action, width: labels?.[action]?.icon.width || 0.14 })));
-  // Four modes and Make main do not fit at the three-mode spacing, so with Auto the row is laid out
-  // from the labels' own widths.
   const controlWidth = (action: ConversationActionName) => Math.max(IMMERSIVE_CONTROL_HEIGHT, labels?.[action]?.icon.width || 0.2);
-  const autoRow = offersAuto
-    ? centeredControlRow<ConversationActionName>([...modeActions, 'make-primary' as const].map((key) => ({ key, width: controlWidth(key) })), 0.03)
-    : undefined;
-  const modeSurface = autoRow
-    ? [autoRow.get('ask')! - controlWidth('ask') / 2 - 0.015, autoRow.get('auto')! + controlWidth('auto') / 2 + 0.015]
-    : [-0.55, 0.27];
+  const modeRows = centeredControlRows<ConversationActionName>([...modeActions, 'make-primary' as const].map((key) => ({ key, width: controlWidth(key) })), 1.25);
+  const modeY = (row: number) => multilineAgentStatus ? -0.49 - row * 0.18 : modeRows.length > 1 ? -0.41 - row * 0.18 : -0.44;
+  const addY = multilineAgentStatus ? modeRows.length > 1 ? -0.82 : -0.74 : modeRows.length > 1 ? -0.78 : -0.68;
   const actionPosition = (action: ConversationActionName, index: number): [number, number, number] => {
-    if (action === 'cancel') return [0.48, expanded ? -0.34 : -0.43, 0];
+    if (action === 'cancel') return [0.48, tab === 'agents' ? modeY(0) : expanded ? -0.34 : -0.43, 0];
     if (!expanded) return action === 'send' || action === 'discard' ? [0.55, -0.70, 0]
       : action === 'clear' ? [0.37, -0.70, 0] : [draft && !controls?.running ? 0.18 : 0.37, -0.70, 0];
     if (tab === 'agents') {
       const positions: Partial<Record<ConversationActionName, [number, number, number]>> = {
-        read: [-0.51, 0.48, 0], ask: [-0.42, -0.44, 0], plan: [-0.14, -0.44, 0], agent: [0.14, -0.44, 0],
-        'make-primary': [0.46, -0.44, 0], provider: [-0.40, -0.68, 0], role: [0, -0.68, 0], add: [0.40, -0.68, 0],
+        read: [-0.51, 0.48, 0], provider: [-0.40, addY, 0], role: [0, addY, 0], add: [0.40, addY, 0],
       };
-      const autoX = autoRow?.get(action);
-      return autoX !== undefined ? [autoX, -0.44, 0] : positions[action] || [0, -0.68, 0];
+      const row = modeRows.findIndex((positions) => positions.has(action));
+      return row >= 0 ? [modeRows[row].get(action)!, modeY(row), 0] : positions[action] || [0, -0.68, 0];
     }
     const editingX = editingRow.get(action);
     if (editingX !== undefined) return [editingX, -0.73, 0];
@@ -262,21 +264,27 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     {resource && <mesh name="VR draft and agents" geometry={resource.geometry} material={resource.material}
       position={[0, 0.2, 0]} />}
     {statusResource && <mesh name="Voice status" geometry={statusResource.geometry} material={statusResource.material}
-      position={[0, expanded ? -0.34 : -0.45, 0.0005]} renderOrder={12} />}
+      position={[0, tab === 'agents' ? multilineAgentStatus ? -0.32 : -0.27 : expanded ? -0.34 : -0.45, 0.0005]} renderOrder={12} />}
     {visible && !expanded && controls && <InlineConversationInput draft={draft} theme={theme}
       enabled={enabled && !locked && !voiceBusy} onDraft={controls.onDraft} />}
     {voice.phase === 'recording' && <VoiceActivity level={voice.activity.level} theme={theme} />}
     {!expanded && !atBottom && button('latest', [0.55, -0.32, 0])}
-    {expanded && pageCount > 1 && tab !== 'agents' && <WorkspacePager label={`Page ${safePage + 1} of ${pageCount}`}
+    {expanded && pageCount > 1 && <WorkspacePager label={`Page ${safePage + 1} of ${pageCount}`}
       previousAction="conversation:draft-older" nextAction="conversation:draft-newer" previousLabel="Previous page" nextLabel="Next page"
-      position={[0.33, 0.48, 0]} theme={theme} previousDisabled={safePage === 0} nextDisabled={safePage >= pageCount - 1}
+      position={[0.33, tab === 'agents' ? 0.66 : 0.48, 0]} theme={theme} previousDisabled={safePage === 0} nextDisabled={safePage >= pageCount - 1}
       onAction={(action) => perform(action.slice('conversation:'.length) as ConversationActionName)} />}
     {tab === 'agents' && expanded && <WorkspacePager label={`Agent ${agentIndex + 1} of ${Math.max(1, controls?.agents.length || 0)}`}
       previousAction="conversation:previous-agent" nextAction="conversation:next-agent" previousLabel="Previous agent" nextLabel="Next agent"
       position={[0.18, 0.48, 0]} theme={theme} previousDisabled={(controls?.agents.length || 0) < 2} nextDisabled={(controls?.agents.length || 0) < 2}
       onAction={(action) => perform(action.slice('conversation:'.length) as ConversationActionName)} />}
-    {tab === 'agents' && expanded && <ControlGroupSurface name="Agent mode selector" width={modeSurface[1] - modeSurface[0]}
-      position={[(modeSurface[0] + modeSurface[1]) / 2, -0.44, 0]} theme={theme} />}
+    {tab === 'agents' && expanded && modeRows.map((row, index) => {
+      const modes = modeActions.filter((mode) => row.has(mode));
+      if (!modes.length) return null;
+      const left = row.get(modes[0])! - controlWidth(modes[0]) / 2 - 0.015;
+      const right = row.get(modes.at(-1)!)! + controlWidth(modes.at(-1)!) / 2 + 0.015;
+      return <ControlGroupSurface key={index} name="Agent mode selector" width={right - left}
+        position={[(left + right) / 2, modeY(index), 0]} theme={theme} />;
+    })}
     {editing && !voiceBusy && <WorkspacePager label={`Selected: ${selected?.text === '\n' ? 'New line' : selected?.text || 'None'}`}
       previousAction="conversation:previous-word" nextAction="conversation:next-word" previousLabel="Previous word" nextLabel="Next word"
       position={[0, -0.32, 0]} theme={theme} previousDisabled={word < 0} nextDisabled={word >= tokens.length - 1}

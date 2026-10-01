@@ -17,6 +17,7 @@ import { parseAssistantResponse } from './responseParser';
 import { serverAgent } from '@/server/storage/sessionStore';
 import { roleContract } from '@/server/agents/agentRoles';
 import { turnGlobalInstructions } from '@/server/agents/globalInstructions';
+import { nativeMessageLevel } from '@/shared/agentModes';
 
 export async function publishCompletedAssistant(input: {
   runId: string;
@@ -102,13 +103,14 @@ export async function runConversation(input: {
       attachedReportNames: reports.map((item, index) => `Report ${index + 1} (${item.kind}, received ${item.receivedAt}${item.imageFile ? ', with screenshot' : ''})`),
       attachedImageNames: images.map((item, index) => `Image ${index + 1} (${item.imageFile})`),
       mode,
+      level: policy.level,
       execution: session.execution,
       participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this CodeAI session. Your stable participant id is ${participant.id}.`,
       roleContract: roleContract(participant.role),
       transcriptDelta,
     });
     // Resolved for every turn: a switch made in the Arena reaches the next one.
-    const instructions = await turnGlobalInstructions(config, {
+    const instructions = policy.level === 'native' && participant.provider === 'claude' ? {} : await turnGlobalInstructions(config, {
       provider: participant.provider, execution: session.execution ?? 'local', choice: session.instructions,
     });
     const result = await runner.run({
@@ -175,6 +177,7 @@ export async function runConversation(input: {
       blocks,
       metrics: { durationMs: result.durationMs, outputBytes: result.outputBytes },
       mode,
+      ...(nativeMessageLevel(mode, policy.level) ? { level: 'native' as const } : {}),
       planProposed: planProposed || undefined,
     };
     await publishCompletedAssistant({

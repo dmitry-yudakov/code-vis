@@ -7,7 +7,7 @@ import type {
   ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact, ExecutionHealth,
   CheckoutSummary, CheckoutsResponse, DiagramMessageAttachment, DrawingMark, DurableProject, GitWorkingTree,
   GlobalInstructionsChoice, MachineInstructions, ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, ReportAttachmentRecord, RunDescriptor, RunDiscovery,
-  SketchCanvas, UserMessage,
+  SecurityLevel, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import { MAX_IMAGES_PER_MESSAGE, MAX_REPORTS_PER_MESSAGE } from '@/shared/limits';
@@ -53,7 +53,7 @@ import { DeviceMenu } from '@/features/devices/DeviceMenu';
 import { useDeviceAccess } from '@/features/devices/DeviceAccess';
 import { machineApiBase, machineApiPath } from '@/features/machines/routes';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
-import { instructionsLine, isolatesLocalCodex, LOCAL_CODEX_ISOLATION_MESSAGE } from '@/shared/globalInstructions';
+import { instructionsLine, isolatesLocalCodex, LOCAL_CODEX_ISOLATION_MESSAGE, nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { ActivityBar } from './ActivityBar';
@@ -61,7 +61,7 @@ import { LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import { useDevicePreferences } from './useDevicePreferences';
 import { agentModelSelection, inheritedMode, type LaunchInstructions } from './devicePreferences';
-import { changesCheckout, unsupportedModes as unsupportedAgentModes, type LaunchMode } from '@/shared/agentModes';
+import { changesCheckout, composerMode, unsupportedModes as unsupportedAgentModes, type LaunchMode } from '@/shared/agentModes';
 import {
   parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView, withPendingReport, withPendingReports,
   type CanvasSurface, type SpatialViewState,
@@ -77,6 +77,7 @@ import type { ImmersiveReportPlacement, SessionCreation } from './immersive/sess
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH, type SideTab } from './panelLayout';
 
 interface Health {
+  securityLevel?: SecurityLevel;
   ok: boolean;
   hostLabel: string;
   repositoriesRootReady: boolean;
@@ -347,11 +348,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? 'Docker needs exactly one primary repository on this machine.'
     // The new session copies this one's choice, and local Codex cannot be isolated.
     : isolatesLocalCodex(session?.instructions, continuationExecution, activeProvider) ? LOCAL_CODEX_ISOLATION_MESSAGE : undefined;
-  // What the addressed agent's next turn gets. An executor's own switches and files are not known here.
-  const instructionsChoice = activeAgent && instructionsLine({
-    provider: activeAgent.provider, execution: session?.execution, choice: session?.instructions,
-    machine: workspaceMachineId ? undefined : localInstructions,
-  });
   const providerHealth = executionProviders?.[activeProvider];
   const unsupportedModes = useMemo(
     () => unsupportedAgentModes(health ? providerHealth?.supportedModes ?? [] : undefined, session?.execution),
@@ -360,9 +356,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // A session without its own mode on this device shows the last one. A mode the installed CLI cannot
   // run falls back to Ask rather than failing at send time.
   const storedMode = session?.defaultMode || inheritedMode(preferences.mode, session?.execution);
-  const mode: AgentMode = unsupportedModes.includes(storedMode)
-    ? providerHealth?.supportedModes[0] || 'ask'
-    : storedMode;
+  const mode = composerMode(storedMode, unsupportedModes);
+  const securityLevel = health?.securityLevel || 'guarded';
+  const nativeIsolation = nativeClaudeIsolationIssue({ provider: activeProvider, execution: session?.execution, level: securityLevel, mode, choice: session?.instructions });
+  const composerBlocked = nativeIsolation || (health && (!providerHealth?.available || unsupportedModes.includes(mode))
+    ? providerHealth?.message || `${PROVIDER_LABELS[activeProvider]} is unavailable for ${mode} mode. Check provider setup.` : undefined);
+  const instructionsChoice = activeAgent && instructionsLine({
+    provider: activeAgent.provider, execution: session?.execution, choice: session?.instructions,
+    machine: workspaceMachineId ? undefined : localInstructions, level: securityLevel, mode,
+  });
   // Device state per agent, else this device's last choice for the provider. Whatever the machine no
   // longer lists is shown and sent as Default.
   const modelSelection = offeredModelSelection(agentModelSelection(view, preferences, activeAgent), providerHealth);
@@ -469,7 +471,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       ]);
       if (!response.ok) throw new Error('Could not refresh machine readiness.');
       const next = await response.json() as Health;
-      setHealth(next);
+      // Arena refreshes the home machine. An open executor conversation keeps its own readiness.
+      if (!machineIdRef.current || machineIdRef.current === localMachineId) setHealth(next);
       setNewerFormatSessions(next.newerFormatSessions || 0);
       setLocalExecutionHealth(next.executions);
       setLocalInstructions(next.instructions);
@@ -622,6 +625,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       repositoriesRootReady: true,
       dataDirectoryReady: true,
       providers: target.providers,
+      securityLevel: target.securityLevel || 'guarded',
     });
   }, []);
 
@@ -713,8 +717,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     const initialComposer = `Continue from “${session.title.slice(0, 200)}” (${session.execution === 'docker' ? 'Docker' : 'Local'} session ${session.id}). This is a fresh provider session using the same repositories.\n\nRecent visible conversation (may be incomplete):\n${recap || 'No messages yet.'}${composer.trim() ? `\n\nUnsent draft:\n${composer.slice(0, 1_400)}` : ''}\n\nPlease continue from this context.`.slice(0, 7_600);
     // The agent's stored choice, not the one this execution offers: the other execution may list more.
     const agentSelection = agentModelSelection(view, preferences, activeAgent);
-    // The continuation keeps the mode, except Auto, which no session starts in.
-    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode: mode === 'auto' ? 'ask' : mode, modelSelection: agentSelection });
+    // A continuation starts with a launch mode; the extra writing modes stay in their session.
+    void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode: inheritedMode(mode, execution), modelSelection: agentSelection });
   };
 
   const switchProject = (next?: string) => {
@@ -1297,6 +1301,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : sentImages.length ? IMAGE_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
+    const isolationIssue = nativeClaudeIsolationIssue({ provider: turnAgent.provider, execution: session.execution, level: securityLevel, mode: turnMode, choice: session.instructions });
+    if (isolationIssue) {
+      notify({ key: 'send', tone: 'warning', message: isolationIssue });
+      return;
+    }
     const turnProviderHealth = executionProviders?.[turnAgent.provider];
     if (!turnProviderHealth?.available || !turnProviderHealth.supportedModes.includes(turnMode)) {
       notify({ key: 'send', tone: 'warning', message: turnProviderHealth?.message || `${PROVIDER_LABELS[turnAgent.provider]} is not available for ${turnMode} mode.` });
@@ -1385,6 +1394,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         ...(reportRecords.length && reportRecords.length === sentReportIds.length ? { reportAttachments: reportRecords } : {}),
         ...(sentImages.length ? { imageAttachments: sentImages.map(({ mediaType, bytes }) => ({ mediaType, bytes })) } : {}),
         mode: turnMode,
+        ...(securityLevel === 'native' && session.execution !== 'docker' && (turnMode === 'agent' || turnMode === 'auto') ? { level: 'native' as const } : {}),
       };
       const activeAtSend = session.activeDiagramId;
       const navigationAtSend = navigationRevisions.current.get(session.id) || 0;
@@ -2012,16 +2022,16 @@ export function AppShell({ children }: { children: ReactNode }) {
                 const id = canvasTargetId(canvas);
                 return `${canvas.kind === 'diagram' ? `Diagram ${canvas.artifact.ordinal}` : 'Sketch'} · ${session.annotations[id]?.marks.length || 0} marks`;
               }), ...pendingReportChips.map((report) => report.label), ...pendingImages.map((_, index) => `Image ${index + 1}`)],
-              canSend: !sessionRunning && !participantBusy && !lifecycle.busy && Boolean(activeAgent && providerHealth?.available)
+              canSend: !composerBlocked && !sessionRunning && !participantBusy && !lifecycle.busy && Boolean(activeAgent && providerHealth?.available)
                 && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
                 && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch') || pendingReportIds.length > 0
                   || pendingImages.length > 0),
-              sendBlocked: session.repositories.some((repository) => repository.role === 'primary')
-                ? undefined : 'To send, attach a repository in Session tools.',
+              sendBlocked: composerBlocked || (session.repositories.some((repository) => repository.role === 'primary')
+                ? undefined : 'To send, attach a repository in Session tools.'),
               running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
               cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
               agents, activeAgentId: activeAgent?.id, primaryAgentId: session.primaryAgentId,
-              providers: selectableProviders, mode, unsupportedModes,
+              providers: selectableProviders, mode, unsupportedModes, securityLevel, execution: session.execution, isolated: session.instructions === 'isolated',
               onDraft: setComposer, onSend: () => { void send(); },
               onCancel: () => { if (focusedRun?.runId) void cancelRun({ machineId, sessionId: session.id, runId: focusedRun.runId }); },
               onMode: setMode, onSelectAgent: selectAgent,
@@ -2284,7 +2294,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               continuationUnavailable={continuationUnavailable}
               instructions={instructionsChoice}
               onContinue={() => continueSession(continuationExecution)}
-              turnBlocked={false}
+              sendBlocked={composerBlocked}
+              securityLevel={securityLevel}
               status={sessionRunning ? status : 'Ready for an instruction'}
               composer={composer}
               mode={mode}

@@ -2,8 +2,9 @@
 
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
-import { AGENT_MODES } from '@/shared/agentModes';
-import type { AgentExecution, AgentMode, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection } from '@/shared/types';
+import { AGENT_MODES, isLaunchMode } from '@/shared/agentModes';
+import type { AgentExecution, AgentMode, AgentProvider, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection, SecurityLevel } from '@/shared/types';
+import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { canvasTargetId } from '@/features/conversation/sessionStore';
 import type { RecentCanvas } from '@/features/conversation/recentCanvases';
 import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip, effortLabel, executionModeHint } from '@/features/agents/toolActivity';
@@ -104,32 +105,39 @@ function MenuItem({ role, label, detail, checked, disabled, title, className, le
   );
 }
 
-function ModePicker({ mode, execution, unsupportedModes, disabled, onChange }: {
+const MORE_NATIVE = 'Native runs Claude and Codex with your own settings, hooks, and MCP servers in writing modes, and adds Accept edits and Full access. Set CODEAI_SECURITY_LEVEL=native on this computer and restart CodeAI.';
+const NATIVE_SETTING = 'Set CODEAI_SECURITY_LEVEL on this computer and restart CodeAI to change its security level.';
+
+function ModePicker({ mode, execution, unsupportedModes, disabled, onChange, level, provider, isolated }: {
   mode: AgentMode;
   execution: AgentExecution;
   unsupportedModes: AgentMode[];
   disabled: boolean;
   onChange(mode: AgentMode): void;
+  level: SecurityLevel;
+  provider: AgentProvider;
+  isolated: boolean;
 }) {
   return (
     <ComposerMenu className={`mode-menu mode-${mode}`} disabled={disabled}
-      label={`Mode: ${AGENT_MODE_LABELS[mode]}. ${agentModeHint(mode, execution)}`}
+      label={`Mode: ${AGENT_MODE_LABELS[mode]}. ${agentModeHint(mode, execution, level, provider)}`}
       summary={<>{AGENT_MODE_LABELS[mode]}<Icon name="chevronDown" /></>}>
       {(close) => (
         <div role="radiogroup" aria-label="Agent mode">
-          {/* Auto is offered only where the provider advertises it; the other modes show disabled with a reason. */}
-          {AGENT_MODES.filter((item) => item !== 'auto' || !unsupportedModes.includes('auto')).map((item) => {
-            const reason = unsupportedModes.includes(item)
+          {AGENT_MODES.filter((item) => isLaunchMode(item)
+            || !unsupportedModes.includes(item) && execution === 'local' && (level === 'native' || item === 'auto')).map((item) => {
+            const reason = nativeClaudeIsolationIssue({ provider, execution, level, mode: item, choice: isolated ? 'isolated' : undefined }) || (unsupportedModes.includes(item)
               ? `${AGENT_MODE_LABELS[item]} is unavailable for this provider and execution. Check provider setup.`
-              : undefined;
+              : undefined);
             return (
               <MenuItem key={item} role="radio" className={`mode-choice mode-choice-${item}`} checked={mode === item}
                 disabled={disabled || Boolean(reason)} label={AGENT_MODE_LABELS[item]}
-                detail={reason || agentModeHint(item, execution)} title={reason || agentModeTooltip(item, execution)}
+                detail={reason || agentModeHint(item, execution, level, provider)} title={reason || agentModeTooltip(item, execution, level, provider)}
                 lead={<Icon name="check" />}
                 onClick={() => { onChange(item); close(); }} />
             );
           })}
+          {execution === 'local' && level === 'guarded' && <p title={MORE_NATIVE}>More modes at Native</p>}
         </div>
       )}
     </ComposerMenu>
@@ -207,11 +215,13 @@ const INSTRUCTIONS_LINE: Record<InstructionsLine, { label: string; title: string
  * hint, or that a continuation is being created, and last whether the addressed agent gets the
  * user's global instructions.
  */
-function ExecutionLine({ execution, mode, continuation, instructions }: {
+function ExecutionLine({ execution, mode, continuation, instructions, level, provider }: {
   execution: AgentExecution;
   mode: AgentMode;
   continuation: ComposerContinuation;
   instructions?: InstructionsLine;
+  level: SecurityLevel;
+  provider: AgentProvider;
 }) {
   const name = execution === 'docker' ? 'Docker' : 'Local';
   const other = execution === 'docker' ? 'Local' : 'Docker';
@@ -230,9 +240,10 @@ function ExecutionLine({ execution, mode, continuation, instructions }: {
           </div>
         </>)}
       </ComposerMenu>
+      {execution === 'local' && level === 'native' && <span className="execution-instructions" title={NATIVE_SETTING}>Native</span>}
       <span aria-hidden="true">·</span>
       <span className="execution-hint">
-        {continuation.busy ? `Creating a ${other} session…` : executionModeHint(mode, execution)}
+        {continuation.busy ? `Creating a ${other} session…` : executionModeHint(mode, execution, level, provider)}
       </span>
       </div>
       {instructions && (
@@ -302,13 +313,16 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  value, running, cancelReady = true, turnBlocked, autoFocus, attached, reports = [], images = [], activeDiagramId, markCounts, mode, unsupportedModes,
+  value, running, cancelReady = true, sendBlocked, autoFocus, attached, reports = [], images = [], activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
-  execution = 'local', instructions,
+  execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
 }: {
   value: string;
   execution?: AgentExecution;
+  securityLevel?: SecurityLevel;
+  provider?: AgentProvider;
+  isolated?: boolean;
   /** What the addressed agent's next turn gets; absent while the executing machine's switch is unknown. */
   instructions?: InstructionsLine;
   theme: ThemeName;
@@ -317,7 +331,7 @@ export function InstructionComposer({
   continuation: ComposerContinuation;
   running: boolean;
   cancelReady?: boolean;
-  turnBlocked?: boolean;
+  sendBlocked?: string;
   autoFocus?: boolean;
   attached: CanvasTarget[];
   /** CodeAI reports for the next message; each is enough to send on its own. */
@@ -433,7 +447,7 @@ export function InstructionComposer({
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            if (canSend && !running) onSend();
+            if (canSend && !running && !sendBlocked) onSend();
           }
         }}
       />
@@ -448,21 +462,21 @@ export function InstructionComposer({
           onNewSketch={onNewSketch}
           onOpenReports={onOpenReports}
         />
-        <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={running} onChange={onModeChange} />
+        <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={running} onChange={onModeChange} level={securityLevel} provider={provider} isolated={isolated} />
         <ModelMenu choices={modelChoices} selection={modelSelection} disabled={running} onChange={onModelSelectionChange} />
         <button
           type="button"
           className={running ? 'cancel-button' : 'send-button'}
           aria-label={running ? 'Cancel' : 'Send'}
-          title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : 'Send'}
-          disabled={running ? !cancelReady : turnBlocked || !canSend}
+          title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : sendBlocked || 'Send'}
+          disabled={running ? !cancelReady : Boolean(sendBlocked) || !canSend}
           onClick={running ? onCancel : onSend}
         >
           <span aria-hidden="true">{running ? '■' : '↑'}</span>
         </button>
       </div>
     </div>
-    <ExecutionLine execution={execution} mode={mode} continuation={continuation} instructions={instructions} />
+    <ExecutionLine execution={execution} mode={mode} continuation={continuation} instructions={instructions} level={securityLevel} provider={provider} />
     </>
   );
 }

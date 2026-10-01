@@ -29,10 +29,10 @@ export function resolveAgentPolicy(config: AppConfig, mode: AgentMode = 'ask', e
   if (execution === 'docker') {
     // These stay `=== 'agent'`: Docker never offers Auto, and any other mode mounts the checkout read-only.
     return Object.freeze({
-      execution, mode, profile: mode === 'agent' ? 'agent-full' : mode === 'plan' ? 'plan-readonly' : 'ask-readonly',
+      execution, level: 'guarded', mode, profile: mode === 'agent' ? 'agent-full' : mode === 'plan' ? 'plan-readonly' : 'ask-readonly',
       tools: ['Read', 'Glob', 'Grep', 'Bash', ...(mode === 'agent' ? ['Edit', 'Write', 'NotebookEdit'] : [])],
       allowedTools: [], permissionMode: 'bypassPermissions', interactivePermissions: false,
-      safeMode: true, sessionPersistence: true,
+      sessionPersistence: true,
       maxTurns: mode === 'agent' ? config.buildMaxTurns : config.agentMaxTurns,
       timeoutMs: mode === 'agent' ? config.buildTimeoutMs : config.agentTimeoutMs,
     });
@@ -40,17 +40,20 @@ export function resolveAgentPolicy(config: AppConfig, mode: AgentMode = 'ask', e
   const shared = {
     mode,
     allowedTools: GIT_READ_ALLOWLIST,
-    safeMode: true as const,
+    level: 'guarded' as const,
     sessionPersistence: true as const,
   };
   if (changesCheckout(mode)) {
     return Object.freeze({
       ...shared,
+      ...(config.securityLevel === 'native' ? { level: 'native' as const } : {}),
       // Auto differs from Agent only in what runs without a card, and that is each provider's own
       // sandbox arguments (`codexTurnSecurity`). Its escalations use Agent's cards and timeout.
-      profile: mode === 'auto' ? 'auto-sandboxed' as const : 'agent-full' as const,
+      profile: config.securityLevel === 'native' ? 'native' as const : mode === 'auto' ? 'auto-sandboxed' as const : 'agent-full' as const,
       tools: undefined,
-      permissionMode: 'default' as const,
+      permissionMode: config.securityLevel === 'native' && mode === 'edits' ? 'acceptEdits' as const
+        : config.securityLevel === 'native' && mode === 'auto' ? 'auto' as const
+        : config.securityLevel === 'native' && mode === 'full' ? 'bypassPermissions' as const : 'default' as const,
       interactivePermissions: true,
       // Building spends turns on research long before the first edit, so it gets its own budget
       // rather than the read-only conversation's.
@@ -63,7 +66,9 @@ export function resolveAgentPolicy(config: AppConfig, mode: AgentMode = 'ask', e
     ...shared,
     profile: mode === 'plan' ? 'plan-readonly' as const : 'ask-readonly' as const,
     tools: READONLY_TOOLS,
-    permissionMode: 'plan' as const,
+    // Probe 13: plan mode allowed shell writes even with user-only settings. Normal permissions
+    // without a host prompt deny them while keeping the fixed history allowlist.
+    permissionMode: 'default' as const,
     interactivePermissions: false,
     maxTurns: config.agentMaxTurns,
     timeoutMs: config.agentTimeoutMs,

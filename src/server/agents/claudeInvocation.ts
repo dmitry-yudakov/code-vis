@@ -1,4 +1,5 @@
-import type { AgentMode, ModelChoices, ProviderModel, ResolvedAgentPolicy } from '@/shared/types';
+import type { AgentExecution, AgentMode, ModelChoices, ProviderModel, ResolvedAgentPolicy, SecurityLevel } from '@/shared/types';
+import { changesCheckout } from '@/shared/agentModes';
 
 export function buildClaudeArgs(input: {
   session: { id: string; action: 'start' | 'resume' };
@@ -6,7 +7,7 @@ export function buildClaudeArgs(input: {
   policy: ResolvedAgentPolicy;
   model?: string;
   effort?: string;
-  /** The user's framed global instructions. Safe mode stays on: this adds words, nothing else. */
+  /** The user's framed text for Guarded turns; Native loads its own file. */
   appendSystemPrompt?: string;
 }): string[] {
   const args = [
@@ -14,15 +15,15 @@ export function buildClaudeArgs(input: {
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
-    '--safe-mode',
+    ...(input.policy.level === 'native' ? [] : ['--safe-mode']),
     '--permission-mode', input.policy.permissionMode,
   ];
   // No `--tools` at all means the CLI default toolset, which is exactly what agent mode wants.
   if (input.policy.tools) args.push('--tools', input.policy.tools.join(','));
   if (input.policy.allowedTools.length) args.push('--allowedTools', input.policy.allowedTools.join(','));
+  if (input.policy.level !== 'native') args.push('--strict-mcp-config', '--disable-slash-commands');
+  if (input.policy.execution !== 'docker' && !changesCheckout(input.policy.mode)) args.push('--setting-sources', 'user');
   args.push(
-    '--strict-mcp-config',
-    '--disable-slash-commands',
     '--max-turns', String(input.policy.maxTurns),
     input.session.action === 'start' ? '--session-id' : '--resume', input.session.id,
     '--add-dir', input.attachmentDirectory,
@@ -33,7 +34,7 @@ export function buildClaudeArgs(input: {
   }
   if (input.model) args.push('--model', input.model);
   if (input.effort) args.push('--effort', input.effort);
-  if (input.appendSystemPrompt) args.push('--append-system-prompt', input.appendSystemPrompt);
+  if (input.policy.level !== 'native' && input.appendSystemPrompt) args.push('--append-system-prompt', input.appendSystemPrompt);
   return args;
 }
 
@@ -77,21 +78,18 @@ const BASE_CLAUDE_FLAGS = [
 ] as const;
 
 /**
- * The modes Claude runs. Auto is absent: Claude's sandbox did not pass Story 79's probes on the
+ * The modes Claude runs at Guarded. Auto is absent: Claude's sandbox did not pass Story 79's probes on the
  * machine they ran on, so Claude never advertises it and is never checked or run for it.
  */
 export const CLAUDE_MODES = ['ask', 'plan', 'agent'] as const satisfies readonly AgentMode[];
-export type ClaudeMode = (typeof CLAUDE_MODES)[number];
+export function claudeSupportedModes(level: SecurityLevel = 'guarded'): readonly AgentMode[] {
+  return level === 'native' ? ['ask', 'plan', 'agent', 'edits', 'auto', 'full'] : CLAUDE_MODES;
+}
 
-/** Per-mode additions, all documented in `claude --help`. */
-const MODE_CLAUDE_FLAGS: Record<ClaudeMode, readonly string[]> = {
-  ask: ['--tools'],
-  plan: ['--tools'],
-  agent: ['--input-format'],
-};
-
-export function requiredFlagsForMode(mode: ClaudeMode): readonly string[] {
-  return [...BASE_CLAUDE_FLAGS, ...MODE_CLAUDE_FLAGS[mode]];
+export function requiredFlagsForMode(mode: AgentMode, level: SecurityLevel = 'guarded', execution: AgentExecution = 'local'): readonly string[] {
+  const native = level === 'native' && execution === 'local' && changesCheckout(mode);
+  const base = native ? BASE_CLAUDE_FLAGS.filter((flag) => !['--safe-mode', '--strict-mcp-config', '--disable-slash-commands', '--append-system-prompt'].includes(flag)) : BASE_CLAUDE_FLAGS;
+  return [...base, ...(changesCheckout(mode) ? ['--input-format'] : ['--tools', ...(execution === 'local' ? ['--setting-sources'] : [])])];
 }
 
 export const REQUIRED_CLAUDE_FLAGS: readonly string[] = [

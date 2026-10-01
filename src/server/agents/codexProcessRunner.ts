@@ -158,7 +158,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
       .filter((name) => /\.(png|jpg)$/.test(name))
       .map((name) => path.join(input.attachmentDirectory, name));
     const startedAt = Date.now();
-    const args = buildCodexAppServerArgs();
+    const args = buildCodexAppServerArgs(input.policy.level);
     const log = this.options.debug
       ? (message: string) => console.error(`[agent ${input.runId.slice(0, 8)} codex] +${((Date.now() - startedAt) / 1000).toFixed(1)}s ${message}`)
       : undefined;
@@ -296,12 +296,18 @@ export class CodexProcessRunner implements AgentProcessRunner {
         } else if (type === 'imageView') {
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'View image' });
         } else if (['mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch', 'hookPrompt'].includes(type)) {
-          stopWith(new AgentRunError(
-            'unsupported-flags',
-            `Codex attempted to use a capability CodeAI disabled (${type}).`,
-            turnRequestSent ? 'possibly-sent' : 'not-sent',
-            false,
-          ));
+          if (input.policy.level === 'native') {
+            const labels: Record<string, string> = { mcpToolCall: 'MCP', dynamicToolCall: 'Dynamic tool', collabAgentToolCall: 'Subagent', webSearch: 'Web search', hookPrompt: 'Hook' };
+            const detail = [item.server, item.tool, item.query].filter((value): value is string => typeof value === 'string').join(' · ');
+            if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: labels[type], detail: detail ? sanitizeRunDetail(detail, input.checkout.realPath, input.attachmentDirectory) : undefined });
+          } else {
+            stopWith(new AgentRunError(
+              'unsupported-flags',
+              `Codex attempted to use a capability CodeAI disabled (${type}).`,
+              turnRequestSent ? 'possibly-sent' : 'not-sent',
+              false,
+            ));
+          }
         }
         emittedItems.add(id);
       };
@@ -321,6 +327,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         const isFile = method === 'item/fileChange/requestApproval';
         if (!correlated || (!isCommand && !isFile)) {
           respondUnsupported(rpcId);
+          if (input.policy.level === 'native') input.emit({ type: 'activity', tool: 'Control request', detail: `CodeAI cannot answer ${sanitizeDetail(method)}.` });
           return;
         }
         const itemId = typeof params?.itemId === 'string' ? params.itemId : '';
@@ -361,6 +368,14 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const handleNotification = (message: JsonRecord) => {
         const method = String(message.method);
         const params = record(message.params);
+        if (input.policy.level === 'native' && typeof params?.threadId === 'string' && sessionId && params.threadId !== sessionId) return;
+        if (input.policy.level === 'native' && method.startsWith('item/autoApprovalReview/')) {
+          const review = record(params?.review);
+          const status = typeof review?.status === 'string' ? review.status : method.split('/').at(-1)!;
+          const rationale = typeof review?.rationale === 'string' ? ` — ${review.rationale}` : '';
+          input.emit({ type: 'activity', tool: 'Auto review', detail: sanitizeRunDetail(`${status}${rationale}`, input.checkout.realPath, input.attachmentDirectory) });
+          return;
+        }
         if (method === 'item/started' || method === 'item/completed') {
           const item = threadItem(params?.item);
           if (item) emitItem(item, method === 'item/completed');
@@ -431,7 +446,10 @@ export class CodexProcessRunner implements AgentProcessRunner {
         catch { throw new AgentRunError('malformed-stream', 'Codex emitted malformed App Server data.'); }
         if (typeof message.method === 'string' && message.id !== undefined) {
           if (message.method.includes('/requestApproval')) handleApproval(message);
-          else if (typeof message.id === 'string' || typeof message.id === 'number') respondUnsupported(message.id);
+          else if (typeof message.id === 'string' || typeof message.id === 'number') {
+            respondUnsupported(message.id);
+            if (input.policy.level === 'native') input.emit({ type: 'activity', tool: 'Control request', detail: `CodeAI cannot answer ${sanitizeDetail(message.method)}.` });
+          }
           return;
         }
         if (message.id !== undefined) {
@@ -527,12 +545,12 @@ export class CodexProcessRunner implements AgentProcessRunner {
             capabilities: null,
           });
           notify('initialized');
-          const [mcp, hooks, skills] = await Promise.all([
+          const [mcp, hooks, skills] = input.policy.level === 'native' ? [undefined, undefined, undefined] : await Promise.all([
             request('mcpServerStatus/list', { cursor: null, limit: 100, detail: 'toolsAndAuthOnly' }),
             request('hooks/list', { cwds: [input.checkout.realPath] }),
             request('skills/list', { cwds: [input.checkout.realPath], forceReload: true }),
           ]);
-          const mcpServerNames = codexMcpServerNames(mcp);
+          const mcpServerNames = input.policy.level === 'native' ? [] : codexMcpServerNames(mcp);
           if (!mcpServerNames) {
             throw new AgentRunError(
               'unsupported-flags',
@@ -541,7 +559,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
               false,
             );
           }
-          const isolationIssue = codexIsolationIssue({ mcp: { data: [] }, hooks, skills });
+          const isolationIssue = input.policy.level === 'native' ? undefined : codexIsolationIssue({ mcp: { data: [] }, hooks, skills });
           if (isolationIssue) {
             throw new AgentRunError(
               'unsupported-flags',
@@ -550,17 +568,17 @@ export class CodexProcessRunner implements AgentProcessRunner {
               false,
             );
           }
-          const security = codexTurnSecurity(input.policy.mode, input.policy.execution);
+          const security = codexTurnSecurity(input.policy.mode, input.policy.execution, input.policy.level);
           const model = input.model ?? this.options.model;
           const common = {
             cwd: input.checkout.realPath,
             approvalPolicy: security.approvalPolicy,
             ...(security.sandbox ? { sandbox: security.sandbox } : {}),
             ...(security.approvalsReviewer ? { approvalsReviewer: security.approvalsReviewer } : {}),
-            config: codexThreadConfig(mcpServerNames, security),
+            config: codexThreadConfig(mcpServerNames, security, input.policy.level),
             // Docker only: local Codex loads its own global file, so it never gets the text twice.
             developerInstructions: codexDeveloperInstructions(input.policy.mode, input.policy.execution === 'docker'
-              ? frameGlobalInstructions(input.globalInstructions, this.options.customizationsPath) : undefined),
+              ? frameGlobalInstructions(input.globalInstructions, this.options.customizationsPath) : undefined, input.policy.level),
             ...(model ? { model } : {}),
           };
           const threadResult = record(await request(
@@ -577,14 +595,14 @@ export class CodexProcessRunner implements AgentProcessRunner {
             throw new AgentRunError('missing-session', 'Codex resumed an unexpected native provider session.', 'not-sent');
           }
           sessionId = providerThread.id;
-          const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security);
+          const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security, input.policy.level);
           if (policyIssue) {
             throw new AgentRunError('unsupported-flags', policyIssue, 'not-sent', false);
           }
-          const scopedMcp = await request('mcpServerStatus/list', {
+          const scopedMcp = input.policy.level === 'native' ? undefined : await request('mcpServerStatus/list', {
             cursor: null, limit: 100, detail: 'toolsAndAuthOnly', threadId: sessionId,
           });
-          const scopedIsolationIssue = codexIsolationIssue({ mcp: scopedMcp, hooks, skills });
+          const scopedIsolationIssue = input.policy.level === 'native' ? undefined : codexIsolationIssue({ mcp: scopedMcp, hooks, skills });
           if (scopedIsolationIssue) {
             throw new AgentRunError(
               'unsupported-flags',

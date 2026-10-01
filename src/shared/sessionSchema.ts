@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGENT_MODES, LAUNCH_MODES } from './agentModes';
+import { AGENT_MODES, isNativeMessage, LAUNCH_MODES } from './agentModes';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_REPORTS_PER_MESSAGE } from './limits';
 
@@ -206,6 +206,7 @@ export const userMessageSchema = z.object({
   imageAttachments: z.array(imageAttachmentRecordSchema).min(1).max(16).optional(),
   // `auto` needs a version 6 session; `validateSession` enforces that for both roles.
   mode: agentMode.optional(),
+  level: z.literal('native').optional(),
 }).strict();
 
 export const assistantMessageSchema = z.object({
@@ -221,13 +222,14 @@ export const assistantMessageSchema = z.object({
     outputBytes: z.number().int().nonnegative(),
   }).strict().optional(),
   mode: agentMode.optional(),
+  level: z.literal('native').optional(),
   planProposed: z.boolean().optional(),
 }).strict();
 
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 8;
+export const MAX_READABLE_SESSION_VERSION = 9;
 /**
  * Version 5 is version 4 plus report evidence on user messages. A session is upgraded to it only by
  * the mutation that first appends a report, so builds without report support keep reading the rest.
@@ -238,6 +240,8 @@ export const REPORT_EVIDENCE_SESSION_VERSION = 5;
  * message, so a build without Auto keeps reading every other session. No upgrade lowers a version.
  */
 export const AUTO_MODE_SESSION_VERSION = 6;
+/** Format 9 keeps Native messages hidden from the preceding image-aware build. */
+export const NATIVE_MODE_SESSION_VERSION = 9;
 /**
  * Version 7 is version 6 plus the session's own global-instructions choice. Only a session created
  * with that choice is written at it, so a build without the choice keeps reading every other session.
@@ -252,7 +256,7 @@ export const IMAGE_ATTACHMENT_SESSION_VERSION = 8;
 const sessionBase = {
   version: z.union([
     z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION),
-    z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION),
+    z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION), z.literal(NATIVE_MODE_SESSION_VERSION),
   ]),
   execution: z.enum(['local', 'docker']).optional(),
   // Only a version 7 session may hold this; `validateSession` enforces that.
@@ -274,7 +278,7 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9;
     execution?: 'local' | 'docker';
     instructions?: string;
     id: string;
@@ -283,7 +287,7 @@ function validateSession(
     primaryAgentId: string;
     messages: Array<{
       id: string; role: string; authorId: string; addressedParticipantId?: string;
-      reportAttachments?: unknown; imageAttachments?: unknown; mode?: string;
+      reportAttachments?: unknown; imageAttachments?: unknown; mode?: string; level?: string;
     }>;
     pinnedDiagramIds: string[];
     annotations: Record<string, { diagramId: string }>;
@@ -302,6 +306,12 @@ function validateSession(
     ctx.addIssue({ code: 'custom', message: 'Only a version 7 session holds its own global-instructions choice.', path: ['instructions'] });
   }
   value.messages.forEach((message, index) => {
+    if (isNativeMessage(message) && value.version < NATIVE_MODE_SESSION_VERSION) {
+      ctx.addIssue({ code: 'custom', message: 'Only a version 9 session holds Native writing messages.', path: ['messages', index] });
+    }
+    if (message.level !== undefined && message.mode !== 'agent' && message.mode !== 'auto') {
+      ctx.addIssue({ code: 'custom', message: 'Only Native Agent and Auto messages carry a level.', path: ['messages', index, 'level'] });
+    }
     if (value.version < REPORT_EVIDENCE_SESSION_VERSION && message.reportAttachments !== undefined) {
       ctx.addIssue({ code: 'custom', message: 'Only a session at version 5 or later holds report evidence.', path: ['messages', index, 'reportAttachments'] });
     }

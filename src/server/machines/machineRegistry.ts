@@ -22,7 +22,11 @@ const connectionSchema = z.object({
   attachedAt: z.string().datetime(),
   lastSeenAt: z.string().datetime().optional(),
   cachedAt: z.string().datetime().optional(),
-  cachedSnapshot: executorSnapshotSchema.optional(),
+  // Cached projections are disposable. A future executor's snapshot must not lose its attachment.
+  cachedSnapshot: z.unknown().transform((value) => {
+    const parsed = executorSnapshotSchema.safeParse(value);
+    return parsed.success ? parsed.data : undefined;
+  }).optional(),
 }).strict().superRefine((connection, ctx) => {
   const url = new URL(connection.origin);
   if (

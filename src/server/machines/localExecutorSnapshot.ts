@@ -20,6 +20,7 @@ export async function localExecutorSnapshot(): Promise<ExecutorSnapshot> {
   ]);
   return {
     machine,
+    ...(config.securityLevel === 'native' ? { securityLevel: 'native' as const } : {}),
     projects,
     checkouts,
     recentCheckoutIds: recentCheckoutIds(checkouts, sessions, machine.id),

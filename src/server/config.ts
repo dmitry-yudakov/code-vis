@@ -2,11 +2,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { savedDockerEnabled } from '@/server/execution/dockerSettings';
 import { managedBridge } from '@/server/lifecycle/managedBridge';
+import type { SecurityLevel } from '@/shared/types';
 import {
   DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES, MAX_WIRE_TRANSCRIPT_MESSAGES,
 } from '@/shared/limits';
 
 export interface AppConfig {
+  securityLevel: SecurityLevel;
   remoteAccess: 'local' | 'paired';
   publicOrigin?: string;
   repositoriesRoot: string;
@@ -58,6 +60,19 @@ export function rawSetting(suffix: string): string | undefined {
   const neutral = process.env[`CODEAI_${suffix}`];
   if (neutral) return neutral;
   return process.env[`CODEAI_WEB2_${suffix}`] || undefined;
+}
+
+const processState = globalThis as typeof globalThis & { __codeaiSecurityLevel?: SecurityLevel };
+
+/** Trust is fixed for the process, including across Next development reloads. */
+function securityLevel(): SecurityLevel {
+  if (processState.__codeaiSecurityLevel) return processState.__codeaiSecurityLevel;
+  const value = rawSetting('SECURITY_LEVEL') || 'guarded';
+  if (value !== 'guarded' && value !== 'native') {
+    const name = process.env.CODEAI_SECURITY_LEVEL ? 'CODEAI_SECURITY_LEVEL' : 'CODEAI_WEB2_SECURITY_LEVEL';
+    throw new Error(`${name} must be guarded or native`);
+  }
+  return processState.__codeaiSecurityLevel = value;
 }
 
 function boundedInteger(suffix: string, fallback: number, min: number, max: number): number {
@@ -157,6 +172,7 @@ export function getConfig(): AppConfig {
   const dataDir = path.resolve(expandHome(rawSetting('DATA_DIR') || '~/.code-ai/web2'));
   return {
     ...remoteAccess(),
+    securityLevel: securityLevel(),
     repositoriesRoot: path.resolve(expandHome(
       compatibleSetting('REPOSITORIES_ROOT', 'PROJECTS_ROOT').raw || process.cwd(),
     )),

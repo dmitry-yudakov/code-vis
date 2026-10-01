@@ -10,8 +10,14 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const ASSISTANT_ID = '77777777-7777-4777-8777-777777777777';
 const NOW = '2026-09-04T12:00:00.000Z';
 
-test('opens and streams a remote executor session, then preserves its cached offline card', async ({ page }) => {
+for (const securityLevel of ['guarded', 'native'] as const) {
+test(`opens a ${securityLevel} executor session, streams, and preserves its offline card`, async ({ page }) => {
   let online = true;
+  let delayedHomeReadiness: Promise<void> | undefined;
+  await page.route('**/api/health', async (route) => {
+    await delayedHomeReadiness;
+    await route.continue();
+  });
   let remoteMessagePath = '';
   const project = {
     version: 1 as const, revision: 0, id: PROJECT_ID, name: 'Remote project',
@@ -33,11 +39,12 @@ test('opens and streams a remote executor session, then preserves its cached off
       id: MACHINE_ID, label: 'Laptop executor', kind: 'remote', state: online ? 'online' : 'offline',
       lastSeenAt: NOW,
     },
+    ...(securityLevel === 'native' ? { securityLevel: 'native' as const } : {}),
     projects: [project],
     checkouts: [{ id: 'remote-checkout', name: 'remote-repo', relativePath: 'remote-repo' }],
     recentCheckoutIds: ['remote-checkout'],
     providers: online ? {
-      claude: { available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'] },
+      claude: { available: true, authenticated: true, supportedModes: securityLevel === 'native' ? ['ask', 'plan', 'agent', 'edits', 'auto', 'full'] : ['ask', 'plan', 'agent'] },
       codex: { available: false, authenticated: 'unknown', supportedModes: [] },
     } : {
       claude: { available: false, authenticated: 'unknown', supportedModes: [] },
@@ -91,11 +98,13 @@ test('opens and streams a remote executor session, then preserves its cached off
         id: input.messageId, role: 'user', authorId: `${SESSION_ID}:human`,
         addressedParticipantId: AGENT_ID, text: input.text, createdAt: NOW, status: 'sent',
         diagramAttachments: [], mode: input.mode,
+        ...(securityLevel === 'native' && input.mode === 'agent' ? { level: 'native' as const } : {}),
       };
       const assistant = {
         id: ASSISTANT_ID, role: 'assistant' as const, authorId: AGENT_ID, createdAt: NOW,
         status: 'complete' as const, rawMarkdown: 'Remote answer arrived.',
         blocks: [{ kind: 'markdown' as const, markdown: 'Remote answer arrived.' }], mode: input.mode,
+        ...(securityLevel === 'native' && input.mode === 'agent' ? { level: 'native' as const } : {}),
       };
       remoteSession = { ...remoteSession, revision: 1, updatedAt: NOW, messages: [user, assistant] };
       const events = [
@@ -117,15 +126,43 @@ test('opens and streams a remote executor session, then preserves its cached off
   const arena = page.getByRole('main', { name: 'Arena' });
   const remoteMachine = arena.getByRole('region', { name: 'Laptop executor' });
   await expect(remoteMachine).toContainText('Online');
+  await expect(arena.getByRole('region', { name: 'Security level' })).toContainText('Guarded');
+  // A home refresh may finish after navigation to a different executing machine.
+  let releaseReadiness = () => {};
+  delayedHomeReadiness = new Promise<void>((resolve) => { releaseReadiness = resolve; });
+  const refreshedHome = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/health');
+  const refreshRequest = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/health');
+  await arena.getByRole('button', { name: 'Refresh' }).click();
+  await refreshRequest;
   await remoteMachine.getByRole('button', { name: 'Open Work on the laptop' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.project-search-trigger')).toContainText('Remote project');
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
+  releaseReadiness(); await refreshedHome; delayedHomeReadiness = undefined;
+  if (securityLevel === 'native') {
+    await expect(conversation.locator('.execution-line')).toContainText('Native');
+    await conversation.locator('.mode-menu summary').click();
+    await expect(conversation.getByRole('radio', { name: 'Accept edits', exact: true })).toBeVisible();
+    await expect(conversation.getByRole('radio', { name: 'Full access', exact: true })).toBeVisible();
+    await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+  }
   await conversation.locator('textarea').fill('Answer on the laptop');
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(conversation.getByText('Remote answer arrived.')).toBeVisible();
+  if (securityLevel === 'native') await expect(conversation.locator('.chat-message.assistant .mode-tag')).toHaveText('Native · Agent');
   expect(remoteMessagePath).toBe(`/api/machines/${MACHINE_ID}/agent/message`);
+
+  // Refreshing home readiness must not replace the open executor's level or capabilities.
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  await arena.getByRole('button', { name: 'Refresh' }).click();
+  await page.goBack();
+  if (securityLevel === 'native') {
+    await expect(conversation.locator('.execution-line')).toContainText('Native');
+    await conversation.locator('.mode-menu summary').click();
+    await expect(conversation.getByRole('radio', { name: 'Full access', exact: true })).toBeVisible();
+    await conversation.locator('.mode-menu summary').click();
+  } else await expect(conversation.locator('.execution-line')).not.toContainText('Native');
 
   online = false;
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
@@ -133,3 +170,5 @@ test('opens and streams a remote executor session, then preserves its cached off
   await expect(remoteMachine).toContainText('Offline');
   await expect(remoteMachine.getByRole('button', { name: 'Open Work on the laptop' })).toBeDisabled();
 });
+
+}

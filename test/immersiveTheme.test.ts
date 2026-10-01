@@ -7,7 +7,7 @@ import { MAX_IMMERSIVE_TEXTURE_PIXELS } from '@/features/diagram/spatial/immersi
 import { getImmersiveInstrumentation, SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
 import { sanitizeImmersiveSvg } from '@/features/diagram/spatial/panelResources';
 import { WORKSPACE_HEADER_RASTER_SIZE, WORKSPACE_HEADER_WORLD_SIZE } from '@/features/shell/immersive/workspaceResources';
-import { centeredControlRow } from '@/features/shell/immersive/conversationControls';
+import { centeredControlRow, centeredControlRows } from '@/features/shell/immersive/conversationControls';
 
 describe('Quest-like immersive visual system', () => {
   it('keeps every text and status color readable across its supported surfaces', () => {
@@ -70,6 +70,26 @@ describe('Quest-like immersive visual system', () => {
     expect(MAX_IMMERSIVE_TEXTURE_PIXELS).toBe(5_592_405);
     ledger.dispose();
     expect(getImmersiveInstrumentation().logicalTexturePixels).toBe(before);
+  });
+
+  it('wraps all Native modes and Make main inside the agents panel without overlap', () => {
+    const controls = [
+      { key: 'ask', width: 0.14 }, { key: 'plan', width: 0.16 }, { key: 'agent', width: 0.19 },
+      { key: 'edits', width: 0.18 }, { key: 'auto', width: 0.16 }, { key: 'full', width: 0.14 },
+      { key: 'make-primary', width: 0.29 },
+    ];
+    const rows = centeredControlRows(controls, 1.10);
+    expect(rows).toHaveLength(2);
+    expect(rows.flatMap((row) => [...row.keys()])).toEqual(controls.map((control) => control.key));
+    for (const row of rows) {
+      let right = -0.55;
+      for (const control of controls.filter((item) => row.has(item.key))) {
+        const left = row.get(control.key)! - control.width / 2;
+        expect(left).toBeGreaterThanOrEqual(right - 1e-10);
+        right = left + control.width;
+        expect(right).toBeLessThanOrEqual(0.55 + 1e-10);
+      }
+    }
   });
 
   it('makes immersive diagram font stacks resolvable and sans-serif', () => {

@@ -19,15 +19,16 @@ const emit = (event) => writeOut(`${JSON.stringify(event)}\n`);
 if (args.includes('--help')) {
   // Mirrors real `claude --help`, which documents neither --max-turns nor --permission-prompt-tool
   // even though it supports both. Preflight must stay green against exactly this.
-  const current = '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --input-format --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt --model';
+  const current = '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --input-format --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt --model --setting-sources';
   const help = {
     // Story 18's flag set: no allowlist, no streaming input.
     legacy: '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt',
     // A CLI new enough for Ask/Plan but not for agent-mode permissions.
-    'no-input-format': '--output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt',
+    'no-input-format': '--setting-sources --output-format --verbose --include-partial-messages --safe-mode --permission-mode --tools --allowedTools --strict-mcp-config --disable-slash-commands --session-id --resume --add-dir --append-system-prompt',
     // Every mode works, but effort cannot be chosen.
     'no-effort': current,
-  }[process.env.CODEAI_FAKE_HELP] || `${current} --effort`;
+    'no-native-permissions': current,
+  }[process.env.CODEAI_FAKE_HELP] || `${current} --effort --setting-sources --permission-mode <mode> (choices: "acceptEdits", "auto", "bypassPermissions", "manual", "plan")`;
   writeOut(`${help}\n`);
   process.exit(0);
 }
@@ -68,7 +69,17 @@ const record = (extra) => {
 };
 record();
 
-if (mode === 'nonzero') {
+if (mode === 'unknown-control-ignored') {
+  emit({ type: 'control_request', request_id: 'unknown-1', request: { subtype: 'initialize_probe' } });
+  // A normal result must still finish without CodeAI answering an unrelated request.
+  emit({ type: 'result', subtype: 'success', result: 'Unknown request ignored.', session_id: sessionId });
+}
+else if (mode === 'unknown-control') {
+  emit({ type: 'control_request', request_id: 'unknown-1', request: { subtype: 'initialize_probe' } });
+  record({ controlResponse: readJsonLine() });
+  emit({ type: 'result', subtype: 'success', result: 'Unknown request answered.', session_id: sessionId });
+}
+else if (mode === 'nonzero') {
   writeErr('synthetic failure');
   process.exitCode = 2;
 }

@@ -97,4 +97,21 @@ describe('home machine registry', () => {
       expiresAt: '2027-09-04T10:00:00.000Z',
     })).rejects.toMatchObject({ code: 'limit' });
   });
+
+  it('drops an unreadable cached snapshot while keeping its attachment and other machines', async () => {
+    await registry.attach({ machine: REMOTE, origin: 'https://laptop.test', credential: CREDENTIAL, expiresAt: '2027-09-04T10:00:00.000Z' });
+    await registry.observe(REMOTE.id, { ...snapshot(), securityLevel: 'native' });
+    const record = JSON.parse(await readFile(registry.recordPath, 'utf8'));
+    record.machines[0].cachedSnapshot.securityLevel = 'future-level';
+    await writeFile(registry.recordPath, JSON.stringify(record));
+    const kept = await registry.get(REMOTE.id);
+    expect(kept.machine).toEqual(REMOTE);
+    expect(kept.credential).toBe(CREDENTIAL);
+    expect(kept.cachedSnapshot).toBeUndefined();
+    await registry.observe(REMOTE.id, { ...snapshot(), securityLevel: 'native' });
+    expect((await registry.get(REMOTE.id)).cachedSnapshot?.securityLevel).toBe('native');
+    record.machines[0].origin = 'http://unsafe.test';
+    await writeFile(registry.recordPath, JSON.stringify(record));
+    await expect(registry.list()).rejects.toMatchObject({ code: 'corrupt' });
+  });
 });

@@ -73,7 +73,7 @@ chosen up front, on the machine you pick.
 Opening a session gives roughly today's product, widened:
 
 - **Conversation** — the transcript, with more than one agent participant, each with a provider, a
-  role, and a mode (Ask / Plan / Agent).
+  role, and a mode (Ask / Plan / Agent; Native adds Accept edits and Full access, with Auto at either level).
 - **Canvas** — the zoomable visual surface holding the session's diagrams and sketches. Agents
   author Mermaid; you draw over it, and your marks are durable. For a session with no repository,
   the canvas is the *primary* artifact rather than a companion to code.
@@ -205,7 +205,12 @@ not started by anything above.
 5. **User marks are durable.** Sketches, notes, pins, and asserted edges are the highest-precedence
    source and are never silently reorganized.
 6. **Capabilities are resolved where work executes.** A machine decides what a turn may do; a client
-   never asserts it. A permission is answered by an authenticated human.
+   never asserts it. How much it lets an agent do on its own is the machine's
+   [security level](../stories/EPIC-20261001-security-levels.md), set on that machine. At Guarded a
+   permission is answered by an authenticated human. At Native it is answered by
+   whoever the provider's setup and mode name: you, unless your Codex config names a model reviewer
+   or you pick Claude's Auto, where a classifier model decides. CodeAI never adds a reviewer of its
+   own.
 7. **Layout is per device; work is not.** Geometry, viewport, and panel state are local and
    disposable. Conversations, canvases, and artifacts are not.
 
@@ -274,7 +279,9 @@ rename before step 3, so every story after it is written once in the settled nou
 - Cloud autonomous apply. Explicitly selected local Docker Agent sessions in Story 57 authorize
   direct repository edits and commands inside a bounded container; Local keeps per-action approvals
   for anything that leaves the provider's sandbox
-  ([Story 79](../stories/STORY-20260928-sandboxed-auto-mode.md)).
+  ([Story 79](../stories/STORY-20260928-sandboxed-auto-mode.md)) at the Guarded security level.
+  A machine set to Native will follow the provider's own permission modes for writing
+  turns instead, up to Full access ([security levels epic](../stories/EPIC-20261001-security-levels.md)).
 - Anything that makes the single-machine, single-person product worse in order to be ready for the
   multi-machine one.
 

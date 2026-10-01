@@ -86,11 +86,18 @@ Three conclusions:
   *Participant* stays a data-model word covering both, as it does in meeting products.
 - **Turn** — one instruction and the agent work it causes. Internally addressed as a **run**
   (`runId`), which is what a cancel, a permission answer, or a reattach resolves against.
-- **Auto** — CodeAI's sandboxed mode: what the provider's operating-system sandbox contains runs
-  without a card, and anything that leaves it asks you. It is *not* Claude Code's `auto` permission
-  mode, where a classifier model approves or blocks each action, and not Codex's `auto_review`
-  reviewer. CodeAI uses neither. Both providers also call their own relaxed presets "Auto", which is
-  why the word is kept; **Sandboxed** is the alternative if the overlap confuses.
+- **Auto** — at Guarded, CodeAI's sandboxed mode: what the provider's operating-system sandbox
+  contains runs without a card, and anything that leaves it asks you. There it is *not* Claude
+  Code's `auto` permission mode, where a classifier model approves or blocks each action, and not
+  Codex's `auto_review` reviewer; Guarded uses neither. At Native
+  ([Story 82](../stories/STORY-20261001-native-security-level.md)), Auto is the provider's
+  own: Claude Code's classifier, or Codex's workspace sandbox with your settings and reviewer. Both
+  providers call their relaxed presets "Auto", which is why the word is kept; the security level
+  says whose Auto it is.
+- **Accept edits** and **Full access** — the two modes only Native offers (Story 82). Accept
+  edits is Claude Code's `acceptEdits`: file edits run without asking, and commands follow your
+  permission settings. Full access is Claude Code's `bypassPermissions` and Codex's
+  `danger-full-access`: nothing asks. Prefer these names over the providers' flag names in the UI.
 
 ### Across machines and devices
 
@@ -101,6 +108,15 @@ Three conclusions:
 - **Installation** — the CodeAI checkout a machine is running from. **Self project** — a project
   whose primary repository, on this machine, is that installation's own checkout: the one project in
   which CodeAI's reports about itself can be seen and attached. A name never makes a project one.
+- **Security level** — how much a machine lets agents do on their own, and whose rules decide it.
+  Set on the machine, never from a device
+  ([security levels epic](../stories/EPIC-20261001-security-levels.md)). **Guarded**, the default:
+  CodeAI sets the rules. Claude runs in safe mode, Codex runs without its MCP servers, hooks, apps,
+  and plugins, and you answer every escalation. **Native** ([Story 82](../stories/STORY-20261001-native-security-level.md)): Local Claude and
+  Codex do their writing turns with your own setup and their own permission modes, and Ask and Plan
+  stay as at Guarded. *Native* keeps the meaning the word already has in CodeAI, the provider's own,
+  as in a provider's native session. Avoid *trust level*, which suggests trusting a repository, and
+  *permission mode*, which is the providers' word for a mode.
 - **View** — one open presentation of a session on one device. **Layout** — how a device arranges
   its views. Both are per-device and never shared; losing them never loses work. *(Replaces the
   earlier notes'* Workspace*-as-a-pane; the "saved view" of*
@@ -203,6 +219,13 @@ Taken August 29, 2026:
    being a special case.
 3. **The overview is called the Arena in the UI**, accepting the LMArena echo, on the condition that
    it stays a view name and a brand word and never becomes a data-model type.
+
+Taken October 1, 2026:
+
+4. **Two security levels, Guarded and Native.** They are named for whose rules apply, not for how
+   safe they feel: Native is not "unsafe", it is the provider behaving as configured. A third level
+   needs its own decision ([the epic](../stories/EPIC-20261001-security-levels.md) says why there are
+   two).
 
 Still deferred: a level between workspace and project (Miro's *Space*, Notion's *Teamspace*). Not
 needed until there is a team; *space* stays reserved for it.

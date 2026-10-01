@@ -15,11 +15,13 @@ const workspaceStatus = (page: Page) => page.evaluate(() => window.xrScene?.scen
 
 test.describe('VR conversation input', () => {
 
-  async function setupVoice(page: Page, supportedModes = ['ask', 'plan']) {
+  async function setupVoice(page: Page, supportedModes = ['ask', 'plan'], securityLevel: 'guarded' | 'native' = 'guarded',
+    configure?: (session: PublicSession) => void) {
     await installAdapter(page);
-    await workspaceFixture(page, true);
+    const fixture = await workspaceFixture(page, true);
+    configure?.(fixture.local);
     await page.route('**/api/health', (route) => route.fulfill({ json: {
-      ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true,
+      ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true, securityLevel,
       providers: { claude: { available: true, authenticated: true, supportedModes },
         codex: { available: false, authenticated: 'unknown', supportedModes: [] } },
     } }));
@@ -510,6 +512,98 @@ test.describe('VR conversation input', () => {
     expect(group.left).toBeLessThan(ask.left);
     expect(group.right).toBeGreaterThan(auto.right);
     expect(group.right).toBeLessThan(makeMain.left);
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+  });
+
+  test('fits Native modes in two rows below the agents status without overlap', async ({ page }) => {
+    await setupVoice(page, ['ask', 'plan', 'agent', 'edits', 'auto', 'full'], 'native');
+    await conversationAction(page, 'agents');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Full')?.userData.disabled)).toBe(false);
+    const bounds = await page.evaluate(() => {
+      const scene = window.xrScene!.scene;
+      const tools = scene.getObjectByName('Conversation tools')!;
+      scene.updateMatrixWorld(true);
+      return ['Voice status', 'Ask', 'Plan', 'Agent', 'Edits', 'Auto', 'Full', 'Make main'].map((name) => {
+        const mesh = scene.getObjectByName(name === 'Voice status' ? name : `${name} background`) as Mesh;
+        mesh.geometry.computeBoundingBox();
+        const box = mesh.geometry.boundingBox!;
+        const points = [box.min.x, box.max.x].flatMap((x) => [box.min.y, box.max.y].map((y) =>
+          tools.worldToLocal(mesh.localToWorld(window.xrScene!.camera.position.clone().set(x, y, 0)))));
+        return { name, left: Math.min(...points.map((point) => point.x)), right: Math.max(...points.map((point) => point.x)),
+          bottom: Math.min(...points.map((point) => point.y)), top: Math.max(...points.map((point) => point.y)) };
+      });
+    });
+    const [status, ...buttons] = bounds;
+    const rows = [...new Set(buttons.map((button) => Math.round((button.top + button.bottom) / 2 * 100)))];
+    expect(rows).toHaveLength(2);
+    for (const button of buttons) {
+      expect(button.left).toBeGreaterThan(-0.66); expect(button.right).toBeLessThan(0.66);
+      expect(status.bottom - button.top).toBeGreaterThan(0.005);
+    }
+    for (let index = 1; index < buttons.length; index++) {
+      const before = buttons[index - 1], after = buttons[index];
+      if (Math.abs(before.top - after.top) < 0.01) expect(after.left - before.right).toBeGreaterThan(0.015);
+      else expect(before.bottom - after.top).toBeGreaterThan(0.015);
+    }
+    await conversationAction(page, 'full');
+    await expect(page.getByLabel(/^Mode: /)).toHaveText('Full access');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Full')?.userData.selected)).toBe(true);
+    await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+  });
+
+  test('pages the complete Native Agents text and shows multiline block reasons without overlap', async ({ page }) => {
+    await page.addInitScript(() => {
+      const original = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+        const canvas = this.canvas as HTMLCanvasElement & { paintedText?: string[] };
+        (canvas.paintedText ||= []).push(text);
+        if (maxWidth === undefined) original.call(this, text, x, y);
+        else original.call(this, text, x, y, maxWidth);
+      };
+    });
+    await page.addInitScript(() => localStorage.setItem('code-ai:device:v1:preferences', JSON.stringify({ version: 1, mode: 'agent' })));
+    // Keep all six Native modes visible while isolation blocks the selected writing mode. The
+    // longer mode paragraph and complete isolation reason must both remain reachable.
+    await setupVoice(page, ['ask', 'plan', 'agent', 'edits', 'auto', 'full'], 'native', (session) => {
+      session.version = 7; session.execution = 'local'; session.instructions = 'isolated';
+    });
+    await conversationAction(page, 'agents');
+    const text = (name: string) => page.evaluate((name) => {
+      const mesh = window.xrScene!.scene.getObjectByName(name) as Mesh;
+      const material = mesh.material as import('three').MeshBasicMaterial;
+      return (material.map!.image as HTMLCanvasElement & { paintedText: string[] }).paintedText;
+    }, name);
+    const first = await text('VR draft and agents');
+    await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Next page')?.userData.disabled)).toBe(false);
+    await conversationAction(page, 'draft-newer');
+    await expect.poll(async () => (await text('VR draft and agents'))[0]).toBe('Agents · 2/2');
+    const last = await text('VR draft and agents');
+    const allText = [...first, ...last].join(' ').replace(/\s+/g, ' ');
+    expect(allText).toContain('Select an agent and a supported mode.');
+    expect(allText).toContain('This session runs without your global instructions, and Claude loads them itself in Native writing modes.');
+    expect((await text('Voice status')).length).toBeGreaterThan(1);
+    const gap = await page.evaluate(() => {
+      const scene = window.xrScene!.scene;
+      const tools = scene.getObjectByName('Conversation tools')!;
+      scene.updateMatrixWorld(true);
+      const bounds = (name: string) => {
+        const mesh = scene.getObjectByName(name) as Mesh;
+        mesh.geometry.computeBoundingBox();
+        const box = mesh.geometry.boundingBox!;
+        const points = [box.min.y, box.max.y].map((y) => tools.worldToLocal(mesh.localToWorld(window.xrScene!.camera.position.clone().set(0, y, 0))));
+        return { bottom: Math.min(...points.map((point) => point.y)), top: Math.max(...points.map((point) => point.y)) };
+      };
+      const draft = bounds('VR draft and agents'), status = bounds('Voice status'), mode = bounds('Ask background');
+      const modes = bounds('Full background'), add = bounds('Add agent background');
+      const toolbar = bounds('Conversation control bar background');
+      return { draftStatus: draft.bottom - status.top, statusMode: status.bottom - mode.top,
+        modeAdd: modes.bottom - add.top, addBottom: add.bottom, toolbarGap: add.bottom - toolbar.top };
+    });
+    expect(gap.draftStatus).toBeGreaterThan(0.005);
+    expect(gap.statusMode).toBeGreaterThan(0.005);
+    expect(gap.modeAdd).toBeGreaterThan(0.005);
+    expect(gap.addBottom).toBeGreaterThan(-0.90);
+    expect(gap.toolbarGap).toBeGreaterThan(0.005);
     await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
   });
 

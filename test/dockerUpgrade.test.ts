@@ -237,6 +237,12 @@ describe('reading the recorded versions', () => {
 });
 
 describe('updating one provider', () => {
+  it('accepts a worker without setting-sources, which Docker turns never send', async () => {
+    const { runtime, state } = await installation();
+    state.help = FULL_HELP.replace('--setting-sources', '');
+    const plan = await planDockerUpdate(runtime, 'claude', '2.1.280');
+    expect(await runDockerUpdate(runtime, plan)).toMatchObject({ outcome: 'switched' });
+  });
   it.each([
     ['a missing', undefined],
     ['a stale', { image: OTHER, claude: '2.1.250', codex: '0.155.0', previous: {} }],

@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { MAX_PROVIDER_MODELS } from '@/shared/limits';
 import { providerModelSchema } from '@/shared/machineSchema';
-import type { AgentExecution, AgentMode, ModelChoices, ProviderModel } from '@/shared/types';
+import type { AgentExecution, AgentMode, ModelChoices, ProviderModel, SecurityLevel } from '@/shared/types';
 
 /**
- * Features CodeAI turns off for every turn. The last two would let a turn ask for a permission
+ * Features CodeAI turns off for Guarded turns. The last two would let a turn ask for a permission
  * profile covering the whole turn; CodeAI's cards grant one action.
  */
 const CODEX_DISABLED_FEATURES = [
@@ -22,20 +22,20 @@ const CODEX_DISABLED_FEATURES = [
   'request_permissions_tool',
   'exec_permission_approvals',
 ] as const;
+const TURN_PERMISSION_FEATURES = ['request_permissions_tool', 'exec_permission_approvals'] as const;
 
 /**
  * App Server inherits the user's login, but CodeAI owns the capability surface. These
  * overrides remove ambient executable integrations while leaving Codex's built-in repository
  * and shell tools available inside the per-turn sandbox.
  */
-export function buildCodexAppServerArgs(): string[] {
+export function buildCodexAppServerArgs(level: SecurityLevel = 'guarded'): string[] {
   return [
     'app-server',
     '--stdio',
     '--strict-config',
-    '-c', 'mcp_servers={}',
-    '-c', 'web_search="disabled"',
-    ...CODEX_DISABLED_FEATURES.flatMap((feature) => ['--disable', feature]),
+    ...(level === 'native' ? [] : ['-c', 'mcp_servers={}', '-c', 'web_search="disabled"']),
+    ...(level === 'native' ? TURN_PERMISSION_FEATURES : CODEX_DISABLED_FEATURES).flatMap((feature) => ['--disable', feature]),
   ];
 }
 
@@ -47,8 +47,8 @@ export function buildCodexSandboxCheckArgs(): string[] {
 export const CODEX_BASE_MODES: readonly AgentMode[] = ['ask', 'plan'];
 
 /** Agent and Auto share one release gate: Auto's escalations use the approval path Agent's gate protects. */
-export function codexSupportedModes(agentEnabled: boolean): readonly AgentMode[] {
-  return agentEnabled ? [...CODEX_BASE_MODES, 'agent', 'auto'] : CODEX_BASE_MODES;
+export function codexSupportedModes(agentEnabled: boolean, level: SecurityLevel = 'guarded'): readonly AgentMode[] {
+  return [...CODEX_BASE_MODES, ...(agentEnabled ? ['agent', 'auto'] as const : []), ...(level === 'native' ? ['full'] as const : [])];
 }
 
 const CODEX_AUTO_PROFILE_ID = 'codeai-auto';
@@ -78,7 +78,7 @@ export interface CodexTurnSecurity {
    * Sent at `thread/start` and `thread/resume`; the thread echoes the policy it resolved to. Absent
    * with a permission profile: App Server drops the profile when a legacy mode is named beside it.
    */
-  sandbox?: 'read-only' | 'danger-full-access';
+  sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access';
   /**
    * Who answers an escalation. Named only for `on-request`: a `never` turn raises no approval, so it
    * neither sends nor checks a reviewer. Codex otherwise takes it from the user's own config, where
@@ -89,12 +89,17 @@ export interface CodexTurnSecurity {
   permissionProfile?: typeof CODEX_AUTO_PROFILE_ID;
 }
 
-export function codexTurnSecurity(mode: AgentMode, execution: AgentExecution = 'local'): CodexTurnSecurity {
+export function codexTurnSecurity(mode: AgentMode, execution: AgentExecution = 'local', level: SecurityLevel = 'guarded'): CodexTurnSecurity {
   if (execution === 'docker') return {
     approvalPolicy: 'never',
     sandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
     sandbox: 'danger-full-access',
   };
+  if (level === 'native') {
+    if (mode === 'auto') return { approvalPolicy: 'on-request', sandbox: 'workspace-write' };
+    if (mode === 'full') return { approvalPolicy: 'never', sandbox: 'danger-full-access' };
+    if (mode === 'agent') return { approvalPolicy: 'on-request', sandbox: 'read-only', sandboxPolicy: { type: 'readOnly', networkAccess: false } };
+  }
   if (mode === 'auto') return { approvalPolicy: 'on-request', approvalsReviewer: 'user', permissionProfile: CODEX_AUTO_PROFILE_ID };
   if (mode === 'agent') {
     // Read-only is deliberate: a write or command escalation must cross App Server's approval
@@ -116,7 +121,9 @@ export function codexTurnSecurity(mode: AgentMode, execution: AgentExecution = '
 export function codexThreadConfig(
   disabledMcpServers: readonly string[] = [],
   security?: Pick<CodexTurnSecurity, 'permissionProfile'>,
+  level: SecurityLevel = 'guarded',
 ): Record<string, unknown> {
+  if (level === 'native') return { features: Object.fromEntries(TURN_PERMISSION_FEATURES.map((feature) => [feature, false])) };
   const mcpServers: Record<string, { enabled: false }> = Object.create(null) as Record<string, { enabled: false }>;
   for (const name of disabledMcpServers) mcpServers[name] = { enabled: false };
   return {
@@ -153,7 +160,8 @@ Treat the attachment directory as read-only.`;
  * `globalInstructions` is the user's framed text for a Docker turn. A local turn never names it:
  * local Codex loads its own global file.
  */
-export function codexDeveloperInstructions(mode: AgentMode, globalInstructions?: string): string {
+export function codexDeveloperInstructions(mode: AgentMode, globalInstructions?: string, level: SecurityLevel = 'guarded'): string {
+  if (level === 'native') return 'Treat the attachment directory as read-only.';
   const own = mode === 'auto' ? CODEX_AUTO_DEVELOPER_INSTRUCTIONS : CODEX_DEVELOPER_INSTRUCTIONS;
   return globalInstructions ? `${own}\n\n${globalInstructions}` : own;
 }
@@ -198,7 +206,7 @@ export function codexModelChoices(value: unknown): ModelChoices {
   return { ...(models.length ? { models } : {}), ...(efforts.length ? { efforts } : {}) };
 }
 
-function codexSandboxApplied(response: Record<string, unknown> | undefined, expected: CodexTurnSecurity): boolean {
+function codexSandboxApplied(response: Record<string, unknown> | undefined, expected: CodexTurnSecurity, level: SecurityLevel): boolean {
   const sandbox = record(response?.sandbox);
   if (expected.permissionProfile) {
     const profile = record(response?.activePermissionProfile);
@@ -208,15 +216,16 @@ function codexSandboxApplied(response: Record<string, unknown> | undefined, expe
       && sandbox?.type === 'workspaceWrite' && sandbox.networkAccess === false
       && Array.isArray(sandbox.writableRoots) && sandbox.writableRoots.length === 0;
   }
+  if (expected.sandbox === 'workspace-write') return sandbox?.type === 'workspaceWrite';
   return expected.sandbox === 'danger-full-access'
     ? sandbox?.type === 'dangerFullAccess'
-    : sandbox?.type === 'readOnly' && sandbox.networkAccess === false;
+    : sandbox?.type === 'readOnly' && (level === 'native' || sandbox.networkAccess === false);
 }
 
 /** Verifies that App Server honored the server-owned thread policy and reported its instruction sources. */
-export function codexThreadPolicyIssue(value: unknown, cwd: string, expected: CodexTurnSecurity): string | undefined {
+export function codexThreadPolicyIssue(value: unknown, cwd: string, expected: CodexTurnSecurity, level: SecurityLevel = 'guarded'): string | undefined {
   const response = record(value);
-  if (response?.cwd !== cwd || response?.approvalPolicy !== expected.approvalPolicy || !codexSandboxApplied(response, expected)
+  if (response?.cwd !== cwd || response?.approvalPolicy !== expected.approvalPolicy || !codexSandboxApplied(response, expected, level)
     || (expected.approvalsReviewer !== undefined && response.approvalsReviewer !== expected.approvalsReviewer)) {
     return 'Codex did not apply CodeAI\'s required provider-session sandbox and approval policy.';
   }
@@ -289,5 +298,6 @@ export function codexAmbientSkillNote(value: unknown): string | undefined {
     return item?.enabled === true && (item.scope === 'user' || item.scope === 'repo');
   }).length;
   if (!enabled) return undefined;
-  return `Codex also has ${enabled} user or repository skill${enabled === 1 ? '' : 's'} enabled. CodeAI asks it not to use them, and anything they run stays inside the session's sandbox.`;
+  return `Codex also has ${enabled} user or repository skill${enabled === 1 ? '' : 's'} enabled.`
+    + ' CodeAI asks it not to use them, and anything they run stays inside the session\'s sandbox.';
 }

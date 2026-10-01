@@ -1,4 +1,4 @@
-import type { AgentMode, AgentParticipant, AgentProvider, AgentRole } from '@/shared/types';
+import type { AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, SecurityLevel } from '@/shared/types';
 
 /** Commands are supplied by AppShell and capture their session/machine at render time. */
 export interface ImmersiveConversationControls {
@@ -19,6 +19,9 @@ export interface ImmersiveConversationControls {
   providers: AgentProvider[];
   mode: AgentMode;
   unsupportedModes: AgentMode[];
+  securityLevel?: SecurityLevel;
+  execution?: AgentExecution;
+  isolated?: boolean;
   onDraft(value: string): void;
   onSend(): void;
   onCancel(): void;
@@ -35,7 +38,7 @@ export const CONVERSATION_ACTIONS = {
   'previous-word': 'Previous word', 'next-word': 'Next word', delete: 'Delete word', clear: 'Clear draft',
   undo: 'Undo edit', newline: 'New line', 'draft-older': 'Previous page', 'draft-newer': 'Next page',
   send: 'Send', cancel: 'Cancel run', 'previous-agent': 'Previous agent', 'next-agent': 'Next agent',
-  ask: 'Ask', plan: 'Plan', agent: 'Agent', auto: 'Auto', 'make-primary': 'Make main',
+  ask: 'Ask', plan: 'Plan', agent: 'Agent', edits: 'Edits', auto: 'Auto', full: 'Full', 'make-primary': 'Make main',
   provider: 'Provider', role: 'Role', add: 'Add agent',
   edit: 'Speech tools', done: 'Done',
   list: 'Conversations', back: 'Back to conversation',
@@ -51,4 +54,16 @@ export function centeredControlRow<T>(items: readonly { key: T; width: number }[
     cursor += item.width + gap;
     return [item.key, center];
   }));
+}
+
+/** Keep all controls inside the panel, wrapping only when their measured labels require it. */
+export function centeredControlRows<T>(items: readonly { key: T; width: number }[], maxWidth: number, gap = 0.03): Map<T, number>[] {
+  const rows: Array<Array<{ key: T; width: number }>> = [[]];
+  let width = 0;
+  for (const item of items) {
+    const row = rows.at(-1)!;
+    if (row.length && width + gap + item.width > maxWidth) { rows.push([item]); width = item.width; }
+    else { width += (row.length ? gap : 0) + item.width; row.push(item); }
+  }
+  return rows.map((row) => centeredControlRow(row, gap));
 }

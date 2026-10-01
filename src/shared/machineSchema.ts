@@ -78,6 +78,7 @@ const runDescriptorSchema = z.object({
 
 export const executorSnapshotSchema = z.object({
   machine: machineIdentitySchema,
+  securityLevel: z.literal('native').optional(),
   projects: z.array(durableProjectSchema).max(1_000),
   checkouts: z.array(checkoutSummarySchema).max(5_000),
   recentCheckoutIds: z.array(z.string().trim().min(1).max(128)).max(5),

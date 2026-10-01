@@ -1,10 +1,10 @@
 import type {
-  AgentExecution, AgentProvider, AgentProviderAdapter, AgentProcessRunner, ModelChoices, ProviderHealth,
+  AgentExecution, AgentMode, AgentProvider, AgentProviderAdapter, AgentProcessRunner, ModelChoices, ProviderHealth,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import { ClaudeProcessRunner } from './claudeProcessRunner';
 import { checkClaude } from './claudePreflight';
-import { CLAUDE_MODES, claudeModelChoices } from './claudeInvocation';
+import { claudeSupportedModes, claudeModelChoices } from './claudeInvocation';
 import { CodexProcessRunner } from './codexProcessRunner';
 import { checkCodex } from './codexPreflight';
 import { codexSupportedModes } from './codexInvocation';
@@ -14,13 +14,14 @@ import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 
 class ClaudeProviderAdapter implements AgentProviderAdapter {
   readonly id = 'claude' as const;
-  // No Auto: see `CLAUDE_MODES`.
-  readonly supportedModes = CLAUDE_MODES;
+  readonly supportedModes;
 
-  constructor(private readonly config: AppConfig) {}
+  constructor(private readonly config: AppConfig) {
+    this.supportedModes = claudeSupportedModes(config.securityLevel);
+  }
 
   async checkHealth(): Promise<ProviderHealth> {
-    const result = await checkClaude(this.config.claudeBin);
+    const result = await checkClaude(this.config.claudeBin, this.config.securityLevel);
     const supportedModes = this.supportedModes.filter((mode) => !result.unsupportedModes.includes(mode));
     return {
       available: result.binaryReady && supportedModes.length > 0,
@@ -46,11 +47,11 @@ class CodexProviderAdapter implements AgentProviderAdapter {
   readonly supportedModes;
 
   constructor(private readonly config: AppConfig) {
-    this.supportedModes = codexSupportedModes(config.codexAgentEnabled);
+    this.supportedModes = codexSupportedModes(config.codexAgentEnabled, config.securityLevel);
   }
 
-  checkHealth(): Promise<ProviderHealth> {
-    return checkCodex(this.config.codexBin, this.config.repositoriesRoot, this.config.codexAgentEnabled);
+  checkHealth(mode?: AgentMode): Promise<ProviderHealth> {
+    return checkCodex(this.config.codexBin, this.config.repositoriesRoot, this.config.codexAgentEnabled, this.config.securityLevel, mode);
   }
 
   createRunner(): AgentProcessRunner {
@@ -71,7 +72,7 @@ let localHealthPromise: Promise<Record<AgentProvider, ProviderHealth>> | undefin
 
 /** This machine's Local provider health, reused for 10 s by executor snapshots and Docker turns. */
 export async function cachedLocalProviderHealth(config: AppConfig): Promise<Record<AgentProvider, ProviderHealth>> {
-  const key = `${config.claudeBin}\0${config.claudeModel || ''}\0${config.codexBin}\0${config.codexModel || ''}\0${config.codexAgentEnabled}`;
+  const key = `${config.claudeBin}\0${config.claudeModel || ''}\0${config.codexBin}\0${config.codexModel || ''}\0${config.codexAgentEnabled}\0${config.securityLevel}`;
   if (cachedLocalHealth?.key === key && Date.now() - cachedLocalHealth.checkedAt < LOCAL_HEALTH_TTL_MS) {
     return structuredClone(cachedLocalHealth.providers);
   }

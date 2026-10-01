@@ -1,7 +1,7 @@
 import type {
   AgentExecution, AgentMode, AgentParticipant, AgentProvider, GlobalInstructionsChoice, ModelSelection, ProviderHealth,
 } from '@/shared/types';
-import { LAUNCH_MODES, isAgentMode, type LaunchMode } from '@/shared/agentModes';
+import { LAUNCH_MODES, isAgentMode, isLaunchMode, type LaunchMode } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { parseModelSelection, type DeviceViewState } from './workspaceViews';
 
@@ -50,7 +50,7 @@ export function serializeDevicePreferences(preferences: DevicePreferences): stri
   return JSON.stringify({ version: 1, ...preferences });
 }
 
-/** The modes a New session form may offer: what the provider supports, never Auto. */
+/** The modes a New session form may offer: what the provider supports, never the extra writing modes. */
 export function launchModes(supportedModes: readonly AgentMode[] | undefined): LaunchMode[] {
   return LAUNCH_MODES.filter((mode) => supportedModes?.includes(mode));
 }
@@ -61,7 +61,7 @@ export function launchModes(supportedModes: readonly AgentMode[] | undefined): L
  * edits without individual approvals too, so no session inherits it: it is chosen in the session.
  */
 export function inheritedMode(lastMode: AgentMode | undefined, execution: AgentExecution | undefined): LaunchMode {
-  return !lastMode || lastMode === 'auto' || (lastMode === 'agent' && execution === 'docker') ? 'ask' : lastMode;
+  return !lastMode || !isLaunchMode(lastMode) || (lastMode === 'agent' && execution === 'docker') ? 'ask' : lastMode;
 }
 
 /** The agent's own choice on this device, or else the last choice made here for its provider. */
@@ -105,7 +105,7 @@ type LaunchChoice = { provider: AgentProvider; mode: LaunchMode };
 
 /**
  * Where a New session form opens: this device's last provider and mode when the machine can run
- * them, else what the form already shows. A last mode of Auto opens the form at Ask.
+ * them, else what the form already shows. A last extra writing mode opens the form at Ask.
  */
 export function launchChoice(
   preferences: Pick<DevicePreferences, 'provider' | 'mode'>,
@@ -115,7 +115,7 @@ export function launchChoice(
   const preferred = preferences.provider && health?.[preferences.provider];
   const provider = preferred && preferred.available && preferred.supportedModes.length ? preferences.provider! : current.provider;
   const modes = launchModes(health?.[provider]?.supportedModes);
-  const lastMode = preferences.mode === 'auto' ? 'ask' : preferences.mode;
+  const lastMode = preferences.mode ? inheritedMode(preferences.mode, 'local') : undefined;
   const mode = [lastMode, current.mode].find((item) => item && modes.includes(item)) || modes[0] || current.mode;
   return { provider, mode };
 }

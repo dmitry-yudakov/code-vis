@@ -83,7 +83,7 @@ describe('execution machine client', () => {
     ['an unknown model field', { models: [{ id: 'm', label: 'M', efforts: [], flags: ['--yolo'] }] }],
     ['a models object', { models: { id: 'm' } }],
     ['a mode that does not exist', { supportedModes: ['ask', 'turbo'] }],
-    ['more modes than exist', { supportedModes: ['ask', 'plan', 'agent', 'auto', 'ask'] }],
+    ['more modes than exist', { supportedModes: ['ask', 'plan', 'agent', 'edits', 'auto', 'full', 'ask'] }],
   ])('rejects a snapshot with %s', async (_label, choices) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(snapshot({
       claude: { available: true, authenticated: 'unknown', supportedModes: ['ask'], ...choices },

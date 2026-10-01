@@ -126,7 +126,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
     if (input.policy.execution === 'docker' && !this.options.transport) {
       throw new AgentRunError('unsupported-flags', 'Docker requires its verified container transport.', 'not-sent', false);
     }
-    if (input.policy.mode === 'auto') {
+    if (input.policy.mode === 'auto' && input.policy.level !== 'native') {
       // Claude never advertises Auto, so the route refuses it first. This keeps an Auto policy from
       // ever reaching the CLI as if it were Agent's.
       throw new AgentRunError('unsupported-flags', 'Claude does not run Auto in this CodeAI version.', 'not-sent', false);
@@ -228,7 +228,14 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       const handlePermissionRequest = (event: Record<string, unknown>) => {
         const request = event.request as Record<string, unknown> | undefined;
         const cliRequestId = typeof event.request_id === 'string' ? event.request_id : undefined;
-        if (!cliRequestId || request?.subtype !== 'can_use_tool') return;
+        if (!cliRequestId) return;
+        if (request?.subtype !== 'can_use_tool') {
+          if (input.policy.level !== 'native') return;
+          const subtype = typeof request?.subtype === 'string' ? sanitizeDetail(request.subtype) : 'unknown control request';
+          writeToChild({ type: 'control_response', response: { subtype: 'error', request_id: cliRequestId, error: `CodeAI cannot answer ${subtype}.` } });
+          input.emit({ type: 'activity', tool: 'Control request', detail: `CodeAI cannot answer ${subtype}.` });
+          return;
+        }
         if (input.policy.execution === 'docker') {
           throw new AgentRunError('unsupported-flags', 'This action requires an escalation unsupported by the Docker profile.');
         }
