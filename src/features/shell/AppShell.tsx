@@ -36,6 +36,7 @@ import { useArena } from '@/features/arena/useArena';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/components/CanvasWorkspace';
+import { prepareImageForSend } from '@/features/diagram/annotations/imageCanvas';
 import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { useRepositoryChanges } from '@/features/repository/useRepositoryChanges';
@@ -854,9 +855,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [apiPath, enqueueSessionMutation, refreshProjects, selectedCheckoutId, session, sessionRunning]);
 
+  const [activeImageIdsBySession, setActiveImageIdsBySession] = useState<Record<string, string | undefined>>({});
+  const closeImage = useCallback(() => {
+    if (sessionId) setActiveImageIdsBySession((current) => ({ ...current, [sessionId]: undefined }));
+  }, [sessionId]);
+
   const selectDiagram = useCallback((id: string) => {
     if (!sessionId) return;
     navigationRevisions.current.set(sessionId, (navigationRevisions.current.get(sessionId) || 0) + 1);
+    setActiveImageIdsBySession((current) => ({ ...current, [sessionId]: undefined }));
     mutateSession(sessionId, (current) => ({ ...current, activeDiagramId: id }));
     setPendingAttachmentIds([id]);
   }, [mutateSession, sessionId]);
@@ -882,6 +889,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         body: JSON.stringify({ sketch }),
       },
     )).then(() => {
+      setActiveImageIdsBySession((current) => ({ ...current, [sessionId]: undefined }));
       mutateSession(sessionId, (session) => ({ ...session, activeDiagramId: sketch.id }));
       setPendingAttachmentIds([sketch.id]);
       snapshotRef.current = undefined;
@@ -912,6 +920,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [pendingImagesBySession, setPendingImagesBySession] = useState<Record<string, PendingImage[]>>({});
   const pendingImagesRef = useRef<Record<string, PendingImage[]>>({});
   const pendingImages = (sessionId && pendingImagesBySession[sessionId]) || NO_IMAGES;
+  const activeImageIndex = pendingImages.findIndex((image) => image.id === (sessionId && activeImageIdsBySession[sessionId]));
+  const activeImage = pendingImages[activeImageIndex];
   const updatePendingImages = useCallback((targetSessionId: string, update: (current: PendingImage[]) => PendingImage[]) => {
     const { [targetSessionId]: current = NO_IMAGES, ...others } = pendingImagesRef.current;
     const images = update(current);
@@ -920,6 +930,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     pendingImagesRef.current = next;
     setPendingImagesBySession(next);
   }, []);
+  const openImage = useCallback((id: string) => {
+    if (!sessionId || sessionRunning || !pendingImagesRef.current[sessionId]?.some((image) => image.id === id)) return;
+    setActiveImageIdsBySession((current) => ({ ...current, [sessionId]: id }));
+    panelLayout.showCanvas();
+    if (panelLayout.dockCapacity === 0) panelLayout.closeConversation();
+  }, [panelLayout.closeConversation, panelLayout.dockCapacity, panelLayout.showCanvas, sessionId, sessionRunning]);
+  const handleImageMarksChange = useCallback((id: string, marks: DrawingMark[]) => {
+    if (!sessionId) return;
+    updatePendingImages(sessionId, (current) => {
+      if (!current.some((image) => image.id === id && JSON.stringify(image.marks || []) !== JSON.stringify(marks))) return current;
+      return current.map((image) => image.id === id ? { ...image, marks } : image);
+    });
+  }, [sessionId, updatePendingImages]);
   /** Pasted or dropped files wait, prepared, in the session that was focused when they arrived. */
   const addImages = useCallback(async (files: File[]) => {
     const targetSessionId = focusedSessionIdRef.current;
@@ -1338,6 +1361,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     // Reports and images belong to the composed draft; an Execute plan or Continue turn does not carry them.
     const sentReportIds = override ? [] : pendingReportIds;
     const sentImages = override ? NO_IMAGES : pendingImagesRef.current[session.id] ?? NO_IMAGES;
+    // Export may outlive navigation to another session; keep this session's own canvas frame.
+    const snapshotAtSend = snapshotRef.current;
     // A sketch, a report, or an image is itself the instruction, so an empty composer still makes a valid turn.
     const typed = (override?.text ?? composer).trim();
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION
@@ -1361,12 +1386,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     setPreparingSends((current) => [...current, session.id]);
     try {
       setRunOutcome(session.id);
+      const imagePayload = await Promise.all(sentImages.map(prepareImageForSend));
       const attachmentPayload: DiagramMessageAttachment[] = [];
       let compositeWarning = false;
       for (const canvas of selected) {
         const id = canvasTargetId(canvas);
         const marks = session.annotations[id]?.marks || [];
-        const snapshot = id === session.activeDiagramId ? snapshotRef.current : undefined;
+        const snapshot = id === session.activeDiagramId ? snapshotAtSend : undefined;
         // A sketch has no rendered source, so its own sheet is the fallback frame for the marks.
         const fallbackViewBox = canvas.kind === 'sketch' ? canvas.sketch.viewBox : [0, 0, 1, 1] as const;
         let viewBox = snapshot?.viewBox || fallbackViewBox;
@@ -1435,7 +1461,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           compositeIncluded: Boolean(item.compositePngDataUrl),
         })),
         ...(reportRecords.length && reportRecords.length === sentReportIds.length ? { reportAttachments: reportRecords } : {}),
-        ...(sentImages.length ? { imageAttachments: sentImages.map(({ mediaType, bytes }) => ({ mediaType, bytes })) } : {}),
+        ...(sentImages.length ? { imageAttachments: imagePayload.map(({ mediaType, bytes }) => ({ mediaType, bytes })) } : {}),
         mode: turnMode,
         ...(securityLevel === 'native' && session.execution !== 'docker' && (turnMode === 'agent' || turnMode === 'auto') ? { level: 'native' as const } : {}),
       };
@@ -1478,7 +1504,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             diagramAttachments: attachmentPayload,
             reportAttachments: sentReportIds.map((reportId) => ({ reportId })),
             // Named only when there are some, so an executor on an older CodeAI still takes every other message.
-            ...(sentImages.length ? { imageAttachments: sentImages.map(({ dataUrl }) => ({ dataUrl })) } : {}),
+            ...(sentImages.length ? { imageAttachments: imagePayload.map(({ dataUrl }) => ({ dataUrl })) } : {}),
             mode: turnMode,
             ...turnModel,
           }),
@@ -2297,6 +2323,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <CanvasWorkspace
             hidden={canvasHidden}
             session={session}
+            image={activeImage}
+            imageNumber={activeImageIndex + 1}
+            onCloseImage={closeImage}
+            onImageMarksChange={handleImageMarksChange}
             theme={theme}
             pendingApprovals={sessionRunning ? permissions.length : 0}
             running={sessionRunning}
@@ -2368,6 +2398,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onRemoveReport={removeReport}
               onAddImages={(files) => void addImages(files)}
               onRemoveImage={removeImage}
+              onOpenImage={openImage}
               onDecidePermission={(requestId, decision) => void decidePermission(requestId, decision)}
               onExecutePlan={executePlan}
               onToggleAttachment={toggleAttachment}

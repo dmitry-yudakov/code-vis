@@ -23,7 +23,7 @@ export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
-  onAddImages, onRemoveImage, onDecidePermission, onExecutePlan,
+  onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan,
   continuing, continuationUnavailable, instructions, securityLevel, recovery, onContinue, onNewChat, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
@@ -71,6 +71,7 @@ export function ConversationDrawer({
   onRemoveReport(id: string): void;
   onAddImages(files: File[]): void;
   onRemoveImage(id: string): void;
+  onOpenImage(id: string): void;
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
   onExecutePlan(participantId: string): void;
   onContinue(): void;
@@ -205,6 +206,7 @@ export function ConversationDrawer({
           onRemoveReport={onRemoveReport}
           onAddImages={onAddImages}
           onRemoveImage={onRemoveImage}
+          onOpenImage={onOpenImage}
           onToggleAttachment={onToggleAttachment}
           onOpenHistory={onOpenHistory}
           onNewSketch={onNewSketch}

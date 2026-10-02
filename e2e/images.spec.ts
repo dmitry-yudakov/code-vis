@@ -394,3 +394,246 @@ test('takes a real file drag on the composer and refuses one anywhere else, with
   await conversationToggle.click();
   await expect(chips).toHaveCount(1);
 });
+
+
+/** Draw across the centre of the image and return one point in its canonical pixel coordinates. */
+async function drawOnImage(page: Page): Promise<[number, number]> {
+  await page.getByRole('button', { name: 'Pen (P)' }).click();
+  const ink = page.locator('svg.ink-layer');
+  const box = (await ink.boundingBox())!;
+  await page.mouse.move(box.x + box.width * .3, box.y + box.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * .6, box.y + box.height * .5, { steps: 8 });
+  await page.mouse.up();
+  const mark = ink.locator('polyline[data-mark-id]');
+  await expect(mark).toHaveCount(1);
+  const points = (await mark.getAttribute('points'))!.split(' ');
+  expect(points.length).toBeGreaterThan(1);
+  return points[Math.floor(points.length / 2)].split(',').map(Number) as [number, number];
+}
+
+async function imagePixels(page: Page, dataUrl: string, points: Array<[number, number]>) {
+  return page.evaluate(async ({ dataUrl, points }) => {
+    const image = new Image();
+    image.src = dataUrl;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    return points.map(([x, y]) => Array.from(context.getImageData(Math.round(x), Math.round(y), 1, 1).data));
+  }, { dataUrl, points });
+}
+
+test('opens screenshot chips on the canvas, keeps ink per image and session, and sends the marked pixels', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const { project, session } = await projectWith(request, `Image canvas ${Date.now()}`, 'alpha');
+  const neighbour = await projectWith(request, `Image neighbour ${Date.now()}`, 'alpha');
+  await page.goto('/');
+  await selectProject(page, project.name);
+  await chooseMode(page, 'Ask');
+  // Leave a durable sketch attached: the image frame must not replace its export viewport.
+  await page.getByRole('button', { name: /Start a sketch/ }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await page.getByRole('button', { name: 'Spatial', exact: true }).click();
+  const canvasToggle = page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: 'Canvas', exact: true });
+  await canvasToggle.click();
+  await deliverImage(page, 'paste', 320, 200);
+  await deliverImage(page, 'drop', 160, 100);
+  const chips = page.locator('.attachment-chip.image');
+  await expect(chips).toHaveCount(2);
+  const original = (await chips.first().locator('img').getAttribute('src'))!;
+  const second = (await chips.nth(1).locator('img').getAttribute('src'))!;
+  // Clicking the thumbnail itself opens even the hidden, previously spatial canvas.
+  await chips.first().locator('img').click();
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Image 1');
+  await expect(page.locator('.mermaid-layer image')).toHaveAttribute('href', original);
+  await expect(page.locator('.ink-layer')).toHaveAttribute('viewBox', '0 0 320 200');
+  const point = await drawOnImage(page);
+  await page.getByRole('button', { name: 'Undo drawing', exact: true }).click();
+  await expect(page.locator('[data-mark-id]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Redo drawing', exact: true }).click();
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  const markId = (await page.locator('[data-mark-id]').getAttribute('data-mark-id'))!;
+
+  await page.getByRole('button', { name: 'Open image 2 on canvas' }).click();
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Image 2');
+  await expect(page.locator('[data-mark-id]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open image 1 on canvas' }).click();
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Back to canvas' }).click();
+  await expect(page.getByRole('button', { name: 'Spatial', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Flat', exact: true }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await expect(page.locator('[data-mark-id]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open image 1 on canvas' }).click();
+
+  await selectProject(page, neighbour.project.name);
+  await expect(chips).toHaveCount(0);
+  await selectProject(page, project.name);
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Image 1');
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  const device = await page.evaluate(() => JSON.stringify(Object.values(localStorage)));
+  expect(device).not.toContain('base64');
+  expect(device).not.toContain(markId);
+
+  const posted = page.waitForRequest('**/api/agent/message');
+  await page.locator('.instruction-composer textarea').fill('Look at the marked screenshot.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const payload = (await posted).postDataJSON() as {
+    imageAttachments: Array<{ dataUrl: string }>;
+    diagramAttachments: Array<{ viewport: { viewBox: number[] } }>;
+  };
+  expect(payload.imageAttachments).toHaveLength(2);
+  expect(payload.imageAttachments[1].dataUrl).toBe(second);
+  expect(payload.diagramAttachments[0].viewport.viewBox).toEqual([0, 0, 1600, 1000]);
+  const composite = payload.imageAttachments[0].dataUrl;
+  expect(composite).not.toBe(original);
+  expect(Buffer.from(composite.split(',')[1], 'base64').length).toBeLessThanOrEqual(768 * 1024);
+  const [background, ink] = await imagePixels(page, composite, [[10, 10], point]);
+  expect(background).toEqual([51, 102, 204, 255]);
+  expect(ink[0]).toBeGreaterThan(150);
+  expect(ink[2]).toBeLessThan(100);
+  await expect(page.locator('.chat-message.assistant').last()).toContainText('image-1.png');
+  await expect(chips).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Back to canvas' })).toHaveCount(0);
+  const stored = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+  const message = stored.messages.find((message) => message.role === 'user')!;
+  expect(message).toMatchObject({ imageAttachments: [
+    { mediaType: 'image/png', bytes: Buffer.from(composite.split(',')[1], 'base64').length },
+    { mediaType: 'image/png' },
+  ] });
+  expect(Object.values(stored.annotations).every((annotation) => !annotation.marks.length)).toBe(true);
+  expect(JSON.stringify(stored)).not.toContain('base64');
+});
+
+test('keeps screenshot pixels and ink after export failure, rejection, and cancellation; Remove closes it', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const { project } = await projectWith(request, `Image canvas failures ${Date.now()}`, 'alpha');
+  await page.goto('/');
+  await selectProject(page, project.name);
+  await chooseMode(page, 'Ask');
+  await deliverImage(page, 'paste', 320, 200);
+  const chip = page.locator('.attachment-chip.image');
+  await expect(chip).toHaveCount(1);
+  const original = await chip.locator('img').getAttribute('src');
+  await page.getByRole('button', { name: 'Open image 1 on canvas' }).click();
+  await drawOnImage(page);
+  const composer = page.locator('.instruction-composer textarea');
+  await composer.fill('Keep this drawing.');
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  // Fail the final bounded preparation, after the SVG composite has been encoded successfully.
+  await page.evaluate(() => {
+    const encode = HTMLCanvasElement.prototype.toDataURL;
+    let calls = 0;
+    Object.assign(window, { restoreEncoder: () => { HTMLCanvasElement.prototype.toDataURL = encode; } });
+    HTMLCanvasElement.prototype.toDataURL = function(type?: string, quality?: number) {
+      calls += 1;
+      return calls === 1 ? encode.call(this, type, quality) : `data:${type};base64,${'A'.repeat(1_100_000)}`;
+    };
+  });
+  let posts = 0;
+  page.on('request', (request) => { if (request.url().endsWith('/api/agent/message')) posts += 1; });
+  await send.click();
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('could not be made small enough');
+  expect(posts).toBe(0);
+  await restoreEncoder(page);
+  await expect(composer).toHaveValue('Keep this drawing.');
+  await expect(chip.locator('img')).toHaveAttribute('src', original!);
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  let outages = 1;
+  await page.route('**/api/agent/message', (route) => outages-- > 0
+    ? route.fulfill({ status: 503, json: { error: 'Drawing test outage.' } }) : route.fallback());
+  await send.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Drawing test outage.' })).toBeVisible();
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  await expect(composer).toHaveValue('Keep this drawing.');
+  await composer.fill('Wait for reload cancellation.');
+  await send.click();
+  await expect(page.getByRole('button', { name: 'Open image 1 on canvas' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Pen (P)' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Undo drawing' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Clear all ink' })).toBeDisabled();
+  // Global shortcuts and the pointer must not bypass the pending image's edit lock.
+  await page.getByRole('button', { name: 'Fit', exact: true }).focus();
+  await page.keyboard.press('Control+z');
+  await page.locator('svg.ink-layer').click({ position: { x: 100, y: 80 } });
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+  await expect(cancel).toBeEnabled();
+  await cancel.click();
+  await expect(page.locator('.chat-message.user.cancelled')).toHaveCount(1);
+  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  await expect(chip.locator('img')).toHaveAttribute('src', original!);
+  await page.getByRole('button', { name: 'Remove image 1' }).click();
+  await expect(chip).toHaveCount(0);
+  await expect(page.locator('[data-mark-id]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Back to canvas' })).toHaveCount(0);
+});
+
+
+test('opens screenshot drawing above the conversation overlay on a narrow screen', async ({ page, request }) => {
+  const { project } = await projectWith(request, `Narrow image canvas ${Date.now()}`, 'alpha');
+  await page.setViewportSize({ width: 600, height: 800 });
+  await page.goto('/');
+  await selectProject(page, project.name);
+  await deliverImage(page, 'paste', 320, 200);
+  await expect(page.locator('.attachment-chip.image')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Open image 1 on canvas' }).click();
+  await expect(page.getByRole('complementary', { name: 'Conversation' })).toHaveCount(0);
+  await expect(page.locator('.canvas-titleblock strong')).toHaveText('Image 1');
+  await drawOnImage(page);
+  await page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^Conversation/ }).click();
+  await expect(page.locator('.attachment-chip.image')).toContainText('1 mark');
+});
+
+
+test('keeps the sending session canvas frame when navigation occurs during image export', async ({ page, request }) => {
+  const { project, session } = await projectWith(request, `Image export navigation ${Date.now()}`, 'alpha');
+  const neighbour = await projectWith(request, `Image export other ${Date.now()}`, 'alpha');
+  const agent = neighbour.session.participants.find((participant) => participant.kind === 'agent')!;
+  const answer = await request.post('/api/agent/message', { data: {
+    sessionId: neighbour.session.id, messageId: crypto.randomUUID(), participantId: agent.id,
+    text: 'Draw a simple architecture', mode: 'ask', diagramAttachments: [],
+  } });
+  expect(answer.ok()).toBe(true);
+  await page.goto('/');
+  await selectProject(page, project.name);
+  await chooseMode(page, 'Ask');
+  await page.getByRole('button', { name: /Start a sketch/ }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await deliverImage(page, 'paste', 320, 200);
+  await expect(page.locator('.attachment-chip.image')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Open image 1 on canvas' }).click();
+  await drawOnImage(page);
+  await page.getByRole('button', { name: 'Back to canvas' }).click();
+  await expect(page.locator('.sketch-sheet')).toBeVisible();
+  // Hold the marked image's final decode while another session renders its own canvas frame.
+  await page.evaluate(() => {
+    const decode = window.createImageBitmap;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    Object.assign(window, { imageExportWaiting: false, releaseImageExport: release });
+    window.createImageBitmap = async function (...args: unknown[]) {
+      Object.assign(window, { imageExportWaiting: true });
+      await gate;
+      window.createImageBitmap = decode;
+      return Reflect.apply(decode, window, args);
+    } as typeof createImageBitmap;
+  });
+  const posted = page.waitForRequest('**/api/agent/message');
+  await page.locator('.instruction-composer textarea').fill('Use this screenshot and sketch.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { imageExportWaiting: boolean }).imageExportWaiting)).toBe(true);
+  await selectProject(page, neighbour.project.name);
+  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+  expect(await page.locator('.ink-layer').getAttribute('viewBox')).not.toBe('0 0 1600 1000');
+  await page.evaluate(() => (window as unknown as { releaseImageExport(): void }).releaseImageExport());
+  const payload = (await posted).postDataJSON();
+  expect(payload.sessionId).toBe(session.id);
+  expect(payload.diagramAttachments[0].viewport.viewBox).toEqual([0, 0, 1600, 1000]);
+  await selectProject(page, project.name);
+  await expect(page.locator('.chat-message.assistant').last()).toBeVisible();
+  await expect(page.locator('.attachment-chip.image')).toHaveCount(0);
+});

@@ -133,8 +133,9 @@ describe('image chips and statements', () => {
 
   it('shows each pending image as a chip with its thumbnail, and lets an image alone be sent', () => {
     const markup = composer([pending, { ...pending, id: 'image-b', mediaType: 'image/jpeg' }]);
-    expect(markup).toContain(`<span class="attachment-chip image"><img src="${pending.dataUrl}" alt=""/><span>Image 1 · PNG · 320×200 · 12 KB</span>`);
+    expect(markup).toContain(`<img src="${pending.dataUrl}" alt=""/><span>Image 1 · PNG · 320×200 · 12 KB</span></button>`);
     expect(markup).toContain('Image 2 · JPEG · 320×200 · 12 KB');
+    expect(markup).toContain('aria-label="Open image 1 on canvas"');
     expect(markup).toContain('aria-label="Remove image 2"');
     expect(markup).toContain('placeholder="Say what to do with the image, or just send it…"');
     expect(sendButton(markup)).not.toContain('disabled');

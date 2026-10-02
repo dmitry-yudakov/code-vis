@@ -1133,7 +1133,11 @@ non-fatal.
 Paste an image into the composer, or drop one on it, to show the agent a screenshot. Nothing is put
 into the text: the image becomes a chip with its thumbnail, up to four per message, and an image
 alone is enough to send. A file dropped elsewhere on the page is refused rather than opened in
-place of CodeAI. The browser draws each image again before it is sent, as a PNG or JPEG of
+place of CodeAI. Click a pending image's thumbnail or label to open it on the desktop canvas and
+draw over it with the existing tools. **Back to canvas** returns to the diagram or sketch. Each
+image keeps its own ink while switching sessions; sending includes the marked picture, and failed
+preparation, rejected sends, or cancellation keep the image and ink available to try again.
+The browser draws each image again before it is sent, as a PNG or JPEG of
 at most 2048 px and 768 KB, so nothing of the original file but its pixels leaves the device. A
 paste that also holds plain text, such as a copied spreadsheet range, stays a text paste. The image
 belongs to that one turn: the conversation states `1 image attached`, and the picture itself is not

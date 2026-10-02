@@ -5,8 +5,9 @@ import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { SessionSnapshot, DrawingMark } from '@/shared/types';
 import { canvasTargetId, findCanvasTarget, getArtifacts } from '@/features/conversation/sessionStore';
-import { DiagramCanvas, type CanvasViewState } from './DiagramCanvas';
+import { DiagramCanvas, type CanvasViewState, type DrawingCanvasTarget } from './DiagramCanvas';
 import { RunRibbon } from './RunRibbon';
+import type { PendingImage } from '@/features/conversation/imageAttachments';
 import { SpatialBoundary } from '@/features/diagram/spatial/SpatialBoundary';
 import type { CanvasSurface, SpatialViewState } from '@/features/shell/workspaceViews';
 
@@ -17,6 +18,10 @@ export interface CanvasSnapshot {
 
 export function CanvasWorkspace({
   session,
+  image,
+  imageNumber,
+  onCloseImage,
+  onImageMarksChange,
   hidden = false,
   theme,
   pendingApprovals,
@@ -42,6 +47,10 @@ export function CanvasWorkspace({
   onArtifactError,
 }: {
   session: SessionSnapshot;
+  image?: PendingImage;
+  imageNumber?: number;
+  onCloseImage(): void;
+  onImageMarksChange(id: string, marks: DrawingMark[]): void;
   /** The user hid the canvas: its tab panel stays, empty, and the canvas mounts afresh on return. */
   hidden?: boolean;
   theme: ThemeName;
@@ -68,9 +77,11 @@ export function CanvasWorkspace({
   onArtifactError(id: string, status: 'parse-error' | 'render-error', error: string): void;
 }) {
   const artifacts = useMemo(() => getArtifacts(session), [session]);
-  const target = useMemo(() => findCanvasTarget(session, session.activeDiagramId), [session]);
-  const activeId = target && canvasTargetId(target);
-  const marks = activeId ? session.annotations[activeId]?.marks || [] : [];
+  const durableTarget = useMemo(() => findCanvasTarget(session, session.activeDiagramId), [session]);
+  const target: DrawingCanvasTarget | undefined = image ? { kind: 'image', image } : durableTarget;
+  const imageId = image?.id;
+  const activeId = target?.kind === 'image' ? target.image.id : target && canvasTargetId(target);
+  const marks = image ? image.marks || [] : activeId ? session.annotations[activeId]?.marks || [] : [];
   const artifactOrdinals = useMemo(
     () => new Map(artifacts.map((artifact) => [artifact.id, artifact.ordinal])),
     [artifacts],
@@ -81,15 +92,17 @@ export function CanvasWorkspace({
       .filter((ordinal): ordinal is number => ordinal !== undefined)
     : [];
   const handleMarks = useCallback((next: DrawingMark[]) => {
-    if (activeId) onMarksChange(activeId, next);
-  }, [activeId, onMarksChange]);
-  const handleSnapshot = useCallback((next?: CanvasSnapshot) => onSnapshot(next), [onSnapshot]);
+    if (imageId) onImageMarksChange(imageId, next);
+    else if (activeId) onMarksChange(activeId, next);
+  }, [activeId, imageId, onImageMarksChange, onMarksChange]);
+  // A pending image's frame must never be used to export the durable active sketch.
+  const handleSnapshot = useCallback((next?: CanvasSnapshot) => onSnapshot(imageId ? undefined : next), [imageId, onSnapshot]);
   const handleError = useCallback((statusValue: 'parse-error' | 'render-error', error: string) => {
     if (activeId) onArtifactError(activeId, statusValue, error);
   }, [activeId, onArtifactError]);
   const handleView = useCallback((view: CanvasViewState) => {
-    if (activeId) onCanvasViewChange(activeId, view);
-  }, [activeId, onCanvasViewChange]);
+    if (activeId && !imageId) onCanvasViewChange(activeId, view);
+  }, [activeId, imageId, onCanvasViewChange]);
 
   useEffect(() => {
     if (surface === 'spatial') onSnapshot(undefined);
@@ -102,14 +115,15 @@ export function CanvasWorkspace({
   return (
     <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
-        {target && (
+        {target && !image && (
           <div className="canvas-surface-control" role="group" aria-label="Canvas surface">
             <button type="button" aria-pressed={surface === 'flat'} onClick={() => onSurfaceChange('flat')}>Flat</button>
             <button type="button" aria-pressed={surface === 'spatial'} onClick={() => onSurfaceChange('spatial')}>Spatial</button>
           </div>
         )}
         <div className="canvas-top-actions">
-          {session.previousDiagramId && target && (
+          {image && <button type="button" onClick={onCloseImage}>Back to canvas</button>}
+          {session.previousDiagramId && target && !image && (
             <button type="button" onClick={() => onSelectDiagram(session.previousDiagramId!)}>← Previous version</button>
           )}
           {target && <button type="button" onClick={onNewSketch}>New sketch</button>}
@@ -124,7 +138,7 @@ export function CanvasWorkspace({
           pendingApprovals={pendingApprovals}
           activity={toolActivity}
         />
-        {target && activeId && surface === 'spatial' ? (
+        {target && activeId && !image && surface === 'spatial' ? (
           immersiveActive ? <div className="spatial-status">Canvas open in VR</div> : <SpatialBoundary
             session={session}
             theme={theme}
@@ -140,9 +154,10 @@ export function CanvasWorkspace({
           <DiagramCanvas
             key={activeId}
             target={target}
+            readOnly={Boolean(image && running)}
             theme={theme}
             initialMarks={marks}
-            initialView={canvasView}
+            initialView={image ? undefined : canvasView}
             onMarksChange={handleMarks}
             onViewChange={handleView}
             onSnapshot={handleSnapshot}
@@ -169,7 +184,7 @@ export function CanvasWorkspace({
         )}
         {target && (
           <div className="canvas-titleblock">
-            <strong>{target.kind === 'diagram' ? `Diagram ${target.artifact.ordinal}` : `Sketch ${target.sketch.ordinal}`}</strong>
+            <strong>{target.kind === 'image' ? `Image ${imageNumber}` : target.kind === 'diagram' ? `Diagram ${target.artifact.ordinal}` : `Sketch ${target.sketch.ordinal}`}</strong>
             {lineage.length > 0 && (
               <span>derived from {lineage.length === 1 ? 'Diagram' : 'Diagrams'} {lineage.join(', ')}</span>
             )}

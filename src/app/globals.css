@@ -361,6 +361,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .attachment-chip button { width: 17px; height: 17px; border: 0; border-radius: 50%; color: var(--plot-ink-deep); background: var(--plot-control-wash); line-height: 1; }
 /* An image's chip leads with its thumbnail, so it is a rounded box rather than a pill. */
 .attachment-chip.image { padding-left: 3px; border-radius: 8px; }
+.attachment-chip.image .image-open { display: inline-flex; align-items: center; gap: 6px; width: auto; height: auto; padding: 0; border-radius: 5px; background: transparent; font: inherit; line-height: inherit; text-align: left; }
 .attachment-chip.image img { width: 40px; height: 28px; border-radius: 5px; object-fit: cover; background: var(--control-wash); }
 /* A file dragged over the composer can be dropped on it. */
 .instruction-composer.drop-target { outline: 2px dashed var(--plot); outline-offset: 2px; }
@@ -528,6 +529,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 /* The explicit minmax(0, 1fr) column matters: an auto column sizes to max-content, so one wide
    row (composer, long path, code span) would silently push the rest of the panel out of view. */
 .conversation-region { grid-area: dock; position: relative; min-width: 0; min-height: 0; z-index: 12; }
+.repository-region:empty, .conversation-region:empty { pointer-events: none; }
 /* The header row sizes to its own content. Pinned at 48px the eyebrow/title/badge stack overflows
    it: the eyebrow is clipped by this panel and the badge spills onto the first line of transcript. */
 .conversation-drawer { position: absolute; z-index: 1; inset: 0; width: 100%; display: grid; grid-template-rows: auto minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border-left: 1px solid var(--line); overflow: hidden; background: var(--shell); box-shadow: var(--drawer-shadow); }

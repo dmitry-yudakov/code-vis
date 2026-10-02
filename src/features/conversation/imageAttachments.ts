@@ -1,5 +1,5 @@
 import { MAX_IMAGE_BYTES } from '@/shared/limits';
-import type { ImageAttachmentRecord, ImageMediaType } from '@/shared/types';
+import type { DrawingMark, ImageAttachmentRecord, ImageMediaType } from '@/shared/types';
 
 /** Sent when the user attaches an image and sends without typing anything. */
 export const IMAGE_ONLY_INSTRUCTION = 'Look at the attached image and tell me what you see in it that matters for this repository.';
@@ -21,6 +21,8 @@ export interface PendingImage {
   bytes: number;
   width: number;
   height: number;
+  /** Ink in the prepared image's pixel coordinates; browser memory only. */
+  marks?: DrawingMark[];
 }
 
 /**

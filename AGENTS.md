@@ -118,6 +118,10 @@ Updated 2026-10-02. When a story ships, change the line that names it; each stor
   in the desktop conversation header creates a fresh session with the same project and agent
   settings, then closes the source tab while keeping its history. Offline checks, the production
   build, and all four focused browser checks pass.
+- **Shipped:** [Story 87](stories/STORY-20261002-draw-on-pasted-images.md) — open a pending
+  screenshot on the desktop canvas, draw over it, and send the bounded marked copy while keeping
+  editable ink per image and session. Unit checks, TypeScript, the production build, 17 focused
+  browser checks, and a subagent review passed.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

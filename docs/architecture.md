@@ -300,7 +300,12 @@ An image pasted into the composer or dropped on it is the turn's, not the sessio
 request carries a fresh PNG or JPEG data URL of at most 2048 px and `MAX_IMAGE_BYTES`; the prepared
 images wait in browser memory per session, never in `localStorage`. The shell refuses a file dragged
 anywhere but the composer, with the conversation open or closed, so a missed drop never navigates
-away. The message route decodes each
+away. A pending image can open in the desktop drawing canvas; its selection and pixel-coordinate
+marks also stay in browser memory per session. `imageCanvas.ts` embeds its prepared pixels into
+the existing SVG/ink exporter, then bounds the marked copy through `prepareImage` again. The
+original image and ink remain editable after failed preparation, rejection, or cancellation.
+Image camera changes and marks never update durable canvas records or device storage, and its
+export frame never replaces an attached diagram or sketch's frame. The message route decodes each
 one before it reserves a run and refuses a fifth image, another type, a PNG or JPEG without its
 format's signature and end marker (a mislabelled or cut-short image; the inside is the provider's to
 decode), and anything over the byte bound (`decodeImageAttachments` in

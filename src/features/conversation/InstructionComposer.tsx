@@ -315,7 +315,7 @@ export interface PendingReportChip {
 export function InstructionComposer({
   value, running, cancelReady = true, sendBlocked, autoFocus, attached, reports = [], images = [], activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
-  onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
 }: {
   value: string;
@@ -356,6 +356,7 @@ export function InstructionComposer({
   /** Files pasted into the field, which are all images, or dropped on the composer, which may be anything. */
   onAddImages?(files: File[]): void;
   onRemoveImage?(id: string): void;
+  onOpenImage?(id: string): void;
   /** The same toggle as History's Attach next. */
   onToggleAttachment(id: string): void;
   onOpenHistory(): void;
@@ -424,8 +425,11 @@ export function InstructionComposer({
           ))}
           {images.map((image, index) => (
             <span className="attachment-chip image" key={image.id}>
-              <img src={image.dataUrl} alt="" />
-              <span>{`Image ${index + 1} · ${pendingImageDetail(image)}`}</span>
+              <button type="button" className="image-open" aria-label={`Open image ${index + 1} on canvas`}
+                title="Open on canvas to draw" disabled={running} onClick={() => onOpenImage?.(image.id)}>
+                <img src={image.dataUrl} alt="" />
+                <span>{`Image ${index + 1} · ${pendingImageDetail(image)}${image.marks?.length ? ` · ${image.marks.length} ${image.marks.length === 1 ? 'mark' : 'marks'}` : ''}`}</span>
+              </button>
               <button type="button" aria-label={`Remove image ${index + 1}`} onClick={() => onRemoveImage?.(image.id)}>×</button>
             </span>
           ))}

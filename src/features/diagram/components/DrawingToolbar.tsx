@@ -14,9 +14,10 @@ const TOOLS: Array<{ id: DrawingTool; icon: string; label: string; shortcut: str
 ];
 
 export function DrawingToolbar({
-  tool, onTool, canUndo, canRedo, onUndo, onRedo, onClear, rootRef,
+  tool, onTool, canUndo, canRedo, onUndo, onRedo, onClear, rootRef, readOnly = false,
 }: {
   tool: DrawingTool;
+  readOnly?: boolean;
   onTool(tool: DrawingTool): void;
   canUndo: boolean;
   canRedo: boolean;
@@ -32,6 +33,7 @@ export function DrawingToolbar({
           key={item.id}
           type="button"
           className={tool === item.id ? 'active' : ''}
+          disabled={readOnly && item.id !== 'pointer' && item.id !== 'pan'}
           aria-pressed={tool === item.id}
           aria-label={`${item.label} (${item.shortcut})`}
           title={`${item.label} · ${item.shortcut}`}
@@ -41,9 +43,9 @@ export function DrawingToolbar({
         </button>
       ))}
       <span className="tool-separator" />
-      <button type="button" disabled={!canUndo} onClick={onUndo} aria-label="Undo drawing">↶</button>
-      <button type="button" disabled={!canRedo} onClick={onRedo} aria-label="Redo drawing">↷</button>
-      <button type="button" onClick={onClear} aria-label="Clear all ink">Clear</button>
+      <button type="button" disabled={readOnly || !canUndo} onClick={onUndo} aria-label="Undo drawing">↶</button>
+      <button type="button" disabled={readOnly || !canRedo} onClick={onRedo} aria-label="Redo drawing">↷</button>
+      <button type="button" disabled={readOnly} onClick={onClear} aria-label="Clear all ink">Clear</button>
     </div>
   );
 }

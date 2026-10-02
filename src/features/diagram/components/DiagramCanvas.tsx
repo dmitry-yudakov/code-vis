@@ -8,6 +8,11 @@ import { createUuid } from '@/shared/uuid';
 import { canvasTargetId } from '@/features/conversation/sessionStore';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { DrawingToolbar } from './DrawingToolbar';
+import type { PendingImage } from '@/features/conversation/imageAttachments';
+import { imageCanvasSnapshot } from '@/features/diagram/annotations/imageCanvas';
+
+/** Pending images share the drawing tools, but never become durable session canvases. */
+export type DrawingCanvasTarget = CanvasTarget | { kind: 'image'; image: PendingImage };
 
 interface Snapshot {
   svg: string;
@@ -63,6 +68,7 @@ function markElement(mark: DrawingMark) {
 
 export function DiagramCanvas({
   target,
+  readOnly = false,
   theme,
   initialMarks,
   initialView,
@@ -71,7 +77,9 @@ export function DiagramCanvas({
   onSnapshot,
   onArtifactError,
 }: {
-  target: CanvasTarget;
+  target: DrawingCanvasTarget;
+  /** Pending images stop accepting ink while their prepared copy is being sent. */
+  readOnly?: boolean;
   theme: ThemeName;
   initialMarks: DrawingMark[];
   initialView?: CanvasViewState;
@@ -80,7 +88,8 @@ export function DiagramCanvas({
   onSnapshot(snapshot?: Snapshot): void;
   onArtifactError(status: 'parse-error' | 'render-error', error: string): void;
 }) {
-  const canvasId = canvasTargetId(target);
+  const image = target.kind === 'image' ? target.image : undefined;
+  const canvasId = target.kind === 'image' ? target.image.id : canvasTargetId(target);
   const artifact = target.kind === 'diagram' ? target.artifact : undefined;
   const sketch = target.kind === 'sketch' ? target.sketch : undefined;
   const shellRef = useRef<HTMLDivElement>(null);
@@ -103,6 +112,10 @@ export function DiagramCanvas({
   const color = '#c67139';
 
   useEffect(() => {
+    if (readOnly) gesture.current = undefined;
+  }, [readOnly]);
+
+  useEffect(() => {
     dispatch({ type: 'reset', marks: initialMarks });
     setZoom(initialView?.zoom ?? 1);
     setPan(initialView?.pan ?? { x: 0, y: 0 });
@@ -112,6 +125,9 @@ export function DiagramCanvas({
   }, [canvasId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    // Image ink has one editor. Its parent echoes may lag the next pointer move, so adopting
+    // them would truncate the current stroke and clear Undo. A remount restores saved ink.
+    if (image) return;
     // Flat and VR edit the same durable annotation record. A local Flat dispatch reaches the
     // parent before this prop changes, so equal marks keep its undo stack; an external VR update
     // replaces the Flat copy and starts a fresh local history from that shared snapshot.
@@ -130,12 +146,19 @@ export function DiagramCanvas({
   }, [state.marks, onMarksChange]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onViewChange({ zoom, pan, fitted }), [fitted, onViewChange, pan, zoom]);
 
+  const imageSnapshot = useMemo(() => image ? imageCanvasSnapshot(image) : undefined,
+    [image?.dataUrl, image?.width, image?.height]); // eslint-disable-line react-hooks/exhaustive-deps
   const sketchSheet = sketch?.viewBox.join(' ');
   useEffect(() => {
     let current = true;
     setRenderError(undefined);
     setSnapshot(undefined);
     onSnapshot(undefined);
+    if (imageSnapshot) {
+      setSnapshot(imageSnapshot);
+      onSnapshot(imageSnapshot);
+      return;
+    }
     if (sketchSheet) {
       // Nothing to render: the sheet is ready the moment it exists.
       const sheet: Snapshot = {
@@ -158,7 +181,7 @@ export function DiagramCanvas({
       onArtifactError('parse-error', message);
     });
     return () => { current = false; };
-  }, [artifact?.id, artifact?.source, artifact?.status, sketchSheet, theme, onArtifactError, onSnapshot]);
+  }, [artifact?.id, artifact?.source, artifact?.status, sketchSheet, imageSnapshot, theme, onArtifactError, onSnapshot]);
 
   const fit = useCallback(() => {
     if (!snapshot || !viewportRef.current) return;
@@ -235,12 +258,15 @@ export function DiagramCanvas({
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
-        dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
-      } else if (shortcuts[event.key.toLowerCase()]) setTool(shortcuts[event.key.toLowerCase()]);
+        if (!readOnly) dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
+      } else {
+        const nextTool = shortcuts[event.key.toLowerCase()];
+        if (nextTool && (!readOnly || nextTool === 'pointer' || nextTool === 'pan')) setTool(nextTool);
+      }
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, []);
+  }, [readOnly]);
 
   const pointFromEvent = (event: React.PointerEvent): Point => {
     const bounds = overlayRef.current!.getBoundingClientRect();
@@ -253,7 +279,7 @@ export function DiagramCanvas({
   };
 
   const pointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (!snapshot || event.button !== 0) return;
+    if (!snapshot || event.button !== 0 || readOnly && tool !== 'pointer' && tool !== 'pan') return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const start = pointFromEvent(event);
     if (tool === 'eraser') {
@@ -302,7 +328,7 @@ export function DiagramCanvas({
   const pointerUp = (event: React.PointerEvent<SVGSVGElement>) => {
     const current = gesture.current;
     gesture.current = undefined;
-    if (current?.mode === 'text' && snapshot) {
+    if (!readOnly && current?.mode === 'text' && snapshot) {
       const value = window.prompt('Label text');
       if (value?.trim()) dispatch({ type: 'add', mark: {
         id: createUuid(), origin: 'user', color, createdAt: new Date().toISOString(), kind: 'text',
@@ -333,6 +359,7 @@ export function DiagramCanvas({
     <div ref={shellRef} className="diagram-canvas-shell">
       <DrawingToolbar
         rootRef={toolbarRef}
+        readOnly={readOnly}
         tool={tool}
         onTool={setTool}
         canUndo={state.past.length > 0}
@@ -395,7 +422,7 @@ export function DiagramCanvas({
           className="control-download"
           title="Download this canvas and its marks (.json)"
           onClick={() => download(
-            `${target.kind}-${artifact?.ordinal ?? sketch?.ordinal}-marks.json`,
+            `${target.kind}-${artifact?.ordinal ?? sketch?.ordinal ?? image?.id}-marks.json`,
             JSON.stringify({ version: 1, ...target, marks: state.marks, viewBox: snapshot?.viewBox }, null, 2),
             'application/json',
           )}
