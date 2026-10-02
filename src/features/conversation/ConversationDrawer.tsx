@@ -17,13 +17,14 @@ import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { TurnCheckpoint } from './TurnCheckpoint';
 import type { TurnCheckpointControls } from './useTurnCheckpoint';
+import { ShellIcon } from '@/features/shell/ShellIcon';
 
 export function ConversationDrawer({
   open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, instructions, securityLevel, recovery, onContinue, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  continuing, continuationUnavailable, instructions, securityLevel, recovery, onContinue, onNewChat, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
   session?: SessionSnapshot;
@@ -73,6 +74,7 @@ export function ConversationDrawer({
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
   onExecutePlan(participantId: string): void;
   onContinue(): void;
+  onNewChat(): void;
   onToggleAttachment(id: string): void;
   onOpenHistory(): void;
   onNewSketch(): void;
@@ -93,6 +95,16 @@ export function ConversationDrawer({
           <strong>{session?.title || 'New session'}</strong>
           {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
         </div>
+        <button
+          type="button"
+          className="drawer-new-chat"
+          aria-label="New chat"
+          title={running ? 'Wait for this turn to finish.' : continuing ? 'Creating a session…'
+            : participantBusy ? 'Wait for agent changes to finish.' : recovery?.busy ? 'Wait for Undo to finish.'
+            : 'New chat with the same project and settings'}
+          disabled={!session || !activeAgent || running || continuing || participantBusy || recovery?.busy}
+          onClick={onNewChat}
+        ><ShellIcon name="newChat" /></button>
       </header>
       <div className="conversation-scroll">
         {session?.messages.map((message) => (

@@ -62,7 +62,7 @@ import { LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import { useDevicePreferences } from './useDevicePreferences';
 import { agentModelSelection, inheritedMode, type LaunchInstructions } from './devicePreferences';
-import { changesCheckout, composerMode, unsupportedModes as unsupportedAgentModes, type LaunchMode } from '@/shared/agentModes';
+import { changesCheckout, composerMode, unsupportedModes as unsupportedAgentModes } from '@/shared/agentModes';
 import {
   parseSpatialView, reconcileSpatialView, replacePendingCanvasRevision, resetSpatialView, withPendingReport, withPendingReports,
   type CanvasSurface, type SpatialViewState,
@@ -666,7 +666,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
     options: {
-      projectId?: string; mode?: LaunchMode; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string;
+      projectId?: string; mode?: AgentMode; role?: AgentRole; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string;
       /** Named by a form that offers the choice; a continuation copies its source's on the server. */
       instructions?: LaunchInstructions;
     } = {},
@@ -688,6 +688,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: requestedProvider, ...(options.execution ? { execution: options.execution } : {}),
+          ...(options.role ? { role: options.role } : {}),
           ...(options.instructions && options.instructions !== 'default' ? { instructions: options.instructions } : {}),
           ...(options.sourceSessionId ? { sourceSessionId: options.sourceSessionId }
             : { ...(requestedProjectId ? { projectId: requestedProjectId } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }) }),
@@ -740,6 +741,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (created) updatePreferences((current) => ({ ...current, provider, mode: options.mode }));
     return created;
   }, [createSession, updatePreferences]);
+
+  const newChat = async () => {
+    if (!session || !activeAgent || sessionRunning || creatingSession || participantBusy || recovery.busy) return;
+    const created = await createSession(activeAgent.provider, {
+      execution: session.execution, sourceSessionId: session.id, role: activeAgent.role, mode, modelSelection,
+    });
+    if (created) workspace.closeInProject(session.projectId, session.id, workspaceMachineId);
+  };
 
   const continueSession = (execution: AgentExecution) => {
     if (!session || sessionRunning || creatingSession) return;
@@ -2330,6 +2339,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               continuationUnavailable={continuationUnavailable}
               instructions={instructionsChoice}
               onContinue={() => continueSession(continuationExecution)}
+              onNewChat={() => void newChat()}
               sendBlocked={composerBlocked}
               securityLevel={securityLevel}
               recovery={recovery}
