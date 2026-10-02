@@ -712,9 +712,12 @@ same session, so the executing agent keeps all of the research context. Nothing 
 **Agent** runs with the provider's server-owned approval policy. Every side effect raises a permission card in the
 conversation with **Allow** / **Deny**; the floating canvas control shows a pending badge so
 full-screen users notice. Deny does not kill the run — the model is told and continues. An
-unanswered card is auto-denied after `CODEAI_APPROVAL_TIMEOUT_MS` (default 10 minutes), and
-the run's own timeout clock is paused while a card is pending. Cancelling resolves pending cards as
-denied before terminating the child.
+unanswered card waits until you allow, deny, or cancel the turn. `CODEAI_APPROVAL_TIMEOUT_MS`
+defaults to `0` (no expiry); a positive value enables automatic denial after that interval. The
+run's own timeout clock is paused while a card is pending. Closing or reloading the browser keeps
+the request alive while CodeAI and its provider process are running; a server restart ends the
+live run. Waiting turns retain a machine execution slot and exclusive checkout access, so other
+turns on that checkout wait. Cancelling resolves pending cards as denied before terminating the child.
 
 All writing modes edit **the real working tree** of the session's primary repository, exactly like the corresponding
 terminal agent. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
@@ -1201,7 +1204,9 @@ See [.env.example](.env.example). The most useful options are:
   development-only asset/HMR origin guard;
 - `CODEAI_TLS_CERT` / `CODEAI_TLS_KEY` and optional `CODEAI_BIND_*` — dedicated `start:remote`
   listener configuration;
-- `CODEAI_APPROVAL_TIMEOUT_MS` — how long an Agent or Auto permission card waits before auto-denying;
+- `CODEAI_APPROVAL_TIMEOUT_MS` — unset or `0` (default) keeps Agent/Auto approval cards pending
+  without expiry; `5000`–`3600000` enables auto-denial after that many milliseconds. The executing
+  machine owns this setting; remove an existing positive value or set it to `0` for unlimited waits;
 - `CODEAI_MAX_CONCURRENT_RUNS` — machine-wide execution slots, from 1–8 (default `2`);
 - `CODEAI_AGENT_*` / `CODEAI_BUILD_*` — per-message turn and time budgets for Ask/Plan
   and for Agent and Auto respectively;

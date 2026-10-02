@@ -23,6 +23,7 @@ export interface AppConfig {
   agentMaxTurns: number;
   buildTimeoutMs: number;
   buildMaxTurns: number;
+  /** Zero keeps approval requests pending until a decision or run termination. */
   approvalTimeoutMs: number;
   maxConcurrentRuns: number;
   dataDir: string;
@@ -170,6 +171,7 @@ function expandHome(value: string): string {
 export function getConfig(): AppConfig {
   // `web2` is a persisted compatibility identifier; changing it needs a data migration.
   const dataDir = path.resolve(expandHome(rawSetting('DATA_DIR') || '~/.code-ai/web2'));
+  const approvalTimeoutMs = Number(rawSetting('APPROVAL_TIMEOUT_MS') ?? 0);
   return {
     ...remoteAccess(),
     securityLevel: securityLevel(),
@@ -196,7 +198,8 @@ export function getConfig(): AppConfig {
     // allowance before the first edit. Approval time never counts against the timeout.
     buildTimeoutMs: boundedInteger('BUILD_TIMEOUT_MS', 3_600_000, 1_000, 7_200_000),
     buildMaxTurns: boundedInteger('BUILD_MAX_TURNS', 200, 1, 1_000),
-    approvalTimeoutMs: boundedInteger('APPROVAL_TIMEOUT_MS', 600_000, 5_000, 3_600_000),
+    approvalTimeoutMs: approvalTimeoutMs === 0
+      ? 0 : boundedInteger('APPROVAL_TIMEOUT_MS', 0, 5_000, 3_600_000),
     // Machine capacity is deliberately small and bounded. The scheduler owns this value; clients
     // may observe queued work but cannot request a wider limit.
     maxConcurrentRuns: boundedInteger('MAX_CONCURRENT_RUNS', 2, 1, 8),

@@ -29,6 +29,9 @@ between. In practice this means:
 - **Docker is the only alternative.** Docker Agent is autonomous but needs a provisioned daemon and
   image, a separate provider home, and a session created for it.
 
+**Later change:** [Story 88](STORY-20261002-unlimited-approval-waits.md) removes the default
+approval expiry; the ten-minute behavior above records the motivation when this story began.
+
 Both providers can now run with less supervision:
 
 - **Codex** has the `workspace-write` sandbox with `on-request` approvals, the preset its own CLI

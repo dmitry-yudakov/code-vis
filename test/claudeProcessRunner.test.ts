@@ -319,7 +319,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     });
 
     it('pauses the run-timeout clock while a request is pending', async () => {
-      const permissions = new PermissionBroker(5_000);
+      const permissions = new PermissionBroker(0);
       // The decision alone outlasts the run budget; only a paused clock lets the turn finish.
       const { result } = await run({
         mode: 'agent',
@@ -331,7 +331,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     });
 
     it('resolves pending requests as cancelled before terminating the child', async () => {
-      const permissions = new PermissionBroker(5_000);
+      const permissions = new PermissionBroker(0);
       const controller = new AbortController();
       const events: AgentProcessEvent[] = [];
       await expect(run({

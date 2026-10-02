@@ -376,9 +376,16 @@ finished run stays reattachable for five minutes.
 In Agent mode every side effect raises a permission card. `src/server/runs/permissionBroker.ts`
 correlates the provider's approval request to the active run/session/turn, sanitizes it, and waits
 for one allow/deny decision. While a card is pending the run's timeout clock is paused. An
-unanswered card is auto-denied after `CODEAI_APPROVAL_TIMEOUT_MS`. A denial is reported to the
-model as a decision — the run continues. Cancelling resolves pending cards as denied before
-terminating the child.
+unanswered card waits indefinitely by default: unset or `0` `CODEAI_APPROVAL_TIMEOUT_MS`
+disables expiry, while `5000`–`3600000` milliseconds enables auto-denial. The legacy
+`CODEAI_WEB2_APPROVAL_TIMEOUT_MS` alias remains valid, with the neutral name taking precedence.
+A denial is reported to the model as a decision — the run continues. Cancelling resolves pending
+cards as denied before terminating the child. Provider completion also clears pending requests.
+
+Waiting turns keep their concurrency slot and checkout access; a writing turn still blocks other
+turns on its checkout, Undo, and managed Build & restart. Browser detachment preserves the live
+request, but approvals are machine-memory state and cannot resume after a server restart or
+provider exit. Checkpoint retention remains seven days from capture, even if a turn waits that long.
 
 Ask and Plan never prompt: they run under a server-owned read-only profile plus a fixed git/gh
 read allowlist. A command matching no rule is auto-denied and shown as a denial in the timeline.

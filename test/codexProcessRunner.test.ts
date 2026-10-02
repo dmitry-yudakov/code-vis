@@ -364,6 +364,38 @@ describe.sequential('CodexProcessRunner', () => {
     expect(result.finalText).toBe('Declined and continued.');
   });
 
+  it('pauses the execution timeout while an unlimited approval waits for a human', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'approval-command';
+    const permissions = new PermissionBroker(0);
+    const { result, events } = await run({
+      mode: 'agent', timeoutMs: 900, permissions,
+      onEvent(event) {
+        if (event.type === 'permission-request' && event.requestId) {
+          setTimeout(() => permissions.decide(event.requestId!, 'allow'), 1_400);
+        }
+      },
+    });
+    expect(result.finalText).toBe('Approved once.');
+    expect(events.filter((event) => event.type === 'permission-resolved').map((event) => event.decision)).toEqual(['allow']);
+    expect(permissions.pendingCount).toBe(0);
+  });
+
+  it('cancels an unlimited pending approval before terminating the child', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'approval-command';
+    const permissions = new PermissionBroker(0);
+    const controller = new AbortController();
+    const events: AgentProcessEvent[] = [];
+    await expect(run({
+      mode: 'agent', permissions, signal: controller.signal,
+      onEvent(event) {
+        events.push(event);
+        if (event.type === 'permission-request') setTimeout(() => controller.abort(), 0);
+      },
+    })).rejects.toMatchObject({ code: 'cancelled' });
+    expect(events.filter((event) => event.type === 'permission-resolved').map((event) => event.decision)).toEqual(['cancelled']);
+    expect(permissions.pendingCount).toBe(0);
+  });
+
   it('interrupts on cancellation and timeout before closing the child', async () => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'wait';
     const controller = new AbortController();

@@ -681,6 +681,7 @@ export interface ResolvedAgentPolicy {
   sessionPersistence: true;
   maxTurns: number;
   timeoutMs: number;
+  /** Zero disables approval expiry. */
   approvalTimeoutMs?: number;
 }
 

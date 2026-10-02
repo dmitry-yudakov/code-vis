@@ -195,6 +195,9 @@ only") and is called out in the README.
 
 ### Interactive permissions (agent mode)
 
+**Later change:** [Story 88](STORY-20261002-unlimited-approval-waits.md) removes approval expiry by
+default; the timeout below remains available when explicitly configured.
+
 Extend the existing spawn-based runner to the CLI's bidirectional control protocol rather than
 migrating to the Agent SDK: add `--input-format stream-json`, keep stdin open after the
 initial user message, and answer `can_use_tool` control requests. This preserves the offline

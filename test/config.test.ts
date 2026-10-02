@@ -11,6 +11,7 @@ const MANAGED = [
   'CODEAI_CLAUDE_MODEL', 'CODEAI_WEB2_CLAUDE_MODEL',
   'CODEAI_HOST_LABEL', 'CODEAI_WEB2_HOST_LABEL',
   'CODEAI_MAX_CONCURRENT_RUNS', 'CODEAI_WEB2_MAX_CONCURRENT_RUNS',
+  'CODEAI_APPROVAL_TIMEOUT_MS', 'CODEAI_WEB2_APPROVAL_TIMEOUT_MS',
   'CODEAI_REMOTE_ACCESS', 'CODEAI_WEB2_REMOTE_ACCESS',
   'CODEAI_PUBLIC_ORIGIN', 'CODEAI_WEB2_PUBLIC_ORIGIN',
 ] as const;
@@ -65,6 +66,39 @@ describe.sequential('config', () => {
   it.each(['0', '1.5', '9'])('rejects invalid machine concurrency %s', (value) => {
     process.env.CODEAI_MAX_CONCURRENT_RUNS = value;
     expect(() => getConfig()).toThrow('CODEAI_MAX_CONCURRENT_RUNS must be an integer between 1 and 8');
+  });
+
+  it('defaults approval waiting to unlimited and accepts zero from either setting name', () => {
+    delete process.env.CODEAI_APPROVAL_TIMEOUT_MS;
+    delete process.env.CODEAI_WEB2_APPROVAL_TIMEOUT_MS;
+    expect(getConfig().approvalTimeoutMs).toBe(0);
+    process.env.CODEAI_WEB2_APPROVAL_TIMEOUT_MS = '0';
+    expect(getConfig().approvalTimeoutMs).toBe(0);
+    process.env.CODEAI_APPROVAL_TIMEOUT_MS = '0';
+    process.env.CODEAI_WEB2_APPROVAL_TIMEOUT_MS = '600000';
+    expect(getConfig().approvalTimeoutMs).toBe(0);
+  });
+
+  it.each(['5000', '600000', '3600000'])('keeps an explicitly configured approval timeout of %s ms', (value) => {
+    delete process.env.CODEAI_APPROVAL_TIMEOUT_MS;
+    process.env.CODEAI_WEB2_APPROVAL_TIMEOUT_MS = value;
+    expect(getConfig().approvalTimeoutMs).toBe(Number(value));
+    process.env.CODEAI_APPROVAL_TIMEOUT_MS = '5000';
+    expect(getConfig().approvalTimeoutMs).toBe(5000);
+  });
+
+  it.each(['-1', '1', '4999', '5000.5', '3600001', 'Infinity', 'invalid'])(
+    'rejects invalid approval timeout %s instead of falling back to a legacy value', (value) => {
+      process.env.CODEAI_APPROVAL_TIMEOUT_MS = value;
+      process.env.CODEAI_WEB2_APPROVAL_TIMEOUT_MS = '0';
+      expect(() => getConfig()).toThrow('CODEAI_APPROVAL_TIMEOUT_MS');
+    },
+  );
+
+  it('validates a legacy approval timeout when the neutral setting is unset', () => {
+    delete process.env.CODEAI_APPROVAL_TIMEOUT_MS;
+    process.env.CODEAI_WEB2_APPROVAL_TIMEOUT_MS = '-1';
+    expect(() => getConfig()).toThrow('CODEAI_WEB2_APPROVAL_TIMEOUT_MS');
   });
 
   it('keeps local access as the default and validates an exact HTTPS paired origin', () => {

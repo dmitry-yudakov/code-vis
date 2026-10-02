@@ -2,13 +2,13 @@ import type { PermissionGate, PermissionResolution } from '@/shared/types';
 
 interface PendingRequest {
   settle(resolution: PermissionResolution): void;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 /**
  * Holds the agent-mode permission requests a run is waiting on. The runner registers each one and
- * the `/api/agent/permission` route resolves it; unanswered requests expire, and cancelling a run
- * settles everything still pending so the child can be told before it is terminated.
+ * the `/api/agent/permission` route resolves it. Zero disables expiry; a positive timeout expires
+ * unanswered requests. Cancelling a run settles everything pending before the child is terminated.
  */
 export class PermissionBroker implements PermissionGate {
   private readonly pending = new Map<string, PendingRequest>();
@@ -25,8 +25,9 @@ export class PermissionBroker implements PermissionGate {
       settle('cancelled');
       return;
     }
-    const timer = setTimeout(() => this.finish(requestId, 'timeout'), this.approvalTimeoutMs);
-    timer.unref?.();
+    const timer = this.approvalTimeoutMs > 0
+      ? setTimeout(() => this.finish(requestId, 'timeout'), this.approvalTimeoutMs) : undefined;
+    timer?.unref?.();
     this.pending.set(requestId, { settle, timer });
   }
 
@@ -43,7 +44,7 @@ export class PermissionBroker implements PermissionGate {
   private finish(requestId: string, resolution: PermissionResolution): boolean {
     const entry = this.pending.get(requestId);
     if (!entry) return false;
-    clearTimeout(entry.timer);
+    if (entry.timer) clearTimeout(entry.timer);
     this.pending.delete(requestId);
     entry.settle(resolution);
     return true;
