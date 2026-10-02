@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-10-01. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-02. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -110,6 +110,10 @@ Updated 2026-10-01. When a story ships, change the line that names it; each stor
   eligible-file checkpoint on the executing machine, and desktop/VR share explicit checkout Undo;
   failure/concurrency tests, production-browser checks and review passed. Recovery currently
   requires Linux; Git history/index, ignored/private files and external effects are excluded.
+- **Shipped:** [Story 85](stories/STORY-20261002-auto-archive-inactive-conversations.md) —
+  conversations automatically move to the recoverable archive after 48 hours without saved
+  activity; owner-machine polling/loading, live-turn protection, Restore, automated checks,
+  production-browser verification, and independent review passed. The threshold is fixed for now.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

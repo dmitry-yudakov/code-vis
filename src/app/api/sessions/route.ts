@@ -7,6 +7,7 @@ import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { validateDockerCheckout } from '@/server/execution/dockerProfile';
+import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,7 @@ export async function GET(request: Request): Promise<Response> {
   }
   try {
     const config = getConfig();
+    await autoArchiveSessions(config);
     const sessions = await getSessionStore(config.dataDir, config.hostLabel).listSessions({ projectId, loose });
     return safeJsonResponse({ sessions: sessions.map(publicSession) });
   } catch (error) {

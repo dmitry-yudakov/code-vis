@@ -168,6 +168,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [newerFormatSessions, setNewerFormatSessions] = useState(0);
   const [newerFormatNoticeDismissed, setNewerFormatNoticeDismissed] = useState(false);
   const [archivingSessionId, setArchivingSessionId] = useState<string>();
+  const reconciledArchiveRevisions = useRef(new Map<string, number>());
   const [participantBusy, setParticipantBusy] = useState(false);
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
   const sendingSessions = useRef(new Set<string>());
@@ -557,6 +558,35 @@ export function AppShell({ children }: { children: ReactNode }) {
       });
     return () => { current = false; };
   }, [apiPath, catalogReady, machineId, panelLayout.reconcile, projectId, workspace.getView, workspace.ready, workspace.reconcile]);
+
+  useEffect(() => {
+    if (!localMachineId || !workspace.ready) return;
+    for (const owner of arena.machines) {
+      // Offline projections are cached evidence and cannot confirm a conversation is still archived.
+      if (owner.machine.state !== 'online') continue;
+      for (const archived of owner.archivedSessions) {
+        const key = JSON.stringify([owner.machine.id, archived.id]);
+        const loaded = sessionsRef.current.find((item) => item.machineId === owner.machine.id && item.id === archived.id);
+        const reconciledRevision = reconciledArchiveRevisions.current.get(key) || 0;
+        // A poll started before Restore may finish after its newer response.
+        if ((loaded?.revision || 0) > archived.revision
+          || reconciledRevision > archived.revision) continue;
+        if (reconciledRevision === archived.revision && !loaded) continue;
+        reconciledArchiveRevisions.current.set(key, archived.revision);
+        workspace.closeInProject(archived.projectId, archived.id,
+          owner.machine.id === localMachineId ? undefined : owner.machine.id);
+        if (owner.machine.id === machineId && archived.projectId === projectId && loaded) {
+          const next = sessionsRef.current.filter((item) => item.id !== archived.id);
+          sessionsRef.current = next;
+          setSessions(next);
+          if (focusedSessionIdRef.current === archived.id) setRepositoryTree(undefined);
+        }
+        runControllers.current.get(archived.id)?.abort();
+        removeRun(archived.id);
+        setRunOutcome(archived.id);
+      }
+    }
+  }, [arena.machines, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject, workspace.ready]);
 
   useEffect(() => {
     snapshotRef.current = undefined;
@@ -1579,6 +1609,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         await arena.refresh();
         throw new Error(data.error || 'Could not restore the session.');
       }
+      reconciledArchiveRevisions.current.set(JSON.stringify([targetMachineId, data.session.id]), data.session.revision);
       if (targetMachineId === machineId && data.session.projectId === projectId) await refreshSession(data.session.id);
       notify({ key: `archive:${target.id}`, tone: 'success', message: `Restored “${data.session.title}”.` });
       await arena.refresh();

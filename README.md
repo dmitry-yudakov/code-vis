@@ -627,7 +627,14 @@ machine and then by project.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
 latest activity. An inactive session can be archived from its card, or from inside it with
 **More → Archive session**, and later restored intact from the **Archived** view; a session with a
-reserved, queued, executing, or permission-blocked turn cannot be archived. Use **New session**
+reserved, queued, executing, or permission-blocked turn cannot be archived.
+Conversations automatically move to **Archived** after more than **48 hours without saved activity**.
+Messages, canvas changes, and other saved session changes restart that clock; viewing or keeping a
+tab open does not. Existing Arena polling and conversation loading apply the rule on each owning
+machine, catching up on the next load after downtime. Restore preserves the complete conversation
+and starts a fresh 48-hour window. The threshold is fixed for now. If Docker recovery is unavailable,
+Docker conversations stay active until recovery succeeds.
+Use **New session**
 there to choose a project, provider, [Global instructions](#global-instructions) choice, and initial
 mode before opening an empty session; creation never sends a prompt automatically.
 

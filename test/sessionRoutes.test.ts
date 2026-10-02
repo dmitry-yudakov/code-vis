@@ -151,6 +151,43 @@ describe('session snapshot and mutation routes', () => {
     routeState.runInputs = [];
   });
 
+  it.each(['sessions', 'arena'] as const)('auto archives old conversations before returning %s', async (route) => {
+    const session = await createViaRoute('checkout-a');
+    const updatedAt = new Date(Date.now() - 49 * 60 * 60 * 1_000).toISOString();
+    const file = path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${session.id}.json`);
+    // Use the durable snapshot, which includes private provider continuation fields.
+    const durable = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...durable, updatedAt }));
+    const response = route === 'arena' ? await GET_ARENA() : await GET_SESSIONS(new Request('http://localhost/api/sessions'));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(route === 'arena' ? data.machines[0].sessions : data.sessions).toEqual([]);
+    const arena = (await (await GET_ARENA()).json()).machines[0];
+    expect(arena.archivedSessions).toEqual([expect.objectContaining({ id: session.id, revision: session.revision + 1, archivedAt: expect.any(String) })]);
+    expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(404);
+    const restored = await RESTORE_SESSION(new Request('http://localhost', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: arena.archivedSessions[0].revision }),
+    }), context(session.id));
+    expect(restored.status).toBe(200);
+    expect((await (await GET_SESSIONS(new Request('http://localhost/api/sessions'))).json()).sessions).toEqual([expect.objectContaining({ id: session.id })]);
+  });
+
+  it('rejects an incoming turn during the archive move without appending or executing it', async () => {
+    const session = await createViaRoute('checkout-a');
+    const release = runRegistry.acquireSessionArchive(session.id)!;
+    try {
+      const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody(session)),
+      }));
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toContain('being archived');
+      expect(routeState.runnersCreated).toBe(0);
+      expect((await (await GET_SESSION(new Request('http://localhost'), context(session.id))).json()).session.messages).toEqual([]);
+    } finally {
+      release();
+    }
+  });
+
   it.each([3, 4] as const)('lists and hydrates version %i public snapshots, then applies revisioned canvas operations', async (version) => {
     let session = publicSession(version === 3 ? await seedVersionThreeSession() : await seedVersionFourSession('local'));
     expect(session).toMatchObject({

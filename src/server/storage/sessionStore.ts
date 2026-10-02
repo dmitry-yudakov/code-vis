@@ -968,10 +968,11 @@ export class SessionStore {
     }
     const names = directory === this.sessionsDirectory ? activeNames : archivedNames;
     const read = await Promise.all(names.map((name) => (
-      this.readSessionFile(path.join(directory, name)).catch(skipNewerFormat)
+      // An archive/restore can move a file between the directory listing and its read.
+      this.readSessionFile(path.join(directory, name)).catch((error) => isMissing(error) ? null : skipNewerFormat(error))
     )));
-    const sessions = read.filter((session) => session !== undefined);
-    return { sessions, newerFormat: read.length - sessions.length };
+    const sessions = read.filter((session) => session != null);
+    return { sessions, newerFormat: read.filter((session) => session === undefined).length };
   }
 
   private async writeProject(project: DurableProject): Promise<void> {

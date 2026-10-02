@@ -4,12 +4,14 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { recentCheckoutIds } from '@/server/repository/recentCheckouts';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { arenaSessionSummary, getSessionStore } from '@/server/storage/sessionStore';
+import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
 import type { ExecutorSnapshot } from '@/shared/types';
 
 /** Builds only this executor's projection; attached peers are intentionally never traversed. */
 export async function localExecutorSnapshot(): Promise<ExecutorSnapshot> {
   const config = getConfig();
   const store = getSessionStore(config.dataDir, config.hostLabel);
+  await autoArchiveSessions(config);
   const [machine, projects, checkouts, sessions, archivedSessions, providers] = await Promise.all([
     store.host(),
     store.listProjects(),

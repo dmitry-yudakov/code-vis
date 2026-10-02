@@ -59,6 +59,7 @@ export type RunReservation =
   | { accepted: true; runId: string }
   | { accepted: false; reason: 'queue-full' }
   | { accepted: false; reason: 'maintenance' }
+  | { accepted: false; reason: 'session-archiving' }
   | { accepted: false; reason: 'session-conflict' | 'provider-conflict'; activeRun: RunDescriptor };
 
 export type MaintenanceAdmission = 'acquired' | 'held' | 'live-runs';
@@ -94,6 +95,7 @@ export class RunRegistry implements MaintenanceLease {
   private readonly checkoutReaders = new Map<symbol, string>();
   private readonly checkoutWriters = new Map<symbol, string>();
   private maintenance = false;
+  private readonly archivingSessions = new Set<string>();
   private readonly liveByRunId = new Map<string, RunRecord>();
   private readonly recentByRunId = new Map<string, RunRecord>();
   private readonly queue: string[] = [];
@@ -137,6 +139,7 @@ export class RunRegistry implements MaintenanceLease {
   reserve(input: ReserveRunInput): RunReservation {
     this.evictExpired();
     if (this.maintenance) return { accepted: false, reason: 'maintenance' };
+    if (this.archivingSessions.has(input.sessionId)) return { accepted: false, reason: 'session-archiving' };
     const sessionConflict = [...this.liveByRunId.values()].find((run) => run.sessionId === input.sessionId);
     if (sessionConflict) {
       return { accepted: false, reason: 'session-conflict', activeRun: this.descriptor(sessionConflict) };
@@ -177,13 +180,21 @@ export class RunRegistry implements MaintenanceLease {
    */
   acquireMaintenance(): MaintenanceAdmission {
     if (this.maintenance) return 'held';
-    if (this.liveByRunId.size || this.checkoutWriters.size || this.checkoutReaders.size) return 'live-runs';
+    if (this.liveByRunId.size || this.archivingSessions.size || this.checkoutWriters.size || this.checkoutReaders.size) return 'live-runs';
     this.maintenance = true;
     return 'acquired';
   }
 
   releaseMaintenance(): void {
     this.maintenance = false;
+  }
+
+  /** Claims only this session until its durable archive move finishes. Admission and acquisition
+   * are synchronous, so a reserved turn and an archive cannot pass each other during file I/O. */
+  acquireSessionArchive(sessionId: string): (() => void) | undefined {
+    if (this.maintenance || this.archivingSessions.has(sessionId) || this.hasLiveSession(sessionId)) return undefined;
+    this.archivingSessions.add(sessionId);
+    return () => { this.archivingSessions.delete(sessionId); };
   }
 
   /** Makes a successfully appended reservation runnable and schedules it when eligible. */
@@ -220,7 +231,7 @@ export class RunRegistry implements MaintenanceLease {
     checkoutId?: string;
     access?: RunAccess;
   }): boolean {
-    if (this.runningCount() >= this.maxConcurrentRuns) return false;
+    if (this.archivingSessions.has(input.sessionId) || this.runningCount() >= this.maxConcurrentRuns) return false;
     const completion = deferred();
     const now = Date.now();
     this.liveByRunId.set(input.runId, {

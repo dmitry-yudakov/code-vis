@@ -30,9 +30,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     }
     const config = getConfig();
     await recoverDockerExecution(config);
-    const session = await getSessionStore(config.dataDir, config.hostLabel)
-      .archiveSession(sessionId, parsed.data.expectedRevision);
-    return safeJsonResponse({ session: arenaSessionSummary(session) });
+    const release = runRegistry.acquireSessionArchive(sessionId);
+    if (!release) return safeJsonResponse({ error: 'This session is busy or is already being archived.' }, { status: 409 });
+    try {
+      const session = await getSessionStore(config.dataDir, config.hostLabel)
+        .archiveSession(sessionId, parsed.data.expectedRevision);
+      return safeJsonResponse({ session: arenaSessionSummary(session) });
+    } finally {
+      release();
+    }
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }

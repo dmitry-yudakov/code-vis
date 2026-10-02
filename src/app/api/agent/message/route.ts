@@ -224,6 +224,9 @@ export async function POST(request: Request): Promise<Response> {
     cancel: () => abortController.abort(),
   });
   if (!reservation.accepted) {
+    if (reservation.reason === 'session-archiving') {
+      return safeJsonResponse({ error: 'This session is being archived. Restore it from the Arena archive to continue.' }, { status: 409 });
+    }
     if (reservation.reason === 'maintenance') {
       return safeJsonResponse({
         error: 'CodeAI is building a new release of itself and will restart. Send again once it is back.',

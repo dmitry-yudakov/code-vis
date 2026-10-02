@@ -37,6 +37,24 @@ async function scheduled(): Promise<void> {
 }
 
 describe('machine run scheduler', () => {
+  it('serializes session archiving with turn admission and machine maintenance', () => {
+    const registry = new RunRegistry();
+    const release = registry.acquireSessionArchive('session-a');
+    expect(release).toBeTypeOf('function');
+    expect(registry.acquireSessionArchive('session-a')).toBeUndefined();
+    expect(registry.acquireMaintenance()).toBe('live-runs');
+    const input = { runId: crypto.randomUUID(), sessionId: 'session-a', participantId: 'agent', providerKey: 'provider', checkoutId: 'checkout', access: 'read' as const, cancel: vi.fn() };
+    expect(registry.reserve(input)).toEqual({ accepted: false, reason: 'session-archiving' });
+    release!();
+    expect(registry.reserve(input)).toMatchObject({ accepted: true });
+    expect(registry.acquireSessionArchive('session-a')).toBeUndefined();
+    registry.release(input.runId);
+    expect(registry.acquireMaintenance()).toBe('acquired');
+    expect(registry.acquireSessionArchive('session-a')).toBeUndefined();
+    registry.releaseMaintenance();
+    registry.acquireSessionArchive('session-a')!();
+  });
+
   it('excludes overlapping checkout paths even when their registry identities differ', async () => {
     const registry = new RunRegistry(3);
     const parent = turn(registry, { checkoutPath: '/repos/project', access: 'write' });
