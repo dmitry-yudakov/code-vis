@@ -56,7 +56,7 @@ test('offers durable Undo, confirms its scope, restores real uncommitted work, a
   await page.addInitScript(() => { if (!localStorage.getItem('code-ai:theme')) localStorage.setItem('code-ai:theme', 'dark'); });
   await page.goto(origin);
   await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: /Checkpoint journey/ }).click();
-  await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(session.id);
+  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const originalStatus = await git('status', '--porcelain');
   const index = await readFile(path.join(checkout, '.git/index'));

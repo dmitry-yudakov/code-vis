@@ -49,7 +49,7 @@ async function openFixture(page: Page, provider: 'claude' | 'codex', isolated = 
   await page.goto(origin);
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(session.id);
+  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
   return session;
 }
 

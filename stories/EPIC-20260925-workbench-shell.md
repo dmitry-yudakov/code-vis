@@ -89,7 +89,7 @@ removed every element the browser cannot back without new server work (see *Need
 |---|---|---|---|---|
 | 71 | [compact-composer](STORY-20260925-compact-composer.md) | One mode picker, a `+` attach menu, and an execution line under the composer | **In progress** | — |
 | 72 | [layout-frame](STORY-20260925-layout-frame.md) | Activity bar (Changes, History, Reports; Arena and Inbox open the Arena page until 75); canvas and conversation layout icons; hiding the canvas; dock bands move by 48px; More moves to the gear | **In progress** | — |
-| 73 | title-bar-tabs | Session tabs move into the title bar; All sessions takes overflow; the tab keyboard flow survives; decide where a tab's close control sits | Planned | 72 |
+| 73 | [title-bar-tabs](STORY-20261003-title-bar-tabs.md) | Session tabs in the title bar; All sessions opens closed and overflow views; one close button after the tablist preserves keyboard focus | **Shipped** | 72 |
 | 74 | status-bar | Status bar: branch, needs-you with its reason, run state while the conversation is closed, provider not ready. Notices moved to Story 78 | Planned | — |
 | 75 | arena-in-the-side-panel | Arena and Inbox as side-panel views sharing `arenaModel` ordering, with Open the full Arena | Planned | 72 |
 | 76 | flat-panes | Pane and section headers, borderless icon buttons, flat message rows, the floating canvas bar, and the remaining eyebrow labels | Planned | 72–75 |
@@ -105,10 +105,16 @@ template when it starts; the rows above are the scope, not the spec.
 ## Budget at 1440×900 with today's widths (side panel 340, conversation 460)
 
 - Visible controls in the default layout: 35 in the design, against 43 after Story 62.
-- Canvas in the default layout: 932×836, against about 980×776 today, about 2.5% more area.
-- Canvas with both panels open: 592×836, against 640×776, about the same area.
-- Chrome above and below the canvas: 64px (title bar and status bar), against 124px (header, tabs,
+- Canvas in the default layout: 932×828, against about 980×776 today, about 1.5% more area.
+- Canvas with both panels open: 592×828, against 640×776, about the same area.
+- Chrome above and below the canvas: 72px (48px title bar and 24px status bar), against 124px (header, tabs,
   and toolbar).
+
+Story 73 keeps the implemented 48px header and 78px two-row phone header. Its All sessions chevron
+uses the existing scoped native picker; the Main board shows that control's position. Overflow tabs
+stay in the clipped, keyboard-navigable tablist, which brings the selected tab into view. The one
+close button follows that list. Story 74's status bar and Story 76's floating toolbar are still
+future work, so the running app's canvas body begins at 48px and includes its existing 42px toolbar.
 
 ## Needs the server (separate full-stack stories, not scheduled here)
 

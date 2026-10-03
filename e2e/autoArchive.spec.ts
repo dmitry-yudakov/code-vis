@@ -59,7 +59,7 @@ test('polling archives old conversations, closes their views, and preserves rest
     createdAt: original.updatedAt, status: 'sent', diagramAttachments: [], mode: 'ask' });
   await writeFile(sessionPath(session.id), JSON.stringify(original));
   await page.goto(origin);
-  const picker = page.getByRole('combobox', { name: 'Session', exact: true });
+  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
   await picker.selectOption(session.id);
   const openViews = page.getByRole('tablist', { name: 'Open session views' });
   await expect(openViews.getByRole('tab')).toHaveCount(1);

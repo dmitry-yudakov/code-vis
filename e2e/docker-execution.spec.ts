@@ -231,7 +231,7 @@ test('continuation opens fresh sessions in both directions with an editable reca
   await page.locator('.welcome-screen').getByRole('button', { name: 'Create and open' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
   await expect(execution(conversation)).toHaveText('Local');
-  const sourceId = await page.getByRole('combobox', { name: 'Session', exact: true }).inputValue();
+  const sourceId = await page.getByRole('combobox', { name: 'All sessions', exact: true }).inputValue();
   await conversation.locator('textarea').fill('Remember this source request for the next session.');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
   await expectContinuationDisabled(conversation, 'Docker');
@@ -241,7 +241,7 @@ test('continuation opens fresh sessions in both directions with an editable reca
   await conversation.locator('textarea').fill(draft);
   await continueIn(conversation, 'Docker');
   await expect(execution(conversation)).toHaveText('Docker');
-  const dockerId = await page.getByRole('combobox', { name: 'Session', exact: true }).inputValue();
+  const dockerId = await page.getByRole('combobox', { name: 'All sessions', exact: true }).inputValue();
   expect(dockerId).not.toBe(sourceId);
   expect(creations[1]).toEqual({ provider: 'claude', execution: 'docker', sourceSessionId: sourceId });
   await expect(conversation.locator('.chat-message')).toHaveCount(0);
@@ -256,7 +256,7 @@ test('continuation opens fresh sessions in both directions with an editable reca
   expect(creations[2]).toEqual({ provider: 'claude', execution: 'local', sourceSessionId: dockerId });
   await expect(conversation.locator('textarea')).toHaveValue(/Edited recap for Local\./);
   await expect(conversation.locator('.chat-message')).toHaveCount(0);
-  await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(sourceId);
+  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sourceId);
   await expect(conversation.locator('textarea')).toHaveValue(draft);
 });
 
@@ -267,7 +267,7 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
   const executionLine = execution(conversation);
   await expect(executionLine).toHaveText('Local');
-  const localId = await page.getByRole('combobox', { name: 'Session', exact: true }).inputValue();
+  const localId = await page.getByRole('combobox', { name: 'All sessions', exact: true }).inputValue();
   const modePicker = conversation.getByLabel(/^Mode: /);
   const menu = conversation.locator('.model-menu');
   const choose = async (model: string, effort: string) => {
@@ -299,7 +299,7 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   await expect(modePicker).toHaveText('Ask');
 
   // The Docker worker lists no models here, yet the round trip brings the main agent's own choice back.
-  await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(localId);
+  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(localId);
   await expect(executionLine).toHaveText('Local');
   await continueIn(conversation, 'Docker');
   await expect(executionLine).toHaveText('Docker');

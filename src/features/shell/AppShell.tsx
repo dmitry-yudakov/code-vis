@@ -1985,6 +1985,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onDelete={(project) => void deleteProject(project)}
                 />
                 <span className="breadcrumb-separator" aria-hidden="true">/</span>
+                <WorkspaceTabs
+                  sessions={sessions}
+                  openSessionIds={workspace.scope.openSessionIds}
+                  focusedSessionId={sessionId}
+                  runsBySession={runTabsBySession}
+                  unreadBySession={unreadBySession}
+                  onFocus={workspace.open}
+                  onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
+                />
                 <SessionPicker
                   sessions={sessions}
                   value={sessionId}
@@ -2197,18 +2206,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
             {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
           </>}
-        />
-      )}
-
-      {!loading && !arenaOpen && (
-        <WorkspaceTabs
-          sessions={sessions}
-          openSessionIds={workspace.scope.openSessionIds}
-          focusedSessionId={sessionId}
-          runsBySession={runTabsBySession}
-          unreadBySession={unreadBySession}
-          onFocus={workspace.open}
-          onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
         />
       )}
 

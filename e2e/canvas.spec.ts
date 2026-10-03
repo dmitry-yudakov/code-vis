@@ -1623,7 +1623,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
     .json() as { session: { id: string } };
   await page.reload({ waitUntil: 'networkidle' });
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
-  await page.getByRole('combobox', { name: 'Session' }).selectOption(elsewhere.id);
+  await page.getByRole('combobox', { name: 'All sessions' }).selectOption(elsewhere.id);
   await ensureConversationOpen(page);
   await expect(modePicker(conversation)).toHaveText('Plan');
   await expect(summary).toHaveText('Sonnet · Low');

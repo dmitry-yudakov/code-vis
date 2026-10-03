@@ -622,6 +622,12 @@ The workspace lives at `/`; the Arena's canonical destinations are `/arena` for 
 refresh, bookmarks, and browser Back/Forward preserve the top-level destination without encoding
 device-local tabs, drafts, or panel state in the URL.
 
+Open session views sit in the title bar beside the project picker. **All sessions** (the chevron)
+lists every active session in that project, or the loose-session scope, including closed views and
+tabs that do not fit. Choosing one opens its view. Arrow keys wrap through open tabs; Delete or the
+single close button closes the focused view and focuses its neighbour. A live turn keeps its view
+open. Closing a view preserves its conversation and device draft for reopening.
+
 **Arena** in the activity bar opens an overview of active sessions, grouped first by execution
 machine and then by project.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and

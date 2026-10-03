@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { RunState, SessionSnapshot } from '@/shared/types';
 
 export interface WorkspaceRunState {
@@ -28,20 +28,49 @@ export function WorkspaceTabs({
   onClose(sessionId: string): void;
 }) {
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const tablistRef = useRef<HTMLDivElement>(null);
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
   const openSessions = openSessionIds.flatMap((id) => {
     const session = sessionById.get(id);
     return session ? [session] : [];
   });
 
-  if (!openSessions.length) return <div className="workspace-tabs workspace-tabs-empty" aria-hidden="true" />;
-
   const focusedSession = openSessions.find((session) => session.id === focusedSessionId);
   const focusedLive = Boolean(focusedSession && runsBySession[focusedSession.id]);
 
+  useEffect(() => {
+    const tablist = tablistRef.current;
+    if (!tablist) return;
+    const revealFocused = () => {
+      const tab = focusedSessionId && tabRefs.current.get(focusedSessionId);
+      if (!tab) return;
+      const bounds = tablist.getBoundingClientRect();
+      const selected = tab.getBoundingClientRect();
+      if (selected.left < bounds.left) tablist.scrollLeft += selected.left - bounds.left;
+      else if (selected.right > bounds.right) tablist.scrollLeft += selected.right - bounds.right;
+    };
+    revealFocused();
+    const observer = new ResizeObserver(revealFocused);
+    observer.observe(tablist);
+    return () => observer.disconnect();
+  }, [focusedSessionId, focusedSession?.title, openSessionIds]);
+
+  function closeView(id: string) {
+    if (runsBySession[id]) return;
+    const index = openSessions.findIndex((session) => session.id === id);
+    const next = openSessions[index === openSessions.length - 1 ? index - 1 : index + 1];
+    onClose(id);
+    requestAnimationFrame(() => {
+      if (next) tabRefs.current.get(next.id)?.focus();
+      else document.getElementById('all-sessions')?.focus();
+    });
+  }
+
+  if (!openSessions.length) return null;
+
   return (
     <div className="workspace-tabs">
-      <div className="workspace-tablist" role="tablist" aria-label="Open session views">
+      <div className="workspace-tablist" role="tablist" aria-label="Open session views" ref={tablistRef}>
         {openSessions.map((session, index) => {
           const selected = session.id === focusedSessionId;
           const run = runsBySession[session.id];
@@ -68,9 +97,7 @@ export function WorkspaceTabs({
               onKeyDown={(event) => {
                 if (event.key === 'Delete' && !run) {
                   event.preventDefault();
-                  const next = openSessions[index === openSessions.length - 1 ? index - 1 : index + 1];
-                  onClose(session.id);
-                  if (next) requestAnimationFrame(() => tabRefs.current.get(next.id)?.focus());
+                  closeView(session.id);
                   return;
                 }
                 const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
@@ -99,7 +126,7 @@ export function WorkspaceTabs({
             ? `Cannot close ${focusedSession.title} while its turn is active`
             : `Close ${focusedSession.title} view`}
           title={focusedLive ? 'This view stays open until its turn finishes' : 'Close focused view'}
-          onClick={() => onClose(focusedSession.id)}
+          onClick={() => closeView(focusedSession.id)}
         >×</button>
       )}
     </div>

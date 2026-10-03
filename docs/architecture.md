@@ -143,6 +143,11 @@ the focused workspace, `/arena` is Active, `/arena/inbox` is Inbox, and `/arena/
 recoverable archive. Those URLs own navigation and browser history only; project selection, open
 session views, drafts, panels, and canvases remain device state and survive route transitions.
 
+`WorkspaceTabs` lives inside that shell's title bar. It clips overflowing views and keeps the selected
+tab in view on focus or resize; `SessionPicker` provides the scoped native **All sessions** list for
+closed and overflow views. Closing a view changes only the device workspace, using the same neighbour
+selection and live-turn protection as keyboard Delete; it does not archive or delete a session.
+
 `src/features/conversation/sessionStore.ts` contains pure snapshot/canvas/export helpers. It
 does not persist conversation content. `AppShell` lists snapshots by project (or **No project**) with
 `GET /api/sessions`, hydrates one complete snapshot with `GET /api/sessions/[sessionId]`, and sends

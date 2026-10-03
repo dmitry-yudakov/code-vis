@@ -12,8 +12,8 @@ async function openSource(page: Page, request: APIRequestContext, loose = false)
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: loose ? 'No project' : new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(sibling.id);
-  await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(session.id);
+  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sibling.id);
+  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
   return { session, sibling };
 }
 
@@ -63,7 +63,7 @@ for (const choice of [
       provider: 'codex', role: 'tester',
     });
     expect(created.primaryAgentId).not.toBe(session.primaryAgentId);
-    await expect(page.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue(created.id);
+    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(created.id);
     await expect(page.getByRole('tab', { name: session.title, exact: true })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: sibling.title, exact: true })).toBeVisible();
     await expect(conversation.locator('textarea')).toHaveValue('');
@@ -75,7 +75,7 @@ for (const choice of [
       await page.locator('.project-search-trigger').click();
       await page.getByRole('option', { name: 'No project' }).click();
     }
-    await expect(page.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue(created.id);
+    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(created.id);
     await expect(conversation.getByLabel(/^Mode: /)).toHaveText(choice.label);
     await expect(conversation.locator('.model-menu summary')).toHaveText('Test model · High');
 
@@ -88,7 +88,7 @@ for (const choice of [
     expect(button.x + button.width).toBeLessThanOrEqual(header.x + header.width);
     expect(button.x).toBeGreaterThanOrEqual(header.x);
     expect((await request.get(`/api/sessions/${session.id}`)).ok()).toBe(true);
-    await page.getByRole('combobox', { name: 'Session', exact: true }).selectOption(session.id);
+    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
     if (choice.loose) {
       await expect(conversation).toBeHidden();
       await page.getByRole('button', { name: 'Conversation', exact: true }).click();
@@ -122,7 +122,7 @@ test('disables New chat while creating and keeps the original tab and draft afte
   await expect(page.getByText('New chat fixture failure.', { exact: true })).toBeVisible();
   await expect(newChat).toBeEnabled();
   await expect(conversation.locator('textarea')).toHaveValue('Keep me.');
-  await expect(page.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue(session.id);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
   await expect(page.getByRole('tab', { name: sibling.title, exact: true })).toBeVisible();
   let finishSend!: () => void;
   const preparing = new Promise<void>((resolve) => { finishSend = resolve; });
@@ -134,5 +134,5 @@ test('disables New chat while creating and keeps the original tab and draft afte
   await expect(newChat).toBeDisabled();
   finishSend();
   await expect(newChat).toBeEnabled();
-  await expect(page.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue(session.id);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
 });

@@ -24,7 +24,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .device-access-warning { display: grid; gap: 7px; padding: 13px; border: 1px solid var(--wait-line); border-radius: 8px; color: var(--wait-ink-strong); background: var(--wait-wash); font-size: 12px; }
 .device-access-error { margin: 0; color: var(--stop-ink); font-size: 11px; line-height: 1.45; }
 
-.app-shell { height: 100dvh; display: grid; grid-template-rows: 48px 34px minmax(0, 1fr); grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] minmax(min(360px, calc(100vw - 48px)), 1fr) [dock] var(--conversation-column-width, 0); grid-template-areas: "header header header header" "activity tabs tabs tabs" "activity rail canvas dock"; background: var(--shell); }
+.app-shell { height: 100dvh; display: grid; grid-template-rows: 48px minmax(0, 1fr); grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] minmax(min(360px, calc(100vw - 48px)), 1fr) [dock] var(--conversation-column-width, 0); grid-template-areas: "header header header header" "activity rail canvas dock"; background: var(--shell); }
 .app-header { grid-area: header; display: flex; align-items: center; gap: 14px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--line); background: var(--header-backdrop); z-index: 20; }
 .brand { flex: none; display: flex; align-items: center; gap: 7px; font-family: var(--display); font-stretch: 112%; }
 .brand strong { font-size: 13px; line-height: 1; letter-spacing: -.01em; }
@@ -34,7 +34,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .breadcrumb-separator { flex: none; color: var(--line-strong); font-size: 13px; }
 /* The picker shrink-wraps its label: a fixed 260px box with space-between strands the chevron
    a couple of hundred pixels from a short project name and reads as a separate control. */
-.project-search-picker { position: relative; min-width: 0; flex: 0 1 auto; max-width: 260px; }
+.project-search-picker { position: relative; min-width: 0; flex: 0 0 auto; max-width: 260px; }
 .project-search-trigger { height: 28px; max-width: 100%; min-width: 90px; display: flex; align-items: center; gap: 6px; padding: 0 7px; overflow: hidden; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); font: 500 12px/1.25 var(--mono); }
 .project-search-trigger:hover, .project-search-trigger[aria-expanded="true"] { border-color: var(--line); background: var(--raised); }
 .project-search-trigger > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -69,12 +69,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 .project-record-option > button:not(.project-search-option):hover { border-color: var(--line); color: var(--ink); background: var(--raised); }
 .project-search-empty { padding: 24px 12px; color: var(--muted); text-align: center; font-size: 11px; }
-/* Cap the wrapper, not the select. A growing wrapper around a capped select leaves the new
-   session button stranded hundreds of pixels from the picker it belongs to. */
-.session-picker { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; }
-.breadcrumb-select { min-width: 0; flex: 0 1 320px; }
-.breadcrumb-select select { height: 28px; width: 100%; padding: 0 25px 0 7px; overflow: hidden; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 500; text-overflow: ellipsis; }
-.breadcrumb-select select:hover:not(:disabled), .breadcrumb-select select:focus { border-color: var(--line); background-color: var(--raised); }
+/* One scoped native picker handles closed views and tabs clipped by the title bar. */
+.session-picker { flex: none; display: flex; align-items: center; gap: 4px; }
+.all-sessions-picker { position: relative; width: 28px; height: 28px; flex: none; display: grid; place-items: center; color: var(--muted); font-size: 20px; }
+.all-sessions-picker > span { position: relative; z-index: 1; pointer-events: none; }
+.all-sessions-picker select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; appearance: none; border: 1px solid transparent; border-radius: 6px; background: transparent; color: transparent; font-size: 12px; cursor: pointer; }
+.all-sessions-picker select:hover:not(:disabled), .all-sessions-picker select:focus-visible { border-color: var(--line); background: var(--control-wash); }
+.all-sessions-picker option { color: var(--ink); background: var(--shell); font-size: 12px; }
 .new-session-menu { position: relative; flex: none; }
 .new-session-menu summary { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; list-style: none; font-size: 14px; }
 .new-session-menu summary::-webkit-details-marker { display: none; }
@@ -141,11 +142,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .layout-badge { position: absolute; right: -3px; top: -4px; min-width: 15px; height: 15px; padding: 0 4px; display: grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--plot); font: 700 9px/1 var(--mono); }
 .layout-badge.attention { background: var(--wait); }
 
-.workspace-tabs { grid-area: tabs; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 2px; padding: 3px 8px 0; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--sheet-sunk); z-index: 19; }
-.workspace-tabs-empty { pointer-events: none; }
-.workspace-tablist { min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
-.workspace-tab { min-width: 116px; max-width: 240px; height: 30px; flex: 0 1 200px; display: flex; align-items: center; gap: 6px; padding: 0 9px; overflow: hidden; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; color: var(--muted); text-align: left; background: transparent; font-size: 11px; font-weight: 600; }
+.workspace-tabs { min-width: 0; flex: 0 1 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px; }
+.workspace-tablist { min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; padding: 2px; }
+.workspace-tab { min-width: 0; max-width: 100%; height: 30px; flex: 0 0 180px; display: flex; align-items: center; gap: 6px; padding: 0 9px; overflow: hidden; border: 1px solid transparent; border-radius: 6px; color: var(--muted); text-align: left; background: transparent; font-size: 11px; font-weight: 600; }
 .workspace-tab:hover { border-color: var(--line); background: var(--raised); }
+.workspace-tab:focus-visible { outline-offset: -3px; }
 .workspace-tab.active { color: var(--ink); border-color: var(--line); background: var(--sheet); }
 .workspace-tab > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-tab-state { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--idle); }
@@ -156,10 +157,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .workspace-tab.awaiting-approval .workspace-tab-state { background: var(--wait); }
 .workspace-tab .approval-badge, .workspace-tab .unread-badge, .workspace-tab .queue-badge { min-width: 16px; height: 16px; margin-left: 0; flex: none; font-size: 8px; }
 .workspace-tab .queue-badge { display: grid; place-items: center; padding: 0 4px; border-radius: 999px; color: var(--muted); background: var(--control-wash); font-family: var(--mono); }
-.workspace-tab-close { width: 28px; height: 28px; align-self: center; border: 0; border-radius: 5px; color: var(--faint); background: transparent; font-size: 14px; }
+.workspace-tab-close { width: 28px; height: 28px; align-self: center; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 14px; }
 .workspace-tab-close:hover:not(:disabled) { color: var(--ink); background: var(--control-wash); }
 
-.app-shell.arena-mode { grid-template-rows: 48px 0 minmax(0, 1fr); }
 /* With the canvas hidden the conversation takes the row, and reads in a centred column. */
 .app-shell.canvas-hidden { grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] 0 [dock] minmax(0, 1fr); }
 .canvas-workspace[hidden] { display: none; }
@@ -186,7 +186,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .activity-badge { position: absolute; right: 5px; bottom: 6px; min-width: 16px; height: 16px; padding: 0 4px; display: grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--ink-2); font: 700 9px/1 var(--mono); }
 .activity-badge.attention { background: var(--wait); }
 
-.arena { grid-column: rail / -1; grid-row: 3; min-width: 0; min-height: 0; overflow: auto; padding: 34px clamp(20px, 5vw, 72px) 72px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
+.arena { grid-column: rail / -1; grid-row: 2; min-width: 0; min-height: 0; overflow: auto; padding: 34px clamp(20px, 5vw, 72px) 72px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
 .arena button, .arena select { border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
 .arena-heading { max-width: 1440px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 30px; }
 .arena-heading h1 { margin: 0; font: 700 20px/1.2 var(--sans); letter-spacing: -.02em; }
@@ -686,12 +686,12 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
    exception to "the canvas is never occluded" (Story 78). However narrow the canvas, the stack's left
    edge stays 16px clear of the 48px activity bar: `--toast-right` is where it would like to sit, and
    `100vw - 424px` is as far left as a 360px stack may go (below 440px the stack narrows instead).
-   Docked, the stack rises above the canvas and the panels (12, 15) but stays under the tabs and the
-   header's menus (19, 20); as a phone overlay a panel rises to 60, and the stack above it, so a
+   Docked, the stack rises above the canvas and the panels (12, 15) but stays under the title bar's
+   menus (20); as a phone overlay a panel rises to 60, and the stack above it, so a
    refused send is seen from the conversation. */
-.toast-region { --toast-right: 16px; position: fixed; z-index: 18; top: 136px; right: min(var(--toast-right), max(16px, calc(100vw - 424px))); width: min(360px, calc(100vw - 80px)); display: flex; flex-direction: column; pointer-events: none; }
+.toast-region { --toast-right: 16px; position: fixed; z-index: 18; top: 102px; right: min(var(--toast-right), max(16px, calc(100vw - 424px))); width: min(360px, calc(100vw - 80px)); display: flex; flex-direction: column; pointer-events: none; }
 .dock-capacity-0 .toast-region { z-index: 70; }
-/* The header's menus stay above both: its own box ends above the overlays, which start under the tabs. */
+/* The header's menus stay above both: its own box ends above the overlays. */
 .dock-capacity-0 .app-header { z-index: 75; }
 .toast-region.in-workspace { --toast-right: calc(var(--conversation-column-width, 0px) + 16px); }
 /* The spatial room keeps its controls in a 252px column at the canvas's right edge. */
@@ -759,8 +759,8 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .dock-capacity-1 .repository-sidebar.has-inspector .repository-summary-panel { display: none; }
 
 /* Below the live 688px minimum, side regions return to recoverable overlays beside the activity bar. */
-.dock-capacity-0 .repository-region { position: fixed; z-index: 60; left: 48px; top: 82px; bottom: 0; width: min(var(--repository-width), calc(100vw - 48px)); }
-.dock-capacity-0 .conversation-region { position: fixed; z-index: 60; top: 92px; right: 10px; bottom: 10px; width: min(var(--conversation-width), calc(100vw - 68px)); }
+.dock-capacity-0 .repository-region { position: fixed; z-index: 60; left: 48px; top: 48px; bottom: 0; width: min(var(--repository-width), calc(100vw - 48px)); }
+.dock-capacity-0 .conversation-region { position: fixed; z-index: 60; top: 58px; right: 10px; bottom: 10px; width: min(var(--conversation-width), calc(100vw - 68px)); }
 .dock-capacity-0 .conversation-drawer { border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--drawer-shadow); }
 .repository-panel-header, .diff-inspector-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
 .diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
@@ -860,7 +860,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .app-header { gap: 10px; padding: 0 10px; }
   .brand strong, .health-pill { display: none; }
   .header-breadcrumbs { gap: 4px; }
-  .project-search-picker, .project-search-trigger { min-width: 100px; max-width: 150px; }
+  .project-search-picker, .project-search-trigger { min-width: 0; max-width: 150px; }
   .project-search-popover { position: fixed; left: 12px; right: 12px; top: 52px; width: auto; }
   .session-picker { gap: 3px; }
   .new-session-menu > div { position: fixed; left: 12px; right: 12px; top: 52px; width: auto; max-height: calc(100dvh - 64px); overflow-y: auto; }
@@ -878,24 +878,24 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
   .arena-inbox-item { grid-template-columns: 76px minmax(0, 1fr); }
   .arena-inbox-actions { grid-column: 1 / -1; justify-content: flex-end; }
   /* The drawing tools span the canvas's top here, so the toasts start below them. */
-  .toast-region { top: 186px; }
+  .toast-region { top: 152px; }
   .toast-region.beside-spatial { --toast-right: calc(var(--conversation-column-width, 0px) + 226px); }
 }
 
 @media (max-width: 620px) {
   /* A phone cannot hold the pickers and the actions on one row: the actions take a second. */
-  .app-shell { grid-template-rows: 78px 34px minmax(0, 1fr); }
+  .app-shell { grid-template-rows: 78px minmax(0, 1fr); }
   /* The Arena's header holds one menu: it keeps a single row. */
-  .app-shell.arena-mode { grid-template-rows: 48px 0 minmax(0, 1fr); }
+  .app-shell.arena-mode { grid-template-rows: 48px minmax(0, 1fr); }
   .arena-mode .header-actions { flex: none; margin-left: auto; }
-  .dock-capacity-0 .repository-region { top: 112px; }
-  .dock-capacity-0 .conversation-region { top: 122px; }
-  .app-header { flex-wrap: wrap; row-gap: 6px; padding: 8px 10px; }
+  .dock-capacity-0 .repository-region { top: 78px; }
+  .dock-capacity-0 .conversation-region { top: 88px; }
+  .app-header { flex-wrap: wrap; row-gap: 6px; padding: 7px 10px; }
   .header-actions { flex: 1 0 100%; margin-left: 0; }
   .device-menu > div { position: fixed; top: 52px; right: 12px; left: 12px; width: auto; }
-  .project-search-picker, .project-search-trigger { min-width: 0; }
+  .project-search-picker, .project-search-trigger { max-width: 90px; }
   .canvas-titleblock { bottom: 58px; }
-  .toast-region { top: 216px; }
+  .toast-region { top: 182px; }
   /* The spatial room's controls move under the canvas here. */
   .toast-region.beside-spatial { --toast-right: calc(var(--conversation-column-width, 0px) + 16px); }
   .canvas-topbar { gap: 6px; padding: 0 7px; }

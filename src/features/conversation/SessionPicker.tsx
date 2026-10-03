@@ -117,10 +117,11 @@ export function SessionPicker({ sessions, value, onChange, ...creation }: Sessio
   const newSessionMenu = useRef<HTMLDetailsElement>(null);
   return (
     <div className="session-picker">
-      <label className="breadcrumb-select">
-        <span className="sr-only">Session</span>
-        <select aria-label="Session" value={value || ''} disabled={!sessions.length} onChange={(event) => onChange(event.target.value)}>
-          {!sessions.length && <option value="">No sessions yet</option>}
+      <label className="all-sessions-picker">
+        <span aria-hidden="true">⌄</span>
+        <select id="all-sessions" aria-label="All sessions" title="All sessions" value={value || ''}
+          disabled={!sessions.length} onChange={(event) => onChange(event.target.value)}>
+          {!value && <option value="" disabled>{sessions.length ? 'Choose a session' : 'No sessions yet'}</option>}
           {sessions.map((session) => (
             <option value={session.id} key={session.id}>
               {findAgentParticipant(session.participants, session.primaryAgentId)?.displayName || 'Agent'} · {session.title} · {session.execution === 'docker' ? 'Docker' : 'Local'}
@@ -129,7 +130,7 @@ export function SessionPicker({ sessions, value, onChange, ...creation }: Sessio
         </select>
       </label>
       <details className="new-session-menu" ref={newSessionMenu}>
-        <summary role="button" aria-label="New session">＋</summary>
+        <summary role="button" aria-label="New session" title="New session">＋</summary>
         <div>
           <SessionCreationForm {...creation} key={`${creation.project?.id || 'loose'}:${value || 'empty'}`}
             onNew={async (provider, options) => {

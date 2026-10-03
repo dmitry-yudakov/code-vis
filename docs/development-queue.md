@@ -1,6 +1,6 @@
 # CodeAI development queue
 
-**Updated:** October 1, 2026
+**Updated:** October 3, 2026
 
 This is the near-term queue for agent sessions: recovery first, a focused acceptance pass, title-bar
 tabs, then the first software-model producer. The order comes from the October 1 development
@@ -41,7 +41,7 @@ feature has shipped. The order is priority, not a new dependency chain.
 |---|---|---|---|---|
 | 1 | Q1 | [Story 83 turn checkpoints and undo](../stories/STORY-20261001-turn-checkpoints.md) | Done | Verified and reviewed; continue with Q2 |
 | 2 | Q2 | Verify already implemented features | Queued | Run available checks below; record exact access or device gaps |
-| 3 | Q3 | Story 73 title-bar tabs | Queued | Write the story against the implemented Story 72 frame |
+| 3 | Q3 | [Story 73 title-bar tabs](../stories/STORY-20261003-title-bar-tabs.md) | Done | Desktop scope verified and reviewed; Q4 is the next implementation item |
 | 4 | Q4 | Story 6 first software-model producer | Queued | Write the story and test identity stability on repeated agent output |
 
 ## Q1 Turn checkpoints and undo
@@ -102,20 +102,27 @@ the checks above pass. This bounded pass does not close every older VR or Docker
 
 ## Q3 Title bar tabs
 
-**Source:** Story 73 in the
+**Source:** [Story 73](../stories/STORY-20261003-title-bar-tabs.md) in the
 [workbench shell epic](../stories/EPIC-20260925-workbench-shell.md#story-map); its Story 72 frame is
 implemented, with running-app acceptance included in Q2.
 
-- [ ] Write Story 73 from the template, checking the current Story 72 implementation first.
-- [ ] Move session tabs into the title bar and provide All sessions for overflow; decide where the
+- [x] Write Story 73 from the template, checking the current Story 72 implementation first.
+- [x] Move session tabs into the title bar and provide All sessions for overflow; decide where the
       close control belongs without raising the visible-control count.
-- [ ] Preserve tab navigation, Delete-to-close, neighbour focus, stored layouts, and both themes.
-- [ ] Verify against [the design boards](design/workbench-shell/) and the epic's control budget;
+- [x] Preserve tab navigation, Delete-to-close, neighbour focus, stored layouts, and both themes.
+- [x] Verify against [the design boards](design/workbench-shell/) and the epic's control budget;
       the story's checks and review pass.
 
-Start with [WorkspaceTabs.tsx](../src/features/conversation/WorkspaceTabs.tsx#L13) and its title bar
-and tab-strip placement in [AppShell.tsx](../src/features/shell/AppShell.tsx#L1902). Keep this item
-focused on Story 73; subsequent shell work remains in its epic.
+**Evidence:** TypeScript, the production build, 106 unit-test files / 993 tests (including the
+filesystem-fixture reruns), and 46 production-browser checks passed. The default comparison fixture
+keeps 27 visible controls and gives the canvas 34px more height. Reviews found a clipped keyboard-focus
+ring and an All sessions chevron covered on hover/focus; both fixes and their regression checks passed,
+and the reviewers reported no remaining findings. Three
+additional spatial/VR browser checks remain unavailable because Chrome could not create WebGL
+contexts, including with software rendering. See the story's verification record for the exact scope.
+
+Tabs now mount in the title bar at [AppShell.tsx:1988](../src/features/shell/AppShell.tsx#L1988).
+Q4 is the next implementation item; Q2's real-data/provider/headset acceptance remains separate.
 
 ## Q4 First software model producer
 

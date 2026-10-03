@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-10-02. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-03. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -99,8 +99,12 @@ Updated 2026-10-02. When a story ships, change the line that names it; each stor
   into the composer, or dropped on it, becomes a chip and is sent with the next message for that
   turn only; the message records its type and size (session format 8). Implemented with automated
   checks; a real screenshot with real Claude and Codex turns remains pending.
-- **Next shell story:** Story 73, title-bar-tabs — session tabs move into the title bar; planned in the
-  workbench shell epic and written from the template when it starts.
+- **Shipped:** [Story 73](stories/STORY-20261003-title-bar-tabs.md) — session tabs live in the
+  title bar; All sessions opens closed and overflow views, with keyboard navigation, neighbour focus,
+  and stored layouts preserved. TypeScript, build, unit/browser checks and review passed; three
+  additional spatial/VR browser checks remain unverified because Chrome could not create WebGL contexts.
+- **Next shell story:** Story 74, status-bar — planned in the workbench shell epic. The development
+  queue's next implementation item is Q4, the first software-model producer.
 - **Shipped:** [Story 82](stories/STORY-20261001-native-security-level.md) — Native Local Claude and
   Codex writing modes load your own setup, with Accept edits, Auto, and Full access alongside Agent;
   Guarded remains the default. Real-provider probes, automated checks, and review passed. Claude
