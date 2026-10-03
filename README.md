@@ -720,6 +720,27 @@ All writing modes edit **the real working tree** of the session's primary reposi
 terminal agent. Review the result with `git diff`. Worktree isolation and apply/discard checkpoints are
 outside the current model; writing turns instead save a recovery checkpoint before execution.
 
+### Software-model suggestions
+
+Put `/model` on the first line of a message and name a narrow scope below it, for example:
+
+```text
+/model
+Explain the parser and its callers in src/server/conversation/responseParser.ts.
+```
+
+The agent may return typed entities and relations alongside its normal answer and Mermaid. The
+JSON remains copyable in the conversation, labeled as **LLM suggestions** with estimated confidence.
+CodeAI validates the whole emission before merging by source identity into temporary memory shared
+by sessions on the same executing checkout. Missing or rejected output leaves the ordinary answer
+working. Every fact, including its description, is suggested; source references are not independently
+verified by this producer.
+
+Accumulation is bounded and clears on server restart or repository eviction. Durable models and
+canvas lenses are the next slices; there is no model browser yet. See
+[Story 6](stories/STORY-20261003-agent-emitted-software-model.md) for the contract and measured identity
+stability.
+
 ### Turn checkpoints and Undo
 
 Before every writing turn, CodeAI backs up eligible files without touching the working tree, Git

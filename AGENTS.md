@@ -104,7 +104,12 @@ Updated 2026-10-03. When a story ships, change the line that names it; each stor
   and stored layouts preserved. TypeScript, build, unit/browser checks and review passed; three
   additional spatial/VR browser checks remain unverified because Chrome could not create WebGL contexts.
 - **Next shell story:** Story 74, status-bar — planned in the workbench shell epic. The development
-  queue's next implementation item is Q4, the first software-model producer.
+  queue's next implementation item is Q5, Story 7's persistent repository model.
+- **Shipped:** [Story 6](stories/STORY-20261003-agent-emitted-software-model.md) — explicit `/model`
+  turns emit typed LLM suggestions alongside Mermaid, with stable server-generated ids, atomic
+  validation and bounded temporary checkout accumulation. Three independent real-Claude passes
+  retained all five scoped entity ids and three relation ids. TypeScript, production build,
+  1,038 unit tests, both-theme production browser checks and end-of-work review passed.
 - **Shipped:** [Story 82](stories/STORY-20261001-native-security-level.md) — Native Local Claude and
   Codex writing modes load your own setup, with Accept edits, Auto, and Full access alongside Agent;
   Guarded remains the default. Real-provider probes, automated checks, and review passed. Claude

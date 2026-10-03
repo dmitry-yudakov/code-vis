@@ -18,6 +18,9 @@ import { serverAgent } from '@/server/storage/sessionStore';
 import { roleContract } from '@/server/agents/agentRoles';
 import { turnGlobalInstructions } from '@/server/agents/globalInstructions';
 import { nativeMessageLevel } from '@/shared/agentModes';
+import { isSoftwareModelRequest } from '@/shared/softwareModel';
+import { readModelEmission } from '@/server/model/agentEmission';
+import { repositoryModels, type RepositoryModelStore } from '@/server/model/repositoryModelStore';
 
 export async function publishCompletedAssistant(input: {
   runId: string;
@@ -51,6 +54,7 @@ export async function runConversation(input: {
   signal: AbortSignal;
   emit(event: AgentEvent): void;
   onPermissionBroker?(broker: PermissionBroker): void;
+  modelStore?: RepositoryModelStore;
 }): Promise<void> {
   const { runId, request, checkout, session, config, runner, sessionStore, transcriptDelta, signal, emit } = input;
   const startedAt = Date.now();
@@ -167,6 +171,7 @@ export async function runConversation(input: {
       maxMermaidBytes: config.maxMermaidBytes,
       maxDiagrams: config.maxDiagramsPerMessage,
     });
+    const model = readModelEmission(blocks, isSoftwareModelRequest(request.text));
     const message: AssistantMessage = {
       id: assistantId,
       role: 'assistant',
@@ -191,6 +196,12 @@ export async function runConversation(input: {
         sessionStore.completeAssistantMessage(sessionId, participantId, userMessageId, assistantMessage)
       ),
     });
+    if (model.status === 'accepted') {
+      const merged = (input.modelStore ?? repositoryModels).merge(checkout.realPath, model.emission);
+      emit({ type: 'tool-activity', runId, tool: 'Software model', detail: merged.ok
+        ? `Captured ${model.emission.entities.length} entity and ${model.emission.relations.length} relation suggestions (LLM) in temporary repository memory.`
+        : merged.error });
+    }
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
   } finally {

@@ -2,8 +2,19 @@ import path from 'node:path';
 import type { AgentExecution, AgentMode, SecurityLevel } from '@/shared/types';
 import { changesCheckout } from '@/shared/agentModes';
 import { PLAN_END_MARKER, PLAN_START_MARKER } from '@/shared/plan';
+import {
+  isSoftwareModelRequest, ENTITY_KINDS, RELATION_KINDS, MODEL_SCHEMA, MODEL_FENCE_LANGUAGE,
+} from '@/shared/softwareModel';
 
-export const PROMPT_CONTRACT_VERSION = 3;
+export const PROMPT_CONTRACT_VERSION = 4;
+
+const SOFTWARE_MODEL_CONTRACT = `The current request opts into software-model suggestions with /model. Answer the scoped question normally and, when you discover facts, include exactly one fenced ${MODEL_FENCE_LANGUAGE} JSON block alongside any Mermaid. If you cannot produce it, omit it; the ordinary answer still works. All facts and descriptions are LLM suggestions, never verified static structure. State this in your answer.
+The JSON has exactly this shape (no ids, origin, traits or extra fields):
+{"schema":"${MODEL_SCHEMA}","entities":[{"key":"load","kind":"function","name":"load","location":{"filename":"src/db.ts","startLine":10,"endLine":20},"confidence":0.8,"description":"Loads the record."}],"relations":[]}
+Entity kinds: ${ENTITY_KINDS.join(', ')}. Relation kinds: ${RELATION_KINDS.join(', ')}.
+Every entity needs a unique emission-local key, exact canonical source name and confidence from 0 to 1. Optional fields: container (owning class/module), location and description (at most 2000 characters). Structural kinds file/class/function/method/variable/constant require location; methods require container. For file entities use the repository-relative filename as name. For location-less resources use the exact canonical table/service/endpoint name, consistently across passes. Avoid display labels, invented wrappers and anonymous entities.
+Locations use canonical repository-relative / paths (no absolute paths, backslashes, . or .. segments), one-based startLine and optional endLine. Exact source spelling, kind, path and container determine identity; lines do not. Same-name siblings must all be included with distinct startLine values so the server assigns ordinals in source order. Renames/moves create new identities. Do not emit partial sibling groups.
+Relations contain kind, source, target, confidence and optional description; both endpoints refer to keys included in this same block. No duplicate relations. Keep the scope bounded: at most 256 entities, 512 relations and 128 KiB of JSON. This is a partial discovery; omitted entities are retained, never deleted. Accumulation is process-local, temporary and lost on restart or repository eviction.`;
 
 const GIT_CAPABILITY = `You may run a fixed allowlist of read-only history commands through Bash: git log, git show, git diff, git status, git branch, git blame, git shortlog, and gh pr view/diff/list. Any other command is denied automatically; if that happens, say so plainly and continue with what you can do. Use these for history questions ("the last 4 commits", "review PR #12") instead of guessing.`;
 
@@ -108,6 +119,7 @@ Return normal Markdown. Include fenced Mermaid only when a diagram materially he
 Use repository-relative code references. Optional evidence comments have this exact form:
 %%@evidence element-id | relative/path.ts:10-24 | observed
 Use inferred instead of observed for an inference supported by that location.
+${isSoftwareModelRequest(input.userText) ? `\n${SOFTWARE_MODEL_CONTRACT}\n` : ''}
 
 ${attachmentNote}${reportNote}${imageNote}
 Bounded repository context is described in ${path.join(directory, 'context-manifest.json')}; status and working/staged/last-commit snapshots are alongside it. Read only the relevant snapshot if the user asks about changes.

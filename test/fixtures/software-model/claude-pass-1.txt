@@ -1,0 +1,37 @@
+Here's what's in the two files (read-only inspection; nothing was changed or run):
+
+- **`src/server/conversation/responseParser.ts`** has two module-level functions:
+  - `scanFences` (lines 25–51) is private to the module. It finds fenced code blocks in the markdown. It also keeps an unclosed fence when it's a `codeai-model` fence.
+  - `parseAssistantResponse` (lines 53–93) is exported. It calls `scanFences` directly and turns the markdown into `markdown`, `diagram` and `code` blocks.
+- **`src/server/model/repositoryModelStore.ts`** has one class, `RepositoryModelStore` (lines 12–41), with two public methods besides the constructor:
+  - `get` (lines 20–22) returns a cloned copy of a repository's model.
+  - `merge` (lines 25–40) merges the new entities and relations into the stored model by id. If the result is over the entity, relation or byte limits, it refuses the merge. If the store holds more repositories than allowed, it drops the oldest one.
+
+There's only one direct call between these declarations: `parseAssistantResponse` → `scanFences`. `merge` and `get` both call `this.models.get(...)`, but that's the built-in `Map.get`, not the class's `get`, so it doesn't count as a call between them. As you asked, I left out the constructor, the private fields, the `ParseOptions`/`Fence`/`ModelLimits` interfaces and the module constants `scope` and `repositoryModels`.
+
+```mermaid
+flowchart LR
+  subgraph RP["src/server/conversation/responseParser.ts"]
+    parseAssistantResponse["parseAssistantResponse()"]
+    scanFences["scanFences()"]
+  end
+  subgraph RMS["src/server/model/repositoryModelStore.ts"]
+    RepositoryModelStore["class RepositoryModelStore"]
+    get["get()"]
+    merge["merge()"]
+  end
+  parseAssistantResponse -- calls --> scanFences
+  RepositoryModelStore -- declares --> get
+  RepositoryModelStore -- declares --> merge
+%%@evidence parseAssistantResponse | src/server/conversation/responseParser.ts:53-93 | observed
+%%@evidence scanFences | src/server/conversation/responseParser.ts:25-51 | observed
+%%@evidence RepositoryModelStore | src/server/model/repositoryModelStore.ts:12-41 | observed
+%%@evidence get | src/server/model/repositoryModelStore.ts:20-22 | observed
+%%@evidence merge | src/server/model/repositoryModelStore.ts:25-40 | observed
+```
+
+All the facts and descriptions in the JSON below are LLM suggestions, not verified static structure.
+
+```codeai-model
+{"schema":"codeai.software-model.v1","entities":[{"key":"scanFences","kind":"function","name":"scanFences","location":{"filename":"src/server/conversation/responseParser.ts","startLine":25,"endLine":51},"confidence":0.95,"description":"Module-private function that scans markdown for fenced code blocks and returns their ranges, info strings and sources. It keeps an unclosed fence only when its language is the model fence language."},{"key":"parseAssistantResponse","kind":"function","name":"parseAssistantResponse","location":{"filename":"src/server/conversation/responseParser.ts","startLine":53,"endLine":93},"confidence":0.95,"description":"Exported async function that splits assistant markdown into markdown, diagram and code blocks. It validates Mermaid sources, extracts evidence and enforces the diagram limit."},{"key":"RepositoryModelStore","kind":"class","name":"RepositoryModelStore","location":{"filename":"src/server/model/repositoryModelStore.ts","startLine":12,"endLine":41},"confidence":0.95,"description":"Temporary in-process store that accumulates a software model for each repository checkout path, within entity, relation, byte and repository-count limits."},{"key":"RepositoryModelStore.get","kind":"method","name":"get","container":"RepositoryModelStore","location":{"filename":"src/server/model/repositoryModelStore.ts","startLine":20,"endLine":22},"confidence":0.95,"description":"Returns a cloned copy of the stored model for a checkout path, or an empty model if none is stored."},{"key":"RepositoryModelStore.merge","kind":"method","name":"merge","container":"RepositoryModelStore","location":{"filename":"src/server/model/repositoryModelStore.ts","startLine":25,"endLine":40},"confidence":0.95,"description":"Synchronously merges emitted entities and relations into the stored model by id. Rejects the merge if limits are exceeded and evicts the oldest repository when over the repository limit."}],"relations":[{"kind":"calls","source":"parseAssistantResponse","target":"scanFences","confidence":0.95,"description":"Direct call scanFences(markdown) at line 55."},{"kind":"declares","source":"RepositoryModelStore","target":"RepositoryModelStore.get","confidence":0.95},{"kind":"declares","source":"RepositoryModelStore","target":"RepositoryModelStore.merge","confidence":0.95}]}
+```

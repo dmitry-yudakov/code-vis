@@ -2,7 +2,7 @@
 
 **Status:** Active · **Owns:** the *depth* half of [the vision](../docs/vision.md) — the software
 model, lenses, arrangement, and the change loop, as specified in
-[software-model.md](../docs/software-model.md) · **Updated:** September 5, 2026 ·
+[software-model.md](../docs/software-model.md) · **Updated:** October 3, 2026 ·
 **Rewritten:** August 29, 2026, after the analyzer archive and the arena vision
 
 This is the plan of record for making CodeAI *understand* software, not just converse about it. The
@@ -33,11 +33,12 @@ lands inside the session surface the other track builds.
 [Story 24](STORY-20260820-promote-next-app-archive-legacy.md) archived the analyzer runtime under
 [`legacy/`](../legacy/README.md). That was right for the product and it invalidated this epic's
 original Phases A and B, which sequenced work against code the root application does not build,
-start, or import. Concretely: `Entity`, `Relation`, the identity scheme in
+start, or import. At that point, `Entity`, `Relation`, the identity scheme in
 [entityId.ts](../legacy/server/src/model/entityId.ts), the `Arrangement` spec, and the LLM client all
-exist **only under `legacy/`**. In `src/` there is no model, no extractor, and no lens.
+existed **only under `legacy/`**. Shipped [Story 6](STORY-20261003-agent-emitted-software-model.md)
+now supplies the shared types and first agent producer in `src/`; durable storage and lenses follow.
 
-So the model has no producer, and the plan cannot resume until one is chosen. Three candidates:
+The producer decision that restarted this plan compared three candidates:
 
 | Source | What it buys | What it costs |
 |---|---|---|
@@ -92,15 +93,16 @@ extractor can fake, and Story 8 moves ahead of Story 6.
 Stories 19–23 and 26–36 belong to the other track and are sequenced by the
 [web2 operational collaboration epic](EPIC-20260806-web2-operational-collaboration.md).
 
-### Proposed stories (to be written)
+### Model stories
 
-Numbers 6–17 are **reserved placeholders** assigned when a story is picked up; other tracks number
+Numbers 6–17 are reserved for this track; Story 6 is shipped and the others get full specifications
+when picked up. Other tracks number
 from 36 upward. Several are referenced by number from the other epic, so the meanings below are
 stable even as the content is rescoped.
 
 | # | Story (working title) | Depends on |
 |---|---|---|
-| 6 | Model records and their first producer — agent-emitted entities and relations | 18 |
+| 6 | [Model records and their first producer — agent-emitted entities and relations](STORY-20261003-agent-emitted-software-model.md) — **Shipped** | 18 |
 | 7 | Persist and cache the model per repository | 6 |
 | 8 | Static extractor floor — port the JS/TS analyzer for `origin: 'static'` | 6, (7 for caching) |
 | 9 | Lenses and arrangement on the canvas — feature focus, relation-kind filters | 6, (7), (5's spec) |
@@ -149,6 +151,10 @@ the session surface, and nothing imports `legacy/`.
   turn that emits nothing still works, and a malformed emission is dropped, never partially merged.
   Story 2's pending annotation pass folds in here as the `description` facet, produced by the same
   agent that produced the entity.
+  [Story 6](STORY-20261003-agent-emitted-software-model.md) implements explicit `/model` turns,
+  atomic validation and bounded temporary accumulation. Three independent real-Claude passes
+  retained all five scoped entity ids and three relation ids; this supports proceeding to Story 7
+  for this measured scope, without claiming whole-repository or cross-language stability.
 - **Story 7 — Persist and cache the model.** One model record per repository checkout in the host
   store, revisioned and written under the same lock discipline as sessions. Invalidation is keyed by
   file, and the first honest answer for "what changed" is git, not a watcher. Prerequisite for

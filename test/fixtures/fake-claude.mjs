@@ -198,6 +198,15 @@ else {
         : prompt.includes('Mode: PLAN')
           ? 'I reviewed the module.\n\n<!-- cartograph:plan:start -->\n## Implementation plan\n1. Extract the parser into its own module.\n2. Verify with `npm test`.\n<!-- cartograph:plan:end -->'
           : args.includes('--resume') ? 'I remember the prior turn without a transcript replay.' : 'First turn complete.';
+  if (asked('/model\nSoftware-model fixture')) {
+    text = `These are LLM suggestions.\n\n\`\`\`codeai-model\n${JSON.stringify({
+      schema: 'codeai.software-model.v1',
+      entities: [{ key: 'package', kind: 'file', name: 'package.json', location: { filename: 'package.json', startLine: 1 }, confidence: 0.8, description: 'Declares this package.' }],
+      relations: [],
+    })}\n\`\`\`\n\n\`\`\`mermaid\nflowchart LR\nPackage-->App\n\`\`\`\nNormal answer complete.`;
+  } else if (asked('/model\nMalformed software-model fixture')) {
+    text = 'Before malformed output.\n\n```codeai-model\n{"schema":"wrong"}\n```\n\nOrdinary answer still complete.';
+  }
   // Proves which report files the turn's context directory held, without reading their contents.
   const reportFiles = attachmentDirectory
     ? readdirSync(attachmentDirectory).filter((name) => name.startsWith('report-')).sort()

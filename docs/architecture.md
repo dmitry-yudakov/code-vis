@@ -352,6 +352,17 @@ stored copy and no route that serves one.
 8. Commit the assistant message, user delivery state, and participant cursor in one revision before
    emitting the durable assistant event. Remove the run directory, always.
 
+A request beginning with `/model` on its own line also opts into a bounded `codeai-model` JSON
+emission. `src/shared/softwareModel.ts` owns the vocabulary and source-based ids;
+`src/server/model/agentEmission.ts` validates the entire suggestion and assigns LLM provenance.
+After successful answer storage, `repositoryModelStore.ts` synchronously merges by id into
+process-local state keyed by the resolved executing checkout path. Sixteen repositories each hold
+at most 2,000 entities, 4,000 relations and 2 MiB; the least recently updated repository is evicted
+when a seventeenth arrives. Whole-emission limits are 256 entities, 512 relations and 128 KiB.
+No model data enters a new session schema; the original JSON and suggestion/rejection label stay
+in existing code blocks. Missing/rejected output does not fail a turn. Story 7 will add durable
+storage/invalidation; Story 9 will expose model queries as Mermaid lenses.
+
 `GET /api/agent/runs` discovers queued, running, needs-you, and recently finished descriptors.
 `GET /api/agent/stream` reattaches a detached browser by run id; `POST /api/agent/cancel` ends
 queued or executing work; `POST /api/agent/permission` resolves a pending approval card.

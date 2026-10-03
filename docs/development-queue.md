@@ -3,7 +3,7 @@
 **Updated:** October 3, 2026
 
 This is the near-term queue for agent sessions: recovery first, a focused acceptance pass, title-bar
-tabs, then the first software-model producer. The order comes from the October 1 development
+tabs, then the first software-model producer and its persistence follow-up. The order comes from the October 1 development
 discussion. The linked epics own direction; story files own specifications, implementation status,
 and verification evidence.
 
@@ -42,7 +42,8 @@ feature has shipped. The order is priority, not a new dependency chain.
 | 1 | Q1 | [Story 83 turn checkpoints and undo](../stories/STORY-20261001-turn-checkpoints.md) | Done | Verified and reviewed; continue with Q2 |
 | 2 | Q2 | Verify already implemented features | Queued | Run available checks below; record exact access or device gaps |
 | 3 | Q3 | [Story 73 title-bar tabs](../stories/STORY-20261003-title-bar-tabs.md) | Done | Desktop scope verified and reviewed; Q4 is the next implementation item |
-| 4 | Q4 | Story 6 first software-model producer | Queued | Write the story and test identity stability on repeated agent output |
+| 4 | Q4 | [Story 6 first software-model producer](../stories/STORY-20261003-agent-emitted-software-model.md) | Done | Verified and reviewed; continue with Q5 |
+| 5 | Q5 | Story 7 persistent repository model | Queued | Write the persistence story using Story 6's measured identity contract |
 
 ## Q1 Turn checkpoints and undo
 
@@ -131,18 +132,40 @@ lacks the persistent software understanding described by
 [the model epic](../stories/EPIC-20260705-north-star-roadmap.md#phase-a--re-found-the-model-on-the-running-product-now).
 Start its reserved Story 6 before scheduling every remaining shell refinement.
 
-- [ ] Write Story 6 for agent-emitted typed entities and relations alongside Mermaid, following the
+- [x] Write Story 6 for agent-emitted typed entities and relations alongside Mermaid, following the
       model epic's identity and provenance contracts.
-- [ ] Repeated passes over the same repository produce stable enough identities to merge; record
+- [x] Repeated passes over the same repository produce stable enough identities to merge; record
       the evidence and the decision before investing in the persistence story.
-- [ ] Missing output leaves an ordinary turn working, and malformed output is rejected without a
+- [x] Missing output leaves an ordinary turn working, and malformed output is rejected without a
       partial merge. Suggested facts retain their LLM provenance and confidence.
-- [ ] The story's checks and review pass. Record the next useful slice: Story 7 persistence and
+- [x] The story's checks and review pass. Record the next useful slice: Story 7 persistence and
       Story 9's first lens, which emits Mermaid through the existing canvas.
 
 Use the epic's agent-emitted path first. If identity stability fails, record that result and revisit
 its stated alternative of bringing Story 8's static extractor forward. Port the needed contracts
 into the running app; production code keeps the existing boundary around `legacy/`.
+
+**Evidence:** Story 6 ships explicit `/model` turns, server-generated ids, strict whole-emission
+validation, LLM confidence/description and bounded temporary per-checkout accumulation. Three fresh
+real-Claude Ask sessions over the same two-file scope produced all five expected entity ids and
+three relation ids with 100% overlap; accumulated counts stayed 5 / 3. This supports proceeding to
+Story 7 for the measured scope. Completeness, other providers, resources and cross-language identity
+remain unverified. The producer refuses changed known sibling cardinality rather than redirecting
+old relations. TypeScript, production build, 108 test files / 1,038 tests and two production Chrome
+checks (both themes) passed. Review found three edge cases, all reproduced with failing tests and
+fixed; the final review reported no remaining findings. See
+[Story 6's evidence](../stories/STORY-20261003-agent-emitted-software-model.md#verification-evidence--october-3-2026).
+
+## Q5 Persistent repository model
+
+**Source:** [Story 7 in Phase A of the model epic](../stories/EPIC-20260705-north-star-roadmap.md#phase-a--re-found-the-model-on-the-running-product-now),
+following shipped Story 6. Write the story first: durable, revisioned model records per executing
+checkout under the host store's lock discipline, bounded caching, and file-based invalidation with
+Git as the first source of change. Preserve suggested provenance and atomic failure behavior;
+explicitly settle sibling-group invalidation/reconciliation before relying on accumulated ordinals.
+
+After persistence, Story 9's first lens should query those records and emit Mermaid through the
+existing canvas. Q2's running-app/provider/headset acceptance stays separate.
 
 ## Deferred work
 

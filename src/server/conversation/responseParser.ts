@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AssistantBlock, DiagramArtifact } from '@/shared/types';
 import { extractEvidence } from '@/features/diagram/evidence';
 import { normalizeMermaidSource, validateMermaidSource } from '@/features/diagram/mermaid/mermaidPolicy';
+import { MODEL_FENCE_LANGUAGE } from '@/shared/softwareModel';
 
 interface ParseOptions {
   sessionId: string;
@@ -18,11 +19,12 @@ interface Fence {
   end: number;
   info: string;
   source: string;
+  unclosed?: boolean;
 }
 
 function scanFences(markdown: string): Fence[] {
   const fences: Fence[] = [];
-  const opener = /^(?: {0,3})(`{3,}|~{3,})[^\S\r\n]*([^\r\n]*)\r?\n/gm;
+  const opener = /^(?: {0,3})(`{3,}|~{3,})[^\S\r\n]*([^\r\n]*)(?:\r?\n|$)/gm;
   let match: RegExpExecArray | null;
   while ((match = opener.exec(markdown))) {
     const marker = match[1][0];
@@ -31,7 +33,12 @@ function scanFences(markdown: string): Fence[] {
     const closer = new RegExp(`^(?: {0,3})${marker}{${minimum},}[^\\S\\r\\n]*(?:\\r?\\n|$)`, 'gm');
     closer.lastIndex = sourceStart;
     const close = closer.exec(markdown);
-    if (!close) break;
+    if (!close) {
+      if (match[2].trim().split(/\s+/)[0]?.toLowerCase() === MODEL_FENCE_LANGUAGE) {
+        fences.push({ start: match.index, end: markdown.length, info: match[2].trim(), source: markdown.slice(sourceStart), unclosed: true });
+      }
+      break;
+    }
     fences.push({
       start: match.index,
       end: closer.lastIndex,
@@ -74,7 +81,8 @@ export async function parseAssistantResponse(markdown: string, options: ParseOpt
         kind: 'code',
         language: language || undefined,
         source: fence.source,
-        warning: language === 'mermaid' ? `Diagram limit reached; this block remains copyable source.` : undefined,
+        warning: fence.unclosed ? 'The model fence was not closed.'
+          : language === 'mermaid' ? `Diagram limit reached; this block remains copyable source.` : undefined,
       });
     }
     cursor = fence.end;
