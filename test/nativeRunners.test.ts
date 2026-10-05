@@ -79,21 +79,38 @@ describe.sequential('Native provider streams and readiness', () => {
     vi.stubEnv('CODEAI_FAKE_CODEX_MODE', 'ambient-mcp-unisolated');
     const health = await checkCodex(codex, process.cwd(), true, 'native');
     expect(health).toMatchObject({ available: true, authenticated: true, supportedModes: ['agent', 'auto', 'full'] });
-    expect(health.message).toContain('Ask and Plan');
+    expect(health.message).toContain('Ask and Plan unavailable:');
+    expect(health.message).toContain('Ambient Codex MCP servers are still active.');
     await expect(run('codex', 'auto')).resolves.toMatchObject({ result: { finalText: 'Codex answer.' } });
   });
   it('gates Codex Agent/Auto, Full access independently, and Auto on sandbox startup', async () => {
     expect((await checkCodex(codex, process.cwd(), false, 'native')).supportedModes).toEqual(['ask', 'plan', 'full']);
     vi.stubEnv('CODEAI_FAKE_CODEX_MODE', 'sandbox-unavailable');
-    expect((await checkCodex(codex, process.cwd(), true, 'native')).supportedModes).toEqual(['ask', 'plan', 'agent', 'full']);
-  });
-  it('retains Guarded notes at Native and reports signed-out only once', async () => {
-    vi.stubEnv('CODEAI_FAKE_CODEX_MODE', 'ambient-skill');
     const health = await checkCodex(codex, process.cwd(), true, 'native');
-    expect(health.message).toContain('Ask and Plan:');
-    expect(health.message).toContain('1 user or repository skill enabled');
+    expect(health.supportedModes).toEqual(['ask', 'plan', 'agent', 'full']);
+    expect(health.message).toContain("Codex's sandbox cannot start on this machine, so Auto is withheld.");
+  });
+  it.each([
+    ['ambient-instructions', 'instruction file from outside the repository'],
+    ['ambient-skill', '1 user or repository skill enabled'],
+  ])('omits %s notices from combined Native readiness while retaining Guarded notices', async (fixture, notice) => {
+    vi.stubEnv('CODEAI_FAKE_CODEX_MODE', fixture);
+    const health = await checkCodex(codex, process.cwd(), true, 'native');
+    expect(health).toMatchObject({ available: true, supportedModes: ['ask', 'plan', 'agent', 'auto', 'full'] });
+    expect(health.message).toBeUndefined();
+    expect((await checkCodex(codex, process.cwd(), true)).message).toContain(notice);
+    for (const mode of ['ask', 'plan'] as const) {
+      expect((await checkCodex(codex, process.cwd(), true, 'native', mode)).message).toContain(notice);
+    }
+    const disabled = await checkCodex(codex, process.cwd(), false, 'native');
+    expect(disabled.message).toContain('Agent remains disabled');
+    expect(disabled.message).not.toContain(notice);
+  });
+  it('reports signed-out only once at Native', async () => {
     vi.stubEnv('CODEAI_FAKE_CODEX_MODE', 'unauthenticated');
-    expect((await checkCodex(codex, process.cwd(), false, 'native')).message?.match(/not authenticated/g)).toHaveLength(1);
+    const health = await checkCodex(codex, process.cwd(), false, 'native');
+    expect(health).toMatchObject({ available: false, authenticated: false, supportedModes: [] });
+    expect(health.message?.match(/not authenticated/g)).toHaveLength(1);
   });
   it('waits for a slow Native model list and retains the Guarded list if Native cannot list models', async () => {
     vi.stubEnv('CODEAI_FAKE_CODEX_MODE', 'slow-model-list');

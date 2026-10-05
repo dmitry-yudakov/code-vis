@@ -23,6 +23,8 @@ interface HandshakeOptions {
    * session, and wait for `model/list` as long as the check allows.
    */
   signedOut?: boolean;
+  /** Combined Native readiness omits expected instruction/skill notices; checks still run. */
+  suppressAmbientNotes?: boolean;
   level?: SecurityLevel;
 }
 
@@ -48,7 +50,9 @@ export async function checkCodex(
   // The picker needs both policies; a selected turn needs only the one it will execute.
   const nativeWriting = level === 'native' && mode !== undefined && changesCheckout(mode);
   const [guarded, native, sandboxStarts] = await Promise.all([
-    nativeWriting ? undefined : codexHandshake(binary, cwd, agentEnabled, {}),
+    nativeWriting ? undefined : codexHandshake(binary, cwd, agentEnabled, {
+      suppressAmbientNotes: level === 'native' && mode === undefined,
+    }),
     level === 'native' && (mode === undefined || nativeWriting) ? codexHandshake(binary, cwd, agentEnabled, { level }) : undefined,
     agentEnabled && (mode === undefined || mode === 'auto') ? codexSandboxStarts(binary, cwd) : false,
   ]);
@@ -304,8 +308,8 @@ function codexHandshake(
           return;
         }
         const notes = [
-          note,
-          codexAmbientSkillNote(skills),
+          options.suppressAmbientNotes ? undefined : note,
+          options.suppressAmbientNotes ? undefined : codexAmbientSkillNote(skills),
           agentEnabled ? undefined : 'Codex Ask and Plan are ready. Agent remains disabled until its real approval-parity smoke passes.',
         ].filter(Boolean);
         const models = await Promise.race([modelList, new Promise((resolve) => setTimeout(resolve, 300))]);

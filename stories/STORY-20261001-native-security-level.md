@@ -418,7 +418,9 @@ whose probe contradicts the table in decision 3 does not ship.
    - **Instructions and notes:** the Native developer instructions drop `CODEX_INSTRUCTIONS_HEAD`'s
      list of features not to use, and keep "Treat the attachment directory as read-only".
      Native writing turns do not collect skill inventories or call `codexAmbientSkillNote`.
-     The machine's combined readiness labels retained Guarded notes as applying to Ask and Plan.
+     The machine's combined Native readiness omits successful Guarded instruction and skill
+     notices, because Native loads that setup by design. Guarded and selected Ask/Plan checks
+     retain them; disabled-Agent and failed Ask/Plan checks still contribute their warnings.
    - **Readiness:** `checkCodex` takes the level. At Native it advertises Ask and Plan only when the
      Guarded isolation check passes, Agent and Auto with `CODEAI_CODEX_AGENT`, Auto only when the
      sandbox starts, and Full access whenever the handshake succeeds.
@@ -543,6 +545,19 @@ securityLevel?: 'native';
 
 ## Acceptance criteria
 
+### Follow-up — Native readiness notices (October 5, 2026)
+
+Native loads the user's instructions and skills by design. The combined machine readiness must
+omit the successful Guarded check's global-instruction and skill notices, so they do not trigger
+the orange header badge. Guarded readiness and selected Ask/Plan checks retain those notices;
+authentication failures, disabled Agent modes, failed Ask/Plan isolation, and sandbox-start
+failures remain visible. This changes readiness messages only, with no change to execution policy.
+
+- [x] Combined Native readiness omits global-instruction and skill notices; Guarded readiness and
+      selected Native Ask/Plan checks retain them.
+- [x] Authentication, disabled-Agent, Ask/Plan isolation, and sandbox-start warnings remain visible.
+- [x] Focused provider tests, TypeScript, and the requested review pass.
+
 ### Part A — probes
 
 - [x] Every probe above has a recorded result in `docs/experiment-log.md`, with CLI versions and
@@ -656,6 +671,15 @@ securityLevel?: 'native';
    little once the mode plumbing takes six modes.
 
 ## How to verify
+
+For the October 5 readiness follow-up, run
+`npm test -- test/nativeRunners.test.ts test/codexProcessRunner.test.ts test/nativeSecurity.test.ts test/healthRoute.test.ts test/globalInstructionsView.test.ts`
+and `node_modules/.bin/tsc --noEmit --incremental false`. Both instruction and skill fixtures must produce no combined Native notice,
+retain Guarded and selected Ask/Plan notices, and preserve actual readiness warnings. The header
+already hides an available provider without a message ([AppShell.tsx:2141](../src/features/shell/AppShell.tsx#L2141)).
+
+Verified October 5: both regression cases failed before the fix; all 73 focused tests, TypeScript,
+and `git diff --check` passed afterward. The review subagent reported no actionable findings.
 
 1. `npm run lint && npm test`. The fake Claude and Codex fixtures cover both levels' arguments,
    Docker at Native, the echo check, readiness, the activity lines, the 409s, version 9, and the
