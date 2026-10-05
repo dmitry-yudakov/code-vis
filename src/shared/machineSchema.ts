@@ -2,7 +2,11 @@ import { z } from 'zod';
 import { MAX_MODEL_EFFORTS, MAX_MODEL_LABEL_CHARS, MAX_PROVIDER_MODELS } from './limits';
 import { AGENT_MODES } from './agentModes';
 import { agentEffortSchema, agentModeSchema, agentModelIdSchema } from './protocol';
-import { durableProjectSchema } from './sessionSchema';
+import { durableProjectSchema, sessionWorktreeSchema } from './sessionSchema';
+
+export const worktreeCapabilitySchema = z.object({
+  available: z.boolean(), message: z.string().max(500).optional(), branch: z.string().max(500).optional(),
+}).strict();
 
 const dateTime = z.string().datetime();
 const machineIdentitySchema = z.object({
@@ -27,12 +31,17 @@ const providerHealthSchema = z.object({
 }).strict();
 
 const checkoutSummarySchema = z.object({
+  worktreeCreation: worktreeCapabilitySchema.optional(),
+  worktree: sessionWorktreeSchema.optional(),
+  branch: z.string().max(500).optional(),
+  unavailableReason: z.string().max(500).optional(),
   id: z.string().trim().min(1).max(128),
   name: z.string().trim().min(1).max(500),
   relativePath: z.string().min(1).max(4_096),
 }).strict();
 
 const arenaSessionSummarySchema = z.object({
+  worktree: sessionWorktreeSchema.optional(),
   execution: z.enum(['local', 'docker']).optional(),
   id: z.string().uuid(),
   revision: z.number().int().nonnegative(),
@@ -77,6 +86,7 @@ const runDescriptorSchema = z.object({
 }).strict();
 
 export const executorSnapshotSchema = z.object({
+  worktrees: worktreeCapabilitySchema.optional(),
   machine: machineIdentitySchema,
   securityLevel: z.literal('native').optional(),
   projects: z.array(durableProjectSchema).max(1_000),

@@ -18,11 +18,14 @@ export async function PUT(request: Request, context: SessionRouteContext): Promi
     const { sessionId } = await context.params;
     const config = getConfig();
     const store = getSessionStore(config.dataDir, config.hostLabel);
-    const host = await store.host();
-    const registry = getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth);
-    await Promise.all(parsed.data.repositories
-      .filter((repository) => repository.hostId === host.id)
-      .map((repository) => registry.resolve(repository.checkoutId)));
+    // Fixed managed bindings are checked before resolving any client-named replacement path.
+    if (!(await store.getSession(sessionId)).worktree) {
+      const host = await store.host();
+      const registry = getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth);
+      await Promise.all(parsed.data.repositories
+        .filter((repository) => repository.hostId === host.id)
+        .map((repository) => registry.resolve(repository.checkoutId)));
+    }
     const session = await store.setSessionRepositories(
       sessionId,
       parsed.data.repositories,

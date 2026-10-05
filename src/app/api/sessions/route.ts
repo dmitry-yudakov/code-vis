@@ -8,6 +8,7 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { validateDockerCheckout } from '@/server/execution/dockerProfile';
 import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
+import { createManagedWorktree } from '@/server/repository/managedWorktrees';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,12 +40,17 @@ export async function POST(request: Request): Promise<Response> {
   if (denied) return denied;
   try {
     const parsed = createSessionRequestSchema.safeParse(await request.json());
-    if (!parsed.success) return safeJsonResponse({ error: 'Choose a valid provider and either a project, a Docker checkout, or a source session with an execution.' }, { status: 400 });
+    if (!parsed.success) return safeJsonResponse({ error: 'Choose valid session settings. Worktree creation requires Local, one source repository, and a creation request UUID.' }, { status: 400 });
     const config = getConfig();
     const store = getSessionStore(config.dataDir, config.hostLabel);
+    if (parsed.data.checkoutMode === 'worktree') {
+      const session = await createManagedWorktree(parsed.data, config);
+      return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
+    }
     const source = parsed.data.sourceSessionId ? await store.getSession(parsed.data.sourceSessionId) : undefined;
     const project = parsed.data.projectId ? await store.getProject(parsed.data.projectId) : undefined;
     const registry = getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth);
+    if (source?.worktree && parsed.data.execution === 'docker') return safeJsonResponse({ error: 'Docker does not support linked worktrees. This continuation must keep Local execution.' }, { status: 409 });
     if (parsed.data.checkoutId) await registry.resolve(parsed.data.checkoutId);
     if (parsed.data.execution === 'docker') {
       const health = await getDockerRuntime(config).health();

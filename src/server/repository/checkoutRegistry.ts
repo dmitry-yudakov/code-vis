@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { CheckoutSummary, ServerCheckout } from '@/shared/types';
+import { getConfig, type AppConfig } from '@/server/config';
+import { readWorktreeRecords, reconcileWorktrees, resolveManagedWorktree, sourceWorktreeCapability, worktreeCapability } from './managedWorktrees';
 
 const REPOSITORY_MARKERS = [
   '.git', 'package.json', 'tsconfig.json', 'jsconfig.json', 'yarn.lock', 'package-lock.json',
@@ -32,12 +34,10 @@ function checkoutId(realPath: string): string {
 }
 
 export class CheckoutRegistry {
-  private rootRealPath?: string;
-  private checkouts = new Map<string, ServerCheckout>();
-
   constructor(
     private readonly configuredRoot: string,
     private readonly discoveryDepth = 1,
+    private readonly config?: AppConfig,
   ) {
     if (!Number.isSafeInteger(discoveryDepth) || discoveryDepth < 1 || discoveryDepth > 10) {
       throw new Error('Repository discovery depth must be an integer between 1 and 10');
@@ -47,7 +47,6 @@ export class CheckoutRegistry {
   async refresh(): Promise<ServerCheckout[]> {
     const root = await realpath(this.configuredRoot);
     if (!(await stat(root)).isDirectory()) throw new Error('Repositories root is not a directory');
-    this.rootRealPath = root;
 
     const candidates: Array<{ realPath: string; relativePath: string }> = [];
     if (await isRepository(root)) {
@@ -74,31 +73,52 @@ export class CheckoutRegistry {
       }
     }
 
-    this.checkouts.clear();
+    const checkouts = new Map<string, ServerCheckout>();
     for (const candidate of candidates.sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+      if (this.config?.worktreesRoot && candidate.realPath !== this.config.worktreesRoot && isContained(this.config.worktreesRoot, candidate.realPath)) continue;
       const checkout: ServerCheckout = {
         id: checkoutId(candidate.realPath),
         name: candidate.relativePath === '.' ? path.basename(candidate.realPath) : candidate.relativePath,
         relativePath: candidate.relativePath,
         realPath: candidate.realPath,
       };
-      this.checkouts.set(checkout.id, checkout);
+      checkouts.set(checkout.id, checkout);
     }
-    return [...this.checkouts.values()];
+    if (this.config?.worktreesRoot) {
+      for (const record of await readWorktreeRecords(this.config.dataDir)) {
+        let checkout: ServerCheckout;
+        try { checkout = await resolveManagedWorktree(record, this.config); }
+        catch (error) {
+          checkout = { id: record.checkoutId, realPath: record.destination,
+            name: `Worktree · ${record.session.worktree!.branch}`, relativePath: `worktrees/${record.session.worktree!.id}`,
+            worktree: record.session.worktree, unavailableReason: error instanceof Error ? error.message.slice(0, 500) : 'Managed worktree is unavailable.' };
+        }
+        checkouts.set(checkout.id, checkout);
+      }
+    }
+    return [...checkouts.values()];
   }
 
   async list(): Promise<CheckoutSummary[]> {
     const checkouts = await this.refresh();
-    return checkouts.map(({ id, name, relativePath }) => ({ id, name, relativePath }));
+    const capability = this.config?.worktreesRoot ? await worktreeCapability(this.config, checkouts.filter((checkout) => !checkout.worktree)) : undefined;
+    return Promise.all(checkouts.map(async ({ realPath, ...summary }) => ({ ...summary,
+      ...(capability ? { worktreeCreation: await sourceWorktreeCapability({ realPath, ...summary }, capability) } : {}),
+    })));
   }
 
   async resolveMany(ids: string[]): Promise<ServerCheckout[]> {
-    await this.refresh();
-    const rootRealPath = this.rootRealPath;
-    if (!rootRealPath) throw new Error('Repositories root is unavailable');
+    if (this.config?.worktreesRoot) await reconcileWorktrees(this.config);
+    const checkouts = new Map((await this.refresh()).map((checkout) => [checkout.id, checkout]));
+    const rootRealPath = await realpath(this.configuredRoot);
     return Promise.all(ids.map(async (id) => {
-      const checkout = this.checkouts.get(id);
+      const checkout = checkouts.get(id);
       if (!checkout) throw new Error('Unknown checkout');
+      if (checkout.worktree) {
+        const record = (await readWorktreeRecords(this.config!.dataDir)).find((item) => item.checkoutId === id);
+        if (!record) throw new Error('Managed checkout is no longer registered.');
+        return resolveManagedWorktree(record, this.config!);
+      }
       const current = await realpath(checkout.realPath);
       if (!isContained(rootRealPath, current) || current !== checkout.realPath) {
         throw new Error('Checkout no longer resolves within the configured repositories root');
@@ -116,9 +136,10 @@ let singleton: CheckoutRegistry | undefined;
 let singletonKey: string | undefined;
 
 export function getCheckoutRegistry(root: string, discoveryDepth = 1): CheckoutRegistry {
-  const key = `${root}\0${discoveryDepth}`;
+  const config = getConfig();
+  const key = `${root}\0${discoveryDepth}\0${config.dataDir}\0${config.worktreesRoot}`;
   if (!singleton || singletonKey !== key) {
-    singleton = new CheckoutRegistry(root, discoveryDepth);
+    singleton = new CheckoutRegistry(root, discoveryDepth, config);
     singletonKey = key;
   }
   return singleton;

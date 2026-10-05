@@ -24,7 +24,7 @@ export function ConversationDrawer({
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, instructions, securityLevel, recovery, onContinue, onNewChat, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
   session?: SessionSnapshot;
@@ -43,6 +43,7 @@ export function ConversationDrawer({
   continuationUnavailable?: string;
   /** Whether the addressed agent's next turn gets the user's global instructions. */
   instructions?: InstructionsLine;
+  repositoryContext?: string;
   securityLevel?: SecurityLevel;
   recovery?: TurnCheckpointControls;
   sendBlocked?: string;
@@ -95,6 +96,7 @@ export function ConversationDrawer({
         <div>
           <strong>{session?.title || 'New session'}</strong>
           {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
+          {repositoryContext && <p className="conversation-repository-context">{repositoryContext}</p>}
         </div>
         <button
           type="button"

@@ -2303,6 +2303,46 @@ test('ignores a delayed diff after navigating to another machine and keeps recov
 const sessionAction = (page: Page, action: string) => controls(page).locator(`[data-immersive-action="session:${action}"]`).click();
 const sessionToolsState = (page: Page) => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR session tools')?.userData);
 
+test('VR worktree launcher names its source, preserves retry identity, and targets only the selected executor', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page);
+  const source = { id: 'remote-source', name: 'Remote source', relativePath: 'source', worktreeCreation: { available: true, branch: 'main' } };
+  const created: PublicSession = { ...fixture.remote, id: '44444444-4444-4444-8444-444444444444', version: 10, execution: 'local', projectId: undefined,
+    repositories: [{ id: '55555555-5555-4555-8555-555555555555', hostId: REMOTE, checkoutId: 'managed-remote', role: 'primary' }],
+    worktree: { id: '66666666-6666-4666-8666-666666666666', originCheckoutId: source.id, baseCommit: 'a'.repeat(40), branch: 'codeai/session-44444444-4444-4444-8444-444444444444' } };
+  const payloads: Array<Record<string, unknown>> = [];
+  await page.route('**/api/arena', (route) => {
+    const home = fixture.snapshot(LOCAL, 'Home', fixture.local); home.worktrees = { available: false, message: 'Docker Git helper lacks linked-worktree support.' };
+    const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote); remote.worktrees = { available: true }; remote.checkouts = [source];
+    return route.fulfill({ json: { machines: [home, remote] } });
+  });
+  await page.route(`**/api/machines/${REMOTE}/sessions`, (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    payloads.push(route.request().postDataJSON());
+    return payloads.length === 1 ? route.fulfill({ status: 503, json: { error: 'Transient save failure' } })
+      : route.fulfill({ status: 201, json: { session: created } });
+  });
+  await page.route(`**/api/machines/${REMOTE}/checkouts`, (route) => route.fulfill({ json: { hostId: REMOTE, checkouts: [source,
+    { id: 'managed-remote', name: `Worktree · ${created.worktree!.branch}`, relativePath: `worktrees/${created.worktree!.id}`, branch: created.worktree!.branch, worktree: created.worktree }], recentCheckoutIds: [], discoveryDepth: 1 } }));
+  await page.route(`**/api/machines/${REMOTE}/sessions?*`, (route) => route.fulfill({ json: { sessions: [created] } }));
+  await page.goto('/'); await enter(page); await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Checkout: Use current checkout');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Docker Git helper lacks linked-worktree support.');
+  await sessionAction(page, 'machine'); await sessionAction(page, 'creation-repository');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Source: Remote source · main');
+  await sessionAction(page, 'checkout-mode');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Checkout: Create a worktree');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('uncommitted changes and local setup stay in the current checkout');
+  await sessionAction(page, 'create');
+  await expect.poll(() => payloads.length).toBe(1);
+  await sessionAction(page, 'create');
+  await expect.poll(() => payloads.length).toBe(2);
+  expect(payloads[1]).toEqual(payloads[0]); expect(payloads[0]).toMatchObject({ checkoutMode: 'worktree', checkoutId: 'remote-source', provider: 'claude' });
+  expect(payloads[0].creationRequestId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(payloads[0]).not.toHaveProperty('path');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
 test('VR session tools create a repository-free session, attach a checkout, and complete real allow and deny turns', async ({ page, request }) => {
   await installAdapter(page);
   await page.route('**/api/voice', (route) => route.fulfill({ json: { configured: false, language: 'en' } }));

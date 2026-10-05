@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-10-03. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-05. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -134,6 +134,12 @@ Updated 2026-10-03. When a story ships, change the line that names it; each stor
 - **Shipped:** [Story 88](stories/STORY-20261002-unlimited-approval-waits.md) — approval
   requests wait without expiry by default; `CODEAI_APPROVAL_TIMEOUT_MS=0` disables expiry and
   positive values retain optional auto-denial. Offline checks, TypeScript, and independent review passed.
+- **Shipped:** [Story 89](stories/STORY-20261005-session-worktrees.md) — choose a session-owned
+  Local Git worktree on desktop, in Arena, or in VR, with immutable retry/recovery intents, fixed
+  bindings, and exact New chat sharing. All 1,096 unit tests, TypeScript, the production build,
+  ten focused browser checks, real-provider probes, and independent review passed. Attached
+  executor routing used a TLS fixture; production remote-listener pairing and physical Quest use
+  remain unverified.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

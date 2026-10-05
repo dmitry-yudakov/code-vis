@@ -229,7 +229,14 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 9;
+export const MAX_READABLE_SESSION_VERSION = 10;
+export const WORKTREE_SESSION_VERSION = 10;
+export const sessionWorktreeSchema = z.object({
+  id: z.string().uuid(),
+  originCheckoutId: z.string().min(1).max(128),
+  baseCommit: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+  branch: z.string().regex(/^codeai\/session-[0-9a-f-]{36}$/),
+}).strict();
 /**
  * Version 5 is version 4 plus report evidence on user messages. A session is upgraded to it only by
  * the mutation that first appends a report, so builds without report support keep reading the rest.
@@ -257,7 +264,9 @@ const sessionBase = {
   version: z.union([
     z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION),
     z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION), z.literal(NATIVE_MODE_SESSION_VERSION),
+    z.literal(WORKTREE_SESSION_VERSION),
   ]),
+  worktree: sessionWorktreeSchema.optional(),
   execution: z.enum(['local', 'docker']).optional(),
   // Only a version 7 session may hold this; `validateSession` enforces that.
   instructions: globalInstructionsChoiceSchema.optional(),
@@ -278,7 +287,8 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    worktree?: unknown;
     execution?: 'local' | 'docker';
     instructions?: string;
     id: string;
@@ -295,6 +305,10 @@ function validateSession(
   },
   ctx: z.RefinementCtx,
 ): void {
+  if (value.worktree !== undefined && (value.version < WORKTREE_SESSION_VERSION || value.execution !== 'local'
+    || value.repositories.length !== 1 || value.repositories[0].role !== 'primary')) {
+    ctx.addIssue({ code: 'custom', message: 'Managed worktrees require format 10 and one Local primary repository.', path: ['worktree'] });
+  }
   if (value.version === 3 ? Object.hasOwn(value, 'execution') : value.execution === undefined) {
     ctx.addIssue({
       code: 'custom',

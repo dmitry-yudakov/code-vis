@@ -1080,7 +1080,7 @@ environment of whoever starts CodeAI.**
   user-only permissions. Revision-bearing overwrite operations reject stale clients with 409,
   while stable request ids make append retries idempotent.
 - Projects group sessions and repository bindings. Sessions carry an optional project id and their
-  own independently editable repository list. A session can be loose or repository-free; the
+  own repository list, editable except for fixed managed-worktree bindings. A session can be loose or repository-free; the
   canvas, roster, and conversation record remain available, while a turn clearly asks for a primary
   repository.
 - The browser lists and hydrates snapshots from `/api/sessions`. A versioned device record in
@@ -1108,6 +1108,46 @@ environment of whoever starts CodeAI.**
 
 Local `.env*`, `.next`, `node_modules`, coverage, and TypeScript build state are ignored. The
 tracked `.env.example` contains no secrets.
+
+### Session worktrees
+
+New session on the desktop, in Arena, and in VR offers **Use current checkout** by default and
+**Create a worktree** for an eligible Local repository. Loose Local sessions can also select a
+checkout directly. A managed worktree starts from the source’s latest committed HEAD on a unique
+`codeai/session-<sessionId>` branch. Staged, unstaged, untracked, ignored, and private local files
+remain in the source; no setup, install, stash, or commit runs during creation. The conversation and
+Arena identify its live branch and source. Provider cwd, repository reads, model accumulation,
+and Undo use that worktree; its project continues to reference the original repository.
+
+Managed creation currently requires Linux, one ordinary primary Git checkout on the executing
+machine, a committed HEAD, and contained Git metadata/objects. Linked source worktrees, submodules,
+filters, included/custom checkout configuration, shallow/partial/promisor clones, and alternates
+are unavailable. Hooks are suppressed and creation is offline. A machine with a Docker provisioning
+record cannot create or operate managed worktrees, even with Docker disabled: its single-checkout
+Git helper lacks linked-worktree support. Provisioning Docker later keeps existing history readable
+and blocks worktree execution and Git operations. Continue in Docker is unavailable for linked worktrees.
+
+`CODEAI_WORKTREES_ROOT` defaults to `~/.code-ai/worktrees` (the former
+`CODEAI_WEB2_WORKTREES_ROOT` spelling is accepted). It must be separate from the installation,
+data directory, provider folders, and ordinary checkouts; symlinked or changed parents are refused.
+Only the executing machine’s durable allowlist under `CODEAI_DATA_DIR/worktrees/` resolves managed
+checkouts outside ordinary discovery. Their path hashes remain machine-local checkout identities.
+New managed sessions use format 10; ordinary records retain their existing format versions.
+
+Creation briefly needs an idle machine, including queued turns and Undo. A durable intent holds the
+request UUID, original commit/bindings, generated identities, and Git linkage. **Retry** after a lost
+response or failed session save finishes that same creation; changed choices use a new request UUID.
+Startup admission reconciles unfinished intents. Ambiguous partial state is retained and unavailable,
+with no force removal or reset. The journal and saved sessions share the 1,000-session host limit.
+The browser never supplies paths, branch names, or Git flags.
+
+Managed repository bindings are fixed. **New chat** shares the exact existing worktree and starts
+fresh provider history; use **New session → Create a worktree** for an independent task. Closing,
+archiving, Restore, cancellation, and restart retain its worktree and branch. Missing or moved
+checkouts keep their conversation and canvas readable. Build & restart still builds the installation.
+The existing status/file-diff surfaces describe current uncommitted work; full committed branch-to-base
+review, explicit integration, cleanup, and moving an existing conversation to a worktree are follow-ups.
+There is no automatic merge, commit, push, discard, or worktree deletion.
 
 ## Canvas workflow
 
@@ -1183,6 +1223,8 @@ See [.env.example](.env.example). The most useful options are:
 
 - `CODEAI_REPOSITORIES_ROOT` — repository or repositories directory;
 - `CODEAI_REPOSITORIES_DEPTH` — nested discovery depth, from 1–10 (default `1`);
+- `CODEAI_WORKTREES_ROOT` — managed Local worktree directories (default `~/.code-ai/worktrees`),
+  separate from ordinary checkouts, the installation, data, and provider folders;
 - `CODEAI_CLAUDE_BIN` / `CODEAI_CLAUDE_MODEL` — local agent executable and optional model; the
   model is the Default that the composer's **Model** menu can override for one turn;
 - `CODEAI_CODEX_BIN` / `CODEAI_CODEX_MODEL` — local Codex executable and optional model, also the

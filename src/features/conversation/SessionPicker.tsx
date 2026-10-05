@@ -4,13 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type {
   AgentExecution, AgentProvider, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
-  SessionSnapshot,
+  SessionSnapshot, WorktreeCapability,
 } from '@/shared/types';
 import { launchInstructions, namedLaunchInstructions, type LaunchInstructions } from '@/features/shell/devicePreferences';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
+import { CheckoutChoice, useCreationRequestId } from './CheckoutChoice';
+import { worktreeChoice } from './worktreeChoice';
 
 interface SessionCreationProps {
+  worktrees?: WorktreeCapability;
   initialExecution?: AgentExecution;
   executionHealth?: ExecutionHealth;
   providerHealth?: Record<AgentProvider, ProviderHealth>;
@@ -25,17 +28,21 @@ interface SessionCreationProps {
   error?: string;
   onNewProvider(value: AgentProvider): void;
   onNew(provider: AgentProvider, options: {
+    checkoutMode?: 'current' | 'worktree'; creationRequestId?: string;
     execution: AgentExecution; checkoutId?: string;
     /** Absent only when the form had to set the choice aside. */
     instructions?: LaunchInstructions;
   }): Promise<boolean>;
 }
 
-export function SessionCreationForm({ initialExecution = 'local', executionHealth, providerHealth, project, checkouts, hostId,
+export function SessionCreationForm({ initialExecution = 'local', executionHealth, providerHealth, project, checkouts, hostId, worktrees,
   newProvider, preferredInstructions, creating, submitLabel = 'Start session', error, onNewProvider, onNew }: SessionCreationProps) {
   const dockerEnabled = Boolean(executionHealth?.docker.enabled);
   const [execution, setExecution] = useState<AgentExecution>(initialExecution === 'docker' && dockerEnabled ? 'docker' : 'local');
-  const [checkoutId, setCheckoutId] = useState(checkouts[0]?.id || '');
+  const [checkoutId, setCheckoutId] = useState(initialExecution === 'docker' ? checkouts[0]?.id || '' : '');
+  const [checkoutMode, setCheckoutMode] = useState<'current' | 'worktree'>('current');
+  const requestId = useCreationRequestId();
+  const busyRef = useRef(false);
   const [failed, setFailed] = useState(false);
   const [chosenInstructions, setChosenInstructions] = useState(preferredInstructions);
   const selectedHealth = execution === 'docker' ? executionHealth?.docker.providers : executionHealth?.local.providers || providerHealth;
@@ -47,19 +54,25 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
     ? bindings.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== hostId
       || !checkouts.some((checkout) => checkout.id === bindings[0].checkoutId)
     : !checkouts.some((checkout) => checkout.id === checkoutId));
+  const choice = worktreeChoice({ execution, project, checkoutId, checkouts, hostId, capability: worktrees });
+  const invalidWorktree = checkoutMode === 'worktree' && !choice.available;
 
   useEffect(() => { if (!dockerEnabled) setExecution('local'); }, [dockerEnabled]);
 
   return (
     <form className="session-creation-form" aria-label="Create project session" onSubmit={(event) => {
       event.preventDefault();
-      if (creating || !provider || invalidBinding) return;
+      if (creating || busyRef.current || !provider || invalidBinding || invalidWorktree) return;
+      busyRef.current = true;
       setFailed(false);
-      void onNew(provider, {
-        execution, ...(execution === 'docker' && !project ? { checkoutId } : {}),
+      const options = {
+        execution, checkoutMode, ...(!project && checkoutId ? { checkoutId } : {}),
         instructions: namedLaunchInstructions(chosenInstructions, execution, provider),
-      })
-        .then((created) => setFailed(!created));
+      };
+      void onNew(provider, { ...options, ...(checkoutMode === 'worktree' ? {
+        creationRequestId: requestId.forRequest(JSON.stringify({ provider, projectId: project?.id, ...options })),
+      } : {}) }).then((created) => { setFailed(!created); if (created) requestId.reset(); })
+        .finally(() => { busyRef.current = false; });
     }}>
       <label>
         <span>Execution</span>
@@ -70,15 +83,16 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
       </label>
       {!dockerEnabled && <Link href="/arena">Enable Docker in Arena</Link>}
       {execution === 'docker' && <p>Ask and Plan use a read-only repository. Agent edits it directly without individual approvals.</p>}
-      {execution === 'docker' && !project && (
+      {!project && (
         <label>
           <span>Repository</span>
           <select value={checkoutId} disabled={creating} onChange={(event) => setCheckoutId(event.target.value)}>
-            <option value="">Choose one repository</option>
+            <option value="">{execution === 'docker' ? 'Choose one repository' : 'No repository'}</option>
             {checkouts.map((checkout) => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
           </select>
         </label>
       )}
+      <CheckoutChoice value={checkoutMode} choice={choice} disabled={creating} onChange={setCheckoutMode} />
       {invalidBinding && <p role="status">Docker requires exactly one primary repository on this machine. {project ? 'Update this project’s repositories to continue.' : 'Choose a repository to continue.'}</p>}
       <label>
         <span>New session with</span>
@@ -104,7 +118,7 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
         ? <>{selectedHealth?.claude.message || 'Docker needs setup.'} <Link href="/arena">Open Docker setup</Link></>
         : 'Install and authenticate Claude Code or Codex for Local, or select Docker.'}</p>}
       {failed && <p role="alert">{error || 'Could not create the session. Try again.'}</p>}
-      <button type="submit" disabled={creating || !provider || invalidBinding}>{creating ? 'Creating…' : submitLabel}</button>
+      <button type="submit" disabled={creating || !provider || invalidBinding || invalidWorktree}>{creating ? 'Creating…' : failed ? 'Retry' : submitLabel}</button>
     </form>
   );
 }

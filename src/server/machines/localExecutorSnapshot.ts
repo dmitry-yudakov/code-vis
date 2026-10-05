@@ -6,6 +6,7 @@ import { runRegistry } from '@/server/runs/runRegistry';
 import { arenaSessionSummary, getSessionStore } from '@/server/storage/sessionStore';
 import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
 import type { ExecutorSnapshot } from '@/shared/types';
+import { worktreeCapability } from '@/server/repository/managedWorktrees';
 
 /** Builds only this executor's projection; attached peers are intentionally never traversed. */
 export async function localExecutorSnapshot(): Promise<ExecutorSnapshot> {
@@ -21,6 +22,7 @@ export async function localExecutorSnapshot(): Promise<ExecutorSnapshot> {
     cachedLocalProviderHealth(config),
   ]);
   return {
+    worktrees: await worktreeCapability(config),
     machine,
     ...(config.securityLevel === 'native' ? { securityLevel: 'native' as const } : {}),
     projects,

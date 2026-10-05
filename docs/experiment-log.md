@@ -628,6 +628,29 @@ death/daemon-loss/timeout/output-overflow and operator setup/cleanup matrix from
 Existing fake-provider tests and synthetic container probes do not substitute for those outcomes.
 The setup guide documents both the available implementation and these release limits.
 
+## Story 89 — Local worktree provider and executor probes (2026-10-05)
+
+**Outcome:** Passed with disposable repositories, journal roots, and checkpoints on Linux/Git 2.53.0.
+Existing CLI sign-in was reused; CodeAI did not read, copy, or log provider credentials.
+
+- Claude Code 2.1.288 / Sonnet: one Guarded Agent and one Native Agent turn through CodeAI's real
+  process runner and policy resolver edited only the managed checkout. Each edit required the
+  existing Edit approval. Live branch reads matched the generated session branch; the source file
+  stayed at baseline. Checkpoint finish and Undo restored the worktree file after each turn.
+- Codex 0.160.0 / gpt-6-astra, low effort, Guarded Auto: a file write inside the worktree succeeded
+  without approval. Git status/common-directory reads succeeded. `git add` and a write to the shared
+  source Git config requested escalation; both were denied. The source stayed clean and its file
+  unchanged. The existing Auto sandbox profile and echo assertions were used without modification.
+- Attached executor: two disposable processes with distinct roots used a production home gateway,
+  an exact HTTPS origin with a fixture CA, one-time machine pairing, and real executor route handlers
+  behind a fixture TLS adapter. Session creation wrote one worktree and journal on the executor and
+  none on the home machine. Executor shutdown returned 502 for another creation; no local fallback
+  or home files appeared. The production `start:remote` fixture returned 426 during pairing, so this
+  run does not verify pairing through that standard listener. No physical second machine was used.
+
+The disposable checkout/data trees and processes were removed after the probes. Physical Quest
+launcher evidence remains optional for Story 89; no integration or worktree cleanup feature was run.
+
 ## Story 20 — Codex provider smoke (2026-08-18)
 
 **Outcome:** Passed for the shipped Ask/Plan surface. Ask, Plan, post-Plan cross-restart resume, and

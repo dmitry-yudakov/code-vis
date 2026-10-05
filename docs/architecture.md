@@ -8,6 +8,27 @@ React Flow client, and VS Code extension are archived and documented separately 
 
 ## Shape
 
+Story 89 adds session-owned Local worktrees in `src/server/repository/managedWorktrees.ts`.
+The strict creation request names a checkout mode and UUID, never a path or Git arguments.
+An executing-machine maintenance lease covers bounded offline preflight, an immutable durable intent,
+Git creation/materialization, session save, and journal reconciliation. `<dataDir>/worktrees/` holds
+the private allowlist and recovery facts; `CODEAI_WORKTREES_ROOT/<worktreeId>` holds committed files.
+Source files/index remain untouched. Failed saves retain the intent and created branch/worktree;
+matching retries or startup checkout admission finish that session, while ambiguous partial states
+stay unavailable without keeping unrelated checkouts locked. Intents and saved sessions share the
+1,000-session bound. Reconciliation never force-removes, resets, or recursively deletes Git state.
+
+`CheckoutRegistry` retains ordinary bounded discovery and path-hash ids, adding only recorded managed
+checkouts outside its root. Each use rechecks canonical parents and bidirectional Git linkage;
+provider execution, Git reads, and Undo use the executing worktree. Model accumulation stays keyed
+by executing checkout path, with no new portable repository identity. Format 10 carries public
+worktree provenance without private paths. Project bindings stay on the source, managed session
+bindings are fixed, and New chat/Local continuation shares the exact worktree with fresh provider
+sessions. Self-project/report access still tests the project’s original binding, and managed rebuild
+still builds the installation. Archive and Restore retain all resources. Docker provisioning blocks
+managed creation and subsequent operations because the existing helper cannot read linked metadata;
+there is no host-Git fallback or wider Docker mount.
+
 Story 57 adds an opt-in Docker transport in `src/server/execution/`; its release verification is
 tracked in [docker-execution.md](docker-execution.md). Version 4 session records persist Local/Docker
 execution, migrating active and archived version 3 records to Local without changing revisions.

@@ -38,10 +38,11 @@ describe('Docker execution contract', () => {
     expect(() => getConfig()).toThrow('must be a boolean');
   });
 
-  it('accepts only a supported execution name and a Docker checkout selection', () => {
+  it('accepts only a supported execution name and an opaque checkout selection', () => {
     expect(createSessionRequestSchema.parse({ provider: 'claude' })).not.toHaveProperty('execution');
     expect(createSessionRequestSchema.parse({ provider: 'codex', execution: 'docker', checkoutId: 'repo' }).execution).toBe('docker');
-    for (const extra of [{ execution: 'remote' }, { image: 'custom' }, { mounts: ['/'] }, { network: 'host' }, { sandbox: 'none' }, { checkoutId: 'repo' }]) {
+    expect(createSessionRequestSchema.parse({ provider: 'claude', checkoutId: 'repo' }).checkoutId).toBe('repo');
+    for (const extra of [{ execution: 'remote' }, { image: 'custom' }, { mounts: ['/'] }, { network: 'host' }, { sandbox: 'none' }]) {
       expect(createSessionRequestSchema.safeParse({ provider: 'claude', ...extra }).success).toBe(false);
     }
   });

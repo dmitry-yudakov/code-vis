@@ -7,7 +7,7 @@ const DEFAULT_FOLDER: Record<AgentProvider, string> = { claude: '.claude', codex
 
 /** The provider's folder in the home directory, which holds its private files even when a variable names another. */
 export function defaultProviderFolder(provider: AgentProvider): string {
-  return path.join(os.homedir(), DEFAULT_FOLDER[provider]);
+  return path.join(/* turbopackIgnore: true */ os.homedir(), DEFAULT_FOLDER[provider]);
 }
 
 /**

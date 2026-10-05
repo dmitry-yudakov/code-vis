@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { CheckoutSummary, RepositoryBinding } from '@/shared/types';
 import { createUuid } from '@/shared/uuid';
+import { WORKTREE_FIXED_BINDING } from '@/features/conversation/worktreeChoice';
 
 export function RepositoryManager({
   repositories,
@@ -10,6 +11,7 @@ export function RepositoryManager({
   hostId,
   selectedCheckoutId,
   disabled,
+  fixedWorktree,
   onSelect,
   onChange,
 }: {
@@ -18,12 +20,13 @@ export function RepositoryManager({
   hostId?: string;
   selectedCheckoutId?: string;
   disabled?: boolean;
+  fixedWorktree?: boolean;
   onSelect(checkoutId: string): void;
   onChange(update: (current: RepositoryBinding[]) => RepositoryBinding[]): void;
 }) {
   const available = useMemo(() => {
     const bound = new Set(repositories.filter((item) => item.hostId === hostId).map((item) => item.checkoutId));
-    return checkouts.filter((checkout) => !bound.has(checkout.id));
+    return checkouts.filter((checkout) => !checkout.worktree && !bound.has(checkout.id));
   }, [checkouts, hostId, repositories]);
   const [checkoutToAdd, setCheckoutToAdd] = useState('');
   // One repository needs no managing to read its changes; none or several is when this list is the way in.
@@ -43,6 +46,7 @@ export function RepositoryManager({
 
   return (
     <section className="repository-manager" aria-label="Session repositories">
+      {fixedWorktree && <p>{WORKTREE_FIXED_BINDING}</p>}
       <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary className="repository-manager-heading">
           <span>Session repositories</span>

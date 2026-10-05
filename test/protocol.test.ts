@@ -13,7 +13,7 @@ describe('provider protocol contracts', () => {
     expect(createSessionRequestSchema.parse({ provider: 'codex' }).projectId).toBeUndefined();
     expect(() => createSessionRequestSchema.parse({ projectId: ids.sessionId })).toThrow();
     expect(() => createSessionRequestSchema.parse({ projectId: ids.sessionId, provider: 'other' })).toThrow();
-    expect(() => createSessionRequestSchema.parse({ checkoutId: 'legacy', provider: 'codex' })).toThrow();
+    expect(createSessionRequestSchema.parse({ checkoutId: 'legacy', provider: 'codex' })).toMatchObject({ checkoutId: 'legacy' });
   });
 
   it('does not allow the browser to override the provider for a turn', () => {

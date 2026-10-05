@@ -26,6 +26,7 @@ import {
   promoteReportEvidence, promotedReportBytes, reportCopyBytes, resolveReportEvidence, type ResolvedReportEvidence,
 } from '@/server/storage/reportEvidence';
 import { decodeImageAttachments } from '@/server/storage/tempAttachments';
+import { validateManagedPath } from '@/server/repository/managedWorktrees';
 import type {
   CanvasKind, DiagramArtifact, DurableSession, ImageAttachmentRecord, SketchCanvas, UserMessage,
 } from '@/shared/types';
@@ -294,6 +295,7 @@ export async function POST(request: Request): Promise<Response> {
       // Queued work resolves its canonical snapshot and repository context only when it actually
       // starts, so it sees the checkout at execution time and holds no temporary directory early.
       session = await store.getSession(session.id);
+      await validateManagedPath(checkout.realPath, config);
       currentParticipant = serverAgent(session, participant.id) || currentParticipant;
       if (changesCheckout(mode)) {
         emit({ type: 'status', runId, phase: 'starting', label: 'Saving turn checkpoint' });
