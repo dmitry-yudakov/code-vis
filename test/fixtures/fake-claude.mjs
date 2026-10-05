@@ -69,7 +69,16 @@ const record = (extra) => {
 };
 record();
 
-if (mode === 'unknown-control-ignored') {
+if (mode === 'turn-counting') {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  emit({ type: 'stream_event', event: { type: 'message_start', message: { id: 'assistant-1' } } });
+  emit({ type: 'assistant', message: { id: 'assistant-1', content: [{ type: 'text', text: 'Thinking' }] } });
+  emit({ type: 'assistant', message: { id: 'assistant-1', content: [{ type: 'text', text: 'More blocks' }] } });
+  emit({ type: 'assistant', message: { id: 'assistant-2', content: [{ type: 'text', text: 'Done' }] } });
+  emit({ type: 'assistant', parent_tool_use_id: 'subagent-tool', message: { id: 'child-1', content: [{ type: 'text', text: 'Child output' }] } });
+  emit({ type: 'result', subtype: 'success', result: 'Done', session_id: sessionId });
+}
+else if (mode === 'unknown-control-ignored') {
   emit({ type: 'control_request', request_id: 'unknown-1', request: { subtype: 'initialize_probe' } });
   // A normal result must still finish without CodeAI answering an unrelated request.
   emit({ type: 'result', subtype: 'success', result: 'Unknown request ignored.', session_id: sessionId });

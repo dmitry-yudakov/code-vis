@@ -165,10 +165,10 @@ describe('composer mode picker', () => {
     });
   });
 
-  it('is disabled while a turn runs', () => {
+  it('keeps supported modes selectable while a turn runs', () => {
     const picker = menu(render({ running: true }), 'mode-menu')!;
-    expect(picker.disabled).toBe(true);
-    expect(picker.items.every((item) => item.disabled)).toBe(true);
+    expect(picker.disabled).toBe(false);
+    expect(picker.items.every((item) => !item.disabled)).toBe(true);
     expect(menu(render(), 'mode-menu')!.disabled).toBe(false);
   });
 });

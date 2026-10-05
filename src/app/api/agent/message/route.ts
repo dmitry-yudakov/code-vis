@@ -8,6 +8,7 @@ import {
   sessionStoreStatus, getSessionStore, primaryRepository, serverAgent,
 } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
+import { TurnMode } from '@/server/runs/turnMode';
 import { AgentRunError } from '@/server/agents/agentRunError';
 import { autoDataDirectoryIssue, resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
@@ -27,7 +28,7 @@ import {
 } from '@/server/storage/reportEvidence';
 import { decodeImageAttachments } from '@/server/storage/tempAttachments';
 import type {
-  CanvasKind, DiagramArtifact, DurableSession, ImageAttachmentRecord, SketchCanvas, UserMessage,
+  AgentMode, CanvasKind, DiagramArtifact, DurableSession, ImageAttachmentRecord, SketchCanvas, UserMessage,
 } from '@/shared/types';
 
 export const runtime = 'nodejs';
@@ -210,6 +211,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   const runId = randomUUID();
   const abortController = new AbortController();
+  const turnMode = new TurnMode(mode);
   const providerKey = participant.session.started
     ? `${host.id}:${execution}:${participant.provider}:session:${participant.session.sessionId}`
     : `${host.id}:${execution}:${participant.provider}:participant:${participant.id}`;
@@ -221,6 +223,25 @@ export async function POST(request: Request): Promise<Response> {
     checkoutId: repository.checkoutId,
     checkoutPath: checkout.realPath,
     access: changesCheckout(mode) ? 'write' : 'read',
+    mode,
+    async changeMode(next) {
+      const health = await adapter.checkHealth(next);
+      if (!health.available || !health.supportedModes.includes(next)) {
+        return { ok: false, status: 409, error: health.message || `This provider does not support ${next} mode here.` };
+      }
+      const nextPolicy = resolveAgentPolicy(config, next, execution);
+      const isolation = nativeClaudeIsolationIssue({ provider: participant.provider, execution,
+        level: nextPolicy.level, mode: next, choice: session.instructions });
+      if (isolation) return { ok: false, status: 409, error: isolation };
+      if (next === 'auto' && nextPolicy.level === 'guarded') {
+        const issue = await autoDataDirectoryIssue(config.dataDir, checkout.realPath);
+        if (issue) return { ok: false, status: 409, error: issue };
+      }
+      if (abortController.signal.aborted || !turnMode.change(next)) {
+        return { ok: false, status: 409, error: 'That turn can no longer change mode.' };
+      }
+      return { ok: true };
+    },
     cancel: () => abortController.abort(),
   });
   if (!reservation.accepted) {
@@ -290,23 +311,29 @@ export async function POST(request: Request): Promise<Response> {
     let currentParticipant = serverAgent(session, participant.id)!;
     let checkpointId: string | undefined;
     let providerInvoked = false;
+    const beforeAttempt = async (next: AgentMode) => {
+      if (!changesCheckout(next)) return;
+      await runRegistry.upgradeToWrite(runId, abortController.signal);
+      // A second selection may have changed the mode while the checkout was busy.
+      if (!changesCheckout(turnMode.mode) || checkpointId) return;
+      emit({ type: 'status', runId, phase: 'starting', label: 'Saving turn checkpoint' });
+      try {
+        checkpointId = await getTurnCheckpoints(config.dataDir).capture({
+          runId, sessionId: session.id, messageId: parsed.data.messageId,
+          checkoutId: checkout.id, checkoutPath: checkout.realPath,
+        });
+      } catch (error) {
+        throw new AgentRunError('internal', error instanceof Error && error.name === 'CheckpointError'
+          ? error.message : 'The turn checkpoint could not be saved. The agent did not start. Check recovery storage and try again.',
+        providerInvoked ? 'possibly-sent' : 'not-sent');
+      }
+    };
     try {
       // Queued work resolves its canonical snapshot and repository context only when it actually
       // starts, so it sees the checkout at execution time and holds no temporary directory early.
       session = await store.getSession(session.id);
       currentParticipant = serverAgent(session, participant.id) || currentParticipant;
-      if (changesCheckout(mode)) {
-        emit({ type: 'status', runId, phase: 'starting', label: 'Saving turn checkpoint' });
-        try {
-          checkpointId = await getTurnCheckpoints(config.dataDir).capture({
-            runId, sessionId: session.id, messageId: parsed.data.messageId,
-            checkoutId: checkout.id, checkoutPath: checkout.realPath,
-          });
-        } catch (error) {
-          throw new AgentRunError('internal', error instanceof Error && error.name === 'CheckpointError'
-            ? error.message : 'The turn checkpoint could not be saved. The agent did not start. Check recovery storage and try again.', 'not-sent');
-        }
-      }
+      await beforeAttempt(turnMode.mode);
       if (abortController.signal.aborted) throw new AgentRunError('cancelled', 'The request was cancelled before the provider started.', 'not-sent');
       const transcriptDelta = buildTranscriptDelta(session, currentParticipant, canonicalTranscript(session.messages), {
         maxMessages: config.maxTranscriptMessages,
@@ -325,6 +352,8 @@ export async function POST(request: Request): Promise<Response> {
         signal: abortController.signal,
         emit,
         onPermissionBroker: (broker) => runRegistry.attachPermissions(runId, broker),
+        turnMode,
+        beforeAttempt,
       });
     } catch (error: unknown) {
       const known = error instanceof AgentRunError ? error : undefined;
@@ -345,6 +374,7 @@ export async function POST(request: Request): Promise<Response> {
       });
       emit({ type: 'done', runId, durationMs: 0, cancelled: known?.code === 'cancelled' || abortController.signal.aborted });
     } finally {
+      turnMode.close();
       if (checkpointId) {
         await getTurnCheckpoints(config.dataDir).finish(checkpointId).catch(() => {
           emit({ type: 'status', runId, phase: 'completed', label: 'Undo unavailable: recovery fingerprint could not be saved. The original checkpoint is retained.' });

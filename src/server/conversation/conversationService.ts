@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type {
-  AgentEvent, AgentMessageRequest, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout,
+  AgentEvent, AgentMessageRequest, AgentMode, AgentProcessResult, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import type { SessionStore } from '@/server/storage/sessionStore';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
+import { TurnMode } from '@/server/runs/turnMode';
+import { AgentRunError } from '@/server/agents/agentRunError';
 import {
   createRunDirectory, removeRunDirectory, writeDiagramAttachments, writeImageAttachments,
 } from '@/server/storage/tempAttachments';
@@ -53,12 +55,15 @@ export async function runConversation(input: {
   transcriptDelta: string;
   signal: AbortSignal;
   emit(event: AgentEvent): void;
-  onPermissionBroker?(broker: PermissionBroker): void;
+  onPermissionBroker?(broker: PermissionBroker | undefined): void;
+  turnMode?: TurnMode;
+  beforeAttempt?(mode: AgentMode): Promise<void>;
   modelStore?: RepositoryModelStore;
 }): Promise<void> {
   const { runId, request, checkout, session, config, runner, sessionStore, transcriptDelta, signal, emit } = input;
   const startedAt = Date.now();
-  const mode = request.mode || 'ask';
+  const turnMode = input.turnMode ?? new TurnMode(request.mode || 'ask');
+  let mode = turnMode.mode;
   let directory: string | undefined;
   let sessionMark = Promise.resolve();
   let sessionMarkError: unknown;
@@ -69,7 +74,8 @@ export async function runConversation(input: {
     throw new Error(`This provider session belongs to another host (${participant.session.hostId}) and cannot be resumed here.`);
   }
   emit({ type: 'run-started', runId, sessionId: session.id, messageId: request.messageId, participantId: participant.id });
-  const resuming = participant.session.started && Boolean(participant.session.sessionId);
+  let resuming = participant.session.started && Boolean(participant.session.sessionId);
+  let providerSessionId = resuming ? participant.session.sessionId : undefined;
   const providerName = participant.provider === 'codex' ? 'Codex' : 'Claude';
   emit({
     type: 'status',
@@ -77,12 +83,6 @@ export async function runConversation(input: {
     phase: resuming ? 'resuming' : 'starting',
     label: resuming ? `Resuming ${providerName} provider session` : `Starting ${providerName} provider session`,
   });
-
-  const policy = resolveAgentPolicy(config, mode, session.execution);
-  const permissions = policy.interactivePermissions
-    ? new PermissionBroker(policy.approvalTimeoutMs ?? config.approvalTimeoutMs)
-    : undefined;
-  if (permissions) input.onPermissionBroker?.(permissions);
 
   try {
     directory = await createRunDirectory(config.dataDir);
@@ -99,66 +99,118 @@ export async function runConversation(input: {
     const images = await writeImageAttachments(directory, request.imageAttachments ?? []);
     emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing repository context' });
     await writeRepositoryContext(checkout.realPath, directory, config.maxGitContextBytes);
-    const prompt = buildConversationPrompt({
-      userText: request.text,
-      attachmentDirectory: directory,
-      attachedCanvasNames: manifest.map((item, index) => `${item.kind === 'sketch' ? 'Sketch' : 'Diagram'} ${index + 1} (${item.diagramId})`),
-      hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
-      attachedReportNames: reports.map((item, index) => `Report ${index + 1} (${item.kind}, received ${item.receivedAt}${item.imageFile ? ', with screenshot' : ''})`),
-      attachedImageNames: images.map((item, index) => `Image ${index + 1} (${item.imageFile})`),
-      mode,
-      level: policy.level,
-      execution: session.execution,
-      participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this CodeAI session. Your stable participant id is ${participant.id}.`,
-      roleContract: roleContract(participant.role),
-      transcriptDelta,
-    });
-    // Resolved for every turn: a switch made in the Arena reaches the next one.
-    const instructions = policy.level === 'native' && participant.provider === 'claude' ? {} : await turnGlobalInstructions(config, {
-      provider: participant.provider, execution: session.execution ?? 'local', choice: session.instructions,
-    });
-    const result = await runner.run({
-      runId,
-      checkout,
-      session: {
-        // Claude accepts a client-generated session id; Codex owns ids returned when it starts one.
-        // Either way the provider id is distinct from the CodeAI session id.
-        id: resuming ? participant.session.sessionId : participant.provider === 'claude' ? randomUUID() : undefined,
-        action: resuming ? 'resume' : 'start',
-      },
-      prompt,
-      attachmentDirectory: directory,
-      policy,
-      permissions,
-      signal,
-      model: request.model,
-      effort: request.effort,
-      ...instructions,
-      emit(event) {
-        if (event.type === 'session-started' && event.sessionId) {
-          sessionMark = sessionMark
-            .then(async () => { await sessionStore.markProviderSessionStarted(session.id, participant.id, participant.provider, event.sessionId!); })
-            .catch((error: unknown) => { sessionMarkError = error; });
-        } else if (event.type === 'text-delta' && event.text) {
-          emit({ type: 'assistant-delta', runId, delta: event.text });
-        } else if (event.type === 'activity') {
-          emit({ type: 'tool-activity', runId, tool: event.tool || 'tool', detail: event.detail, denied: event.denied });
-        } else if (event.type === 'permission-request' && event.requestId) {
-          emit({ type: 'permission-request', runId, requestId: event.requestId, participantId: participant.id, tool: event.tool || 'tool', detail: event.detail || '' });
-        } else if (event.type === 'permission-resolved' && event.requestId && event.decision) {
-          emit({ type: 'permission-resolved', runId, requestId: event.requestId, decision: event.decision });
-        } else if (event.type === 'phase' && event.phase) {
-          emit({
-            type: 'status',
-            runId,
-            phase: event.phase,
-            label: event.phase === 'thinking' ? 'Thinking…' : 'Writing response…',
-          });
-        }
-      },
-    });
-    await sessionMark;
-    if (sessionMarkError) throw sessionMarkError;
+    let result: AgentProcessResult | undefined;
+    let policy = resolveAgentPolicy(config, mode, session.execution);
+    let continuation = false;
+    let spentMs = 0;
+    let usedTurns = 0;
+    for (;;) {
+      signal.throwIfAborted();
+      const attempt = turnMode.begin();
+      mode = attempt.mode;
+      await input.beforeAttempt?.(mode);
+      if (attempt.signal.aborted) continue;
+      signal.throwIfAborted();
+      policy = resolveAgentPolicy(config, mode, session.execution);
+      // Switching modes must not reset time already spent working. Approval waits remain free.
+      if (spentMs >= policy.timeoutMs) throw new AgentRunError('timeout', 'The agent exceeded the configured time limit for this message.');
+      if (usedTurns >= policy.maxTurns) throw new AgentRunError('max-turns',
+        `The agent used all ${policy.maxTurns} tool turns allowed for one message. Send "continue" to pick up where it stopped.`);
+      policy = { ...policy, timeoutMs: policy.timeoutMs - spentMs, maxTurns: policy.maxTurns - usedTurns };
+      const permissions = policy.interactivePermissions
+        ? new PermissionBroker(policy.approvalTimeoutMs ?? config.approvalTimeoutMs) : undefined;
+      input.onPermissionBroker?.(permissions);
+      let workingSince = Date.now();
+      const pending = new Set<string>();
+      const prompt = buildConversationPrompt({
+        userText: request.text,
+        attachmentDirectory: directory,
+        attachedCanvasNames: manifest.map((item, index) => `${item.kind === 'sketch' ? 'Sketch' : 'Diagram'} ${index + 1} (${item.diagramId})`),
+        hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
+        attachedReportNames: reports.map((item, index) => `Report ${index + 1} (${item.kind}, received ${item.receivedAt}${item.imageFile ? ', with screenshot' : ''})`),
+        attachedImageNames: images.map((item, index) => `Image ${index + 1} (${item.imageFile})`),
+        mode,
+        level: policy.level,
+        execution: session.execution,
+        participantIdentity: `You are ${participant.displayName}, a ${participant.provider} participant in this CodeAI session. Your stable participant id is ${participant.id}.`,
+        roleContract: roleContract(participant.role),
+        transcriptDelta,
+        modeContinuation: continuation,
+      });
+      // Resolved for every turn: a switch made in the Arena reaches the next one.
+      const instructions = policy.level === 'native' && participant.provider === 'claude' ? {} : await turnGlobalInstructions(config, {
+        provider: participant.provider, execution: session.execution ?? 'local', choice: session.instructions,
+      });
+      try {
+        if (attempt.signal.aborted) continue;
+        result = await runner.run({
+          runId,
+          checkout,
+          session: {
+            // Claude accepts a client-generated session id; Codex owns ids returned when it starts one.
+            // Either way the provider id is distinct from the CodeAI session id.
+            id: providerSessionId ?? (participant.provider === 'claude' ? randomUUID() : undefined),
+            action: resuming ? 'resume' : 'start',
+          },
+          prompt,
+          attachmentDirectory: directory,
+          policy,
+          permissions,
+          signal: AbortSignal.any([signal, attempt.signal]),
+          model: request.model,
+          effort: request.effort,
+          ...instructions,
+          emit(event) {
+            if (event.type === 'session-started' && event.sessionId) {
+              providerSessionId = event.sessionId;
+              resuming = true;
+              sessionMark = sessionMark
+                .then(async () => { await sessionStore.markProviderSessionStarted(session.id, participant.id, participant.provider, event.sessionId!); })
+                .catch((error: unknown) => { sessionMarkError = error; });
+            } else if (event.type === 'turn-started') {
+              usedTurns += 1;
+            } else if (event.type === 'text-delta' && event.text) {
+              emit({ type: 'assistant-delta', runId, delta: event.text });
+            } else if (event.type === 'activity') {
+              emit({ type: 'tool-activity', runId, tool: event.tool || 'tool', detail: event.detail, denied: event.denied });
+            } else if (event.type === 'permission-request' && event.requestId) {
+              if (!pending.size) spentMs += Date.now() - workingSince;
+              pending.add(event.requestId);
+              emit({ type: 'permission-request', runId, requestId: event.requestId, participantId: participant.id, tool: event.tool || 'tool', detail: event.detail || '' });
+            } else if (event.type === 'permission-resolved' && event.requestId && event.decision) {
+              pending.delete(event.requestId);
+              if (!pending.size) workingSince = Date.now();
+              emit({ type: 'permission-resolved', runId, requestId: event.requestId, decision: event.decision });
+            } else if (event.type === 'phase' && event.phase) {
+              emit({
+                type: 'status',
+                runId,
+                phase: event.phase,
+                label: event.phase === 'thinking' ? 'Thinking…' : 'Writing response…',
+              });
+            }
+          },
+        });
+      } catch (error) {
+        // Only our mode interruption may resume. A provider error/denial must remain an error.
+        if (!attempt.signal.aborted || signal.aborted
+          || !(error instanceof AgentRunError) || error.code !== 'cancelled') throw error;
+      } finally {
+        permissions?.cancelAll();
+        input.onPermissionBroker?.(undefined);
+        if (!pending.size) spentMs += Date.now() - workingSince;
+      }
+      await sessionMark;
+      if (sessionMarkError) throw sessionMarkError;
+      signal.throwIfAborted();
+      if (!attempt.signal.aborted) break;
+      continuation = true;
+      emit({ type: 'status', runId, phase: 'resuming', label: `Resuming ${providerName} in ${turnMode.mode} mode` });
+      // The retained attachment directory contains the original evidence and refreshed Git context.
+      await writeRepositoryContext(checkout.realPath, directory, config.maxGitContextBytes);
+    }
+    turnMode.close();
+    if (!result) throw new AgentRunError('internal', 'The provider did not return a response.');
     emit({ type: 'status', runId, phase: 'validating-artifacts', label: 'Validating response artifacts' });
     const assistantId = randomUUID();
     const planProposed = mode === 'plan' && hasProposedPlan(result.finalText);
@@ -205,7 +257,7 @@ export async function runConversation(input: {
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
   } finally {
-    permissions?.cancelAll();
+    turnMode.close();
     if (directory) await removeRunDirectory(directory).catch(() => undefined);
   }
 }

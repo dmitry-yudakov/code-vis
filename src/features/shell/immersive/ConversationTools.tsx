@@ -83,7 +83,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     `Main: ${controls?.agents.find((agent) => agent.id === controls.primaryAgentId)?.displayName || 'None'}`,
     controls ? `${AGENT_MODE_LABELS[controls.mode]} · ${executionModeHint(controls.mode, controls.execution, controls.securityLevel, activeAgent?.provider)}` : '',
     `Add: ${provider ? PROVIDER_LABELS[provider] : 'No provider available'} · ${AGENT_ROLE_LABELS[role]}`,
-    controls?.busy ? 'Updating agents…' : controls?.running ? 'Agent controls available after this run.' : 'Select an agent and a supported mode.',
+    controls?.busy ? 'Updating agents…' : controls?.running ? 'Change mode for the current task.' : 'Select an agent and a supported mode.',
     error || (controls?.running ? controls.runStatus : controls?.sendBlocked) || '',
   ].join('\n\n') : voice.result || draft || (voice.phase === 'recording'
     ? 'Listening…\n\nYour words will appear here after you stop recording.'
@@ -119,7 +119,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
 
   const modeActions = AGENT_MODES.filter((item) => isLaunchMode(item) || Boolean(controls && !controls.unsupportedModes.includes(item)));
   const actions: ConversationActionName[] = showHelp ? ['done']
-    : tab === 'agents' ? controls?.running ? ['read'] : ['read', 'previous-agent', 'next-agent', 'make-primary', ...modeActions, 'provider', 'role', 'add']
+    : tab === 'agents' ? controls?.running ? ['read', ...modeActions] : ['read', 'previous-agent', 'next-agent', 'make-primary', ...modeActions, 'provider', 'role', 'add']
       : voiceBusy ? ['stop', 'discard']
         : controls?.running ? ['record']
           : voice.result ? editing
@@ -151,16 +151,17 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
     if (action === 'draft-older') return safePage === 0;
     if (action === 'draft-newer') return safePage >= pageCount - 1;
     if (action === 'stop') return voice.phase !== 'recording';
+    if (isAgentMode(action)) return !controls || controls.busy || voiceBusy || controls.unsupportedModes.includes(action)
+      || Boolean(nativeClaudeIsolationIssue({
+        provider: activeAgent?.provider || 'claude', execution: controls.execution, level: controls.securityLevel, mode: action,
+        choice: controls.isolated ? 'isolated' : undefined,
+      }));
     if (locked || voiceBusy) return true;
     if (action === 'send') return !controls.canSend || Boolean(voice.result);
     if (action === 'record') return !voice.configured;
     if (action === 'delete' || action === 'replace') return !selected;
     if (action === 'undo') return !undo.current.length;
     if (action === 'clear') return !draft;
-    if (isAgentMode(action)) return controls.unsupportedModes.includes(action) || Boolean(nativeClaudeIsolationIssue({
-      provider: activeAgent?.provider || 'claude', execution: controls.execution, level: controls.securityLevel, mode: action,
-      choice: controls.isolated ? 'isolated' : undefined,
-    }));
     if (action === 'add' || action === 'provider') return !provider;
     if (action === 'make-primary') return !activeAgent || activeAgent.id === controls.primaryAgentId;
     if (action === 'previous-agent' || action === 'next-agent') return controls.agents.length < 2;

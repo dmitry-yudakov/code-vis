@@ -696,6 +696,14 @@ Every message carries a mode. The browser sends only the mode name; the server r
 fixed provider policy. A session can change modes and recipients; later turns resume only the
 addressed participant's private provider-owned session.
 
+The mode picker stays available while a turn is queued, working, or waiting for approval, on
+desktop and in VR. Choosing a supported mode interrupts the current provider attempt and resumes
+the same task automatically with its new permissions; no new message is needed. Completed edits
+stay in the checkout. Pending approval cards close without approving them. Entering a writing mode
+from Ask or Plan may wait for exclusive checkout access, then saves a checkpoint before continuing.
+The original message keeps its starting mode; the final answer shows the mode it finished in.
+Changing mode preserves the time and tool-turn budget already used.
+
 | | Ask (wire fallback; reviewer/tester/custom default) | Plan (orchestrator/coder default) | Agent | Auto |
 |---|---|---|---|---|
 | Purpose | Q&A, review, diagrams | An approvable implementation plan | Building in the working tree | Building in the working tree with fewer interruptions |

@@ -85,6 +85,7 @@ export function applyRunEvent(
   toolActivityKey?: number,
 ): RunPresentation {
   const identified = { ...run, runId: event.runId };
+  if (event.type === 'mode-changed') return { ...identified, mode: event.mode };
   if (event.type === 'run-started') {
     return {
       ...identified,

@@ -466,7 +466,7 @@ export function InstructionComposer({
           onNewSketch={onNewSketch}
           onOpenReports={onOpenReports}
         />
-        <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={running} onChange={onModeChange} level={securityLevel} provider={provider} isolated={isolated} />
+        <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={false} onChange={onModeChange} level={securityLevel} provider={provider} isolated={isolated} />
         <ModelMenu choices={modelChoices} selection={modelSelection} disabled={running} onChange={onModelSelectionChange} />
         <button
           type="button"

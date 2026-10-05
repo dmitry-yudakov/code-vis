@@ -65,6 +65,7 @@ const runDescriptorSchema = z.object({
   runId: z.string().uuid(),
   sessionId: z.string().uuid(),
   participantId: z.string().trim().min(1).max(160),
+  mode: agentModeSchema.optional(),
   state: z.enum(['queued', 'running', 'needs-you', 'finished']),
   enqueuedAt: z.number().finite().nonnegative(),
   startedAt: z.number().finite().nonnegative().optional(),

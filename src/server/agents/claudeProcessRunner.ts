@@ -170,6 +170,12 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let fatalStreamError: unknown;
       let killTimer: ReturnType<typeof setTimeout> | undefined;
       const emittedToolUseIds = new Set<string>();
+      const emittedTurnIds = new Set<string>();
+      const countTurn = (id: string) => {
+        if (emittedTurnIds.has(id)) return;
+        emittedTurnIds.add(id);
+        input.emit({ type: 'turn-started' });
+      };
       let textDeltaCount = 0;
       let textDeltaBytes = 0;
       let pendingPermissions = 0;
@@ -306,6 +312,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         }
         if (event.type === 'stream_event') {
           const stream = event.event as Record<string, unknown> | undefined;
+          const message = stream?.message as Record<string, unknown> | undefined;
+          if (!event.parent_tool_use_id && stream?.type === 'message_start' && typeof message?.id === 'string') countTurn(message.id);
           const delta = stream?.delta as Record<string, unknown> | undefined;
           if (stream?.type === 'content_block_delta' && delta?.type === 'text_delta' && typeof delta.text === 'string') {
             if (textDeltaCount === 0) log?.('recv first text delta');
@@ -327,6 +335,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         }
         if (event.type === 'assistant') {
           const message = event.message as Record<string, unknown> | undefined;
+          if (!event.parent_tool_use_id) countTurn(typeof message?.id === 'string' ? message.id : `unidentified:${emittedTurnIds.size}`);
           const content = Array.isArray(message?.content) ? message.content : [];
           const parts = content.filter((part): part is Record<string, unknown> => Boolean(part) && typeof part === 'object');
           for (const part of parts) {

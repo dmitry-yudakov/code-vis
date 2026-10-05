@@ -49,6 +49,12 @@ describe('home machine registry', () => {
       lastSeenAt: '2026-09-04T10:01:00.000Z',
       cachedSnapshot: { machine: REMOTE },
     });
+    const working = snapshot();
+    working.runs.active.push({ runId: crypto.randomUUID(), sessionId: crypto.randomUUID(), participantId: 'agent',
+      mode: 'auto', state: 'running', enqueuedAt: 1, pendingPermissionCount: 0, pendingPermissions: [],
+    });
+    await registry.observe(REMOTE.id, working, '2026-09-04T10:02:00.000Z');
+    expect((await registry.get(REMOTE.id))?.cachedSnapshot?.runs.active[0].mode).toBe('auto');
     await expect(registry.observe(REMOTE.id, snapshot({
       id: '33333333-3333-4333-8333-333333333333', label: 'Impostor',
     }))).rejects.toThrow('different machine identity');

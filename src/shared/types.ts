@@ -556,6 +556,7 @@ export type PermissionResolution = 'allow' | 'deny' | 'timeout' | 'cancelled';
 
 export type AgentEvent =
   | { type: 'run-started'; runId: string; sessionId: string; messageId: string; participantId: string }
+  | { type: 'mode-changed'; runId: string; mode: AgentMode }
   | { type: 'status'; runId: string; phase: AgentPhase; label: string }
   | { type: 'tool-activity'; runId: string; tool: string; detail?: string; denied?: boolean }
   | { type: 'assistant-delta'; runId: string; delta: string }
@@ -590,6 +591,8 @@ export interface RunDescriptor {
   runId: string;
   sessionId: string;
   participantId: string;
+  /** Latest accepted mode for this turn, including a change still being applied. */
+  mode?: AgentMode;
   state: RunState;
   enqueuedAt: number;
   startedAt?: number;
@@ -695,7 +698,7 @@ export interface PermissionGate {
 }
 
 export interface AgentProcessEvent {
-  type: 'session-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved';
+  type: 'session-started' | 'turn-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved';
   sessionId?: string;
   text?: string;
   tool?: string;

@@ -361,7 +361,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   // A session without its own mode on this device shows the last one. A mode the installed CLI cannot
   // run falls back to Ask rather than failing at send time.
-  const storedMode = session?.defaultMode || inheritedMode(preferences.mode, session?.execution);
+  const storedMode = focusedRun?.mode || session?.defaultMode || inheritedMode(preferences.mode, session?.execution);
   const mode = composerMode(storedMode, unsupportedModes);
   const securityLevel = health?.securityLevel || 'guarded';
   const nativeIsolation = nativeClaudeIsolationIssue({ provider: activeProvider, execution: session?.execution, level: securityLevel, mode, choice: session?.instructions });
@@ -1095,9 +1095,24 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const setMode = useCallback((next: AgentMode) => {
     if (!sessionId) return;
+    const run = runsBySessionRef.current[sessionId];
+    if (run || preparingSends.includes(sessionId)) {
+      if (!run?.runId) {
+        notify({ tone: 'info', message: 'The turn is still being accepted. Choose the mode again once it starts.' });
+        return;
+      }
+      void fetch(apiPath('/api/agent/mode'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: run.runId, mode: next }),
+      }).then(async (response) => {
+        const data = await response.json() as { error?: string };
+        if (!response.ok) throw new Error(data.error || 'The mode could not be changed.');
+      }).catch((error: unknown) => notifyError(error, 'The mode could not be changed.', 'mode'));
+      return;
+    }
     mutateSession(sessionId, (current) => ({ ...current, defaultMode: next }));
     updatePreferences((current) => ({ ...current, mode: next }));
-  }, [mutateSession, sessionId, updatePreferences]);
+  }, [apiPath, mutateSession, preparingSends, sessionId, updatePreferences]);
 
   const activeAgentId = activeAgent?.id;
   const activeAgentProvider = activeAgent?.provider;
@@ -1250,6 +1265,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         event,
         event.type === 'tool-activity' ? toolActivityKeyRef.current++ : undefined,
       ));
+      if (event.type === 'mode-changed') {
+        turn.mode = event.mode;
+        mutateSession(turn.sessionId, (current) => ({ ...current, defaultMode: event.mode }));
+        updatePreferences((current) => ({ ...current, mode: event.mode }));
+      }
       if (event.type === 'run-started') {
         userMessageId ||= event.messageId;
         mutateSession(turn.sessionId, (current) => ({ ...current, addressedAgentId: event.participantId }));
@@ -1339,7 +1359,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
     }
     return { receivedFinal, streamError, userMessageId, runId: streamRunId };
-  }, [mutateSession, refreshSession, setRunOutcome, updateRun, workspace.updateView]);
+  }, [mutateSession, refreshSession, setRunOutcome, updatePreferences, updateRun, workspace.updateView]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
     if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id) || recovery.busy) return;
@@ -1767,7 +1787,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           const recoveredSession = await refreshSession(run.sessionId) || owningSession;
           const participant = findAgentParticipant(recoveredSession.participants, run.participantId);
           const acceptedMessage = latestRunUserMessage(recoveredSession.messages, run.participantId);
-          const recoveredMode = acceptedMessage?.mode || participant?.defaultMode || 'agent';
+          const recoveredMode = run.mode || acceptedMessage?.mode || participant?.defaultMode || 'agent';
           putRun({
             runId: run.runId,
             sessionId: run.sessionId,

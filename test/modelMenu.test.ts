@@ -93,7 +93,7 @@ describe('composer model menu', () => {
     expect(radiogroup(render({ selection: { model: 'haiku' } }), 'Effort')).toBeUndefined();
   });
 
-  it('is disabled while a turn runs, like mode', () => {
+  it('is disabled while a turn runs', () => {
     const markup = render({ running: true, selection: { model: 'opus', effort: 'low' } });
     expect(markup).toMatch(/<details class="model-menu"[^>]*><summary[^>]*aria-disabled="true"/);
     expect([...radiogroup(markup, 'Model')!, ...radiogroup(markup, 'Effort')!].every((item) => item.disabled)).toBe(true);

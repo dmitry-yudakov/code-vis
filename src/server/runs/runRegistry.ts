@@ -1,13 +1,15 @@
 import { getConfig } from '@/server/config';
 import path from 'node:path';
 import type {
-  AgentEvent, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
+  AgentEvent, AgentMode, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
 } from '@/shared/types';
+import { changesCheckout } from '@/shared/agentModes';
 import type { PermissionBroker } from './permissionBroker';
 
 export type PermissionDecisionOutcome = 'accepted' | 'unknown-run' | 'unknown-request';
 export type RunCancelOutcome = 'accepted' | 'unknown-run' | 'failed';
 export type RunAccess = 'read' | 'write';
+export type RunModeOutcome = { ok: true } | { ok: false; status: number; error: string };
 
 /** How long a finished run stays directly replayable after its result becomes canonical. */
 const RETENTION_MS = 300_000;
@@ -24,6 +26,11 @@ interface RunRecord {
   checkoutId: string;
   checkoutPath?: string;
   access: RunAccess;
+  mode?: AgentMode;
+  changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
+  modeChange?: Promise<RunModeOutcome>;
+  /** Resume the existing execute promise after upgrading its checkout access. */
+  resumeAccess?(): void;
   state: RunState;
   enqueuedAt: number;
   startedAt?: number;
@@ -78,6 +85,8 @@ export interface ReserveRunInput {
   checkoutId: string;
   checkoutPath?: string;
   access: RunAccess;
+  mode?: AgentMode;
+  changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
   cancel(): void;
 }
 
@@ -255,16 +264,66 @@ export class RunRegistry implements MaintenanceLease {
     return true;
   }
 
-  attachPermissions(runId: string, permissions: PermissionBroker): void {
+  attachPermissions(runId: string, permissions: PermissionBroker | undefined): void {
     const run = this.liveByRunId.get(runId);
     if (run) run.permissions = permissions;
+  }
+
+  /** Serialize validation and selection; a rejected change leaves the provider untouched. */
+  async changeMode(runId: string, mode: AgentMode): Promise<RunModeOutcome> {
+    const run = this.liveByRunId.get(runId);
+    const unavailable: RunModeOutcome = { ok: false, status: 409, error: 'That turn can no longer change mode.' };
+    if (!run?.activated || !run.changeMode) return unavailable;
+    const operation = (run.modeChange ?? Promise.resolve({ ok: true } as const)).then(async () => {
+      if (this.liveByRunId.get(runId) !== run || run.cancelling) return unavailable;
+      const result = await run.changeMode!(mode);
+      if (!result.ok) return result;
+      if (this.liveByRunId.get(runId) !== run || run.cancelling) return unavailable;
+      if (run.mode === mode) return result;
+      this.record(runId, { type: 'mode-changed', runId, mode });
+      if (run.state === 'queued') {
+        run.access = changesCheckout(mode) ? 'write' : 'read';
+        this.schedule();
+      } else {
+        this.record(runId, { type: 'status', runId, phase: 'resuming', label: `Changing mode to ${mode}…` });
+      }
+      return result;
+    });
+    // An unexpected validation failure must not poison later attempts.
+    run.modeChange = operation.catch(() => unavailable);
+    return operation;
+  }
+
+  /** Called only after the read-only provider has stopped. Writing access is kept until finish. */
+  async upgradeToWrite(runId: string, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const run = this.liveByRunId.get(runId);
+    if (!run) throw new Error('Unknown run');
+    if (run.access === 'write') return;
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => { signal.removeEventListener('abort', abort); run.resumeAccess = undefined; };
+      const abort = () => {
+        cleanup();
+        run.cancelling = true;
+        reject(signal.reason);
+      };
+      run.resumeAccess = () => { cleanup(); resolve(); };
+      signal.addEventListener('abort', abort, { once: true });
+      run.access = 'write';
+      run.state = 'queued';
+      run.lastQueuePosition = undefined;
+      this.queue.push(runId);
+      this.schedule();
+    });
   }
 
   /** Buffers an event for replay, updates lifecycle state, and forwards it to the attached stream. */
   record(runId: string, event: AgentEvent): void {
     const run = this.liveByRunId.get(runId);
     if (run) {
-      if (event.type === 'permission-request') {
+      if (event.type === 'mode-changed') {
+        run.mode = event.mode;
+      } else if (event.type === 'permission-request') {
         run.pendingPermissions.set(event.requestId, {
           requestId: event.requestId,
           participantId: event.participantId,
@@ -338,7 +397,10 @@ export class RunRegistry implements MaintenanceLease {
     const run = this.liveByRunId.get(runId);
     if (!run) return 'unknown-run';
     if (run.cancelPromise) return run.cancelPromise;
-    if (run.state !== 'queued') {
+    if (run.cancelling) return 'accepted';
+    // A started turn can requeue for writing access; its execution still owns cleanup.
+    if (run.startedAt !== undefined) {
+      run.cancelling = true;
       run.cancel();
       return 'accepted';
     }
@@ -455,12 +517,16 @@ export class RunRegistry implements MaintenanceLease {
       const run = this.liveByRunId.get(runId);
       if (!run?.execute) continue;
       run.state = 'running';
-      run.startedAt = Date.now();
+      run.startedAt ??= Date.now();
       run.lastQueuePosition = undefined;
       starting.push(run);
     }
     this.emitQueuePositions();
     for (const run of starting) {
+      if (run.resumeAccess) {
+        run.resumeAccess();
+        continue;
+      }
       void Promise.resolve()
         .then(() => run.execute!())
         .catch(() => undefined)
@@ -492,6 +558,7 @@ export class RunRegistry implements MaintenanceLease {
       runId: run.runId,
       sessionId: run.sessionId,
       participantId: run.participantId,
+      ...(run.mode ? { mode: run.mode } : {}),
       state: run.state,
       enqueuedAt: run.enqueuedAt,
       ...(run.startedAt === undefined ? {} : { startedAt: run.startedAt }),

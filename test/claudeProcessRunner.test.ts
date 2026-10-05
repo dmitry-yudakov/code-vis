@@ -71,6 +71,12 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(second.invocation.args).not.toContain('--dangerously-skip-permissions');
   });
 
+  it('counts main provider turns once across streaming starts and repeated blocks, excluding subagent output', async () => {
+    process.env.CODEAI_FAKE_MODE = 'turn-counting';
+    const completed = await run();
+    expect(completed.events.filter((event) => event.type === 'turn-started')).toHaveLength(2);
+  });
+
   it('never runs or advertises Auto for Claude, and Docker advertises it for nobody', async () => {
     // The route refuses first; if an Auto policy still arrived, the CLI must not start as if it were Agent's.
     const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-fake-'));
