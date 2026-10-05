@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, open, readdir, readlink, realpath, rename, unlink } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, readlink, realpath, rename, symlink, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { atomicWrite } from '@/server/storage/sessionStore';
@@ -10,6 +10,7 @@ import { isNotRepositoryOutput, runGitRead } from './gitRead';
 
 const MAX_FILES = 10_000;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_LINK_BYTES = 4096;
 const MAX_TREE_BYTES = 32 * 1024 * 1024;
 // Ten 48 MiB records fit within the 512 MiB durable budget, even if terminal inventories grow.
 const MAX_RECORD_BYTES = 48 * 1024 * 1024;
@@ -29,21 +30,28 @@ const PRIVATE_FILES = new Set([
 const UUID = /^[0-9a-f-]{36}$/i;
 const relativeFile = z.string().min(1).max(4096).refine((file) => safeRelative(file) && !excluded(file));
 const fileSchema = z.object({
+  kind: z.literal('file').default('file'),
   path: relativeFile, hash: z.string().regex(/^[a-f0-9]{64}$/), mode: z.number().int().min(0).max(0o7777),
   stamp: z.string().max(250), content: z.string().max(Math.ceil(MAX_FILE_BYTES / 3) * 4).optional(),
 }).strict();
+const linkSchema = fileSchema.omit({ content: true }).extend({
+  kind: z.literal('symlink'),
+  target: z.string().min(1).max(MAX_LINK_BYTES).refine((target) => !target.includes('\0')
+    && Buffer.byteLength(target) <= MAX_LINK_BYTES && Buffer.from(target).toString('utf8') === target).optional(),
+}).strict();
+const entrySchema = z.union([fileSchema, linkSchema]);
 const ignoredPathSchema = z.string().min(1).max(4096).refine((file) => safeRelative(file.replace(/\/$/, '')));
 const snapshotSchema = z.object({
   git: z.string().nullable(), ignoredPaths: z.array(ignoredPathSchema).max(MAX_FILES),
-  paths: z.array(relativeFile).max(MAX_FILES), files: z.array(fileSchema).max(MAX_FILES),
+  paths: z.array(relativeFile).max(MAX_FILES), files: z.array(entrySchema).max(MAX_FILES),
 }).strict();
 const recordSchema = z.object({
-  version: z.literal(1), id: z.string().uuid(), runId: z.string().uuid(), sessionId: z.string().uuid(), messageId: z.string().uuid(),
+  version: z.union([z.literal(1), z.literal(2)]), id: z.string().uuid(), runId: z.string().uuid(), sessionId: z.string().uuid(), messageId: z.string().uuid(),
   checkoutId: z.string().min(1).max(128), checkoutPath: z.string().min(1).max(4096),
   createdAt: z.string().datetime(), state: z.enum(['capturing', 'ready', 'unavailable', 'restoring', 'undone']),
   reason: z.string().max(500).optional(), before: snapshotSchema, after: snapshotSchema.optional(),
 }).strict();
-type FileEntry = z.infer<typeof fileSchema>;
+type FileEntry = z.infer<typeof entrySchema>;
 type Snapshot = z.infer<typeof snapshotSchema>;
 type CheckpointRecord = z.infer<typeof recordSchema>;
 const headerSchema = z.object({
@@ -71,7 +79,8 @@ const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).dige
 function stamp(info: Awaited<ReturnType<typeof lstat>>): string {
   return [info.dev, info.ino, info.size, info.mode, info.mtimeMs, info.ctimeMs].join(':');
 }
-function metadata(file: FileEntry): Omit<FileEntry, 'content'> {
+function metadata(file: FileEntry) {
+  if (file.kind === 'symlink') { const { target: _target, ...result } = file; return result; }
   const { content: _content, ...result } = file; return result;
 }
 function sameSnapshot(left: Snapshot, right: Snapshot): boolean {
@@ -84,7 +93,7 @@ function changedFiles(record: CheckpointRecord): string[] {
   const after = new Map(record.after?.files.map((file) => [file.path, file]));
   return [...new Set([...before.keys(), ...after.keys()])].sort().filter((file) => {
     const a = before.get(file); const b = after.get(file);
-    return a?.hash !== b?.hash || a?.mode !== b?.mode;
+    return a?.kind !== b?.kind || a?.hash !== b?.hash || a?.mode !== b?.mode;
   });
 }
 function contains(root: string, candidate: string): boolean {
@@ -92,17 +101,44 @@ function contains(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
-/** Opens a checkout file without following the final link, then proves the kernel's name before
- * reading any bytes. A swapped parent link cannot make us read a credential outside the checkout.
+/** Reads file contents or exact link text without following the final link. The kernel's name is
+ * proved before reading bytes, so a swapped parent cannot redirect a read outside the checkout.
  * Hard links are refused for the same reason. Linux is required for this exact-handle proof. */
 async function readFileEntry(root: string, file: string, includeContent: boolean): Promise<FileEntry | undefined> {
   if (!safeRelative(file) || excluded(file)) throw new CheckpointError('An unsafe checkpoint path was refused.');
   const target = path.join(root, file);
+  const initial = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error;
+    return undefined;
+  });
+  if (!initial) return undefined;
+  if (initial.isSymbolicLink()) {
+    // Pin the parent without creating anything. Read the link text, never its target, and prove
+    // the parent before/after so a swapped ancestor cannot redirect even this metadata read.
+    const parent = path.dirname(target);
+    const directory = await open(parent, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try {
+      if (await readlink(`/proc/self/fd/${directory.fd}`) !== parent) throw new CheckpointError('A checkout path changed while saving recovery.');
+      const anchored = `/proc/self/fd/${directory.fd}/${path.basename(file)}`;
+      const info = await lstat(anchored);
+      if (!info.isSymbolicLink() || stamp(info) !== stamp(initial)) throw new CheckpointError('The checkout changed while saving recovery. Retry once editing stops.');
+      if (info.nlink !== 1) throw new CheckpointError('Checkpoint requires symbolic links without hard links.');
+      const bytes = await readlink(anchored, { encoding: 'buffer' });
+      const linkTarget = bytes.toString('utf8');
+      if (bytes.length > MAX_LINK_BYTES || !Buffer.from(linkTarget).equals(bytes)) throw new CheckpointError('Checkpoint symbolic-link targets must be UTF-8 and fit within 4 KiB.');
+      if (bytes.length !== info.size || stamp(info) !== stamp(await lstat(anchored))
+        || await readlink(`/proc/self/fd/${directory.fd}`) !== parent) {
+        throw new CheckpointError('The checkout changed while saving recovery. Retry once editing stops.');
+      }
+      return { kind: 'symlink', path: file, hash: hash(bytes), mode: info.mode & 0o7777, stamp: stamp(info),
+        ...(includeContent ? { target: linkTarget } : {}) };
+    } finally { await directory.close(); }
+  }
   let handle;
   try { handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw new CheckpointError('Checkpoint requires regular files without symbolic links.');
+    throw new CheckpointError('Checkpoint entry could not be opened safely. Retry once editing stops.');
   }
   try {
     if (await readlink(`/proc/self/fd/${handle.fd}`) !== target) throw new CheckpointError('A checkout path changed while saving recovery.');
@@ -119,7 +155,7 @@ async function readFileEntry(root: string, file: string, includeContent: boolean
       throw new CheckpointError('The checkout changed while saving recovery. Retry once editing stops.');
     }
     const content = buffer.subarray(0, length);
-    return { path: file, hash: hash(content), mode: info.mode & 0o7777, stamp: stamp(info), ...(includeContent ? { content: content.toString('base64') } : {}) };
+    return { kind: 'file', path: file, hash: hash(content), mode: info.mode & 0o7777, stamp: stamp(info), ...(includeContent ? { content: content.toString('base64') } : {}) };
   } finally { await handle.close(); }
 }
 
@@ -258,6 +294,8 @@ export class TurnCheckpoints {
     return records.sort((a, b) => b.summary.createdAt.localeCompare(a.summary.createdAt));
   }
   private async save(record: CheckpointRecord): Promise<void> {
+    // Parsing normalizes legacy regular entries; persist that upgraded shape as version 2.
+    record.version = 2;
     recordSchema.parse(record);
     if (Buffer.byteLength(JSON.stringify(record, null, 2)) + 1 > MAX_RECORD_BYTES) throw new CheckpointError('Checkpoint record exceeds its storage limit.');
     await atomicWrite(this.file(record.id), record);
@@ -306,7 +344,7 @@ export class TurnCheckpoints {
       }
       const before = await snapshot(identity.checkoutPath, true);
       if (!sameSnapshot(before, await snapshot(identity.checkoutPath, false, before.paths, undefined, before.ignoredPaths))) throw new CheckpointError('The checkout changed during capture. Retry once editing stops.');
-      const record: CheckpointRecord = { version: 1, id: randomUUID(), ...identity, createdAt: new Date(this.now()).toISOString(), state: 'capturing', before };
+      const record: CheckpointRecord = { version: 2, id: randomUUID(), ...identity, createdAt: new Date(this.now()).toISOString(), state: 'capturing', before };
       const existing = await this.records();
       let total = Buffer.byteLength(JSON.stringify(record, null, 2)) + MAX_FILES * 400; // Reserve terminal metadata space now.
       const kept: CheckpointHeader[] = [];
@@ -345,9 +383,10 @@ export class TurnCheckpoints {
       // Validate all backup bytes before the first mutation, including bounds and checksums.
       let total = 0;
       for (const file of record.before.files) {
-        if (file.content === undefined) throw new CheckpointError('Recovery content is missing.');
-        const bytes = Buffer.from(file.content, 'base64'); total += bytes.length;
-        if (bytes.length > MAX_FILE_BYTES || total > MAX_TREE_BYTES || hash(bytes) !== file.hash) throw new CheckpointError('Recovery content is invalid.');
+        if ((file.kind === 'file' ? file.content : file.target) === undefined) throw new CheckpointError('Recovery content is missing.');
+        const bytes = file.kind === 'symlink' ? Buffer.from(file.target!) : Buffer.from(file.content!, 'base64'); total += bytes.length;
+        if (bytes.length > (file.kind === 'symlink' ? MAX_LINK_BYTES : MAX_FILE_BYTES)
+          || total > MAX_TREE_BYTES || hash(bytes) !== file.hash) throw new CheckpointError('Recovery content is invalid.');
       }
       const before = new Map(record.before.files.map((file) => [file.path, file]));
       const after = new Map(record.after.files.map((file) => [file.path, file]));
@@ -366,16 +405,24 @@ export class TurnCheckpoints {
             if (await readlink(`/proc/self/fd/${directory.fd}`) !== parent) throw new CheckpointError('A directory changed during Undo.');
             const anchored = `/proc/self/fd/${directory.fd}/${path.basename(file)}`;
             const original = before.get(file);
-            if (!original) await unlink(anchored);
+            if (!original) {
+              if (JSON.stringify(await readFileEntry(record.checkoutPath, file, false)) !== JSON.stringify(expected)
+                || await readlink(`/proc/self/fd/${directory.fd}`) !== parent) throw new CheckpointError('A file changed during Undo.');
+              await unlink(anchored);
+            }
             else {
               const temporary = `/proc/self/fd/${directory.fd}/.codeai-undo-${randomUUID()}`;
-              const handle = await open(temporary, 'wx', original.mode);
               try {
-                await handle.writeFile(Buffer.from(original.content!, 'base64')); await handle.chmod(original.mode); await handle.sync();
+                if (original.kind === 'symlink') await symlink(original.target!, temporary);
+                else {
+                  const handle = await open(temporary, 'wx', original.mode);
+                  try { await handle.writeFile(Buffer.from(original.content!, 'base64')); await handle.chmod(original.mode); await handle.sync(); }
+                  finally { await handle.close(); }
+                }
                 if (JSON.stringify(await readFileEntry(record.checkoutPath, file, false)) !== JSON.stringify(expected)
                   || await readlink(`/proc/self/fd/${directory.fd}`) !== parent) throw new CheckpointError('A file changed during Undo.');
                 await rename(temporary, anchored);
-              } finally { await handle.close(); await unlink(temporary).catch(() => undefined); }
+              } finally { await unlink(temporary).catch(() => undefined); }
             }
             await directory.sync();
           } finally { await directory.close(); }

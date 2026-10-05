@@ -764,7 +764,12 @@ fixed filename exclusions, including `.codex`, `.claude`, `.aws`, `.ssh`, `.conf
 `.npmrc`, `.netrc` and `.pypirc`; it does not recognize secrets in arbitrary source files.
 
 Recovery currently requires **Linux** to prove file-handle paths before reading or restoring data.
-Writing turns fail before execution if capture cannot finish safely: nonexcluded links, special
+Symbolic links are backed up as links, preserving their exact target text without following it.
+Undo restores retargeted or deleted links, removes new links, and handles regular-file/link
+replacements. Relative, absolute, dangling and directory links work; changes to an external target
+are outside recovery. A populated real directory replaced by a link makes Undo unavailable, and
+links in the ancestors of covered files remain refused. Link targets must be UTF-8 and fit within 4 KiB.
+Writing turns fail before execution if capture cannot finish safely: hard links, special
 files, submodules/nested repositories, more than 10,000 eligible paths or ignored inventory entries,
 a file over 4 MiB, or eligible content over 32 MiB. Keep generated files ignored.
 `CODEAI_DATA_DIR` must be outside the checkout.
@@ -776,7 +781,9 @@ The small `.summary` files index recovery status; no session-format upgrade is n
 If the process stops before saving the terminal fingerprint, automatic Undo is unavailable. If
 Undo fails or is interrupted, some files may already be restored and automatic retry stays
 disabled. The original backup remains until expiry/pruning for manual recovery: each `before.files`
-entry holds its relative `path`, permission `mode` and base64 `content`. Inspect/copy that backup
+entry holds its relative `path` and `kind`: regular files carry permission `mode` and base64
+`content`; symbolic links carry exact `target` text. Private checkpoint version 2 supports links;
+existing version 1 regular-file checkpoints remain recoverable. Inspect/copy that backup
 before repairing individual files; CodeAI never forces a restore over intervening edits.
 
 At Guarded, Claude supports Ask, Plan, and Agent. Codex supports Ask and Plan by default. Codex Agent and Auto

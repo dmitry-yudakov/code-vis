@@ -1,6 +1,7 @@
 import { execFile as callbackExecFile } from 'node:child_process';
+import { constants } from 'node:fs';
 import { promisify } from 'node:util';
-import { mkdir, mkdtemp, readFile, rm, symlink, link, writeFile, rename, chmod, lstat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, link, writeFile, rename, chmod, lstat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -207,11 +208,220 @@ describe('turn checkpoints in a real checkout', () => {
     expect(await readFile(path.join(root, 'private'), 'utf8')).toBe('outside');
   });
 
-  it.each(['symlink', 'hardlink', 'nested'])('fails capture on a nonexcluded %s', async (kind) => {
-    if (kind === 'symlink') await symlink(path.join(root, 'private'), path.join(checkout, 'unsafe'));
+  it.each(['hardlink', 'nested'])('fails capture on a nonexcluded %s', async (kind) => {
     if (kind === 'hardlink') await link(path.join(checkout, 'a.txt'), path.join(checkout, 'unsafe'));
     if (kind === 'nested') { await mkdir(path.join(checkout, 'nested')); await execFile('git', ['init', '-q'], { cwd: path.join(checkout, 'nested') }); }
     await expect(checkpoints.capture(identity())).rejects.toThrow(/link|nested|regular/i);
+  });
+
+  it.each([true, false])('captures repository instruction and directory links without reading their targets (Git: %s)', async (useGit) => {
+    await mkdir(path.join(checkout, '.agents'));
+    await mkdir(path.join(checkout, '.github/skills'), { recursive: true });
+    await mkdir(path.join(checkout, 'client/ios/App/App'), { recursive: true });
+    await writeFile(path.join(checkout, 'AGENTS.md'), 'fixture instructions');
+    const links = {
+      '.agents/skills': '../.github/skills',
+      'CLAUDE.md': 'AGENTS.md',
+      'client/ios/App/App/GoogleService-Info.plist': 'GoogleService-Info_prod.plist',
+      'private-link': '.env.local',
+      'external-directory': root,
+      'external-file': path.join(root, 'private'),
+    };
+    await writeFile(path.join(checkout, '.env.local'), 'excluded target bytes');
+    await writeFile(path.join(root, 'private'), 'external target bytes');
+    for (const [file, target] of Object.entries(links)) await symlink(target, path.join(checkout, file));
+    if (useGit) await git('add', '.agents/skills', 'CLAUDE.md', 'client/ios/App/App/GoogleService-Info.plist');
+    else await rm(path.join(checkout, '.git'), { recursive: true });
+    const id = await checkpoints.capture(identity());
+    const text = await readFile(path.join(state.dataDir, 'turn-checkpoints', `${id}.json`), 'utf8');
+    const record = JSON.parse(text);
+    for (const [file, target] of Object.entries(links)) {
+      expect(record.before.files.find((entry: { path: string }) => entry.path === file)).toMatchObject({ kind: 'symlink', target });
+      expect(await readlink(path.join(checkout, file))).toBe(target);
+    }
+    expect(text).not.toContain(Buffer.from('excluded target bytes').toString('base64'));
+    expect(text).not.toContain(Buffer.from('external target bytes').toString('base64'));
+    await writeFile(path.join(checkout, 'a.txt'), 'agent');
+    await writeFile(path.join(root, 'private'), 'later external edit');
+    await checkpoints.finish(id); await checkpoints.undo(id);
+    expect(await bytes('a.txt')).toBe('committed a');
+    expect(await readFile(path.join(root, 'private'), 'utf8')).toBe('later external edit');
+  });
+
+  it.each(['retarget', 'delete', 'replace-with-file'])('restores the exact link target after %s without following it', async (operation) => {
+    const file = path.join(checkout, 'pointer');
+    const original = '../missing-ünicode';
+    await symlink(original, file);
+    const id = await checkpoints.capture(identity());
+    await rm(file);
+    if (operation === 'retarget') await symlink(path.join(root, 'private'), file);
+    if (operation === 'replace-with-file') { await writeFile(file, original); await chmod(file, 0o777); }
+    await writeFile(path.join(root, 'private'), 'external work');
+    await checkpoints.finish(id);
+    expect((await checkpoints.latest(sessionId))?.changedFiles).toBe(1);
+    await checkpoints.undo(id);
+    expect((await lstat(file)).isSymbolicLink()).toBe(true);
+    expect(await readlink(file)).toBe(original);
+    expect(await readFile(path.join(root, 'private'), 'utf8')).toBe('external work');
+  });
+
+  it('restores a regular file replaced by a link even when content hash and mode match', async () => {
+    const file = path.join(checkout, 'a.txt');
+    await writeFile(file, '../missing'); await chmod(file, 0o777);
+    const id = await checkpoints.capture(identity());
+    await rm(file); await symlink('../missing', file);
+    await checkpoints.finish(id);
+    expect((await checkpoints.latest(sessionId))?.changedFiles).toBe(1);
+    await checkpoints.undo(id);
+    expect((await lstat(file)).isFile()).toBe(true);
+    expect(await bytes('a.txt')).toBe('../missing');
+    expect((await lstat(file)).mode & 0o7777).toBe(0o777);
+  });
+
+  it('removes links created during the turn and never deletes their targets', async () => {
+    const id = await checkpoints.capture(identity());
+    const file = path.join(checkout, 'new-link');
+    await writeFile(path.join(root, 'private'), 'outside'); await symlink(path.join(root, 'private'), file);
+    await checkpoints.finish(id); await checkpoints.undo(id);
+    await expect(lstat(file)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(path.join(root, 'private'), 'utf8')).toBe('outside');
+  });
+
+  it.each(['retarget', 'recreate'])('refuses a later link %s without restoring other files', async (operation) => {
+    const file = path.join(checkout, 'pointer');
+    await symlink('original', file);
+    const id = await checkpoints.capture(identity());
+    await writeFile(path.join(checkout, 'a.txt'), 'agent'); await checkpoints.finish(id);
+    await rename(file, path.join(root, 'old-link'));
+    const target = operation === 'retarget' ? 'later' : 'original';
+    await symlink(target, file);
+    await expect(checkpoints.undo(id)).rejects.toThrow(/changed|newer/);
+    expect(await bytes('a.txt')).toBe('agent'); expect(await readlink(file)).toBe(target);
+  });
+
+  it('validates saved link target checksums before restoring anything', async () => {
+    const file = path.join(checkout, 'pointer');
+    await symlink('original', file);
+    const id = await checkpoints.capture(identity());
+    await rm(file); await symlink('agent', file); await writeFile(path.join(checkout, 'a.txt'), 'agent');
+    await checkpoints.finish(id);
+    const recordFile = path.join(state.dataDir, 'turn-checkpoints', `${id}.json`);
+    const record = JSON.parse(await readFile(recordFile, 'utf8'));
+    record.before.files.find((entry: { path: string }) => entry.path === 'pointer').target = 'tampered';
+    await writeFile(recordFile, JSON.stringify(record));
+    await expect(checkpoints.undo(id)).rejects.toThrow(/content is invalid/);
+    expect(await bytes('a.txt')).toBe('agent'); expect(await readlink(file)).toBe('agent');
+  });
+
+  it('keeps a bounded checkpoint recoverable with thousands of long link targets', async () => {
+    const target = 't'.repeat(4000);
+    await Promise.all(Array.from({ length: 7000 }, (_, index) => symlink(target, path.join(checkout, `pointer-${index}`))));
+    const id = await checkpoints.capture(identity());
+    await writeFile(path.join(checkout, 'a.txt'), 'agent');
+    await checkpoints.finish(id);
+    expect((await checkpoints.latest(sessionId))?.state).toBe('ready');
+    const record = JSON.parse(await readFile(path.join(state.dataDir, 'turn-checkpoints', `${id}.json`), 'utf8'));
+    expect(record.before.files.find((file: { kind: string }) => file.kind === 'symlink').target).toBe(target);
+    expect(record.after.files.filter((file: { kind: string }) => file.kind === 'symlink')
+      .every((file: { target?: string }) => file.target === undefined)).toBe(true);
+  }, 30_000);
+
+  it.each(['capturing', 'ready'])('recovers existing version 1 regular-file checkpoints saved as %s', async (stage) => {
+    const id = await checkpoints.capture(identity());
+    await writeFile(path.join(checkout, 'a.txt'), 'agent');
+    if (stage === 'ready') await checkpoints.finish(id);
+    const recordFile = path.join(state.dataDir, 'turn-checkpoints', `${id}.json`);
+    const record = JSON.parse(await readFile(recordFile, 'utf8'));
+    record.version = 1;
+    for (const snapshot of [record.before, record.after].filter(Boolean)) for (const file of snapshot.files) delete file.kind;
+    await writeFile(recordFile, JSON.stringify(record));
+    if (stage === 'capturing') await new TurnCheckpoints(state.dataDir).finish(id);
+    await new TurnCheckpoints(state.dataDir).undo(id);
+    expect(await bytes('a.txt')).toBe('committed a');
+    expect(JSON.parse(await readFile(recordFile, 'utf8')).version).toBe(2);
+  });
+
+  it.each(['link', 'parent'])('refuses a %s replacement during link capture', async (replacement) => {
+    const parent = path.join(checkout, 'links'); await mkdir(parent);
+    const file = path.join(parent, 'pointer'); await symlink('../a.txt', file);
+    const outside = path.join(root, 'outside'); await mkdir(outside);
+    await symlink('private-target', path.join(outside, 'pointer'));
+    const fs = await import('node:fs/promises'); const actualReadlink = fs.readlink;
+    let swapped = false;
+    vi.spyOn(fs, 'readlink').mockImplementation(async (target, options) => {
+      const value = await actualReadlink(target, options);
+      if (!swapped && Buffer.isBuffer(value)) {
+        swapped = true;
+        if (replacement === 'link') { await rm(file); await symlink('replacement', file); }
+        else { await rename(parent, path.join(root, 'old-parent')); await symlink(outside, parent); }
+      }
+      return value;
+    });
+    await expect(checkpoints.capture(identity())).rejects.toThrow(/changed/);
+    expect(swapped).toBe(true); expect(await checkpoints.latest(sessionId)).toBeUndefined();
+    expect(await actualReadlink(path.join(outside, 'pointer'))).toBe('private-target');
+  });
+
+  it('refuses deleting a new link retargeted while opening its restore parent', async () => {
+    const id = await checkpoints.capture(identity());
+    const file = path.join(checkout, 'new-link'); await symlink('agent-target', file); await checkpoints.finish(id);
+    const fs = await import('node:fs/promises'); const actualOpen = fs.open;
+    let parentOpens = 0;
+    vi.spyOn(fs, 'open').mockImplementation(async (target, flags, mode) => {
+      const handle = await actualOpen(target, flags, mode);
+      // Two link reads precede the parent handle used for deletion. Change the link at that
+      // boundary to reproduce an outside editor racing the last validation before unlink.
+      if (target === checkout && flags === (constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+        && ++parentOpens === 3) { await rename(file, path.join(root, 'old-link')); await symlink('later-target', file); }
+      return handle;
+    });
+    await expect(checkpoints.undo(id)).rejects.toThrow(/changed|partly restored/);
+    expect(await readlink(file)).toBe('later-target');
+  });
+
+  it('refuses hardlinked symlinks and targets that do not round-trip as UTF-8', async () => {
+    const file = path.join(checkout, 'pointer');
+    await symlink(Buffer.from([0xff]), file);
+    await expect(checkpoints.capture(identity())).rejects.toThrow(/UTF-8/);
+    await rm(file); await symlink('original', file); await link(file, path.join(checkout, 'hardlink'));
+    await expect(checkpoints.capture(identity())).rejects.toThrow(/hard links/);
+  });
+
+  it.each(['nul', 'oversize', 'surrogate', 'missing'])('refuses a saved link target containing %s before restoring files', async (invalid) => {
+    const file = path.join(checkout, 'pointer'); await symlink('original', file);
+    const id = await checkpoints.capture(identity());
+    await writeFile(path.join(checkout, 'a.txt'), 'agent'); await checkpoints.finish(id);
+    const recordFile = path.join(state.dataDir, 'turn-checkpoints', `${id}.json`);
+    const record = JSON.parse(await readFile(recordFile, 'utf8'));
+    const target = invalid === 'missing' ? undefined : invalid === 'nul' ? 'before\0after' : invalid === 'oversize' ? 'ü'.repeat(2049) : '\ud800';
+    record.before.files.find((entry: { path: string }) => entry.path === 'pointer').target = target;
+    await writeFile(recordFile, JSON.stringify(record));
+    await expect(checkpoints.undo(id)).rejects.toThrow();
+    expect(await bytes('a.txt')).toBe('agent'); expect(await readlink(file)).toBe('original');
+  });
+
+  it('retains the original link backup and disables retry if link restoration fails', async () => {
+    const file = path.join(checkout, 'pointer'); await symlink('original', file);
+    const id = await checkpoints.capture(identity());
+    await rm(file); await symlink('agent', file); await checkpoints.finish(id); state.failRestoreAt = 1;
+    await expect(checkpoints.undo(id)).rejects.toThrow(/partly restored/);
+    expect(await readlink(file)).toBe('agent');
+    await expect(checkpoints.undo(id)).rejects.toThrow(/interrupted/);
+    const record = JSON.parse(await readFile(path.join(state.dataDir, 'turn-checkpoints', `${id}.json`), 'utf8'));
+    expect(record.before.files.find((entry: { path: string }) => entry.path === 'pointer').target).toBe('original');
+    expect((await readdir(checkout)).filter((name) => name.startsWith('.codeai-undo-'))).toEqual([]);
+  });
+
+  it('disables Undo when a populated directory is replaced by a link without reading the target', async () => {
+    const parent = path.join(checkout, 'folder'); await mkdir(parent);
+    await writeFile(path.join(parent, 'work.txt'), 'human');
+    const outside = path.join(root, 'outside'); await mkdir(outside);
+    await writeFile(path.join(outside, 'work.txt'), 'external');
+    const id = await checkpoints.capture(identity());
+    await rm(parent, { recursive: true }); await symlink(outside, parent); await checkpoints.finish(id);
+    expect((await checkpoints.latest(sessionId))?.state).toBe('unavailable');
+    await expect(checkpoints.undo(id)).rejects.toThrow(/fingerprint/);
+    expect(await readFile(path.join(outside, 'work.txt'), 'utf8')).toBe('external');
   });
 
   it('fails closed on size limits and data storage inside the checkout', async () => {

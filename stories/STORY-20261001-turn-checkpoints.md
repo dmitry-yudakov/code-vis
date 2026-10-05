@@ -118,6 +118,9 @@ queue Q1 and supports the vision's local repository change loop.
 
 ## Out of scope
 
+The original capture contract's refusal of eligible symbolic links is superseded by
+[Story 89](STORY-20261005-symlink-checkpoints.md), which saves and restores links without following targets.
+
 - Undoing commits or index edits; restoring `.git`, ignored/private files, provider history,
   conversation messages, external services, or other paths reachable in Full access.
 - Multi-file atomic transactions with outside editors, automatic crash recovery, and redo.

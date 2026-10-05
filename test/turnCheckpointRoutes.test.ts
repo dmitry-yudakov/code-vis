@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -98,6 +98,17 @@ describe('writing turn recovery routes', () => {
     expect(fixture.beforeProvider).toBe('captured');
     expect((await undo(await checkpoint())).status).toBe(200);
     expect(await readFile(path.join(checkout, 'a.txt'), 'utf8')).toBe('human work');
+  });
+
+  it('runs and undoes a writing turn in a checkout with an instruction link', async () => {
+    await writeFile(path.join(checkout, 'AGENTS.md'), 'fixture instructions');
+    await symlink('AGENTS.md', path.join(checkout, 'CLAUDE.md'));
+    const events = await (await send()).text();
+    expect(fixture.invoked).toBe(1); expect(fixture.beforeProvider).toBe('captured');
+    expect(events).not.toContain('requires regular files');
+    expect((await undo(await checkpoint())).status).toBe(200);
+    expect(await readFile(path.join(checkout, 'a.txt'), 'utf8')).toBe('human work');
+    expect(await readlink(path.join(checkout, 'CLAUDE.md'))).toBe('AGENTS.md');
   });
 
   it('does not capture Ask and Plan, and fails closed before execution when capture is unsafe', async () => {
