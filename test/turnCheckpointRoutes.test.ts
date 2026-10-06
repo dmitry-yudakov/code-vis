@@ -1,3 +1,5 @@
+import { execFile as callbackExecFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -111,15 +113,29 @@ describe('writing turn recovery routes', () => {
     expect(await readlink(path.join(checkout, 'CLAUDE.md'))).toBe('AGENTS.md');
   });
 
+  it('runs and undoes a writing turn with a large tracked image asset', async () => {
+    const image = Buffer.alloc(7 * 1024 * 1024, 0xa5);
+    await writeFile(path.join(checkout, 'splash.png'), image);
+    const execFile = promisify(callbackExecFile);
+    const options = { cwd: checkout, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } };
+    await execFile('git', ['init', '-q'], options);
+    await execFile('git', ['add', 'a.txt', 'splash.png'], options);
+    await (await send()).text();
+    expect(fixture.invoked).toBe(1); expect(fixture.beforeProvider).toBe('captured');
+    expect((await undo(await checkpoint())).status).toBe(200);
+    expect((await readFile(path.join(checkout, 'splash.png'))).equals(image)).toBe(true);
+    expect(await readFile(path.join(checkout, 'a.txt'), 'utf8')).toBe('human work');
+  });
+
   it('does not capture Ask and Plan, and fails closed before execution when capture is unsafe', async () => {
     for (const mode of ['ask', 'plan']) {
       await (await send(mode)).text(); expect(fixture.beforeProvider).toBe('no checkpoint');
     }
     expect(await checkpoint()).toBeNull();
     fixture.invoked = 0;
-    await writeFile(path.join(checkout, 'oversized.bin'), Buffer.alloc(4 * 1024 * 1024 + 1));
+    await writeFile(path.join(checkout, 'oversized.bin'), Buffer.alloc(8 * 1024 * 1024 + 1));
     const events = await (await send()).text();
-    expect(fixture.invoked).toBe(0); expect(events).toContain('4 MiB limit');
+    expect(fixture.invoked).toBe(0); expect(events).toContain('8 MiB limit'); expect(events).toContain('oversized.bin');
     const saved = await getSessionStore(getConfig().dataDir).getSession(session.id);
     expect(saved.messages.at(-1)).toMatchObject({ status: 'failed', delivery: 'not-sent' });
   });

@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-10-05. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-06. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -142,6 +142,9 @@ Updated 2026-10-05. When a story ships, change the line that names it; each stor
   during a queued, working, or approval-blocked turn on desktop and in VR; the same task resumes
   with its new policy, preserved evidence, checkout locking, checkpoint recovery, and remaining
   budgets. Offline tests, TypeScript, production build, both-theme browser checks and review passed.
+- **Shipped:** [Story 91](stories/STORY-20261005-checkpoint-capacity.md) — writing turns recover
+  tracked assets up to 8 MiB per file and 128 MiB per checkout; storage retention reserves active
+  checkpoints before completed records. All 72 focused checks, TypeScript and independent review passed.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

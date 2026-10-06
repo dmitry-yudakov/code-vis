@@ -779,11 +779,13 @@ are outside recovery. A populated real directory replaced by a link makes Undo u
 links in the ancestors of covered files remain refused. Link targets must be UTF-8 and fit within 4 KiB.
 Writing turns fail before execution if capture cannot finish safely: hard links, special
 files, submodules/nested repositories, more than 10,000 eligible paths or ignored inventory entries,
-a file over 4 MiB, or eligible content over 32 MiB. Keep generated files ignored.
+a file over 8 MiB, or eligible content over 128 MiB. Oversized-file errors name the relative path.
+Keep generated files ignored; tracked source assets within these limits are backed up normally.
 `CODEAI_DATA_DIR` must be outside the checkout.
 Checkpoints stay on the executing machine, outside Docker mounts, at
 `<dataDir>/turn-checkpoints/<checkpointId>.json`, privately readable by the owner. At most ten
-records fit within 512 MiB; records expire after seven days and are pruned on subsequent captures.
+records are retained, bounded by 512 MiB in total and 192 MiB per record. Larger checkpoints can
+reduce the retained count. Records expire after seven days and are pruned on subsequent captures.
 The small `.summary` files index recovery status; no session-format upgrade is needed.
 
 If the process stops before saving the terminal fingerprint, automatic Undo is unavailable. If

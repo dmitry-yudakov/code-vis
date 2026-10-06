@@ -20,7 +20,7 @@ vi.mock('@/server/config', () => ({ getConfig: () => ({ dataDir: state.dataDir, 
 vi.mock('@/server/execution/dockerRecovery', () => ({ recoverDockerExecution: async () => undefined }));
 
 import { TurnCheckpoints } from '@/server/repository/turnCheckpoints';
-import { RunRegistry } from '@/server/runs/runRegistry';
+import { RunRegistry, runRegistry } from '@/server/runs/runRegistry';
 
 const execFile = promisify(callbackExecFile);
 let root: string;
@@ -424,16 +424,32 @@ describe('turn checkpoints in a real checkout', () => {
     expect(await readFile(path.join(outside, 'work.txt'), 'utf8')).toBe('external');
   });
 
+  it('captures and restores a tracked asset checkout near 100 MiB without excluding its images', async () => {
+    const assets = path.join(checkout, 'client/assets'); await mkdir(assets, { recursive: true });
+    const content = Buffer.alloc(7 * 1024 * 1024, 0xa5);
+    await Promise.all(Array.from({ length: 14 }, (_, index) => writeFile(path.join(assets, `splash-${index}.png`), content)));
+    await git('add', 'client/assets');
+    const index = await readFile(path.join(checkout, '.git/index'));
+    const id = await checkpoints.capture(identity());
+    await writeFile(path.join(assets, 'splash-0.png'), 'agent replacement');
+    await writeFile(path.join(checkout, 'a.txt'), 'agent');
+    await checkpoints.finish(id); expect((await checkpoints.latest(sessionId))?.state).toBe('ready');
+    await new TurnCheckpoints(state.dataDir).undo(id);
+    expect((await readFile(path.join(assets, 'splash-0.png'))).equals(content)).toBe(true);
+    expect(await bytes('a.txt')).toBe('committed a');
+    expect(await readFile(path.join(checkout, '.git/index'))).toEqual(index);
+  }, 30_000);
+
   it('fails closed on size limits and data storage inside the checkout', async () => {
-    await writeFile(path.join(checkout, 'large.bin'), Buffer.alloc(4 * 1024 * 1024 + 1));
-    await expect(checkpoints.capture(identity())).rejects.toThrow(/limit|MiB/i);
+    await writeFile(path.join(checkout, 'large.bin'), Buffer.alloc(8 * 1024 * 1024 + 1));
+    await expect(checkpoints.capture(identity())).rejects.toThrow(/large\.bin.*8 MiB/);
     await expect(new TurnCheckpoints(path.join(checkout, 'data')).capture(identity())).rejects.toThrow(/outside/i);
   });
 
   it('enforces the total file-byte budget before saving a checkpoint', async () => {
-    const content = Buffer.alloc(4 * 1024 * 1024);
-    await Promise.all(Array.from({ length: 9 }, (_, index) => writeFile(path.join(checkout, `large-${index}.bin`), content)));
-    await expect(checkpoints.capture(identity())).rejects.toThrow(/32 MiB/);
+    const content = Buffer.alloc(8 * 1024 * 1024);
+    await Promise.all(Array.from({ length: 17 }, (_, index) => writeFile(path.join(checkout, `large-${index}.bin`), content)));
+    await expect(checkpoints.capture(identity())).rejects.toThrow(/128 MiB/);
     expect(await checkpoints.latest(sessionId)).toBeUndefined();
   });
 
@@ -531,6 +547,39 @@ describe('turn checkpoints in a real checkout', () => {
     const { readdir } = await import('node:fs/promises');
     expect((await readdir(path.join(state.dataDir, 'turn-checkpoints'))).filter((file) => file.endsWith('.json'))).toHaveLength(10);
   });
+
+  it('reserves an older active checkpoint before pruning completed records by byte budget', async () => {
+    const activeCheckout = path.join(root, 'active-checkout'); await mkdir(activeCheckout);
+    const content = Buffer.alloc(7 * 1024 * 1024, 0xa5);
+    for (const directory of [activeCheckout, checkout]) {
+      await Promise.all(Array.from({ length: 14 }, (_, index) => writeFile(path.join(directory, `splash-${index}.png`), content)));
+    }
+    const activeIdentity = { ...identity(), sessionId: crypto.randomUUID(), checkoutId: 'active-checkout', checkoutPath: activeCheckout };
+    const activeId = await checkpoints.capture(activeIdentity);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      expect(runRegistry.reserve({ ...activeIdentity, participantId: 'agent', providerKey: activeIdentity.runId, access: 'write', cancel: release }).accepted).toBe(true);
+      expect(runRegistry.activate(activeIdentity.runId, { execute: () => held, cancelQueued: async () => {} })).toBe(true);
+      const completed: string[] = [];
+      for (let index = 0; index < 2; index++) {
+        now++;
+        const id = await checkpoints.capture(identity());
+        await writeFile(path.join(checkout, 'a.txt'), `agent ${index}`); await checkpoints.finish(id);
+        completed.push(id);
+      }
+      now++;
+      const id = await checkpoints.capture(identity());
+      await writeFile(path.join(checkout, 'a.txt'), 'next agent'); await checkpoints.finish(id);
+      const directory = path.join(state.dataDir, 'turn-checkpoints');
+      const records = (await readdir(directory)).filter((file) => file.endsWith('.json'));
+      expect(records.sort()).toEqual([activeId, completed[1], id].map((checkpointId) => `${checkpointId}.json`).sort());
+      await expect(lstat(path.join(directory, `${completed[0]}.json.summary`))).rejects.toMatchObject({ code: 'ENOENT' });
+      const sizes = await Promise.all(records.map(async (file) => (await lstat(path.join(directory, file))).size));
+      expect(sizes.reduce((total, size) => total + size, 0)).toBeLessThanOrEqual(512 * 1024 * 1024);
+      expect(Math.max(...sizes)).toBeLessThanOrEqual(192 * 1024 * 1024);
+    } finally { release(); await runRegistry.wait(activeIdentity.runId); }
+  }, 30_000);
 
   it('works in an unborn repository and a non-Git project', async () => {
     await rm(path.join(checkout, '.git'), { recursive: true });

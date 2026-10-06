@@ -9,11 +9,12 @@ import { checkpointSummarySchema, type CheckpointSummary } from '@/shared/turnCh
 import { isNotRepositoryOutput, runGitRead } from './gitRead';
 
 const MAX_FILES = 10_000;
-const MAX_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_LINK_BYTES = 4096;
-const MAX_TREE_BYTES = 32 * 1024 * 1024;
-// Ten 48 MiB records fit within the 512 MiB durable budget, even if terminal inventories grow.
-const MAX_RECORD_BYTES = 48 * 1024 * 1024;
+const MAX_TREE_BYTES = 128 * 1024 * 1024;
+// A 128 MiB backup needs about 171 MiB after base64; leave room for metadata. The aggregate
+// storage budget may retain fewer than ten records when checkpoints are large.
+const MAX_RECORD_BYTES = 192 * 1024 * 1024;
 const MAX_STORAGE_BYTES = 512 * 1024 * 1024;
 const MAX_RECORDS = 10;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -144,7 +145,7 @@ async function readFileEntry(root: string, file: string, includeContent: boolean
     if (await readlink(`/proc/self/fd/${handle.fd}`) !== target) throw new CheckpointError('A checkout path changed while saving recovery.');
     const info = await handle.stat();
     if (!info.isFile() || info.nlink !== 1) throw new CheckpointError('Checkpoint requires regular files without hard links or nested repositories.');
-    if (info.size > MAX_FILE_BYTES) throw new CheckpointError('Checkpoint file exceeds the 4 MiB limit. Ignore generated files before sending a writing turn.');
+    if (info.size > MAX_FILE_BYTES) throw new CheckpointError(`Checkpoint file ${JSON.stringify(file)} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB limit.`);
     const buffer = Buffer.alloc(info.size + 1);
     let length = 0;
     while (length < buffer.length) {
@@ -225,7 +226,7 @@ async function snapshot(root: string, includeContent: boolean, originalPaths: st
     const entry = await readFileEntry(root, file, includeContent);
     if (entry) {
       total += Number(entry.stamp.split(':')[2]);
-      if (total > MAX_TREE_BYTES) throw new CheckpointError('Checkpoint exceeds the 32 MiB checkout limit. Ignore generated files before sending a writing turn.');
+      if (total > MAX_TREE_BYTES) throw new CheckpointError(`Checkpoint exceeds the ${MAX_TREE_BYTES / (1024 * 1024)} MiB checkout limit. Ignore generated files before sending a writing turn.`);
       files.push(entry);
     }
   }
@@ -346,11 +347,14 @@ export class TurnCheckpoints {
       if (!sameSnapshot(before, await snapshot(identity.checkoutPath, false, before.paths, undefined, before.ignoredPaths))) throw new CheckpointError('The checkout changed during capture. Retry once editing stops.');
       const record: CheckpointRecord = { version: 2, id: randomUUID(), ...identity, createdAt: new Date(this.now()).toISOString(), state: 'capturing', before };
       const existing = await this.records();
+      const activeRunIds = new Set(runRegistry.currentRuns.map((run) => run.runId));
+      // Reserve active backups first; keep completed records newest first within what remains.
+      existing.sort((a, b) => Number(activeRunIds.has(b.runId)) - Number(activeRunIds.has(a.runId)));
       let total = Buffer.byteLength(JSON.stringify(record, null, 2)) + MAX_FILES * 400; // Reserve terminal metadata space now.
       const kept: CheckpointHeader[] = [];
       for (const item of existing) {
         const size = (await lstat(this.file(item.summary.id))).size;
-        const active = runRegistry.currentRuns.some((run) => run.runId === item.runId);
+        const active = activeRunIds.has(item.runId);
         if (!active && (this.now() - Date.parse(item.summary.createdAt) > RETENTION_MS || kept.length >= MAX_RECORDS - 1 || total + size > MAX_STORAGE_BYTES)) {
           await unlink(this.file(item.summary.id)); await unlink(`${this.file(item.summary.id)}.summary`).catch(() => undefined);
         }
