@@ -51,25 +51,25 @@ export class CheckoutRegistry {
     const candidates: Array<{ realPath: string; relativePath: string }> = [];
     if (await isRepository(root)) {
       candidates.push({ realPath: root, relativePath: '.' });
-    } else {
-      const immediateChildren = await childDirectories(root);
-      const queue = immediateChildren.map((name) => ({ directory: path.join(root, name), depth: 1 }));
-      while (queue.length) {
-        const current = queue.shift()!;
-        const candidate = await realpath(current.directory).catch(() => undefined);
-        if (!candidate || !isContained(root, candidate)) continue;
-        if (await isRepository(candidate)) {
-          candidates.push({ realPath: candidate, relativePath: path.relative(root, candidate).split(path.sep).join('/') });
-        }
-        if (current.depth >= this.discoveryDepth) continue;
-        const nested = await childDirectories(candidate).catch(() => []);
-        queue.push(...nested.map((name) => ({ directory: path.join(candidate, name), depth: current.depth + 1 })));
+    }
+    // A marker on the root must not hide already bound descendant checkouts.
+    const immediateChildren = await childDirectories(root);
+    const queue = immediateChildren.map((name) => ({ directory: path.join(root, name), depth: 1 }));
+    while (queue.length) {
+      const current = queue.shift()!;
+      const candidate = await realpath(current.directory).catch(() => undefined);
+      if (!candidate || !isContained(root, candidate)) continue;
+      if (await isRepository(candidate)) {
+        candidates.push({ realPath: candidate, relativePath: path.relative(root, candidate).split(path.sep).join('/') });
       }
-      if (!candidates.length) {
-        for (const name of immediateChildren) {
-          const candidate = await realpath(path.join(root, name)).catch(() => undefined);
-          if (candidate && isContained(root, candidate)) candidates.push({ realPath: candidate, relativePath: name });
-        }
+      if (current.depth >= this.discoveryDepth) continue;
+      const nested = await childDirectories(candidate).catch(() => []);
+      queue.push(...nested.map((name) => ({ directory: path.join(candidate, name), depth: current.depth + 1 })));
+    }
+    if (!candidates.length) {
+      for (const name of immediateChildren) {
+        const candidate = await realpath(path.join(root, name)).catch(() => undefined);
+        if (candidate && isContained(root, candidate)) candidates.push({ realPath: candidate, relativePath: name });
       }
     }
 

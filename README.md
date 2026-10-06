@@ -31,9 +31,10 @@ npm run dev
 ```
 
 Open <http://localhost:3023>. If the configured root itself contains a common repository marker, it
-is offered as one checkout. Otherwise marked, non-hidden repositories are discovered breadth-first
-up to `CODEAI_REPOSITORIES_DEPTH` (default 1, maximum 10). Projects are durable bodies of work you
-create in the header; sessions may belong to a project or remain under **No project**, and may bind
+is offered as a checkout alongside marked, non-hidden descendants discovered breadth-first
+up to `CODEAI_REPOSITORIES_DEPTH` (default 1, maximum 10). A new marker on the root does not hide
+existing nested checkouts. Projects are durable bodies of work you create in the header; sessions
+may belong to a project or remain under **No project**, and may bind
 none, one, or several discovered repositories.
 
 Useful commands, all run from the repository root:
