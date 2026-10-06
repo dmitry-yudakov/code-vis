@@ -867,8 +867,10 @@ Providers:
   CodeAI's own records. The default, under your home directory, is fine.
 - **Codex** offers Auto with `CODEAI_CODEX_AGENT=1` when its sandbox can start on this machine. On
   Linux that needs bubblewrap and unprivileged user namespaces; if `codex sandbox` cannot run a
-  command, readiness says so and withholds Auto. CodeAI runs the turn on a Codex permission profile
-  of its own and refuses the turn unless App Server reports exactly that profile, no network, no
+  command, readiness says so and withholds Auto. Its model-free startup check runs in a private
+  disposable directory, so sandbox metadata placeholders stay away from the repositories root.
+  CodeAI runs the turn on a Codex permission profile of its own and refuses the turn unless App
+  Server reports exactly that profile, no network, no
   extra writable directory, and you as the approval reviewer. Codex records the checkout as a
   trusted project in your `~/.codex/config.toml` the first time Auto runs there, as its own CLI
   does; it then also loads that checkout's `.codex/config.toml`.

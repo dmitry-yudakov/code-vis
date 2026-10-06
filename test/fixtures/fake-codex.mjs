@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { appendFileSync, readSync, writeFileSync, writeSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 
@@ -8,7 +8,15 @@ const args = process.argv.slice(2);
 const mode = process.env.CODEAI_FAKE_CODEX_MODE || 'normal';
 const recordPath = process.env.CODEAI_FAKE_CODEX_RECORD;
 // `codex sandbox … -- true` is CodeAI's model-free check that the workspace sandbox can start.
-if (args[0] === 'sandbox') process.exit(mode === 'sandbox-unavailable' ? 1 : 0);
+if (args[0] === 'sandbox') {
+  if (process.env.CODEAI_FAKE_CODEX_SANDBOX_RECORD) {
+    for (const name of ['.git', '.agents', '.codex', '.aws']) mkdirSync(name, { recursive: true });
+    const invocation = { args, cwd: process.cwd(), directoryMode: statSync('.').mode & 0o777 };
+    appendFileSync(process.env.CODEAI_FAKE_CODEX_SANDBOX_RECORD, `${JSON.stringify(invocation)}\n`);
+  }
+  if (mode === 'sandbox-timeout') await new Promise(() => { setInterval(() => {}, 1_000); });
+  process.exit(mode === 'sandbox-unavailable' ? 1 : 0);
+}
 if (process.env.CODEAI_FAKE_CODEX_STARTS) appendFileSync(process.env.CODEAI_FAKE_CODEX_STARTS, `${JSON.stringify(args)}\n`);
 const transcript = { args, requests: [], responses: [] };
 const persist = () => { if (recordPath) writeFileSync(recordPath, JSON.stringify(transcript)); };

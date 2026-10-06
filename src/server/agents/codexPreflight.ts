@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { AgentMode, ModelChoices, ProviderHealth, SecurityLevel } from '@/shared/types';
 import { changesCheckout } from '@/shared/agentModes';
@@ -87,14 +89,30 @@ export async function checkCodex(
   };
 }
 
-/** Whether `codex sandbox` can run a command here. It spawns no App Server and no model turn. */
-function codexSandboxStarts(binary: string, cwd: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn(binary, buildCodexSandboxCheckArgs(), { cwd, shell: false, stdio: 'ignore' });
-    const timer = setTimeout(() => { child.kill('SIGKILL'); resolve(false); }, 3_000);
-    child.once('error', () => { clearTimeout(timer); resolve(false); });
-    child.once('close', (code) => { clearTimeout(timer); resolve(code === 0); });
-  });
+/** Sandbox startup can create metadata placeholders, so probe only in a disposable directory. */
+async function codexSandboxStarts(binary: string, cwd: string): Promise<boolean> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-codex-sandbox-')).catch(() => undefined);
+  if (!directory) return false;
+  try {
+    const executable = /[/\\]/.test(binary) ? path.resolve(cwd, binary) : binary;
+    const env = { ...process.env };
+    if (env.PATH !== undefined) {
+      env.PATH = env.PATH.split(path.delimiter)
+        .map((entry) => path.isAbsolute(entry) ? entry : `${cwd}${path.sep}${entry}`)
+        .join(path.delimiter);
+    }
+    return await new Promise<boolean>((resolve) => {
+      const child = spawn(executable, buildCodexSandboxCheckArgs(), { cwd: directory, env, shell: false, stdio: 'ignore' });
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 3_000);
+      child.once('error', () => { clearTimeout(timer); resolve(false); });
+      child.once('close', (code) => { clearTimeout(timer); resolve(!timedOut && code === 0); });
+    });
+  } catch {
+    return false;
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export type CodexWorkerCheck =

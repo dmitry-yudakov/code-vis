@@ -154,6 +154,9 @@ Updated 2026-10-06. When a story ships, change the line that names it; each stor
 - **Shipped:** [Story 93](stories/STORY-20261006-stable-checkout-discovery.md) — a repository marker
   on the configured root no longer hides nested checkouts or breaks their saved session bindings;
   66 focused checks, TypeScript, read-only host resolution and independent review passed.
+- **Shipped:** [Story 94](stories/STORY-20261006-isolate-codex-sandbox-probe.md) — Codex sandbox
+  readiness runs in a private disposable directory, keeping its metadata placeholders away from
+  the repositories root; 56 focused checks, TypeScript, installed-Codex readiness and review passed.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
