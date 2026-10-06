@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import {
@@ -20,6 +20,8 @@ import {
 } from './arenaModel';
 import { DockerVersions } from './DockerVersions';
 import { GlobalInstructions } from './GlobalInstructions';
+import { CheckoutChoice, useCreationRequestId } from '@/features/conversation/CheckoutChoice';
+import { worktreeChoice } from '@/features/conversation/worktreeChoice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 
 const STATE_LABELS = {
@@ -46,6 +48,7 @@ function SessionFacts({ session, checkouts }: { session: ArenaSessionSummary; ch
       <strong>{session.title}</strong>
       <span className="arena-card-meta arena-card-agents">{participantNames(session)}</span>
       <span className="arena-card-meta">{repositoryNames(session, checkouts)}</span>
+      {session.worktree && <span className="arena-card-meta">Worktree · {checkouts.get(session.repositoryCheckoutIds[0])?.branch || 'branch unavailable'} · Source: {checkouts.get(session.worktree.originCheckoutId)?.name || 'Unavailable source'}</span>}
       {session.execution === 'docker' && <span className="execution-badge execution-docker">Docker</span>}
     </>
   );
@@ -95,6 +98,7 @@ export function Arena({
   preferredMode?: AgentMode;
   preferredInstructions?: GlobalInstructionsChoice;
   onCreateSession(input: {
+    checkoutMode?: 'current' | 'worktree'; creationRequestId?: string;
     machineId: string; projectId?: string; checkoutId?: string; execution: AgentExecution; provider: AgentProvider; mode: LaunchMode;
     /** Absent only when the form had to set the choice aside. */
     instructions?: LaunchInstructions;
@@ -111,8 +115,7 @@ export function Arena({
   const archivedSessions = machines.flatMap((machine) => machine.archivedSessions);
   const onlineMachines = machines.filter((machine) => machine.machine.state === 'online');
   const [machineId, setMachineId] = useState(onlineMachines[0]?.machine.id || '');
-  const selectedMachine = machines.find((machine) => machine.machine.id === machineId && machine.machine.state === 'online')
-    || onlineMachines[0];
+  const selectedMachine = machines.find((machine) => machine.machine.id === machineId) || (!machineId ? onlineMachines[0] : undefined);
   const [execution, setExecution] = useState<AgentExecution>('local');
   const [savingDocker, setSavingDocker] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -121,7 +124,11 @@ export function Arena({
   const securityLevel = machines.find((machine) => machine.machine.kind === 'local')?.securityLevel || 'guarded';
   const dockerSetupNeeded = Boolean(docker?.enabled && !docker.providers.claude.available);
   const dockerAvailableForSelected = selectedMachine?.machine.kind === 'local' && docker?.enabled;
-  const [checkoutId, setCheckoutId] = useState(selectedMachine?.checkouts[0]?.id || '');
+  const [checkoutId, setCheckoutId] = useState('');
+  const [checkoutMode, setCheckoutMode] = useState<'current' | 'worktree'>('current');
+  const [creationFailed, setCreationFailed] = useState(false);
+  const creationRequest = useCreationRequestId();
+  const creatingRef = useRef(false);
   const selectedHealth = selectedMachine?.machine.kind === 'local'
     ? executionHealth?.[execution].providers || selectedMachine.providers
     : selectedMachine?.providers;
@@ -131,6 +138,9 @@ export function Arena({
   const [showCreate, setShowCreate] = useState(false);
   const [projectId, setProjectId] = useState(selectedMachine?.projects[0]?.id || 'none');
   const bindings = selectedMachine?.projects.find((project) => project.id === projectId)?.repositories || [];
+  const checkoutChoice = worktreeChoice({ execution, project: selectedMachine?.projects.find((project) => project.id === projectId),
+    checkoutId, checkouts: selectedMachine?.checkouts || [], hostId: selectedMachine?.machine.id, capability: selectedMachine?.worktrees });
+  const invalidWorktree = checkoutMode === 'worktree' && !checkoutChoice.available;
   const invalidDockerBinding = execution === 'docker' && (projectId === 'none' ? !checkoutId
     : bindings.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== selectedMachine?.machine.id);
   const [provider, setProvider] = useState<AgentProvider>(availableProviders[0] || 'claude');
@@ -141,6 +151,7 @@ export function Arena({
   const instructions = launchInstructions(chosenInstructions, execution, provider);
   const [deciding, setDeciding] = useState<string>();
   const openCreate = () => {
+    creationRequest.reset(); setCreationFailed(false); setCheckoutMode('current');
     const next = launchChoice({ provider: preferredProvider, mode: preferredMode }, selectedHealth, { provider, mode });
     setProvider(next.provider);
     setMode(next.mode);
@@ -318,15 +329,17 @@ export function Arena({
               {selectedMachine.projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select>
           </label>
-          {execution === 'docker' && projectId === 'none' && (
+          {projectId === 'none' && (
             <label>
               <span>Repository</span>
               <select value={checkoutId} onChange={(event) => setCheckoutId(event.target.value)}>
-                <option value="">Choose one repository</option>
+                <option value="">{execution === 'docker' ? 'Choose one repository' : 'No repository'}</option>
                 {selectedMachine.checkouts.map((checkout) => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
               </select>
             </label>
           )}
+          <CheckoutChoice value={checkoutMode} choice={checkoutChoice} disabled={creating} onChange={setCheckoutMode} />
+          {creationFailed && <p role="alert">Could not create the session. Retry keeps the same worktree creation request.</p>}
           {execution === 'docker' && !availableProviders.length && <p role="status">{selectedHealth?.claude.message}</p>}
           {invalidDockerBinding && <p role="status">Docker requires exactly one primary repository on this machine. Select a repository or a project with that binding.</p>}
           <label>
@@ -372,21 +385,28 @@ export function Arena({
               type="button"
               className="arena-primary"
               disabled={creating || !availableProviders.includes(provider) || !supportedModes.includes(mode)
-                || invalidDockerBinding}
+                || invalidDockerBinding || invalidWorktree || selectedMachine.machine.state !== 'online'}
               onClick={() => {
+                if (creatingRef.current) return;
+                creatingRef.current = true;
                 setCreating(true);
-                void onCreateSession({
+                const options = {
                   machineId: selectedMachine.machine.id,
                   ...(projectId === 'none' ? {} : { projectId }),
                   provider,
                   execution,
-                  ...(execution === 'docker' && projectId === 'none' ? { checkoutId } : {}),
+                  ...(projectId === 'none' && checkoutId ? { checkoutId } : {}),
+                  checkoutMode,
                   mode,
                   instructions: namedLaunchInstructions(chosenInstructions, execution, provider),
-                }).then((created) => { if (created) setShowCreate(false); }).finally(() => setCreating(false));
+                };
+                void onCreateSession({ ...options, ...(checkoutMode === 'worktree' ? {
+                  creationRequestId: creationRequest.forRequest(JSON.stringify(options)),
+                } : {}) }).then((created) => { setCreationFailed(!created); if (created) { setShowCreate(false); creationRequest.reset(); } })
+                  .finally(() => { creatingRef.current = false; setCreating(false); });
               }}
             >
-              {creating ? 'Creating…' : 'Create and open'}
+              {creating ? 'Creating…' : creationFailed ? 'Retry' : 'Create and open'}
             </button>
           </div>
         </section>

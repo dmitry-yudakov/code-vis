@@ -11,6 +11,7 @@ import { recordedCodexModels } from '@/server/execution/dockerUpgrade';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { getSessionStore } from '@/server/storage/sessionStore';
 import type { ProviderHealth } from '@/shared/types';
+import { worktreeCapability } from '@/server/repository/managedWorktrees';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,6 +62,7 @@ export async function GET(request: Request): Promise<Response> {
     : 0;
   const lifecycle = getCodeAiLifecycle();
   return safeJsonResponse({
+    worktrees: await worktreeCapability(config),
     ok: repositoriesRootReady && dataDirectoryReady && (providerReady || docker.available) && !recoveryMessage,
     hostLabel: config.hostLabel,
     securityLevel: config.securityLevel,

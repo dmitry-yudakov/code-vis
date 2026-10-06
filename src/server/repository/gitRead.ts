@@ -74,6 +74,8 @@ async function executeGitRead(cwd: string, args: string[], options: {
   allowedExitCodes?: number[]; maxBuffer?: number; timeout?: number;
 }): Promise<string> {
   const config = getConfig();
+  const { validateManagedPath } = await import('./managedWorktrees');
+  await validateManagedPath(cwd, config);
   await recoverDockerExecution(config);
   // Only the provisioning record decides: enabling Docker first leaves host Git in place.
   let isolated = false;

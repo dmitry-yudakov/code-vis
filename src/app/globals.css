@@ -554,6 +554,7 @@ details.arena-docker-setup > summary { width: fit-content; color: var(--muted); 
 .handoff-actions button { flex: none; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--plot-ink-muted); background: var(--raised-backdrop-medium); font-size: 9px; }
 .handoff-actions button:hover:not(:disabled) { border-color: var(--plot-line); background: var(--raised); }
 .conversation-drawer > header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 15px 9px 18px; border-bottom: 1px solid var(--line); background: var(--shell-sunk); }
+.conversation-repository-context { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .conversation-drawer header > div { min-width: 0; display: grid; gap: 5px; }
 .conversation-drawer header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .drawer-new-chat { width: 32px; height: 32px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 7px; color: var(--muted); background: transparent; }

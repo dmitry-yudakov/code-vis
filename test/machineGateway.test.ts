@@ -58,4 +58,21 @@ describe('machine API gateway', () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'The execution machine is unreachable.' });
   });
+
+  it('forwards worktree choices to the named executor and never retries them on the home machine', async () => {
+    const body = JSON.stringify({ provider: 'claude', execution: 'local', checkoutId: 'executor-checkout',
+      checkoutMode: 'worktree', creationRequestId: '33333333-3333-4333-8333-333333333333' });
+    const request = () => new Request(`https://home.test/api/machines/${REMOTE_ID}/sessions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+    });
+    fetchMock.mockResolvedValueOnce(new Response('{"session":{"id":"executor-session"}}', { status: 201 }));
+    expect((await proxyMachineRequest(REMOTE_ID, ['sessions'], request())).status).toBe(201);
+    const [target, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(target.href).toBe('https://laptop.test:3023/api/sessions');
+    expect(new TextDecoder().decode(init.body as ArrayBuffer)).toBe(body);
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    const offline = await proxyMachineRequest(REMOTE_ID, ['sessions'], request());
+    expect(offline.status).toBe(502); expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.every(([url]) => (url as URL).origin === 'https://laptop.test:3023')).toBe(true);
+  });
 });

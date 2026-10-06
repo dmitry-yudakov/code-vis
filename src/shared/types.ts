@@ -4,6 +4,24 @@ export interface CheckoutSummary {
   id: string;
   name: string;
   relativePath: string;
+  worktreeCreation?: WorktreeCapability;
+  worktree?: SessionWorktree;
+  branch?: string;
+  unavailableReason?: string;
+}
+
+export interface WorktreeCapability {
+  available: boolean;
+  message?: string;
+  branch?: string;
+}
+
+export interface SessionWorktree {
+  id: string;
+  originCheckoutId: string;
+  baseCommit: string;
+  /** Initial generated name; operations resolve the live branch themselves. */
+  branch: string;
 }
 
 export interface CheckoutsResponse {
@@ -113,7 +131,8 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   /** Fixed at creation and held only by a version 7 session. Absent: each turn follows the machine's switch. */
@@ -467,7 +486,8 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
   instructions?: GlobalInstructionsChoice;
@@ -489,6 +509,7 @@ export interface PublicSession {
 
 /** Bounded host snapshot for the cross-project Arena; never includes transcripts or private handles. */
 export interface ArenaSessionSummary {
+  worktree?: SessionWorktree;
   /** Added by the Arena client when flattening machine projections; never stored canonically. */
   machineId?: string;
   /** Absent for version 3 sessions, which always execute locally. */
@@ -619,6 +640,7 @@ export interface ArenaSnapshot {
 
 /** A machine-owned projection. It never includes transcripts, provider handles, absolute paths, or credentials. */
 export interface ExecutorSnapshot {
+  worktrees?: WorktreeCapability;
   machine: MachineIdentity;
   /** Omitted at Guarded for compatibility with older homes. */
   securityLevel?: 'native';

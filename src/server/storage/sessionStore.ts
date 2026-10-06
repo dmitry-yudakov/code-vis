@@ -8,7 +8,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import type {
   AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
-  ChatMessage, GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SketchCanvas, UserMessage,
+  ChatMessage, GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SessionWorktree, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
@@ -229,6 +229,7 @@ export function publicSession(session: DurableSession): PublicSession {
 export function arenaSessionSummary(session: DurableSession): ArenaSessionSummary {
   const latest = session.messages.at(-1);
   return {
+    ...(session.worktree ? { worktree: session.worktree } : {}),
     execution: session.execution,
     id: session.id,
     revision: session.revision,
@@ -340,6 +341,7 @@ export class SessionStore {
   async createProject(name: string, checkoutIds: string[] = []): Promise<DurableProject> {
     return this.enqueue(async () => {
       await this.openStore();
+      await this.refuseManagedProjectBindings(checkoutIds);
       const currentCount = (await readdir(this.projectsDirectory, { withFileTypes: true }))
         .filter((entry) => entry.isFile() && entry.name.endsWith('.json')).length;
       if (currentCount >= MAX_PROJECTS) throw new Error(`A host can contain at most ${MAX_PROJECTS} projects.`);
@@ -373,6 +375,7 @@ export class SessionStore {
     return this.enqueue(async () => {
       const project = await this.getProject(id);
       this.expectProjectRevision(project, input.expectedRevision);
+      if (input.repositories) await this.refuseManagedProjectBindings(input.repositories.map((binding) => binding.checkoutId));
       const before = structuredClone(project);
       if (input.name !== undefined) project.name = input.name.trim();
       if (input.repositories !== undefined) project.repositories = structuredClone(input.repositories);
@@ -532,16 +535,24 @@ export class SessionStore {
     provider: AgentProvider;
     role?: AgentRole;
     instructions?: GlobalInstructionsChoice;
+    /** Server-only preparation used by the recoverable worktree journal. */
+    id?: string;
+    worktree?: SessionWorktree;
+    repositories?: RepositoryBinding[];
+    persistWorktreeIntent?: (session: DurableSession) => Promise<void>;
   }): Promise<DurableSession> {
     return this.enqueue(async () => {
       await this.openStore();
-      const currentCount = (await Promise.all([
+      const names = (await Promise.all([
         this.sessionFileNames(this.sessionsDirectory),
         this.sessionFileNames(this.archivedSessionsDirectory),
-      ])).reduce((total, names) => total + names.length, 0);
+      ])).flat();
+      const { readWorktreeRecords, worktreeSessionReservations } = await import('@/server/repository/managedWorktrees');
+      const records = await readWorktreeRecords(this.dataDirectory);
+      const currentCount = names.length + await worktreeSessionReservations(this.dataDirectory, names);
       if (currentCount >= MAX_SESSIONS) throw new Error(`A host can contain at most ${MAX_SESSIONS} sessions.`);
       const now = this.now().toISOString();
-      const id = randomUUID();
+      const id = input.id || randomUUID();
       const agentId = randomUUID();
       const role = input.role || 'coder';
       const source = input.sourceSessionId ? await this.getSession(input.sourceSessionId) : undefined;
@@ -553,10 +564,17 @@ export class SessionStore {
       }
       const project = input.projectId ? await this.getProject(input.projectId) : undefined;
       const projectId = source?.projectId || project?.id;
-      if (project && input.checkoutId) throw new Error('Choose a project or a checkout, not both.');
-      const repositories = structuredClone(source?.repositories || project?.repositories || (input.checkoutId ? [{
+      if (project && input.checkoutId && !input.worktree) throw new Error('Choose a project or a checkout, not both.');
+      const repositories = structuredClone(input.repositories || source?.repositories || (input.worktree ? undefined : project?.repositories) || (input.checkoutId ? [{
         id: randomUUID(), hostId: this.manifest!.host.id, checkoutId: input.checkoutId, role: 'primary' as const,
       }] : []));
+      const managed = repositories.length === 1 ? records.find((record) => record.checkoutId === repositories[0].checkoutId) : undefined;
+      const worktree = input.worktree || source?.worktree || managed?.session.worktree;
+      if (worktree && input.execution === 'docker') throw new SessionStoreError('conflict', 'Docker does not support linked worktrees. Continue on Local or start from an ordinary checkout.');
+      if (managed && !source && !input.persistWorktreeIntent) {
+        const { resolveManagedWorktree } = await import('@/server/repository/managedWorktrees');
+        await resolveManagedWorktree(managed, (await import('@/server/config')).getConfig());
+      }
       if (input.execution === 'docker' && (repositories.length !== 1
         || repositories[0].role !== 'primary' || repositories[0].hostId !== this.manifest!.host.id)) {
         throw new Error('Docker requires exactly one primary repository on this machine.');
@@ -567,7 +585,8 @@ export class SessionStore {
         throw new SessionStoreError('conflict', LOCAL_CODEX_ISOLATION_MESSAGE);
       }
       const session: DurableSession = {
-        version: instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        version: worktree ? 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        ...(worktree ? { worktree } : {}),
         execution: input.execution || 'local',
         ...(instructions ? { instructions } : {}),
         revision: 0,
@@ -596,9 +615,48 @@ export class SessionStore {
         sketches: [],
       };
       durableSessionSchema.parse(session);
-      await this.writeSession(session);
+      if (input.persistWorktreeIntent) await input.persistWorktreeIntent(session);
+      else await this.writeSession(session);
       return structuredClone(session);
     });
+  }
+
+  async prepareWorktreeSession(input: Parameters<SessionStore['createSession']>[0], persistIntent: (session: DurableSession) => Promise<void>): Promise<DurableSession> {
+    // Preparation and its durable capacity reservation share the ordinary session creation queue.
+    return this.createSession({ ...input, persistWorktreeIntent: persistIntent });
+  }
+
+  /** An intent owns this identity. Reconciliation must never overwrite a saved conversation. */
+  async savePreparedWorktreeSession(prepared: DurableSession): Promise<DurableSession> {
+    return this.enqueue(async () => {
+      await this.openStore();
+      let existing: DurableSession | undefined;
+      try { existing = await this.getSession(prepared.id); }
+      catch (error) { if (sessionStoreErrorCode(error) !== 'unknown') throw error; }
+      if (!existing) {
+        try { existing = await this.getArchivedSession(prepared.id); }
+        catch (error) { if (sessionStoreErrorCode(error) !== 'unknown') throw error; }
+      }
+      if (existing) {
+        if (!same(existing.worktree, prepared.worktree) || !same(existing.repositories, prepared.repositories)) {
+          throw new SessionStoreError('conflict', 'The recorded worktree session identity conflicts with a saved session.');
+        }
+        return structuredClone(existing);
+      }
+      durableSessionSchema.parse(prepared);
+      if (!prepared.worktree) throw new Error('A prepared worktree session needs its provenance.');
+      await this.writeSession(prepared);
+      return structuredClone(prepared);
+    });
+  }
+
+  private async refuseManagedProjectBindings(checkoutIds: string[]): Promise<void> {
+    if (!checkoutIds.length) return;
+    const { readWorktreeRecords } = await import('@/server/repository/managedWorktrees');
+    const records = await readWorktreeRecords(this.dataDirectory);
+    if (records.some((record) => checkoutIds.includes(record.checkoutId))) {
+      throw new SessionStoreError('conflict', 'Managed worktrees belong to sessions and cannot be added to a project’s ordinary repositories.');
+    }
   }
 
   async appendUserMessage(id: string, message: UserMessage): Promise<AppendUserMessageResult> {
@@ -771,6 +829,11 @@ export class SessionStore {
       const session = await this.getSession(id);
       this.expectRevision(session, expectedRevision);
       const repositoriesChanged = !same(session.repositories, repositories);
+      if (session.worktree) {
+        if (repositoriesChanged) throw new SessionStoreError('conflict', 'A managed worktree session’s repository binding is fixed. Start a new session to choose another checkout.');
+        return structuredClone(session);
+      }
+      await this.refuseManagedProjectBindings(repositories.map((binding) => binding.checkoutId));
       if (repositoriesChanged && session.execution === 'docker') {
         throw new Error('A Docker session’s repository binding is fixed. Create a new session to change it.');
       }

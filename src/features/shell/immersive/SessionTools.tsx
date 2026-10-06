@@ -13,6 +13,8 @@ import { launchChoice, launchModes } from '@/features/shell/devicePreferences';
 import type { LaunchMode } from '@/shared/agentModes';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
 import { CHECKPOINT_SCOPE } from '@/shared/turnCheckpoint';
+import { WORKTREE_BASELINE, worktreeChoice } from '@/features/conversation/worktreeChoice';
+import { useCreationRequestId } from '@/features/conversation/CheckoutChoice';
 
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
 
@@ -51,6 +53,10 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   const [provider, setProvider] = useState<AgentProvider>('claude');
   const [mode, setMode] = useState<LaunchMode>('ask');
   const [checkoutId, setCheckoutId] = useState('');
+  const [sourceCheckoutId, setSourceCheckoutId] = useState('');
+  const [checkoutMode, setCheckoutMode] = useState<'current' | 'worktree'>('current');
+  const [creationFailed, setCreationFailed] = useState(false);
+  const creationRequest = useCreationRequestId();
   const [selected, setSelected] = useState<PermissionTarget>();
   const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -75,6 +81,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   // New session opens at this device's last provider and mode when this machine can run them, and in
   // the open session's project, so a session started from a conversation can send without attaching.
   function startLauncher() {
+    setCheckoutMode('current'); setCreationFailed(false); creationRequest.reset();
     const next = launchChoice({ provider: controls.preferredProvider, mode: controls.preferredMode }, machine?.providers, { provider, mode });
     setProvider(next.provider);
     setMode(next.mode);
@@ -97,6 +104,9 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   useEffect(() => { if (result) setPage(0); }, [result]);
   const createEnabled = machine?.machine.state === 'online' && providers.includes(provider) && modes.includes(mode)
     && (!projectId || Boolean(project)) && !controls.creating && !busy;
+  const choice = worktreeChoice({ project, checkoutId: sourceCheckoutId, checkouts: machine?.checkouts || [],
+    hostId: machine?.machine.id, capability: machine?.worktrees });
+  const canCreate = createEnabled && (checkoutMode !== 'worktree' || choice.available);
   const reportControls = controls.reports;
   const reports = reportControls?.reports || [];
   // Selected by id, so a report arriving at the top of the list does not move the selection.
@@ -116,6 +126,11 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
     `Project: ${project?.name || (projectId ? 'Unavailable project' : 'No project')}`,
     `Provider: ${PROVIDER_LABELS[provider]}${providers.includes(provider) ? '' : ' · unavailable'}`,
     `Mode: ${mode}${modes.includes(mode) ? '' : ' · unavailable'}`,
+    `Checkout: ${checkoutMode === 'worktree' ? 'Create a worktree' : 'Use current checkout'}`,
+    `Source: ${choice.source?.name || 'No repository'}${choice.source?.worktreeCreation?.branch ? ` · ${choice.source.worktreeCreation.branch}` : ''}`,
+    checkoutMode === 'worktree' ? WORKTREE_BASELINE : choice.source?.worktree ? 'This new conversation shares the selected worktree.' : '',
+    choice.reason || '',
+    creationFailed ? 'Creation failed. Create session retries the same request; changing choices starts a new request.' : '',
     `Repositories: ${project?.repositories.map((binding) => `${machine?.checkouts.find((item) => item.id === binding.checkoutId)?.name || binding.checkoutId} (${binding.role})`).join(', ') || 'None; attach a primary repository before sending.'}`,
     controls.creating ? 'Creating session…' : controls.status,
   ].join('\n\n') : tab === 'permissions' ? selected ? [
@@ -134,6 +149,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       reportControls ? 'Reports lists what you captured here, to attach to the next message.' : '',
     ].filter(Boolean).join('\n\n') : [
     controls.status,
+    controls.repositoryContext || '',
     `${controls.permissions.length} pending permission request(s).`,
     controls.needsRepository ? `Primary repository required before sending.\nRepository: ${checkout?.name || 'No checkout available'}` : '',
     confirmRevoke ? 'Forget this device? Private content will close. A new pairing code will be required.' : '',
@@ -184,14 +200,20 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       if (controls.creating) return;
       if (action === 'machine') {
         setMachineId(nextValue(machines.map((item) => item.machine.id), machine?.machine.id || ''));
-        setProjectId(''); setPage(0);
+        setProjectId(''); setSourceCheckoutId(''); setPage(0);
       } else if (action === 'project') { setProjectId(nextValue(['', ...machine?.projects.map((item) => item.id) || []], projectId)); setPage(0); }
       else if (action === 'provider') { const next = nextValue(providers, provider); if (next) { setProvider(next); setMode(launchModes(machine!.providers[next].supportedModes)[0] || 'ask'); } }
       else if (action === 'mode') { const next = nextValue(modes, mode); if (next) setMode(next); }
-      else if (action === 'create' && createEnabled && machine) {
+      else if (action === 'creation-repository' && !project) { setSourceCheckoutId(nextValue(['', ...machine?.checkouts.map((item) => item.id) || []], sourceCheckoutId)); setPage(0); }
+      else if (action === 'checkout-mode' && (choice.available || checkoutMode === 'worktree')) { setCheckoutMode(checkoutMode === 'current' ? 'worktree' : 'current'); setPage(0); }
+      else if (action === 'create' && canCreate && machine) {
         busyRef.current = true; setBusy(true);
-        void controls.onCreate({ machineId: machine.machine.id, projectId: projectId || undefined, provider, mode })
-          .then((created) => { if (!created) setPage(Number.MAX_SAFE_INTEGER); })
+        const options = { machineId: machine.machine.id, projectId: projectId || undefined, provider, mode, checkoutMode,
+          ...(!project && sourceCheckoutId ? { checkoutId: sourceCheckoutId } : {}) };
+        void controls.onCreate({ ...options, ...(checkoutMode === 'worktree' ? {
+          creationRequestId: creationRequest.forRequest(JSON.stringify(options)),
+        } : {}) })
+          .then((created) => { setCreationFailed(!created); if (!created) setPage(Number.MAX_SAFE_INTEGER); else creationRequest.reset(); })
           .finally(() => { busyRef.current = false; setBusy(false); });
       }
     } else if (tab === 'permissions') {
@@ -233,19 +255,21 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
     onAction={() => perform(action)} />;
   return <group name="VR session tools" userData={{ tab, text, page: safePage, pageCount, permissionKey: selected && permissionKey(selected), permissionStatus, busy,
     reportId: report?.id, reportPending, codeaiConfirming: Boolean(codeai?.confirming) }}>
-    {body && <mesh name="Session details" geometry={body.geometry} material={body.material} position={[0, 0.12, 0]} />}
+    {body && <mesh name="Session details" geometry={body.geometry} material={body.material} position={[0, tab === 'launcher' ? 0.24 : 0.12, 0]} />}
     {preview && <ReportPreview url={preview} theme={theme} />}
     <WorkspacePager label={`Page ${safePage + 1} of ${pageCount}`} previousAction="session:older" nextAction="session:newer"
-      previousLabel="Previous details" nextLabel="More details" position={[-0.18, -0.37, 0]} theme={theme}
+      previousLabel="Previous details" nextLabel="More details" position={[-0.18, tab === 'launcher' ? -0.25 : -0.37, 0]} theme={theme}
       previousDisabled={safePage === 0} nextDisabled={safePage >= pageCount - 1}
       onAction={(action) => perform(action.slice('session:'.length) as SessionActionName)} />
-    {button('refresh', 0.48, -0.37)}
+    {button('refresh', 0.48, tab === 'launcher' ? -0.25 : -0.37)}
     {controls.recovery?.confirming && tab === 'home' ? <>
       {button('confirm-undo', -0.22, -0.56, controls.recovery.busy)}
       {button('keep-changes', 0.22, -0.56, controls.recovery.busy)}
     </> : tab === 'launcher' ? <>
-      {button('machine', -0.44, -0.56, controls.creating)}{button('project', 0, -0.56, controls.creating)}{button('provider', 0.44, -0.56, controls.creating)}
-      {button('mode', -0.44, -0.76, controls.creating)}{button('create', 0, -0.76, !createEnabled)}{button('back', 0.44, -0.76)}
+      {button('machine', -0.44, -0.42, controls.creating)}{button('project', 0, -0.42, controls.creating)}{button('provider', 0.44, -0.42, controls.creating)}
+      {button('mode', -0.44, -0.60, controls.creating)}{button('create', 0, -0.60, !canCreate)}{button('back', 0.44, -0.60)}
+      {button('checkout-mode', -0.22, -0.78, controls.creating || !choice.available && checkoutMode !== 'worktree')}
+      {button('creation-repository', 0.22, -0.78, controls.creating || Boolean(project))}
     </> : tab === 'permissions' ? <>
       <WorkspacePager label={`Request ${Math.max(1, controls.permissions.findIndex((item) => selected && permissionKey(item) === permissionKey(selected)) + 1)} of ${Math.max(1, controls.permissions.length)}`}
         previousAction="session:previous" nextAction="session:next" previousLabel="Previous request" nextLabel="Next request"

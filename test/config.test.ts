@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 import { getConfig } from '@/server/config';
 
 const MANAGED = [
   'CODEAI_REPOSITORIES_ROOT', 'CODEAI_WEB2_REPOSITORIES_ROOT',
   'CODEAI_PROJECTS_ROOT', 'CODEAI_WEB2_PROJECTS_ROOT',
+  'CODEAI_WORKTREES_ROOT', 'CODEAI_WEB2_WORKTREES_ROOT',
   'CODEAI_REPOSITORIES_DEPTH', 'CODEAI_WEB2_REPOSITORIES_DEPTH',
   'CODEAI_PROJECTS_DEPTH', 'CODEAI_WEB2_PROJECTS_DEPTH',
   'CODEAI_CODEX_AGENT', 'CODEAI_WEB2_CODEX_AGENT',
@@ -30,6 +33,16 @@ describe.sequential('config', () => {
     process.env.CODEAI_REPOSITORIES_ROOT = '/repositories';
     process.env.CODEAI_REPOSITORIES_DEPTH = '3';
     expect(getConfig()).toMatchObject({ repositoriesRoot: '/repositories', repositoryDiscoveryDepth: 3 });
+  });
+
+  it('defaults managed worktrees outside the checkout and accepts the legacy setting', () => {
+    delete process.env.CODEAI_WORKTREES_ROOT;
+    delete process.env.CODEAI_WEB2_WORKTREES_ROOT;
+    expect(getConfig().worktreesRoot).toBe(path.join(os.homedir(), '.code-ai/worktrees'));
+    process.env.CODEAI_WEB2_WORKTREES_ROOT = '/legacy-worktrees';
+    expect(getConfig().worktreesRoot).toBe('/legacy-worktrees');
+    process.env.CODEAI_WORKTREES_ROOT = '/managed-worktrees';
+    expect(getConfig().worktreesRoot).toBe('/managed-worktrees');
   });
 
   it.each(['0', '1.5', '11'])('rejects invalid repository discovery depth %s', (value) => {

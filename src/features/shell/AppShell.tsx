@@ -79,6 +79,7 @@ import type { ImmersiveReportPlacement, SessionCreation } from './immersive/sess
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH, type SideTab } from './panelLayout';
 
 interface Health {
+  worktrees?: import('@/shared/types').WorktreeCapability;
   securityLevel?: SecurityLevel;
   ok: boolean;
   hostLabel: string;
@@ -343,10 +344,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const activeAgent = findAgentParticipant(agents, session?.addressedAgentId)
     || findAgentParticipant(agents, session?.primaryAgentId);
   const activeProvider = activeAgent?.provider || newProvider;
+  const repositoryContext = session?.worktree
+    ? `Worktree · ${repositoryTree?.branch || selectedCheckout?.branch || 'branch unavailable'} · Source: ${checkouts.find((checkout) => checkout.id === session.worktree!.originCheckoutId)?.name || 'Unavailable source'}. ${selectedCheckout?.unavailableReason || 'New chat shares this worktree.'}`
+    : undefined;
   const continuationExecution = session?.execution === 'docker' ? 'local' : 'docker';
   const continuationHealth = continuationExecution === 'docker' ? health?.executions?.docker.providers[activeProvider]
     : health?.executions?.local.providers[activeProvider] || health?.providers[activeProvider];
   const continuationUnavailable = sessionRunning ? 'Wait for this turn to finish.'
+    : session?.worktree && continuationExecution === 'docker' ? 'Docker does not support linked worktrees. New chat shares this Local worktree.'
     : continuationExecution === 'docker' && !health?.executions?.docker.enabled ? 'Enable Docker in Arena to continue there.'
     : !continuationHealth?.available || !continuationHealth.supportedModes.length ? `${PROVIDER_LABELS[activeProvider]} needs ${continuationExecution === 'docker' ? 'Docker' : 'Local'} setup.`
     : continuationExecution === 'docker' && (session?.repositories.length !== 1 || session.repositories[0].role !== 'primary'
@@ -661,12 +666,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       dataDirectoryReady: true,
       providers: target.providers,
       securityLevel: target.securityLevel || 'guarded',
+      worktrees: target.worktrees,
     });
   }, []);
 
   const createSession = useCallback(async (
     requestedProvider: AgentProvider = newProvider,
     options: {
+      checkoutMode?: 'current' | 'worktree'; creationRequestId?: string;
       projectId?: string; mode?: AgentMode; role?: AgentRole; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string;
       /** Named by a form that offers the choice; a continuation copies its source's on the server. */
       instructions?: LaunchInstructions;
@@ -689,6 +696,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: requestedProvider, ...(options.execution ? { execution: options.execution } : {}),
+          ...(options.checkoutMode ? { checkoutMode: options.checkoutMode } : {}),
+          ...(options.creationRequestId ? { creationRequestId: options.creationRequestId } : {}),
           ...(options.role ? { role: options.role } : {}),
           ...(options.instructions && options.instructions !== 'default' ? { instructions: options.instructions } : {}),
           ...(options.sourceSessionId ? { sourceSessionId: options.sourceSessionId }
@@ -696,6 +705,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       });
       const data = await response.json() as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
+      let targetCatalog = targetMachine;
+      if (data.session.worktree) {
+        try {
+          const catalog = await fetch(machineApiPath('/api/checkouts', targetMachineId, localMachineId), { cache: 'no-store' });
+          if (catalog.ok) {
+            const updated = await catalog.json() as CheckoutsResponse;
+            if (targetMachineId === machineId) setCheckouts(updated.checkouts);
+            if (targetMachine) targetCatalog = { ...targetMachine, checkouts: updated.checkouts };
+          }
+        } catch { /* A saved session still opens; its catalog can refresh after reconnecting. */ }
+      }
       // What a form created a session with becomes this device's last choice, Default included.
       const named = options.instructions;
       if (named) updatePreferences((current) => ({ ...current, instructions: named === 'default' ? undefined : named }));
@@ -712,7 +732,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         modelSelections: { [primaryAgentId]: agentSelection },
         ...(options.initialComposer !== undefined ? { composer: options.initialComposer } : {}),
       }), targetWorkspaceMachineId);
-      if (targetMachine && targetMachineId !== machineId) selectMachineCatalog(targetMachine);
+      if (targetCatalog && targetMachineId !== machineId) selectMachineCatalog(targetCatalog);
       if (targetMachineId === machineId && targetProjectId === projectId) applyServerSnapshot(data.session);
       else {
         setLoading(true);
@@ -746,7 +766,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const newChat = async () => {
     if (!session || !activeAgent || sessionRunning || creatingSession || participantBusy || recovery.busy) return;
     const created = await createSession(activeAgent.provider, {
-      execution: session.execution, sourceSessionId: session.id, role: activeAgent.role, mode, modelSelection,
+      execution: session.execution || 'local', sourceSessionId: session.id, role: activeAgent.role, mode, modelSelection,
     });
     if (created) workspace.closeInProject(session.projectId, session.id, workspaceMachineId);
   };
@@ -2015,6 +2035,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
                 />
                 <SessionPicker
+                  worktrees={health?.worktrees}
                   sessions={sessions}
                   value={sessionId}
                   initialExecution={session?.execution}
@@ -2046,12 +2067,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               onToggleAttachment: toggleAttachment,
             } : undefined}
             sessionControls={{
+              repositoryContext,
               machines: arena.machines, machineId, sessionId: session?.id, sessionTitle: session?.title, projectId: session?.projectId,
               creating: creatingSession,
               status: immersiveStatus, permissions: focusedPermissionTargets, results: permissionDecisions.results,
               online: immersiveMachine?.machine.state === 'online', checkouts: orderedCheckouts,
               needsRepository: Boolean(session && !session.repositories.some((item) => item.role === 'primary')),
-              canAttach: Boolean(session && !sessionRunning && session.execution !== 'docker' && immersiveMachine?.machine.state === 'online'),
+              canAttach: Boolean(session && !session.worktree && !sessionRunning && session.execution !== 'docker' && immersiveMachine?.machine.state === 'online'),
               canCancel: Boolean(focusedRun?.runId),
               cancelKey: JSON.stringify([machineId, sessionId, focusedRun?.runId]),
               canArchive: canArchiveSession,
@@ -2243,7 +2265,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 checkouts={orderedCheckouts}
                 hostId={hostId}
                 selectedCheckoutId={selectedCheckoutId}
-                disabled={sessionRunning || session.execution === 'docker'}
+                disabled={sessionRunning || session.execution === 'docker' || Boolean(session.worktree)}
+                fixedWorktree={Boolean(session.worktree)}
                 onSelect={selectCheckout}
                 onChange={updateRepositories}
               />
@@ -2320,6 +2343,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
           <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
           <SessionCreationForm
+            worktrees={health?.worktrees}
             key={projectId || 'loose'}
             submitLabel="Create and open"
             executionHealth={health?.executions}
@@ -2369,6 +2393,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
           <div className="conversation-region">
             <ConversationDrawer
+              repositoryContext={repositoryContext}
               open={panelLayout.conversationOpen}
               session={session}
               theme={theme}

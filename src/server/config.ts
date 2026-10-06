@@ -12,6 +12,7 @@ export interface AppConfig {
   remoteAccess: 'local' | 'paired';
   publicOrigin?: string;
   repositoriesRoot: string;
+  worktreesRoot: string;
   repositoryDiscoveryDepth: number;
   claudeBin: string;
   claudeModel?: string;
@@ -175,6 +176,7 @@ export function getConfig(): AppConfig {
   return {
     ...remoteAccess(),
     securityLevel: securityLevel(),
+    worktreesRoot: path.resolve(expandHome(rawSetting('WORKTREES_ROOT') || '~/.code-ai/worktrees')),
     repositoriesRoot: path.resolve(expandHome(
       compatibleSetting('REPOSITORIES_ROOT', 'PROJECTS_ROOT').raw || process.cwd(),
     )),

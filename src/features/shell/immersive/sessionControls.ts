@@ -36,6 +36,9 @@ export interface PermissionResult {
 }
 
 export interface SessionCreation {
+  checkoutId?: string;
+  checkoutMode?: 'current' | 'worktree';
+  creationRequestId?: string;
   machineId: string;
   projectId?: string;
   provider: AgentProvider;
@@ -75,6 +78,7 @@ export interface ImmersiveCodeAiControls {
 }
 
 export interface ImmersiveSessionControls {
+  repositoryContext?: string;
   machines: ArenaMachineSnapshot[];
   machineId?: string;
   sessionId?: string;
@@ -116,6 +120,7 @@ export interface ImmersiveSessionControls {
 export const SESSION_ACTIONS = {
   tools: 'Session tools', back: 'Back', launcher: 'New session', machine: 'Machine', project: 'Project',
   provider: 'Provider', mode: 'Mode', create: 'Create session',
+  'checkout-mode': 'Checkout choice', 'creation-repository': 'Source repository',
   checkout: 'Repository', attach: 'Attach primary', permissions: 'Permissions',
   previous: 'Previous request', next: 'Next request', older: 'Previous details', newer: 'More details',
   allow: 'Allow', deny: 'Deny', refresh: 'Refresh status', cancel: 'Cancel run', retry: 'Retry instruction', return: 'Return to prior session',

@@ -104,7 +104,8 @@ That unlocks three things the current one-repo-per-conversation shape forbids:
 - **A session spanning several repositories** — "this change touches the client and the API" stops
   requiring two disconnected conversations.
 - **The same repository in two sessions** — comparing two implementations, or one agent building
-  while another reviews.
+  while another reviews. [Story 92](../stories/STORY-20261005-session-worktrees.md) specifies an
+  optional worktree at session creation, with later adoption during a conversation recorded as a follow-up.
 
 A repository's **identity** and its **checkout** on a particular machine are different facts. A
 laptop and a desktop hold two checkouts of one repository, and the product must be able to say so.
