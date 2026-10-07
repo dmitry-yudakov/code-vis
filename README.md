@@ -196,9 +196,15 @@ as desktop. Streaming preserves an older reading position and follows new messag
 already at the bottom; Latest floats at the lower right of the scroll viewport only when reading
 older content. Latest and Send return to current activity.
 Cancel is available while reading an active run. **Session tools** in the conversation header opens
-a launcher and the active session's permissions. Choose an existing machine, project (or No project),
-provider, and mode to create a local-execution session. A repository-free session can attach an
-existing checkout as primary here before sending an agent instruction.
+shared setup and the active session's permissions. Setup has Message, Attachments, and Settings
+pages, plus agent settings; typing and reviewed dictation use a separate draft. Enter submits here,
+while the regular conversation field keeps its newline behavior. An empty launch opens the new
+conversation inside XR; content starts in the background and offers an in-world Open action.
+**Session tools → CodeAI → New CodeAI session** reaches the managed home installation even while
+working in another project. Reports use the existing three-second capture countdown with setup
+hidden, and stale captures stay saved without attaching to a later draft. Prepare images/text files
+on desktop when the headset has no verified file picker that preserves XR. A repository-free
+session can attach an existing checkout as primary here before sending an agent instruction.
 
 **Permissions** shows the session, machine, agent, tool, and complete sanitized details through
 **Previous details / More details**. Select **Allow** or **Deny** explicitly; speech only edits drafts.
@@ -211,7 +217,7 @@ selection and returns a paired headset to the existing pairing gate.
 
 The Arena panel reuses the shell's single Arena poll and presents Active, Inbox, and Archived views
 six summaries at a time. Session identity is machine-qualified, Offline entries cannot be opened,
-and archive requires confirmation. New opens the existing launcher. Inspecting a background
+and archive requires confirmation. New opens shared session setup. Inspecting a background
 permission opens its exact machine/session/run/request card; Return restores the prior session and
 its untouched draft without ending XR. Story 52's automated multi-machine checks pass; its own
 six-summary, two-run Quest 3S acceptance journey remains pending.
@@ -643,9 +649,27 @@ tab open does not. Existing Arena polling and conversation loading apply the rul
 machine, catching up on the next load after downtime. Restore preserves the complete conversation
 and starts a fresh 48-hour window. The threshold is fixed for now. If Docker recovery is unavailable,
 Docker conversations stay active until recovery succeeds.
-Use **New session**
-there to choose a project, provider, [Global instructions](#global-instructions) choice, and initial
-mode before opening an empty session; creation never sends a prompt automatically.
+Use **New session** there to open setup, choose the machine/project or repository, execution,
+checkout, provider, [Global instructions](#global-instructions), mode, and model/effort. The optional
+**First message** field accepts Enter to submit and Shift+Enter for a newline. Attach screenshots
+by choosing, pasting, or dropping them, and attach nonempty UTF-8 text files through the same picker.
+Files are limited to four, 128 KiB each, 256 KiB per message, and 8 MiB saved per session; PDF,
+binary, invalid UTF-8, and unsafe filenames are rejected without discarding valid attachments.
+The regular composer accepts the same text files, and Retry restores their exact text.
+
+An empty submission opens an idle conversation. Text or attachments start the first turn in the
+background while preserving your current task; an **Open session** toast and Arena lead to it.
+Evidence alone supplies a visible fallback instruction. Cancel retains setup in memory; Clear
+setup discards it. Setup evidence is separate from the current conversation and is not saved to
+browser storage. Retries retain the captured session/message IDs when delivery is uncertain.
+A fresh Arena/Inbox snapshot marks an accepted Local instruction without an active or terminal run
+as **Execution status unavailable**; deliberate Retry explains that it may already have run.
+
+Under `npm run start:managed`, **More → New CodeAI session** opens the same setup for the home
+installation, from any project or executor. It prepares CodeAI’s own project and uses Local
+execution. Reports captured in other conversations can be selected there. Missing installation
+discovery and maintenance explain why creation is blocked. Background submission preserves the
+source conversation, and an empty submission opens the new CodeAI conversation.
 
 **Inbox** in the activity bar follows you into every session and aggregates all online attached machines. It
 puts live permission requests first, then

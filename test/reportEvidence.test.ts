@@ -218,7 +218,10 @@ describe.sequential('CodeAI reports as durable message evidence', () => {
   it('leaves no message and no run when the append fails after the copy, and reuses the copy next time', async () => {
     const session = await sessionIn('checkout-self');
     const reportId = await capture();
-    vi.spyOn(store, 'appendUserMessage').mockRejectedValueOnce(new Error('Simulated crash between copy and append'));
+    vi.spyOn(store, 'appendUserMessage').mockImplementationOnce(async (_id, _message, beforeSave) => {
+      await beforeSave?.();
+      throw new Error('Simulated crash between copy and append');
+    });
     const failed = await send(session, [reportId]);
     expect(failed.status).toBe(400);
     expect((await store.getSession(session.id)).messages).toEqual([]);

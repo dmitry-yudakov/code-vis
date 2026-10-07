@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { boundedRequestBody } from '@/server/machines/boundedBody';
+import { textFileRecords } from '@/server/storage/textFiles';
+import type { TextFileRecord } from '@/shared/textFiles';
 import type { AgentEvent } from '@/shared/types';
 import { agentMessageRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { getConfig } from '@/server/config';
@@ -43,8 +46,9 @@ export async function POST(request: Request): Promise<Response> {
 
   let raw: unknown;
   try {
-    raw = await request.json();
-  } catch {
+    raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await boundedRequestBody(request, 6_000_000)));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Request body is too large.') return safeJsonResponse({ error: error.message }, { status: 413 });
     return safeJsonResponse({ error: 'Request body must be valid JSON.' }, { status: 400 });
   }
   const parsed = agentMessageRequestSchema.safeParse(raw);
@@ -60,8 +64,10 @@ export async function POST(request: Request): Promise<Response> {
   }
   // Images are checked whole before anything is reserved or stored; the message keeps only what they were.
   let imageRecords: ImageAttachmentRecord[];
+  let fileRecords: TextFileRecord[];
   try {
     imageRecords = decodeImageAttachments(parsed.data.imageAttachments).map((image) => image.record);
+    fileRecords = textFileRecords(parsed.data.fileAttachments);
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 400 });
   }
@@ -134,7 +140,8 @@ export async function POST(request: Request): Promise<Response> {
       && (priorRequest.mode || 'ask') === mode
       && JSON.stringify(priorRequest.diagramAttachments) === JSON.stringify(messageAttachments)
       && JSON.stringify(priorRequest.reportAttachments?.map((item) => item.reportId) ?? []) === JSON.stringify(reportIds)
-      && JSON.stringify(priorRequest.imageAttachments ?? []) === JSON.stringify(imageRecords);
+      && JSON.stringify(priorRequest.imageAttachments ?? []) === JSON.stringify(imageRecords)
+      && JSON.stringify(priorRequest.fileAttachments ?? []) === JSON.stringify(fileRecords);
     return safeJsonResponse({
       error: sameRequest
         ? 'This message request was already accepted. Reload the session to see its durable state.'
@@ -277,18 +284,17 @@ export async function POST(request: Request): Promise<Response> {
     diagramAttachments: messageAttachments,
     ...(reportEvidence.length ? { reportAttachments: reportEvidence.map((item) => item.record) } : {}),
     ...(imageRecords.length ? { imageAttachments: imageRecords } : {}),
+    ...(fileRecords.length ? { fileAttachments: fileRecords } : {}),
     mode,
     ...(nativeMessageLevel(mode, policy.level) ? { level: 'native' as const } : {}),
   };
-  // Evidence is written before the message that points at it, so no message references a missing file.
+  let promotionFailed = false;
   try {
-    await promoteReportEvidence(config.dataDir, session.id, reportEvidence);
-  } catch {
-    runRegistry.release(runId);
-    return safeJsonResponse({ error: 'The attached report could not be saved on this machine. Your draft is preserved.' }, { status: 503 });
-  }
-  try {
-    const accepted = await store.appendUserMessage(session.id, userMessage);
+    // Promote only after all message validation, inside the same writer boundary as file capacity.
+    const accepted = await store.appendUserMessage(session.id, userMessage, async () => {
+      try { await promoteReportEvidence(config.dataDir, session.id, reportEvidence); }
+      catch (error) { promotionFailed = true; throw error; }
+    });
     session = accepted.session;
     if (!accepted.appended) {
       runRegistry.release(runId);
@@ -298,7 +304,9 @@ export async function POST(request: Request): Promise<Response> {
     }
   } catch (error) {
     runRegistry.release(runId);
-    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
+    return safeJsonResponse({ error: promotionFailed
+      ? 'The attached report could not be saved on this machine. Your draft is preserved.' : publicError(error) },
+    { status: promotionFailed ? 503 : sessionStoreStatus(error) });
   }
   // Every event goes through the registry so it is buffered for replay, then out to this stream.
   let doneEvent: Extract<AgentEvent, { type: 'done' }> | undefined;
@@ -413,6 +421,7 @@ export async function POST(request: Request): Promise<Response> {
   let attachmentId: string | undefined;
   return agentEventStream({
     runId,
+    headers: { 'X-CodeAI-Run-Id': runId },
     // A closed browser tab must not kill work the user already approved: detach, never cancel.
     onDetach: () => {
       if (attachmentId) runRegistry.unsubscribe(runId, attachmentId);

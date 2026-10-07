@@ -105,6 +105,10 @@ export interface ImmersiveSessionControls {
   /** This device's last choices; New session opens at them when the machine can run them. */
   preferredProvider?: AgentProvider;
   preferredMode?: AgentMode;
+  onNewSetup?(): void;
+  onCodeAiSetup?(): void;
+  codeAiSetupStatus?: string;
+  onRefreshCodeAiSetup?(): void;
   onCreate(input: SessionCreation): Promise<boolean>;
   onAttach(checkoutId: string): Promise<void>;
   onDecide(target: PermissionTarget, decision: 'allow' | 'deny'): void;
@@ -129,7 +133,7 @@ export const SESSION_ACTIONS = {
   revoke: 'Forget this device', 'confirm-revoke': 'Confirm forget',
   reports: 'Reports', 'previous-report': 'Previous report', 'next-report': 'Next report',
   'attach-report': 'Attach report', 'remove-report': 'Remove report',
-  codeai: 'CodeAI', 'build-restart': 'Build & restart', 'confirm-build-restart': 'Confirm build & restart',
+  'new-codeai': 'New CodeAI session', codeai: 'CodeAI', 'build-restart': 'Build & restart', 'confirm-build-restart': 'Confirm build & restart',
 } as const;
 export type SessionActionName = keyof typeof SESSION_ACTIONS;
 export type SessionAction = `session:${SessionActionName}`;

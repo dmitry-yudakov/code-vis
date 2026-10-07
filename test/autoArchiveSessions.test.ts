@@ -181,7 +181,7 @@ describe('48-hour conversation auto archive', () => {
   it('does not rewrite or move records from a newer session format', async () => {
     const session = await seed(AGE + 1);
     const file = path.join(store.sessionsDirectory, `${session.id}.json`);
-    const contents = JSON.stringify({ ...session, version: 12, future: 'opaque' });
+    const contents = JSON.stringify({ ...session, version: 13, future: 'opaque' });
     await writeFile(file, contents);
     await autoArchiveSessions(config, NOW);
     expect(await readFile(file, 'utf8')).toBe(contents);

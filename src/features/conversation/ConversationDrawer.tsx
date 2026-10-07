@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
+import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
 import type {
   AgentMode, AgentParticipant, AgentProvider, AgentRole, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection,
@@ -20,8 +21,8 @@ import type { TurnCheckpointControls } from './useTurnCheckpoint';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 
 export function ConversationDrawer({
-  open, session, theme, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
-  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, markCounts, onSelectDiagram, onRetry,
+  open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
+  status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan,
   continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
@@ -29,6 +30,8 @@ export function ConversationDrawer({
   open: boolean;
   session?: SessionSnapshot;
   theme: ThemeName;
+  focusRequest?: string;
+  onFocusRequestHandled?(): void;
   agents: AgentParticipant[];
   activeAgent?: AgentParticipant;
   healthyProviders: AgentProvider[];
@@ -56,9 +59,11 @@ export function ConversationDrawer({
   attached: CanvasTarget[];
   reports: PendingReportChip[];
   images: PendingImage[];
+  files?: TextFile[];
+  onRemoveFile?(index: number): void;
   markCounts: Record<string, number>;
   onSelectDiagram(id: string): void;
-  onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number): void;
+  onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
   onComposer(value: string): void;
   onModeChange(mode: AgentMode): void;
   onModelSelectionChange(selection: ModelSelection): void;
@@ -187,9 +192,11 @@ export function ConversationDrawer({
           cancelReady={cancelReady}
           sendBlocked={sendBlocked}
           autoFocus
+          focusRequest={focusRequest}
+          onFocusRequestHandled={onFocusRequestHandled}
           attached={attached}
           reports={reports}
-          images={images}
+          images={images} files={files} onRemoveFile={onRemoveFile}
           activeDiagramId={session?.activeDiagramId}
           markCounts={markCounts}
           mode={mode}

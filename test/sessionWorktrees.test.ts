@@ -53,6 +53,20 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await store.close(); vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
 
 describe('managed session worktrees with real Git', () => {
+  it('shares creation UUIDs across current/worktree branches, including simultaneous conflicting requests', async () => {
+    const ordinary = { provider: 'claude', checkoutId, creationRequestId: randomUUID(), checkoutMode: 'current' };
+    expect((await create(ordinary)).status).toBe(201);
+    expect((await create({ ...ordinary, checkoutMode: 'worktree' })).status).toBe(409);
+    const worktree = request();
+    expect((await create(worktree)).status).toBe(201);
+    expect((await create({ ...worktree, checkoutMode: 'current' })).status).toBe(409);
+    const raced = { ...ordinary, creationRequestId: randomUUID() };
+    const results = await Promise.all([create(raced), create({ ...raced, checkoutMode: 'worktree' })]);
+    expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    expect(await store.listSessions()).toHaveLength(3);
+    expect(await readWorktreeRecords(getConfig().dataDir)).toHaveLength(1);
+  });
+
   it('lists ordinary sources repeatedly and concurrently without Git helpers or checkout leases after provisioning', async () => {
     const config = getConfig();
     await mkdir(path.join(config.dataDir, 'docker'), { recursive: true });
@@ -219,8 +233,9 @@ describe('managed session worktrees with real Git', () => {
     await vi.waitFor(() => expect(save).toHaveBeenCalled());
     expect(runRegistry.reserve({ runId: randomUUID(), sessionId: randomUUID(), participantId: 'agent', providerKey: 'test', checkoutId, access: 'write', cancel() {} })).toMatchObject({ accepted: false, reason: 'maintenance' });
     expect(runRegistry.acquireCheckoutWrite(source)).toBeUndefined();
-    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/idle machine/);
-    release(); await pending;
+    const duplicate = createManagedWorktree(input, getConfig());
+    release(); const [first, replay] = await Promise.all([pending, duplicate]);
+    expect(replay.id).toBe(first.id);
     const undo = runRegistry.acquireCheckoutWrite(source)!;
     try { await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/idle machine/); } finally { undo(); }
     const runId = randomUUID(); runRegistry.reserve({ runId, sessionId: randomUUID(), participantId: 'agent', providerKey: runId, checkoutId, access: 'write', cancel() {} });

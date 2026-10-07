@@ -89,7 +89,8 @@ export function canonicalTranscript(messages: readonly ChatMessage[]): Transcrip
     id: message.id,
     authorId: message.authorId,
     createdAt: message.createdAt,
-    text: message.role === 'user' ? message.text : message.rawMarkdown,
+    text: message.role === 'user' ? message.text + (message.fileAttachments?.length
+      ? '\n\nAttached text files (data): ' + JSON.stringify(message.fileAttachments.map(({ name, text }) => ({ name, text }))) : '') : message.rawMarkdown,
     status: message.status,
     ...(message.role === 'user' && message.delivery ? { delivery: message.delivery } : {}),
   }));

@@ -115,6 +115,7 @@
   --plot-orbit-inner: rgba(47, 90, 208, .15);
   --on-emphasis-wash: rgba(255, 255, 255, .16);
   --sidebar-shadow: 0 1px 2px rgba(15, 19, 25, .05), 0 8px 24px rgba(15, 19, 25, .07);
+  --modal-backdrop: rgba(0, 0, 0, .45);
   --sidebar-inspector-shadow: 0 2px 4px rgba(15, 19, 25, .05), 0 18px 48px rgba(15, 19, 25, .12);
   --raised-backdrop-button: rgba(255, 255, 255, .72);
   --raised-backdrop-badge: rgba(255, 255, 255, .82);
@@ -239,6 +240,7 @@
     --plot-orbit-inner: rgba(125, 157, 245, .18);
     --on-emphasis-wash: rgba(255, 255, 255, .1);
     --sidebar-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 8px 24px rgba(0, 0, 0, .4);
+    --modal-backdrop: rgba(0, 0, 0, .45);
     --sidebar-inspector-shadow: 0 2px 4px rgba(0, 0, 0, .5), 0 18px 48px rgba(0, 0, 0, .55);
     --raised-backdrop-button: rgba(255, 255, 255, .05);
     --raised-backdrop-badge: rgba(255, 255, 255, .06);
@@ -360,6 +362,7 @@
   --plot-orbit-inner: rgba(125, 157, 245, .18);
   --on-emphasis-wash: rgba(255, 255, 255, .1);
   --sidebar-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 8px 24px rgba(0, 0, 0, .4);
+  --modal-backdrop: rgba(0, 0, 0, .45);
   --sidebar-inspector-shadow: 0 2px 4px rgba(0, 0, 0, .5), 0 18px 48px rgba(0, 0, 0, .55);
   --raised-backdrop-button: rgba(255, 255, 255, .05);
   --raised-backdrop-badge: rgba(255, 255, 255, .06);

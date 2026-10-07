@@ -1,6 +1,6 @@
 # Story 97 — Compose the first message while creating a session
 
-**Status:** Draft · **Type:** Full-stack · **Depends on:** [Story 63](STORY-20260921-report-evidence-in-conversation.md), [Story 64](STORY-20260921-managed-self-rebuild.md), [Story 70](STORY-20260924-remember-turn-choices.md), [Story 81](STORY-20260930-paste-image-into-chat.md), [Story 92](STORY-20261005-session-worktrees.md), [Story 95](STORY-20261007-docker-worktrees.md)
+**Status:** In progress · **Type:** Full-stack · **Depends on:** [Story 63](STORY-20260921-report-evidence-in-conversation.md), [Story 64](STORY-20260921-managed-self-rebuild.md), [Story 70](STORY-20260924-remember-turn-choices.md), [Story 81](STORY-20260930-paste-image-into-chat.md), [Story 92](STORY-20261005-session-worktrees.md), [Story 95](STORY-20261007-docker-worktrees.md)
 
 **Vision slice:** starting and watching parallel work in [the arena](../docs/vision.md#the-arena),
 with the same journey in the [immersive workspace](EPIC-20260905-immersive-workspace.md).
@@ -9,60 +9,31 @@ This is a separate full-stack story; that epic's presentation-only constraint do
 
 ## Motivation
 
-Creating a session from Arena currently means choosing settings, opening the conversation, and
+Previously, creating a session from Arena meant choosing settings, opening the conversation, and
 only then explaining the task and attaching evidence. The user wants to compose that first message
 at creation time, press Enter, and leave the agent working while staying in Arena.
 
 The same shortcut should make it easy to report a CodeAI defect while working on something else:
 open the bottom-left gear, choose **New CodeAI session**, describe the problem, optionally attach a
 screenshot or headset report, and continue the original task. An empty submission instead opens the
-fresh session so the user can begin there. This turn writes and reviews the spec only.
+fresh session so the user can begin there. Implementation follows the reviewed specification below.
 
-## Current behavior (where the code is)
+## Where the code is
 
-- [Arena.tsx:293](../src/features/arena/Arena.tsx#L293) — inline creation section with machine,
-  project/repository, execution, worktree, provider, instructions, and mode; no first-message input.
-- [AppShell.tsx:675](../src/features/shell/AppShell.tsx#L675) — `createSession` combines the POST with
-  opening a view, changing catalogs/project selection, opening Conversation, and routing out of Arena.
-  [AppShell.tsx:1386](../src/features/shell/AppShell.tsx#L1386) — `send` reads the selected session,
-  composer, and evidence; these implicit inputs cannot address a background launch safely.
-- [AppShell.tsx:2227](../src/features/shell/AppShell.tsx#L2227) — the gear's More menu;
-  [useCodeAiLifecycle.ts:38](../src/features/lifecycle/useCodeAiLifecycle.ts#L38) — lifecycle
-  availability is scoped to the selected self project, so it cannot gate a shortcut from other projects.
-- [selfProject.ts:12](../src/server/repository/selfProject.ts#L12) — self-project identity is the
-  local primary checkout's real path equalling `config.installationRoot`, not its display name.
-  [codeAiLifecycle.ts:85](../src/server/lifecycle/codeAiLifecycle.ts#L85) — the live private managed
-  parent channel is the authority for managed mode.
-- [InstructionComposer.tsx:156](../src/features/conversation/InstructionComposer.tsx#L156),
-  [imageAttachments.ts:79](../src/features/conversation/imageAttachments.ts#L79) — existing attach
-  menu and bounded browser image preparation. Images are sent as pixels; arbitrary files are unsupported.
-- [useImmersiveReports.ts:39](../src/features/reports/useImmersiveReports.ts#L39),
-  [reportAccess.ts:26](../src/server/diagnostics/reportAccess.ts#L26),
-  [reportEvidence.ts:39](../src/server/storage/reportEvidence.ts#L39) — reports are read for a
-  verified self project and promoted to session-owned evidence on accepted messages.
-- [sessions/route.ts:45](../src/app/api/sessions/route.ts#L45),
-  [protocol.ts:99](../src/shared/protocol.ts#L99),
-  [sessionStore.ts:533](../src/server/storage/sessionStore.ts#L533) — ordinary creation has no
-  retry identity. Worktree creation already has durable, immutable request identity through
-  [managedWorktrees.ts:23](../src/server/repository/managedWorktrees.ts#L23).
-- [message/route.ts:129](../src/app/api/agent/message/route.ts#L129) — stable message IDs reject
-  repeated acceptance; [message/route.ts:285](../src/app/api/agent/message/route.ts#L285) — evidence
-  and user message are saved before execution; [message/route.ts:415](../src/app/api/agent/message/route.ts#L415)
-  — detaching the browser stream does not cancel an accepted run.
-- [sessionControls.ts:38](../src/features/shell/immersive/sessionControls.ts#L38),
-  [SessionTools.tsx:209](../src/features/shell/immersive/SessionTools.tsx#L209),
-  [arenaControls.ts:5](../src/features/shell/immersive/arenaControls.ts#L5) — VR has a settings-only
-  launcher and Arena New session action. [ConversationTools.tsx:33](../src/features/shell/immersive/ConversationTools.tsx#L33)
-  supplies dictation and correction; [ImmersiveWorkspace.tsx:182](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L182)
-  captures reports after the existing three-second countdown.
-- [InlineConversationInput.tsx:187](../src/features/shell/immersive/InlineConversationInput.tsx#L187)
-  — production controller-selected text input opens the Quest system keyboard when supported and
-  also accepts a physical keyboard. Its key handler currently does not submit a launcher.
-- [limits.ts:1](../src/shared/limits.ts#L1),
-  [ToastStack.tsx:25](../src/features/shell/ToastStack.tsx#L25),
-  [useWorkspaceViews.ts:63](../src/features/shell/useWorkspaceViews.ts#L63) — message bounds, action
-  toasts, and device views. Existing `openInProject` also selects a view; background launches need
-  to remember the new view's settings without selecting or opening it.
+- [src/features/session-launch/useSessionLauncher.ts:31](../src/features/session-launch/useSessionLauncher.ts#L31) — one memory-only draft and captured attempt, CodeAI preparation, evidence, cancellation, and capture generations.
+- [src/features/session-launch/sessionLaunch.ts:52](../src/features/session-launch/sessionLaunch.ts#L52) — explicit target create/send, immutable UUID retry, canonical delivery reconciliation, and stream detachment.
+- [src/features/session-launch/SessionSetupDialog.tsx:16](../src/features/session-launch/SessionSetupDialog.tsx#L16) — desktop modal, focus, first message, files/images/reports, settings, and recovery actions.
+- [src/features/shell/AppShell.tsx:1667](../src/features/shell/AppShell.tsx#L1667) — navigation guards, source choice preservation, deliberate opening, toasts, gear entry, and shared VR owner.
+- [src/features/shell/immersive/SessionSetup.tsx:27](../src/features/shell/immersive/SessionSetup.tsx#L27) — floating controller setup, paged evidence/settings, existing keyboard/dictation controls, and in-world outcome.
+- [src/features/shell/immersive/ImmersiveWorkspace.tsx:89](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L89) — setup routing, permission suspension, three-second capture, and stale upload handling.
+- [src/app/api/codeai-session/route.ts:20](../src/app/api/codeai-session/route.ts#L20) — personal-device-only managed availability/preparation/creation; server-owned self target.
+- [src/server/conversation/codeAiSession.ts:10](../src/server/conversation/codeAiSession.ts#L10) — managed installation discovery, race-safe self-project reuse, and prepared-context validation.
+- [src/server/conversation/sessionCreation.ts:9](../src/server/conversation/sessionCreation.ts#L9) — common creation admission; receipt replay precedes provider/checkout validation.
+- [src/server/storage/creationRequests.ts:14](../src/server/storage/creationRequests.ts#L14) — ordinary/worktree UUID namespace, normalized identity, active/archive replay, and failure classification.
+- [src/shared/textFiles.ts:4](../src/shared/textFiles.ts#L4) — bounded UTF-8 file contracts; session format 12 stores exact text, byte count, and digest.
+- [src/server/storage/textFiles.ts:6](../src/server/storage/textFiles.ts#L6) — generated per-run names and exact file/manifest bytes.
+- [src/server/storage/sessionStore.ts:703](../src/server/storage/sessionStore.ts#L703) — atomic message/file-cap validation before report promotion and durable acceptance.
+- [src/features/arena/arenaModel.ts:102](../src/features/arena/arenaModel.ts#L102) — fresh-snapshot Local execution uncertainty without canonical mutation or automatic retry.
 
 ## Desired behavior
 
@@ -99,13 +70,14 @@ Treat whitespace-only text as empty. Evidence counts as content:
 | First message | Evidence | Primary action | Result after confirmed acceptance |
 |---|---|---|---|
 | Empty | None | **Create and open** | Create an idle session and open/focus its composer. |
-| Non-empty | Any or none | **Start session** | Create and submit one first turn; close the launcher and keep the originating surface. |
-| Empty | One or more attachments | **Start session** | Submit an attachment-only turn with the fallback text below; keep the originating surface. |
+| Non-empty | Any or none | **Start in background** | Create and submit one first turn; close the launcher and keep the originating surface. |
+| Empty | One or more attachments | **Start in background** | Submit an attachment-only turn with the fallback text below; keep the originating surface. |
 
 Attachment-only text is visible before submission: use the existing report-only instruction when
-reports are present, otherwise the existing image-only instruction for images alone; for files or
-mixed files/images use `Investigate the attached files and images for this repository.` (omit
-“and images” when none are present). The typed message always takes precedence over the fallback.
+reports alone are present, otherwise the existing image-only instruction for images alone. Files
+alone use `Read the attached text files and explain what matters for this repository.` Mixed
+evidence uses `Review the attached evidence and explain what matters for this repository.`
+The typed message always takes precedence over the fallback.
 
 Enter in First message invokes the primary action; Shift+Enter adds a newline. Ignore submit during
 IME composition, key repeat, attachment processing, recording/transcription, or an outstanding
@@ -202,10 +174,10 @@ be explicitly saved/copied there and selected/pasted here. No conversation trans
 draft, or pending attachment is copied implicitly, and no new cross-session attachment browser is added.
 
 One launcher draft is retained in browser memory across Cancel/reopen and desktop/VR presentation
-changes until success or explicit **Clear draft**. Text, image bytes, and file bytes never go into
+changes until success or explicit **Clear setup**. Text, image bytes, and file bytes never go into
 localStorage; reload may lose an unaccepted draft. Before changing target settings after submission,
 resolve the outstanding request as below. Cancel before submission returns focus and preserves the
-draft. Once submission begins, show progress and an explicit **Close** action: closing hides the
+draft. Once submission begins, show progress and keep the explicit **Close setup** action: closing hides the
 launcher but keeps its owner and recovery result alive, and reopening resumes that attempt.
 Do not accept another launcher operation until the outstanding attempt's outcome is known.
 
@@ -246,8 +218,8 @@ provider prompts, and use the same next-format migration as the new file evidenc
 | Validation/preparation fails before create | Retain all valid draft content; fix settings/evidence and resubmit. |
 | Create response is lost | Reconcile by retrying the identical creation request ID/settings; return its one saved session. Do not create another. |
 | Worktree intent retained; no session response yet | Keep the original UUID/settings and retry/recover that intent through the existing worktree journal. Do not start a fresh worktree attempt merely because the API returned 409 or another error. |
-| Session exists; message not accepted | Keep that session ID and draft, show **Session created; first message not sent**, with **Retry first message** and **Open session**. Retry submits only to that session. |
-| Message response is lost/stream disconnects | Read the captured session and its runs. An accepted message UUID or matching active run means accepted; reattach if running. Retry that same message UUID only when absence is established; an already-accepted 409 triggers reconciliation, never another turn. |
+| Session exists; message not accepted | Keep that session ID and draft, show the rejection, with **Retry** and **Open created session**. Retry submits only to that session. |
+| Message response is lost/stream disconnects | Read the captured canonical session. Its accepted message UUID proves acceptance. A pre-save active-run conflict keeps delivery uncertain and freezes that same UUID. Retry that same message UUID after the canonical read finds no accepted message; an already-accepted 409 triggers reconciliation, never another turn. |
 | Accepted turn fails/cancels | Show its durable failed/cancelled state through Arena/Inbox and offer Open session. Never automatically rerun it; a deliberate regular Retry is a new message ID under the existing delivery rules. |
 | Accepted turn after server restart, with no live run or durable terminal result | Show **Accepted; execution status unavailable** and Open session. The existing message UUID proves acceptance; it never permits automatic resend. A deliberate new-ID Retry warns that the earlier turn may have acted before interruption. |
 
@@ -267,8 +239,7 @@ outcome. Existing Docker interrupted-delivery recovery continues to supply its d
 
 Expose durable acceptance independently of first provider output, including queued turns: use the
 existing stream and canonical message/run state, adding an `X-CodeAI-Run-Id` response header after
-durable message save and scheduler activation. The current stream helper does not emit that header;
-forward it explicitly through the executor gateway. Close the successful
+durable message save and scheduler activation. The message route emits this header and the executor gateway forwards it. Close the successful
 launcher once acceptance is confirmed, without waiting for turn completion. An accepted-but-failed
 turn is a launch result with an error, not an unknown request. Deduplicate double clicks, Enter,
 controller events, reconciliation, and concurrent same-ID POSTs. New creation settings after a
@@ -377,7 +348,7 @@ approve the new session's actions automatically.
 
 ## Implementation boundaries
 
-Keep one launcher owner under `src/features/conversation/` with desktop presentation used by Arena
+Keep one launcher owner under `src/features/session-launch/` with desktop presentation used by Arena
 and AppShell, and a VR presentation under `src/features/shell/immersive/`. Give it explicit launch
 and open callbacks. Factor a small shared server creation function out of the existing sessions
 route only as needed by the fixed self route; reuse worktree/store/provider/report helpers.
@@ -389,7 +360,7 @@ their limits do not exempt the combined request.
 413 preserves the draft. An older executor rejecting new file fields remains on the captured
 machine, displays the incompatibility, and does not silently resend without the files.
 
-Recommended implementation sequence in a fresh agent session:
+Implementation sequence:
 
 1. Add focused failing contract tests for creation reconciliation, fixed self target, bounded files,
    and captured launch/navigation outcomes; extend shared/store schemas and server creation/evidence.
@@ -400,45 +371,48 @@ Recommended implementation sequence in a fresh agent session:
 
 ## Acceptance criteria
 
-- [ ] Arena New session opens an accessible modal, focuses First message, retains existing setup
+- [x] Arena New session opens an accessible modal, focuses First message, retains existing setup
       settings, and shows machine-validated model/effort defaults and visible target summary.
-- [ ] Empty/whitespace with no evidence creates and opens an idle session; text or attachment-only
+- [x] Empty/whitespace with no evidence creates and opens an idle session; text or attachment-only
       submission creates one first turn in the background with the documented visible fallback.
-- [ ] Enter/Shift+Enter, IME, key repeat, disabled/busy states, focus containment, Escape, Cancel,
-      Clear draft, narrow viewport, and focus return work in both desktop themes.
-- [ ] Screenshot picker/paste/drop uses existing preparation and bounds; text-file selection,
+- [x] Enter/Shift+Enter, IME, key repeat, disabled/busy states, focus containment, Escape, Cancel,
+      Clear setup, narrow viewport, and focus return work in both desktop themes.
+- [x] Screenshot picker/paste/drop uses existing preparation and bounds; text-file selection,
       validation, previews/chips, count/byte limits, and invalid-item errors preserve valid content.
-- [ ] Text files reach Claude and Codex as exact bounded data in Local and Docker; records and
+- [x] Text files reach Claude and Codex as exact bounded data in Local and Docker; records and
       duplicate comparison agree, older sessions load, newer-format isolation works, and regular
       composer Retry rehydrates exact file evidence. The per-session cap is atomic and rejects
       without partial acceptance; images lost from memory clearly require reselection.
-- [ ] Report selection from another conversation/project reads only the target self project's
+- [x] Report selection from another conversation/project reads only the target self project's
       retained reports, uses explicit chips, and preserves existing promotion/authorization limits.
-- [ ] Managed gear shortcut works from Arena and any project/machine's conversation; identity is
+- [x] Managed gear shortcut works from Arena and any project/machine's conversation; identity is
       the home installation, execution is Local, first-use preparation is race-safe, and names or
       client-supplied paths cannot forge eligibility. Unmanaged/unavailable/restarting cases are clear.
-- [ ] Background submission never opens/selects a tab, changes the route/project/machine, consumes
+- [x] Background submission never opens/selects a tab, changes the route/project/machine, consumes
       the source draft/evidence, or moves its canvas/panels; Open session targets the saved identity.
-- [ ] Ordinary and worktree create retries, concurrent duplicate submissions, lost responses,
+- [x] Ordinary and worktree create retries, concurrent duplicate submissions, lost responses,
       archived replay, accepted-message 409, queue rejection, and send failure produce at most one
       session and one initial accepted turn per frozen attempt, with the specified recovery actions;
       reused IDs cannot cross ordinary/worktree branches, including simultaneous conflicting requests.
-- [ ] A persisted-but-unfinished worktree intent keeps its identity through errors; a Local restart
+- [x] A persisted-but-unfinished worktree intent keeps its identity through errors; a Local restart
       shows uncertain accepted execution through Arena/Inbox rather than retrying, inventing a
       terminal state, or waiting forever. Explicit Retry explains possibly sent delivery.
-- [ ] Toast and Arena/Inbox reveal accepted queued/running/failed work; stream detach and launcher
+- [x] Toast and Arena/Inbox reveal accepted queued/running/failed work; stream detach and launcher
       closure do not cancel an accepted run, and later source navigation cannot retarget its updates.
-- [ ] Repository-free empty sessions still open; non-empty launches require a primary repository;
+- [x] Repository-free empty sessions still open; non-empty launches require a primary repository;
       provider/instructions/model/execution, maintenance, checkpoint, and checkout-lock policies hold.
-- [ ] VR exposes both general and CodeAI setup independently of the active project's eligibility;
+- [x] VR exposes both general and CodeAI setup independently of the active project's eligibility;
       controller, keyboard, and reviewed dictation use the separate launcher draft and shared outcomes.
-- [ ] VR captures/selects a report while retaining the original task, attaches to the initiating
+- [x] VR captures/selects a report while retaining the original task, attaches to the initiating
       launcher only, rejects stale callbacks, and offers a readable Open session action without
       leaving XR. Empty launch opens the new conversation inside XR.
-- [ ] Revocation, offline/unknown outcomes, unsupported older executors, absent Content-Length,
+- [x] Revocation, offline/unknown outcomes, unsupported older executors, absent Content-Length,
       combined over-limit requests, and lost in-memory image evidence have explicit tested behavior.
-- [ ] Focused unit/route tests, TypeScript, production build, desktop and simulated-XR browser
+- [x] Focused unit/route tests, TypeScript, production build, desktop and simulated-XR browser
       journeys pass. Physical Quest 3S verification below is recorded separately and honestly.
+
+- [ ] Physical Quest 3S acceptance: complete the headset journey in How to verify step 7,
+      recording versions, readability, comfort, capture, voice fallback, and in-world opening.
 
 ## Out of scope
 
@@ -499,8 +473,63 @@ by correction passes and final review, reported **no remaining critical or high 
 Corrections covered immediate queued-turn acceptance, one ordinary/worktree creation-ID namespace,
 prepared self-project identity, retained worktree intents, Local restart uncertainty, preserving
 newer navigation, bounded durable file evidence and exact Retry, and production Quest keyboard reuse.
-The current stream's missing run-ID header is explicitly new implementation work.
+The implementation now emits and forwards the run-ID acceptance header.
 
-Markdown whitespace and all 60 local links/line-anchor bounds across this story and its queue entry
-were checked successfully. The story remains Draft: no application code was changed, no application
-tests were run, and none of the implementation acceptance criteria is claimed complete.
+The specification’s local links and line-anchor bounds were checked at the initial handoff.
+At the specification commit, the story was Draft and no implementation criteria were claimed.
+The implementation and verification record below supersedes that initial status.
+
+## Implementation and verification record
+
+October 7, 2026: implementation and automated acceptance are complete. The story remains
+**In progress** for physical Quest 3S acceptance. The reviewed specification was committed as
+`35ecd7d` on `feature/session-setup`; implementation changes remain available for Git review.
+
+The shared owner keeps setup separate from the source task. Desktop uses a native modal with a
+scrolling body, visible actions, bounded attachment chips, and a model menu that expands within
+settings. VR uses the production controller renderer, keyboard and reviewed dictation, paged
+settings/evidence, capture generations, and a deliberate in-world Open action. No verified Quest
+file picker is advertised; desktop preparation and headset report capture remain the supported paths.
+
+Creation uses one durable UUID namespace for ordinary and worktree sessions. The fixed managed
+CodeAI route resolves the home installation on the server, reuses its self project atomically, and
+validates prepared bindings before creation. First-turn acceptance is announced through the
+run-ID header and canonical message reconciliation; detaching never cancels the accepted run.
+Session format 12 retains exact bounded UTF-8 file evidence and private creation receipts, with
+regular composer Retry using that evidence. Fresh Local execution uncertainty appears in Arena
+and Inbox without changing the durable result or automatically retrying.
+
+Verification:
+
+- `env CODEAI_REMOTE_ACCESS=local CODEAI_SECURITY_LEVEL=guarded npm test` — **1,213/1,213 passed**.
+  This includes duplicate/cross-branch creation identity, active/archive receipt races, fixed
+  installation identity and authorization, file bounds/exact bytes/digests/atomic capacity,
+  message-route delivery into the runner context, both Docker provider context translations,
+  streamed request limits with absent or misleading Content-Length, acceptance/reconciliation,
+  existing scheduler/checkpoint policies, and fresh-snapshot execution uncertainty.
+- `npm run lint` and `env CODEAI_DIST_DIR=.next-e2e npm run build` — passed on the final product
+  code. `git diff --check` passes. The dependency manifest and lockfile are unchanged.
+- **48 distinct focused production browser journeys passed**, including the 29-check setup/XR
+  selection and the 21 existing worktree, image, New chat, title-tab and report regressions
+  (two worktree journeys overlap). Failure corrections were rerun: text files now intentionally
+  share the image composer; New session buttons use role-specific locators; the narrow invalid-file
+  path exposes Retry. Keyboard focus and desktop/narrow model selection checks reproduced the
+  reviewed defects before their fixes and pass afterward.
+- Setup screenshots in both themes were inspected. Desktop checks bound thumbnail geometry and
+  require visible actions; narrow checks retain valid files and focus. XR checks cover reviewed
+  voice, disabled unsupported file selection, preserved source draft/panels, late capture upload
+  remaining saved without attaching to a successor draft, and empty CodeAI opening inside XR.
+- Independent read-only server and client review, followed by correction passes, reports
+  **no remaining critical or high findings**. Final corrections address provider-offer routing,
+  remembered instruction isolation, capture generations, model-menu clipping, and keyboard
+  focus restoration after accepted background submission.
+
+The fixture servers explicitly use Local access and Guarded security so inherited settings from
+a running managed installation do not change the tests. Fixture managed-worktree roots are
+isolated so running the suite inside a managed worktree does not hide ordinary fixture checkouts.
+The managed bridge and attached-executor browser flows use controlled fixtures; they do not
+change or rebuild the running installation.
+
+Not run for this story: signed-in Claude/Codex screenshot/text-file turns, a real Docker turn with
+these files, the production attached-executor listener, and physical Quest 3S acceptance. Offline
+transport and authorization checks do not substitute for those installation/device checks.

@@ -18,7 +18,7 @@ function responseHeaders(remote: Response): Headers {
   const headers = new Headers();
   for (const name of [
     'content-type', 'cache-control', 'x-content-type-options',
-    'x-codeai-run-finished', 'x-codeai-replay-events',
+    'x-codeai-run-finished', 'x-codeai-replay-events', 'x-codeai-run-id',
   ]) {
     const value = remote.headers.get(name);
     if (value) headers.set(name, value.slice(0, 500));

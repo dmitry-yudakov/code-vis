@@ -6,13 +6,15 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { MAX_SESSION_TEXT_FILE_BYTES } from '@/shared/limits';
+import { validateTextFiles } from '@/shared/textFiles';
 import type {
   AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
   ChatMessage, GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SessionWorktree, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
-  NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, durableProjectSchema, durableSessionSchema,
+  NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
@@ -36,7 +38,7 @@ const MAX_SESSIONS = 1_000;
 const MAX_PROJECTS = 1_000;
 
 function upgradeForMessage(session: DurableSession, message: ChatMessage): void {
-  const needed = isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
+  const needed = message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
     : message.role === 'user' && message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
     : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
     : message.role === 'user' && message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
@@ -61,7 +63,7 @@ const writerLockSchema = z.object({
   heartbeat: z.string().datetime(),
 }).strict();
 
-export type SessionStoreErrorCode = 'unknown' | 'conflict' | 'locked' | 'corrupt' | 'unsupported-format';
+export type SessionStoreErrorCode = 'unknown' | 'conflict' | 'locked' | 'corrupt' | 'unsupported-format' | 'capacity';
 
 const NEWER_FORMAT_MESSAGE = 'This session was written by a newer CodeAI. Open it with that version.';
 
@@ -222,6 +224,7 @@ export function publicSession(session: DurableSession): PublicSession {
     ...structuredClone(session),
     participants: publicParticipants(session),
   };
+  delete snapshot.creationReceipt;
   return publicSessionSchema.parse(snapshot) as PublicSession;
 }
 
@@ -338,9 +341,16 @@ export class SessionStore {
     }
   }
 
-  async createProject(name: string, checkoutIds: string[] = []): Promise<DurableProject> {
+  async createProject(name: string, checkoutIds: string[] = [], options?: { reusePrimary: boolean }): Promise<DurableProject> {
     return this.enqueue(async () => {
       await this.openStore();
+      if (options?.reusePrimary && checkoutIds.length === 1) {
+        const existing = (await this.listProjects()).filter((project) => {
+          const primary = primaryRepository(project);
+          return primary?.checkoutId === checkoutIds[0] && primary.hostId === this.manifest!.host.id;
+        }).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
+        if (existing) return existing;
+      }
       await this.refuseManagedProjectBindings(checkoutIds);
       const currentCount = (await readdir(this.projectsDirectory, { withFileTypes: true }))
         .filter((entry) => entry.isFile() && entry.name.endsWith('.json')).length;
@@ -526,8 +536,24 @@ export class SessionStore {
     });
   }
 
+  async findCreationReceipt(requestId: string): Promise<DurableSession | undefined> {
+    return this.enqueue(() => this.readCreationReceipt(requestId));
+  }
+
+  private async readCreationReceipt(requestId: string): Promise<DurableSession | undefined> {
+    await this.openStore();
+    for (const directory of [this.sessionsDirectory, this.archivedSessionsDirectory]) {
+      for (const name of await this.sessionFileNames(directory)) {
+        const session = await this.readSessionFile(path.join(directory, name)).catch(skipNewerFormat);
+        if (session?.creationReceipt?.requestId === requestId) return session;
+      }
+    }
+  }
+
   async createSession(input: {
     execution?: AgentExecution;
+    creationReceipt?: DurableSession['creationReceipt'];
+    expectedProjectBindings?: string;
     sourceSessionId?: string;
     expectedSourceRevision?: number;
     checkoutId?: string;
@@ -543,6 +569,15 @@ export class SessionStore {
   }): Promise<DurableSession> {
     return this.enqueue(async () => {
       await this.openStore();
+      if (input.creationReceipt) {
+        const prior = await this.readCreationReceipt(input.creationReceipt.requestId);
+        if (prior) {
+          if (prior.creationReceipt!.fingerprint !== input.creationReceipt.fingerprint) {
+            throw new SessionStoreError('conflict', 'Creation request id was already used with different choices.');
+          }
+          return structuredClone(prior);
+        }
+      }
       const names = (await Promise.all([
         this.sessionFileNames(this.sessionsDirectory),
         this.sessionFileNames(this.archivedSessionsDirectory),
@@ -563,6 +598,12 @@ export class SessionStore {
         throw new SessionStoreError('conflict', 'The source session changed. Refetch and retry the continuation.');
       }
       const project = input.projectId ? await this.getProject(input.projectId) : undefined;
+      if (input.expectedProjectBindings) {
+        const { projectBindingsFingerprint } = await import('./creationRequests');
+        if (!project || projectBindingsFingerprint(project) !== input.expectedProjectBindings) {
+          throw new SessionStoreError('conflict', 'The prepared project repositories changed. Prepare the session again.');
+        }
+      }
       const projectId = source?.projectId || project?.id;
       if (project && input.checkoutId && !input.worktree) throw new Error('Choose a project or a checkout, not both.');
       const repositories = structuredClone(input.repositories || source?.repositories || (input.worktree ? undefined : project?.repositories) || (input.checkoutId ? [{
@@ -584,7 +625,8 @@ export class SessionStore {
         throw new SessionStoreError('conflict', LOCAL_CODEX_ISOLATION_MESSAGE);
       }
       const session: DurableSession = {
-        version: worktree ? input.execution === 'docker' ? 11 : 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        version: input.creationReceipt ? SESSION_SETUP_VERSION : worktree ? input.execution === 'docker' ? 11 : 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        ...(input.creationReceipt ? { creationReceipt: input.creationReceipt } : {}),
         ...(worktree ? { worktree } : {}),
         execution: input.execution || 'local',
         ...(instructions ? { instructions } : {}),
@@ -658,8 +700,8 @@ export class SessionStore {
     }
   }
 
-  async appendUserMessage(id: string, message: UserMessage): Promise<AppendUserMessageResult> {
-    return this.mutate<AppendUserMessageResult>(id, (session) => {
+  async appendUserMessage(id: string, message: UserMessage, beforeSave?: () => Promise<void>): Promise<AppendUserMessageResult> {
+    return this.mutate<AppendUserMessageResult>(id, async (session) => {
       const prior = session.messages.find((item) => item.id === message.id);
       if (prior) {
         const sameLogicalRequest = prior.role === 'user'
@@ -670,9 +712,17 @@ export class SessionStore {
           && prior.level === message.level
           && same(prior.diagramAttachments, message.diagramAttachments)
           && same(prior.reportAttachments ?? [], message.reportAttachments ?? [])
-          && same(prior.imageAttachments ?? [], message.imageAttachments ?? []);
+          && same(prior.imageAttachments ?? [], message.imageAttachments ?? [])
+          && same(prior.fileAttachments ?? [], message.fileAttachments ?? []);
         if (!sameLogicalRequest) throw new Error('Message id was already used with different content');
         return { result: { session, appended: false }, changed: false };
+      }
+      const files = message.fileAttachments ?? [];
+      validateTextFiles(files.map(({ name, text }) => ({ name, text })));
+      const existingBytes = session.messages.reduce((sum, item) => sum + (item.role === 'user'
+        ? (item.fileAttachments ?? []).reduce((total, file) => total + file.bytes, 0) : 0), 0);
+      if (existingBytes + files.reduce((sum, file) => sum + file.bytes, 0) > MAX_SESSION_TEXT_FILE_BYTES) {
+        throw new SessionStoreError('capacity', 'This session holds 8 MiB of text-file evidence. Start a new session to attach more files.');
       }
       const author = session.participants.find((participant) => participant.id === message.authorId);
       if (author?.kind !== 'human') throw new Error('The user message author is not a human in this session');
@@ -682,6 +732,8 @@ export class SessionStore {
       upgradeForMessage(session, message);
       session.messages.push(structuredClone(message));
       if (session.messages.length === 1) session.title = message.text.trim().slice(0, 56) || 'Sketch session';
+      durableSessionSchema.parse(session);
+      await beforeSave?.();
       return { result: { session, appended: true }, changed: true };
     });
   }
@@ -1327,6 +1379,7 @@ export function sessionStoreStatus(error: unknown): number {
   const code = sessionStoreErrorCode(error);
   if (!code) return 400;
   if (code === 'unknown') return 404;
+  if (code === 'capacity') return 413;
   if (code === 'conflict' || code === 'locked' || code === 'unsupported-format') return 409;
   return 500;
 }

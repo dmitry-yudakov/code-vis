@@ -52,7 +52,7 @@ test('execution and managed checkout choices remain independent in the desktop l
   });
   await page.goto(origin); await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: 'No project' }).click();
-  await page.getByLabel('New session', { exact: true }).click();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
   const form = page.locator('.new-session-menu').getByRole('form', { name: 'Create project session' });
   await form.getByRole('combobox', { name: 'Repository', exact: true }).selectOption({ label: 'source' });
   await form.getByRole('combobox', { name: 'Session checkout' }).selectOption('worktree');
@@ -129,7 +129,7 @@ for (const theme of ['light', 'dark']) test(`creates and retains a managed workt
 
 test('retries a lost creation response with the same identity and exposes managed binding restrictions', async ({ page }) => {
   await page.goto(origin); await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: 'No project' }).click();
-  await page.getByLabel('New session', { exact: true }).click();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
   const form = page.locator('.new-session-menu').getByRole('form', { name: 'Create project session' });
   await form.getByRole('combobox', { name: 'Repository', exact: true }).selectOption({ label: 'source' });
   await form.getByRole('combobox', { name: 'Session checkout' }).selectOption('worktree');
@@ -156,8 +156,8 @@ test('Arena creates an independent worktree and labels its source and live branc
   await page.goto(`${origin}/arena`);
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('button', { name: 'New session', exact: true }).click();
-  const creation = arena.getByRole('region', { name: 'Create session' });
-  await creation.getByRole('combobox', { name: 'Project', exact: true }).selectOption('none');
+  const creation = page.getByRole('dialog', { name: 'New session', exact: true });
+  await creation.getByRole('combobox', { name: 'Project', exact: true }).selectOption('');
   await creation.getByRole('combobox', { name: 'Repository', exact: true }).selectOption({ label: 'source' });
   await expect(creation.getByRole('combobox', { name: 'Session checkout' })).toHaveValue('current');
   await creation.getByRole('combobox', { name: 'Session checkout' }).selectOption('worktree');

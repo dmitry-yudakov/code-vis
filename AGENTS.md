@@ -162,6 +162,10 @@ Updated 2026-10-07. When a story ships, change the line that names it; each stor
   bounded Git metadata mounts. All 1,167 offline tests, TypeScript, production build, five browser
   checks, real Docker Git/mount checks and independent review passed. Signed-in provider turns,
   production attached-executor transport and physical Quest use were not rerun.
+- **Also in flight:** [Story 97](stories/STORY-20261007-compose-new-session.md) — shared session
+  setup from Arena and the managed CodeAI gear shortcut, with first-message evidence, background
+  launch, durable retries, and desktop/VR presentation; automated verification and review are
+  recorded in the story, and physical Quest 3S acceptance remains pending.
 - **Shipped:** [Story 96](stories/STORY-20261007-stop-arena-git-helper-churn.md) — Arena source
   listing uses lightweight filesystem checks instead of spawning Git helpers and holding checkout
   leases; full worktree creation validation and restart exclusions remain. All 1,177 tests,

@@ -45,12 +45,12 @@ feature has shipped. The order is priority, not a new dependency chain.
 | 4 | Q4 | [Story 6 first software-model producer](../stories/STORY-20261003-agent-emitted-software-model.md) | Done | Verified and reviewed; continue with Q5 |
 | 5 | Q5 | Story 7 persistent repository model | Queued | Write the persistence story using Story 6's measured identity contract |
 
-## Additional drafted work
+## Additional work
 
 - [Story 97 — Compose the first message while creating a session](../stories/STORY-20261007-compose-new-session.md)
   specifies Arena setup with attachments and background launch, a managed CodeAI shortcut, and the
-  desktop/VR journey. Spec and review only; implementation has not started. No queue priority has
-  been assigned to this story.
+  desktop/VR journey. Implementation, automated verification, and independent review pass; physical
+  Quest acceptance remains pending. No queue priority has been assigned to this story.
 
 ## Q1 Turn checkpoints and undo
 

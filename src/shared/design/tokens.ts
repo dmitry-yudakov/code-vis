@@ -127,7 +127,8 @@ export type EffectToken =
   | 'sidebarShadow'
   | 'sidebarInspectorShadow'
   | 'raisedBackdropButton'
-  | 'raisedBackdropBadge';
+  | 'raisedBackdropBadge'
+  | 'modalBackdrop';
 
 const light = {
   sheet: '#ffffff',
@@ -335,6 +336,7 @@ export const effects: Record<ThemeName, Record<EffectToken, string>> = {
     plotOrbitInner: 'rgba(47, 90, 208, .15)',
     onEmphasisWash: 'rgba(255, 255, 255, .16)',
     sidebarShadow: '0 1px 2px rgba(15, 19, 25, .05), 0 8px 24px rgba(15, 19, 25, .07)',
+    modalBackdrop: 'rgba(0, 0, 0, .45)',
     sidebarInspectorShadow: '0 2px 4px rgba(15, 19, 25, .05), 0 18px 48px rgba(15, 19, 25, .12)',
     raisedBackdropButton: 'rgba(255, 255, 255, .72)',
     raisedBackdropBadge: 'rgba(255, 255, 255, .82)',
@@ -376,6 +378,7 @@ export const effects: Record<ThemeName, Record<EffectToken, string>> = {
     plotOrbitInner: 'rgba(125, 157, 245, .18)',
     onEmphasisWash: 'rgba(255, 255, 255, .1)',
     sidebarShadow: '0 1px 2px rgba(0, 0, 0, .5), 0 8px 24px rgba(0, 0, 0, .4)',
+    modalBackdrop: 'rgba(0, 0, 0, .45)',
     sidebarInspectorShadow: '0 2px 4px rgba(0, 0, 0, .5), 0 18px 48px rgba(0, 0, 0, .55)',
     raisedBackdropButton: 'rgba(255, 255, 255, .05)',
     raisedBackdropBadge: 'rgba(255, 255, 255, .06)',

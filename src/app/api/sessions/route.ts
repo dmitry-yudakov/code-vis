@@ -1,14 +1,12 @@
+import { sessionCreationFailure } from '@/server/storage/creationRequests';
 import { getConfig } from '@/server/config';
 import {
   sessionStoreStatus, getSessionStore, publicSession,
 } from '@/server/storage/sessionStore';
 import { createSessionRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
-import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
-import { getDockerRuntime } from '@/server/execution/dockerRuntime';
-import { validateDockerCheckout } from '@/server/execution/dockerProfile';
 import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
-import { createManagedWorktree } from '@/server/repository/managedWorktrees';
+import { createRequestedSession } from '@/server/conversation/sessionCreation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,37 +36,15 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const denied = await authorizeDeviceRequest(request);
   if (denied) return denied;
+  let creationRequestId: string | undefined;
   try {
     const parsed = createSessionRequestSchema.safeParse(await request.json());
-    if (!parsed.success) return safeJsonResponse({ error: 'Choose valid session settings. Worktree creation requires one source repository and a creation request UUID.' }, { status: 400 });
+    if (!parsed.success) return safeJsonResponse({ error: 'Choose valid session settings. Worktree creation requires one source repository and a creation request UUID.', creationState: 'none' }, { status: 400 });
     const config = getConfig();
-    const store = getSessionStore(config.dataDir, config.hostLabel);
-    if (parsed.data.checkoutMode === 'worktree') {
-      const session = await createManagedWorktree(parsed.data, config);
-      return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
-    }
-    const source = parsed.data.sourceSessionId ? await store.getSession(parsed.data.sourceSessionId) : undefined;
-    const project = parsed.data.projectId ? await store.getProject(parsed.data.projectId) : undefined;
-    const registry = getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth);
-    if (parsed.data.checkoutId) await registry.resolve(parsed.data.checkoutId);
-    if (parsed.data.execution === 'docker') {
-      const health = await getDockerRuntime(config).health();
-      if (!health.available) return safeJsonResponse({ error: health.message }, { status: 409 });
-      const host = await store.host();
-      const bindings = source?.repositories || project?.repositories || (parsed.data.checkoutId ? [{
-        checkoutId: parsed.data.checkoutId, role: 'primary', hostId: host.id,
-      }] : []);
-      if (bindings.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== host.id) {
-        return safeJsonResponse({ error: 'Docker requires exactly one primary repository on this machine.' }, { status: 400 });
-      }
-      await validateDockerCheckout((await registry.resolve(bindings[0].checkoutId)).realPath, config);
-    }
-    const session = await store.createSession({
-      ...parsed.data,
-      ...(source ? { expectedSourceRevision: source.revision } : {}),
-    });
+    creationRequestId = parsed.data.creationRequestId;
+    const session = await createRequestedSession(parsed.data, config);
     return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
-    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
+    return safeJsonResponse({ error: publicError(error), ...(creationRequestId ? await sessionCreationFailure(creationRequestId, getConfig()) : {}) }, { status: sessionStoreStatus(error) });
   }
 }

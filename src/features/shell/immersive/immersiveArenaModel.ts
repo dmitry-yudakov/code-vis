@@ -43,7 +43,7 @@ function sessionRows(machines: readonly ArenaMachineSnapshot[], archived: boolea
     machine.projects,
     archived ? machine.archivedSessions : machine.sessions,
     machine.runs,
-    machine.machine.state === 'online',
+    machine.machine.state === 'online', machine.snapshotFresh !== false,
   ).flatMap((group) => group.sessions.map((card) => ({
     key: `session:${machine.machine.id}:${card.session.id}`,
     kind: 'session' as const,

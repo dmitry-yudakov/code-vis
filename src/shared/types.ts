@@ -134,7 +134,9 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  /** Server-only receipt; never included in public sessions. */
+  creationReceipt?: { requestId: string; fingerprint: string };
   worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
@@ -459,6 +461,7 @@ export interface UserMessage {
   reportAttachments?: ReportAttachmentRecord[];
   /** Present only on messages that carried images, which only a version 8 session holds. */
   imageAttachments?: ImageAttachmentRecord[];
+  fileAttachments?: import('./textFiles').TextFileRecord[];
   mode?: AgentMode;
   /** Native Agent/Auto need a level; the two Native-only modes identify themselves. */
   level?: 'native';
@@ -489,7 +492,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
   worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
@@ -657,8 +660,10 @@ export interface ExecutorSnapshot {
 }
 
 /** One executor as observed by the home Arena. Offline entries carry the last valid cached data. */
+/** snapshotFresh is disposable browser observation state, never an executor assertion. */
 export interface ArenaMachineSnapshot extends Omit<ExecutorSnapshot, 'machine'> {
   machine: ArenaMachineIdentity;
+  snapshotFresh?: boolean;
 }
 
 export interface AgentMessageRequest {
@@ -671,6 +676,7 @@ export interface AgentMessageRequest {
   reportAttachments?: ReportAttachmentRequest[];
   /** Pasted or dropped images for this turn only; the protocol parser defaults absence to `[]`. */
   imageAttachments?: ImageAttachmentRequest[];
+  fileAttachments?: import('./textFiles').TextFile[];
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;
   /** Omitted means Default. Must be an `id` in the addressed provider's `models`, or 400. */

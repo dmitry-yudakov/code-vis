@@ -193,3 +193,19 @@ describe('Arena presentation model', () => {
     expect(buildMultiMachineInbox([machine], acknowledged)[0].read).toBe(true);
   });
 });
+
+
+describe('lost Local execution after restart', () => {
+  it('shows Needs you and an Inbox item only on a fresh online snapshot without an active or recent result', () => {
+    const sending = { ...session(SESSION_A, '2026-09-03T10:00:00.000Z'), lastActivity: { messageId: 'lost', createdAt: '2026-09-03T10:00:00.000Z', status: 'sending' as const } };
+    const discovery = { active: [], recent: [] };
+    expect(groupArenaSessions([], [sending], discovery)[0].sessions[0]).toMatchObject({ state: 'needs-you', activity: 'Execution status unavailable' });
+    const items = buildArenaInbox([], [sending], discovery, EMPTY_DEVICE_ARENA_STATE, { id: 'home', label: 'Home', online: true });
+    expect(items).toMatchObject([{ kind: 'unavailable', reason: 'Execution status unavailable' }]);
+    expect(groupArenaSessions([], [sending], discovery, false)[0].sessions[0].state).not.toBe('needs-you');
+    expect(buildArenaInbox([], [sending], discovery, EMPTY_DEVICE_ARENA_STATE, { id: 'home', label: 'Home', online: false })).toEqual([]);
+    expect(buildArenaInbox([], [sending], { active: [run({ runId: 'live', sessionId: SESSION_A, state: 'queued' })], recent: [] }, EMPTY_DEVICE_ARENA_STATE)).toEqual([]);
+    expect(buildArenaInbox([], [{ ...sending, execution: 'docker' }], discovery, EMPTY_DEVICE_ARENA_STATE)).toEqual([]);
+    expect(sending.lastActivity.status).toBe('sending');
+  });
+});

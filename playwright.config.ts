@@ -40,6 +40,8 @@ export default defineConfig({
       // A project whose primary repository is this fixture is CodeAI's own for the report flows.
       CODEAI_INSTALLATION_ROOT: path.resolve('test/fixtures/projects/installation'),
       CODEAI_DATA_DIR: path.resolve('test-results/server-data'),
+      // Running this suite from a managed worktree must not hide its ordinary fixture checkouts.
+      CODEAI_WORKTREES_ROOT: path.resolve('test-results/worktrees'),
       CODEAI_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'),
       CODEAI_CODEX_BIN: path.resolve('test/fixtures/not-a-real-codex'),
       // The developer's own global instructions must not reach the suite; these fixtures stand in.

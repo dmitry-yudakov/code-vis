@@ -47,8 +47,10 @@ test('Docker can be enabled without restarting, persists on reload, and disablin
   await expect(execution).toHaveValue('local');
   await execution.selectOption('docker');
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeDisabled();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   await toggle.click();
   await expect(toggle).not.toBeChecked();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
   await expect(execution).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeEnabled();
   const rejected = await request.post('/api/sessions', { data: { provider: 'claude', execution: 'docker' } });
@@ -90,16 +92,19 @@ test('Docker creation explains direct edits and an unavailable backend cannot cr
   await execution.selectOption('docker');
   await expect(page.getByText('Agent edits this repository directly and runs commands without individual approvals. Mounted files, including ignored files, are accessible.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeDisabled();
-  await expect(page.getByRole('region', { name: 'Create session', exact: true }).getByText('Docker is unavailable or has not been provisioned.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'New session', exact: true }).getByText('Docker is unavailable or has not been provisioned.', { exact: true })).toBeVisible();
   await execution.selectOption('local');
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeEnabled();
   ready = true;
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   const settings = page.getByRole('region', { name: 'Docker execution', exact: true });
   await settings.getByRole('button', { name: 'Check again' }).click();
   await expect(settings.getByText('Ready', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
   await expect(execution).toHaveValue('local');
   await execution.selectOption('docker');
-  await page.getByRole('combobox', { name: 'Project', exact: true }).selectOption('none');
+  await page.getByRole('dialog').getByLabel('Project', { exact: true }).selectOption('');
+  await page.getByRole('dialog').getByLabel('Repository', { exact: true }).selectOption({ label: 'alpha' });
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeEnabled();
 });
 

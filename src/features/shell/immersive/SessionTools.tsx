@@ -19,7 +19,7 @@ import { useCreationRequestId } from '@/features/conversation/CheckoutChoice';
 const nextValue = <T,>(values: T[], current: T) => values[(values.indexOf(current) + 1) % values.length];
 
 /** The selected report's screenshot, decoded once, copied into a bounded texture, then released. */
-function ReportPreview({ url, theme }: { url: string; theme: ThemeName }) {
+export function ReportPreview({ url, theme }: { url: string; theme: ThemeName }) {
   const [image, setImage] = useState<ImageBitmap>();
   useEffect(() => {
     let current = true;
@@ -147,6 +147,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       !codeai ? 'Build & restart is offered when CodeAI runs under npm run start:managed. Refresh to check again.'
         : codeai.confirming ? codeai.confirmation : codeai.status,
       reportControls ? 'Reports lists what you captured here, to attach to the next message.' : '',
+      controls.codeAiSetupStatus && controls.codeAiSetupStatus !== 'idle' ? `New CodeAI session: ${controls.codeAiSetupStatus}. Refresh to check again.` : '',
     ].filter(Boolean).join('\n\n') : [
     controls.status,
     controls.repositoryContext || '',
@@ -174,16 +175,19 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
     [action, createWorkspaceButtonResource(label, theme, ledger)])), [theme]);
   const perform = (action: SessionActionName) => {
     if (!enabled || busyRef.current) return;
+    if (action === 'launcher' && controls.onNewSetup) { controls.onNewSetup(); return; }
+    if (action === 'new-codeai' && controls.onCodeAiSetup && (!controls.codeAiSetupStatus || controls.codeAiSetupStatus === 'idle')) { controls.onCodeAiSetup(); return; }
     if (action === 'older') setPage(Math.max(0, safePage - 1));
     else if (action === 'newer') setPage(Math.min(pageCount - 1, safePage + 1));
     else if (action === 'launcher' || action === 'permissions' || action === 'back' || (action === 'reports' && reportControls)
-      || (action === 'codeai' && (reportControls || codeai))) {
+      || (action === 'codeai' && (reportControls || codeai || controls.onCodeAiSetup || controls.codeAiSetupStatus))) {
       // Reports is reached from the CodeAI section, so it goes back there.
       setTab(action === 'back' ? tab === 'reports' ? 'codeai' : 'home' : action); setPage(0); setConfirmRevoke(false); setConfirmArchive(false);
       if (action === 'launcher') startLauncher();
       if (action === 'reports') reportControls?.onRefresh();
-      if (action === 'codeai') controls.onRefresh();
+      if (action === 'codeai') { controls.onRefresh(); controls.onRefreshCodeAiSetup?.(); }
     } else if (action === 'refresh') {
+      controls.onRefreshCodeAiSetup?.();
       if (tab === 'reports') reportControls?.onRefresh();
       else controls.onRefresh();
     } else if (tab === 'reports') {
@@ -287,16 +291,17 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       {button('attach-report', -0.22, -0.76, !report || reportPending || !reportControls?.canAttach)}
       {button('remove-report', 0.22, -0.76, !reportPending)}
     </> : tab === 'codeai' ? <>
-      {button('reports', -0.44, -0.56, !reportControls)}{button('back', 0.44, -0.56)}
+      {button('reports', -0.44, -0.56, !reportControls)}{button('new-codeai', 0, -0.56, !controls.onCodeAiSetup || Boolean(controls.codeAiSetupStatus && controls.codeAiSetupStatus !== 'idle'))}{button('back', 0.44, -0.56)}
       {codeai?.confirming ? button('confirm-build-restart', 0, -0.76) : button('build-restart', 0, -0.76, !codeai?.canRequest)}
     </> : <>
+      {button('codeai', -0.46, 0.66, !reportControls && !codeai && !controls.onCodeAiSetup && !controls.codeAiSetupStatus)}
       {button('launcher', -0.44, -0.56)}{button('permissions', 0, -0.56)}
       {/* Cancel needs a live turn and archiving needs none, so the two share one slot. */}
       {controls.canArchive ? button(confirmArchive ? 'confirm-archive' : 'archive', 0.44, -0.56)
         : button('cancel', 0.44, -0.56, !controls.canCancel)}
       {controls.needsRepository ? <>{button('checkout', -0.44, -0.76, !checkout)}{button('attach', 0, -0.76, !checkout || !controls.canAttach)}</>
         : <>{controls.recovery?.checkpoint?.state === 'ready' ? button('undo', -0.44, -0.76, controls.recovery.busy)
-          : button('retry', -0.44, -0.76, !controls.canRetry)}{button('codeai', 0, -0.76, !reportControls && !codeai)}</>}
+          : button('retry', -0.44, -0.76, !controls.canRetry)}</>}
       {button(confirmRevoke ? 'confirm-revoke' : 'revoke', 0.44, -0.76)}
     </>}
   </group>;

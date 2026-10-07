@@ -16,6 +16,7 @@ import { CONVERSATION_LIST_BATCH_SIZE, sortConversationChoices } from './convers
 import { conversationScrollFlags, type ConversationHistoryScrollState, type ConversationScrollFlags } from './conversationHistoryModel';
 import { CANVAS_REVIEW_ACTIONS } from './canvasReviewControls';
 import { loadImmersiveFonts } from './immersiveTheme';
+import { SETUP_ACTIONS } from './setupControls';
 import { ARENA_ACTIONS } from './arenaControls';
 
 const ImmersiveRenderer = dynamic(() => {
@@ -53,7 +54,7 @@ class RendererBoundary extends Component<{ children: ReactNode; onError(message:
   render() { return this.state.failed ? null : this.props.children; }
 }
 
-type Props = Pick<ImmersiveWorkspaceProps, 'conversation' | 'canvasReview' | 'sessionControls' | 'arenaControls' | 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession' | 'onReportCaptured'> & {
+type Props = Pick<ImmersiveWorkspaceProps, 'launcher' | 'conversation' | 'canvasReview' | 'sessionControls' | 'arenaControls' | 'viewKey' | 'evidence' | 'session' | 'theme' | 'preview' | 'runStatus' | 'pendingApprovals' | 'unread' | 'choices' | 'workspaceStatus' | 'onOpenSession' | 'onReportCaptured'> & {
   authorized: boolean;
   /** The selected machine/project/session, recorded on each report as a label. */
   reportContext: ImmersiveReportContext;
@@ -145,6 +146,8 @@ export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, o
     {active && <div className="immersive-semantic-controls" role="group" aria-label="Immersive workspace controls">
       <strong>{props.session?.title || 'Session launcher'}</strong><span role="status">{props.workspaceStatus}</span>
       {scroll.newActivity && <strong>New activity</strong>}
+      {Object.entries(SETUP_ACTIONS).map(([action, label]) => <button key={action} type="button" data-immersive-action={`setup:${action}`}
+        onClick={() => controller?.perform(`setup:${action}` as ImmersiveSemanticAction)}>Setup: {label}</button>)}
       {Object.entries(CONVERSATION_ACTIONS).map(([action, label]) => <button key={action} type="button"
         data-immersive-action={`conversation:${action}`}
         onClick={() => controller?.perform(`conversation:${action}` as ImmersiveSemanticAction)}>Conversation: {label}</button>)}

@@ -11,6 +11,7 @@ const EMPTY_DISCOVERY: RunDiscovery = { active: [], recent: [] };
 const POLL_INTERVAL_MS = 2_000;
 
 export function useArena() {
+  const [lastObservation, setLastObservation] = useState(0);
   const [machines, setMachines] = useState<ArenaMachineSnapshot[]>([]);
   const [refreshError, setRefreshError] = useState<string>();
   const [deviceState, setDeviceState] = useState<DeviceArenaState>(EMPTY_DEVICE_ARENA_STATE);
@@ -47,6 +48,7 @@ export function useArena() {
       if (!response.ok) throw new Error(data.error || 'Could not refresh the Arena.');
       if (!mounted.current) return;
       setMachines(data.machines || []);
+      setLastObservation(Date.now());
       setRefreshError(undefined);
     } catch (error) {
       if (mounted.current) setRefreshError(error instanceof Error ? error.message : 'Could not refresh the Arena.');
@@ -77,7 +79,7 @@ export function useArena() {
   };
 
   return {
-    machines,
+    machines: machines.map((entry) => ({ ...entry, snapshotFresh: !refreshError && Date.now() - lastObservation < 10_000 })),
     sessions,
     archivedSessions,
     discovery,

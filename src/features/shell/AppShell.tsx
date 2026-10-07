@@ -9,6 +9,9 @@ import type {
   GlobalInstructionsChoice, MachineInstructions, ModelSelection, ProviderHealth, PublicSession, RepositoryBinding, ReportAttachmentRecord, RunDescriptor, RunDiscovery,
   SecurityLevel, SketchCanvas, UserMessage,
 } from '@/shared/types';
+import { validateTextFiles, type TextFile } from '@/shared/textFiles';
+import { prepareTextFile } from '@/features/conversation/textFiles';
+import { FILE_ONLY_INSTRUCTION } from '@/features/session-launch/sessionLaunch';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import { MAX_IMAGES_PER_MESSAGE, MAX_REPORTS_PER_MESSAGE } from '@/shared/limits';
 import { IMAGE_ONLY_INSTRUCTION, carriesFiles, prepareImage, type PendingImage } from '@/features/conversation/imageAttachments';
@@ -29,6 +32,9 @@ import {
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
+import { useSessionLauncher } from '@/features/session-launch/useSessionLauncher';
+import { SessionSetupDialog } from '@/features/session-launch/SessionSetupDialog';
+import type { LaunchSettings } from '@/features/session-launch/sessionLaunch';
 import { Arena } from '@/features/arena/Arena';
 import { buildMultiMachineInbox, unreadArenaAttention, type ArenaAttentionItem } from '@/features/arena/arenaModel';
 import { arenaSectionForPathname } from '@/features/arena/routes';
@@ -368,7 +374,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   // A session without its own mode on this device shows the last one. A mode the installed CLI cannot
   // run falls back to Ask rather than failing at send time.
-  const storedMode = focusedRun?.mode || session?.defaultMode || inheritedMode(preferences.mode, session?.execution);
+  const storedMode = focusedRun?.mode || view?.defaultMode || session?.defaultMode || inheritedMode(preferences.mode, session?.execution);
   const mode = composerMode(storedMode, unsupportedModes);
   const securityLevel = health?.securityLevel || 'guarded';
   const nativeIsolation = nativeClaudeIsolationIssue({ provider: activeProvider, execution: session?.execution, level: securityLevel, mode, choice: session?.instructions });
@@ -627,16 +633,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session) return;
     workspace.updateView(session.id, (current) => {
+      const defaultMode = session.defaultMode ?? current.defaultMode;
       if (
         current.activeDiagramId === session.activeDiagramId
         && current.addressedAgentId === session.addressedAgentId
-        && current.defaultMode === session.defaultMode
+        && current.defaultMode === defaultMode
       ) return current;
       return {
         ...current,
         activeDiagramId: session.activeDiagramId,
         addressedAgentId: session.addressedAgentId,
-        defaultMode: session.defaultMode,
+        defaultMode,
       };
     });
   }, [session?.activeDiagramId, session?.addressedAgentId, session?.defaultMode, session?.id, workspace.updateView]);
@@ -939,6 +946,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }));
   // Images for each session's next message. Browser memory only: they are too large for the device
   // record, so a reload drops them.
+  const [pendingFilesBySession, setPendingFilesBySession] = useState<Record<string, TextFile[]>>({});
+  const pendingFilesRef = useRef<Record<string, TextFile[]>>({});
+  const pendingFiles = (sessionId && pendingFilesBySession[sessionId]) || [];
+  const updatePendingFiles = useCallback((id: string, update: (files: TextFile[]) => TextFile[]) => {
+    const next = { ...pendingFilesRef.current, [id]: update(pendingFilesRef.current[id] ?? []) };
+    pendingFilesRef.current = next; setPendingFilesBySession(next);
+  }, []);
   const [pendingImagesBySession, setPendingImagesBySession] = useState<Record<string, PendingImage[]>>({});
   const pendingImagesRef = useRef<Record<string, PendingImage[]>>({});
   const pendingImages = (sessionId && pendingImagesBySession[sessionId]) || NO_IMAGES;
@@ -971,7 +985,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!targetSessionId) return;
     supersede('attach-image');
     const images = files.filter((file) => file.type.startsWith('image/'));
-    if (images.length < files.length) notify({ key: 'attach-image', tone: 'warning', message: 'Only images can be attached here.' });
+    try {
+      const prepared = await Promise.all(files.filter((file) => !file.type.startsWith('image/')).map(prepareTextFile));
+      if (prepared.length) updatePendingFiles(targetSessionId, (current) => { const next = [...current, ...prepared]; validateTextFiles(next); return next; });
+    } catch (error) { notifyError(error, 'Could not attach text files.', 'attach-file'); }
+
     const refuseIfFull = () => {
       if ((pendingImagesRef.current[targetSessionId] ?? NO_IMAGES).length < MAX_IMAGES_PER_MESSAGE) return false;
       notify({ key: 'attach-image', tone: 'warning', message: `A message carries at most ${MAX_IMAGES_PER_MESSAGE} images. Remove one to attach another.` });
@@ -989,7 +1007,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         notifyError(error, 'That image could not be read.', 'attach-image');
       }
     }
-  }, [notify, notifyError, supersede, updatePendingImages]);
+  }, [notify, notifyError, supersede, updatePendingImages, updatePendingFiles]);
   const removeImage = useCallback((id: string) => {
     const targetSessionId = focusedSessionIdRef.current;
     if (targetSessionId) updatePendingImages(targetSessionId, (current) => current.filter((image) => image.id !== id));
@@ -1223,8 +1241,15 @@ export function AppShell({ children }: { children: ReactNode }) {
    * Retry carries a message's reports along with its text; canvas attachments stay as they are. Its
    * images were that turn's alone, so unless the composer still holds some, it says to attach them again.
    */
-  const retryMessage = useCallback((participantId: string, text: string, retryMode: AgentMode | undefined, reportIds: readonly string[], imageCount = 0) => {
+  const retryMessage = useCallback((participantId: string, text: string, retryMode: AgentMode | undefined, reportIds: readonly string[], imageCount = 0, files: TextFile[] = [], uncertain = false) => {
     prefillHandoff(participantId, text, retryMode);
+    if (sessionId && files.length) {
+      try { updatePendingFiles(sessionId, (current) => {
+        const next = [...current, ...files.filter((file) => !current.some((pending) => pending.name === file.name && pending.text === file.text))];
+        validateTextFiles(next); return structuredClone(next);
+      }); } catch (error) { notifyError(error, 'Remove a pending file before adding the retried message’s files.'); }
+    }
+    if (uncertain) notify({ tone: 'warning', message: 'Execution status is unavailable. This instruction may already have run. Review its effects before sending the retry.' });
     if (imageCount && sessionId && !pendingImagesRef.current[sessionId]?.length) {
       notify({ tone: 'info', message: imageCount === 1
         ? 'That message carried an image, which is not kept after its turn. Attach it again to include it.'
@@ -1236,7 +1261,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (reportIds.some((id) => !pending.includes(id))) {
       notify({ tone: 'warning', message: `A message carries at most ${MAX_REPORTS_PER_MESSAGE} reports. Remove one to attach the rest of the retried message's reports.` });
     }
-  }, [notify, pendingReportIds, prefillHandoff, sessionId, setPendingReportIds]);
+  }, [notify, notifyError, pendingReportIds, prefillHandoff, sessionId, setPendingReportIds, updatePendingFiles]);
 
   const focusedPermissionTargets: PermissionTarget[] = (focusedRun?.runId ? permissions.map((request) => ({
     ...request, runId: focusedRun.runId!,
@@ -1402,13 +1427,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
     // Reports and images belong to the composed draft; an Execute plan or Continue turn does not carry them.
     const sentReportIds = override ? [] : pendingReportIds;
+    const sentFiles = override ? [] : pendingFilesRef.current[session.id] ?? [];
     const sentImages = override ? NO_IMAGES : pendingImagesRef.current[session.id] ?? NO_IMAGES;
     // Export may outlive navigation to another session; keep this session's own canvas frame.
     const snapshotAtSend = snapshotRef.current;
     // A sketch, a report, or an image is itself the instruction, so an empty composer still makes a valid turn.
     const typed = (override?.text ?? composer).trim();
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION
-      : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : sentImages.length ? IMAGE_ONLY_INSTRUCTION : '');
+      : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : sentImages.length ? IMAGE_ONLY_INSTRUCTION : sentFiles.length ? FILE_ONLY_INSTRUCTION : '');
     if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
     const isolationIssue = nativeClaudeIsolationIssue({ provider: turnAgent.provider, execution: session.execution, level: securityLevel, mode: turnMode, choice: session.instructions });
@@ -1547,6 +1573,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             reportAttachments: sentReportIds.map((reportId) => ({ reportId })),
             // Named only when there are some, so an executor on an older CodeAI still takes every other message.
             ...(sentImages.length ? { imageAttachments: imagePayload.map(({ dataUrl }) => ({ dataUrl })) } : {}),
+            ...(sentFiles.length ? { fileAttachments: sentFiles } : {}),
             mode: turnMode,
             ...turnModel,
           }),
@@ -1573,6 +1600,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             { ...current, composer: current.composer === composer ? '' : current.composer },
             (current.pendingReportIds ?? []).filter((id) => !sentReportIds.includes(id)),
           ));
+          if (sentFiles.length) updatePendingFiles(session.id, (current) => current.filter((file) => !sentFiles.includes(file)));
           if (sentImages.length) updatePendingImages(session.id, (current) => current.filter((image) => !sentImages.includes(image)));
         }
       } catch (error) {
@@ -1606,7 +1634,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       sendingSessions.current.delete(session.id);
       setPreparingSends((current) => current.filter((id) => id !== session.id));
     }
-  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, recovery.busy, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updateRun, view?.modelSelections, preferences, workspace.updateView]);
+  }, [activeAgent, apiPath, composer, consumeStream, health, lifecycle.busy, mode, mutateSession, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, putRun, recovery.busy, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
@@ -1634,6 +1662,71 @@ export function AppShell({ children }: { children: ReactNode }) {
     setSessions([]);
     setRepositoryTree(undefined);
   }, [localMachineId, machineId, projectId, router, selectMachineCatalog, workspace.openInProject]);
+
+  const [launchFocus, setLaunchFocus] = useState<{ sessionId: string; request: string }>();
+  const launchNavigation = useRef('');
+  launchNavigation.current = JSON.stringify([pathname, machineId, projectId, sessionId]);
+  const announceLaunch = (result: import('@/features/session-launch/sessionLaunch').LaunchResult, settings: LaunchSettings) => notify({
+    key: `launch:${result.session.id}`, tone: 'success', message: result.started ? 'Session started in the background.' : 'Session created.',
+    actions: [{ label: 'Open session', onSelect: () => { void openLaunchedSession(result.session, settings); } }],
+  });
+  const openLaunchedSession = async (saved: PublicSession, settings: LaunchSettings, expectedNavigation?: string) => {
+    try {
+      const target = arena.machines.find((entry) => entry.machine.id === settings.machineId);
+      if (!target || target.machine.state !== 'online') throw new Error('The session’s machine is offline. Find it in Arena when it reconnects.');
+      if (saved.archivedAt) { router.push('/arena/archived'); return; }
+      const api = (path: string) => machineApiPath(path, settings.machineId, localMachineId);
+      const [sessionResponse, projectsResponse, checkoutsResponse] = await Promise.all([
+        fetch(api(`/api/sessions/${saved.id}`), { cache: 'no-store' }),
+        fetch(api('/api/projects'), { cache: 'no-store' }), fetch(api('/api/checkouts'), { cache: 'no-store' }),
+      ]);
+      const data = await sessionResponse.json() as { session?: PublicSession; error?: string };
+      if (!sessionResponse.ok || !data.session) throw new Error(data.error || 'Could not open the session.');
+      const catalog = { ...target,
+        projects: projectsResponse.ok ? (await projectsResponse.json()).projects : target.projects,
+        checkouts: checkoutsResponse.ok ? (await checkoutsResponse.json()).checkouts : target.checkouts };
+      const summary: ArenaSessionSummary = { id: data.session.id, revision: data.session.revision, title: data.session.title,
+        projectId: data.session.projectId, updatedAt: data.session.updatedAt, repositoryCheckoutIds: data.session.repositories.map((binding) => binding.checkoutId), agents: [] };
+      if (expectedNavigation !== undefined && launchNavigation.current !== expectedNavigation) {
+        announceLaunch({ session: data.session, started: false }, settings); return;
+      }
+      if (settings.machineId === machineId && saved.projectId === projectId) applyServerSnapshot(data.session, settings.machineId);
+      openArenaSession(catalog, summary);
+      if (settings.machineId === machineId && saved.projectId === projectId) {
+        setProjects(catalog.projects); setCheckouts(catalog.checkouts);
+      }
+      panelLayout.openConversationFor(saved.id);
+      setLaunchFocus({ sessionId: saved.id, request: createUuid() });
+    } catch (error) { notifyError(error, 'Could not open the new session.'); }
+  };
+  const preserveCurrentChoices = () => {
+    if (session) workspace.updateView(session.id, (current) => ({ ...current, defaultMode: current.defaultMode ?? mode,
+      modelSelections: { ...Object.fromEntries(agents.map((agent) => [agent.id,
+        offeredModelSelection(agentModelSelection(current, preferences, agent), executionProviders?.[agent.provider])])), ...current.modelSelections } }));
+  };
+  const launcher = useSessionLauncher({
+    authorized: deviceAccess.authenticated, localMachineId, machines: arena.machines, executions: localExecutionHealth,
+    preferences, currentMachineId: machineId, currentProjectId: projectId,
+    origin: JSON.stringify([pathname, machineId, projectId, sessionId]),
+    // Pin the origin before awaiting creation, and the current task before remembering defaults.
+    onSubmit: preserveCurrentChoices,
+    onCreated: (created, settings) => {
+      preserveCurrentChoices();
+      workspace.updateViewInProject(created.projectId, created.id, (current) => ({ ...current, defaultMode: settings.mode,
+        modelSelections: { [created.primaryAgentId]: settings.modelSelection } }), settings.machineId === localMachineId ? undefined : settings.machineId);
+      updatePreferences((current) => ({ ...current, provider: settings.provider, mode: settings.mode, instructions: settings.instructions,
+        models: { ...current.models, [settings.provider]: settings.modelSelection } }));
+      void arena.refresh();
+    },
+    onResult: (result, settings, autoOpen) => {
+      void arena.refresh();
+      if (autoOpen) void openLaunchedSession(result.session, settings, launchNavigation.current);
+      else announceLaunch(result, settings);
+    },
+    onOpen: (created, settings) => { void openLaunchedSession(created, settings); },
+  });
+
+  const handleImmersiveActive = useCallback((active: boolean) => { if (!active) launcher.invalidateCapture(); setImmersiveActive(active); }, [launcher.invalidateCapture]);
 
   const archiveArenaSession = useCallback(async (
     targetMachineId: string, target: Pick<ArenaSessionSummary, 'id' | 'revision' | 'title' | 'projectId'>,
@@ -2068,6 +2161,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onCreateSketch: createSketch,
               onToggleAttachment: toggleAttachment,
             } : undefined}
+            launcher={launcher}
             sessionControls={{
               repositoryContext,
               machines: arena.machines, machineId, sessionId: session?.id, sessionTitle: session?.title, projectId: session?.projectId,
@@ -2099,6 +2193,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               } : undefined,
               preferredProvider: preferences.provider,
               preferredMode: preferences.mode,
+              onNewSetup: launcher.open, codeAiSetupStatus: launcher.availabilityError || (launcher.availability?.available ? launcher.availability.phase : launcher.availability?.message),
+              onRefreshCodeAiSetup: () => { void launcher.refreshAvailability(); }, onCodeAiSetup: launcher.availability?.available ? () => { void launcher.openCodeAi(); } : undefined,
               onCreate: createChosenSession,
               onAttach: (checkoutId) => updateRepositories((current) => [
                 ...current.filter((item) => item.checkoutId !== checkoutId).map((item) => ({ ...item, role: 'reference' as const })),
@@ -2112,7 +2208,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 const message = session?.messages.findLast((item) => item.role === 'user');
                 if (message?.role === 'user') {
                   retryMessage(message.addressedParticipantId, message.text, message.mode,
-                    message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length);
+                    message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent');
                 }
               },
               onReturn: immersiveReturnChoice ? returnFromImmersiveAttention : undefined,
@@ -2145,11 +2241,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               attachments: [...attachedCanvases.map((canvas) => {
                 const id = canvasTargetId(canvas);
                 return `${canvas.kind === 'diagram' ? `Diagram ${canvas.artifact.ordinal}` : 'Sketch'} · ${session.annotations[id]?.marks.length || 0} marks`;
-              }), ...pendingReportChips.map((report) => report.label), ...pendingImages.map((_, index) => `Image ${index + 1}`)],
+              }), ...pendingReportChips.map((report) => report.label), ...pendingImages.map((_, index) => `Image ${index + 1}`), ...pendingFiles.map((file) => file.name)],
               canSend: !composerBlocked && !sessionRunning && !participantBusy && !lifecycle.busy && Boolean(activeAgent && providerHealth?.available)
                 && !unsupportedModes.includes(mode) && session.repositories.some((repository) => repository.role === 'primary')
                 && (Boolean(composer.trim()) || attachedCanvases.some((canvas) => canvas.kind === 'sketch') || pendingReportIds.length > 0
-                  || pendingImages.length > 0),
+                  || pendingImages.length > 0 || pendingFiles.length > 0),
               sendBlocked: composerBlocked || (session.repositories.some((repository) => repository.role === 'primary')
                 ? undefined : 'To send, attach a repository in Session tools.'),
               running: sessionRunning, runStatus: immersiveRunStatus, runId: focusedRun?.runId, busy: participantBusy,
@@ -2177,7 +2273,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             pendingApprovals={permissions.length} unread={unread}
             choices={immersiveChoices} workspaceStatus={immersiveStatus}
             onOpenSession={openImmersiveSession} onSelectCanvas={selectDiagram}
-            onActiveChange={setImmersiveActive}
+            onActiveChange={handleImmersiveActive}
             onUnavailable={setVrUnavailable}
           />
           {!loading && <>
@@ -2209,6 +2305,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
+      <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />
       {!loading && (
         <ActivityBar
           views={!arenaOpen && session ? ['changes', 'history', ...(reportsOffered ? ['reports' as const] : [])] : []}
@@ -2217,9 +2314,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           arenaSection={arenaSection}
           unread={arenaUnread.length}
           moreRef={moreMenuRef}
-          onMoreToggle={(event) => { if (event.currentTarget.open) void lifecycle.refresh(); }}
+          onMoreToggle={(event) => { if (event.currentTarget.open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
           onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
           more={<>
+            {launcher.availabilityError && <button type="button" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</button>}
+            {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <button type="button" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
+              const source = moreMenuRef.current?.querySelector<HTMLElement>('summary');
+              moreMenuRef.current?.removeAttribute('open'); void launcher.openCodeAi(source);
+            }}>New CodeAI session</button>}
+            {launcher.availability && !launcher.availability.available && launcher.availability.message && <p>{launcher.availability.message}</p>}
             <div className="theme-selector" role="group" aria-label="Theme">
               {THEME_PREFERENCES.map((choice) => (
                 <button
@@ -2328,10 +2431,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onRefresh={refreshArena}
           onSetDockerEnabled={setDockerEnabled}
           onOpenSession={openArenaSession}
-          preferredProvider={preferences.provider}
-          preferredMode={preferences.mode}
-          preferredInstructions={preferences.instructions}
-          onCreateSession={createChosenSession}
+          onNewSession={launcher.open}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
           onDecidePermission={decideArenaPermission}
@@ -2395,6 +2495,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="conversation-region">
             <ConversationDrawer
               repositoryContext={repositoryContext}
+              focusRequest={launchFocus?.sessionId === session?.id ? launchFocus.request : undefined}
+              onFocusRequestHandled={() => setLaunchFocus(undefined)}
               open={panelLayout.conversationOpen}
               session={session}
               theme={theme}
@@ -2425,10 +2527,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               onModelSelectionChange={setModelSelection}
               attached={attachedCanvases}
               reports={pendingReportChips}
-              images={pendingImages}
+              images={pendingImages} files={pendingFiles}
+              onRemoveFile={(index) => { if (sessionId) updatePendingFiles(sessionId, (current) => current.filter((_, i) => i !== index)); }}
               markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), session.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
               onSelectDiagram={selectShownDiagram}
-              onRetry={(text, participantId, retryMode, reportIds, imageCount) => retryMessage(participantId, text, retryMode, reportIds, imageCount)}
+              onRetry={(text, participantId, retryMode, reportIds, imageCount, files, uncertain) => retryMessage(participantId, text, retryMode, reportIds, imageCount, files, uncertain)}
               onComposer={setComposer}
               onModeChange={setMode}
               onSelectAgent={selectAgent}

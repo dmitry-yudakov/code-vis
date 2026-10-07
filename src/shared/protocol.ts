@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { AGENT_MODES } from './agentModes';
+import { textFileSchema } from './textFiles';
+import { MAX_TEXT_FILES_PER_MESSAGE } from './limits';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_MESSAGE_TEXT_CHARS, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from './limits';
 import {
@@ -62,6 +64,7 @@ export const agentMessageRequestSchema = z.object({
   reportAttachments: z.array(z.object({ reportId: z.string().regex(IMMERSIVE_REPORT_ID) }).strict()).max(32).default([]),
   // The route enforces the per-message count and each image's bounds with a clear message.
   imageAttachments: z.array(imageAttachmentSchema).max(32).default([]),
+  fileAttachments: z.array(textFileSchema).max(MAX_TEXT_FILES_PER_MESSAGE).default([]),
   mode: agentModeSchema.optional(),
   model: agentModelIdSchema.optional(),
   effort: agentEffortSchema.optional(),
@@ -99,6 +102,8 @@ export const dockerUpdateRequestSchema = z.object({
 export const createSessionRequestSchema = z.object({
   checkoutMode: z.enum(['current', 'worktree']).optional(),
   creationRequestId: z.string().uuid().optional(),
+  expectedProjectBindings: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  expectedPrimaryCheckoutId: z.string().min(1).max(128).optional(),
   execution: z.enum(['local', 'docker']).optional(),
   sourceSessionId: z.string().uuid().optional(),
   checkoutId: z.string().trim().min(1).max(128).optional(),
@@ -109,11 +114,11 @@ export const createSessionRequestSchema = z.object({
   instructions: globalInstructionsChoiceSchema.optional(),
 }).strict().refine((input) => input.sourceSessionId
   ? Boolean(input.execution && !input.checkoutId && !input.projectId && input.checkoutMode !== 'worktree' && !input.creationRequestId)
-  : !(input.checkoutId && input.projectId), {
+  : !(input.checkoutId && input.projectId) && (!input.expectedPrimaryCheckoutId || Boolean(input.projectId)), {
   message: 'Choose a source session and execution, a project, or a direct checkout.',
 }).refine((input) => input.checkoutMode === 'worktree'
   ? Boolean(input.creationRequestId && (input.projectId || input.checkoutId))
-  : !input.creationRequestId, {
+  : !input.expectedProjectBindings || Boolean(input.projectId), {
   message: 'Worktree creation requires a source repository and a creation request UUID.',
 });
 

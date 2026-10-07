@@ -96,6 +96,8 @@ describe.sequential('Auto mode on the message route and in session records', () 
     routeState.hold = undefined;
     vi.stubEnv('CODEAI_DATA_DIR', dataDir);
     vi.stubEnv('CODEAI_HOST_LABEL', 'Home');
+    // This suite can itself run inside a managed worktree; its fixture is an ordinary checkout.
+    vi.stubEnv('CODEAI_WORKTREES_ROOT', path.join(DATA_ROOT, 'managed-worktrees'));
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     store = getSessionStore(dataDir, 'Home');
   });

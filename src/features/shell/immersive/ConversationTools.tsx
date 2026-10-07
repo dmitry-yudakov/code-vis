@@ -30,8 +30,10 @@ function VoiceActivity({ level, theme }: { level: number; theme: ThemeName }) {
   </group>;
 }
 
-export function ConversationTools({ controls, theme, enabled, visible = true, controllerOnly = false, tab, atBottom, renderHistory, onTab, onLatest, onVoicePending, onController }: {
+export function ConversationTools({ controls, theme, enabled, visible = true, controllerOnly = false, tab, atBottom, renderHistory, onTab, onLatest, onVoicePending, onController, setupInput, collapsedContent }: {
   controls?: ImmersiveConversationControls;
+  setupInput?: boolean;
+  collapsedContent?: ReactNode;
   theme: ThemeName;
   enabled: boolean;
   visible?: boolean;
@@ -196,7 +198,7 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
       else if (action === 'previous-word' || action === 'next-word') setWord(word + (action === 'next-word' ? 1 : -1));
       else if (action === 'undo') { const previous = undo.current.pop(); if (previous !== undefined) { draftRef.current = previous; controls?.onDraft(previous); } }
       else if (action === 'clear') {
-        document.querySelector<HTMLTextAreaElement>('[data-immersive-message-input]')?.blur();
+        document.querySelector<HTMLTextAreaElement>(setupInput ? '[data-immersive-setup-input]' : '[data-immersive-message-input]')?.blur();
         edit(''); setWord(-1);
       }
       else if (action === 'delete') { edit(editVoiceDraft(draftRef.current, '', selected)); setWord(-1); }
@@ -262,11 +264,14 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
   return <group name="Conversation tools" visible={visible} userData={{ conversationTab: tab, draft, voicePhase: voice.phase, voiceResult: voice.result, voiceStatus: displayedStatus,
     context, voiceLevel: voice.activity.level, voiceSeconds: voice.activity.seconds, editing, selectedWord: selected?.text }}>
     {renderHistory(visible && !expanded)}
+    {visible && !expanded && collapsedContent}
     {resource && <mesh name="VR draft and agents" geometry={resource.geometry} material={resource.material}
       position={[0, 0.2, 0]} />}
     {statusResource && <mesh name="Voice status" geometry={statusResource.geometry} material={statusResource.material}
       position={[0, tab === 'agents' ? multilineAgentStatus ? -0.32 : -0.27 : expanded ? -0.34 : -0.45, 0.0005]} renderOrder={12} />}
-    {visible && !expanded && controls && <InlineConversationInput draft={draft} theme={theme}
+    {visible && !expanded && controls && <InlineConversationInput onSubmit={setupInput ? () => { if (controls?.canSend && !voicePending) controls.onSend(); } : undefined}
+        ariaLabel={setupInput ? "VR session setup input" : "VR message input"}
+        dataAttribute={setupInput ? "data-immersive-setup-input" : "data-immersive-message-input"} draft={draft} theme={theme}
       enabled={enabled && !locked && !voiceBusy} onDraft={controls.onDraft} />}
     {voice.phase === 'recording' && <VoiceActivity level={voice.activity.level} theme={theme} />}
     {!expanded && !atBottom && button('latest', [0.55, -0.32, 0])}

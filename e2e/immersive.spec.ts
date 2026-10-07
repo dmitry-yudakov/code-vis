@@ -795,6 +795,7 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
     archivedSessions: [], runs: { active: [], recent: [] },
   });
   await page.route('**/api/auth/status', (route) => route.fulfill({ json: { mode: 'paired', authenticated: state.authenticated, transportSecure: true, hostLabel: 'Home' } }));
+  await page.route('**/api/health', (route) => route.fulfill({ json: { ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true, securityLevel: 'guarded', providers: snapshot(LOCAL, 'Home', local).providers } }));
   await page.route('**/api/projects', (route) => route.fulfill({ json: { projects: [project(PROJECT, 'Local project')] } }));
   await page.route('**/api/checkouts', (route) => route.fulfill({ json: { hostId: LOCAL, checkouts: withRepository ? [
     { id: 'checkout', name: 'Fixture', relativePath: 'fixture' },
@@ -2301,6 +2302,8 @@ test('ignores a delayed diff after navigating to another machine and keeps recov
 
 
 const sessionAction = (page: Page, action: string) => controls(page).locator(`[data-immersive-action="session:${action}"]`).click();
+const setupAction = (page: Page, action: string) => controls(page).locator(`[data-immersive-action="setup:${action}"]`).click();
+const setupDetails = (page: Page) => page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup')?.getObjectByName('Session setup details')?.userData.text as string | undefined);
 const sessionToolsState = (page: Page) => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR session tools')?.userData);
 
 test('VR worktree launcher names its source, preserves retry identity, and targets only the selected executor', async ({ page }) => {
@@ -2326,16 +2329,18 @@ test('VR worktree launcher names its source, preserves retry identity, and targe
     { id: 'managed-remote', name: `Worktree · ${created.worktree!.branch}`, relativePath: `worktrees/${created.worktree!.id}`, branch: created.worktree!.branch, worktree: created.worktree }], recentCheckoutIds: [], discoveryDepth: 1 } }));
   await page.route(`**/api/machines/${REMOTE}/sessions?*`, (route) => route.fulfill({ json: { sessions: [created] } }));
   await page.goto('/'); await enter(page); await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Checkout: Use current checkout');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Docker Git helper lacks linked-worktree support.');
-  await sessionAction(page, 'machine'); await sessionAction(page, 'creation-repository');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Source: Remote source · main');
-  await sessionAction(page, 'checkout-mode');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Checkout: Create a worktree');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('uncommitted changes and local setup stay in the current checkout');
-  await sessionAction(page, 'create');
+  await setupAction(page, 'settings');
+  await expect.poll(() => setupDetails(page)).toContain('Checkout: Current checkout');
+  await expect.poll(async () => await setupDetails(page)).toContain('Docker Git helper lacks linked-worktree support.');
+  await setupAction(page, 'machine'); await setupAction(page, 'repository');
+  await expect.poll(async () => await setupDetails(page)).toContain('Repository: Remote source');
+  await setupAction(page, 'checkout');
+  await expect.poll(async () => await setupDetails(page)).toContain('Checkout: Create a worktree');
+  await expect.poll(async () => await setupDetails(page)).toContain('uncommitted changes and local setup stay in the current checkout');
+  await setupAction(page, 'submit');
   await expect.poll(() => payloads.length).toBe(1);
-  await sessionAction(page, 'create');
+  await expect.poll(() => setupDetails(page)).toContain('Transient save failure');
+  await setupAction(page, 'submit');
   await expect.poll(() => payloads.length).toBe(2);
   expect(payloads[1]).toEqual(payloads[0]); expect(payloads[0]).toMatchObject({ checkoutMode: 'worktree', checkoutId: 'remote-source', provider: 'claude' });
   expect(payloads[0].creationRequestId).toMatch(/^[0-9a-f-]{36}$/);
@@ -2359,18 +2364,13 @@ test('VR session tools create a repository-free session, attach a checkout, and 
     const material = mesh?.material as import('three').MeshBasicMaterial | undefined;
     return (material?.map?.image as HTMLCanvasElement | undefined)?.dataset.paintedText;
   });
-  await page.goto('/'); await enter(page);
+  await page.goto('/'); await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: /^No project/ }).click(); await enter(page);
   await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
-  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('launcher');
-  // The launcher opens in the open session's project; this journey starts without one.
-  // The shared e2e data directory holds every project the suites before this one created.
-  for (let turn = 0; turn < 80 && !String((await sessionToolsState(page))?.text).includes('Project: No project'); turn++) {
-    await sessionAction(page, 'project');
-  }
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Project: No project');
+  await setupAction(page, 'settings');
+  await expect.poll(() => setupDetails(page)).toContain('Project: No project');
   const created = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
   await page.evaluate(() => {
-    const create = document.querySelector<HTMLButtonElement>('[data-immersive-action="session:create"]')!;
+    const create = document.querySelector<HTMLButtonElement>('[data-immersive-action="setup:submit"]')!;
     create.click(); create.click();
   });
   const response = await created;
@@ -2534,19 +2534,20 @@ test('VR launcher captures the selected remote project and mode and preserves ch
   });
   await page.goto('/'); await enter(page);
   await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
-  await sessionAction(page, 'machine'); await sessionAction(page, 'project'); await sessionAction(page, 'mode');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Remote project');
-  await sessionAction(page, 'create');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Selected executor disconnected');
-  expect(requests).toEqual([{ provider: 'claude', projectId: REMOTE_PROJECT }]);
-  expect((await sessionToolsState(page))?.text).toContain('Mode: plan');
+  await setupAction(page, 'settings'); await setupAction(page, 'machine'); await setupAction(page, 'project');
+  await setupAction(page, 'agents'); await setupAction(page, 'mode');
+  await expect.poll(async () => await setupDetails(page)).toContain('Mode: plan');
+  await setupAction(page, 'submit');
+  await expect.poll(async () => await setupDetails(page)).toContain('Selected executor disconnected');
+  expect(requests).toMatchObject([{ provider: 'claude', projectId: REMOTE_PROJECT, checkoutMode: 'current', creationRequestId: expect.any(String) }]);
+  expect(await setupDetails(page)).toContain('Laptop');
   // A session that was not created leaves this device's last choices alone.
   expect(await page.evaluate(() => localStorage.getItem('code-ai:device:v1:preferences'))).toBeNull();
   await showPanel(page, 'conversation'); await page.screenshot({ path: 'test-results/vr-session-launcher.png' }); await hideProjection(page);
   fixture.online = false;
-  await sessionAction(page, 'refresh');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('offline');
-  await sessionAction(page, 'create'); expect(requests).toHaveLength(1);
+  await controls(page).locator('[data-immersive-action="session:refresh"]').click();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Start')?.userData.disabled)).toBe(true);
+  await setupAction(page, 'submit'); expect(requests).toHaveLength(1);
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
@@ -2556,11 +2557,13 @@ test('VR launcher opens at this device\'s last mode', async ({ page }) => {
   await page.goto('/'); await enter(page);
   // Both ways in: the Arena's New session, and Session tools' own launcher after a change was left.
   await controls(page).locator('[data-immersive-action="arena:new"]').click();
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Mode: plan');
-  await sessionAction(page, 'mode');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Mode: ask');
-  await sessionAction(page, 'back'); await sessionAction(page, 'launcher');
-  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Mode: plan');
+  await setupAction(page, 'settings'); await setupAction(page, 'agents');
+  await expect.poll(() => setupDetails(page)).toContain('Mode: plan');
+  await setupAction(page, 'mode');
+  await expect.poll(async () => await setupDetails(page)).toContain('Mode: ask');
+  await setupAction(page, 'close'); await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
+  await setupAction(page, 'settings'); await setupAction(page, 'agents');
+  await expect.poll(() => setupDetails(page)).toContain('Mode: ask');
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
@@ -2800,4 +2803,119 @@ test('Session tools’ CodeAI section needs a second, different control to build
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Building CodeAI');
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
+});
+
+for (const theme of ['light', 'dark']) test(`session setup ${theme}: keyboard, reviewed voice, background outcome and explicit Open keep XR`, async ({ page, request }) => {
+  await installAdapter(page);
+  await page.addInitScript((value) => localStorage.setItem('code-ai:theme', value), theme);
+  const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+  const checkout = catalog.checkouts.find((item) => item.relativePath === 'alpha')!;
+  const project = (await (await request.post('/api/projects', { data: { name: `XR setup ${theme} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+  const source = (await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.route('**/api/voice', (route) => route.fulfill({ json: route.request().method() === 'GET' ? { configured: true, language: 'en' } : { text: 'Fix the setup issue' } }));
+  await page.goto('/'); await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: new RegExp(project.name) }).click();
+  await page.locator('.conversation-drawer textarea').fill('Preserve my source task');
+  await enter(page);
+  const before = await controls(page).locator('[data-immersive-panel]').evaluateAll((panels) => panels.map((panel) => panel.getAttribute('data-layout')));
+  await controls(page).locator('[data-immersive-action="arena:new"]').click();
+  const input = page.locator('[data-immersive-setup-input]'); await expect(input).toHaveCount(1);
+  await input.focus(); await page.keyboard.insertText('Old draft');
+  await conversationAction(page, 'clear'); await expect(input).not.toBeFocused();
+  await input.focus(); await page.keyboard.insertText('New draft'); await expect(input).toHaveValue('New draft');
+  await conversationAction(page, 'clear');
+  await conversationAction(page, 'record');
+  await expect.poll(async () => (await page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup')?.getObjectByName('Conversation tools')?.userData))?.voicePhase).toBe('recording');
+  await page.waitForTimeout(180); await conversationAction(page, 'stop');
+  await expect.poll(async () => (await page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup')?.getObjectByName('Conversation tools')?.userData))?.voicePhase).toBe('idle');
+  await expect(input).toHaveCount(0);
+  expect(await page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup')?.userData.draft)).toBe('');
+  await conversationAction(page, 'append');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup')?.userData.draft)).toBe('Fix the setup issue');
+  await conversationAction(page, 'done'); await expect(input).toHaveValue('Fix the setup issue');
+  await controls(page).locator('[data-immersive-action="setup:attachments"]').click();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Choose files')?.userData.disabled)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup details')?.userData.text)).toContain('no verified file picker');
+  await pointAtSpatialElement(page, 'Session setup');
+  const cameraPosition = await page.evaluate(() => {
+    const camera = window.xrScene!.camera;
+    const position = camera.position.toArray();
+    // The flat screenshot has a narrower vertical field than the headset; frame the complete panel.
+    camera.position.addScaledVector(camera.getWorldDirection(camera.position.clone()), -1.2);
+    camera.updateMatrixWorld(true);
+    return position;
+  });
+  await page.screenshot({ path: `test-results/vr-session-setup-${theme}.png` });
+  await page.evaluate((position) => { window.xrScene!.camera.position.fromArray(position); window.xrScene!.camera.updateMatrixWorld(true); }, cameraPosition);
+  await hideProjection(page);
+  await controls(page).locator('[data-immersive-action="setup:message"]').click();
+  await expect(input).toHaveValue('Fix the setup issue');
+  const sent: Array<{ sessionId: string; text: string }> = [];
+  page.on('request', (req) => { if (req.url().endsWith('/api/agent/message')) sent.push(req.postDataJSON()); });
+  await input.press('Enter'); await expect(input).toHaveCount(0);
+  await expect.poll(() => sent.length).toBe(1); expect(sent[0].sessionId).not.toBe(source.id);
+  await expect(page).toHaveURL(/\/$/);
+  await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
+  expect(await controls(page).locator('[data-immersive-panel]').evaluateAll((panels) => panels.map((panel) => panel.getAttribute('data-layout')))).toEqual(before);
+  await expect(page.locator('.conversation-drawer textarea')).toHaveValue('Preserve my source task');
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Session setup')))).toBe(false);
+  await controls(page).locator('[data-immersive-action="setup:outcome"]').click();
+  await expect.poll(() => page.evaluate(() => document.querySelector<HTMLSelectElement>('.all-sessions-picker select')?.value)).toBe(sent[0].sessionId);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('session setup capture: completed upload from the prior draft stays saved without attaching to its successor', async ({ page, request }) => {
+  await installAdapter(page);
+  const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+  const checkout = catalog.checkouts.find((item) => item.relativePath === 'installation')!;
+  const project = (await (await request.post('/api/projects', { data: { name: `XR capture ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+  await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } });
+  await page.goto('/'); await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: new RegExp(project.name) }).click();
+  await enter(page); await controls(page).locator('[data-immersive-action="arena:new"]').click();
+  await controls(page).locator('[data-immersive-action="setup:attachments"]').click();
+  let uploading = false; let release!: () => void; const pending = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/api/immersive/report', async (route) => { uploading = true; const response = await route.fetch(); await pending; return route.fulfill({ response }); });
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Capture report')?.userData.disabled)).toBe(false);
+  await controls(page).locator('[data-immersive-action="setup:capture"]').click();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup')?.parent?.visible)).toBe(false);
+  await expect.poll(() => uploading, { timeout: 12_000 }).toBe(true);
+  await controls(page).locator('[data-immersive-action="setup:message"]').click();
+  const input = page.locator('[data-immersive-setup-input]'); await input.fill('Start the first draft'); await input.press('Enter');
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Session setup')))).toBe(false);
+  await controls(page).locator('[data-immersive-action="arena:new"]').click();
+  await expect(input).toHaveCount(1); release();
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Workspace status')?.userData.detail)).toContain('saved');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('Session setup')?.getObjectByName('Conversation tools')?.userData.context)).not.toContain('Report');
+  await expect(input).toHaveValue('');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('session setup managed: CodeAI entry from another project creates and opens an empty session inside XR', async ({ page, request }) => {
+  await installAdapter(page);
+  const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+  const sourceCheckout = catalog.checkouts.find((item) => item.relativePath === 'alpha')!;
+  const selfCheckout = catalog.checkouts.find((item) => item.relativePath === 'installation')!;
+  const make = async (name: string, checkoutId: string) => (await (await request.post('/api/projects', { data: { name: `${name} ${Date.now()}`, checkoutIds: [checkoutId] } })).json()).project as DurableProject;
+  const source = await make('XR managed source', sourceCheckout.id); const self = await make('XR managed self', selfCheckout.id);
+  await request.post('/api/sessions', { data: { projectId: source.id, provider: 'claude' } });
+  let createdId = ''; let turns = 0;
+  await page.route('**/api/codeai-session', async (route) => {
+    const body = route.request().method() === 'POST' ? route.request().postDataJSON() : undefined;
+    if (!body) return route.fulfill({ json: { available: true, machineId: catalog.hostId, checkoutId: selfCheckout.id, checkoutName: 'CodeAI', phase: 'idle' } });
+    if (body.action === 'prepare') return route.fulfill({ json: { preparedContext: { projectId: self.id, checkoutId: selfCheckout.id, bindingsFingerprint: 'a'.repeat(64) }, project: self } });
+    const response = await request.post('/api/sessions', { data: { projectId: self.id, provider: body.provider, execution: 'local', creationRequestId: body.creationRequestId } });
+    const data = await response.json(); createdId = data.session.id; return route.fulfill({ status: response.status(), json: data });
+  });
+  page.on('request', (req) => { if (req.url().endsWith('/api/agent/message')) turns++; });
+  await page.goto('/'); await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: new RegExp(source.name) }).click();
+  await enter(page); await sessionAction(page, 'tools'); await sessionAction(page, 'codeai');
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('New CodeAI session')?.userData.disabled)).toBe(false);
+  await sessionAction(page, 'new-codeai'); await expect(page.locator('[data-immersive-setup-input]')).toHaveCount(1);
+  await expect.poll(() => setupDetails(page)).toContain(self.name);
+  await setupAction(page, 'settings'); await setupAction(page, 'submit');
+  await expect.poll(() => createdId).not.toBe('');
+  await expect.poll(() => page.evaluate(() => document.querySelector<HTMLSelectElement>('.all-sessions-picker select')?.value)).toBe(createdId);
+  await expect(page.locator('.project-search-trigger')).toContainText(self.name); expect(turns).toBe(0);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });

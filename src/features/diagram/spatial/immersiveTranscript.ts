@@ -60,7 +60,8 @@ function attachmentSummary(message: Extract<ChatMessage, { role: 'user' }>): str
   // The same statement the flat transcript makes.
   const reports = message.reportAttachments?.length ? `\n\n${reportAttachmentSummary(message.reportAttachments)}.` : '';
   const images = message.imageAttachments?.length ? `\n\n${imageAttachmentSummary(message.imageAttachments)}.` : '';
-  return `${canvases}${reports}${images}`;
+  const files = message.fileAttachments?.length ? `\n\nFiles: ${message.fileAttachments.map((file) => file.name).join(', ')}.` : '';
+  return `${canvases}${reports}${images}${files}`;
 }
 
 function assistantText(message: Extract<ChatMessage, { role: 'assistant' }>): string {

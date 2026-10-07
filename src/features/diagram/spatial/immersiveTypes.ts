@@ -1,3 +1,5 @@
+import type { SessionLauncher } from '@/features/session-launch/useSessionLauncher';
+import type { SetupAction } from '@/features/shell/immersive/setupControls';
 import type { ImmersiveReportPlacement, ImmersiveSessionControls, SessionAction } from '@/features/shell/immersive/sessionControls';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import type { ThemeName } from '@/shared/design/tokens';
@@ -58,6 +60,7 @@ export interface ImmersiveXRAdapter {
 }
 
 export type ImmersiveSemanticAction =
+  | SetupAction
   | PanelAction
   | SessionAction
   | ConversationAction
@@ -98,6 +101,7 @@ export interface ImmersiveSessionChoice {
 }
 
 export interface ImmersiveWorkspaceProps {
+  launcher?: SessionLauncher;
   conversation?: ImmersiveConversationControls;
   canvasReview?: ImmersiveCanvasReviewControls;
   sessionControls?: ImmersiveSessionControls;

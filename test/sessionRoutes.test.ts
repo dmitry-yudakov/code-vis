@@ -151,6 +151,27 @@ describe('session snapshot and mutation routes', () => {
     routeState.runInputs = [];
   });
 
+  it('replays one durable current-checkout creation after response loss, concurrent retries, archive, and unavailable checkout', async () => {
+    const creationRequestId = crypto.randomUUID();
+    const body = { provider: 'claude', checkoutId: 'checkout-a', creationRequestId, checkoutMode: 'current' };
+    const create = (value = body) => POST_SESSION(new Request('http://localhost/api/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+    }));
+    const responses = await Promise.all([create(), create()]);
+    expect(responses.map((response) => response.status)).toEqual([201, 201]);
+    const sessions = await Promise.all(responses.map(async (response) => (await response.json()).session));
+    expect(sessions[0].id).toBe(sessions[1].id);
+    expect(sessions[0]).not.toHaveProperty('creationReceipt');
+    routeState.checkoutAvailable = false;
+    expect((await (await create()).json()).session.id).toBe(sessions[0].id);
+    const changed = await create({ ...body, provider: 'codex' });
+    expect(changed.status).toBe(409);
+    await ARCHIVE_SESSION(new Request('http://localhost', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: sessions[0].revision }) }), context(sessions[0].id));
+    expect((await (await create()).json()).session.archivedAt).toBeDefined();
+    expect((await (await GET_SESSIONS(new Request('http://localhost/api/sessions'))).json()).sessions).toEqual([]);
+  });
+
   it.each(['sessions', 'arena'] as const)('auto archives old conversations before returning %s', async (route) => {
     const session = await createViaRoute('checkout-a');
     const updatedAt = new Date(Date.now() - 49 * 60 * 60 * 1_000).toISOString();

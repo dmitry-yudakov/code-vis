@@ -17,7 +17,7 @@ import { IMMERSIVE_FIELD_RADIUS, immersiveFont, immersiveTheme } from './immersi
 type QuestKeyboardSession = XRSession & { isSystemKeyboardSupported?: boolean };
 
 export function InlineConversationInput({
-  draft, theme, enabled, onDraft,
+  draft, theme, enabled, onDraft, onSubmit,
   ariaLabel = 'VR message input', dataAttribute = 'data-immersive-message-input',
   placeholder = 'Message…', meshName = 'Message input', maxLength = MAX_DRAFT_LENGTH,
   position = [0, -0.66, 0.0015],
@@ -26,6 +26,7 @@ export function InlineConversationInput({
   theme: ThemeName;
   enabled: boolean;
   onDraft(value: string): void;
+  onSubmit?(): void;
   ariaLabel?: string;
   dataAttribute?: string;
   placeholder?: string;
@@ -37,8 +38,8 @@ export function InlineConversationInput({
   const textarea = useRef<HTMLTextAreaElement | null>(null);
   const mesh = useRef<THREE.Mesh>(null);
   const pressed = useRef<number | null>(null);
-  const current = useRef({ draft, onDraft });
-  current.current = { draft, onDraft };
+  const current = useRef({ draft, onDraft, onSubmit });
+  current.current = { draft, onDraft, onSubmit };
   const nativeEdit = useRef<NativeKeyboardEditSession | null>(null);
   const selection = useRef({ start: draft.length, end: draft.length });
   const [caret, setCaret] = useState(selection.current);
@@ -105,6 +106,9 @@ export function InlineConversationInput({
     input.onkeyup = nativeSelection;
     input.onkeydown = (event) => {
       event.stopPropagation();
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !event.repeat && current.current.onSubmit) {
+        event.preventDefault(); current.current.onSubmit();
+      }
       if (event.key === 'Escape') { event.preventDefault(); input.blur(); }
     };
     input.onfocus = () => setFocused(true);

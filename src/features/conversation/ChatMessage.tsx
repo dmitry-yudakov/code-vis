@@ -2,6 +2,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord, Participant } from '@/shared/types';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
@@ -33,7 +34,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   running?: boolean;
   executePlanBlocked?: string;
   onSelectDiagram(id: string): void;
-  onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number): void;
+  onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
   onExecutePlan?(participantId: string): void;
 }) {
   const author = participants.find((participant) => participant.id === message.authorId);
@@ -49,11 +50,13 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
         {message.reportAttachments?.length ? <div className="message-attachments report">{reportAttachmentSummary(message.reportAttachments)}</div> : null}
         {message.imageAttachments?.length ? <div className="message-attachments image">{imageAttachmentSummary(message.imageAttachments)}</div> : null}
+        {message.fileAttachments?.map((file, index) => <details className="message-attachments" key={index}>
+          <summary>{file.name} · {file.bytes} bytes</summary><pre>{file.text}</pre></details>)}
         {message.status !== 'sent' && (
           <div className="message-state">
             <span>{message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
             {onRetry && <button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
-              message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0)}>Retry</button>}
+              message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent')}>Retry</button>}
           </div>
         )}
       </article>

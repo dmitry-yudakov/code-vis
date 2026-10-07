@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const routeState = vi.hoisted(() => ({
   checkout: '',
-  runs: [] as Array<{ prompt: string; files: string[]; manifest?: unknown; images: Record<string, Buffer> }>,
+  runs: [] as Array<{ prompt: string; files: string[]; manifest?: unknown; images: Record<string, Buffer>;
+    textManifest?: unknown; textFiles: Record<string, Buffer> }>,
 }));
 
 vi.mock('@/server/repository/checkoutRegistry', () => {
@@ -35,11 +36,15 @@ vi.mock('@/server/agents/providerRegistry', () => ({
           const read = (name: string) => readFile(path.join(input.attachmentDirectory, name));
           const images: Record<string, Buffer> = {};
           for (const name of files.filter((file) => /^image-\d+\.(png|jpg)$/.test(file))) images[name] = await read(name);
+          const textFiles: Record<string, Buffer> = {};
+          for (const name of files.filter((file) => /^file-\d+\.txt$/.test(file))) textFiles[name] = await read(name);
           routeState.runs.push({
             prompt: input.prompt,
             files,
             manifest: files.includes('image-attachments.json') ? JSON.parse((await read('image-attachments.json')).toString()) : undefined,
             images,
+            textManifest: files.includes('file-attachments.json') ? JSON.parse((await read('file-attachments.json')).toString()) : undefined,
+            textFiles,
           });
           return { finalText: 'I looked at the image.', sessionId: 'provider-session', durationMs: 1, outputBytes: 22 };
         },
@@ -289,6 +294,32 @@ describe.sequential('images as part of a message', () => {
     store = getSessionStore(dataDir, 'Home');
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+  it('passes exact accepted text files through the message route into the provider context', async () => {
+    const session = await sessionIn();
+    const file = { name: 'diagnostic.txt', text: '\uFEFFExact report 🌍\n' };
+    const messageId = crypto.randomUUID();
+    const response = await POST_MESSAGE(new Request('http://localhost/api/agent/message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: session.id, participantId: session.primaryAgentId,
+        messageId, text: 'Investigate this file', diagramAttachments: [], fileAttachments: [file], mode: 'ask' }),
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-CodeAI-Run-Id')).toBeTruthy();
+    await response.text();
+    await vi.waitFor(() => expect(runRegistry.currentRuns).toEqual([]));
+    const saved = await store.getSession(session.id);
+    expect(saved.version).toBe(12);
+    const message = saved.messages.find((item) => item.id === messageId) as UserMessage;
+    expect(message.fileAttachments?.[0]).toMatchObject({ ...file, bytes: Buffer.byteLength(file.text) });
+    const run = routeState.runs.at(-1)!;
+    expect(run.textFiles).toEqual({ 'file-1.txt': Buffer.from(file.text) });
+    expect(run.textManifest).toEqual([{ name: file.name, file: 'file-1.txt',
+      bytes: Buffer.byteLength(file.text), digest: message.fileAttachments![0].digest }]);
+    expect(run.prompt).toContain('file-attachments.json');
+    expect(run.prompt).toContain('untrusted attachment data');
+    expect(await readdir(path.join(dataDir, 'run-attachments'))).toEqual([]);
+  });
 
   it('gives the run the images, records only what they were, and upgrades only that session', async () => {
     const session = await sessionIn();

@@ -216,9 +216,10 @@ test('pastes and drops images into the composer as chips and sends them with the
   expect(Math.max(width, height)).toBeLessThanOrEqual(2048);
   expect(kilobytes).toBeLessThanOrEqual(768);
 
-  // A dropped file that is not an image, or that cannot be read as one, is refused where it landed.
+  // Text files now share this drop target with images; removing one leaves the images intact.
   await dropFile(page, 'notes.txt', 'text/plain');
-  await expect(notices.filter({ hasText: 'Only images can be attached here.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove file notes.txt' })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove file notes.txt' }).click();
   await dropFile(page, 'broken.png', 'image/png');
   await expect(notices.filter({ hasText: 'That image could not be read.' })).toBeVisible();
   await expect(chips).toHaveCount(3);
@@ -242,9 +243,10 @@ test('pastes and drops images into the composer as chips and sends them with the
   for (const number of [4, 3, 2]) await page.getByRole('button', { name: `Remove image ${number}` }).click();
   await expect(chips).toHaveCount(1);
 
-  // A drop that holds an image and another file attaches the image and says why the other was left.
+  // A mixed drop attaches both kinds; removing the text file preserves the image-only send below.
   await deliverImage(page, 'drop', 64, 48, { besideText: true });
-  await expect(notices.filter({ hasText: 'Only images can be attached here.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove file notes.txt' })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove file notes.txt' }).click();
   await expect(chips).toHaveCount(2);
   await page.getByRole('button', { name: 'Remove image 2' }).click();
   await expect(chips).toHaveCount(1);

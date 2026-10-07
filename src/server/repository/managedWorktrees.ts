@@ -1,3 +1,4 @@
+import { creationFingerprint, replaySessionCreation, withSessionCreationLock } from '@/server/storage/creationRequests';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -411,7 +412,16 @@ async function dockerCreationPreflight(source: string, config: AppConfig): Promi
   catch (error) { conflict(error instanceof Error ? error.message : 'Docker cannot mount this source.'); }
 }
 
-export async function createManagedWorktree(request: CreationRequest, config: AppConfig): Promise<DurableSession> {
+export async function createManagedWorktree(request: CreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>): Promise<DurableSession> {
+  return withSessionCreationLock(config.dataDir, async () => {
+    const prior = await replaySessionCreation(request, config);
+    if (prior) return prior;
+    await beforeCreate?.();
+    return materializeWorktree(request, config);
+  });
+}
+
+async function materializeWorktree(request: CreationRequest, config: AppConfig): Promise<DurableSession> {
   if (runRegistry.acquireMaintenance() !== 'acquired') conflict('Worktree creation needs an idle machine. Wait for turns, Undo, or maintenance to finish and retry.');
   try {
     const { recoverDockerExecution } = await import('@/server/execution/dockerRecovery');
@@ -421,7 +431,7 @@ export async function createManagedWorktree(request: CreationRequest, config: Ap
     const records = await readWorktreeRecords(config.dataDir);
     const prior = records.find((record) => record.request.creationRequestId === request.creationRequestId);
     if (prior) {
-      if (JSON.stringify(prior.request) !== JSON.stringify(request)) conflict('Creation request id was already used with different choices.');
+      if (creationFingerprint(prior.request) !== creationFingerprint(request)) conflict('Creation request id was already used with different choices.');
       return await finish(prior, config, store);
     }
     if (await lstat(path.join(config.dataDir, 'worktrees', `${request.creationRequestId}.json`)).catch(() => undefined)) conflict('This creation journal is damaged; its retained state requires inspection.');

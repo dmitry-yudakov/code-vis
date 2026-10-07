@@ -12,6 +12,7 @@ import {
   createRunDirectory, removeRunDirectory, writeDiagramAttachments, writeImageAttachments,
 } from '@/server/storage/tempAttachments';
 import { writeReportAttachments } from '@/server/storage/reportEvidence';
+import { writeTextFiles } from '@/server/storage/textFiles';
 import { writeRepositoryContext } from '@/server/repository/repositoryContext';
 import { hasProposedPlan, stripPlanMarkers } from '@/shared/plan';
 import { buildConversationPrompt } from './prompt';
@@ -97,6 +98,7 @@ export async function runConversation(input: {
       userMessage?.role === 'user' ? userMessage.reportAttachments ?? [] : []);
     // The request is checked here again: a queued turn holds it in memory until it starts.
     const images = await writeImageAttachments(directory, request.imageAttachments ?? []);
+    const files = await writeTextFiles(directory, request.fileAttachments ?? []);
     emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing repository context' });
     await writeRepositoryContext(checkout.realPath, directory, config.maxGitContextBytes);
     let result: AgentProcessResult | undefined;
@@ -129,6 +131,7 @@ export async function runConversation(input: {
         hasSketchAttachment: manifest.some((item) => item.kind === 'sketch'),
         attachedReportNames: reports.map((item, index) => `Report ${index + 1} (${item.kind}, received ${item.receivedAt}${item.imageFile ? ', with screenshot' : ''})`),
         attachedImageNames: images.map((item, index) => `Image ${index + 1} (${item.imageFile})`),
+        attachedFileNames: files.map((file) => file.name),
         mode,
         level: policy.level,
         execution: session.execution,

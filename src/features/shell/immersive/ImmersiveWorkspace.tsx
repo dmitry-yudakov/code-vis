@@ -31,6 +31,8 @@ import { captureImmersiveFrame } from './immersiveCapture';
 import { createCaptureCountdown } from './captureCountdown';
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { sendImmersiveReport } from './immersiveReport';
+import { SessionSetup, SessionSetupOutcome } from './SessionSetup';
+import type { SetupActionName } from './setupControls';
 import { ArenaTools } from './ArenaTools';
 import type { ArenaActionName } from './arenaControls';
 
@@ -63,7 +65,7 @@ function EvidenceSurface({ evidence, pages, page, theme }: {
 
 export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionController(perform?: (action: ImmersiveSemanticAction) => void): void }) {
   const {
-    session, theme, activeTarget, preview, runStatus, pendingApprovals, unread, choices, arenaControls,
+    launcher, session, theme, activeTarget, preview, runStatus, pendingApprovals, unread, choices, arenaControls,
     workspaceStatus, onOpenSession, onConversationScroll,
     onPreviousCanvas, onNextCanvas, onExit, onActionController, layout, editing,
     onPanelAction, onPanelPlacement, onResetWorkspace, evidence, viewKey, onReportCaptured,
@@ -81,6 +83,12 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   const [conversationTab, setConversationTab] = useState<'read' | 'compose' | 'agents'>('read');
   const conversationAction = useRef<((action: ConversationActionName) => void) | undefined>(undefined);
   const setConversationController = useCallback((perform?: (action: ConversationActionName) => void) => { conversationAction.current = perform; }, []);
+  const setupAction = useRef<((action: SetupActionName | ConversationActionName, conversation?: boolean) => void) | undefined>(undefined);
+  const setSetupController = useCallback((perform?: (action: SetupActionName | ConversationActionName, conversation?: boolean) => void) => { setupAction.current = perform; }, []);
+  const [setupCapturing, setSetupCapturing] = useState(false);
+  const captureSetupToken = useRef<number | undefined>(undefined);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [sessionToolsOpen, setSessionToolsOpen] = useState(false);
   const sessionAction = useRef<((action: SessionActionName) => void) | undefined>(undefined);
   const setSessionController = useCallback((perform?: (action: SessionActionName) => void) => { sessionAction.current = perform; }, []);
@@ -108,9 +116,12 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
   }, [onConversationScroll]);
   const activeChoice = choices.find((choice) => choice.sessionId === session?.id && (!session.machineId || choice.machineId === session.machineId));
   useEffect(() => { setConversationTab('read'); setListOpen(!session); setSessionToolsOpen(false); }, [viewKey, session?.id]);
+  const permissionSetupKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     const key = props.sessionControls?.requestedPermissionKey;
-    if (!key) return;
+    if (!key) { permissionSetupKey.current = undefined; return; }
+    if (permissionSetupKey.current === key) return;
+    permissionSetupKey.current = key; launcher?.close(); setSetupCapturing(false);
     setListOpen(false); setSessionToolsOpen(true); setSessionToolRequest({ tab: 'permissions', key });
     onPanelAction('conversation', 'open');
   }, [props.sessionControls?.requestedPermissionKey, onPanelAction, viewKey, session?.id]);
@@ -187,16 +198,20 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     if (step.phase === 'counting') setCountdownStatus(step.status);
     else if (step.phase === 'clearing') setCountdownStatus(undefined);
     else if (step.phase === 'capture') {
+      const setupToken = captureSetupToken.current; captureSetupToken.current = undefined;
       let screenshot: string | undefined;
       try { screenshot = captureImmersiveFrame(gl, scene, camera); }
       catch { recordImmersiveDiagnostic('capture-failed'); }
+      setSetupCapturing(false);
       showReportNotice(screenshot ? 'Sending report…' : 'Sending report without a screenshot…');
       // The selection is read as this frame is sent; the placement is decided against whatever is
       // active when the home machine answers, never against this frame's view.
       void sendImmersiveReport({ kind: 'capture', note: 'Reported from the workspace', screenshot })
         .then(({ outcome, summary }) => {
+          if (!alive.current) return;
           if (outcome !== 'sent') { showReportNotice('Report failed — check the home machine'); return; }
-          const placement = summary && onReportCaptured ? onReportCaptured(summary) : 'saved';
+          const placement = setupToken !== undefined ? summary && launcher?.attachCapture(setupToken, summary) ? 'attached' : 'saved'
+            : summary && onReportCaptured ? onReportCaptured(summary) : 'saved';
           showReportNotice(`${placement === 'saved' ? 'Report saved' : 'Report ready to send'}${screenshot ? '' : ' without a screenshot'}`);
           if (placement === 'active') {
             setListOpen(false); setSessionToolsOpen(false); setConversationTab('compose');
@@ -205,8 +220,14 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
         });
     }
   });
-  const contentEnabled = (id: typeof PANEL_IDS[number]) => layout.panels[id].open && editing?.mode !== 'drag' && editing?.id !== id;
+  const contentEnabled = (id: typeof PANEL_IDS[number]) => !launcher?.isOpen && layout.panels[id].open && editing?.mode !== 'drag' && editing?.id !== id;
   const perform = useCallback((action: ImmersiveSemanticAction) => {
+    if (action === 'setup:outcome') { launcher?.openOutcome(); return; }
+    if (launcher?.isOpen) {
+      if (action.startsWith('setup:') && !setupCapturing) { setupAction.current?.(action.slice('setup:'.length) as SetupActionName); return; }
+      if (action.startsWith('conversation:') && !setupCapturing) { setupAction.current?.(action.slice('conversation:'.length) as ConversationActionName, true); return; }
+      if (action !== 'exit' && action !== 'report') return;
+    }
     const panelAction = parsePanelAction(action);
     if (panelAction) {
       if (panelAction.id === 'conversation' && (panelAction.command === 'close'
@@ -216,7 +237,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     if (action.startsWith('session:')) {
       if (!contentEnabled('conversation') || voicePending) return;
       if (action === 'session:tools') {
-        setSessionToolsOpen((value) => !value); setListOpen(false); onPanelAction('conversation', 'focus');
+        props.sessionControls?.onRefreshCodeAiSetup?.(); setSessionToolsOpen((value) => !value); setListOpen(false); onPanelAction('conversation', 'focus');
       } else if (sessionToolsOpen) sessionAction.current?.(action.slice('session:'.length) as SessionActionName);
       return;
     }
@@ -247,10 +268,16 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
       if (contentEnabled('arena')) arenaAction.current?.(action.slice('arena:'.length) as ArenaActionName);
       return;
     }
-    if (action === 'exit') { captureCountdown.cancel(); onExit(); }
+    if (action === 'exit') { captureCountdown.cancel(); captureSetupToken.current = undefined; setSetupCapturing(false); launcher?.invalidateCapture(); onExit(); }
     else if (action === 'reset-workspace') { onResetWorkspace(); setDiagramScale(1); recenter(); }
     else if (action === 'report') {
-      if (!captureCountdown.toggle(performance.now())) { setCountdownStatus(undefined); showReportNotice('Report cancelled'); }
+      if (!captureCountdown.toggle(performance.now())) {
+        captureSetupToken.current = undefined; setSetupCapturing(false); setCountdownStatus(undefined); showReportNotice('Report cancelled');
+      } else {
+        captureSetupToken.current = launcher?.captureToken();
+        setSetupCapturing(captureSetupToken.current !== undefined);
+        if (captureSetupToken.current !== undefined && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      }
     }
     else if (action === 'reset-view') { setDiagramScale(1); canvasReview.current?.perform('reset-spatial'); recenter(); }
     else if (action === 'previous-canvas' && contentEnabled('canvas')) onPreviousCanvas();
@@ -278,7 +305,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     }
   }, [onPanelAction, onResetWorkspace, onExit, recenter, layout, editing, onPreviousCanvas, onNextCanvas,
     listOpen, sessionToolsOpen, conversationTab, voicePending, session, evidence, page, pages.length,
-    captureCountdown, showReportNotice]);
+    captureCountdown, showReportNotice, launcher, setupCapturing]);
   useEffect(() => { onActionController(perform); return () => onActionController(undefined); }, [onActionController, perform]);
   const button = (action: ImmersiveAction, position: [number, number, number], disabled = false,
     variant: 'secondary' | 'primary' | 'destructive' = 'secondary') => <WorldButton
@@ -302,6 +329,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
         {id === 'arena' && <ArenaTools controls={arenaControls} theme={theme} enabled={contentEnabled('arena')}
           focused={layout.focused === 'arena'} pagerIcons={panelControls?.pager} onController={setArenaController}
           onNewSession={() => {
+            if (launcher) { launcher.open(); return; }
             const key = `${Date.now()}`;
             setListOpen(false); setSessionToolsOpen(true); setSessionToolRequest({ tab: 'launcher', key });
             onPanelAction('conversation', 'open');
@@ -341,7 +369,7 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
             enabled={contentEnabled('conversation')} focused={layout.focused === 'conversation'} perform={perform}
             onController={setHistoryController} onScrollState={handleScrollState} />}
           <ConversationTools controls={props.conversation} theme={theme} tab={conversationTab}
-            visible={!listOpen && !sessionToolsOpen && (!uikitSpike || conversationTab === 'agents')}
+            visible={!launcher?.isOpen && !listOpen && !sessionToolsOpen && (!uikitSpike || conversationTab === 'agents')}
             controllerOnly={uikitSpike && !listOpen && !sessionToolsOpen && conversationTab !== 'agents'}
             enabled={contentEnabled('conversation')} atBottom={atBottom}
             onVoicePending={setVoicePending}
@@ -366,7 +394,11 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
           {button('refresh-evidence', [0.56, 0.81, 0])}
         </>}
       </WorkspacePanel>)}
+      {launcher?.isOpen && <group position={[0, 0, -1.2]} visible={!setupCapturing}>
+        <SessionSetup launcher={launcher} theme={theme} onCapture={() => perform('report')} onController={setSetupController} />
+      </group>}
       <group name="Workspace controls" position={[0, -1.45, -1.3]}>
+        {launcher && !launcher.isOpen && <SessionSetupOutcome launcher={launcher} theme={theme} />}
         {status && <mesh name="Workspace status" geometry={status.geometry} material={status.material}
           position={[0, 0.24, 0]} userData={{ detail: statusDetail }} />}
         {recoveryChrome && <mesh name="Workspace control pill" geometry={recoveryChrome.geometry} material={recoveryChrome.material}

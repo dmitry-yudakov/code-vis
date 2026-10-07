@@ -6,6 +6,8 @@ import { DockerProcessRunner } from '@/server/execution/dockerProcessRunner';
 import { getConfig } from '@/server/config';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { RunRegistry } from '@/server/runs/runRegistry';
+import { writeTextFiles } from '@/server/storage/textFiles';
+import { buildConversationPrompt } from '@/server/conversation/prompt';
 import type { AgentProcessRun } from '@/shared/types';
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), run: vi.fn(), options: vi.fn() }));
@@ -44,6 +46,23 @@ async function fixture() {
 
 describe('Docker protocol transport lifecycle', () => {
   afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
+
+  it.each(['claude', 'codex'] as const)('routes exact text evidence through the existing context mount for %s', async (provider) => {
+    const { input } = await fixture();
+    const files = [{ name: 'failure.log', text: 'Exact diagnostic 🌍\n' }];
+    await writeTextFiles(input.attachmentDirectory, files);
+    const runner = new DockerProcessRunner({ ...getConfig(), dockerEnabled: true }, provider,
+      { sessionId: 'session', participantId: 'participant' });
+    await runner.run({ ...input, prompt: buildConversationPrompt({ userText: 'Investigate',
+      attachmentDirectory: input.attachmentDirectory, attachedCanvasNames: [], attachedFileNames: files.map((file) => file.name) }) });
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ provider }),
+      expect.objectContaining({ context: input.attachmentDirectory }));
+    const translated = mocks.run.mock.lastCall![0];
+    expect(translated.attachmentDirectory).toBe('/context');
+    expect(translated.prompt).toContain('/context/file-attachments.json');
+    expect(translated.prompt).not.toContain(input.attachmentDirectory);
+    expect(mocks.options.mock.lastCall![0].imagePaths ?? []).not.toContain('/context/file-1.txt');
+  });
 
   it('translates prompt, image and resume inputs and stops all container processes before returning', async () => {
     const { runner, input, worker } = await fixture();

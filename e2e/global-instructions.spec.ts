@@ -109,7 +109,7 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('button', { name: 'New session' }).click();
-  const create = arena.getByRole('region', { name: 'Create session' });
+  const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(create.getByLabel('Global instructions')).toHaveValue('isolated');
   await create.getByLabel('Project').selectOption({ label: projectName });
   await expect(create.getByLabel('Global instructions').locator('option[value="isolated"]')).toHaveJSProperty('disabled', false);

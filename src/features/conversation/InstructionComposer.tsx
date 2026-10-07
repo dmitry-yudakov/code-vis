@@ -11,6 +11,7 @@ import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip, effortLabel, execut
 import { useMenuDismiss } from '@/features/agents/useMenuDismiss';
 import { CanvasThumbnail } from '@/features/diagram/components/CanvasThumbnail';
 import { offeredEfforts, offeredModelSelection } from '@/shared/modelChoices';
+import type { TextFile } from '@/shared/textFiles';
 import { carriesFiles, pastedImageFiles, pendingImageDetail, type PendingImage } from './imageAttachments';
 
 // Opening one of the composer's popovers closes the others, which would overlap.
@@ -144,7 +145,7 @@ function ModePicker({ mode, execution, unsupportedModes, disabled, onChange, lev
   );
 }
 
-function AttachMenu({ canvases, attachedIds, theme, disabled, onToggle, onOpenHistory, onNewSketch, onOpenReports }: {
+function AttachMenu({ canvases, attachedIds, theme, disabled, onToggle, onOpenHistory, onNewSketch, onOpenReports, onChooseFiles }: {
   canvases: RecentCanvas[];
   attachedIds: string[];
   theme: ThemeName;
@@ -153,6 +154,7 @@ function AttachMenu({ canvases, attachedIds, theme, disabled, onToggle, onOpenHi
   onOpenHistory(): void;
   onNewSketch(): void;
   onOpenReports?(): void;
+  onChooseFiles?(): void;
 }) {
   return (
     <ComposerMenu className="attach-menu" label="Attach" disabled={disabled} summary={<Icon name="plus" />}>
@@ -178,6 +180,7 @@ function AttachMenu({ canvases, attachedIds, theme, disabled, onToggle, onOpenHi
             );
           })}
           <MenuItem role="menuitem" className="attach-more" label="All history…" onClick={() => { onOpenHistory(); close(); }} />
+          {onChooseFiles && <MenuItem role="menuitem" label="Files or screenshot…" onClick={() => { onChooseFiles(); close(); }} />}
           <span role="separator" />
           <MenuItem role="menuitem" label="New sketch" detail="Draw, then send the drawing as the instruction" lead={<Icon name="pen" />}
             onClick={() => { onNewSketch(); close(); }} />
@@ -260,7 +263,7 @@ const DEFAULT_MODEL_TITLE = 'No override. A machine that sets a default model se
 const DEFAULT_EFFORT_TITLE = 'No override. A new agent starts on the model default; an agent that already ran keeps its last effort.';
 
 /** The model and effort the machine lists for the addressed agent's provider. Absent when it lists none. */
-function ModelMenu({ choices, selection, disabled, onChange }: {
+export function ModelMenu({ choices, selection, disabled, onChange }: {
   choices?: ModelChoices;
   selection: ModelSelection;
   disabled: boolean;
@@ -313,7 +316,7 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  value, running, cancelReady = true, sendBlocked, autoFocus, attached, reports = [], images = [], activeDiagramId, markCounts, mode, unsupportedModes,
+  value, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
@@ -333,11 +336,15 @@ export function InstructionComposer({
   cancelReady?: boolean;
   sendBlocked?: string;
   autoFocus?: boolean;
+  focusRequest?: string;
+  onFocusRequestHandled?(): void;
   attached: CanvasTarget[];
   /** CodeAI reports for the next message; each is enough to send on its own. */
   reports?: PendingReportChip[];
   /** Pasted or dropped images for the next message; each is enough to send on its own. */
   images?: PendingImage[];
+  files?: TextFile[];
+  onRemoveFile?(index: number): void;
   activeDiagramId?: string;
   markCounts: Record<string, number>;
   mode: AgentMode;
@@ -365,9 +372,10 @@ export function InstructionComposer({
   onOpenReports?(): void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [dropTarget, setDropTarget] = useState(false);
   // A drawing, a report, or an image is an instruction in itself, so such a turn does not need typed text.
-  const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0;
+  const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0 || files.length > 0;
   const takesDrop = Boolean(onAddImages) && !running;
   // A dragged file is always taken here: left to the browser, a drop would replace the page with the file.
   const dragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -393,6 +401,7 @@ export function InstructionComposer({
     onAddImages(files);
   };
   useEffect(() => { if (autoFocus) ref.current?.focus(); }, [autoFocus]);
+  useEffect(() => { if (focusRequest && ref.current) { ref.current.focus(); onFocusRequestHandled?.(); } }, [focusRequest, onFocusRequestHandled]);
   useEffect(() => {
     const field = ref.current;
     if (!field) return;
@@ -402,7 +411,7 @@ export function InstructionComposer({
   return (
     <>
     <div className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
-      {attached.length + reports.length + images.length > 0 && (
+      {attached.length + reports.length + images.length + files.length > 0 && (
         <div className="attachment-chips" aria-label="Attachments">
           {attached.map((canvas) => {
             const id = canvasTargetId(canvas);
@@ -423,6 +432,8 @@ export function InstructionComposer({
               <button type="button" aria-label="Remove report attachment" onClick={() => onRemoveReport?.(report.id)}>×</button>
             </span>
           ))}
+          {files.map((file, index) => <span className="attachment-chip" key={`file-${index}`}><span>{file.name}</span>
+            <button type="button" aria-label={`Remove file ${file.name}`} onClick={() => onRemoveFile?.(index)}>×</button></span>)}
           {images.map((image, index) => (
             <span className="attachment-chip image" key={image.id}>
               <button type="button" className="image-open" aria-label={`Open image ${index + 1} on canvas`}
@@ -449,12 +460,13 @@ export function InstructionComposer({
         onChange={(event) => onChange(event.target.value)}
         onPaste={paste}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) {
             event.preventDefault();
             if (canSend && !running && !sendBlocked) onSend();
           }
         }}
       />
+      <input ref={fileInput} type="file" multiple hidden onChange={(event) => { onAddImages?.(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
       <div className="composer-actions">
         <AttachMenu
           canvases={recentCanvases}
@@ -465,6 +477,7 @@ export function InstructionComposer({
           onOpenHistory={onOpenHistory}
           onNewSketch={onNewSketch}
           onOpenReports={onOpenReports}
+          onChooseFiles={onAddImages ? () => fileInput.current?.click() : undefined}
         />
         <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={false} onChange={onModeChange} level={securityLevel} provider={provider} isolated={isolated} />
         <ModelMenu choices={modelChoices} selection={modelSelection} disabled={running} onChange={onModelSelectionChange} />

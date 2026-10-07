@@ -7,7 +7,7 @@ const MAX_ACKNOWLEDGED_ITEMS = 500;
 const SAFE_ATTENTION_ID = /^[^\u0000-\u001f]{1,240}$/;
 
 export type ArenaSessionState = 'idle' | 'running' | 'needs-you' | 'queued' | 'failed' | 'offline';
-export type ArenaAttentionKind = 'permission' | 'failed' | 'completed';
+export type ArenaAttentionKind = 'permission' | 'failed' | 'completed' | 'unavailable';
 
 export interface DeviceArenaState {
   version: 1;
@@ -61,6 +61,15 @@ function lastActivity(session: ArenaSessionSummary): string {
   return 'Turn completed';
 }
 
+/** Allow the acceptance write/activation frame to settle before declaring a lost executor. */
+function executionUnavailable(session: ArenaSessionSummary, discovery: RunDiscovery): boolean {
+  const activity = session.lastActivity;
+  return session.execution !== 'docker' && activity?.status === 'sending'
+    && Date.now() - Date.parse(activity.createdAt) > 5_000
+    && !discovery.active.some((run) => run.sessionId === session.id)
+    && !discovery.recent.some((run) => run.sessionId === session.id && (run.finishedAt ?? 0) >= Date.parse(activity.createdAt));
+}
+
 function activeBySession(discovery: RunDiscovery): Map<string, RunDescriptor> {
   return new Map(discovery.active.map((run) => [run.sessionId, run]));
 }
@@ -95,6 +104,7 @@ export function groupArenaSessions(
   sessions: readonly ArenaSessionSummary[],
   discovery: RunDiscovery,
   machineOnline = true,
+  fresh = true,
 ): ArenaProjectGroup[] {
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const active = activeBySession(discovery);
@@ -114,8 +124,8 @@ export function groupArenaSessions(
     group.sessions.push({
       session,
       projectName,
-      state: machineOnline ? arenaSessionState(session, run) : 'offline',
-      activity: machineOnline ? arenaSessionActivity(session, run) : 'Execution machine is offline',
+      state: machineOnline ? fresh && executionUnavailable(session, discovery) ? 'needs-you' : arenaSessionState(session, run) : 'offline',
+      activity: machineOnline ? fresh && executionUnavailable(session, discovery) ? 'Execution status unavailable' : arenaSessionActivity(session, run) : 'Execution machine is offline',
       ...(run ? { run } : {}),
     });
     if (lifecycleAt(session) > group.updatedAt) group.updatedAt = lifecycleAt(session);
@@ -169,7 +179,7 @@ export function buildArenaInbox(
   sessions: readonly ArenaSessionSummary[],
   discovery: RunDiscovery,
   deviceState: DeviceArenaState,
-  machine?: { id: string; label: string; online: boolean },
+  machine?: { id: string; label: string; online: boolean; fresh?: boolean },
 ): ArenaAttentionItem[] {
   const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const projectsById = new Map(projects.map((project) => [project.id, project.name]));
@@ -238,7 +248,15 @@ export function buildArenaInbox(
     });
   }
 
-  const priority: Record<ArenaAttentionKind, number> = { permission: 0, failed: 1, completed: 2 };
+  if (machine?.online !== false && machine?.fresh !== false) for (const session of sessions) {
+    if (!executionUnavailable(session, discovery)) continue;
+    const id = `unavailable:${session.id}:${session.lastActivity!.messageId}`;
+    items.push({ id, kind: 'unavailable', sessionId: session.id, projectId: session.projectId,
+      projectName: projectNameFor(session, projectsById), sessionTitle: session.title, reason: 'Execution status unavailable',
+      createdAt: Date.parse(session.lastActivity!.createdAt), read: acknowledged.has(id),
+      ...(machine ? { machineId: machine.id, machineLabel: machine.label, machineOnline: machine.online } : {}) });
+  }
+  const priority: Record<ArenaAttentionKind, number> = { permission: 0, unavailable: 1, failed: 2, completed: 3 };
   return items.sort((left, right) => (
     priority[left.kind] - priority[right.kind] || right.createdAt - left.createdAt
   ));
@@ -254,7 +272,7 @@ export function buildMultiMachineInbox(
     entry.sessions,
     entry.runs,
     EMPTY_DEVICE_ARENA_STATE,
-    { id: entry.machine.id, label: entry.machine.label, online: entry.machine.state === 'online' },
+    { id: entry.machine.id, label: entry.machine.label, online: entry.machine.state === 'online', fresh: entry.snapshotFresh },
   ).map((item) => {
     const id = `machine:${entry.machine.id}:${item.id}`;
     // Preserve local read markers written before the Arena became machine-qualified.
@@ -263,7 +281,7 @@ export function buildMultiMachineInbox(
     );
     return { ...item, id, read };
   }));
-  const priority: Record<ArenaAttentionKind, number> = { permission: 0, failed: 1, completed: 2 };
+  const priority: Record<ArenaAttentionKind, number> = { permission: 0, unavailable: 1, failed: 2, completed: 3 };
   return items.sort((left, right) => (
     priority[left.kind] - priority[right.kind] || right.createdAt - left.createdAt
   ));
