@@ -1,6 +1,6 @@
 # CodeAI development queue
 
-**Updated:** October 3, 2026
+**Updated:** October 7, 2026
 
 This is the near-term queue for agent sessions: recovery first, a focused acceptance pass, title-bar
 tabs, then the first software-model producer and its persistence follow-up. The order comes from the October 1 development
@@ -44,6 +44,13 @@ feature has shipped. The order is priority, not a new dependency chain.
 | 3 | Q3 | [Story 73 title-bar tabs](../stories/STORY-20261003-title-bar-tabs.md) | Done | Desktop scope verified and reviewed; Q4 is the next implementation item |
 | 4 | Q4 | [Story 6 first software-model producer](../stories/STORY-20261003-agent-emitted-software-model.md) | Done | Verified and reviewed; continue with Q5 |
 | 5 | Q5 | Story 7 persistent repository model | Queued | Write the persistence story using Story 6's measured identity contract |
+
+## Additional drafted work
+
+- [Story 97 — Compose the first message while creating a session](../stories/STORY-20261007-compose-new-session.md)
+  specifies Arena setup with attachments and background launch, a managed CodeAI shortcut, and the
+  desktop/VR journey. Spec and review only; implementation has not started. No queue priority has
+  been assigned to this story.
 
 ## Q1 Turn checkpoints and undo
 
