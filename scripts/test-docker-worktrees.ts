@@ -14,6 +14,7 @@ import { createManagedWorktree, readWorktreeRecords } from '../src/server/reposi
 import { runGitRead } from '../src/server/repository/gitRead';
 import { TurnCheckpoints } from '../src/server/repository/turnCheckpoints';
 import { getSessionStore } from '../src/server/storage/sessionStore';
+import { runRegistry } from '../src/server/runs/runRegistry';
 
 const execute = promisify(execFile);
 
@@ -52,6 +53,21 @@ async function main() {
     const record = records.find((entry) => entry.session.id === docker.id)!;
     const other = records.find((entry) => entry.session.id !== docker.id)!;
     const otherIndex = await readFile(path.join(other.gitDirectory!.path, 'index'));
+    const unrelated = path.join(root, 'unrelated'); await mkdir(unrelated);
+    await execute('git', ['init', '-q'], { cwd: unrelated });
+    worker = await runtime.createWorker({ ...identity, runId: randomUUID() }, { checkout: unrelated, mode: 'ask' });
+    const runId = randomUUID();
+    assert.equal(runRegistry.reserve({ runId, sessionId: identity.sessionId, participantId: identity.participantId,
+      providerKey: 'disposable-probe', checkoutId: 'unrelated', checkoutPath: unrelated, access: 'read', cancel() {} }).accepted, true);
+    try { await createManagedWorktree(request('local'), { ...config, repositoriesRoot: root }); }
+    finally { runRegistry.release(runId); await worker.stop(); worker = undefined; }
+    worker = await runtime.createWorker({ ...identity, runId: randomUUID() }, { checkout: record.destination, mode: 'ask' });
+    try {
+      await assert.rejects(createManagedWorktree(request('local'), config), /Git read/);
+      assert.equal(runRegistry.acquireMaintenance(), 'live-runs');
+    } finally { await worker.stop(); worker = undefined; }
+    assert.equal(runRegistry.acquireMaintenance(), 'acquired'); runRegistry.releaseMaintenance();
+    process.stdout.write('PASS creation beside an unrelated real worker, shared-metadata refusal, cleanup and restart admission\n');
     assert.equal((await runGitRead(record.destination, ['branch', '--show-current'])).trim(), docker.worktree!.branch);
     const checkpoints = new TurnCheckpoints(config.dataDir);
     const checkpoint = await checkpoints.capture({ runId: randomUUID(), sessionId: docker.id, messageId: randomUUID(),

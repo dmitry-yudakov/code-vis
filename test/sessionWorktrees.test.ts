@@ -210,21 +210,137 @@ describe('managed session worktrees with real Git', () => {
     expect(session.repositories[0].checkoutId).toBe(record.checkoutId);
   });
 
-  it('holds the existing maintenance lease through persistence and rejects runs, Undo, and duplicate submissions', async () => {
+  it('holds source scopes through persistence while admitting unrelated turns and refusing competing operations', async () => {
     const input = request(); let release!: () => void;
     const wait = new Promise<void>((resolve) => { release = resolve; });
     const original = store.savePreparedWorktreeSession.bind(store);
     const save = vi.spyOn(store, 'savePreparedWorktreeSession').mockImplementation(async (session) => { await wait; return original(session); });
     const pending = createManagedWorktree(input, getConfig());
     await vi.waitFor(() => expect(save).toHaveBeenCalled());
-    expect(runRegistry.reserve({ runId: randomUUID(), sessionId: randomUUID(), participantId: 'agent', providerKey: 'test', checkoutId, access: 'write', cancel() {} })).toMatchObject({ accepted: false, reason: 'maintenance' });
-    expect(runRegistry.acquireCheckoutWrite(source)).toBeUndefined();
-    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/idle machine/);
-    release(); await pending;
+    const unrelatedId = randomUUID();
+    try {
+      expect(runRegistry.reserve({ runId: unrelatedId, sessionId: randomUUID(), participantId: 'agent', providerKey: 'test', checkoutId: 'other', checkoutPath: path.join(root, 'other'), access: 'write', cancel() {} })).toMatchObject({ accepted: true });
+      expect(runRegistry.acquireMaintenance()).toBe('live-runs');
+      expect(runRegistry.acquireCheckoutWrite(source)).toBeUndefined();
+      await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/another worktree/);
+    } finally { runRegistry.release(unrelatedId); release(); await pending; }
     const undo = runRegistry.acquireCheckoutWrite(source)!;
-    try { await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/idle machine/); } finally { undo(); }
+    try { await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/Undo/); } finally { undo(); }
     const runId = randomUUID(); runRegistry.reserve({ runId, sessionId: randomUUID(), participantId: 'agent', providerKey: runId, checkoutId, access: 'write', cancel() {} });
-    try { await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/idle machine/); } finally { runRegistry.release(runId); }
+    try { await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/turn/); } finally { runRegistry.release(runId); }
+  });
+
+  it('creates beside an unrelated reserved turn but reports a related sibling before any new intent', async () => {
+    const unrelated = path.join(root, 'unrelated'); await mkdir(unrelated); await git(unrelated, 'init', '-q');
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', root);
+    const runId = randomUUID(), sessionId = randomUUID();
+    runRegistry.reserve({ runId, sessionId, participantId: 'agent', providerKey: runId, checkoutId: 'other', checkoutPath: path.join(root, 'unrelated'), access: 'write', cancel() {} });
+    let first;
+    try { first = await createManagedWorktree(request(), getConfig()); } finally { runRegistry.release(runId); }
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    const related = randomUUID();
+    runRegistry.reserve({ runId: related, sessionId: first.id, participantId: 'agent', providerKey: related, checkoutId: record.checkoutId, checkoutPath: record.destination, access: 'write', cancel() {} });
+    try {
+      const response = await create(request());
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ worktreeConflict: { machineId: (await store.host()).id, sourceCheckoutId: checkoutId, kind: 'turn', blockingTurns: [{ sessionId: first.id, state: 'preparing' }] } });
+      expect(await readWorktreeRecords(getConfig().dataDir)).toHaveLength(1);
+    } finally { runRegistry.release(related); }
+    await expect(createManagedWorktree(request(), getConfig())).resolves.toHaveProperty('worktree');
+  });
+
+  it('excludes user-created Local linked worktrees outside the managed folder before and after scope grant', async () => {
+    const linked = path.join(root, 'linked');
+    await git(source, 'worktree', 'add', '-b', 'user-linked', linked);
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', root);
+    const registry = getCheckoutRegistry(root);
+    const linkedCheckout = (await registry.refresh()).find((checkout) => checkout.realPath === linked)!;
+    expect((await registry.resolve(linkedCheckout.id)).realPath).toBe(linked);
+    const runId = randomUUID(), sessionId = randomUUID();
+    runRegistry.reserve({ runId, sessionId, participantId: 'agent', providerKey: runId, checkoutId: linkedCheckout.id,
+      checkoutPath: linked, access: 'write', cancel() {} });
+    try {
+      const response = await create(request());
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ worktreeConflict: { kind: 'turn', blockingTurns: [{ sessionId }] } });
+      expect(await readWorktreeRecords(getConfig().dataDir)).toEqual([]);
+      expect(await git(source, 'branch', '--list', 'codeai/*')).toBe('');
+    } finally { runRegistry.release(runId); }
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const original = store.savePreparedWorktreeSession.bind(store);
+    const save = vi.spyOn(store, 'savePreparedWorktreeSession').mockImplementation(async (session) => { await wait; return original(session); });
+    const pending = createManagedWorktree(request(), getConfig());
+    await vi.waitFor(() => expect(save).toHaveBeenCalled());
+    const executeTurn = vi.fn(async () => undefined);
+    try {
+      expect(runRegistry.acquireCheckoutRead(linked)).toBeUndefined();
+      expect(runRegistry.acquireCheckoutWrite(linked)).toBeUndefined();
+      expect(runRegistry.reserve({ runId, sessionId, participantId: 'agent', providerKey: runId, checkoutId: linkedCheckout.id,
+        checkoutPath: linked, access: 'write', cancel() {} })).toMatchObject({ accepted: true });
+      runRegistry.activate(runId, { execute: executeTurn, cancelQueued: async () => undefined });
+      await Promise.resolve(); expect(executeTurn).not.toHaveBeenCalled();
+    } finally { release(); await pending; runRegistry.finish(runId); }
+    expect(executeTurn).toHaveBeenCalledOnce();
+  });
+
+  it.each(['refs', 'refs/heads'])('does not prove independence for a plain Git directory with redirected %s', async (redirect) => {
+    const other = path.join(root, 'other'); await mkdir(other); await git(other, 'init', '-q');
+    await git(other, 'config', 'user.name', 'Worktree fixture'); await git(other, 'config', 'user.email', 'test@example.invalid');
+    await rm(path.join(other, '.git', redirect), { recursive: true, force: true });
+    await symlink(path.join(source, '.git', redirect), path.join(other, '.git', redirect));
+    await rm(path.join(other, '.git/objects'), { recursive: true, force: true });
+    await symlink(path.join(source, '.git/objects'), path.join(other, '.git/objects'));
+    const before = await git(source, 'rev-parse', 'HEAD');
+    await writeFile(path.join(other, 'shared.txt'), 'shared metadata\n'); await git(other, 'add', '.'); await git(other, 'commit', '-qm', 'shared metadata fixture');
+    expect(await git(source, 'rev-parse', 'HEAD')).not.toBe(before);
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', root);
+    const runId = randomUUID(), sessionId = randomUUID();
+    runRegistry.reserve({ runId, sessionId, participantId: 'agent', providerKey: runId, checkoutId: 'other', checkoutPath: other, access: 'write', cancel() {} });
+    try {
+      const response = await create(request());
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ worktreeConflict: { kind: 'turn', blockingTurns: [{ sessionId }] } });
+      expect(await readWorktreeRecords(getConfig().dataDir)).toEqual([]);
+    } finally { runRegistry.release(runId); }
+  });
+
+  it('reserves creation before fresh membership planning and catches a sibling turn arriving during planning', async () => {
+    await getCheckoutRegistry(source).list(); // An earlier advisory catalog must not freeze membership.
+    const sibling = await createManagedWorktree(request(), getConfig());
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    let release!: () => void, entered!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const planning = new Promise<void>((resolve) => { entered = resolve; });
+    const host = store.host.bind(store);
+    vi.spyOn(store, 'host').mockImplementationOnce(async () => { entered(); await barrier; return host(); });
+    const pending = createManagedWorktree(request(), getConfig()).catch((error: unknown) => error);
+    const runId = randomUUID();
+    try {
+      await planning;
+      const competing = await create(request());
+      expect(competing.status).toBe(409);
+      expect(await competing.json()).toMatchObject({ worktreeConflict: { kind: 'creation' } });
+      expect(runRegistry.reserve({ runId, sessionId: sibling.id, participantId: 'agent', providerKey: runId,
+        checkoutId: record.checkoutId, checkoutPath: record.destination, access: 'write', cancel() {} }).accepted).toBe(true);
+      release();
+      expect(await pending).toMatchObject({ worktreeConflict: { kind: 'turn', blockingTurns: [{ sessionId: sibling.id }] } });
+      expect(await readWorktreeRecords(getConfig().dataDir)).toHaveLength(1);
+    } finally { release(); await pending; runRegistry.release(runId); }
+  });
+
+  it('rejects a changed project binding inside prepared-session persistence before recording an intent', async () => {
+    const project = await store.createProject('Project', [checkoutId]);
+    const prepare = store.prepareWorktreeSession.bind(store);
+    vi.spyOn(store, 'prepareWorktreeSession').mockImplementationOnce(async (...args) => {
+      await store.updateProject(project.id, { expectedRevision: project.revision, repositories: [] });
+      return prepare(...args);
+    });
+    await expect(createManagedWorktree(request({ checkoutId: undefined, projectId: project.id }), getConfig())).rejects.toThrow(/project changed/);
+    expect(await readWorktreeRecords(getConfig().dataDir)).toEqual([]);
+    expect(await store.listSessions()).toEqual([]);
+    expect(await git(source, 'branch', '--list', 'codeai/*')).toBe('');
+    expect(runRegistry.acquireMaintenance()).toBe('acquired'); runRegistry.releaseMaintenance();
   });
 
   it.each(['before-git', 'complete-git', 'partial-git', 'external-ignore'] as const)('reconciles the %s restart boundary conservatively', async (boundary) => {
@@ -274,6 +390,8 @@ describe('managed session worktrees with real Git', () => {
   });
 
   it('retains the common Git lease after reconciliation cannot confirm helper termination', async () => {
+    const unrelated = path.join(root, 'unrelated'); await mkdir(unrelated); await git(unrelated, 'init', '-q');
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', root);
     const input = request(); const originalWrite = sessionStorage.atomicWrite;
     const save = vi.spyOn(sessionStorage, 'atomicWrite').mockImplementation(async (...args) => {
       await originalWrite(...args);
@@ -294,7 +412,12 @@ describe('managed session worktrees with real Git', () => {
     });
     try {
       await reconcileWorktrees(getConfig());
-      expect((await readWorktreeRecords(getConfig().dataDir))[0].state).toBe('unavailable');
+      expect((await readWorktreeRecords(getConfig().dataDir))[0].state).toBe('creating');
+      expect(runRegistry.acquireCheckoutRead(record.destination)).toBeUndefined();
+      expect(runRegistry.acquireMaintenance()).toBe('live-runs');
+      expect(runRegistry.acquireWorktreeCreation()).toMatchObject({ acquired: false, conflict: { kind: 'creation' } });
+      const unrelatedUndo = runRegistry.acquireCheckoutWrite(path.join(root, 'unrelated'))!;
+      expect(unrelatedUndo).toBeTypeOf('function'); unrelatedUndo();
       const writer = runRegistry.acquireCheckoutWrite(source);
       try { expect(writer).toBeUndefined(); } finally { writer?.(); }
     } finally { confirm(); }
@@ -319,9 +442,33 @@ describe('managed session worktrees with real Git', () => {
     } finally { runRegistry.release(runId); save.mockRestore(); }
   });
 
+  it('reconciles an unrelated unfinished intent while another source is busy', async () => {
+    const other = path.join(root, 'other'); await mkdir(other); await git(other, 'init', '-q');
+    await git(other, 'config', 'user.name', 'Worktree fixture'); await git(other, 'config', 'user.email', 'test@example.invalid');
+    await writeFile(path.join(other, 'file.txt'), 'other baseline'); await git(other, 'add', '.'); await git(other, 'commit', '-qm', 'other fixture');
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', root);
+    const otherId = (await getCheckoutRegistry(root).refresh()).find((checkout) => checkout.realPath === other)!.id;
+    const save = vi.spyOn(store, 'savePreparedWorktreeSession').mockRejectedValue(Object.assign(new Error('disk full'), { code: 'ENOSPC' }));
+    await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/retained/);
+    await expect(createManagedWorktree(request({ checkoutId: otherId }), getConfig())).rejects.toThrow(/retained/);
+    save.mockRestore();
+    const runId = randomUUID();
+    runRegistry.reserve({ runId, sessionId: randomUUID(), participantId: 'agent', providerKey: runId, checkoutId, checkoutPath: source, access: 'write', cancel() {} });
+    try {
+      await reconcileWorktrees(getConfig());
+      const records = await readWorktreeRecords(getConfig().dataDir);
+      expect(records.find((record) => record.originPath === source)!.state).toBe('materialized');
+      const recovered = records.find((record) => record.originPath === other)!;
+      expect(recovered.state).toBe('ready');
+      expect((await store.getSession(recovered.session.id)).repositories[0].checkoutId).toBe(recovered.checkoutId);
+    } finally { runRegistry.release(runId); }
+    await reconcileWorktrees(getConfig());
+    expect((await readWorktreeRecords(getConfig().dataDir)).every((record) => record.state === 'ready')).toBe(true);
+  });
+
   it('keeps complete checkout catalogs when concurrent refreshes interleave managed validation', async () => {
     const checkoutIds: string[] = [checkoutId];
-    // Creation uses one maintenance lease, so only catalog reads are concurrent here.
+    // Creation uses one journal-mutation gate, so only catalog reads are concurrent here.
     for (let count = 0; count < 3; count++) checkoutIds.push((await createManagedWorktree(request(), getConfig())).repositories[0].checkoutId);
     const registry = getCheckoutRegistry(source);
     const original = managedWorktrees.resolveManagedWorktree;

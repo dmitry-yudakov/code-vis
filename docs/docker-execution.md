@@ -261,9 +261,13 @@ checkouts.
 The helper binds the selected root and, for a verified CodeAI-managed worktree only, its recorded
 common Git directory read-only. Local managed worktrees remain available after provisioning and
 with Docker execution disabled. Metadata read leases exclude ordinary-source writers through
-confirmed helper/worker termination; linked Docker workers can coexist. Every bind is rechecked
-before start, including the device/inode identities of writable Git directories. Unregistered linked
-worktrees remain unsupported. Run `npm run test:docker:worktrees` for a disposable, offline Git/mount
+confirmed helper/worker termination; linked Docker workers can coexist. Worktree creation and
+reconciliation own the source/common-Git family and destination through persistence and confirmed
+helper cleanup, excluding restart and overlapping work while proved unrelated checkouts keep running.
+Ordinary Local linked/redirected checkouts whose metadata cannot be proved separate are conservative
+blockers; they never grant Docker mounts. Every bind is rechecked before start, including the
+device/inode identities of writable Git directories. Docker execution on unregistered linked
+worktrees remains unsupported. Run `npm run test:docker:worktrees` for a disposable, offline Git/mount
 probe against the installed worker image; it needs no provider login.
 
 ### Your global instructions and customizations

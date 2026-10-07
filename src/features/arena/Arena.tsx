@@ -81,6 +81,7 @@ export function Arena({
   preferredMode,
   preferredInstructions,
   onCreateSession,
+  creationError,
   onArchiveSession,
   onRestoreSession,
   onDecidePermission,
@@ -90,6 +91,7 @@ export function Arena({
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
+  creationError?: string;
   onRefresh(): Promise<void>;
   onOpenSession(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): void;
   executionHealth?: ExecutionHealth;
@@ -338,7 +340,7 @@ export function Arena({
             </label>
           )}
           <CheckoutChoice value={checkoutMode} choice={checkoutChoice} disabled={creating} onChange={setCheckoutMode} />
-          {creationFailed && <p role="alert">Could not create the session. Retry keeps the same worktree creation request.</p>}
+          {creationFailed && <p role="alert">{creationError || 'Could not create the session.'} Retry keeps the same worktree creation request.</p>}
           {execution === 'docker' && !availableProviders.length && <p role="status">{selectedHealth?.claude.message}</p>}
           {invalidDockerBinding && <p role="status">Docker requires exactly one primary repository on this machine. Select a repository or a project with that binding.</p>}
           <label>

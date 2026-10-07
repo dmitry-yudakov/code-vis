@@ -2319,7 +2319,9 @@ test('VR worktree launcher names its source, preserves retry identity, and targe
   await page.route(`**/api/machines/${REMOTE}/sessions`, (route) => {
     if (route.request().method() !== 'POST') return route.continue();
     payloads.push(route.request().postDataJSON());
-    return payloads.length === 1 ? route.fulfill({ status: 503, json: { error: 'Transient save failure' } })
+    return payloads.length === 1 ? route.fulfill({ status: 409, json: { error: 'Executor busy', worktreeConflict: {
+      machineId: REMOTE, sourceCheckoutId: source.id, kind: 'turn', blockingTurns: [{ sessionId: fixture.remote.id, state: 'needs-you' }],
+    } } })
       : route.fulfill({ status: 201, json: { session: created } });
   });
   await page.route(`**/api/machines/${REMOTE}/checkouts`, (route) => route.fulfill({ json: { hostId: REMOTE, checkouts: [source,
@@ -2335,6 +2337,9 @@ test('VR worktree launcher names its source, preserves retry identity, and targe
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('uncommitted changes and local setup stay in the current checkout');
   await sessionAction(page, 'create');
   await expect.poll(() => payloads.length).toBe(1);
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Worktree creation on Laptop is blocked');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('waiting for you');
+  await expect.poll(async () => (await sessionToolsState(page))?.text).toContain(fixture.remote.title);
   await sessionAction(page, 'create');
   await expect.poll(() => payloads.length).toBe(2);
   expect(payloads[1]).toEqual(payloads[0]); expect(payloads[0]).toMatchObject({ checkoutMode: 'worktree', checkoutId: 'remote-source', provider: 'claude' });

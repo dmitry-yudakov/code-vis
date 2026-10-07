@@ -130,7 +130,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
     `Source: ${choice.source?.name || 'No repository'}${choice.source?.worktreeCreation?.branch ? ` · ${choice.source.worktreeCreation.branch}` : ''}`,
     checkoutMode === 'worktree' ? WORKTREE_BASELINE : choice.source?.worktree ? 'This new conversation shares the selected worktree.' : '',
     choice.reason || '',
-    creationFailed ? 'Creation failed. Create session retries the same request; changing choices starts a new request.' : '',
+    creationFailed ? `${controls.creationError || 'Creation failed.'} Create session retries the same request; changing choices starts a new request.` : '',
     `Repositories: ${project?.repositories.map((binding) => `${machine?.checkouts.find((item) => item.id === binding.checkoutId)?.name || binding.checkoutId} (${binding.role})`).join(', ') || 'None; attach a primary repository before sending.'}`,
     controls.creating ? 'Creating session…' : controls.status,
   ].join('\n\n') : tab === 'permissions' ? selected ? [

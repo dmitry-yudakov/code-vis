@@ -4,6 +4,7 @@ import type {
   AgentEvent, AgentMode, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
 } from '@/shared/types';
 import { changesCheckout } from '@/shared/agentModes';
+import type { WorktreeCreationConflict } from '@/shared/worktreeCreation';
 import type { PermissionBroker } from './permissionBroker';
 
 export type PermissionDecisionOutcome = 'accepted' | 'unknown-run' | 'unknown-request';
@@ -70,6 +71,14 @@ export type RunReservation =
   | { accepted: false; reason: 'session-conflict' | 'provider-conflict'; activeRun: RunDescriptor };
 
 export type MaintenanceAdmission = 'acquired' | 'held' | 'live-runs';
+export type WorktreeAdmissionConflict = Omit<WorktreeCreationConflict, 'machineId' | 'sourceCheckoutId'>;
+type ScopeAdmission = { acquired: true } | { acquired: false; conflict: WorktreeAdmissionConflict };
+interface CheckoutScopeProof { root: string; registered: string[]; independent?: string[] }
+export interface WorktreeCreationLease {
+  token: symbol;
+  acquireScopes(paths: string[], proof?: CheckoutScopeProof): ScopeAdmission;
+  release(): void;
+}
 
 /** What CodeAI's own build-and-restart needs from the scheduler (Story 64). */
 export interface MaintenanceLease {
@@ -104,6 +113,7 @@ export class RunRegistry implements MaintenanceLease {
   private readonly checkoutReaders = new Map<symbol, string>();
   private readonly checkoutWriters = new Map<symbol, string>();
   private maintenance = false;
+  private creation?: { token: symbol; paths: string[]; proof?: CheckoutScopeProof };
   private readonly archivingSessions = new Set<string>();
   private readonly liveByRunId = new Map<string, RunRecord>();
   private readonly recentByRunId = new Map<string, RunRecord>();
@@ -120,6 +130,7 @@ export class RunRegistry implements MaintenanceLease {
    * can still observe that checkout while it runs. New overlapping writers wait for this read.
    */
   acquireCheckoutRead(checkoutPath: string, writeLease?: symbol): (() => void) | undefined {
+    if (this.creation && this.creation.token !== writeLease && this.creationContains(checkoutPath)) return undefined;
     if ([...this.checkoutWriters.entries()].some(([token, writer]) => token !== writeLease && pathsOverlap(writer, checkoutPath))) return undefined;
     if ([...this.liveByRunId.values()].some((run) => run.access === 'write'
       && (run.state === 'running' || run.state === 'needs-you') && run.checkoutPath
@@ -133,6 +144,7 @@ export class RunRegistry implements MaintenanceLease {
    * reserved work blocks it: a user's Undo must not reorder already accepted work. */
   acquireCheckoutWrite(checkoutPath: string): ((() => void) & { token: symbol }) | undefined {
     if (this.maintenance
+      || this.creationContains(checkoutPath)
       || [...this.checkoutReaders.values(), ...this.checkoutWriters.values()].some((held) => pathsOverlap(held, checkoutPath))
       || [...this.liveByRunId.values()].some((run) => run.checkoutPath
         ? pathsOverlap(run.checkoutPath, checkoutPath) : run.access === 'write')) return undefined;
@@ -189,13 +201,42 @@ export class RunRegistry implements MaintenanceLease {
    */
   acquireMaintenance(): MaintenanceAdmission {
     if (this.maintenance) return 'held';
-    if (this.liveByRunId.size || this.archivingSessions.size || this.checkoutWriters.size || this.checkoutReaders.size) return 'live-runs';
+    if (this.creation || this.liveByRunId.size || this.archivingSessions.size || this.checkoutWriters.size || this.checkoutReaders.size) return 'live-runs';
     this.maintenance = true;
     return 'acquired';
   }
 
   releaseMaintenance(): void {
     this.maintenance = false;
+  }
+
+  /** Reserve journal mutation before reading dependencies, then grant all affected scopes atomically.
+   * The reservation excludes restart/other creation, but unrelated turns and recovery keep running. */
+  acquireWorktreeCreation(): { acquired: true; lease: WorktreeCreationLease } | { acquired: false; conflict: WorktreeAdmissionConflict } {
+    if (this.maintenance) return { acquired: false, conflict: { kind: 'maintenance' } };
+    if (this.creation) return { acquired: false, conflict: { kind: 'creation' } };
+    const creation: NonNullable<RunRegistry['creation']> = { token: Symbol(), paths: [] };
+    this.creation = creation;
+    return { acquired: true, lease: {
+      token: creation.token,
+      acquireScopes: (paths, proof) => {
+        if (this.creation !== creation || creation.paths.length || !paths.length) throw new Error('Invalid worktree scope grant');
+        const overlaps = (held: string) => paths.some((target) => pathsOverlap(held, target));
+        const conflicts = (held: string) => overlaps(held) || unknownCheckoutPath(proof, held);
+        const runs = [...this.liveByRunId.values()].filter((run) => !run.checkoutPath || conflicts(run.checkoutPath));
+        if (runs.length) return { acquired: false, conflict: { kind: 'turn', blockingTurns: runs.slice(0, 8).map((run) => ({
+          sessionId: run.sessionId, ...(run.activated ? { runId: run.runId } : {}),
+          state: run.activated ? run.state as 'queued' | 'running' | 'needs-you' : 'preparing',
+        })), ...(runs.length > 8 ? { additionalTurns: runs.length - 8 } : {}) } };
+        if ([...this.checkoutWriters.values()].some(conflicts)) return { acquired: false, conflict: { kind: 'recovery' } };
+        if ([...this.checkoutReaders.values()].some(conflicts)) return { acquired: false, conflict: { kind: 'git-read' } };
+        creation.paths = [...new Set(paths)];
+        if (proof) creation.proof = { root: proof.root, registered: [...proof.registered],
+          ...(proof.independent ? { independent: [...proof.independent] } : {}) };
+        return { acquired: true };
+      },
+      release: () => { if (this.creation === creation) { this.creation = undefined; this.schedule(); } },
+    } };
   }
 
   /** Claims only this session until its durable archive move finishes. Admission and acquisition
@@ -482,6 +523,7 @@ export class RunRegistry implements MaintenanceLease {
   }
 
   private eligible(candidate: RunRecord): boolean {
+    if (this.creationContains(candidate.checkoutPath)) return false;
     if (candidate.checkoutPath
       && [...this.checkoutWriters.values()].some((writer) => pathsOverlap(writer, candidate.checkoutPath!))) return false;
     if (candidate.access === 'write' && candidate.checkoutPath
@@ -503,6 +545,12 @@ export class RunRegistry implements MaintenanceLease {
         && earlier.access === 'write'
         && !earlier.cancelBlocked;
     });
+  }
+
+  private creationContains(checkoutPath?: string): boolean {
+    const held = this.creation;
+    return Boolean(held?.paths.length && (!checkoutPath || held.paths.some((scope) => pathsOverlap(scope, checkoutPath))
+      || unknownCheckoutPath(held.proof, checkoutPath)));
   }
 
   private schedule(): void {
@@ -586,6 +634,17 @@ function pathContains(root: string, candidate: string): boolean {
 
 function pathsOverlap(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left);
+}
+
+function unknownCheckoutPath(proof: CheckoutScopeProof | undefined, target: string): boolean {
+  if (!proof) return false;
+  if (proof.registered.some((root) => pathContains(root, target))) return false;
+  if (proof.independent) {
+    // An unseen nested checkout could be a linked worktree of the affected source. Only the
+    // proved ordinary root and its own Git metadata inherit this disjointness proof.
+    return !proof.independent.some((root) => target === root || pathContains(path.join(root, '.git'), target));
+  }
+  return pathContains(proof.root, target);
 }
 
 /**

@@ -2,6 +2,8 @@
 
 Follow-up: [Story 95](STORY-20261007-docker-worktrees.md) replaces this release's Docker provisioning
 and managed Docker-worktree restrictions with verified, bounded Git metadata mounts.
+Follow-up: [Story 98](STORY-20261007-worktree-creation-admission.md) replaces machine-wide idle
+admission with exclusive affected repository/Git scopes and actionable retained-retry conflicts.
 
 **Status:** Shipped · **Type:** Full-stack · **Depends on:**
 [Story 37](STORY-20260901-concurrent-turns.md) (checkout scheduling),

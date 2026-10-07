@@ -75,4 +75,13 @@ describe('machine API gateway', () => {
     expect(offline.status).toBe(502); expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([url]) => (url as URL).origin === 'https://laptop.test:3023')).toBe(true);
   });
+
+  it('preserves a worktree admission conflict from the addressed executor', async () => {
+    const body = { error: 'Executor busy', worktreeConflict: { machineId: REMOTE_ID, kind: 'maintenance' } };
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(body), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+    const response = await proxyMachineRequest(REMOTE_ID, ['sessions'], new Request('https://home.test/api/sessions', { method: 'POST', body: '{}' }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(body);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });

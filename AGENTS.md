@@ -171,6 +171,11 @@ Updated 2026-10-07. When a story ships, change the line that names it; each stor
   older threads without returning their history, keeping event bounds, thread identity and accurate
   delivery across mode changes. The installed CLI probe, automated checks and independent review
   passed; the running application has not been restarted.
+- **Shipped:** [Story 98](stories/STORY-20261007-worktree-creation-admission.md) — worktree creation
+  owns affected repository/Git scopes while proved unrelated checkouts remain usable; desktop,
+  Arena and VR name blockers and retain explicit Retry. All 1,201 offline tests, TypeScript, build,
+  six browser checks, real Docker checks and repeated independent review passed. Physical Quest,
+  production attached transport and observation in the rebuilt app remain unverified.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

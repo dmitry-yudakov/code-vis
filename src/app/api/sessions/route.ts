@@ -8,7 +8,8 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { validateDockerCheckout } from '@/server/execution/dockerProfile';
 import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
-import { createManagedWorktree } from '@/server/repository/managedWorktrees';
+import { createManagedWorktree, WorktreeCreationBusyError } from '@/server/repository/managedWorktrees';
+import { worktreeCreationConflictSchema } from '@/shared/worktreeCreation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,6 +70,9 @@ export async function POST(request: Request): Promise<Response> {
     });
     return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
+    if (error instanceof WorktreeCreationBusyError) {
+      return safeJsonResponse({ error: error.message, worktreeConflict: worktreeCreationConflictSchema.parse(error.worktreeConflict) }, { status: 409 });
+    }
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
 }

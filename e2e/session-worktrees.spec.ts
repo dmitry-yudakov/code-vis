@@ -38,6 +38,10 @@ test.afterAll(async () => {
 });
 
 test('execution and managed checkout choices remain independent in the desktop launcher', async ({ page }) => {
+  const catalog = await (await page.request.get(`${origin}/api/checkouts`)).json() as CheckoutsResponse;
+  const { session: blocker } = await (await page.request.post(`${origin}/api/sessions`, {
+    data: { provider: 'claude', checkoutId: catalog.checkouts.find((checkout) => !checkout.worktree)!.id },
+  })).json() as { session: PublicSession };
   await page.route('**/api/health', async (route) => {
     const response = await route.fetch(); const health = await response.json();
     health.executions.docker = { enabled: true, providers: health.executions.local.providers };
@@ -62,12 +66,18 @@ test('execution and managed checkout choices remain independent in the desktop l
     await expect(form.getByRole('button', { name: 'Start session', exact: true })).toBeEnabled();
   }
   const payloads: Array<Record<string, unknown>> = [];
+  const snapshot = await (await page.request.get(`${origin}/api/arena`)).json();
+  const machine = snapshot.machines[0];
   await page.route('**/api/sessions', async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
     payloads.push(route.request().postDataJSON());
-    await route.fulfill({ status: 409, json: { error: 'fixture retry' } });
+    await route.fulfill({ status: 409, json: { error: 'fixture retry', worktreeConflict: {
+      machineId: machine.machine.id, kind: 'turn', blockingTurns: [{ sessionId: blocker.id, state: 'needs-you' }],
+    } } });
   });
   await form.getByRole('button', { name: 'Start session', exact: true }).click();
+  await expect(form.getByRole('alert')).toContainText(blocker.title);
+  await expect(form.getByRole('alert')).toContainText('waiting for you');
   await form.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect.poll(() => payloads.length).toBe(2);
   expect(payloads[0]).toMatchObject({ execution: 'docker', checkoutMode: 'worktree', creationRequestId: expect.any(String) });
@@ -162,10 +172,24 @@ test('Arena creates an independent worktree and labels its source and live branc
   await expect(creation.getByRole('combobox', { name: 'Session checkout' })).toHaveValue('current');
   await creation.getByRole('combobox', { name: 'Session checkout' }).selectOption('worktree');
   await expect(creation).toContainText('uncommitted changes and local setup stay in the current checkout');
-  const response = page.waitForResponse((result) => result.url().endsWith('/api/sessions') && result.request().method() === 'POST');
+  const payloads: Array<Record<string, unknown>> = [];
+  await page.route('**/api/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    payloads.push(route.request().postDataJSON());
+    if (payloads.length > 1) return route.continue();
+    const snapshot = await (await page.request.get(`${origin}/api/arena`)).json();
+    await route.fulfill({ status: 409, json: { error: 'fixture busy', worktreeConflict: {
+      machineId: snapshot.machines[0].machine.id, kind: 'recovery',
+    } } });
+  });
   await creation.getByRole('button', { name: 'Create and open', exact: true }).click();
+  await expect(creation.getByRole('alert')).toContainText('Undo is using this repository');
+  await expect(creation.getByRole('combobox', { name: 'Session checkout' })).toHaveValue('worktree');
+  const response = page.waitForResponse((result) => result.url().endsWith('/api/sessions') && result.request().method() === 'POST');
+  await creation.getByRole('button', { name: 'Retry', exact: true }).click();
   const { session } = await (await response).json() as { session: PublicSession };
   expect(session.worktree).toBeDefined();
+  expect(payloads[1]).toEqual(payloads[0]);
   await expect(page.getByRole('complementary', { name: 'Conversation' })).toContainText(session.worktree!.branch);
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   await expect(arena.getByRole('button', { name: `Open ${session.title}`, exact: true })).toContainText(`Worktree · ${session.worktree!.branch} · Source: source`);

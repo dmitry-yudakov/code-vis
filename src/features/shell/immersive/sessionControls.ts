@@ -86,6 +86,7 @@ export interface ImmersiveSessionControls {
   /** The open session's project; New session opens in it, and so with its repositories. */
   projectId?: string;
   creating: boolean;
+  creationError?: string;
   status: string;
   permissions: PermissionTarget[];
   results: Record<string, PermissionResult>;

@@ -10,8 +10,15 @@ React Flow client, and VS Code extension are archived and documented separately 
 
 Story 92 adds session-owned Local worktrees in `src/server/repository/managedWorktrees.ts`.
 The strict creation request names a checkout mode and UUID, never a path or Git arguments.
-An executing-machine maintenance lease covers bounded offline preflight, an immutable durable intent,
-Git creation/materialization, session save, and journal reconciliation. `<dataDir>/worktrees/` holds
+Story 98 reserves one executing-machine creation/reconciliation operation, excluding competing
+creation and maintenance, then grants exclusive source/common-Git and destination scopes against
+live turns, Git reads and Undo. Fresh journal membership includes managed siblings; bounded
+contained-metadata validation proves ordinary checkouts independent. Unregistered linked or
+redirected metadata and unseen checkout scopes are conservatively excluded without trusting their
+Git pointers. Unrelated proved checkouts remain usable. Ownership covers bounded offline preflight,
+an immutable durable intent, Git creation/materialization, session save, and confirmed helper cleanup.
+Busy HTTP 409 responses identify the executing machine and bounded blocker sessions; desktop,
+Arena and VR retain choices and request identity for explicit Retry. `<dataDir>/worktrees/` holds
 the private allowlist and recovery facts; `CODEAI_WORKTREES_ROOT/<worktreeId>` holds committed files.
 Source files/index remain untouched. Failed saves retain the intent and created branch/worktree;
 matching retries or startup checkout admission finish that session, while ambiguous partial states
