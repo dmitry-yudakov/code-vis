@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,14 @@ import { getConfig } from '@/server/config';
 import { DockerRuntime, saveDockerProvision } from '@/server/execution/dockerRuntime';
 import { DOCKER_HOME, DOCKER_LABEL, DOCKER_PROFILE, participantVolume, providerVolume } from '@/server/execution/dockerProfile';
 import { userOwnedParent } from './userOwned';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createManagedWorktree, readWorktreeRecords } from '@/server/repository/managedWorktrees';
+import { CheckoutRegistry } from '@/server/repository/checkoutRegistry';
+import { getSessionStore } from '@/server/storage/sessionStore';
+import { runRegistry } from '@/server/runs/runRegistry';
+
+const execute = promisify(execFile);
 
 const mocks = vi.hoisted(() => ({ command: vi.fn(), removeDetached: vi.fn() }));
 vi.mock('@/server/execution/dockerCommand', () => ({
@@ -210,6 +218,91 @@ function mounts(args: string[]) {
 }
 
 describe('Docker checkout mounts', () => {
+  async function managedFixture() {
+    const fixture = await workerFixture();
+    const { runtime, checkout } = fixture;
+    const worktreesRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'codeai-managed-mounts-')));
+    directories.push(worktreesRoot);
+    vi.stubEnv('CODEAI_DATA_DIR', runtime.config.dataDir);
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', checkout);
+    vi.stubEnv('CODEAI_WORKTREES_ROOT', worktreesRoot);
+    Object.assign(runtime.config, { repositoriesRoot: checkout, worktreesRoot });
+    await execute('git', ['init', '-q'], { cwd: checkout });
+    await writeFile(path.join(checkout, 'file.txt'), 'baseline');
+    await execute('git', ['add', '.'], { cwd: checkout });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'], { cwd: checkout });
+    const checkoutId = (await new CheckoutRegistry(checkout).list())[0].id;
+    const profileFile = path.join(runtime.config.dataDir, 'docker', 'profile.json');
+    const profile = await readFile(profileFile);
+    await rm(profileFile);
+    try {
+      await createManagedWorktree({ provider: 'codex', checkoutId, checkoutMode: 'worktree', creationRequestId: crypto.randomUUID() }, runtime.config);
+      const [record] = await readWorktreeRecords(runtime.config.dataDir);
+      return { ...fixture, record };
+    } finally { await writeFile(profileFile, profile); await getSessionStore(runtime.config.dataDir).close(); }
+  }
+
+  it.each(['ask', 'plan', 'agent'] as const)('binds verified managed Git metadata with %s permissions on existing images', async (mode) => {
+    const { runtime, identity, record, context, containers, command } = await managedFixture();
+    const worker = await runtime.createWorker(identity, { checkout: record.destination, context, mode });
+    const binds = mounts(containers.get(worker.worker)!).filter((mount) => mount.startsWith('type=bind'));
+    const common = record.originGit.path;
+    expect(binds).toEqual([
+      `type=bind,src=${record.destination},dst=/workspace${mode === 'agent' ? '' : ',readonly'}`,
+      `type=bind,src=${common},dst=${common},readonly`,
+      ...(mode === 'agent' ? [record.gitDirectory!.path, ...['objects', 'refs', 'logs'].map((name) => path.join(common, name))]
+        .map((directory) => `type=bind,src=${directory},dst=${directory}`) : []),
+      `type=bind,src=${context},dst=/context,readonly`,
+    ]);
+    expect(command.mock.calls.some(([args]) => args.includes(`${DOCKER_LABEL}.kind=prepare`))).toBe(false);
+    expect(binds.join('\n')).not.toContain(`src=${record.originPath},`);
+    await worker.stop(); expect(containers.size).toBe(0);
+  });
+
+  it('refuses changed managed linkage before start and cleans every allocated resource', async () => {
+    const { runtime, identity, record, command, containers, networks } = await managedFixture();
+    const original = command.getMockImplementation()!;
+    let worker: string | undefined;
+    command.mockImplementation(async (args: string[]) => {
+      const result = await original(args);
+      if (args[0] === 'create' && args.includes(`${DOCKER_LABEL}.kind=worker`)) {
+        worker = result;
+        await writeFile(path.join(record.destination, '.git'), 'gitdir: /outside/.git\n');
+      }
+      return result;
+    });
+    await expect(runtime.createWorker(identity, { checkout: record.destination, mode: 'agent' })).rejects.toThrow(/linkage/);
+    expect(worker).toBeDefined(); expect(command).not.toHaveBeenCalledWith(['start', worker]);
+    expect(containers.size).toBe(0); expect(networks.size).toBe(0);
+  });
+
+  it('refuses a replaced common objects directory even when its bind path stays the same', async () => {
+    const { runtime, identity, record, command, containers, networks } = await managedFixture();
+    const original = command.getMockImplementation()!;
+    command.mockImplementation(async (args: string[]) => {
+      const result = await original(args);
+      if (args[0] === 'create' && args.includes(`${DOCKER_LABEL}.kind=worker`)) {
+        const objects = path.join(record.originGit.path, 'objects');
+        await rename(objects, `${objects}-old`); await mkdir(objects);
+      }
+      return result;
+    });
+    await expect(runtime.createWorker(identity, { checkout: record.destination, mode: 'agent' })).rejects.toThrow(/mounts changed/);
+    expect(containers.size).toBe(0); expect(networks.size).toBe(0);
+  });
+
+  it('holds the source metadata lease through worker lifetime and releases it only after termination', async () => {
+    const { runtime, identity, record } = await managedFixture();
+    const worker = await runtime.createWorker(identity, { checkout: record.destination, mode: 'agent' });
+    expect(runRegistry.acquireCheckoutWrite(record.originPath)).toBeUndefined();
+    await worker.stop();
+    const release = runRegistry.acquireCheckoutWrite(record.originPath);
+    expect(release).toBeDefined(); release!();
+    const sourceWriter = runRegistry.acquireCheckoutWrite(record.originPath)!;
+    try { await expect(runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { checkout: record.destination, mode: 'agent' })).rejects.toThrow(/source checkout is being edited/); }
+    finally { sourceWriter(); }
+  });
+
   it.each(['ask', 'plan', 'agent'] as const)('uses one %s checkout bind and only a persistent provider home', async (mode) => {
     const { runtime, identity, home, checkout, context, command, containers, networks } = await workerFixture();
     const worker = await runtime.createWorker(identity, { checkout, context, mode });

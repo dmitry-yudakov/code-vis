@@ -157,6 +157,11 @@ Updated 2026-10-06. When a story ships, change the line that names it; each stor
 - **Shipped:** [Story 94](stories/STORY-20261006-isolate-codex-sandbox-probe.md) — Codex sandbox
   readiness runs in a private disposable directory, keeping its metadata placeholders away from
   the repositories root; 56 focused checks, TypeScript, installed-Codex readiness and review passed.
+- **Shipped:** [Story 95](stories/STORY-20261007-docker-worktrees.md) — Local managed worktrees
+  remain available after Docker provisioning, and Docker can use verified managed worktrees with
+  bounded Git metadata mounts. All 1,167 offline tests, TypeScript, production build, five browser
+  checks, real Docker Git/mount checks and independent review passed. Signed-in provider turns,
+  production attached-executor transport and physical Quest use were not rerun.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
@@ -268,7 +273,13 @@ importing file's own directory; keep `./…` for same-directory siblings.
   Auto is refused while the data directory is inside the checkout or a temp directory.
   Optional Docker execution (Story 57, release verification pending) uses a pinned non-root worker:
   Docker Agent edits the mounted checkout autonomously; Ask/Plan mount it read-only. There is no
-  separate working copy. Writing turns save bounded eligible-file checkpoints on the executing host,
+  separate working copy. A CodeAI-managed worktree additionally binds its recorded common Git
+  directory read-only; Agent overlays writable objects/refs/logs and only that worktree's metadata.
+  Its source checkout is absent and source index/HEAD/configuration stay read-only. Shared branch
+  refs/objects remain shared Git state and are outside Undo. Only verified durable journal records
+  grant these mounts; arbitrary linked worktrees remain unsupported. Ordinary-source writers are
+  excluded while a linked worker/helper holds the common metadata lease. Writing turns save
+  bounded eligible-file checkpoints on the executing host,
   outside worker mounts; explicit Undo refuses newer changes and changed Git HEAD/index. New Docker participants share a persistent provider home per
   installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host
   storage; see [the Docker execution contract](docs/docker-execution.md). The one exception

@@ -13,6 +13,7 @@ import { resolveSelfProject } from '@/server/repository/selfProject';
 import { getSessionStore, publicSession, type SessionStore } from '@/server/storage/sessionStore';
 import * as sessionStorage from '@/server/storage/sessionStore';
 import * as managedWorktrees from '@/server/repository/managedWorktrees';
+import * as gitReader from '@/server/repository/gitRead';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { TurnCheckpoints } from '@/server/repository/turnCheckpoints';
 import { RepositoryModelStore } from '@/server/model/repositoryModelStore';
@@ -20,7 +21,9 @@ import { createSessionRequestSchema } from '@/shared/protocol';
 import { durableSessionSchema, publicSessionSchema } from '@/shared/sessionSchema';
 import { POST } from '@/app/api/sessions/route';
 import { PUT as PUT_REPOSITORIES } from '@/app/api/sessions/[sessionId]/repositories/route';
-import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
+import { DockerRuntime, DockerTerminationError } from '@/server/execution/dockerRuntime';
+import { validateDockerCheckout } from '@/server/execution/dockerProfile';
+import { worktreeChoice } from '@/features/conversation/worktreeChoice';
 
 const execute = promisify(execFile);
 let root: string; let source: string; let store: SessionStore; let checkoutId: string;
@@ -37,6 +40,8 @@ beforeEach(async () => {
   vi.stubEnv('CODEAI_REPOSITORIES_ROOT', source);
   vi.stubEnv('CODEAI_DATA_DIR', path.join(root, 'data'));
   vi.stubEnv('CODEAI_WORKTREES_ROOT', path.join(root, 'worktrees'));
+  vi.stubEnv('CODEAI_REMOTE_ACCESS', 'local');
+  vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false');
   await git(source, 'init', '-q');
   await git(source, 'config', 'user.name', 'Worktree fixture'); await git(source, 'config', 'user.email', 'test@example.invalid');
   await writeFile(path.join(source, 'file.txt'), 'committed\n');
@@ -204,6 +209,37 @@ describe('managed session worktrees with real Git', () => {
     expect(await git(source, 'branch', '--list', 'codeai/*')).toBe(''); expect(await store.listSessions()).toEqual([]);
   });
 
+  it('retains the common Git lease after reconciliation cannot confirm helper termination', async () => {
+    const input = request(); const originalWrite = sessionStorage.atomicWrite;
+    const save = vi.spyOn(sessionStorage, 'atomicWrite').mockImplementation(async (...args) => {
+      await originalWrite(...args);
+      if (args[0].endsWith(`${input.creationRequestId}.json`) && (args[1] as { state: string }).state === 'creating') {
+        throw Object.assign(new Error('fixture interruption before Git'), { code: 'EIO' });
+      }
+    });
+    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/retained/); save.mockRestore();
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    await git(source, 'worktree', 'add', '--no-checkout', '-b', record.session.worktree!.branch, record.destination, record.session.worktree!.baseCommit);
+    await git(record.destination, 'read-tree', '--reset', '-u', record.session.worktree!.baseCommit);
+    await mkdir(path.join(getConfig().dataDir, 'docker')); await writeFile(path.join(getConfig().dataDir, 'docker/profile.json'), '{}');
+    let confirm!: () => void;
+    const stopped = new Promise<void>((resolve) => { confirm = resolve; });
+    vi.spyOn(gitReader, 'isolatedGitRead').mockImplementation(async (cwd, args) => {
+      if (cwd === record.destination) throw new DockerTerminationError(() => stopped);
+      return git(cwd, ...args);
+    });
+    try {
+      await reconcileWorktrees(getConfig());
+      expect((await readWorktreeRecords(getConfig().dataDir))[0].state).toBe('unavailable');
+      const writer = runRegistry.acquireCheckoutWrite(source);
+      try { expect(writer).toBeUndefined(); } finally { writer?.(); }
+    } finally { confirm(); }
+    await vi.waitFor(() => {
+      const writer = runRegistry.acquireCheckoutWrite(source);
+      expect(writer).toBeDefined(); writer!();
+    });
+  });
+
   it('does not let retained failed creation block unrelated ready checkouts while another run is active', async () => {
     const ready = await createManagedWorktree(request(), getConfig());
     const save = vi.spyOn(store, 'savePreparedWorktreeSession').mockRejectedValue(Object.assign(new Error('disk full'), { code: 'ENOSPC' }));
@@ -284,18 +320,71 @@ describe('managed session worktrees with real Git', () => {
     await expect(runGitRead(record.destination, ['status', '--porcelain'])).rejects.toThrow(/linkage/);
   });
 
-  it('blocks creation and operations after Docker provisioning even with Docker disabled', async () => {
-    const session = await createManagedWorktree(request(), getConfig()); const [record] = await readWorktreeRecords(getConfig().dataDir);
+  it('retains Local creation and resolution after Docker provisioning even with Docker disabled', async () => {
+    await createManagedWorktree(request(), getConfig()); const [record] = await readWorktreeRecords(getConfig().dataDir);
     await mkdir(path.join(getConfig().dataDir, 'docker')); await writeFile(path.join(getConfig().dataDir, 'docker/profile.json'), '{}');
-    expect((await worktreeCapability(getConfig())).message).toMatch(/helper lacks linked/);
-    await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/Docker-provisioned/);
-    await expect(getCheckoutRegistry(source).resolve(record.checkoutId)).rejects.toThrow(/Docker-provisioned/);
-    await expect(runGitRead(record.destination, ['status'])).rejects.toThrow(/Docker-provisioned/);
-    const turn = await POST_MESSAGE(new Request('http://localhost/api/agent/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-      sessionId: session.id, messageId: randomUUID(), participantId: session.primaryAgentId, text: 'test', mode: 'ask', diagramAttachments: [],
-    }) }));
-    expect(turn.status).toBe(409); expect((await turn.json()).error).toMatch(/Docker-provisioned/);
-    expect((await store.getSession(session.id)).messages).toEqual([]);
+    // Offline transport stand-in: only synthetic fixture Git runs here. Production preflight must
+    // route these inspections to the isolated helper, never silently switch to host Git.
+    const helper = vi.spyOn(gitReader, 'isolatedGitRead').mockImplementation(async (cwd, args) => git(cwd, ...args));
+    expect(await worktreeCapability(getConfig())).toEqual({ available: true });
+    await expect(createManagedWorktree(request(), getConfig())).resolves.toHaveProperty('worktree');
+    await expect(getCheckoutRegistry(source).resolve(record.checkoutId)).resolves.toHaveProperty('worktree');
+    expect(helper).toHaveBeenCalled();
+  });
+
+  it('creates Docker worktrees at format 11 and shares exact bindings across both executions', async () => {
+    vi.spyOn(DockerRuntime.prototype, 'health').mockResolvedValue({ available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] });
+    const input = request({ execution: 'docker' });
+    const response = await create(input); expect(response.status).toBe(201);
+    const session = (await response.json()).session;
+    expect(session).toMatchObject({ version: 11, execution: 'docker', worktree: { originCheckoutId: checkoutId } });
+    expect(durableSessionSchema.safeParse({ ...await store.getSession(session.id), version: 10 }).success).toBe(false);
+    expect(publicSessionSchema.safeParse(session).success).toBe(true);
+    expect((await (await create(input)).json()).session.id).toBe(session.id);
+    for (const execution of ['local', 'docker']) {
+      const continued = await create({ provider: 'claude', sourceSessionId: session.id, execution });
+      expect(continued.status).toBe(201);
+      expect((await continued.json()).session).toMatchObject({ execution, repositories: session.repositories, worktree: session.worktree });
+    }
+    const shared = await create({ provider: 'claude', checkoutId: session.repositories[0].checkoutId, execution: 'docker' });
+    expect(shared.status).toBe(201); expect((await shared.json()).session.worktree).toEqual(session.worktree);
+    const summaries = await getCheckoutRegistry(source).list();
+    expect(worktreeChoice({ execution: 'docker', checkoutId, checkouts: summaries, capability: { available: true } }).available).toBe(true);
+  });
+
+  it('rejects Docker worktree creation from a protected source before leaving any intent or branch', async () => {
+    vi.spyOn(DockerRuntime.prototype, 'health').mockResolvedValue({ available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] });
+    vi.stubEnv('CODEAI_INSTALLATION_ROOT', source);
+    const response = await create(request({ execution: 'docker' }));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/installation/);
+    expect(await readWorktreeRecords(getConfig().dataDir)).toEqual([]);
+    expect(await git(source, 'branch', '--list', 'codeai/*')).toBe('');
+    const local = await createManagedWorktree(request(), getConfig());
+    const checkout = await getCheckoutRegistry(source).resolve(local.repositories[0].checkoutId);
+    await expect(validateDockerCheckout(checkout.realPath, getConfig())).rejects.toThrow(/installation/);
+    const summaries = await getCheckoutRegistry(source).list();
+    const options = { checkoutId, checkouts: summaries, capability: { available: true } };
+    expect(worktreeChoice({ ...options, execution: 'local' }).available).toBe(true);
+    expect(worktreeChoice({ ...options, execution: 'docker' }).reason).toMatch(/installation/);
+  });
+
+  it('rechecks Docker source protection on an intent retry and restart reconciliation', async () => {
+    vi.spyOn(DockerRuntime.prototype, 'health').mockResolvedValue({ available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] });
+    const input = request({ execution: 'docker' });
+    const original = store.prepareWorktreeSession.bind(store);
+    const prepare = vi.spyOn(store, 'prepareWorktreeSession').mockImplementation(async (...args) => {
+      await original(...args); throw Object.assign(new Error('fixture crash before mutation'), { code: 'EIO' });
+    });
+    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/retained/);
+    prepare.mockRestore();
+    vi.stubEnv('CODEAI_INSTALLATION_ROOT', source);
+    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/installation/);
+    await reconcileWorktrees(getConfig());
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    expect(record.state).toBe('intent');
+    await expect(lstat(record.destination)).rejects.toThrow();
+    expect(await git(source, 'branch', '--list', 'codeai/*')).toBe('');
   });
 
   it.each(['filter', 'promisor', 'alternates', 'symlink', 'unborn', 'submodule', 'missing-object'])('refuses %s before mutation and never executes fixture filters or credential helpers', async (kind) => {
@@ -375,7 +464,7 @@ describe('managed session worktrees with real Git', () => {
   });
 
   it.each([
-    { checkoutMode: 'unknown' }, { execution: 'docker' }, { creationRequestId: undefined }, { checkoutId: undefined },
+    { checkoutMode: 'unknown' }, { execution: 'unknown' }, { creationRequestId: undefined }, { checkoutId: undefined },
     { sourceSessionId: randomUUID() }, { path: '/outside' }, { branch: 'chosen' }, { flags: ['--force'] },
   ])('strictly rejects malformed worktree requests %j', async (invalid) => {
     const valid = request(); const response = await create({ ...valid, ...invalid }); expect(response.status).toBe(400);

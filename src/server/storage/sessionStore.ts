@@ -570,7 +570,6 @@ export class SessionStore {
       }] : []));
       const managed = repositories.length === 1 ? records.find((record) => record.checkoutId === repositories[0].checkoutId) : undefined;
       const worktree = input.worktree || source?.worktree || managed?.session.worktree;
-      if (worktree && input.execution === 'docker') throw new SessionStoreError('conflict', 'Docker does not support linked worktrees. Continue on Local or start from an ordinary checkout.');
       if (managed && !source && !input.persistWorktreeIntent) {
         const { resolveManagedWorktree } = await import('@/server/repository/managedWorktrees');
         await resolveManagedWorktree(managed, (await import('@/server/config')).getConfig());
@@ -585,7 +584,7 @@ export class SessionStore {
         throw new SessionStoreError('conflict', LOCAL_CODEX_ISOLATION_MESSAGE);
       }
       const session: DurableSession = {
-        version: worktree ? 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        version: worktree ? input.execution === 'docker' ? 11 : 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
         ...(worktree ? { worktree } : {}),
         execution: input.execution || 'local',
         ...(instructions ? { instructions } : {}),

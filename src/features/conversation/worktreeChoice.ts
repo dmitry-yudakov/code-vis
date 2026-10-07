@@ -9,12 +9,12 @@ export function worktreeChoice({ execution = 'local', project, checkoutId, check
 }): { source?: CheckoutSummary; available: boolean; reason?: string } {
   const bindings = project?.repositories;
   const source = checkouts.find((checkout) => checkout.id === (project ? bindings?.[0]?.checkoutId : checkoutId));
-  const reason = execution !== 'local' ? 'Worktree creation requires Local execution.'
-    : !capability?.available ? capability?.message || 'This executing machine does not offer managed worktrees.'
+  const reason = !capability?.available ? capability?.message || 'This executing machine does not offer managed worktrees.'
     : project && (bindings?.length !== 1 || bindings[0].role !== 'primary' || bindings[0].hostId !== hostId)
       ? 'Worktree creation needs exactly one primary repository on this machine.'
     : !source ? 'Choose a source repository to create a worktree.'
     : source.worktree ? 'Choose an ordinary source checkout for a new worktree.'
-    : !source.worktreeCreation?.available ? source.worktreeCreation?.message || 'This source does not support managed creation.' : undefined;
+    : !source.worktreeCreation?.available ? source.worktreeCreation?.message || 'This source does not support managed creation.'
+    : execution === 'docker' ? source.worktreeCreation.dockerUnavailableReason : undefined;
   return { source, available: !reason, reason };
 }

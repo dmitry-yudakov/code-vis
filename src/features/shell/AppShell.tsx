@@ -350,8 +350,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const continuationExecution = session?.execution === 'docker' ? 'local' : 'docker';
   const continuationHealth = continuationExecution === 'docker' ? health?.executions?.docker.providers[activeProvider]
     : health?.executions?.local.providers[activeProvider] || health?.providers[activeProvider];
+  const worktreeDockerUnavailable = session?.worktree
+    ? checkouts.find((checkout) => checkout.id === session.worktree!.originCheckoutId)?.worktreeCreation?.dockerUnavailableReason : undefined;
   const continuationUnavailable = sessionRunning ? 'Wait for this turn to finish.'
-    : session?.worktree && continuationExecution === 'docker' ? 'Docker does not support linked worktrees. New chat shares this Local worktree.'
+    : continuationExecution === 'docker' && worktreeDockerUnavailable ? worktreeDockerUnavailable
     : continuationExecution === 'docker' && !health?.executions?.docker.enabled ? 'Enable Docker in Arena to continue there.'
     : !continuationHealth?.available || !continuationHealth.supportedModes.length ? `${PROVIDER_LABELS[activeProvider]} needs ${continuationExecution === 'docker' ? 'Docker' : 'Local'} setup.`
     : continuationExecution === 'docker' && (session?.repositories.length !== 1 || session.repositories[0].role !== 'primary'

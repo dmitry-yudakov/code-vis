@@ -9,6 +9,7 @@ import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { atomicWrite } from '@/server/storage/sessionStore';
 import { dockerCommand, localDockerEndpoint, removeContainerDetached, spawnDocker } from './dockerCommand';
 import { resolveDockerCustomizations } from './dockerCustomizations';
+import { acquireManagedGitRead } from '@/server/repository/managedWorktrees';
 import {
   containerSecurity, dockerOwner, participantVolume, providerVolume, validateDockerCheckout,
   DOCKER_CONTEXT, DOCKER_HOME, DOCKER_LABEL, DOCKER_PATH, DOCKER_PROFILE,
@@ -336,7 +337,6 @@ export class DockerRuntime {
     const uid = process.platform === 'linux' ? process.getuid?.() : 1000;
     const gid = process.platform === 'linux' ? process.getgid?.() : 1000;
     if (!uid || gid === undefined) throw new Error('Docker requires a non-root owner.');
-    if (options.checkout) await validateDockerCheckout(options.checkout, this.config);
     if (options.context && (await realpath(options.context) !== options.context || /[,\n\r\0]/.test(options.context))) {
       throw new Error('The prepared Docker context path is invalid.');
     }
@@ -351,6 +351,7 @@ export class DockerRuntime {
     const resources: string[] = [];
     let networkCreated = false;
     let cleanupComplete = false;
+    let releaseGit: (() => void) | undefined;
     const stop = async () => {
       if (cleanupComplete) return;
       for (const id of [...resources].reverse()) {
@@ -359,8 +360,12 @@ export class DockerRuntime {
       }
       if (networkCreated) await this.removeNetwork(command, network);
       cleanupComplete = true;
+      releaseGit?.(); releaseGit = undefined;
     };
     try {
+      releaseGit = options.checkout ? await acquireManagedGitRead(options.checkout, this.config) : undefined;
+      const gitPlan = options.checkout ? await validateDockerCheckout(options.checkout, this.config, options.mode === 'agent') : undefined;
+      const gitMounts = gitPlan?.gitMounts || [];
       const lease = await this.createLease(command, [
         'create', '--name', name, ...this.labels(options.setup ? 'setup' : 'lease', identity),
         ...containerSecurity(uid, gid), '--network', 'none', image, 'sleep', 'infinity',
@@ -374,7 +379,9 @@ export class DockerRuntime {
         home = legacy;
         legacyHome = true;
       }
-      if (options.checkout) {
+      // Managed metadata has already passed the stricter server-owned linkage preflight.
+      // The original worker image's ordinary-checkout preparer intentionally rejects .git files.
+      if (options.checkout && !gitMounts.length) {
         const preparer = (await command([
           'create', ...this.labels('prepare', identity), ...containerSecurity(uid, gid), '--network', 'none',
           '--mount', `type=bind,src=${options.checkout},dst=/workspace,readonly`,
@@ -432,6 +439,7 @@ export class DockerRuntime {
           // `=== 'agent'`, not `changesCheckout`: Docker never runs Auto, and any other mode mounts read-only.
           '--mount', `type=bind,src=${options.checkout},dst=/workspace${options.mode === 'agent' ? '' : ',readonly'}`,
         ] : []),
+        ...gitMounts,
         ...(options.context ? ['--mount', `type=bind,src=${options.context},dst=${DOCKER_CONTEXT},readonly`] : []),
         ...customizations.flatMap((mount) => ['--mount', `type=bind,src=${mount.source},dst=${mount.target},readonly`]),
         '--workdir', options.checkout ? '/workspace' : DOCKER_HOME,
@@ -440,7 +448,12 @@ export class DockerRuntime {
       resources.push(worker);
       activeWorkers().set(worker, endpoint);
       // Recheck the bind source immediately before Docker actually attaches it on start.
-      if (options.checkout) await validateDockerCheckout(options.checkout, this.config);
+      if (options.checkout) {
+        const current = await validateDockerCheckout(options.checkout, this.config, options.mode === 'agent');
+        if (current.gitMountIdentity !== gitPlan!.gitMountIdentity || JSON.stringify(current.gitMounts) !== JSON.stringify(gitMounts)) {
+          throw new Error('Managed Git mounts changed while the Docker worker was starting. Send the message again.');
+        }
+      }
       if (customizations.length && JSON.stringify((await resolveDockerCustomizations(identity.provider, this.config)).mounts) !== JSON.stringify(customizations)) {
         throw new Error('Your provider customizations changed while the Docker worker was starting. Send the message again.');
       }

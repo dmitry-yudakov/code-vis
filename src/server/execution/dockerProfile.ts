@@ -3,7 +3,7 @@ import { lstat, realpath } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppConfig } from '@/server/config';
+import { getConfig, type AppConfig } from '@/server/config';
 import { defaultProviderFolder, providerFolder } from '@/server/agents/providerFolder';
 import type { AgentProvider } from '@/shared/types';
 
@@ -69,13 +69,13 @@ export function providerVolume(owner: string, provider: AgentProvider): string {
   return `codeai-${owner}-${provider}-home`;
 }
 
-/** Recheck immediately before every bind. Docker never resolves another mount through a symlink. */
-export async function validateDockerCheckout(checkout: string, config: Pick<AppConfig, 'dataDir'>): Promise<{ uid: number; gid: number }> {
+/** Protected host paths are never worker mounts, including a managed worktree's source. */
+export async function validateDockerMountPath(checkout: string, config: Pick<AppConfig, 'dataDir'> & Partial<Pick<AppConfig, 'installationRoot'>>): Promise<void> {
   if (await realpath(checkout) !== checkout || /[,\n\r\0]/.test(checkout)) {
     throw new Error('Docker requires a canonical checkout path without mount delimiters.');
   }
   const protectedPaths = [
-    process.cwd(), config.dataDir, defaultProviderFolder('codex'), defaultProviderFolder('claude'),
+    process.cwd(), config.installationRoot || process.cwd(), config.dataDir, defaultProviderFolder('codex'), defaultProviderFolder('claude'),
     // The provider folders in use, when their variables name other places than the two above.
     providerFolder('codex'), providerFolder('claude'),
     path.join(os.homedir(), '.docker'), path.join(os.homedir(), '.config'),
@@ -86,15 +86,30 @@ export async function validateDockerCheckout(checkout: string, config: Pick<AppC
       throw new Error('Docker cannot mount CodeAI’s installation, data, runtime configuration, or provider storage. Use a separately installed CodeAI.');
     }
   }
+}
+
+/** Recheck immediately before every bind. Only a verified journal grants external Git metadata. */
+export async function validateDockerCheckout(checkout: string, config: Pick<AppConfig, 'dataDir'>, writableGit = false): Promise<{ uid: number; gid: number; gitMounts: string[]; gitMountIdentity?: string }> {
+  const fullConfig = { ...getConfig(), ...config };
+  await validateDockerMountPath(checkout, fullConfig);
+  const { validateManagedPath, managedGitMounts } = await import('@/server/repository/managedWorktrees');
+  const managed = await validateManagedPath(checkout, fullConfig);
+  let gitMounts: string[] = [];
+  let gitMountIdentity: string | undefined;
+  if (managed) {
+    await validateDockerMountPath(managed.originPath, fullConfig);
+    const plan = await managedGitMounts(managed, fullConfig, writableGit);
+    gitMounts = plan.args; gitMountIdentity = plan.identity;
+  }
   const metadata = await lstat(path.join(checkout, '.git')).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return undefined;
     throw error;
   });
-  if (metadata && (!metadata.isDirectory() || metadata.isSymbolicLink())) {
+  if (!managed && metadata && (!metadata.isDirectory() || metadata.isSymbolicLink())) {
     throw new Error('Docker does not support linked worktrees, symlinked .git, or external Git directories.');
   }
   // commondir redirects object/ref storage even when .git itself is a directory.
-  if (await lstat(path.join(checkout, '.git', 'commondir')).catch(() => undefined)) {
+  if (!managed && await lstat(path.join(checkout, '.git', 'commondir')).catch(() => undefined)) {
     throw new Error('Docker does not support external Git metadata.');
   }
   const checkoutStat = await lstat(checkout);
@@ -102,7 +117,7 @@ export async function validateDockerCheckout(checkout: string, config: Pick<AppC
   const uid = process.platform === 'linux' ? process.getuid?.() : 1000;
   const gid = process.platform === 'linux' ? process.getgid?.() : 1000;
   if (!uid || gid === undefined) throw new Error('Docker workers require a non-root owner.');
-  return { uid, gid };
+  return { uid, gid, gitMounts, gitMountIdentity };
 }
 
 export function containerSecurity(uid: number, gid: number, providerProxy = false): string[] {

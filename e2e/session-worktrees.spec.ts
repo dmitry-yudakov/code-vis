@@ -37,6 +37,43 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
+test('execution and managed checkout choices remain independent in the desktop launcher', async ({ page }) => {
+  await page.route('**/api/health', async (route) => {
+    const response = await route.fetch(); const health = await response.json();
+    health.executions.docker = { enabled: true, providers: health.executions.local.providers };
+    await route.fulfill({ response, json: health });
+  });
+  await page.route('**/api/checkouts', async (route) => {
+    const response = await route.fetch(); const data = await response.json();
+    // This browser fixture is CodeAI's self project. Supply an eligible source capability here;
+    // actual Docker origin/mount validation is covered by the server and real-daemon tests.
+    for (const checkout of data.checkouts) if (!checkout.worktree) delete checkout.worktreeCreation?.dockerUnavailableReason;
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto(origin); await page.locator('.project-search-trigger').click();
+  await page.getByRole('option', { name: 'No project' }).click();
+  await page.getByLabel('New session', { exact: true }).click();
+  const form = page.locator('.new-session-menu').getByRole('form', { name: 'Create project session' });
+  await form.getByRole('combobox', { name: 'Repository', exact: true }).selectOption({ label: 'source' });
+  await form.getByRole('combobox', { name: 'Session checkout' }).selectOption('worktree');
+  for (const execution of ['docker', 'local', 'docker']) {
+    await form.getByRole('combobox', { name: 'Execution', exact: true }).selectOption(execution);
+    await expect(form.getByRole('combobox', { name: 'Session checkout' })).toHaveValue('worktree');
+    await expect(form.getByRole('button', { name: 'Start session', exact: true })).toBeEnabled();
+  }
+  const payloads: Array<Record<string, unknown>> = [];
+  await page.route('**/api/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    payloads.push(route.request().postDataJSON());
+    await route.fulfill({ status: 409, json: { error: 'fixture retry' } });
+  });
+  await form.getByRole('button', { name: 'Start session', exact: true }).click();
+  await form.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect.poll(() => payloads.length).toBe(2);
+  expect(payloads[0]).toMatchObject({ execution: 'docker', checkoutMode: 'worktree', creationRequestId: expect.any(String) });
+  expect(payloads[1]).toEqual(payloads[0]);
+});
+
 for (const theme of ['light', 'dark']) test(`creates and retains a managed worktree in ${theme}`, async ({ page }) => {
   await page.addInitScript((value) => localStorage.setItem('code-ai:theme', value), theme);
   const { checkouts } = await (await page.request.get(`${origin}/api/checkouts`)).json() as CheckoutsResponse;

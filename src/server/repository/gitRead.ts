@@ -6,7 +6,8 @@ import os from 'node:os';
 import { readBoundedTextFile } from '@/server/boundedTextFile';
 import { getConfig } from '@/server/config';
 import { dockerCommand, localDockerEndpoint } from '@/server/execution/dockerCommand';
-import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { DockerTerminationError, getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { setTimeout as delay } from 'node:timers/promises';
 import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { containerSecurity } from '@/server/execution/dockerProfile';
 import { runRegistry } from '@/server/runs/runRegistry';
@@ -66,16 +67,39 @@ export async function runGitRead(cwd: string, args: string[], options: {
 } = {}): Promise<string> {
   const release = runRegistry.acquireCheckoutRead(cwd, options.checkoutWriteLease);
   if (!release) throw new Error('An enclosing checkout is being edited. Retry this Git read after that turn finishes.');
-  try { return await executeGitRead(cwd, args, options); }
-  finally { release(); }
+  let releaseGit: (() => void) | undefined;
+  return withGitReadLease(() => { releaseGit?.(); release(); }, async () => {
+    const { acquireManagedGitRead } = await import('./managedWorktrees');
+    releaseGit = await acquireManagedGitRead(cwd, getConfig());
+    return await executeGitRead(cwd, args, options);
+  });
+}
+
+/** Return a bounded read error, retaining its binds until Docker confirms termination. A fresh
+ * process performs normal orphan recovery; retries in this process release the held lease.
+ */
+export async function withGitReadLease<T>(release: () => void, read: () => Promise<T>): Promise<T> {
+  try { return await read(); }
+  catch (error) {
+    if (error instanceof DockerTerminationError) {
+      const held = release; release = () => {};
+      void (async () => {
+        for (;;) {
+          try { await error.stop(); held(); return; }
+          catch { await delay(5_000, undefined, { ref: false }); }
+        }
+      })();
+    }
+    throw error;
+  } finally { release(); }
 }
 
 async function executeGitRead(cwd: string, args: string[], options: {
   allowedExitCodes?: number[]; maxBuffer?: number; timeout?: number;
 }): Promise<string> {
   const config = getConfig();
-  const { validateManagedPath } = await import('./managedWorktrees');
-  await validateManagedPath(cwd, config);
+  const { validateManagedPath, managedGitMounts } = await import('./managedWorktrees');
+  const managed = await validateManagedPath(cwd, config);
   await recoverDockerExecution(config);
   // Only the provisioning record decides: enabling Docker first leaves host Git in place.
   let isolated = false;
@@ -93,13 +117,28 @@ async function executeGitRead(cwd: string, args: string[], options: {
       else reject(Object.assign(error, { stderr }));
     });
   });
+  const gitMounts = managed ? await managedGitMounts(managed, config) : undefined;
+  return isolatedGitRead(cwd, args, config, options, gitMounts?.args, managed ? async () => {
+    const current = await managedGitMounts(managed, config);
+    if (current.identity !== gitMounts!.identity) throw new Error('Managed Git mount source changed before start.');
+  } : undefined);
+}
+
+/** Internal preflight reads use this without recursively resolving the checkout. Additional binds
+ * are supplied only after journal linkage validation; ordinary source preflight supplies none.
+ */
+export async function isolatedGitRead(cwd: string, args: string[], config: ReturnType<typeof getConfig>, options: {
+  allowedExitCodes?: number[]; maxBuffer?: number; timeout?: number;
+} = {}, gitMounts: string[] = [], beforeStart?: () => Promise<void>): Promise<string> {
+  const ignore = await personalIgnore();
+  const hardenedArgs = [...GIT_READ_OPTIONS, '-c', `core.excludesFile=${HELPER_PERSONAL_IGNORE}`, ...args];
   const runtime = getDockerRuntime(config);
   const profile = await runtime.provision();
   const endpoint = await localDockerEndpoint();
   const command = (params: string[], env?: Record<string, string>) => dockerCommand(['--host', endpoint, ...params], { env });
   if ((await command(['info', '--format', '{{.ID}}'])).trim() !== profile.engineId) throw new Error('Docker engine identity changed; Git read refused.');
-  // A helper intentionally accepts replaced .git: it has no host files outside this one bind.
-  // Canonical root validation still precedes every mount; no parent paths are ever mounted.
+  // Ordinary checkouts grant one bind. A verified journal grants only its common Git directory,
+  // read-only; a replaced .git pointer cannot authorize any extra host directory.
   if (await realpath(cwd) !== cwd || /[,\r\n\0]/.test(cwd)) throw new Error('Checkout path changed before the isolated Git read.');
   const uid = process.platform === 'linux' ? process.getuid?.() : 1000;
   const gid = process.platform === 'linux' ? process.getgid?.() : 1000;
@@ -107,14 +146,16 @@ async function executeGitRead(cwd: string, args: string[], options: {
   const container = (await command([
     'create', '--name', `codeai-git-${randomUUID()}`, ...runtime.labels('git'), ...containerSecurity(uid, gid),
     '--network', 'none', '--mount', `type=bind,src=${cwd},dst=/workspace,readonly`, '--workdir', '/workspace',
+    ...gitMounts,
     ...Object.entries(gitReadEnvironment()).filter(([key]) => key !== 'PATH').flatMap(([key, value]) => ['--env', `${key}=${value}`]),
     // Docker copies this value from its own environment, so the patterns stay out of command lines.
     // The image's entrypoint would run a non-executable checkout file named like the command with
     // node, so the absolute shell replaces it.
     '--env', 'CODEAI_PERSONAL_IGNORE', '--entrypoint', '/bin/sh', profile.image, '-c', WRITE_PERSONAL_IGNORE,
-    'sh', '-c', 'safe.directory=/workspace', ...hardenedArgs(HELPER_PERSONAL_IGNORE),
+    'sh', '-c', 'safe.directory=/workspace', ...hardenedArgs,
   ], { CODEAI_PERSONAL_IGNORE: ignore?.patterns ?? '' })).trim();
   try {
+    await beforeStart?.();
     // The attached result carries Git's exit status; all failures are bounded and path-free.
     return await new Promise<string>((resolve, reject) => {
       execFile('docker', ['--host', endpoint, 'start', '--attach', container], {
@@ -129,5 +170,8 @@ async function executeGitRead(cwd: string, args: string[], options: {
         }));
       });
     });
-  } finally { await runtime.removeContainer(command, container); }
+  } finally {
+    try { await runtime.removeContainer(command, container); }
+    catch { throw new DockerTerminationError(() => runtime.removeContainer(command, container)); }
+  }
 }

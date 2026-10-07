@@ -6,6 +6,7 @@ import { durableProjectSchema, sessionWorktreeSchema } from './sessionSchema';
 
 export const worktreeCapabilitySchema = z.object({
   available: z.boolean(), message: z.string().max(500).optional(), branch: z.string().max(500).optional(),
+  dockerUnavailableReason: z.string().max(500).optional(),
 }).strict();
 
 const dateTime = z.string().datetime();

@@ -1,5 +1,8 @@
 # Story 92 — Start a session in its own Git worktree
 
+Follow-up: [Story 95](STORY-20261007-docker-worktrees.md) replaces this release's Docker provisioning
+and managed Docker-worktree restrictions with verified, bounded Git metadata mounts.
+
 **Status:** Shipped · **Type:** Full-stack · **Depends on:**
 [Story 37](STORY-20260901-concurrent-turns.md) (checkout scheduling),
 [Story 65](STORY-20260921-tolerate-newer-session-format.md) (record compatibility),

@@ -103,7 +103,7 @@ export class CheckoutRegistry {
     const checkouts = await this.refresh();
     const capability = this.config?.worktreesRoot ? await worktreeCapability(this.config, checkouts.filter((checkout) => !checkout.worktree)) : undefined;
     return Promise.all(checkouts.map(async ({ realPath, ...summary }) => ({ ...summary,
-      ...(capability ? { worktreeCreation: await sourceWorktreeCapability({ realPath, ...summary }, capability) } : {}),
+      ...(capability ? { worktreeCreation: await sourceWorktreeCapability({ realPath, ...summary }, capability, this.config) } : {}),
     })));
   }
 

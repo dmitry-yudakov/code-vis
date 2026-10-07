@@ -25,6 +25,7 @@
     "docker:cleanup": "tsx scripts/docker.ts cleanup",
     "docker:upgrade": "tsx scripts/docker.ts upgrade",
     "test:docker": "tsx scripts/test-docker.ts",
+    "test:docker:worktrees": "tsx scripts/test-docker-worktrees.ts",
     "lint": "tsc --noEmit",
     "tokens": "tsx scripts/generate-tokens.ts",
     "test": "vitest run",

@@ -14,6 +14,8 @@ export interface WorktreeCapability {
   available: boolean;
   message?: string;
   branch?: string;
+  /** Source-specific Docker restrictions; Local availability is independent. */
+  dockerUnavailableReason?: string;
 }
 
 export interface SessionWorktree {
@@ -131,7 +133,7 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
   worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
@@ -486,7 +488,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
   worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;

@@ -13,7 +13,7 @@ import { atomicWrite, getSessionStore, SessionStoreError, type SessionStore } fr
 import { createSessionRequestSchema } from '@/shared/protocol';
 import { durableSessionSchema } from '@/shared/sessionSchema';
 import type { DurableSession, ServerCheckout, SessionWorktree, WorktreeCapability } from '@/shared/types';
-import { GIT_READ_OPTIONS, gitReadEnvironment } from './gitRead';
+import { GIT_READ_OPTIONS, gitReadEnvironment, isolatedGitRead, withGitReadLease } from './gitRead';
 
 const MAX_RECORDS = 1_000;
 const MAX_RECORD_BYTES = 128 * 1024;
@@ -28,7 +28,7 @@ const recordSchema = z.object({
   state: z.enum(['intent', 'creating', 'materialized', 'ready', 'unavailable']),
   gitDirectory: identitySchema.optional(), checkoutDirectory: identitySchema.optional(), reason: z.string().max(500).optional(),
 }).strict().refine((record) => record.request.checkoutMode === 'worktree' && Boolean(record.request.creationRequestId)
-  && record.session.worktree !== undefined && record.session.version === 10
+  && record.session.worktree !== undefined && (record.session.version === 10 || record.session.version === 11)
   && record.session.repositories[0].checkoutId === record.checkoutId
   && record.session.worktree.branch === `codeai/session-${record.session.id}`
   && (record.state !== 'ready' || record.gitDirectory !== undefined && record.checkoutDirectory !== undefined), 'Invalid worktree intent identity.');
@@ -46,7 +46,17 @@ const overlap = (a: string, b: string) => within(a, b) || within(b, a);
 const identity = (info: Awaited<ReturnType<typeof lstat>>) => `${info.dev}:${info.ino}`;
 
 /** Fixed offline invocations. No inherited Git configuration, transport, filters, or hooks. */
-async function git(cwd: string, args: string[], allowedExitCodes: number[] = []): Promise<string> {
+async function git(cwd: string, args: string[], allowedExitCodes: number[] = [], record?: WorktreeRecord): Promise<string> {
+  const config = getConfig();
+  const provisioned = await lstat(path.join(config.dataDir, 'docker', 'profile.json')).catch((error) => { if (missing(error)) return undefined; throw error; });
+  // Mutations run only under the machine maintenance lease after strict source preflight.
+  // Every inspection after provisioning runs in the credential-free helper, including recovery.
+  if (provisioned && args[0] !== 'worktree' && args[0] !== 'read-tree') {
+    const release = runRegistry.acquireCheckoutRead(record?.originGit.path || cwd);
+    if (!release) conflict('The source checkout is being edited. Retry after that turn finishes.');
+    return withGitReadLease(release, () => isolatedGitRead(cwd, ['-c', 'core.excludesFile=/dev/null', '-c', 'credential.helper=', '-c', 'protocol.allow=never', ...args], config, { allowedExitCodes, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 },
+      record ? commonGitReadBind(record.originGit.path) : []));
+  }
   return new Promise((resolve, reject) => execFile('git', [
     ...GIT_READ_OPTIONS, '-c', 'core.excludesFile=/dev/null', '-c', 'credential.helper=', '-c', 'protocol.allow=never',
     '-c', 'checkout.workers=1', '-c', 'worktree.guessRemote=false', ...args,
@@ -107,9 +117,6 @@ async function validateRoot(config: AppConfig, ordinary: ServerCheckout[] = [], 
 export async function worktreeCapability(config: AppConfig, ordinary: ServerCheckout[] = []): Promise<WorktreeCapability> {
   try {
     if (process.platform !== 'linux') conflict('Managed worktree creation currently requires Linux.');
-    if (await lstat(path.join(config.dataDir, 'docker', 'profile.json')).catch((error) => { if (missing(error)) return undefined; throw error; })) {
-      conflict('Managed worktrees are unavailable on Docker-provisioned machines: the Git helper lacks linked-worktree support.');
-    }
     await validateRoot(config, ordinary);
     return { available: true };
   } catch (error) { return { available: false, message: error instanceof SessionStoreError ? error.message : 'Worktrees root is unavailable or unwritable.' }; }
@@ -129,7 +136,7 @@ async function containedMetadata(gitDirectory: string): Promise<void> {
   await walk(gitDirectory);
 }
 
-async function sourcePreflight(checkout: ServerCheckout, baseCommit?: string, full = false) {
+async function sourceMetadata(checkout: ServerCheckout) {
   if (checkout.worktree || await realpath(checkout.realPath) !== checkout.realPath) conflict('Choose an ordinary source checkout for a new worktree.');
   const gitPath = path.join(checkout.realPath, '.git');
   const info = await lstat(gitPath).catch(() => undefined);
@@ -138,6 +145,18 @@ async function sourcePreflight(checkout: ServerCheckout, baseCommit?: string, fu
   for (const file of ['commondir', 'config.worktree', 'objects/info/alternates', 'objects/info/http-alternates', 'shallow']) {
     if (await lstat(path.join(/* turbopackIgnore: true */ gitPath, file)).catch(() => undefined)) conflict('Managed creation does not support external object storage, shallow clones, or external Git metadata.');
   }
+  return { gitPath, info };
+}
+
+async function sourcePreflight(checkout: ServerCheckout, baseCommit?: string, full = false) {
+  const release = runRegistry.acquireCheckoutRead(checkout.realPath);
+  if (!release) conflict('The source checkout is being edited. Retry after that turn finishes.');
+  try { return await inspectSource(checkout, baseCommit, full); }
+  finally { release(); }
+}
+
+async function inspectSource(checkout: ServerCheckout, baseCommit?: string, full = false) {
+  const { gitPath, info } = await sourceMetadata(checkout);
   const configuration = (await git(checkout.realPath, ['config', '--local', '--no-includes', '--null', '--list'])).split('\0');
   for (const entry of configuration) {
     const [key, ...values] = entry.split('\n'); const value = values.join('\n');
@@ -154,9 +173,18 @@ async function sourcePreflight(checkout: ServerCheckout, baseCommit?: string, fu
   return { commit, branch, originGit: { path: gitPath, identity: identity(info) } };
 }
 
-export async function sourceWorktreeCapability(checkout: ServerCheckout, machine: WorktreeCapability): Promise<WorktreeCapability> {
+export async function sourceWorktreeCapability(checkout: ServerCheckout, machine: WorktreeCapability, config = getConfig()): Promise<WorktreeCapability> {
   if (!machine.available) return machine;
-  try { return { available: true, branch: (await sourcePreflight(checkout, undefined, true)).branch }; }
+  try {
+    const branch = (await sourcePreflight(checkout, undefined, true)).branch;
+    if (await lstat(path.join(config.dataDir, 'docker', 'profile.json')).catch((error) => { if (missing(error)) return undefined; throw error; })) {
+      commonGitReadBind(path.join(checkout.realPath, '.git'));
+    }
+    const { validateDockerMountPath } = await import('@/server/execution/dockerProfile');
+    try { await validateDockerMountPath(checkout.realPath, config); commonGitReadBind(path.join(checkout.realPath, '.git')); }
+    catch (error) { return { available: true, branch, dockerUnavailableReason: error instanceof Error ? error.message.slice(0, 500) : 'Docker cannot mount this source.' }; }
+    return { available: true, branch };
+  }
   catch (error) { return { available: false, message: error instanceof SessionStoreError ? error.message : 'Source checkout is unavailable.' }; }
 }
 
@@ -217,7 +245,13 @@ async function validatePlacement(record: WorktreeRecord, config: AppConfig) {
 /** Verify both directions of Git's recorded linkage, never just its stored display branch. */
 async function linkage(record: WorktreeRecord, config: AppConfig) {
   await validatePlacement(record, config);
-  await sourcePreflight({ id: record.session.worktree!.originCheckoutId, realPath: record.originPath, name: 'source', relativePath: '.' }, record.session.worktree!.baseCommit);
+  const source = { id: record.session.worktree!.originCheckoutId, realPath: record.originPath, name: 'source', relativePath: '.' };
+  // Resolving a registered worktree needs structural proof, not Git executing against shared
+  // metadata. Before provisioning, preserve the stricter host-Git configuration preflight.
+  await sourceMetadata(source);
+  if (!await lstat(path.join(config.dataDir, 'docker', 'profile.json')).catch((error) => { if (missing(error)) return undefined; throw error; })) {
+    await sourcePreflight(source, record.session.worktree!.baseCommit);
+  }
   if (await realpath(record.destination) !== record.destination) conflict('The managed worktree is missing or moved. History remains available.');
   if (record.checkoutDirectory && identity(await lstat(record.destination)) !== record.checkoutDirectory.identity) conflict('The managed worktree directory was replaced. Restore its original location.');
   const dotGit = path.join(record.destination, '.git');
@@ -237,8 +271,9 @@ async function linkage(record: WorktreeRecord, config: AppConfig) {
   if (record.gitDirectory && (record.gitDirectory.path !== expected || record.gitDirectory.identity !== identity(gitInfo))) conflict('Managed worktree metadata was replaced.');
   if ((await readLink(path.join(expected, 'gitdir'))).trim() !== dotGit
     || (await readLink(path.join(expected, 'commondir'))).trim() !== '../..') conflict('Managed worktree reverse linkage changed.');
-  if ((await git(record.destination, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim() !== record.originGit.path) conflict('Managed worktree common Git directory changed.');
-  const branch = (await git(record.destination, ['symbolic-ref', '--short', '-q', 'HEAD'], [1])).trim() || 'Detached HEAD';
+  const head = (await readLink(path.join(expected, 'HEAD'))).trim();
+  if (!head.startsWith('ref: refs/heads/') && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) conflict('Managed worktree HEAD is invalid.');
+  const branch = head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : 'Detached HEAD';
   return { branch, gitDirectory: { path: expected, identity: identity(gitInfo) } };
 }
 
@@ -255,17 +290,60 @@ export async function resolveManagedWorktree(record: WorktreeRecord, config: App
 }
 
 /** Git reads/checkpoint recovery can start from an already resolved path; recheck its allowlist. */
-export async function validateManagedPath(location: string, config = getConfig()): Promise<void> {
+export async function validateManagedPath(location: string, config = getConfig()): Promise<WorktreeRecord | undefined> {
   if (!config.worktreesRoot) return;
   const records = await readWorktreeRecords(config.dataDir);
   const record = records.find((item) => item.destination === location);
-  if (record) await resolveManagedWorktree(record, config);
+  if (record) { await resolveManagedWorktree(record, config); return record; }
   else if (within(config.worktreesRoot, location)) conflict('Unregistered managed checkout is unavailable.');
+}
+
+/** The journal, never a checkout-controlled .git pointer, authorizes additional Docker binds.
+ * Preserve absolute Git linkage without changing files or mounting a repository parent.
+ */
+export async function managedGitMounts(record: WorktreeRecord, config: AppConfig, writable = false): Promise<{ args: string[]; identity: string }> {
+  await resolveManagedWorktree(record, config);
+  const common = record.originGit.path;
+  const mounts = commonGitReadBind(common);
+  const identities = [record.originGit.identity];
+  if (writable) {
+    // Root metadata stays read-only: the source index/HEAD/configuration and other worktree
+    // indices cannot be changed. Objects, branch refs and their logs are shared Git state.
+    const directories = [record.gitDirectory!.path, ...['objects', 'refs', 'logs'].map((name) => path.join(/* turbopackIgnore: true */ common, name))];
+    for (const directory of directories) {
+      const info = await lstat(directory).catch((error) => { if (missing(error)) return undefined; throw error; });
+      if (!info && directory === path.join(common, 'logs')) continue;
+      if (!info?.isDirectory() || info.isSymbolicLink() || await realpath(directory) !== directory) conflict('Managed Git mount source changed.');
+      mounts.push('--mount', `type=bind,src=${directory},dst=${directory}`);
+      identities.push(`${directory}:${identity(info)}`);
+    }
+  }
+  return { args: mounts, identity: identities.join('\0') };
+}
+
+function commonGitReadBind(common: string): string[] {
+  const reserved = ['/workspace', '/context', '/home/agent', '/user', '/opt/codeai', '/usr', '/bin', '/sbin', '/etc', '/proc', '/sys', '/dev', '/tmp/personal-git-ignore'];
+  if (/[,\r\n\0]/.test(common) || reserved.some((target) => overlap(common, target))) conflict('Managed Git metadata conflicts with a Docker container path.');
+  return ['--mount', `type=bind,src=${common},dst=${common},readonly`];
+}
+
+/** An ordinary-source writer can rename metadata; hold this through helper/worker termination.
+ * Linked workers can coexist: their read-only common root cannot rename these mounted roots.
+ */
+export async function acquireManagedGitRead(location: string, config: AppConfig): Promise<() => void> {
+  const record = (await readWorktreeRecords(config.dataDir)).find((item) => item.destination === location);
+  if (!record) return () => {};
+  const release = runRegistry.acquireCheckoutRead(record.originGit.path);
+  if (!release) conflict('The source checkout is being edited. Retry this worktree operation after that turn finishes.');
+  return release;
 }
 
 async function finish(record: WorktreeRecord, config: AppConfig, store: SessionStore): Promise<DurableSession> {
   if (record.state === 'unavailable') conflict(record.reason || 'Partial worktree creation is ambiguous. Inspect the retained Git state.');
   await validatePlacement(record, config);
+  if (record.request.execution === 'docker' && (record.state === 'intent' || record.state === 'creating')) {
+    await dockerCreationPreflight(record.originPath, config);
+  }
   if (record.state === 'intent') {
     const source = { id: record.session.worktree!.originCheckoutId, name: 'source', relativePath: '.', realPath: record.originPath };
     await sourcePreflight(source, record.session.worktree!.baseCommit, true);
@@ -293,9 +371,9 @@ async function finish(record: WorktreeRecord, config: AppConfig, store: SessionS
     // Only an entirely completed, clean baseline is unambiguous. Never reset partial/user work.
     try {
       const linked = await linkage(record, config);
-      if ((await git(record.destination, ['rev-parse', 'HEAD'])).trim() !== record.session.worktree!.baseCommit
+      if ((await git(record.destination, ['rev-parse', 'HEAD'], [], record)).trim() !== record.session.worktree!.baseCommit
         || linked.branch !== record.session.worktree!.branch
-        || (await git(record.destination, ['status', '--porcelain', '--untracked-files=all'])).trim()) throw new Error('partial');
+        || (await git(record.destination, ['status', '--porcelain', '--untracked-files=all'], [], record)).trim()) throw new Error('partial');
       record.gitDirectory = linked.gitDirectory;
       record.checkoutDirectory = { path: record.destination, identity: identity(await lstat(record.destination)) };
       record.state = 'materialized'; await writeRecord(config, record);
@@ -310,9 +388,21 @@ async function finish(record: WorktreeRecord, config: AppConfig, store: SessionS
   return session;
 }
 
+async function dockerCreationPreflight(source: string, config: AppConfig): Promise<void> {
+  const { getDockerRuntime } = await import('@/server/execution/dockerRuntime');
+  const { validateDockerCheckout } = await import('@/server/execution/dockerProfile');
+  const health = await getDockerRuntime(config).health();
+  if (!health.available) conflict(health.message || 'Docker execution is unavailable.');
+  commonGitReadBind(path.join(source, '.git'));
+  try { await validateDockerCheckout(source, config); }
+  catch (error) { conflict(error instanceof Error ? error.message : 'Docker cannot mount this source.'); }
+}
+
 export async function createManagedWorktree(request: CreationRequest, config: AppConfig): Promise<DurableSession> {
   if (runRegistry.acquireMaintenance() !== 'acquired') conflict('Worktree creation needs an idle machine. Wait for turns, Undo, or maintenance to finish and retry.');
   try {
+    const { recoverDockerExecution } = await import('@/server/execution/dockerRecovery');
+    await recoverDockerExecution(config);
     const store = getSessionStore(config.dataDir, config.hostLabel);
     await store.host(); // the store writer lock owns this machine's journal too
     const records = await readWorktreeRecords(config.dataDir);
@@ -334,6 +424,10 @@ export async function createManagedWorktree(request: CreationRequest, config: Ap
     }
     const source = ordinary.find((checkout) => checkout.id === (request.checkoutId || project!.repositories[0].checkoutId));
     if (!source) conflict('Choose an available ordinary source checkout on this machine.');
+    if (await lstat(path.join(config.dataDir, 'docker', 'profile.json')).catch((error) => { if (missing(error)) return undefined; throw error; })) {
+      commonGitReadBind(path.join(source.realPath, '.git'));
+    }
+    if (request.execution === 'docker') await dockerCreationPreflight(source.realPath, config);
     const baseline = await sourcePreflight(source, undefined, true);
     const rootProof = await validateRoot(config, ordinary, true);
     const id = randomUUID(); const sessionId = randomUUID();
@@ -362,6 +456,8 @@ export async function reconcileWorktrees(config: AppConfig): Promise<void> {
   // resolution still refuses any state other than ready; reconcile when the machine next idles.
   if (runRegistry.acquireMaintenance() !== 'acquired') return;
   try {
+    const { recoverDockerExecution } = await import('@/server/execution/dockerRecovery');
+    await recoverDockerExecution(config);
     const store = getSessionStore(config.dataDir, config.hostLabel);
     for (const record of records) {
       if (record.state === 'ready' || record.state === 'unavailable') continue;

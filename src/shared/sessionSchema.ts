@@ -229,8 +229,10 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 10;
+export const MAX_READABLE_SESSION_VERSION = 11;
 export const WORKTREE_SESSION_VERSION = 10;
+/** Older builds must hide Docker worktrees, which format 10 permits only on Local. */
+export const DOCKER_WORKTREE_SESSION_VERSION = 11;
 export const sessionWorktreeSchema = z.object({
   id: z.string().uuid(),
   originCheckoutId: z.string().min(1).max(128),
@@ -264,7 +266,7 @@ const sessionBase = {
   version: z.union([
     z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION),
     z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION), z.literal(NATIVE_MODE_SESSION_VERSION),
-    z.literal(WORKTREE_SESSION_VERSION),
+    z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION),
   ]),
   worktree: sessionWorktreeSchema.optional(),
   execution: z.enum(['local', 'docker']).optional(),
@@ -287,7 +289,7 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
     worktree?: unknown;
     execution?: 'local' | 'docker';
     instructions?: string;
@@ -305,9 +307,10 @@ function validateSession(
   },
   ctx: z.RefinementCtx,
 ): void {
-  if (value.worktree !== undefined && (value.version < WORKTREE_SESSION_VERSION || value.execution !== 'local'
+  if (value.worktree !== undefined && (value.version < WORKTREE_SESSION_VERSION
+    || value.execution === 'docker' && value.version < DOCKER_WORKTREE_SESSION_VERSION
     || value.repositories.length !== 1 || value.repositories[0].role !== 'primary')) {
-    ctx.addIssue({ code: 'custom', message: 'Managed worktrees require format 10 and one Local primary repository.', path: ['worktree'] });
+    ctx.addIssue({ code: 'custom', message: 'Managed worktrees require format 10 (11 for Docker) and one primary repository.', path: ['worktree'] });
   }
   if (value.version === 3 ? Object.hasOwn(value, 'execution') : value.execution === undefined) {
     ctx.addIssue({

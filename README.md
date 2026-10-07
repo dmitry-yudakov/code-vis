@@ -1132,7 +1132,7 @@ tracked `.env.example` contains no secrets.
 ### Session worktrees
 
 New session on the desktop, in Arena, and in VR offers **Use current checkout** by default and
-**Create a worktree** for an eligible Local repository. Loose Local sessions can also select a
+**Create a worktree** for an eligible repository with Local or Docker execution. Loose Local sessions can also select a
 checkout directly. A managed worktree starts from the source’s latest committed HEAD on a unique
 `codeai/session-<sessionId>` branch. Staged, unstaged, untracked, ignored, and private local files
 remain in the source; no setup, install, stash, or commit runs during creation. The conversation and
@@ -1142,17 +1142,24 @@ and Undo use that worktree; its project continues to reference the original repo
 Managed creation currently requires Linux, one ordinary primary Git checkout on the executing
 machine, a committed HEAD, and contained Git metadata/objects. Linked source worktrees, submodules,
 filters, included/custom checkout configuration, shallow/partial/promisor clones, and alternates
-are unavailable. Hooks are suppressed and creation is offline. A machine with a Docker provisioning
-record cannot create or operate managed worktrees, even with Docker disabled: its single-checkout
-Git helper lacks linked-worktree support. Provisioning Docker later keeps existing history readable
-and blocks worktree execution and Git operations. Continue in Docker is unavailable for linked worktrees.
+are unavailable. Hooks are suppressed and creation is offline. Docker provisioning preserves Local
+worktree availability. CodeAI's isolated Git helper receives the registered worktree's common Git
+metadata read-only. Docker Ask/Plan do likewise; Docker Agent additionally writes the selected
+worktree's own Git metadata and the shared objects, refs and logs directories. Source files, its
+index/HEAD and Git configuration are protected. Git branch refs and objects remain shared, and Undo
+does not restore Git history/index. Repository-wide Git administration stays outside the Docker
+worker. Only CodeAI-managed worktrees receive these extra mounts; arbitrary linked worktrees remain
+unsupported. Docker still refuses sources overlapping CodeAI's installation, data or provider storage.
+Continue in Docker/Local keeps the exact managed worktree. An ordinary-source writer waits while a
+linked Docker worker or Git helper holds its metadata; separate linked workers can coexist.
 
 `CODEAI_WORKTREES_ROOT` defaults to `~/.code-ai/worktrees` (the former
 `CODEAI_WEB2_WORKTREES_ROOT` spelling is accepted). It must be separate from the installation,
 data directory, provider folders, and ordinary checkouts; symlinked or changed parents are refused.
 Only the executing machine’s durable allowlist under `CODEAI_DATA_DIR/worktrees/` resolves managed
 checkouts outside ordinary discovery. Their path hashes remain machine-local checkout identities.
-New managed sessions use format 10; ordinary records retain their existing format versions.
+Local managed sessions use format 10, Docker managed sessions format 11; ordinary records retain
+their existing format versions. Older builds hide format 11 sessions individually.
 
 Creation briefly needs an idle machine, including queued turns and Undo. A durable intent holds the
 request UUID, original commit/bindings, generated identities, and Git linkage. **Retry** after a lost

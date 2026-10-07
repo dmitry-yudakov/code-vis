@@ -13,6 +13,13 @@ vi.mock('@/server/execution/dockerCommand', () => ({
 }));
 
 import { findChangedFile, readFileDiff, readWorkingTree } from '@/server/repository/gitRepository';
+import { getConfig } from '@/server/config';
+import { createManagedWorktree, readWorktreeRecords } from '@/server/repository/managedWorktrees';
+import { CheckoutRegistry } from '@/server/repository/checkoutRegistry';
+import { getSessionStore } from '@/server/storage/sessionStore';
+import { isolatedGitRead, withGitReadLease } from '@/server/repository/gitRead';
+import { getDockerRuntime } from '@/server/execution/dockerRuntime';
+import { runRegistry } from '@/server/runs/runRegistry';
 
 const execute = promisify(execFile);
 const directories: string[] = [];
@@ -57,6 +64,57 @@ afterEach(async () => {
 });
 
 describe('Git read isolation', () => {
+  it('retains a helper read lease when cleanup fails, until a retry confirms termination', async () => {
+    await recordProvisionedProfile();
+    mocks.command.mockImplementation(async (input: string[]) => input[2] === 'info' ? 'engine-original' : 'helper-id');
+    const runtime = getDockerRuntime(getConfig());
+    let confirm!: () => void;
+    const stopped = new Promise<void>((resolve) => { confirm = resolve; });
+    const cleanup = vi.spyOn(runtime, 'removeContainer').mockRejectedValueOnce(new Error('daemon stopped'))
+      .mockImplementationOnce(async () => stopped);
+    const release = runRegistry.acquireCheckoutRead(repository)!;
+    try {
+      await expect(withGitReadLease(release, () => isolatedGitRead(repository, ['status'], getConfig(), {}, [], async () => {
+        throw new Error('fixture interruption before start');
+      }))).rejects.toThrow('termination is unconfirmed');
+      expect(runRegistry.acquireCheckoutWrite(repository)).toBeUndefined();
+      confirm();
+      await vi.waitFor(() => {
+        const writer = runRegistry.acquireCheckoutWrite(repository);
+        expect(writer).toBeDefined(); writer!();
+      });
+    } finally { confirm(); cleanup.mockRestore(); }
+  });
+  it('binds only verified common Git metadata read-only for Local managed reads after provisioning', async () => {
+    const worktreesRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'codeai-helper-worktrees-')));
+    directories.push(worktreesRoot);
+    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', repository);
+    vi.stubEnv('CODEAI_WORKTREES_ROOT', worktreesRoot);
+    await execute('git', ['add', '.'], { cwd: repository });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'], { cwd: repository });
+    const checkoutId = (await new CheckoutRegistry(repository).list())[0].id;
+    try {
+      await createManagedWorktree({ provider: 'claude', checkoutId, checkoutMode: 'worktree', creationRequestId: crypto.randomUUID() }, getConfig());
+      const [record] = await readWorktreeRecords(dataDir);
+      await recordProvisionedProfile();
+      vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false');
+      mocks.command.mockImplementation(async (input: string[]) => {
+        if (input[2] === 'info') return 'engine-original';
+        if (input[3] === 'ls') return '';
+        throw new Error('Capture helper without starting Docker');
+      });
+      await expect(readWorkingTree(record.destination)).rejects.toThrow('Could not read Git status');
+      const launch = mocks.command.mock.calls.find(([input]) => input[2] === 'create')![0];
+      expect(launch.filter((arg: string) => arg.startsWith('type=bind'))).toEqual([
+        `type=bind,src=${record.destination},dst=/workspace,readonly`,
+        `type=bind,src=${record.originGit.path},dst=${record.originGit.path},readonly`,
+      ]);
+      const before = mocks.command.mock.calls.length;
+      await writeFile(path.join(record.destination, '.git'), 'gitdir: /outside/private\n');
+      await expect(readWorkingTree(record.destination)).rejects.toThrow();
+      expect(mocks.command).toHaveBeenCalledTimes(before);
+    } finally { await getSessionStore(dataDir).close(); }
+  });
   it('keeps host Git for status and diff while Docker is enabled but not yet provisioned', async () => {
     vi.stubEnv('CODEAI_DOCKER_ENABLED', 'true');
     const tree = await readWorkingTree(repository);

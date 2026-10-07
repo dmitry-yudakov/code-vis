@@ -211,7 +211,18 @@ Linux uses the owner's UID/GID; CodeAI does not recursively chown/chmod the chec
 Launch flags clear all [proxy variables Docker would otherwise inject from client configuration](https://docs.docker.com/engine/cli/proxy/).
 Only workers receive CodeAI's fixed provider proxy; helper containers receive empty proxy values.
 
-The checkout is one direct bind mount. Existing source, dependencies and build outputs remain
+The checkout is one direct bind mount. A CodeAI-managed worktree also receives its recorded common
+Git directory read-only at its original absolute path. Agent overlays writable binds for that
+worktree's own metadata and the common objects, refs and logs directories. The source checkout is
+absent; its index, HEAD and configuration are read-only. Git refs/objects are shared, including the
+ability to change other branch refs; Undo does not restore them. Shared Git administration such as
+repacking/rewriting packed refs is unavailable in this profile. Ask/Plan keep every metadata bind
+read-only. Only canonical, bidirectionally verified journal records authorize these mounts; neither
+an arbitrary `.git` pointer nor an unregistered user-created worktree does. Docker continues to
+refuse a protected source, including CodeAI's running installation. Existing worker images work
+without rebuilding: managed preparation uses the server's verified metadata preflight.
+
+Existing source, dependencies and build outputs remain
 visible at their original paths; preparation validates Git metadata without creating directories.
 Agent dependency installs, lockfile changes and generated outputs affect the host checkout directly.
 Ask/Plan cannot write anywhere in the checkout, including existing `node_modules` or build output
@@ -247,8 +258,13 @@ helper receives its patterns as an environment value, never as a mount. A custom
 is a symlink into a checkout that Docker Agent edits, the agent can repoint it at another of the
 user's files and infer its lines from what the Git view hides. Keep linked configuration out of such
 checkouts.
-The helper binds only the selected root: external metadata in a Local linked worktree can make
-its Git view unavailable after provisioning as well. It never adds that external directory as a mount.
+The helper binds the selected root and, for a verified CodeAI-managed worktree only, its recorded
+common Git directory read-only. Local managed worktrees remain available after provisioning and
+with Docker execution disabled. Metadata read leases exclude ordinary-source writers through
+confirmed helper/worker termination; linked Docker workers can coexist. Every bind is rechecked
+before start, including the device/inode identities of writable Git directories. Unregistered linked
+worktrees remain unsupported. Run `npm run test:docker:worktrees` for a disposable, offline Git/mount
+probe against the installed worker image; it needs no provider login.
 
 ### Your global instructions and customizations
 

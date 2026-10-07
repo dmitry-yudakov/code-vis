@@ -112,9 +112,9 @@ export const createSessionRequestSchema = z.object({
   : !(input.checkoutId && input.projectId), {
   message: 'Choose a source session and execution, a project, or a direct checkout.',
 }).refine((input) => input.checkoutMode === 'worktree'
-  ? input.execution !== 'docker' && Boolean(input.creationRequestId && (input.projectId || input.checkoutId))
+  ? Boolean(input.creationRequestId && (input.projectId || input.checkoutId))
   : !input.creationRequestId, {
-  message: 'Worktree creation requires Local, a source repository, and a creation request UUID.',
+  message: 'Worktree creation requires a source repository and a creation request UUID.',
 });
 
 export const sessionLifecycleRequestSchema = z.object({
