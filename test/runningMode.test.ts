@@ -101,6 +101,32 @@ afterEach(async () => {
 });
 
 describe.sequential('changing the current turn mode', () => {
+  it.each([false, true])('retains logical delivery when a resumed attempt fails (acknowledged: %s)', async (acknowledged) => {
+    fixture.run = async (input) => {
+      if (fixture.attempts.length > 1) throw new AgentRunError('oversized-output', 'Resume too large', 'not-sent');
+      if (acknowledged) input.emit({ type: 'turn-started' });
+      return interrupted(input); // Its cancellation means input may have arrived even without an acknowledgement.
+    };
+    const turn = await start();
+    expect((await turn.select('plan')).status).toBe(200);
+    const streamed = await events(turn.response);
+    await runRegistry.wait(turn.runId);
+    expect(streamed).toContainEqual(expect.objectContaining({ type: 'error', code: 'oversized-output', delivery: 'possibly-sent' }));
+    expect((await store.getSession(turn.session.id)).messages[0]).toMatchObject({ status: 'failed', delivery: 'possibly-sent' });
+  });
+
+  it('finalizes a first-attempt resume failure and releases admission without marking its message sent', async () => {
+    const finish = vi.spyOn(checkpoints, 'finish');
+    fixture.run = async () => { throw new AgentRunError('oversized-output', 'Resume too large', 'not-sent'); };
+    const turn = await start();
+    await events(turn.response);
+    await runRegistry.wait(turn.runId);
+    expect((await store.getSession(turn.session.id)).messages[0]).toMatchObject({ status: 'failed', delivery: 'not-sent' });
+    expect(finish).toHaveBeenCalledOnce();
+    expect(runRegistry.acquireMaintenance()).toBe('acquired');
+    runRegistry.releaseMaintenance();
+  });
+
   it('closes pending cards, resumes the same session/evidence in Plan, and saves one final answer', async () => {
     const capture = vi.spyOn(checkpoints, 'capture');
     const finish = vi.spyOn(checkpoints, 'finish');

@@ -167,6 +167,10 @@ Updated 2026-10-07. When a story ships, change the line that names it; each stor
   leases; full worktree creation validation and restart exclusions remain. All 1,177 tests,
   TypeScript, the production build and independent review passed. Observation in the rebuilt
   running app remains a follow-up.
+- **Shipped:** [Story 97](stories/STORY-20261007-codex-resume-without-history.md) — Codex resumes
+  older threads without returning their history, keeping event bounds, thread identity and accurate
+  delivery across mode changes. The installed CLI probe, automated checks and independent review
+  passed; the running application has not been restarted.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
