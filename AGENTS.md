@@ -64,9 +64,9 @@ Updated 2026-10-06. When a story ships, change the line that names it; each stor
   views honor the user's personal Git ignore file (`~/.config/git/ignore`), on host Git and in the
   Docker helper alike; verified against a real helper, and a check in the running app remains pending.
 - **Also in flight:** [Story 69](stories/STORY-20260924-archive-from-conversation.md) — archive the
-  open conversation from inside it: More → Archive session on the desktop, and Session tools →
-  Archive session in VR, which then brings the Arena forward; implemented with automated checks, and
-  the Quest 3S run remains pending.
+  open conversation from inside it: desktop Arena, Inbox, and More archive with one click and Undo;
+  VR Session tools → Archive session brings the Arena forward. Automated checks pass; the Quest 3S
+  run remains pending.
 - **Also in flight:** [Story 70](stories/STORY-20260924-remember-turn-choices.md) — this device
   remembers the last mode, new-session provider, and each provider's model and effort, and new
   sessions and agents start there; implemented with automated checks, and a check in the running app

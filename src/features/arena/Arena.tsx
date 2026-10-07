@@ -199,7 +199,6 @@ export function Arena({
   };
 
   const archive = (targetMachineId: string, session: ArenaSessionSummary) => {
-    if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
     const key = actionKey(targetMachineId, session.id);
     setArchiving(key);
     void onArchiveSession(targetMachineId, session).finally(() => setArchiving(undefined));

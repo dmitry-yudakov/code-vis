@@ -2241,7 +2241,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 title={sessionLive ? 'Wait for the current turn to finish before archiving.'
                   : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined}
                 onClick={() => {
-                  if (!window.confirm(`Archive “${session.title}”? You can restore it later from Archived.`)) return;
                   moreMenuRef.current?.removeAttribute('open');
                   void archiveOpenSession();
                 }}

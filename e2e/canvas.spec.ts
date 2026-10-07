@@ -744,7 +744,9 @@ test('routes Arena views through browser history without remounting the shell', 
   expect((await request.get('/arena/not-a-view')).status()).toBe(404);
 });
 
-test('orchestrates cross-project attention and starts configured work from the Arena', async ({ page, request }) => {
+test('orchestrates cross-project attention, archives from the Inbox, and starts configured work from the Arena', async ({ page, request }) => {
+  const dialogs: string[] = [];
+  page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); });
   const alphaProject = `Arena Alpha ${Date.now()}`;
   const betaProject = `Arena Beta ${Date.now()}`;
   await page.goto('/');
@@ -788,6 +790,13 @@ test('orchestrates cross-project attention and starts configured work from the A
   await finishedItem.getByRole('button', { name: 'Mark read' }).click();
   await expect(finishedItem).toHaveClass(/read/);
 
+  await finishedItem.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(finishedItem).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
+  expect(dialogs).toEqual([]);
+  await page.getByRole('button', { name: 'Undo archive' }).click();
+  await expect(finishedItem).toBeVisible();
+
   await arena.getByRole('tab', { name: /Active/ }).click();
   await expect(page).toHaveURL(/\/arena$/);
   const alphaGroup = arena.getByRole('region', { name: alphaProject });
@@ -829,6 +838,8 @@ test('orchestrates cross-project attention and starts configured work from the A
 });
 
 test('archives and restores an idle session from the Arena', async ({ page, request }) => {
+  const dialogs: string[] = [];
+  page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); });
   const projectName = `Arena archive ${Date.now()}`;
   await page.goto('/');
   await createNamedProject(page, projectName);
@@ -854,10 +865,10 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   await expect(card).toHaveCount(1);
 
   await card.locator('.arena-card-menu summary').click();
-  page.once('dialog', (dialog) => dialog.accept());
   await card.getByRole('button', { name: 'Archive session' }).click();
   await expect(project).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
+  expect(dialogs).toEqual([]);
   expect(await page.evaluate(() => {
     const stored = JSON.parse(localStorage.getItem('code-ai:device:v1:workspace') || '{}') as {
       scopes?: Record<string, { openSessionIds?: string[] }>;
@@ -887,6 +898,8 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
 });
 
 test('archives the open session from the More menu', async ({ page, request }) => {
+  const dialogs: string[] = [];
+  page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); });
   const projectName = `Menu archive ${Date.now()}`;
   await page.goto('/');
   await createNamedProject(page, projectName);
@@ -924,9 +937,6 @@ test('archives the open session from the More menu', async ({ page, request }) =
 
   await menu.locator('summary').click();
   await expect(archive).toBeEnabled();
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await archive.click();
-  await page.waitForTimeout(100);
   expect(archiveRequests).toEqual([]);
   await expect(page.getByRole('tab')).toHaveCount(2);
 
@@ -934,10 +944,6 @@ test('archives the open session from the More menu', async ({ page, request }) =
   let releaseArchive!: () => void;
   const archiveHeld = new Promise<void>((resolve) => { releaseArchive = resolve; });
   await page.route('**/api/sessions/*/archive', async (route) => { await archiveHeld; await route.continue(); });
-  page.once('dialog', (dialog) => {
-    expect(dialog.message()).toContain('You can restore it later from Archived.');
-    return dialog.accept();
-  });
   await archive.click();
   await expect(menu).not.toHaveAttribute('open');
   await menu.locator('summary').click();
@@ -945,6 +951,7 @@ test('archives the open session from the More menu', async ({ page, request }) =
   await menu.locator('summary').click();
   releaseArchive();
   await expect(page.getByRole('tab')).toHaveCount(1);
+  expect(dialogs).toEqual([]);
   expect(archiveRequests).toHaveLength(1);
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   expect(await sessionIds()).not.toContain(archivedId);
@@ -955,6 +962,8 @@ test('archives the open session from the More menu', async ({ page, request }) =
 });
 
 test('stacks notices as toasts in the canvas corner and lets only what can wait time out', async ({ page }) => {
+  const dialogs: string[] = [];
+  page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); });
   await page.clock.install();
   await page.goto('/');
   await createNamedProject(page, `Toasts ${Date.now()}`);
@@ -1028,10 +1037,10 @@ test('stacks notices as toasts in the canvas corner and lets only what can wait 
   // Undo archive turns into the restored toast, which leaves 6 s later once the pointer is away.
   const menu = page.locator('.more-menu');
   await menu.locator('summary').click();
-  page.once('dialog', (dialog) => dialog.accept());
   await menu.getByRole('button', { name: 'Archive session', exact: true }).click();
   const archived = toast(page, /^Archived “/);
   await expect(archived).toHaveAttribute('data-tone', 'success');
+  expect(dialogs).toEqual([]);
   await archived.getByRole('button', { name: 'Undo archive' }).click();
   const restored = toast(page, /^Restored “/);
   await expect(restored).toBeVisible();

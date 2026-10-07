@@ -48,36 +48,50 @@ session only when it first opens, so a person who has browsed rows since has to 
 
 ### October 2, 2026 follow-up — desktop archive without confirmation
 
+**Follow-up status:** Shipped (October 7, 2026). The story's original Quest 3S acceptance remains pending.
+
 The user asked to remove the desktop confirmation because archiving already offers an **Undo
 archive** toast. This updates the desktop confirmation requirements below; VR keeps its existing
 confirmation because its status line does not expose the toast's Undo action.
 
+October 7 investigation: commit `3c8660c` specified this follow-up, but both desktop
+`window.confirm` calls and the browser tests accepting those dialogs were still in the checkout.
+The reported Arena prompt came from that unfinished implementation. Both calls are now removed.
+
 Where the code is:
 
-- [AppShell.tsx:2125](../src/features/shell/AppShell.tsx#L2125) — the More menu's archive prompt.
-- [Arena.tsx:191](../src/features/arena/Arena.tsx#L191) — the Arena and Inbox archive prompt.
-- [AppShell.tsx:1556](../src/features/shell/AppShell.tsx#L1556) — the shared archive success toast
+- [AppShell.tsx:2243](../src/features/shell/AppShell.tsx#L2243) — the More menu's single-click archive.
+- [Arena.tsx:201](../src/features/arena/Arena.tsx#L201) — the shared Arena and Inbox archive action.
+- [AppShell.tsx:1666](../src/features/shell/AppShell.tsx#L1666) — the shared archive success toast
   and Undo action.
-- [canvas.spec.ts:834](../e2e/canvas.spec.ts#L834) — existing archive, restore, and Undo scenarios.
+- [canvas.spec.ts:747](../e2e/canvas.spec.ts#L747) — Inbox archive/Undo without a browser dialog.
+- [canvas.spec.ts:840](../e2e/canvas.spec.ts#L840) — Arena/More archive, restore, Undo, and toast checks.
 
 Remove both desktop archive prompts. A single click archives using the existing handler and
 offers Undo. Keep the menu closing and the live-turn, offline, and in-flight checks.
 
 Follow-up acceptance criteria:
 
-- [ ] More → Archive session archives with one click, closes the menu, and shows Undo archive.
-- [ ] Arena and Inbox archive actions archive with one click and show Undo archive.
-- [ ] Desktop archive scenarios assert no browser dialog and still verify restore and Undo.
-- [ ] Type checking and the focused desktop archive/toast browser checks pass.
+- [x] More → Archive session archives with one click, closes the menu, and shows Undo archive.
+- [x] Arena and Inbox archive actions archive with one click and show Undo archive.
+- [x] Desktop archive scenarios assert no browser dialog and still verify restore and Undo.
+- [x] Type checking and the focused desktop archive/toast browser checks pass.
 
 Follow-up verification: `npm run lint` and
 `npm run test:e2e -- e2e/canvas.spec.ts -g "archives|stacks notices"`.
 
+Verification on October 7: all four revised browser checks failed against the original code
+specifically because an archive dialog appeared. After removing the calls, all four pass;
+`npm run lint` and the isolated production build pass too. The More check also preserves live-turn
+exclusion, menu closing, and the in-flight duplicate guard. The toast check verifies Undo and its
+existing lifetime. Both existing managed-worktree archive/restore journeys pass in light and dark
+themes. Independent read-only review found no functional issues.
+
 ### Concrete changes
 
 1. **Desktop.** The More menu shows **Archive session** under Export session while a session is
-   open. It uses the Arena card's confirmation text. When the person confirms, the menu closes and
-   Story 39's archive runs unchanged: the tab closes, the next open tab takes focus, and **Undo
+   open. One click closes the menu without a browser dialog. Story 39's archive runs unchanged:
+   the tab closes, the next open tab takes focus, and **Undo
    archive** is offered. The button is disabled while this session has a turn preparing, queued,
    running, or waiting for approval, while its machine is offline, and while its archive request is
    in flight. Its tooltip says why.
@@ -106,8 +120,8 @@ Follow-up verification: `npm run lint` and
 
 ## Acceptance criteria
 
-- [x] Desktop: More → Archive session asks for confirmation. Declining sends nothing. Accepting
-      archives the open session, closes its tab and the menu, and offers Undo archive.
+- [x] Desktop: More → Archive session archives the open session with one click and no browser
+      dialog, closes its tab and the menu, and offers Undo archive.
 - [x] Desktop: Archive session is disabled while the open session's turn is live, and while its
       archive request is in flight.
 - [x] VR: with no live turn, the Cancel run slot shows Archive session. With a live turn, it shows
@@ -130,7 +144,7 @@ Follow-up verification: `npm run lint` and
 - Any server, route, or store change. Story 39 already enforces run exclusion and revisions.
 - Waiting for this device's pending session writes (a pin or drawing save) before archiving. A
   write that lands first makes the archive fail with a conflict, and choosing Archive session again
-  succeeds. Confirming takes far longer than the 250 ms drawing save delay.
+  succeeds.
 
 ## How to verify
 
@@ -154,8 +168,9 @@ Follow-up verification: `npm run lint` and
     ([AppShell.tsx:1679](../src/features/shell/AppShell.tsx#L1679)) to the unchanged
     `archiveArenaSession`, which now takes only the four fields it reads
     ([AppShell.tsx:1373](../src/features/shell/AppShell.tsx#L1373)).
-- **Desktop.** The More menu button confirms, closes the menu through `headerMenuRef`, and archives
-  ([AppShell.tsx:1938](../src/features/shell/AppShell.tsx#L1938)).
+- **Desktop.** The More menu button closes the menu through `moreMenuRef` and archives with one
+  click ([AppShell.tsx:2243](../src/features/shell/AppShell.tsx#L2243)). Arena and Inbox use the same
+  single-click handler ([Arena.tsx:201](../src/features/arena/Arena.tsx#L201)); all offer Undo archive.
 - **VR controls.** `sessionTitle`, `canArchive`, `onArchive`, and the `archive` / `confirm-archive`
   actions ([sessionControls.ts:91](../src/features/shell/immersive/sessionControls.ts#L91)).
 - **VR Session tools.** The shared slot

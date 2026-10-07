@@ -115,7 +115,6 @@ for (const theme of ['light', 'dark']) test(`creates and retains a managed workt
   const next = (await (await nextResponse).json()).session as PublicSession;
   expect(next.repositories).toEqual(session.repositories); expect(next.worktree).toEqual(session.worktree);
   await expect(conversation).toContainText('New chat shares this worktree');
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByLabel('More', { exact: true }).click(); await page.getByRole('button', { name: 'Archive session', exact: true }).click();
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
