@@ -4,6 +4,7 @@ export interface CheckoutSummary {
   id: string;
   name: string;
   relativePath: string;
+  /** Advisory source eligibility; creation independently repeats full validation. */
   worktreeCreation?: WorktreeCapability;
   worktree?: SessionWorktree;
   branch?: string;

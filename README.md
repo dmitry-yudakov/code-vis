@@ -1141,6 +1141,10 @@ remain in the source; no setup, install, stash, or commit runs during creation. 
 Arena identify its live branch and source. Provider cwd, repository reads, model accumulation,
 and Undo use that worktree; its project continues to reference the original repository.
 
+Checkout listing offers worktree creation from lightweight filesystem checks, without Git or
+Docker probes on each Arena poll. Submission independently performs full, fresh source validation;
+unsupported configuration or missing objects can still refuse creation before anything is changed.
+
 Managed creation currently requires Linux, one ordinary primary Git checkout on the executing
 machine, a committed HEAD, and contained Git metadata/objects. Linked source worktrees, submodules,
 filters, included/custom checkout configuration, shallow/partial/promisor clones, and alternates

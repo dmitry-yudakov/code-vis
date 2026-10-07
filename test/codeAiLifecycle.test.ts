@@ -80,6 +80,22 @@ describe('the managed server’s lifecycle', () => {
     expect(registry.acquireMaintenance()).toBe('acquired');
   });
 
+  it('waits for actual Git helper and Undo leases before admitting a restart', () => {
+    const { bridge, sent } = fakeBridge();
+    const registry = new RunRegistry();
+    const lifecycle = new CodeAiLifecycle(bridge, registry);
+    const read = registry.acquireCheckoutRead('/checkout')!;
+    expect(registry.list().active).toEqual([]);
+    expect(lifecycle.start()).toEqual({ accepted: false, reason: 'live-runs' });
+    expect(sent).toEqual([]);
+    read();
+    const write = registry.acquireCheckoutWrite('/checkout')!;
+    expect(lifecycle.start()).toEqual({ accepted: false, reason: 'live-runs' });
+    write();
+    expect(lifecycle.start()).toMatchObject({ accepted: true });
+    expect(sent).toHaveLength(1);
+  });
+
   it('mirrors the parent’s status, releases the lease when told, and answers the parent’s lease requests', () => {
     const { bridge, sent, deliver } = fakeBridge();
     const registry = new RunRegistry();

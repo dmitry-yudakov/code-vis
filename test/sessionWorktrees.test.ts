@@ -53,6 +53,70 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await store.close(); vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
 
 describe('managed session worktrees with real Git', () => {
+  it('lists ordinary sources repeatedly and concurrently without Git helpers or checkout leases after provisioning', async () => {
+    const config = getConfig();
+    await mkdir(path.join(config.dataDir, 'docker'), { recursive: true });
+    await writeFile(path.join(config.dataDir, 'docker/profile.json'), '{}');
+    const helper = vi.spyOn(gitReader, 'isolatedGitRead').mockRejectedValue(new Error('Listing must not execute Git'));
+    const readLease = vi.spyOn(runRegistry, 'acquireCheckoutRead');
+    const branch = await git(source, 'branch', '--show-current');
+    const registry = getCheckoutRegistry(source);
+    expect(runRegistry.acquireMaintenance()).toBe('acquired');
+    try {
+      for (let poll = 0; poll < 3; poll += 1) {
+        const results = await Promise.all([registry.list(), registry.list(), registry.list()]);
+        for (const checkouts of results) {
+          expect(checkouts[0].worktreeCreation).toMatchObject({ available: true, branch });
+          expect(checkouts[0]).not.toHaveProperty('realPath');
+        }
+      }
+      expect(helper).not.toHaveBeenCalled();
+      expect(readLease).not.toHaveBeenCalled();
+    } finally { runRegistry.releaseMaintenance(); }
+    expect(runRegistry.acquireMaintenance()).toBe('acquired');
+    runRegistry.releaseMaintenance();
+  });
+
+  it('reads current source branch labels and detached SHA-1/SHA-256 HEAD without running Git', async () => {
+    const checkout = (await new CheckoutRegistry(source).refresh())[0];
+    const capability = { available: true };
+    const branch = await git(source, 'branch', '--show-current');
+    expect(await sourceWorktreeCapability(checkout, capability)).toMatchObject({ available: true, branch });
+    await writeFile(path.join(source, '.git/HEAD'), 'ref: refs/heads/changed-branch\n');
+    expect(await sourceWorktreeCapability(checkout, capability)).toMatchObject({ available: true, branch: 'changed-branch' });
+    for (const length of [40, 64]) {
+      await writeFile(path.join(source, '.git/HEAD'), `${'a'.repeat(length)}\n`);
+      expect(await sourceWorktreeCapability(checkout, capability)).toMatchObject({ available: true, branch: 'Detached HEAD' });
+    }
+  });
+
+  it.each(['missing', 'oversized', 'malformed', 'directory', 'fifo', 'symlink'] as const)('does not offer worktree creation for a %s HEAD', async (kind) => {
+    const checkout = (await new CheckoutRegistry(source).refresh())[0];
+    const head = path.join(source, '.git/HEAD');
+    await rm(head);
+    if (kind === 'oversized') await writeFile(head, `ref: refs/heads/${'x'.repeat(4096)}\n`);
+    if (kind === 'malformed') await writeFile(head, 'not a Git HEAD\n');
+    if (kind === 'directory') await mkdir(head);
+    if (kind === 'fifo') await execute('mkfifo', [head]);
+    if (kind === 'symlink') {
+      const outside = path.join(root, 'outside-head');
+      await writeFile(outside, 'ref: refs/heads/outside\n');
+      await symlink(outside, head);
+    }
+    expect(await sourceWorktreeCapability(checkout, { available: true })).toMatchObject({ available: false });
+  });
+
+  it('does not offer another worktree from a non-Git source, redirected metadata, or a managed worktree', async () => {
+    const checkout = (await new CheckoutRegistry(source).refresh())[0];
+    const session = await createManagedWorktree(request(), getConfig());
+    const managed = await getCheckoutRegistry(source).resolve(session.repositories[0].checkoutId);
+    expect(await sourceWorktreeCapability(managed, { available: true })).toMatchObject({ available: false });
+    await rename(path.join(source, '.git'), path.join(root, 'outside-git'));
+    expect(await sourceWorktreeCapability(checkout, { available: true })).toMatchObject({ available: false });
+    await symlink(path.join(root, 'outside-git'), path.join(source, '.git'));
+    expect(await sourceWorktreeCapability(checkout, { available: true })).toMatchObject({ available: false });
+  });
+
   it('materializes only the committed baseline, preserves dirty source/index, and keeps project identity', async () => {
     await writeFile(path.join(source, 'file.txt'), 'staged\n'); await git(source, 'add', 'file.txt');
     await writeFile(path.join(source, 'file.txt'), 'unstaged\n');
@@ -388,6 +452,7 @@ describe('managed session worktrees with real Git', () => {
   });
 
   it.each(['filter', 'promisor', 'alternates', 'symlink', 'unborn', 'submodule', 'missing-object'])('refuses %s before mutation and never executes fixture filters or credential helpers', async (kind) => {
+    expect((await getCheckoutRegistry(source).list())[0].worktreeCreation).toMatchObject({ available: true });
     const marker = path.join(root, 'marker');
     await git(source, 'config', 'credential.helper', `!touch ${marker}`);
     if (kind === 'filter') { await git(source, 'config', 'filter.fixture.process', `touch ${marker}`); await writeFile(path.join(source, '.gitattributes'), '* filter=fixture\n'); }

@@ -136,11 +136,17 @@ async function containedMetadata(gitDirectory: string): Promise<void> {
   await walk(gitDirectory);
 }
 
-async function sourceMetadata(checkout: ServerCheckout) {
+/** Cheap structural eligibility; it never executes Git or walks the metadata contents. */
+async function sourceGitDirectory(checkout: ServerCheckout) {
   if (checkout.worktree || await realpath(checkout.realPath) !== checkout.realPath) conflict('Choose an ordinary source checkout for a new worktree.');
   const gitPath = path.join(checkout.realPath, '.git');
   const info = await lstat(gitPath).catch(() => undefined);
   if (!info?.isDirectory() || info.isSymbolicLink()) conflict('Managed creation requires a normal contained .git directory; linked worktrees and non-Git folders are unavailable.');
+  return { gitPath, info };
+}
+
+async function sourceMetadata(checkout: ServerCheckout) {
+  const { gitPath, info } = await sourceGitDirectory(checkout);
   await containedMetadata(gitPath);
   for (const file of ['commondir', 'config.worktree', 'objects/info/alternates', 'objects/info/http-alternates', 'shallow']) {
     if (await lstat(path.join(/* turbopackIgnore: true */ gitPath, file)).catch(() => undefined)) conflict('Managed creation does not support external object storage, shallow clones, or external Git metadata.');
@@ -173,10 +179,17 @@ async function inspectSource(checkout: ServerCheckout, baseCommit?: string, full
   return { commit, branch, originGit: { path: gitPath, identity: identity(info) } };
 }
 
+/** Listing is advisory: full, fresh source preflight runs only before creation, never on Arena polls. */
 export async function sourceWorktreeCapability(checkout: ServerCheckout, machine: WorktreeCapability, config = getConfig()): Promise<WorktreeCapability> {
   if (!machine.available) return machine;
   try {
-    const branch = (await sourcePreflight(checkout, undefined, true)).branch;
+    const { gitPath } = await sourceGitDirectory(checkout);
+    const headFile = await readBoundedTextFile(path.join(gitPath, 'HEAD'), 4096, { exactly: true });
+    if (!('text' in headFile)) conflict('The source Git HEAD is unavailable or changed.');
+    const head = headFile.text.trim();
+    const ref = /^ref: refs\/heads\/([^\s]+)$/.exec(head);
+    const branch = ref ? ref[1] : /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head) ? 'Detached HEAD' : undefined;
+    if (!branch) conflict('The source Git HEAD is invalid.');
     if (await lstat(path.join(config.dataDir, 'docker', 'profile.json')).catch((error) => { if (missing(error)) return undefined; throw error; })) {
       commonGitReadBind(path.join(checkout.realPath, '.git'));
     }

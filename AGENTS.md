@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-10-06. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-07. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -162,6 +162,11 @@ Updated 2026-10-06. When a story ships, change the line that names it; each stor
   bounded Git metadata mounts. All 1,167 offline tests, TypeScript, production build, five browser
   checks, real Docker Git/mount checks and independent review passed. Signed-in provider turns,
   production attached-executor transport and physical Quest use were not rerun.
+- **Shipped:** [Story 96](stories/STORY-20261007-stop-arena-git-helper-churn.md) — Arena source
+  listing uses lightweight filesystem checks instead of spawning Git helpers and holding checkout
+  leases; full worktree creation validation and restart exclusions remain. All 1,177 tests,
+  TypeScript, the production build and independent review passed. Observation in the rebuilt
+  running app remains a follow-up.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
