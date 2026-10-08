@@ -1311,6 +1311,8 @@ See [.env.example](.env.example). The most useful options are:
   and for Agent and Auto respectively;
 - `CODEAI_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_MAX_TRANSCRIPT_BYTES` — server-side prompt bounds
   applied to the canonical host transcript;
+- `CODEAI_LOG_DIR` — opt-in rotating server console files, for example `./logs`; see below;
+- `CODEAI_LOG_MAX_BYTES` / `CODEAI_LOG_MAX_FILES` — bytes per log file and total retained files;
 - response, Mermaid, attachment, and Git-context bounds.
 
 **`CODEAI_WEB2_*` compatibility.** Every setting above also accepts its former `CODEAI_WEB2_*`
@@ -1334,6 +1336,65 @@ The health endpoint checks infrastructure and each provider independently, witho
 model. Claude flags are checked through `claude --help`; Codex performs a bounded App Server
 handshake plus account and effective-capability inventory. A missing, logged-out, incompatible, or
 over-capable provider is reported without making a healthy provider unusable.
+
+### Server log files
+
+To let a coding agent investigate server issues from the checkout, add this to `.env.local` and
+restart with your usual server command:
+
+```dotenv
+CODEAI_LOG_DIR=./logs
+CODEAI_LOG_MAX_BYTES=10485760
+CODEAI_LOG_MAX_FILES=5
+# Optional: include the existing compact agent turn diagnostics.
+CODEAI_DEBUG_AGENT=1
+```
+
+Log settings are read when the launcher starts. With `start:managed`, stop and run
+`npm run start:managed` again after changing them; the in-app Build & restart action replaces only
+the child server and keeps the existing log capture settings.
+
+`npm run dev` (including `devs`), `npm start`, `start:remote`, and `start:managed` keep their console
+output and also write timestamped stdout/stderr lines to `logs/server.log`. Managed server swaps
+and rebuild output stay in the same capture. This records existing console diagnostics, including
+startup errors and printed stack traces. It does not add request, browser, or provider transcript
+logging. Running Next directly bypasses this capture; standalone `npm run build` keeps console-only
+output.
+
+Production output can be sparse, especially while idle. `CODEAI_DEBUG_AGENT=1` adds the existing
+agent turn, tool, permission and provider-error diagnostics when turns run. This capture cannot
+cover every issue: handled API failures may be returned to the browser without being printed,
+and browser-only errors stay in the browser. Broader coverage needs application error and request
+instrumentation in addition to these files.
+
+The example keeps at most five files of 10 MiB each. `server.log.1` is the newest archive, followed
+by `.2`, `.3`, and `.4`. Restarting appends to the current file; lowering retention prunes excess
+archives. Oversized lines are split between characters to keep each file within its byte limit.
+If you lower the byte limit, existing history keeps its original size until rotation ages it out;
+new output uses the new limit.
+Ask the agent to read `logs/server.log` and, if needed, the numbered archives; Git ignore does not
+prevent direct filesystem reads. For example:
+
+```sh
+tail -n 200 logs/server.log
+rg -n 'Error|failed|\[agent' logs/server.log*
+```
+
+File logging is disabled when `CODEAI_LOG_DIR` is unset. Relative paths resolve from the project
+root; absolute paths and `~/` also work. Settings use the normal Next development/production
+environment-file precedence and accept `CODEAI_WEB2_*` aliases. Byte limits are 1 KiB–100 MiB;
+file counts are 1–100, including the current file. Use a separate log directory for each concurrently
+running server. A filesystem failure disables file capture with one console warning while the
+server and its console continue running.
+Log paths must use ordinary directories and files; symbolic-link directories or current log files
+disable file capture with a warning.
+If the console destination closes or fails, the launcher shuts down the server, flushes the log,
+and exits with a failure code.
+
+The standard `logs/` directory is Git-ignored. Add any custom directory to your local Git excludes
+or `.gitignore`. Files contain the console text you already produce; they may include repository
+paths and command details. New directories and files use owner-only permissions. Logging does
+not inspect environment values or provider credential files.
 
 ## Documentation
 

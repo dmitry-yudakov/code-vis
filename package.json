@@ -7,12 +7,12 @@
     "node": ">=20.9.0"
   },
   "scripts": {
-    "dev": "next dev -p 3023",
+    "dev": "node --import tsx scripts/run-server.ts development node_modules/next/dist/bin/next dev -p 3023",
     "devs": "npm run dev -- --experimental-https   --experimental-https-key .cert/codeai-key.pem   --experimental-https-cert .cert/codeai-cert.pem",
     "build": "next build",
-    "start": "next start -p 3023",
-    "start:remote": "NODE_ENV=production node scripts/start-remote.mjs",
-    "start:managed": "node --import tsx scripts/start-managed.ts",
+    "start": "node --import tsx scripts/run-server.ts production node_modules/next/dist/bin/next start -p 3023",
+    "start:remote": "NODE_ENV=production node --import tsx scripts/run-server.ts production scripts/start-remote.mjs",
+    "start:managed": "node --import tsx scripts/run-server.ts production --import tsx scripts/start-managed.ts",
     "device:pair": "tsx scripts/create-pairing-code.ts",
     "machine:pair": "tsx scripts/create-machine-pairing-code.ts",
     "machine:attach": "tsx scripts/attach-machine.ts",
@@ -46,6 +46,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "three": "^0.185.1",
+    "tsx": "^4.23.12",
     "zod": "^4.1.11"
   },
   "devDependencies": {
@@ -54,7 +55,6 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/three": "^0.185.4",
-    "tsx": "^4.23.12",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }

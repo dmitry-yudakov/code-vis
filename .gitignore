@@ -21,6 +21,9 @@ playwright-report/
 !.env.example
 .cert/
 
+# Optional rotating server diagnostics, readable by agents through their explicit path.
+/logs/
+
 # Legacy runtime build output (see legacy/README.md)
 !legacy/extension/out/public/index.html
 out

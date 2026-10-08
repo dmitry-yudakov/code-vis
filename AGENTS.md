@@ -181,6 +181,9 @@ Updated 2026-10-07. When a story ships, change the line that names it; each stor
   Arena and VR name blockers and retain explicit Retry. All 1,201 offline tests, TypeScript, build,
   six browser checks, real Docker checks and repeated independent review passed. Physical Quest,
   production attached transport and observation in the rebuilt app remain unverified.
+- **Shipped:** [Story 99](stories/STORY-20261008-rotating-server-logs.md) — opt-in rotating server
+  console files under `CODEAI_LOG_DIR` let agents investigate from the checkout; 58 focused tests,
+  TypeScript, isolated Next.js smoke checks and independent review passed.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
@@ -228,6 +231,11 @@ directory. Nothing in the root build traverses it.
 and the generated-type entries in `tsconfig.json`. They are committed as written so a dev run leaves
 the working tree clean — edit them only through Next.js. Next also writes `next-env.d.ts`, which is
 git-ignored as Next.js recommends: every dev, build, and e2e run points it at its own build directory.
+
+Optional server diagnostics: `CODEAI_LOG_DIR=./logs` copies stdout/stderr from the normal server
+commands into Git-ignored `logs/server.log` and numbered archives (`.1` is newest). Read these
+paths explicitly when investigating runtime problems; `rg --files` may skip ignored logs.
+`CODEAI_DEBUG_AGENT=1` includes existing compact agent diagnostics. See README's Server log files.
 
 ## Source ownership
 
