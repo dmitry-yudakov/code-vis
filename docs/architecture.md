@@ -15,8 +15,14 @@ creation and maintenance, then grants exclusive source/common-Git and destinatio
 live turns, Git reads and Undo. Fresh journal membership includes managed siblings; bounded
 contained-metadata validation proves ordinary checkouts independent. Unregistered linked or
 redirected metadata and unseen checkout scopes are conservatively excluded without trusting their
-Git pointers. Unrelated proved checkouts remain usable. Ownership covers bounded offline preflight,
-an immutable durable intent, Git creation/materialization, session save, and confirmed helper cleanup.
+Git pointers. Story 102 allows existing Local turns at exact, freshly verified source and ready
+sibling roots, plus explicitly read-only Git/helper mounts, during scope acquisition. Writing
+Docker turns and writable common-metadata leases remain incompatible. Undo, nested/enclosing or
+unproved scopes, and competing maintenance/creation still exclude admission; new affected turns
+wait through persistence. Source identity, contained metadata, strict configuration and destination
+linkage are checked again at mutation boundaries. Unrelated proved checkouts remain usable.
+Ownership covers bounded offline preflight, an immutable durable intent, Git creation/materialization,
+session save, and confirmed helper cleanup.
 Busy HTTP 409 responses identify the executing machine and bounded blocker sessions; desktop,
 Arena and VR retain choices and request identity for explicit Retry. `<dataDir>/worktrees/` holds
 the private allowlist and recovery facts; `CODEAI_WORKTREES_ROOT/<worktreeId>` holds committed files.
@@ -32,9 +38,14 @@ by executing checkout path, with no new portable repository identity. Format 10 
 worktree provenance without private paths. Project bindings stay on the source, managed session
 bindings are fixed, and New chat/Local continuation shares the exact worktree with fresh provider
 sessions. Self-project/report access still tests the project’s original binding, and managed rebuild
-still builds the installation. Archive and Restore retain all resources. Docker provisioning blocks
-managed creation and subsequent operations because the existing helper cannot read linked metadata;
-there is no host-Git fallback or wider Docker mount.
+still builds the installation. Archive and Restore retain all resources. After Docker provisioning,
+verified managed helpers read the journal-authorized common Git directory read-only. Alongside an
+existing Local source writer they pin its verified directory descriptor through a temporary local
+Docker volume; otherwise they retain the direct bind and metadata lease. Container and volume
+removal must be confirmed before releasing the descriptor/readers, and startup reconciliation
+removes orphan pins after their helpers. Local checkpoints, turns and creation recovery remain
+independent of the source task; there is no host-Git fallback. Docker provider workers retain their
+direct mounts and source-writer exclusion.
 
 Story 57 adds an opt-in Docker transport in `src/server/execution/`; its release verification is
 tracked in [docker-execution.md](docker-execution.md). Version 4 session records persist Local/Docker

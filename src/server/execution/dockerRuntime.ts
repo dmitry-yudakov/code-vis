@@ -219,6 +219,22 @@ export class DockerRuntime {
     if (matching.some((candidate) => remaining.includes(candidate))) throw new Error('Docker termination is unconfirmed; checkout remains locked.');
   }
 
+  /** A helper's pinned metadata must outlive its container and be confirmed absent before closing
+   * the host descriptor. Never remove provider homes or another installation's volumes. */
+  async removeGitPin(command: DockerCommand, volume: string): Promise<void> {
+    const provision = await this.provision();
+    if ((await command(['info', '--format', '{{.ID}}'])).trim() !== provision.engineId) {
+      throw new Error('Docker engine identity changed; Git metadata cleanup is unconfirmed.');
+    }
+    const labels = await this.volumeLabels(command, volume);
+    if (!labels) return;
+    if (labels[`${DOCKER_LABEL}.owner`] !== this.owner || labels[`${DOCKER_LABEL}.kind`] !== 'git-pin') {
+      throw new Error('Docker Git metadata volume ownership changed.');
+    }
+    await command(['volume', 'rm', volume]);
+    if (await this.volumeLabels(command, volume)) throw new Error('Docker Git metadata cleanup is unconfirmed.');
+  }
+
   private async ownedContainers(command: DockerCommand) {
     const ids = (await command(['container', 'ls', '-aq', '--filter', `label=${DOCKER_LABEL}.owner=${this.owner}`])).trim().split('\n').filter(Boolean);
     return Promise.all(ids.map(async (id) => ({ id,
@@ -319,6 +335,12 @@ export class DockerRuntime {
       if (labels[`${DOCKER_LABEL}.instance`] === this.instance) continue;
       await this.removeContainer(command, id);
     }
+    const pins = (await command(['volume', 'ls', '-q', '--filter', `name=^codeai-git-pin-${this.owner}-`,
+      '--filter', `label=${DOCKER_LABEL}.owner=${this.owner}`, '--filter', `label=${DOCKER_LABEL}.kind=git-pin`])).trim().split('\n').filter(Boolean);
+    for (const pin of pins) {
+      const labels = await this.volumeLabels(command, pin);
+      if (labels && labels[`${DOCKER_LABEL}.instance`] !== this.instance) await this.removeGitPin(command, pin);
+    }
     const networks = (await command(['network', 'ls', '-q', '--filter', `label=${DOCKER_LABEL}.owner=${this.owner}`])).trim().split('\n').filter(Boolean);
     for (const network of networks) {
       const active = JSON.parse(await command(['network', 'inspect', network, '--format', '{{json .Containers}}'])) as object;
@@ -365,7 +387,7 @@ export class DockerRuntime {
       releaseGit?.(); releaseGit = undefined;
     };
     try {
-      releaseGit = options.checkout ? await acquireManagedGitRead(options.checkout, this.config) : undefined;
+      releaseGit = options.checkout ? await acquireManagedGitRead(options.checkout, this.config, options.mode === 'agent') : undefined;
       const gitPlan = options.checkout ? await validateDockerCheckout(options.checkout, this.config, options.mode === 'agent') : undefined;
       const gitMounts = gitPlan?.gitMounts || [];
       const lease = await this.createLease(command, [

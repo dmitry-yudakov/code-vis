@@ -191,6 +191,11 @@ Updated 2026-10-08. When a story ships, change the line that names it; each stor
   be dismissed, Docker/provider updates and global-instructions defaults live under the gear's
   Machine settings, and new-session instructions live under Advanced settings. Focused offline
   checks, TypeScript, production build, browser checks and screenshot/diff review pass.
+- **Shipped:** [Story 102](stories/STORY-20261008-create-worktrees-during-turns.md) — create and
+  start an independent Local worktree beside an existing source or verified sibling task, including
+  the gear's background launch and provisioned Docker Git helpers. Retry preserves clean retained
+  creation after transient helper failure. Offline checks, TypeScript, build, six browser checks,
+  real Docker metadata/turn checks and independent review pass; the running app has not been restarted.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
@@ -312,7 +317,11 @@ importing file's own directory; keep `./…` for same-directory siblings.
   Its source checkout is absent and source index/HEAD/configuration stay read-only. Shared branch
   refs/objects remain shared Git state and are outside Undo. Only verified durable journal records
   grant these mounts; arbitrary linked worktrees remain unsupported. Ordinary-source writers are
-  excluded while a linked worker/helper holds the common metadata lease. Writing turns save
+  excluded while a linked worker or directly bound helper holds the common metadata lease.
+  A managed Git helper alongside an already running Local source writer pins the journal-verified
+  common-directory inode through a temporary read-only local-driver volume; readers and descriptor
+  remain held until container and volume cleanup are confirmed. Provider workers retain their
+  direct mounts and source-writer exclusion. Writing turns save
   bounded eligible-file checkpoints on the executing host,
   outside worker mounts; explicit Undo refuses newer changes and changed Git HEAD/index. New Docker participants share a persistent provider home per
   installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,6 +53,135 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await store.close(); vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
 
 describe('managed session worktrees with real Git', () => {
+  it.each([['source', false], ['sibling', false], ['source', true], ['sibling', true]] as const)(
+    'creates an independent worktree while a %s writing turn is running (Docker provisioned: %s)', async (location, provisioned) => {
+    const first = location === 'sibling' ? await createManagedWorktree(request(), getConfig()) : undefined;
+    const [sibling] = await readWorktreeRecords(getConfig().dataDir);
+    const workingPath = sibling?.destination || source;
+    const baseline = await git(source, 'rev-parse', 'HEAD');
+    await writeFile(path.join(workingPath, 'file.txt'), 'unfinished task\n');
+    const indexPath = sibling ? path.join(sibling.gitDirectory!.path, 'index') : path.join(source, '.git', 'index');
+    const index = await readFile(indexPath);
+    if (provisioned) {
+      await mkdir(path.join(getConfig().dataDir, 'docker'), { recursive: true });
+      await writeFile(path.join(getConfig().dataDir, 'docker/profile.json'), '{}');
+      vi.spyOn(DockerRuntime.prototype, 'reconcile').mockResolvedValue([]);
+      vi.spyOn(gitReader, 'isolatedGitRead').mockImplementation(async (cwd, args) => git(cwd, ...args));
+    }
+    const runId = randomUUID();
+    const executeTurn = vi.fn(async () => new Promise<void>(() => {}));
+    expect(runRegistry.reserve({ runId, sessionId: first?.id || randomUUID(), participantId: 'agent', providerKey: runId,
+      checkoutId: sibling?.checkoutId || checkoutId, checkoutPath: workingPath, access: 'write', cancel() {} }).accepted).toBe(true);
+    runRegistry.activate(runId, { execute: executeTurn, cancelQueued: async () => {} });
+    await vi.waitFor(() => expect(executeTurn).toHaveBeenCalledOnce());
+    try {
+      const response = await create(request());
+      expect(response.status).toBe(201);
+      const created = (await response.json()).session;
+      expect(created.worktree.baseCommit).toBe(baseline);
+      const record = (await readWorktreeRecords(getConfig().dataDir)).find((entry) => entry.session.id === created.id)!;
+      expect(record.destination).not.toBe(workingPath);
+      expect(await readFile(path.join(record.destination, 'file.txt'), 'utf8')).toBe('committed\n');
+      expect(await readFile(path.join(workingPath, 'file.txt'), 'utf8')).toBe('unfinished task\n');
+      expect(await readFile(indexPath)).toEqual(index);
+      expect(runRegistry.list().active).toContainEqual(expect.objectContaining({ runId, state: 'running' }));
+    } finally { runRegistry.finish(runId); }
+  });
+
+  it('keeps the captured baseline when a running source task commits during creation', async () => {
+    const baseline = await git(source, 'rev-parse', 'HEAD');
+    const prepare = store.prepareWorktreeSession.bind(store);
+    vi.spyOn(store, 'prepareWorktreeSession').mockImplementationOnce(async (...args) => {
+      await writeFile(path.join(source, 'file.txt'), 'new source commit\n');
+      await git(source, 'add', '.'); await git(source, 'commit', '-qm', 'concurrent source task');
+      return prepare(...args);
+    });
+    const runId = randomUUID();
+    runRegistry.reserve({ runId, sessionId: randomUUID(), participantId: 'agent', providerKey: runId,
+      checkoutId, checkoutPath: source, access: 'write', execution: 'local', cancel() {} });
+    runRegistry.activate(runId, { execute: async () => new Promise<void>(() => {}), cancelQueued: async () => {} });
+    try {
+      const created = await createManagedWorktree(request(), getConfig());
+      expect(created.worktree!.baseCommit).toBe(baseline);
+      const [record] = await readWorktreeRecords(getConfig().dataDir);
+      expect(await readFile(path.join(record.destination, 'file.txt'), 'utf8')).toBe('committed\n');
+      expect(await readFile(path.join(source, 'file.txt'), 'utf8')).toBe('new source commit\n');
+      expect(await git(source, 'rev-parse', 'HEAD')).not.toBe(baseline);
+      expect(await git(source, 'status', '--porcelain')).toBe('');
+    } finally { runRegistry.finish(runId); }
+  });
+
+  it.each(['metadata', 'refs', 'filter'] as const)('refuses a concurrent source %s change at the mutation boundary', async (change) => {
+    const input = request(); const originalWrite = sessionStorage.atomicWrite;
+    vi.spyOn(sessionStorage, 'atomicWrite').mockImplementation(async (...args) => {
+      await originalWrite(...args);
+      if (args[0].endsWith(`${input.creationRequestId}.json`) && (args[1] as { state?: string; gitDirectory?: unknown }).state === 'creating'
+        && !(args[1] as { gitDirectory?: unknown }).gitDirectory) {
+        if (change === 'metadata') {
+          await rename(path.join(source, '.git'), path.join(root, 'original-git'));
+          await cp(path.join(root, 'original-git'), path.join(source, '.git'), { recursive: true });
+        } else if (change === 'refs') {
+          await mkdir(path.join(root, 'external-refs'));
+          await rename(path.join(source, '.git/refs/heads'), path.join(root, 'original-heads'));
+          await symlink(path.join(root, 'external-refs'), path.join(source, '.git/refs/heads'));
+        } else await git(source, 'config', 'filter.planted.smudge', 'false');
+      }
+    });
+    const runId = randomUUID();
+    runRegistry.reserve({ runId, sessionId: randomUUID(), participantId: 'agent', providerKey: runId,
+      checkoutId, checkoutPath: source, access: 'write', execution: 'local', cancel() {} });
+    try {
+      await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(change === 'metadata' ? /moved or changed/
+        : change === 'refs' ? /symbolic links/ : /checkout filters/);
+      const [record] = await readWorktreeRecords(getConfig().dataDir);
+      expect(record.state).toBe('creating');
+      await expect(lstat(record.destination)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await git(source, 'branch', '--list', 'codeai/*')).toBe('');
+      if (change === 'refs') expect(await readdir(path.join(root, 'external-refs'))).toEqual([]);
+    } finally { runRegistry.release(runId); }
+  });
+
+  it.each([false, true])('refuses a filter planted before materialization (Docker provisioned: %s)', async (provisioned) => {
+    await writeFile(path.join(source, '.gitattributes'), '*.txt filter=planted\n');
+    await git(source, 'add', '.'); await git(source, 'commit', '-qm', 'attributes without configured filter');
+    if (provisioned) {
+      await mkdir(path.join(getConfig().dataDir, 'docker'), { recursive: true });
+      await writeFile(path.join(getConfig().dataDir, 'docker/profile.json'), '{}');
+      vi.spyOn(DockerRuntime.prototype, 'reconcile').mockResolvedValue([]);
+      vi.spyOn(gitReader, 'isolatedGitRead').mockImplementation(async (cwd, args) => git(cwd, ...args));
+    }
+    const input = request(); const originalWrite = sessionStorage.atomicWrite;
+    const marker = path.join(root, 'filter-ran');
+    vi.spyOn(sessionStorage, 'atomicWrite').mockImplementation(async (...args) => {
+      await originalWrite(...args);
+      const record = args[1] as { state?: string; gitDirectory?: unknown };
+      if (args[0].endsWith(`${input.creationRequestId}.json`) && record.state === 'creating' && record.gitDirectory) {
+        await git(source, 'config', 'filter.planted.smudge', `cat; touch ${marker}`);
+      }
+    });
+    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/checkout filters/);
+    await expect(lstat(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    expect(record.state).toBe('creating');
+    await expect(lstat(path.join(record.destination, 'file.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('refuses changed destination linkage before materialization', async () => {
+    const input = request(); const originalWrite = sessionStorage.atomicWrite;
+    vi.spyOn(sessionStorage, 'atomicWrite').mockImplementation(async (...args) => {
+      await originalWrite(...args);
+      const record = args[1] as { state?: string; gitDirectory?: unknown; destination?: string };
+      if (args[0].endsWith(`${input.creationRequestId}.json`) && record.state === 'creating' && record.gitDirectory) {
+        await writeFile(path.join(record.destination!, '.git'), `gitdir: ${path.join(source, '.git')}\n`);
+      }
+    });
+    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/linkage/);
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    expect(record.state).toBe('creating');
+    expect(await readFile(path.join(source, 'file.txt'), 'utf8')).toBe('committed\n');
+    await expect(lstat(path.join(record.destination, 'file.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('shares creation UUIDs across current/worktree branches, including simultaneous conflicting requests', async () => {
     const ordinary = { provider: 'claude', checkoutId, creationRequestId: randomUUID(), checkoutMode: 'current' };
     expect((await create(ordinary)).status).toBe(201);
@@ -246,7 +375,7 @@ describe('managed session worktrees with real Git', () => {
     try { await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/turn/); } finally { runRegistry.release(runId); }
   });
 
-  it('creates beside an unrelated reserved turn but reports a related sibling before any new intent', async () => {
+  it('creates beside an unrelated reserved turn but reports a related Docker writer before any new intent', async () => {
     const unrelated = path.join(root, 'unrelated'); await mkdir(unrelated); await git(unrelated, 'init', '-q');
     vi.stubEnv('CODEAI_REPOSITORIES_ROOT', root);
     const runId = randomUUID(), sessionId = randomUUID();
@@ -255,7 +384,8 @@ describe('managed session worktrees with real Git', () => {
     try { first = await createManagedWorktree(request(), getConfig()); } finally { runRegistry.release(runId); }
     const [record] = await readWorktreeRecords(getConfig().dataDir);
     const related = randomUUID();
-    runRegistry.reserve({ runId: related, sessionId: first.id, participantId: 'agent', providerKey: related, checkoutId: record.checkoutId, checkoutPath: record.destination, access: 'write', cancel() {} });
+    runRegistry.reserve({ runId: related, sessionId: first.id, participantId: 'agent', providerKey: related, checkoutId: record.checkoutId,
+      checkoutPath: record.destination, execution: 'docker', access: 'write', cancel() {} });
     try {
       const response = await create(request());
       expect(response.status).toBe(409);
@@ -321,7 +451,7 @@ describe('managed session worktrees with real Git', () => {
     } finally { runRegistry.release(runId); }
   });
 
-  it('reserves creation before fresh membership planning and catches a sibling turn arriving during planning', async () => {
+  it.each(['ready', 'changed'] as const)('uses fresh %s sibling linkage when a turn arrives during planning', async (state) => {
     await getCheckoutRegistry(source).list(); // An earlier advisory catalog must not freeze membership.
     const sibling = await createManagedWorktree(request(), getConfig());
     const [record] = await readWorktreeRecords(getConfig().dataDir);
@@ -339,9 +469,15 @@ describe('managed session worktrees with real Git', () => {
       expect(await competing.json()).toMatchObject({ worktreeConflict: { kind: 'creation' } });
       expect(runRegistry.reserve({ runId, sessionId: sibling.id, participantId: 'agent', providerKey: runId,
         checkoutId: record.checkoutId, checkoutPath: record.destination, access: 'write', cancel() {} }).accepted).toBe(true);
+      if (state === 'changed') await writeFile(path.join(record.destination, '.git'), 'gitdir: /outside/private\n');
       release();
-      expect(await pending).toMatchObject({ worktreeConflict: { kind: 'turn', blockingTurns: [{ sessionId: sibling.id }] } });
-      expect(await readWorktreeRecords(getConfig().dataDir)).toHaveLength(1);
+      if (state === 'ready') {
+        expect(await pending).toHaveProperty('worktree');
+        expect(await readWorktreeRecords(getConfig().dataDir)).toHaveLength(2);
+      } else {
+        expect(await pending).toMatchObject({ worktreeConflict: { kind: 'turn', blockingTurns: [{ sessionId: sibling.id }] } });
+        expect(await readWorktreeRecords(getConfig().dataDir)).toHaveLength(1);
+      }
     } finally { release(); await pending; runRegistry.release(runId); }
   });
 
@@ -388,6 +524,51 @@ describe('managed session worktrees with real Git', () => {
       const session = await createManagedWorktree(input, getConfig()); expect(session.id).toBe(record.session.id);
       expect(await readFile(path.join(record.destination, 'file.txt'), 'utf8')).toBe('committed\n');
     }
+  });
+
+  it.each([false, true])('recovers a completed creating-state worktree beside a source writer (Docker provisioned: %s)', async (provisioned) => {
+    const input = request(); const originalWrite = sessionStorage.atomicWrite;
+    const save = vi.spyOn(sessionStorage, 'atomicWrite').mockImplementation(async (...args) => {
+      await originalWrite(...args);
+      const record = args[1] as { state?: string; gitDirectory?: unknown };
+      if (args[0].endsWith(`${input.creationRequestId}.json`) && record.state === 'creating' && record.gitDirectory) {
+        throw Object.assign(new Error('interrupted before materialization'), { code: 'EIO' });
+      }
+    });
+    await expect(createManagedWorktree(input, getConfig())).rejects.toThrow(/retained/); save.mockRestore();
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    await git(record.destination, 'read-tree', '--reset', '-u', record.session.worktree!.baseCommit);
+    let pinnedReads = 0;
+    let failInspection = provisioned;
+    if (provisioned) {
+      await mkdir(path.join(getConfig().dataDir, 'docker'), { recursive: true });
+      await writeFile(path.join(getConfig().dataDir, 'docker/profile.json'), '{}');
+      vi.spyOn(DockerRuntime.prototype, 'reconcile').mockResolvedValue([]);
+      vi.spyOn(gitReader, 'isolatedGitRead').mockImplementation(async (cwd, args, _config, _options, _mounts, beforeStart, pinned) => {
+        if (cwd === record.destination) {
+          expect(pinned).toMatchObject({ destination: record.originGit.path }); pinnedReads++;
+          if (failInspection) { failInspection = false; throw new Error('helper temporarily unavailable'); }
+        }
+        await beforeStart?.();
+        return git(cwd, ...args);
+      });
+    }
+    const runId = randomUUID();
+    runRegistry.reserve({ runId, sessionId: randomUUID(), participantId: 'agent', providerKey: runId,
+      checkoutId, checkoutPath: source, access: 'write', execution: 'local', cancel() {} });
+    runRegistry.activate(runId, { execute: async () => new Promise<void>(() => {}), cancelQueued: async () => {} });
+    try {
+      if (provisioned) {
+        await expect(createManagedWorktree(input, getConfig())).rejects.toThrow('helper temporarily unavailable');
+        expect((await readWorktreeRecords(getConfig().dataDir))[0].state).toBe('creating');
+      }
+      const recovered = await createManagedWorktree(input, getConfig());
+      expect(recovered.id).toBe(record.session.id);
+      expect((await readWorktreeRecords(getConfig().dataDir))[0].state).toBe('ready');
+      expect(await readFile(path.join(record.destination, 'file.txt'), 'utf8')).toBe('committed\n');
+      expect(runRegistry.list().active).toContainEqual(expect.objectContaining({ runId, state: 'running' }));
+      if (provisioned) expect(pinnedReads).toBe(3);
+    } finally { runRegistry.finish(runId); }
   });
 
   it('refuses a pre-existing destination without touching it or creating a branch', async () => {
@@ -458,7 +639,7 @@ describe('managed session worktrees with real Git', () => {
     } finally { runRegistry.release(runId); save.mockRestore(); }
   });
 
-  it('reconciles an unrelated unfinished intent while another source is busy', async () => {
+  it('reconciles an unrelated unfinished intent while Undo owns another source', async () => {
     const other = path.join(root, 'other'); await mkdir(other); await git(other, 'init', '-q');
     await git(other, 'config', 'user.name', 'Worktree fixture'); await git(other, 'config', 'user.email', 'test@example.invalid');
     await writeFile(path.join(other, 'file.txt'), 'other baseline'); await git(other, 'add', '.'); await git(other, 'commit', '-qm', 'other fixture');
@@ -468,8 +649,7 @@ describe('managed session worktrees with real Git', () => {
     await expect(createManagedWorktree(request(), getConfig())).rejects.toThrow(/retained/);
     await expect(createManagedWorktree(request({ checkoutId: otherId }), getConfig())).rejects.toThrow(/retained/);
     save.mockRestore();
-    const runId = randomUUID();
-    runRegistry.reserve({ runId, sessionId: randomUUID(), participantId: 'agent', providerKey: runId, checkoutId, checkoutPath: source, access: 'write', cancel() {} });
+    const undo = runRegistry.acquireCheckoutWrite(source)!;
     try {
       await reconcileWorktrees(getConfig());
       const records = await readWorktreeRecords(getConfig().dataDir);
@@ -477,7 +657,7 @@ describe('managed session worktrees with real Git', () => {
       const recovered = records.find((record) => record.originPath === other)!;
       expect(recovered.state).toBe('ready');
       expect((await store.getSession(recovered.session.id)).repositories[0].checkoutId).toBe(recovered.checkoutId);
-    } finally { runRegistry.release(runId); }
+    } finally { undo(); }
     await reconcileWorktrees(getConfig());
     expect((await readWorktreeRecords(getConfig().dataDir)).every((record) => record.state === 'ready')).toBe(true);
   });

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { readBoundedTextFile } from '@/server/boundedTextFile';
@@ -9,7 +10,7 @@ import { dockerCommand, localDockerEndpoint } from '@/server/execution/dockerCom
 import { DockerTerminationError, getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { setTimeout as delay } from 'node:timers/promises';
 import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
-import { containerSecurity } from '@/server/execution/dockerProfile';
+import { containerSecurity, DOCKER_LABEL } from '@/server/execution/dockerProfile';
 import { runRegistry } from '@/server/runs/runRegistry';
 
 export const GIT_READ_OPTIONS = [
@@ -65,13 +66,11 @@ export async function runGitRead(cwd: string, args: string[], options: {
   /** An exclusive recovery holder may read Git under its own scheduler lease. */
   checkoutWriteLease?: symbol;
 } = {}): Promise<string> {
-  const release = runRegistry.acquireCheckoutRead(cwd, options.checkoutWriteLease);
+  const release = runRegistry.acquireCheckoutRead(cwd, options.checkoutWriteLease, true);
   if (!release) throw new Error('An enclosing checkout is being edited. Retry this Git read after that turn finishes.');
   let releaseGit: (() => void) | undefined;
   return withGitReadLease(() => { releaseGit?.(); release(); }, async () => {
-    const { acquireManagedGitRead } = await import('./managedWorktrees');
-    releaseGit = await acquireManagedGitRead(cwd, getConfig());
-    return await executeGitRead(cwd, args, options);
+    return await executeGitRead(cwd, args, options, (held) => { releaseGit = held; });
   });
 }
 
@@ -96,7 +95,7 @@ export async function withGitReadLease<T>(release: () => void, read: () => Promi
 
 async function executeGitRead(cwd: string, args: string[], options: {
   allowedExitCodes?: number[]; maxBuffer?: number; timeout?: number;
-}): Promise<string> {
+}, holdGitRead: (release: () => void) => void): Promise<string> {
   const config = getConfig();
   const { validateManagedPath, managedGitMounts } = await import('./managedWorktrees');
   const managed = await validateManagedPath(cwd, config);
@@ -117,11 +116,34 @@ async function executeGitRead(cwd: string, args: string[], options: {
       else reject(Object.assign(error, { stderr }));
     });
   });
+  const common = managed ? await acquireCommonGitRead(managed.originPath, managed.originGit) : undefined;
+  if (common) holdGitRead(common.release);
   const gitMounts = managed ? await managedGitMounts(managed, config) : undefined;
   return isolatedGitRead(cwd, args, config, options, gitMounts?.args, managed ? async () => {
     const current = await managedGitMounts(managed, config);
     if (current.identity !== gitMounts!.identity) throw new Error('Managed Git mount source changed before start.');
-  } : undefined);
+  } : undefined, common?.pinned);
+}
+
+/** The verified journal source authorizes helper metadata, including creating-state recovery.
+ * Keep provider workers' direct binds and source-writer exclusion separate. */
+export async function acquireCommonGitRead(source: string, metadata: { path: string; identity: string }, writeLease?: symbol) {
+  const release = runRegistry.acquireCheckoutRead(metadata.path, writeLease, true);
+  if (release) return { release, pinned: undefined };
+  // A running source writer can rename .git; pin its authorized inode. The root reader still
+  // excludes Undo and new source writers while allowing the existing task to continue.
+  const releaseSource = runRegistry.acquireCheckoutRead(source, writeLease, true);
+  if (!releaseSource) throw new Error('The source checkout is unavailable for this Git read.');
+  let common: Awaited<ReturnType<typeof open>> | undefined;
+  const cleanup = () => { void common?.close().catch(() => {}); releaseSource(); };
+  try {
+    common = await open(metadata.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const info = await common.stat();
+    if (`${info.dev}:${info.ino}` !== metadata.identity || await realpath(metadata.path) !== metadata.path) {
+      throw new Error('Managed Git metadata changed before the isolated Git read.');
+    }
+    return { release: cleanup, pinned: { source: `/proc/${process.pid}/fd/${common.fd}`, destination: metadata.path } };
+  } catch (error) { cleanup(); throw error; }
 }
 
 /** Internal preflight reads use this without recursively resolving the checkout. Additional binds
@@ -129,7 +151,8 @@ async function executeGitRead(cwd: string, args: string[], options: {
  */
 export async function isolatedGitRead(cwd: string, args: string[], config: ReturnType<typeof getConfig>, options: {
   allowedExitCodes?: number[]; maxBuffer?: number; timeout?: number;
-} = {}, gitMounts: string[] = [], beforeStart?: () => Promise<void>): Promise<string> {
+} = {}, gitMounts: string[] = [], beforeStart?: () => Promise<void>,
+  pinnedCommon?: { source: string; destination: string }): Promise<string> {
   const ignore = await personalIgnore();
   const hardenedArgs = [...GIT_READ_OPTIONS, '-c', `core.excludesFile=${HELPER_PERSONAL_IGNORE}`, ...args];
   const runtime = getDockerRuntime(config);
@@ -143,22 +166,38 @@ export async function isolatedGitRead(cwd: string, args: string[], config: Retur
   const uid = process.platform === 'linux' ? process.getuid?.() : 1000;
   const gid = process.platform === 'linux' ? process.getgid?.() : 1000;
   if (!uid || gid === undefined) throw new Error('Isolated Git requires a non-root owner.');
-  const container = (await command([
-    'create', '--name', `codeai-git-${randomUUID()}`, ...runtime.labels('git'), ...containerSecurity(uid, gid),
-    '--network', 'none', '--mount', `type=bind,src=${cwd},dst=/workspace,readonly`, '--workdir', '/workspace',
-    ...gitMounts,
-    ...Object.entries(gitReadEnvironment()).filter(([key]) => key !== 'PATH').flatMap(([key, value]) => ['--env', `${key}=${value}`]),
-    // Docker copies this value from its own environment, so the patterns stay out of command lines.
-    // The image's entrypoint would run a non-executable checkout file named like the command with
-    // node, so the absolute shell replaces it.
-    '--env', 'CODEAI_PERSONAL_IGNORE', '--entrypoint', '/bin/sh', profile.image, '-c', WRITE_PERSONAL_IGNORE,
-    'sh', '-c', 'safe.directory=/workspace', ...hardenedArgs,
-  ], { CODEAI_PERSONAL_IGNORE: ignore?.patterns ?? '' })).trim();
+  // runc rejects proc-FD bind sources. The local volume driver pins that inode first and
+  // gives runc an ordinary mountpoint. No copying, writable metadata or source-checkout bind.
+  const pin = pinnedCommon ? `codeai-git-pin-${runtime.owner}-${randomUUID()}` : undefined;
+  const name = `codeai-git-${randomUUID()}`;
+  let container: string | undefined;
+  let creating = false;
+  const cleanup = async () => {
+    // A lost create response can leave a named container without returning its id.
+    const held = container || (creating ? (await command(['container', 'ls', '-aq', '--filter', `name=^/${name}$`,
+      '--filter', `label=${DOCKER_LABEL}.owner=${runtime.owner}`])).trim() : undefined);
+    if (held) await runtime.removeContainer(command, held);
+    if (pin) await runtime.removeGitPin(command, pin);
+  };
   try {
+    if (pin) await command(['volume', 'create', ...runtime.labels('git-pin'), '--driver', 'local',
+      '--opt', 'type=none', '--opt', 'o=bind,ro', '--opt', `device=${pinnedCommon!.source}`, pin]);
+    creating = true;
+    container = (await command([
+      'create', '--name', name, ...runtime.labels('git'), ...containerSecurity(uid, gid),
+      '--network', 'none', '--mount', `type=bind,src=${cwd},dst=/workspace,readonly`, '--workdir', '/workspace',
+      ...(pin ? ['--mount', `type=volume,src=${pin},dst=${pinnedCommon!.destination},readonly,volume-nocopy`] : gitMounts),
+      ...Object.entries(gitReadEnvironment()).filter(([key]) => key !== 'PATH').flatMap(([key, value]) => ['--env', `${key}=${value}`]),
+      // Docker copies this value from its own environment, so the patterns stay out of command lines.
+      // The image's entrypoint would run a non-executable checkout file named like the command with
+      // node, so the absolute shell replaces it.
+      '--env', 'CODEAI_PERSONAL_IGNORE', '--entrypoint', '/bin/sh', profile.image, '-c', WRITE_PERSONAL_IGNORE,
+      'sh', '-c', 'safe.directory=/workspace', ...hardenedArgs,
+    ], { CODEAI_PERSONAL_IGNORE: ignore?.patterns ?? '' })).trim();
     await beforeStart?.();
     // The attached result carries Git's exit status; all failures are bounded and path-free.
     return await new Promise<string>((resolve, reject) => {
-      execFile('docker', ['--host', endpoint, 'start', '--attach', container], {
+      execFile('docker', ['--host', endpoint, 'start', '--attach', container!], {
         cwd: os.tmpdir(), env: { PATH: '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin', HOME: os.homedir(), NODE_ENV: 'production' },
         encoding: 'utf8', maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024, timeout: options.timeout ?? 15_000,
       }, (error, stdout, stderr) => {
@@ -171,7 +210,7 @@ export async function isolatedGitRead(cwd: string, args: string[], config: Retur
       });
     });
   } finally {
-    try { await runtime.removeContainer(command, container); }
-    catch { throw new DockerTerminationError(() => runtime.removeContainer(command, container)); }
+    try { await cleanup(); }
+    catch { throw new DockerTerminationError(cleanup); }
   }
 }

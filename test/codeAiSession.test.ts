@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,6 +39,31 @@ beforeEach(async () => {
 afterEach(async () => { await store.close(); vi.unstubAllEnvs(); });
 
 describe('managed installation session setup', () => {
+  it('creates a gear worktree while a Local installation turn is running', async () => {
+    const installation = getConfig().installationRoot;
+    vi.stubEnv('CODEAI_WORKTREES_ROOT', path.join(root, 'worktrees'));
+    const execute = promisify(execFile);
+    const git = (...args: string[]) => execute('git', args, { cwd: installation,
+      env: { PATH: process.env.PATH, HOME: '/nonexistent', NODE_ENV: 'test', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+    await git('init', '-q');
+    await writeFile(path.join(installation, 'file.txt'), 'committed installation\n');
+    await git('add', '.'); await git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture');
+    const { preparedContext } = await (await post({ action: 'prepare' })).json();
+    const runId = crypto.randomUUID();
+    runRegistry.reserve({ runId, sessionId: crypto.randomUUID(), participantId: 'agent', providerKey: runId,
+      checkoutId: preparedContext.checkoutId, checkoutPath: installation, execution: 'local', access: 'write', cancel() {} });
+    runRegistry.activate(runId, { execute: async () => new Promise<void>(() => {}), cancelQueued: async () => {} });
+    try {
+      const response = await post({ action: 'create', preparedContext, provider: 'claude',
+        checkoutMode: 'worktree', creationRequestId: crypto.randomUUID() });
+      expect(response.status).toBe(201);
+      const { session } = await response.json();
+      expect(session.worktree).toBeDefined();
+      expect(await readFile(path.join(getConfig().worktreesRoot, session.worktree.id, 'file.txt'), 'utf8')).toBe('committed installation\n');
+      expect(runRegistry.list().active).toContainEqual(expect.objectContaining({ runId, state: 'running' }));
+    } finally { runRegistry.finish(runId); }
+  });
+
   it('returns worktree blocker details and creation state from the fixed CodeAI route', async () => {
     const prepared = await (await post({ action: 'prepare' })).json();
     expect(runRegistry.acquireMaintenance()).toBe('acquired');

@@ -231,6 +231,7 @@ export async function POST(request: Request): Promise<Response> {
     checkoutId: repository.checkoutId,
     checkoutPath: checkout.realPath,
     access: changesCheckout(mode) ? 'write' : 'read',
+    execution,
     mode,
     async changeMode(next) {
       const health = await adapter.checkHealth(next);

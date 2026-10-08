@@ -260,10 +260,22 @@ user's files and infer its lines from what the Git view hides. Keep linked confi
 checkouts.
 The helper binds the selected root and, for a verified CodeAI-managed worktree only, its recorded
 common Git directory read-only. Local managed worktrees remain available after provisioning and
-with Docker execution disabled. Metadata read leases exclude ordinary-source writers through
-confirmed helper/worker termination; linked Docker workers can coexist. Worktree creation and
+with Docker execution disabled. Direct metadata binds exclude ordinary-source writers through
+confirmed helper/worker termination; linked Docker workers can coexist. Alongside an existing Local
+source writer, a managed Git helper opens the recorded common directory without following links,
+verifies its device/inode, and uses a temporary owner/instance-labelled `git-pin` local-driver volume
+with a `/proc/<pid>/fd/<fd>` bind source. The helper mounts that volume read-only with `volume-nocopy`.
+The descriptor pins the authorized inode even if the writer renames/replaces `.git`. Source/worktree
+readers and the descriptor stay held until both container termination and volume absence are
+confirmed; orphan recovery removes old pins after their helpers. A daemon without access to the
+host descriptor refuses this concurrent read; the idle-source direct-bind path is unchanged.
+Worktree creation and
 reconciliation own the source/common-Git family and destination through persistence and confirmed
-helper cleanup, excluding restart and overlapping work while proved unrelated checkouts keep running.
+helper cleanup, excluding restart, Undo and unverified overlapping work while proved unrelated
+checkouts keep running. Verified Local source/sibling turns and explicitly read-only helper or
+Ask/Plan worker leases can coexist with creation. Docker Agent and its writable shared-metadata
+lease still block creation; this preserves host-mutation containment. A new Docker managed worker
+still cannot start alongside an ordinary-source writer that could replace its common Git bind root.
 Ordinary Local linked/redirected checkouts whose metadata cannot be proved separate are conservative
 blockers; they never grant Docker mounts. Every bind is rechecked before start, including the
 device/inode identities of writable Git directories. Docker execution on unregistered linked

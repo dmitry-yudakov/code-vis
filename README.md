@@ -1188,7 +1188,11 @@ does not restore Git history/index. Repository-wide Git administration stays out
 worker. Only CodeAI-managed worktrees receive these extra mounts; arbitrary linked worktrees remain
 unsupported. Docker still refuses sources overlapping CodeAI's installation, data or provider storage.
 Continue in Docker/Local keeps the exact managed worktree. An ordinary-source writer waits while a
-linked Docker worker or Git helper holds its metadata; separate linked workers can coexist.
+linked Docker worker or directly bound Git helper holds its metadata; separate linked workers can
+coexist. Helpers reading a managed worktree alongside an existing Local source writer pin the
+verified common Git directory through a read-only local Docker volume. Local checkpoints and turns
+can therefore start independently after provisioning too. If the daemon cannot access this machine's
+directory descriptor, the helper refuses the read; idle-source reads keep their existing direct bind.
 
 `CODEAI_WORKTREES_ROOT` defaults to `~/.code-ai/worktrees` (the former
 `CODEAI_WEB2_WORKTREES_ROOT` spelling is accepted). It must be separate from the installation,
@@ -1198,8 +1202,15 @@ checkouts outside ordinary discovery. Their path hashes remain machine-local che
 Local managed sessions use format 10, Docker managed sessions format 11; ordinary records retain
 their existing format versions. Older builds hide format 11 sessions individually.
 
-Creation briefly needs an idle machine, including queued turns and Undo. A durable intent holds the
-request UUID, original commit/bindings, generated identities, and Git linkage. **Retry** after a lost
+Creation can run alongside Local turns at the verified source checkout or its ready managed
+worktrees, including a turn waiting for approval. It captures committed HEAD once; unfinished edits
+and concurrent later commits do not alter that baseline. Read-only Git helpers and managed Docker
+Ask/Plan workers can coexist with creation. Writing Docker turns, Undo, unverified or overlapping
+nested/enclosing checkout scopes, competing creation and maintenance still block it. Newly accepted
+turns on affected checkouts wait briefly until creation finishes. A new Docker worker still cannot
+start until an ordinary-source writer finishes because its common-metadata bind needs a stable root.
+A durable intent holds the request UUID, original commit/bindings, generated identities, and Git
+linkage. **Retry** after a lost
 response or failed session save finishes that same creation; changed choices use a new request UUID.
 Startup admission reconciles unfinished intents. Ambiguous partial state is retained and unavailable,
 with no force removal or reset. The journal and saved sessions share the 1,000-session host limit.
