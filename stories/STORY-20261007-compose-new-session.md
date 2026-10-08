@@ -371,6 +371,13 @@ Implementation sequence:
 
 ## Acceptance criteria
 
+- [x] Merge review preserves Story 98's scoped worktree admission, project revision validation,
+      and executor-specific blocker details in desktop, CodeAI, and VR setup, alongside durable
+      creation replay and same-request retries.
+- [x] An older executor's definitive creation-schema rejection explains the required upgrade and
+      allows clearing setup, while unknown creation outcomes retain their UUID and frozen choices.
+- [x] A definitively rejected first message can change mode/model/effort without changing its
+      created session; normal composer file batches retain valid files when another selection fails.
 - [x] Arena New session opens an accessible modal, focuses First message, retains existing setup
       settings, and shows machine-validated model/effort defaults and visible target summary.
 - [x] Empty/whitespace with no evidence creates and opens an idle session; text or attachment-only
@@ -533,3 +540,34 @@ change or rebuild the running installation.
 Not run for this story: signed-in Claude/Codex screenshot/text-file turns, a real Docker turn with
 these files, the production attached-executor listener, and physical Quest 3S acceptance. Offline
 transport and authorization checks do not substitute for those installation/device checks.
+
+## Branch merge review
+
+October 8, 2026: reviewed against `master`, including Story 98's scoped worktree admission and
+the Codex resume-history fix. The merge preserves both changes. A deterministic concurrency
+regression exposed a deadlock when a competing worktree request waited behind the creation queue.
+In-flight worktree requests now reject different UUIDs with a bounded blocker while identical
+UUIDs serialize and replay; completed requests still replay before admission. Both creation routes
+carry the executor's blocker details and durable creation state into desktop and VR setup.
+
+Recovery fixes recognize the older executor's exact pre-creation schema rejection as an editable
+upgrade incompatibility, permit mode/model/effort correction after definitive first-turn rejection
+without changing the created session, remember the corrected choices, and retain valid composer
+files when a sibling selection is invalid. Unknown outcomes remain frozen with their original UUIDs.
+
+Verification on the combined code:
+
+- All **1,240 unit tests** pass with Local access and Guarded security. The fixture suites require
+  disposable `/var/tmp` directories; the initial sandbox-limited run was rerun with that access.
+- TypeScript with `--incremental false`, the production build into `.next-e2e`, and
+  `git diff --check` pass.
+- **59 distinct production Chrome checks** pass: 48 across session setup, worktrees, images,
+  New chat, title tabs, reports, global instructions and Docker UI, plus 11 simulated-XR setup,
+  voice, permission, report and launch checks. Three initial browser failures were stale Docker
+  expectations or an ambiguous notification locator; all three pass after correcting the tests.
+- The older-executor regression failed before its fix. Both new browser recovery regressions
+  reproduced the locked mode picker and discarded valid file against the pre-fix build, then passed
+  against the corrected build. The retry test also checks the remembered replacement choices.
+- Independent server and client reviews report no remaining critical or high findings.
+
+Physical Quest 3S acceptance and the real-provider/transport checks listed above remain pending.

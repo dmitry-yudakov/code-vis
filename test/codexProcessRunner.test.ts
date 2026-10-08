@@ -1,5 +1,6 @@
 import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
@@ -27,6 +28,8 @@ interface RunOptions {
   runnerModel?: string;
   model?: string;
   effort?: string;
+  level?: 'guarded' | 'native';
+  execution?: 'local' | 'docker';
 }
 
 type RecordedRequest = { method: string; params: Record<string, unknown> };
@@ -47,14 +50,16 @@ describe.sequential('CodexProcessRunner', () => {
     process.env.CODEAI_FAKE_CODEX_RECORD = recordPath;
     const events: AgentProcessEvent[] = [];
     const mode = options.mode || 'ask';
-    const runner = new CodexProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50 });
+    const runner = new CodexProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50,
+      ...(options.execution === 'docker' ? { transport: { spawn: (executable: string, args: string[]) => spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'] }) } } : {}),
+    });
     const result = await runner.run({
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id: options.sessionId, action: options.action || 'start' },
       prompt: mode === 'plan' ? 'Mode: PLAN\n\n[User message]\nMake a plan' : 'Mode: ASK\n\n[User message]\nExplain this',
       attachmentDirectory: directory,
-      policy: { ...resolveAgentPolicy(getConfig(), mode), timeoutMs: options.timeoutMs || 5_000 },
+      policy: { ...resolveAgentPolicy({ ...getConfig(), securityLevel: options.level ?? 'guarded' }, mode, options.execution), timeoutMs: options.timeoutMs || 5_000 },
       permissions: options.permissions,
       signal: options.signal || new AbortController().signal,
       emit(event) { events.push(event); options.onEvent?.(event); },
@@ -128,6 +133,31 @@ describe.sequential('CodexProcessRunner', () => {
 
     const planned = await run({ mode: 'plan' });
     expect(planned.result.finalText).toContain('cartograph:plan:start');
+  });
+
+  it.each([
+    { level: 'guarded', execution: 'local', mode: 'ask' },
+    { level: 'native', execution: 'local', mode: 'auto' },
+    { level: 'guarded', execution: 'docker', mode: 'agent' },
+  ] as const)('resumes a large stored conversation through $execution/$level without returning history', async (policy) => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'resume-history';
+    const { result, invocation } = await run({ action: 'resume', sessionId: 'old-thread', ...policy });
+    expect(result.sessionId).toBe('old-thread');
+    expect(invocation.requests.filter((request: RecordedRequest) => request.method === 'thread/resume'))
+      .toEqual([expect.objectContaining({ params: expect.objectContaining({ threadId: 'old-thread', excludeTurns: true }) })]);
+    expect(invocation.requests.filter((request: RecordedRequest) => request.method === 'turn/start')).toHaveLength(1);
+    expect(invocation.requests.some((request: RecordedRequest) => request.method === 'thread/start')).toBe(false);
+  });
+
+  it.each(['resume-large', 'resume-unterminated', 'resume-unsupported'])('fails %s before sending new input', async (fakeMode) => {
+    process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+    const started = Date.now();
+    await expect(run({ action: 'resume', sessionId: 'old-thread' })).rejects.toMatchObject({
+      code: fakeMode === 'resume-unsupported' ? 'unsupported-flags' : 'oversized-output', delivery: 'not-sent',
+    });
+    expect(Date.now() - started).toBeLessThan(1_500);
+    const invocation = JSON.parse(await readFile(process.env.CODEAI_FAKE_CODEX_RECORD!, 'utf8'));
+    expect(invocation.requests.some((request: RecordedRequest) => request.method === 'turn/start')).toBe(false);
   });
 
   it.each([

@@ -11,6 +11,7 @@ import { validateTextFiles, type TextFile } from '@/shared/textFiles';
 import { prepareTextFile } from '@/features/conversation/textFiles';
 import { prepareImage, type PendingImage } from '@/features/conversation/imageAttachments';
 import { worktreeChoice } from '@/features/conversation/worktreeChoice';
+import { worktreeCreationError } from '@/features/conversation/worktreeCreationError';
 import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import { launchChoice, launchModes, type DevicePreferences } from '@/features/shell/devicePreferences';
@@ -115,12 +116,18 @@ export function useSessionLauncher(options: LauncherOptions) {
     // A definitive first-message rejection may be edited, while keeping the exact created session.
     if (attempt.current?.session) {
       attempt.current.messageId = createUuid(); attempt.current.messageAttempted = false;
+      if (update.settings) attempt.current.settings = structuredClone(update.settings);
     } else attempt.current = undefined;
     patch({ draft: { ...current.current.draft, ...update }, error: undefined });
   };
   const setSettings = (update: Partial<LaunchSettings>) => {
     const draft = current.current.draft;
-    if (!draft || attempt.current?.session) return;
+    if (!draft || current.current.busy || current.current.frozen) return;
+    if (attempt.current?.session) {
+      if (Object.keys(update).some((key) => key !== 'mode' && key !== 'modelSelection')) return;
+      edit({ settings: { ...draft.settings, ...update } });
+      return;
+    }
     const settings = { ...draft.settings, ...update };
     if (settings.codeai && (update.machineId || update.projectId || update.execution)) return;
     if (settings.machineId !== draft.settings.machineId || settings.projectId !== draft.settings.projectId || settings.checkoutId !== draft.settings.checkoutId) captureGeneration.current++;
@@ -201,7 +208,7 @@ export function useSessionLauncher(options: LauncherOptions) {
       if (generation.current !== serial) return;
       const failure = error instanceof LaunchFailure ? error : new LaunchFailure('Setup failed. Retry keeps this request.', false, true);
       if (failure.editable && !attempt.current?.session) attempt.current = undefined;
-      patch({ busy: false, frozen: !failure.editable, error: failure.message });
+      patch({ busy: false, frozen: !failure.editable, error: worktreeCreationError({ error: failure.message, worktreeConflict: failure.worktreeConflict }, props.current.machines) });
     }
   };
   const invalidateCapture = useCallback(() => { captureGeneration.current++; }, []);
@@ -223,6 +230,7 @@ export function useSessionLauncher(options: LauncherOptions) {
     || (!state.frozen && Boolean(blocker));
   return { ...state, opener, availabilityError, blocker, isOpen: state.open, dockerOffered: Boolean(options.executions?.docker.enabled), availability, machines: options.machines, machine, providers, modes, health, reports, selectedProject, checkoutChoice,
     hasContent, canSubmit: !blocked, settingsLocked: state.frozen || state.busy || Boolean(attempt.current?.session),
+    turnSettingsLocked: state.frozen || state.busy,
     createdSession: attempt.current?.session, refreshAvailability, open, openCodeAi, close: () => { captureGeneration.current++; if (current.current.preparing && !current.current.draft && !current.current.busy) { generation.current++; patch({ preparing: false }); } patch({ open: false }); }, clear,
     setText: (text: string) => edit({ text }), setSettings, setVoicePending, addFiles,
     removeFile: (index: number) => edit({ files: current.current.draft?.files.filter((_, i) => i !== index) ?? [] }),

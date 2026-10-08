@@ -84,6 +84,24 @@ describe('captured background session launch', () => {
 
 
 describe('compatibility and in-flight acceptance', () => {
+  it('allows clearing a definitive older-executor schema rejection without silently dropping the creation UUID', async () => {
+    const setup = attempt();
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      error: 'Choose valid session settings. Worktree creation requires one source repository and a creation request UUID.',
+    }, { status: 400 }));
+    await expect(launchSession(setup, 'home', request)).rejects.toMatchObject({ editable: true, uncertain: false, message: expect.stringContaining('Update CodeAI') });
+    expect(request).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body)).creationRequestId).toBe(setup.creationRequestId);
+    expect(setup.session).toBeUndefined();
+  });
+
+  it('preserves executor blocker details alongside the durable creation state', async () => {
+    const setup = attempt(); setup.settings.checkoutMode = 'worktree';
+    const worktreeConflict = { machineId: 'remote', kind: 'turn', blockingTurns: [{ sessionId: session.id, state: 'needs-you' }] };
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: 'Executor busy', worktreeConflict, creationState: 'none' }, { status: 409 }));
+    await expect(launchSession(setup, 'home', request)).rejects.toMatchObject({ editable: true, uncertain: false, worktreeConflict });
+  });
+
   it('omits new evidence fields on plain messages and never waits for an older executor stream', async () => {
     const setup = attempt(); setup.content.files = [];
     const cancelled = vi.fn();

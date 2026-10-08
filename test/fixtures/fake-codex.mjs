@@ -157,10 +157,16 @@ while (true) {
   }
   else if (message.method === 'thread/resume') {
     if (mode === 'missing-session') error(message.id, -32000, 'Thread not found');
+    else if (mode === 'resume-unsupported') error(message.id, -32602, 'Unknown field excludeTurns, expected one of threadId, cwd');
+    else if (mode === 'resume-unterminated') writeSync(1, `{"id":${message.id},"result":{"history":"${'x'.repeat(1_100_000)}`);
     else {
       threadId = message.params.threadId;
       threadConfigs.set(threadId, message.params.config || {});
-      result(message.id, threadResult(message.params));
+      const response = threadResult(message.params);
+      if (mode === 'resume-large' || mode === 'resume-history' && !message.params.excludeTurns) {
+        response.thread.turns = [{ items: [{ type: 'agentMessage', id: 'old-message', text: 'x'.repeat(1_100_000) }] }];
+      }
+      result(message.id, response);
     }
   }
   else if (message.method === 'turn/start') {

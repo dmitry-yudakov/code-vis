@@ -1,5 +1,7 @@
 'use client';
 
+import { worktreeCreationError } from '@/features/conversation/worktreeCreationError';
+
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import type {
@@ -159,6 +161,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // The creation forms fall back to an available provider when this one is not.
   const newProvider = preferences.provider ?? 'claude';
   const [creatingSession, setCreatingSession] = useState(false);
+  const [sessionCreateError, setSessionCreateError] = useState<string>();
   const creatingSessionRef = useRef(false);
   const cancellingRuns = useRef(new Set<string>());
   const [loading, setLoading] = useState(true);
@@ -692,6 +695,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     creatingSessionRef.current = true;
     supersede('session-create');
     setCreatingSession(true);
+    setSessionCreateError(undefined);
     try {
       const requestedProjectId = options.fromArena ? options.projectId : projectId;
       const targetMachineId = options.machineId || machineId;
@@ -712,8 +716,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           ...(options.sourceSessionId ? { sourceSessionId: options.sourceSessionId }
             : { ...(requestedProjectId ? { projectId: requestedProjectId } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }) }),
       });
-      const data = await response.json() as { session?: PublicSession; error?: string };
-      if (!response.ok || !data.session) throw new Error(data.error || 'Could not create a session.');
+      const data = await response.json() as { session?: PublicSession; error?: string; worktreeConflict?: unknown };
+      if (!response.ok || !data.session) throw new Error(worktreeCreationError(data, arena.machines));
       let targetCatalog = targetMachine;
       if (data.session.worktree) {
         try {
@@ -755,6 +759,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       void arena.refresh();
       return true;
     } catch (error) {
+      setSessionCreateError(error instanceof Error ? error.message : 'Could not create a session.');
       notifyError(error, 'Could not create a session.', 'session-create');
       return false;
     } finally {
@@ -985,10 +990,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!targetSessionId) return;
     supersede('attach-image');
     const images = files.filter((file) => file.type.startsWith('image/'));
-    try {
-      const prepared = await Promise.all(files.filter((file) => !file.type.startsWith('image/')).map(prepareTextFile));
-      if (prepared.length) updatePendingFiles(targetSessionId, (current) => { const next = [...current, ...prepared]; validateTextFiles(next); return next; });
-    } catch (error) { notifyError(error, 'Could not attach text files.', 'attach-file'); }
+    for (const file of files.filter((file) => !file.type.startsWith('image/'))) {
+      try {
+        const prepared = await prepareTextFile(file);
+        updatePendingFiles(targetSessionId, (current) => { const next = [...current, prepared]; validateTextFiles(next); return next; });
+      } catch (error) { notifyError(error, 'Could not attach text files.', 'attach-file'); }
+    }
 
     const refuseIfFull = () => {
       if ((pendingImagesRef.current[targetSessionId] ?? NO_IMAGES).length < MAX_IMAGES_PER_MESSAGE) return false;
@@ -1704,6 +1711,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       modelSelections: { ...Object.fromEntries(agents.map((agent) => [agent.id,
         offeredModelSelection(agentModelSelection(current, preferences, agent), executionProviders?.[agent.provider])])), ...current.modelSelections } }));
   };
+  const rememberLaunchChoices = (created: PublicSession, settings: LaunchSettings) => {
+    preserveCurrentChoices();
+    workspace.updateViewInProject(created.projectId, created.id, (current) => ({ ...current, defaultMode: settings.mode,
+      modelSelections: { [created.primaryAgentId]: settings.modelSelection } }), settings.machineId === localMachineId ? undefined : settings.machineId);
+    updatePreferences((current) => ({ ...current, provider: settings.provider, mode: settings.mode, instructions: settings.instructions,
+      models: { ...current.models, [settings.provider]: settings.modelSelection } }));
+  };
   const launcher = useSessionLauncher({
     authorized: deviceAccess.authenticated, localMachineId, machines: arena.machines, executions: localExecutionHealth,
     preferences, currentMachineId: machineId, currentProjectId: projectId,
@@ -1711,14 +1725,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     // Pin the origin before awaiting creation, and the current task before remembering defaults.
     onSubmit: preserveCurrentChoices,
     onCreated: (created, settings) => {
-      preserveCurrentChoices();
-      workspace.updateViewInProject(created.projectId, created.id, (current) => ({ ...current, defaultMode: settings.mode,
-        modelSelections: { [created.primaryAgentId]: settings.modelSelection } }), settings.machineId === localMachineId ? undefined : settings.machineId);
-      updatePreferences((current) => ({ ...current, provider: settings.provider, mode: settings.mode, instructions: settings.instructions,
-        models: { ...current.models, [settings.provider]: settings.modelSelection } }));
+      rememberLaunchChoices(created, settings);
       void arena.refresh();
     },
     onResult: (result, settings, autoOpen) => {
+      rememberLaunchChoices(result.session, settings);
       void arena.refresh();
       if (autoOpen) void openLaunchedSession(result.session, settings, launchNavigation.current);
       else announceLaunch(result, settings);
@@ -2061,7 +2072,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   /** From the flat shell: opening a canvas, or starting one, brings a hidden canvas back. */
   const selectShownDiagram = (id: string) => { selectDiagram(id); panelLayout.showCanvas(); };
   const createShownSketch = () => { createSketch(); panelLayout.showCanvas(); };
-  const sessionCreateError = toasts.find((toast) => toast.key === 'session-create')?.message;
   // Oldest first, so on screen the raised toasts sit above the focused session's outcome, and that
   // above the explanation for hidden sessions.
   const blockingRun = focusedRunOutcome?.blockingRun;
@@ -2166,6 +2176,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               repositoryContext,
               machines: arena.machines, machineId, sessionId: session?.id, sessionTitle: session?.title, projectId: session?.projectId,
               creating: creatingSession,
+              creationError: sessionCreateError,
               status: immersiveStatus, permissions: focusedPermissionTargets, results: permissionDecisions.results,
               online: immersiveMachine?.machine.state === 'online', checkouts: orderedCheckouts,
               needsRepository: Boolean(session && !session.repositories.some((item) => item.role === 'primary')),

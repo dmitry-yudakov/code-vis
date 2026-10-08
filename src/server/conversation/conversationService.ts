@@ -68,6 +68,7 @@ export async function runConversation(input: {
   let directory: string | undefined;
   let sessionMark = Promise.resolve();
   let sessionMarkError: unknown;
+  let inputPossiblySent = false;
   const participant = serverAgent(session, request.participantId);
   if (!participant) throw new Error('Unknown addressed agent participant');
   const host = await sessionStore.host();
@@ -171,6 +172,7 @@ export async function runConversation(input: {
                 .then(async () => { await sessionStore.markProviderSessionStarted(session.id, participant.id, participant.provider, event.sessionId!); })
                 .catch((error: unknown) => { sessionMarkError = error; });
             } else if (event.type === 'turn-started') {
+              inputPossiblySent = true;
               usedTurns += 1;
             } else if (event.type === 'text-delta' && event.text) {
               emit({ type: 'assistant-delta', runId, delta: event.text });
@@ -194,7 +196,9 @@ export async function runConversation(input: {
             }
           },
         });
+        inputPossiblySent = true;
       } catch (error) {
+        if (error instanceof AgentRunError && error.delivery === 'possibly-sent') inputPossiblySent = true;
         // Only our mode interruption may resume. A provider error/denial must remain an error.
         if (!attempt.signal.aborted || signal.aborted
           || !(error instanceof AgentRunError) || error.code !== 'cancelled') throw error;
@@ -259,6 +263,12 @@ export async function runConversation(input: {
     }
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
+  } catch (error) {
+    // A saved message spans mode attempts, including input sent before a provider acknowledged it.
+    if (inputPossiblySent && error instanceof AgentRunError && error.delivery === 'not-sent') {
+      throw new AgentRunError(error.code, error.message, 'possibly-sent', error.retryable);
+    }
+    throw error;
   } finally {
     turnMode.close();
     if (directory) await removeRunDirectory(directory).catch(() => undefined);

@@ -7,6 +7,8 @@ import { createSessionRequestSchema, publicError, safeJsonResponse } from '@/sha
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
 import { createRequestedSession } from '@/server/conversation/sessionCreation';
+import { WorktreeCreationBusyError } from '@/server/repository/managedWorktrees';
+import { worktreeCreationConflictSchema } from '@/shared/worktreeCreation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,6 +47,6 @@ export async function POST(request: Request): Promise<Response> {
     const session = await createRequestedSession(parsed.data, config);
     return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
-    return safeJsonResponse({ error: publicError(error), ...(creationRequestId ? await sessionCreationFailure(creationRequestId, getConfig()) : {}) }, { status: sessionStoreStatus(error) });
+    return safeJsonResponse({ error: publicError(error), ...(error instanceof WorktreeCreationBusyError ? { worktreeConflict: worktreeCreationConflictSchema.parse(error.worktreeConflict) } : {}), ...(creationRequestId ? await sessionCreationFailure(creationRequestId, getConfig()) : {}) }, { status: sessionStoreStatus(error) });
   }
 }

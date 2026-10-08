@@ -44,7 +44,8 @@ export function launchText(content: LaunchContent): string {
     : content.files.length ? FILE_ONLY_INSTRUCTION : content.reportIds.length ? REPORT_ONLY_INSTRUCTION : '';
 }
 export class LaunchFailure extends Error {
-  constructor(message: string, public readonly editable: boolean, public readonly uncertain = false) { super(message); }
+  constructor(message: string, public readonly editable: boolean, public readonly uncertain = false,
+    public readonly worktreeConflict?: unknown) { super(message); }
 }
 export interface LaunchResult { session: PublicSession; started: boolean; runId?: string }
 
@@ -72,8 +73,12 @@ export async function launchSession(attempt: LaunchAttempt, localMachineId: stri
           checkoutMode: settings.checkoutMode, creationRequestId: attempt.creationRequestId }),
       });
     } catch { throw new LaunchFailure('Creation status is unknown. Retry keeps this exact request.', false, true); }
-    const data = await response.json().catch(() => ({})) as { session?: PublicSession; error?: string; creationState?: string };
-    if (!response.ok || !data.session) throw new LaunchFailure(data.error || 'Could not create the session.', data.creationState === 'none', data.creationState !== 'none');
+    const data = await response.json().catch(() => ({})) as { session?: PublicSession; error?: string; creationState?: string; worktreeConflict?: unknown };
+    if (response.status === 400 && data.creationState === undefined && !settings.codeai && settings.checkoutMode === 'current'
+      && data.error === 'Choose valid session settings. Worktree creation requires one source repository and a creation request UUID.') {
+      throw new LaunchFailure('This executor does not support durable session creation. Update CodeAI on that machine before starting this session.', true);
+    }
+    if (!response.ok || !data.session) throw new LaunchFailure(data.error || 'Could not create the session.', data.creationState === 'none', data.creationState !== 'none', data.worktreeConflict);
     attempt.session = data.session;
     onCreated?.(data.session);
   }

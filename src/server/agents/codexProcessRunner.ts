@@ -35,7 +35,9 @@ type JsonRecord = Record<string, unknown>;
  * is held in memory. The answer has its own cap (`maxOutputBytes`).
  */
 const MAX_EVENT_BYTES = 1_048_576;
-const oversizedEvent = () => new AgentRunError('oversized-output', 'Codex emitted an oversized App Server event.');
+const oversizedEvent = (sent: boolean, resuming: boolean) => new AgentRunError('oversized-output',
+  !sent && resuming ? 'Codex emitted an oversized App Server event before starting the resumed turn. Update the executing machine\'s Codex CLI and retry.'
+    : 'Codex emitted an oversized App Server event.', sent ? 'possibly-sent' : 'not-sent');
 
 class RpcResponseError extends Error {
   constructor(public readonly code: number, message: string) {
@@ -125,14 +127,14 @@ function classifyCodexFailure(
   if (error instanceof AgentRunError) return error;
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
+  if (error instanceof RpcResponseError && (error.code === -32601 || error.code === -32602 || /requires experimentalapi|invalid params/.test(normalized))) {
+    return new AgentRunError('unsupported-flags', 'The installed Codex version does not support CodeAI\'s required App Server protocol.', 'not-sent', false);
+  }
   if (/unauthori[sz]ed|not authenticated|authentication|login required|sign in/.test(normalized)) {
     return new AgentRunError('unauthenticated', 'Codex is not authenticated. Run `codex login` locally and sign in.', 'not-sent');
   }
   if (action === 'resume' && /thread|session/.test(normalized) && /not found|missing|invalid|unknown/.test(normalized)) {
     return new AgentRunError('missing-session', 'The native Codex provider session is missing or cannot be resumed. Continue in a new provider session.', 'not-sent');
-  }
-  if (error instanceof RpcResponseError && (error.code === -32601 || /requires experimentalapi|invalid params/.test(normalized))) {
-    return new AgentRunError('unsupported-flags', 'The installed Codex version does not support CodeAI\'s required App Server protocol.', 'not-sent', false);
   }
   return new AgentRunError('process-failed', 'Codex App Server exited before returning a complete response.', delivery);
 }
@@ -440,7 +442,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const processLine = (raw: string) => {
         const line = raw.trim();
         if (!line) return;
-        if (Buffer.byteLength(line) > MAX_EVENT_BYTES) throw oversizedEvent();
+        if (Buffer.byteLength(line) > MAX_EVENT_BYTES) throw oversizedEvent(turnRequestSent, input.session.action === 'resume');
         let message: JsonRecord;
         try { message = JSON.parse(line) as JsonRecord; }
         catch { throw new AgentRunError('malformed-stream', 'Codex emitted malformed App Server data.'); }
@@ -483,7 +485,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             stdoutBuffer = stdoutBuffer.slice(newline + 1);
             newline = stdoutBuffer.indexOf('\n');
           }
-          if (Buffer.byteLength(stdoutBuffer) > MAX_EVENT_BYTES) throw oversizedEvent();
+          if (Buffer.byteLength(stdoutBuffer) > MAX_EVENT_BYTES) throw oversizedEvent(turnRequestSent, input.session.action === 'resume');
         } catch (error) { stopWith(error); }
       });
       child.stderr.on('data', (chunk: Buffer) => {
@@ -587,7 +589,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
               // Provider-side identifier for every thread started so far. Renaming it is a Codex
               // data migration, not branding, so it stays as it is.
               ? { ...common, serviceName: 'cartograph_web2' }
-              : { ...common, threadId: input.session.id },
+              : { ...common, threadId: input.session.id, excludeTurns: true },
           ));
           const providerThread = record(threadResult?.thread);
           if (typeof providerThread?.id !== 'string') throw new Error('Codex App Server returned no provider session id');

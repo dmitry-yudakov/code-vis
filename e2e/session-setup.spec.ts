@@ -17,6 +17,55 @@ async function openSetup(page: Page, target: DurableProject) {
   await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
   return dialog;
 }
+
+test('a rejected first turn can change mode and model while retaining its created session', async ({ page, request }) => {
+  const { project: target } = await project(request);
+  await page.route('**/api/health', async (route) => {
+    const health = await (await route.fetch()).json();
+    const choices = { models: [{ id: 'replacement', label: 'Replacement model', efforts: ['low', 'high'] }], efforts: ['low', 'high'] };
+    Object.assign(health.providers.claude, choices);
+    Object.assign(health.executions.local.providers.claude, choices);
+    await route.fulfill({ json: health });
+  });
+  const turns: Array<Record<string, unknown>> = [];
+  await page.route('**/api/agent/message', async (route) => {
+    turns.push(route.request().postDataJSON());
+    if (turns.length === 1) return route.fulfill({ status: 400, json: { error: 'The selected model is no longer offered.' } });
+    return route.fulfill({ status: 200, headers: { 'X-CodeAI-Run-Id': 'accepted-retry' }, body: '' });
+  });
+  const dialog = await openSetup(page, target);
+  await dialog.getByRole('textbox').fill('Keep this draft and session');
+  await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('no longer offered');
+  await expect(dialog.getByLabel('Project', { exact: true })).toBeDisabled();
+  await expect(dialog.getByLabel('Provider', { exact: true })).toBeDisabled();
+  await dialog.getByLabel('Mode', { exact: true }).selectOption('plan');
+  const menu = dialog.locator('.model-menu'); await menu.locator('summary').click();
+  await menu.getByRole('radio', { name: 'Replacement model', exact: true }).click();
+  await menu.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(turns).toHaveLength(2);
+  expect(turns[1]).toMatchObject({ sessionId: turns[0].sessionId, text: 'Keep this draft and session', mode: 'plan', model: 'replacement', effort: 'high' });
+  expect(turns[1].messageId).not.toBe(turns[0].messageId);
+  expect((await (await request.get(`/api/sessions?projectId=${target.id}`)).json()).sessions).toHaveLength(1);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences') || '{}')))
+    .toMatchObject({ mode: 'plan', models: { claude: { model: 'replacement', effort: 'high' } } });
+});
+
+test('normal composer keeps valid text files from a selection containing an invalid binary', async ({ page, request }) => {
+  const { project: target } = await project(request);
+  await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } });
+  await page.goto('/'); await chooseProject(page, target);
+  await page.locator('.instruction-composer input[type=file]').setInputFiles([
+    { name: 'valid.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep valid evidence') },
+    { name: 'binary.txt', mimeType: 'text/plain', buffer: Buffer.from([0, 1, 2]) },
+  ]);
+  await expect(page.locator('.instruction-composer')).toContainText('valid.txt');
+  await expect(page.locator('.instruction-composer')).not.toContainText('binary.txt');
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByRole('alert')).toContainText('UTF-8 text file');
+});
+
 for (const theme of ['light', 'dark']) test(`${theme}: setup Enter starts a file/image turn in background, preserves Arena, and Open reaches it`, async ({ page, request }) => {
   await page.addInitScript((value) => localStorage.setItem('code-ai:theme', value), theme);
   const { project: target } = await project(request);

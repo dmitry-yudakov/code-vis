@@ -214,7 +214,7 @@ test('project creation offers Docker without a host provider and keeps the selec
   const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
   await expect(execution(conversation)).toHaveText('Docker');
   await expect(page.locator('.project-search-trigger')).toContainText(project.name);
-  expect(creations[0]).toEqual({ provider: 'claude', execution: 'docker', projectId: project.id });
+  expect(creations[0]).toEqual({ provider: 'claude', execution: 'docker', projectId: project.id, checkoutMode: 'current' });
   await expectContinuationDisabled(conversation, 'Local');
   await page.locator('.new-session-menu summary').click();
   const picker = page.locator('.new-session-menu');
@@ -334,9 +334,9 @@ test('loose Docker creation selects a checkout and failed creation keeps its opt
   failures.wait = undefined;
   await expect(welcome.getByRole('alert')).toHaveText('Repository is no longer available.');
   await expect(welcome.getByRole('combobox', { name: 'Execution', exact: true })).toHaveValue('docker');
-  await expect(welcome.getByRole('button', { name: 'Create and open' })).toBeEnabled();
+  await expect(welcome.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled();
   failures.create = false;
-  await welcome.getByRole('button', { name: 'Create and open' }).click();
+  await welcome.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(execution(page)).toHaveText('Docker');
-  expect(creations[0]).toEqual({ provider: 'claude', execution: 'docker', checkoutId: checkouts[0].id });
+  expect(creations[0]).toEqual({ provider: 'claude', execution: 'docker', checkoutId: checkouts[0].id, checkoutMode: 'current' });
 });

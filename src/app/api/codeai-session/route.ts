@@ -5,9 +5,11 @@ import { boundedRequestBody } from '@/server/machines/boundedBody';
 import { privateJson } from '@/server/diagnostics/reportAccess';
 import { publicSession, sessionStoreStatus } from '@/server/storage/sessionStore';
 import { createRequestedSession } from '@/server/conversation/sessionCreation';
+import { WorktreeCreationBusyError } from '@/server/repository/managedWorktrees';
 import { codeAiSessionAvailability, prepareCodeAiSession, validatePreparedCodeAiSession } from '@/server/conversation/codeAiSession';
 import { codeAiSessionRequestSchema } from '@/shared/codeAiSession';
 import { createSessionRequestSchema, publicError } from '@/shared/protocol';
+import { worktreeCreationConflictSchema } from '@/shared/worktreeCreation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,7 +44,9 @@ export async function POST(request: Request): Promise<Response> {
     const session = await createRequestedSession(creation, config, () => validatePreparedCodeAiSession(preparedContext, config));
     return privateJson({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
-    return privateJson({ error: publicError(error), ...await sessionCreationFailure(creationRequestId, config) },
+    return privateJson({ error: publicError(error),
+      ...(error instanceof WorktreeCreationBusyError ? { worktreeConflict: worktreeCreationConflictSchema.parse(error.worktreeConflict) } : {}),
+      ...await sessionCreationFailure(creationRequestId, config) },
       { status: error instanceof Error && error.message === 'Request body is too large.' ? 413 : sessionStoreStatus(error) });
   }
 }

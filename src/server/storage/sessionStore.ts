@@ -556,6 +556,7 @@ export class SessionStore {
     expectedProjectBindings?: string;
     sourceSessionId?: string;
     expectedSourceRevision?: number;
+    expectedProjectRevision?: number;
     checkoutId?: string;
     projectId?: string;
     provider: AgentProvider;
@@ -603,6 +604,9 @@ export class SessionStore {
         if (!project || projectBindingsFingerprint(project) !== input.expectedProjectBindings) {
           throw new SessionStoreError('conflict', 'The prepared project repositories changed. Prepare the session again.');
         }
+      }
+      if (input.expectedProjectRevision !== undefined && project?.revision !== input.expectedProjectRevision) {
+        throw new SessionStoreError('conflict', 'The project changed before worktree creation. Refetch and retry.');
       }
       const projectId = source?.projectId || project?.id;
       if (project && input.checkoutId && !input.worktree) throw new Error('Choose a project or a checkout, not both.');

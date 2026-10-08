@@ -164,13 +164,23 @@ Updated 2026-10-07. When a story ships, change the line that names it; each stor
   production attached-executor transport and physical Quest use were not rerun.
 - **Also in flight:** [Story 97](stories/STORY-20261007-compose-new-session.md) — shared session
   setup from Arena and the managed CodeAI gear shortcut, with first-message evidence, background
-  launch, durable retries, and desktop/VR presentation; automated verification and review are
-  recorded in the story, and physical Quest 3S acceptance remains pending.
+  launch, durable retries, and desktop/VR presentation; merge review preserves scoped worktree
+  admission and repairs launch recovery. All 1,240 unit tests, TypeScript, the production build,
+  59 browser checks and independent review pass; physical Quest 3S acceptance remains pending.
 - **Shipped:** [Story 96](stories/STORY-20261007-stop-arena-git-helper-churn.md) — Arena source
   listing uses lightweight filesystem checks instead of spawning Git helpers and holding checkout
   leases; full worktree creation validation and restart exclusions remain. All 1,177 tests,
   TypeScript, the production build and independent review passed. Observation in the rebuilt
   running app remains a follow-up.
+- **Shipped:** [Story 97](stories/STORY-20261007-codex-resume-without-history.md) — Codex resumes
+  older threads without returning their history, keeping event bounds, thread identity and accurate
+  delivery across mode changes. The installed CLI probe, automated checks and independent review
+  passed; the running application has not been restarted.
+- **Shipped:** [Story 98](stories/STORY-20261007-worktree-creation-admission.md) — worktree creation
+  owns affected repository/Git scopes while proved unrelated checkouts remain usable; desktop,
+  Arena and VR name blockers and retain explicit Retry. All 1,201 offline tests, TypeScript, build,
+  six browser checks, real Docker checks and repeated independent review passed. Physical Quest,
+  production attached transport and observation in the rebuilt app remain unverified.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

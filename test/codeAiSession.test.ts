@@ -15,6 +15,7 @@ import { GET, POST } from '@/app/api/codeai-session/route';
 import { getConfig } from '@/server/config';
 import { getSessionStore, type SessionStore } from '@/server/storage/sessionStore';
 import { machineOperationAllowed } from '@/server/machines/machineRoutePolicy';
+import { runRegistry } from '@/server/runs/runRegistry';
 
 let root: string;
 let store: SessionStore;
@@ -36,6 +37,18 @@ beforeEach(async () => {
 afterEach(async () => { await store.close(); vi.unstubAllEnvs(); });
 
 describe('managed installation session setup', () => {
+  it('returns worktree blocker details and creation state from the fixed CodeAI route', async () => {
+    const prepared = await (await post({ action: 'prepare' })).json();
+    expect(runRegistry.acquireMaintenance()).toBe('acquired');
+    try {
+      const response = await post({ action: 'create', preparedContext: prepared.preparedContext, provider: 'claude',
+        checkoutMode: 'worktree', creationRequestId: crypto.randomUUID() });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ creationState: 'none', worktreeConflict: { kind: 'maintenance' } });
+      expect(await store.listSessions()).toHaveLength(0);
+    } finally { runRegistry.releaseMaintenance(); }
+  });
+
   it('discovers independently of current project, with no mutation or leaked path', async () => {
     const response = await GET(new Request('http://localhost/api/codeai-session'));
     expect(response.status).toBe(200);

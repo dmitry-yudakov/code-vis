@@ -37,6 +37,96 @@ async function scheduled(): Promise<void> {
 }
 
 describe('machine run scheduler', () => {
+  it('admits only proved ordinary checkout roots and metadata while unknown Local checkouts wait', async () => {
+    const registry = new RunRegistry(3);
+    const admission = registry.acquireWorktreeCreation();
+    if (!admission.acquired) throw new Error('Creation was refused');
+    const proof = { root: '/worktrees', registered: [], independent: ['/repos/a', '/repos/b'] };
+    const unknown = registry.acquireCheckoutWrite('/repos/new-linked')!;
+    expect(admission.lease.acquireScopes(['/repos/a'], proof)).toMatchObject({ acquired: false, conflict: { kind: 'recovery' } });
+    unknown();
+    const read = registry.acquireCheckoutRead('/repos/new-linked')!;
+    expect(admission.lease.acquireScopes(['/repos/a'], proof)).toMatchObject({ acquired: false, conflict: { kind: 'git-read' } });
+    read();
+    expect(admission.lease.acquireScopes(['/repos/a'], proof)).toEqual({ acquired: true });
+    const independentRead = registry.acquireCheckoutRead('/repos/b/.git/objects')!;
+    expect(independentRead).toBeTypeOf('function'); independentRead();
+    expect(registry.acquireCheckoutWrite('/repos/b/nested-linked')).toBeUndefined();
+    expect(registry.acquireCheckoutRead('/repos/new-linked')).toBeUndefined();
+    const waiting = turn(registry, { checkoutPath: '/repos/new-linked', access: 'write' });
+    const nested = turn(registry, { checkoutPath: '/repos/b/nested-linked', access: 'write' });
+    const unrelated = turn(registry, { checkoutPath: '/repos/b', access: 'write' });
+    await scheduled();
+    expect(unrelated.execute).toHaveBeenCalledOnce();
+    expect(waiting.execute).not.toHaveBeenCalled(); expect(nested.execute).not.toHaveBeenCalled();
+    registry.finish(unrelated.runId); admission.lease.release(); await scheduled();
+    expect(waiting.execute).toHaveBeenCalledOnce(); expect(nested.execute).toHaveBeenCalledOnce();
+  });
+  it('refuses existing unknown managed locks but permits descendants of unrelated registered worktrees', () => {
+    const registry = new RunRegistry();
+    const admission = registry.acquireWorktreeCreation();
+    if (!admission.acquired) throw new Error('Creation was refused');
+    const proof = { root: '/worktrees', registered: ['/worktrees/b'] };
+    const undo = registry.acquireCheckoutWrite('/worktrees/unknown')!;
+    expect(admission.lease.acquireScopes(['/repos/a'], proof)).toMatchObject({ acquired: false, conflict: { kind: 'recovery' } });
+    undo();
+    const reader = registry.acquireCheckoutRead('/worktrees/unknown/.git')!;
+    expect(admission.lease.acquireScopes(['/repos/a'], proof)).toMatchObject({ acquired: false, conflict: { kind: 'git-read' } });
+    reader();
+    const unrelated = registry.acquireCheckoutRead('/worktrees/b/.git')!;
+    expect(admission.lease.acquireScopes(['/repos/a'], proof)).toEqual({ acquired: true });
+    const nextReader = registry.acquireCheckoutRead('/worktrees/b/src')!;
+    expect(nextReader).toBeTypeOf('function'); nextReader(); unrelated();
+    expect(registry.acquireCheckoutWrite('/worktrees/unknown')).toBeUndefined();
+    expect(registry.acquireCheckoutRead('/worktrees/unknown')).toBeUndefined();
+    admission.lease.release();
+  });
+  it('admits worktree creation alongside unrelated runs while preserving source and restart exclusion', async () => {
+    const registry = new RunRegistry(2);
+    const unrelated = turn(registry, { checkoutPath: '/repos/b', access: 'write' });
+    const admission = registry.acquireWorktreeCreation();
+    expect(admission.acquired).toBe(true);
+    if (!admission.acquired) throw new Error('Creation was refused');
+    const lease = admission.lease;
+    expect(registry.acquireMaintenance()).toBe('live-runs');
+    expect(registry.acquireWorktreeCreation()).toMatchObject({ acquired: false, conflict: { kind: 'creation' } });
+    expect(lease.acquireScopes(['/repos/a', '/worktrees/a'])).toEqual({ acquired: true });
+    expect(registry.acquireCheckoutRead('/repos/a/.git')).toBeUndefined();
+    expect(registry.acquireCheckoutWrite('/worktrees/a')).toBeUndefined();
+    const ownRead = registry.acquireCheckoutRead('/repos/a/.git', lease.token);
+    expect(ownRead).toBeTypeOf('function'); ownRead!();
+    const waiting = turn(registry, { checkoutPath: '/repos/a', access: 'write' });
+    registry.finish(unrelated.runId);
+    const next = turn(registry, { checkoutPath: '/repos/b', access: 'read' });
+    await scheduled();
+    expect(waiting.execute).not.toHaveBeenCalled();
+    expect(next.execute).toHaveBeenCalledOnce();
+    lease.release();
+    await scheduled();
+    expect(waiting.execute).toHaveBeenCalledOnce();
+  });
+
+  it('checks live and reserved source scopes at grant and reports bounded public blockers', async () => {
+    const registry = new RunRegistry();
+    const admission = registry.acquireWorktreeCreation();
+    if (!admission.acquired) throw new Error('Creation was refused');
+    const runId = crypto.randomUUID(), sessionId = crypto.randomUUID();
+    registry.reserve({ runId, sessionId, checkoutId: 'a', checkoutPath: '/worktrees/new-sibling', access: 'write', participantId: 'agent', providerKey: 'private-key', cancel() {} });
+    expect(admission.lease.acquireScopes(['/repos/a', '/worktrees/new-sibling'])).toEqual({ acquired: false,
+      conflict: { kind: 'turn', blockingTurns: [{ sessionId, state: 'preparing' }] } });
+    registry.release(runId);
+    const reader = registry.acquireCheckoutRead('/repos/a/.git')!;
+    expect(admission.lease.acquireScopes(['/repos/a'])).toMatchObject({ acquired: false, conflict: { kind: 'git-read' } });
+    reader();
+    const recovery = registry.acquireCheckoutWrite('/repos/a')!;
+    expect(admission.lease.acquireScopes(['/repos/a'])).toMatchObject({ acquired: false, conflict: { kind: 'recovery' } });
+    recovery();
+    expect(admission.lease.acquireScopes(['/repos/a'])).toEqual({ acquired: true });
+    admission.lease.release();
+    expect(registry.acquireMaintenance()).toBe('acquired');
+    expect(registry.acquireWorktreeCreation()).toMatchObject({ acquired: false, conflict: { kind: 'maintenance' } });
+  });
+
   it('serializes session archiving with turn admission and machine maintenance', () => {
     const registry = new RunRegistry();
     const release = registry.acquireSessionArchive('session-a');

@@ -81,7 +81,8 @@ export function SessionSetup({ launcher, theme, onCapture, onController }: {
     if (action === 'submit') return !launcher.canSubmit;
     if (action === 'clear') return launcher.busy || launcher.frozen;
     if (['machine', 'project', 'repository', 'execution'].includes(action) && settings?.codeai) return true;
-    if (['machine', 'project', 'repository', 'execution', 'checkout', 'provider', 'mode', 'instructions', 'model', 'effort'].includes(action)) return locked;
+    if (['mode', 'model', 'effort'].includes(action)) return launcher.turnSettingsLocked;
+    if (['machine', 'project', 'repository', 'execution', 'checkout', 'provider', 'instructions'].includes(action)) return locked;
     if (action === 'capture') return launcher.captureToken() === undefined;
     if (action === 'attach') return !report || draft?.reportIds.includes(report.id) || launcher.frozen;
     if (action === 'remove') return !selected || launcher.frozen;
