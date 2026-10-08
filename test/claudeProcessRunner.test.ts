@@ -200,6 +200,18 @@ describe.sequential('ClaudeProcessRunner', () => {
     await expect(run({ action: 'start', signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' });
   });
 
+  it.each(['ask', 'plan'] as const)('completes %s with no execution timeout', async (mode) => {
+    await expect(run({ mode, timeoutMs: 0 })).resolves.toMatchObject({ result: { sessionId: expect.any(String) } });
+  });
+
+  it('still cancels a stalled turn with no execution timeout', async () => {
+    process.env.CODEAI_FAKE_MODE = 'timeout';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 100);
+    try { await expect(run({ timeoutMs: 0, signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' }); }
+    finally { clearTimeout(timer); }
+  });
+
   it('bounds each stream event, not the whole stream, so a long tool-heavy turn completes', async () => {
     // The fake emits 600 KB of tool results against a 100 KB answer limit.
     process.env.CODEAI_FAKE_MODE = 'long-run';

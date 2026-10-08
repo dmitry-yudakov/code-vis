@@ -345,9 +345,11 @@ export class DockerRuntime {
     const name = `codeai-${this.owner}-${identity.sessionId}`;
     const network = `${name}-${identity.runId.slice(0, 8)}`;
     // Every turn gets a new worker, and Docker turns never pause their clock for approvals. PID 1
-    // therefore outlasts the turn, and ends every exec'd process if CodeAI is no longer there to.
+    // therefore outlasts a bounded turn. Explicit unlimited turns rely on normal cleanup and
+    // restart reconciliation rather than a PID 1 deadline.
+    const timeoutMs = resolveAgentPolicy(this.config, options.mode, 'docker').timeoutMs;
     const lifetime = options.setup ? SETUP_LIFETIME_SECONDS
-      : Math.ceil(resolveAgentPolicy(this.config, options.mode, 'docker').timeoutMs / 1000) + WORKER_GRACE_SECONDS;
+      : timeoutMs === 0 ? 'infinity' : Math.ceil(timeoutMs / 1000) + WORKER_GRACE_SECONDS;
     const resources: string[] = [];
     let networkCreated = false;
     let cleanupComplete = false;

@@ -20,6 +20,7 @@ export interface AppConfig {
   codexModel?: string;
   codexAgentEnabled: boolean;
   dockerEnabled: boolean;
+  /** Zero disables the Ask/Plan execution clock. */
   agentTimeoutMs: number;
   agentMaxTurns: number;
   buildTimeoutMs: number;
@@ -194,7 +195,8 @@ export function getConfig(): AppConfig {
     // Answering is read-only, but a real question still spends several thinking-and-tool cycles on
     // repository research before the first word of the reply; five minutes cut those turns off
     // mid-investigation with nothing to show for them.
-    agentTimeoutMs: boundedInteger('AGENT_TIMEOUT_MS', 900_000, 1_000, 3_600_000),
+    agentTimeoutMs: rawSetting('AGENT_TIMEOUT_MS')?.trim() === '0'
+      ? 0 : boundedInteger('AGENT_TIMEOUT_MS', 900_000, 1_000, 3_600_000),
     agentMaxTurns: boundedInteger('AGENT_MAX_TURNS', 20, 1, 100),
     // Building needs a far larger budget than answering: research alone can spend the read-only
     // allowance before the first edit. Approval time never counts against the timeout.

@@ -421,6 +421,26 @@ describe('Docker checkout mounts', () => {
 });
 
 describe('Docker worker lifetime', () => {
+  it.each(['ask', 'plan'] as const)('keeps unlimited %s workers alive until normal cleanup', async (mode) => {
+    const { runtime, identity, checkout, containers } = await workerFixture();
+    runtime.config.agentTimeoutMs = 0;
+    const worker = await runtime.createWorker(identity, { checkout, mode });
+    expect(containers.get(worker.worker)!.slice(-2)).toEqual(['sleep', 'infinity']);
+    await worker.stop();
+    expect(containers.has(worker.worker)).toBe(false);
+  });
+
+  it('keeps writing and setup worker lifetimes bounded when Ask/Plan is unlimited', async () => {
+    const { runtime, identity, checkout, containers } = await workerFixture();
+    runtime.config.agentTimeoutMs = 0;
+    const writing = await runtime.createWorker(identity, { checkout, mode: 'agent' });
+    expect(containers.get(writing.worker)!.slice(-2)).toEqual(['sleep', String(runtime.config.buildTimeoutMs / 1000 + 600)]);
+    await writing.stop();
+    const setup = await runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { mode: 'ask', setup: true });
+    expect(containers.get(setup.worker)!.slice(-2)).toEqual(['sleep', '3600']);
+    await setup.stop();
+  });
+
   it.each(['ask', 'plan', 'agent'] as const)('ends an orphaned %s worker after its turn limit and a grace period', async (mode) => {
     const { runtime, identity, checkout, containers } = await workerFixture();
     const worker = await runtime.createWorker(identity, { checkout, mode });

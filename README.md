@@ -1309,6 +1309,12 @@ See [.env.example](.env.example). The most useful options are:
 - `CODEAI_MAX_CONCURRENT_RUNS` — machine-wide execution slots, from 1–8 (default `2`);
 - `CODEAI_AGENT_*` / `CODEAI_BUILD_*` — per-message turn and time budgets for Ask/Plan
   and for Agent and Auto respectively;
+- `CODEAI_AGENT_TIMEOUT_MS=0` — disable the Ask/Plan execution timeout for Claude and Codex,
+  Local and Docker. Unset or empty keeps the 15-minute default; positive values are
+  `1000`–`3600000` milliseconds. The legacy `CODEAI_WEB2_AGENT_TIMEOUT_MS` name also works.
+  Claude's maximum-turn limit and provider-owned limits still apply. The existing Codex runner
+  does not enforce CodeAI's maximum-turn setting. Writing turns retain their separate
+  `CODEAI_BUILD_TIMEOUT_MS` budget. Restart the server after changing the setting;
 - `CODEAI_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_MAX_TRANSCRIPT_BYTES` — server-side prompt bounds
   applied to the canonical host transcript;
 - `CODEAI_LOG_DIR` — opt-in rotating server console files, for example `./logs`; see below;

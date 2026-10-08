@@ -15,6 +15,8 @@ const MANAGED = [
   'CODEAI_HOST_LABEL', 'CODEAI_WEB2_HOST_LABEL',
   'CODEAI_MAX_CONCURRENT_RUNS', 'CODEAI_WEB2_MAX_CONCURRENT_RUNS',
   'CODEAI_APPROVAL_TIMEOUT_MS', 'CODEAI_WEB2_APPROVAL_TIMEOUT_MS',
+  'CODEAI_AGENT_TIMEOUT_MS', 'CODEAI_WEB2_AGENT_TIMEOUT_MS',
+  'CODEAI_BUILD_TIMEOUT_MS', 'CODEAI_WEB2_BUILD_TIMEOUT_MS',
   'CODEAI_REMOTE_ACCESS', 'CODEAI_WEB2_REMOTE_ACCESS',
   'CODEAI_PUBLIC_ORIGIN', 'CODEAI_WEB2_PUBLIC_ORIGIN',
 ] as const;
@@ -90,6 +92,45 @@ describe.sequential('config', () => {
     process.env.CODEAI_APPROVAL_TIMEOUT_MS = '0';
     process.env.CODEAI_WEB2_APPROVAL_TIMEOUT_MS = '600000';
     expect(getConfig().approvalTimeoutMs).toBe(0);
+  });
+
+  it('keeps the read-only timeout default and accepts unlimited zero with normal alias precedence', () => {
+    delete process.env.CODEAI_AGENT_TIMEOUT_MS;
+    delete process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS;
+    expect(getConfig().agentTimeoutMs).toBe(900_000);
+    process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '0';
+    expect(getConfig().agentTimeoutMs).toBe(0);
+    process.env.CODEAI_AGENT_TIMEOUT_MS = '1000';
+    expect(getConfig().agentTimeoutMs).toBe(1000);
+    process.env.CODEAI_AGENT_TIMEOUT_MS = '0';
+    process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '60000';
+    expect(getConfig().agentTimeoutMs).toBe(0);
+    process.env.CODEAI_AGENT_TIMEOUT_MS = '';
+    expect(getConfig().agentTimeoutMs).toBe(60_000);
+    process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '';
+    expect(getConfig().agentTimeoutMs).toBe(900_000);
+  });
+
+  it.each(['1000', '3600000'])('retains the positive read-only timeout bound %s', (value) => {
+    process.env.CODEAI_AGENT_TIMEOUT_MS = value;
+    expect(getConfig().agentTimeoutMs).toBe(Number(value));
+  });
+
+  it.each(['-1', '1', '999', '1000.5', '3600001', 'Infinity', 'invalid', ' ', '\t'])(
+    'rejects invalid read-only timeout %s despite a valid legacy value', (value) => {
+      process.env.CODEAI_AGENT_TIMEOUT_MS = value;
+      process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '0';
+      expect(() => getConfig()).toThrow('CODEAI_AGENT_TIMEOUT_MS');
+    },
+  );
+
+  it('validates the legacy read-only timeout and keeps zero invalid for writing timeouts', () => {
+    delete process.env.CODEAI_AGENT_TIMEOUT_MS;
+    process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '-1';
+    expect(() => getConfig()).toThrow('CODEAI_WEB2_AGENT_TIMEOUT_MS');
+    process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '0';
+    process.env.CODEAI_BUILD_TIMEOUT_MS = '0';
+    expect(() => getConfig()).toThrow('CODEAI_BUILD_TIMEOUT_MS');
   });
 
   it.each(['5000', '600000', '3600000'])('keeps an explicitly configured approval timeout of %s ms', (value) => {

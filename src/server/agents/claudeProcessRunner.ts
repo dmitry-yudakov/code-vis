@@ -185,6 +185,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let clockStartedAt = Date.now();
       let remainingTimeoutMs = input.policy.timeoutMs;
       const startTimeoutClock = () => {
+        if (input.policy.timeoutMs === 0) return;
         clockStartedAt = Date.now();
         timeoutTimer = setTimeout(() => terminate('timeout'), remainingTimeoutMs);
       };

@@ -343,12 +343,16 @@ interactive setup sessions remain protected by their terminal process lease. A l
 whose terminal was killed is recognized by its dead process: the next turn, login or cleanup that
 meets it clears it, without restarting CodeAI.
 
-A worker cannot outlive CodeAI indefinitely. Its first process exits after the turn's time limit
-plus ten minutes (one hour for a login), which ends every provider process inside it; Docker turns
-never pause that limit for approvals. When the CodeAI process exits by itself, including `npm start`
+A bounded worker's first process exits after the turn's time limit plus ten minutes (one hour for
+a login), which ends every provider process inside it; Docker turns never pause that limit for
+approvals. `CODEAI_AGENT_TIMEOUT_MS=0` disables the Ask/Plan execution timeout and worker expiry;
+those workers run until completion, cancellation, error cleanup or restart reconciliation. Login
+and writing workers retain their own bounded lifetimes. When the CodeAI process exits by itself, including `npm start`
 handling SIGINT/SIGTERM, it also asks Docker to remove its active workers, without waiting and
 without changing the exit. That step is best effort: SIGKILL, or a signal nothing handles as under
 `start:remote`, skips it and leaves the time limit and the next startup recovery to clean up.
+An explicitly unlimited Ask/Plan worker abandoned by such an exit has no time-based expiry; the
+next startup recovery removes it.
 
 ## Exposure and cleanup
 

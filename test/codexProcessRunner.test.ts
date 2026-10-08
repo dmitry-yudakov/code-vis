@@ -59,7 +59,7 @@ describe.sequential('CodexProcessRunner', () => {
       session: { id: options.sessionId, action: options.action || 'start' },
       prompt: mode === 'plan' ? 'Mode: PLAN\n\n[User message]\nMake a plan' : 'Mode: ASK\n\n[User message]\nExplain this',
       attachmentDirectory: directory,
-      policy: { ...resolveAgentPolicy({ ...getConfig(), securityLevel: options.level ?? 'guarded' }, mode, options.execution), timeoutMs: options.timeoutMs || 5_000 },
+      policy: { ...resolveAgentPolicy({ ...getConfig(), securityLevel: options.level ?? 'guarded' }, mode, options.execution), timeoutMs: options.timeoutMs ?? 5_000 },
       permissions: options.permissions,
       signal: options.signal || new AbortController().signal,
       emit(event) { events.push(event); options.onEvent?.(event); },
@@ -462,6 +462,19 @@ describe.sequential('CodexProcessRunner', () => {
     })).rejects.toMatchObject({ code: 'timeout' });
     record = JSON.parse(await readFile(timeoutRecord, 'utf8'));
     expect(record.requests).toContainEqual(expect.objectContaining({ method: 'turn/interrupt' }));
+  });
+
+  it.each(['ask', 'plan'] as const)('completes %s with no execution timeout', async (mode) => {
+    const { result } = await run({ mode, timeoutMs: 0 });
+    expect(result.finalText).toContain(mode === 'plan' ? '## Codex plan' : 'Codex answer.');
+  });
+
+  it('still cancels a stalled turn with no execution timeout', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'wait';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 100);
+    try { await expect(run({ timeoutMs: 0, signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' }); }
+    finally { clearTimeout(timer); }
   });
 
   it('bounds each App Server event, not the whole stream, so a long command-heavy turn completes', async () => {

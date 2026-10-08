@@ -101,6 +101,46 @@ afterEach(async () => {
 });
 
 describe.sequential('changing the current turn mode', () => {
+  it('starts and resumes unlimited Ask/Plan without turning elapsed time into a negative budget', async () => {
+    vi.stubEnv('CODEAI_AGENT_TIMEOUT_MS', '0');
+    const turn = await start('ask');
+    expect(fixture.attempts[0].policy.timeoutMs).toBe(0);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+    expect((await turn.select('plan')).status).toBe(200);
+    const streamed = await events(turn.response);
+    expect(fixture.attempts.map((attempt) => attempt.policy.timeoutMs)).toEqual([0, 0]);
+    expect(streamed.some((event) => event.type === 'error')).toBe(false);
+    expect(streamed.at(-1)).toMatchObject({ type: 'done', cancelled: false });
+  });
+
+  it('can switch a finite writing turn to unlimited Plan after spending its time budget', async () => {
+    vi.stubEnv('CODEAI_AGENT_TIMEOUT_MS', '0');
+    vi.stubEnv('CODEAI_BUILD_TIMEOUT_MS', '1000');
+    const turn = await start('agent');
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+    expect((await turn.select('plan')).status).toBe(200);
+    const streamed = await events(turn.response);
+    expect(fixture.attempts[1].policy.timeoutMs).toBe(0);
+    expect(streamed.some((event) => event.type === 'error')).toBe(false);
+  });
+
+  it.each([250, 2000])('retains %s ms of unlimited work against a later finite writing budget', async (elapsed) => {
+    vi.stubEnv('CODEAI_AGENT_TIMEOUT_MS', '0');
+    vi.stubEnv('CODEAI_BUILD_TIMEOUT_MS', '1000');
+    const turn = await start('ask');
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + elapsed);
+    expect((await turn.select('agent')).status).toBe(200);
+    const streamed = await events(turn.response);
+    if (elapsed > 1000) {
+      expect(fixture.attempts).toHaveLength(1);
+      expect(streamed).toContainEqual(expect.objectContaining({ type: 'error', code: 'timeout' }));
+    } else {
+      expect(fixture.attempts[1].policy.timeoutMs).toBeGreaterThan(0);
+      expect(fixture.attempts[1].policy.timeoutMs).toBeLessThan(1000);
+      expect(streamed.some((event) => event.type === 'error')).toBe(false);
+    }
+  });
+
   it.each([false, true])('retains logical delivery when a resumed attempt fails (acknowledged: %s)', async (acknowledged) => {
     fixture.run = async (input) => {
       if (fixture.attempts.length > 1) throw new AgentRunError('oversized-output', 'Resume too large', 'not-sent');
@@ -216,6 +256,7 @@ describe.sequential('changing the current turn mode', () => {
   });
 
   it('carries the consumed tool-turn allowance across attempts and refuses another attempt when exhausted', async () => {
+    vi.stubEnv('CODEAI_AGENT_TIMEOUT_MS', '0');
     vi.stubEnv('CODEAI_AGENT_MAX_TURNS', '2');
     fixture.run = async (input) => {
       input.emit({ type: 'turn-started' });

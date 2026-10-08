@@ -714,6 +714,7 @@ export interface ResolvedAgentPolicy {
   interactivePermissions: boolean;
   sessionPersistence: true;
   maxTurns: number;
+  /** Zero disables CodeAI's execution clock; provider-owned limits still apply. */
   timeoutMs: number;
   /** Zero disables approval expiry. */
   approvalTimeoutMs?: number;

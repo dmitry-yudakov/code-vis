@@ -198,7 +198,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
       let pendingPermissions = 0;
 
       const startTimeoutClock = () => {
-        if (settled || termination || pendingPermissions) return;
+        if (input.policy.timeoutMs === 0 || settled || termination || pendingPermissions) return;
         clockStartedAt = Date.now();
         timeoutTimer = setTimeout(() => interrupt('timeout'), remainingTimeoutMs);
       };

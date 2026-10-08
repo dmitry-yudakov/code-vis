@@ -184,6 +184,9 @@ Updated 2026-10-07. When a story ships, change the line that names it; each stor
 - **Shipped:** [Story 99](stories/STORY-20261008-rotating-server-logs.md) — opt-in rotating server
   console files under `CODEAI_LOG_DIR` let agents investigate from the checkout; 58 focused tests,
   TypeScript, isolated Next.js smoke checks and independent review passed.
+- **Shipped:** [Story 100](stories/STORY-20261008-optional-agent-timeout.md) —
+  `CODEAI_AGENT_TIMEOUT_MS=0` disables the Ask/Plan execution clock for Claude/Codex and Local/Docker;
+  writing budgets remain separate. All 1,297 offline tests, TypeScript and independent review passed.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

@@ -116,10 +116,10 @@ export async function runConversation(input: {
       signal.throwIfAborted();
       policy = resolveAgentPolicy(config, mode, session.execution);
       // Switching modes must not reset time already spent working. Approval waits remain free.
-      if (spentMs >= policy.timeoutMs) throw new AgentRunError('timeout', 'The agent exceeded the configured time limit for this message.');
+      if (policy.timeoutMs !== 0 && spentMs >= policy.timeoutMs) throw new AgentRunError('timeout', 'The agent exceeded the configured time limit for this message.');
       if (usedTurns >= policy.maxTurns) throw new AgentRunError('max-turns',
         `The agent used all ${policy.maxTurns} tool turns allowed for one message. Send "continue" to pick up where it stopped.`);
-      policy = { ...policy, timeoutMs: policy.timeoutMs - spentMs, maxTurns: policy.maxTurns - usedTurns };
+      policy = { ...policy, timeoutMs: policy.timeoutMs === 0 ? 0 : policy.timeoutMs - spentMs, maxTurns: policy.maxTurns - usedTurns };
       const permissions = policy.interactivePermissions
         ? new PermissionBroker(policy.approvalTimeoutMs ?? config.approvalTimeoutMs) : undefined;
       input.onPermissionBroker?.(permissions);
