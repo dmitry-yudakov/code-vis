@@ -235,8 +235,8 @@ describe('composer execution line', () => {
     expect(menu(render(), 'execution-menu')!.items).toMatchObject([
       { role: 'menuitem', name: 'Continue in Docker…', disabled: false, detail: 'Opens a new session with an editable recap.' },
     ]);
-    expect(menu(render({ unavailable: 'Enable Docker in Arena to continue there.' }), 'execution-menu')!.items[0])
-      .toMatchObject({ disabled: true, detail: 'Enable Docker in Arena to continue there.' });
+    expect(menu(render({ unavailable: 'Enable Docker in More → Machine settings to continue there.' }), 'execution-menu')!.items[0])
+      .toMatchObject({ disabled: true, detail: 'Enable Docker in More → Machine settings to continue there.' });
     expect(menu(render({ execution: 'docker' }), 'execution-menu')!.items[0].name).toBe('Continue in Local…');
   });
 

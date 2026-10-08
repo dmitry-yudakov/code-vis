@@ -13,13 +13,14 @@ const VIEW_LABELS: Record<SideTab, string> = { changes: 'Changes', history: 'His
  * and the Inbox are pages of their own until they become side-panel views (Story 75). More sits at
  * the bottom, as a gear.
  */
-export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, unread, more, moreRef, onMoreToggle, onToggleView }: {
+export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, unread, updateCount = 0, more, moreRef, onMoreToggle, onToggleView }: {
   /** Empty where no session is shown: the Arena page and the welcome screen. */
   views: readonly SideTab[];
   shownView?: SideTab;
   changeCount?: number;
   arenaSection?: ArenaSection;
   unread: number;
+  updateCount?: number;
   more: ReactNode;
   moreRef?: RefObject<HTMLDetailsElement | null>;
   onMoreToggle?(event: SyntheticEvent<HTMLDetailsElement>): void;
@@ -65,7 +66,11 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
         {unread > 0 && <span className="activity-badge attention" aria-hidden="true">{unread}</span>}
       </Link>
       <details ref={moreRef} className="more-menu" onToggle={onMoreToggle}>
-        <summary aria-label="More" title="More"><ShellIcon name="more" /></summary>
+        <summary aria-label="More" aria-description={updateCount ? `${updateCount} provider update${updateCount === 1 ? '' : 's'} available` : undefined}
+          title={updateCount ? `More · ${updateCount} provider update${updateCount === 1 ? '' : 's'} available` : 'More'}>
+          <ShellIcon name="more" />
+          {updateCount > 0 && <span className="activity-badge updates" aria-label={`${updateCount} provider update${updateCount === 1 ? '' : 's'} available`}>{updateCount}</span>}
+        </summary>
         <div>{more}</div>
       </details>
     </nav>

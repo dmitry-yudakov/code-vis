@@ -77,7 +77,11 @@ export function DockerVersionsView({ status, error, busy, onUpdate, onCheck }: {
 }
 
 /** This machine's Docker CLI rows. The server runs each update; this view only starts and watches it. */
-export function DockerVersions({ onSwitched }: { onSwitched(): void }) {
+export function DockerVersions({ active = true, onSwitched, onAvailableUpdates }: {
+  active?: boolean;
+  onSwitched(): void;
+  onAvailableUpdates?(count: number): void;
+}) {
   const [status, setStatus] = useState<DockerVersionsStatus>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<Busy>();
@@ -101,7 +105,10 @@ export function DockerVersions({ onSwitched }: { onSwitched(): void }) {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [active, load]);
+  useEffect(() => {
+    onAvailableUpdates?.(status ? Number(Boolean(status.providers.claude.latest)) + Number(Boolean(status.providers.codex.latest)) : 0);
+  }, [onAvailableUpdates, status]);
 
   const operation = status?.operation;
   const running = Boolean(operation && RUNNING.has(operation.state));

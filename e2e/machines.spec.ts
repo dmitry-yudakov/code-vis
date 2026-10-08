@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openMachineSettings } from './machine-settings';
 import type { AgentMessageRequest, ArenaMachineSnapshot, PublicSession, UserMessage } from '../src/shared/types';
 
 const MACHINE_ID = '11111111-1111-4111-8111-111111111111';
@@ -152,6 +153,24 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   await expect(conversation.getByText('Remote answer arrived.')).toBeVisible();
   if (securityLevel === 'native') await expect(conversation.locator('.chat-message.assistant .mode-tag')).toHaveText('Native · Agent');
   expect(remoteMessagePath).toBe(`/api/machines/${MACHINE_ID}/agent/message`);
+
+  // Home settings remain reachable here without admitting Docker on this executor.
+  const ready = { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };
+  await page.route('**/api/execution/docker', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ enabled: true });
+    await route.fulfill({ json: { enabled: true, providers: { claude: ready, codex: ready } } });
+  });
+  await page.route('**/api/execution/docker/versions*', (route) => route.fulfill({ status: 503, json: { error: 'Offline fixture' } }));
+  const settings = await openMachineSettings(page);
+  await expect(settings.getByRole('region', { name: 'Security level' })).toContainText('Guarded');
+  await settings.getByRole('checkbox', { name: 'Enable Docker' }).click();
+  await expect(settings.getByRole('checkbox', { name: 'Enable Docker' })).toBeChecked();
+  await settings.getByRole('button', { name: 'Close settings' }).click();
+  await conversation.getByLabel(/^Execution: /).click();
+  const continuation = conversation.getByRole('menuitem', { name: 'Continue in Docker…', exact: true });
+  await expect(continuation).toBeDisabled();
+  await expect(continuation).toHaveAccessibleDescription('Docker is disabled on this execution machine.');
+  await conversation.getByLabel(/^Execution: /).press('Escape');
 
   // Refreshing home readiness must not replace the open executor's level or capabilities.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();

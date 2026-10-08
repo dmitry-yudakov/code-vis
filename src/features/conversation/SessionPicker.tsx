@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import type {
   AgentExecution, AgentProvider, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
   SessionSnapshot, WorktreeCapability,
@@ -27,6 +26,7 @@ interface SessionCreationProps {
   submitLabel?: string;
   error?: string;
   onNewProvider(value: AgentProvider): void;
+  onOpenMachineSettings?(): void;
   onNew(provider: AgentProvider, options: {
     checkoutMode?: 'current' | 'worktree'; creationRequestId?: string;
     execution: AgentExecution; checkoutId?: string;
@@ -36,7 +36,7 @@ interface SessionCreationProps {
 }
 
 export function SessionCreationForm({ initialExecution = 'local', executionHealth, providerHealth, project, checkouts, hostId, worktrees,
-  newProvider, preferredInstructions, creating, submitLabel = 'Start session', error, onNewProvider, onNew }: SessionCreationProps) {
+  newProvider, preferredInstructions, creating, submitLabel = 'Start session', error, onNewProvider, onNew, onOpenMachineSettings }: SessionCreationProps) {
   const dockerEnabled = Boolean(executionHealth?.docker.enabled);
   const [execution, setExecution] = useState<AgentExecution>(initialExecution === 'docker' && dockerEnabled ? 'docker' : 'local');
   const [checkoutId, setCheckoutId] = useState(initialExecution === 'docker' ? checkouts[0]?.id || '' : '');
@@ -78,10 +78,12 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
         <span>Execution</span>
         <select value={execution} disabled={creating} onChange={(event) => setExecution(event.target.value as AgentExecution)}>
           <option value="local">Local</option>
-          <option value="docker" disabled={!dockerEnabled}>Docker{dockerEnabled ? '' : ' · enable in Arena'}</option>
+          <option value="docker" disabled={!dockerEnabled}>Docker{dockerEnabled ? '' : ' · enable in Machine settings'}</option>
         </select>
       </label>
-      {!dockerEnabled && <Link href="/arena">Enable Docker in Arena</Link>}
+      {!dockerEnabled && (onOpenMachineSettings
+        ? <button type="button" onClick={onOpenMachineSettings}>Enable Docker in Machine settings</button>
+        : <p>Enable Docker in Machine settings on the executing machine.</p>)}
       {execution === 'docker' && <p>Ask and Plan use a read-only repository. Agent edits it directly without individual approvals.</p>}
       {!project && (
         <label>
@@ -102,20 +104,25 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
           {providers.map((value) => <option value={value} key={value}>{PROVIDER_LABELS[value]}</option>)}
         </select>
       </label>
-      <label>
-        <span>Global instructions</span>
-        <select value={instructions ?? 'default'} disabled={creating} onChange={(event) => (
-          setChosenInstructions(event.target.value === 'default' ? undefined : event.target.value as GlobalInstructionsChoice)
-        )}>
-          <option value="default">Default</option>
-          <option value="global">Use</option>
-          {provider && isolatesLocalCodex('isolated', execution, provider)
-            ? <option value="isolated" disabled title={LOCAL_CODEX_ISOLATION_MESSAGE}>Isolate · Docker only for Codex</option>
-            : <option value="isolated">Isolate</option>}
-        </select>
-      </label>
+      <details className="session-advanced-settings">
+        <summary>Advanced settings</summary>
+        <label>
+          <span>Global instructions</span>
+          <select value={instructions ?? 'default'} disabled={creating} onChange={(event) => (
+            setChosenInstructions(event.target.value === 'default' ? undefined : event.target.value as GlobalInstructionsChoice)
+          )}>
+            <option value="default">Default</option>
+            <option value="global">Use</option>
+            {provider && isolatesLocalCodex('isolated', execution, provider)
+              ? <option value="isolated" disabled title={LOCAL_CODEX_ISOLATION_MESSAGE}>Isolate · Docker only for Codex</option>
+              : <option value="isolated">Isolate</option>}
+          </select>
+        </label>
+      </details>
       {!providers.length && <p role="status">{execution === 'docker'
-        ? <>{selectedHealth?.claude.message || 'Docker needs setup.'} <Link href="/arena">Open Docker setup</Link></>
+        ? <>{selectedHealth?.claude.message || 'Docker needs setup.'} {onOpenMachineSettings
+          ? <button type="button" onClick={onOpenMachineSettings}>Open Docker setup</button>
+          : 'Open Machine settings on the executing machine for Docker setup.'}</>
         : 'Install and authenticate Claude Code or Codex for Local, or select Docker.'}</p>}
       {failed && <p role="alert">{error || 'Could not create the session. Try again.'}</p>}
       <button type="submit" disabled={creating || !provider || invalidBinding || invalidWorktree}>{creating ? 'Creating…' : failed ? 'Retry' : submitLabel}</button>

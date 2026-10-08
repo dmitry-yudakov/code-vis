@@ -259,7 +259,7 @@ export async function instructionsReadiness(config: Pick<AppConfig, 'dataDir' | 
     return [provider, { enabled: settings[provider], passable: passable(file), present }];
   })) as MachineInstructions;
   if (damaged) {
-    const note = 'The global instructions setting on this machine is damaged, so agents run without your global instructions. Set a switch under Global instructions in the Arena to repair it.';
+    const note = 'The global instructions setting on this machine is damaged, so agents run without your global instructions. Set a switch under Global instructions in Machine settings to repair it.';
     return { instructions, notes: { claude: note, codex: note } };
   }
   const notes: Partial<Record<AgentProvider, string>> = {};

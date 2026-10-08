@@ -64,7 +64,7 @@ export class DockerRuntime {
   }
 
   async profile() {
-    if (!this.config.dockerEnabled) throw new Error('Docker execution is disabled. Enable Docker in Arena on this machine.');
+    if (!this.config.dockerEnabled) throw new Error('Docker execution is disabled. Enable Docker in More → Machine settings on this machine.');
     return this.recordedProfile();
   }
 

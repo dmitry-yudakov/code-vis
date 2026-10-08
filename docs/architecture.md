@@ -56,7 +56,7 @@ login commands work before any session exists. Conversations expose execution ex
 continuation through `POST /api/sessions` with `sourceSessionId` and the target execution. The server
 copies only project/repository bindings into a fresh session, checking the source revision after
 Docker validation; the device initializes an editable recap without sending a turn.
-Arena's Docker toggle writes only a boolean through the device-authorized, same-origin
+The Machine settings dialog's Docker toggle writes only a boolean through the device-authorized, same-origin
 `PATCH /api/execution/docker`. The private `docker/settings.json` record in the data directory
 overrides the environment default on every config read, so new requests see changes without a
 restart. Accepted turns retain their original configuration. Provisioning and login remain terminal

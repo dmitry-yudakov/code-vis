@@ -252,7 +252,7 @@ export function codexAmbientInstructionNote(value: unknown, cwd: string): string
     return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
   }).length;
   if (!ambient) return undefined;
-  return `Local Codex also loads ${ambient} instruction file${ambient === 1 ? '' : 's'} from outside the repository, such as your global AGENTS.md. Global instructions in the Arena shows that file.`;
+  return `Local Codex also loads ${ambient} instruction file${ambient === 1 ? '' : 's'} from outside the repository, such as your global AGENTS.md. Global instructions in Machine settings shows that file.`;
 }
 
 /** Returns a public, path-free reason when command-line isolation did not take effect. */

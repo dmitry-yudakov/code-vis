@@ -38,6 +38,7 @@ import { useSessionLauncher } from '@/features/session-launch/useSessionLauncher
 import { SessionSetupDialog } from '@/features/session-launch/SessionSetupDialog';
 import type { LaunchSettings } from '@/features/session-launch/sessionLaunch';
 import { Arena } from '@/features/arena/Arena';
+import { MachineSettingsDialog } from '@/features/arena/MachineSettingsDialog';
 import { buildMultiMachineInbox, unreadArenaAttention, type ArenaAttentionItem } from '@/features/arena/arenaModel';
 import { arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
@@ -144,6 +145,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDetailsElement>(null);
+  const [machineSettingsOpen, setMachineSettingsOpen] = useState(false);
+  const [providerUpdateCount, setProviderUpdateCount] = useState(0);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const workspaceMachineId = machineId && localMachineId && machineId !== localMachineId ? machineId : undefined;
   const workspace = useWorkspaceViews(projectId, workspaceMachineId);
@@ -363,7 +366,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     ? checkouts.find((checkout) => checkout.id === session.worktree!.originCheckoutId)?.worktreeCreation?.dockerUnavailableReason : undefined;
   const continuationUnavailable = sessionRunning ? 'Wait for this turn to finish.'
     : continuationExecution === 'docker' && worktreeDockerUnavailable ? worktreeDockerUnavailable
-    : continuationExecution === 'docker' && !health?.executions?.docker.enabled ? 'Enable Docker in Arena to continue there.'
+    : continuationExecution === 'docker' && !health?.executions?.docker.enabled ? workspaceMachineId
+      ? 'Docker is disabled on this execution machine.' : 'Enable Docker in More → Machine settings to continue there.'
     : !continuationHealth?.available || !continuationHealth.supportedModes.length ? `${PROVIDER_LABELS[activeProvider]} needs ${continuationExecution === 'docker' ? 'Docker' : 'Local'} setup.`
     : continuationExecution === 'docker' && (session?.repositories.length !== 1 || session.repositories[0].role !== 'primary'
       || session.repositories[0].hostId !== hostId || !checkouts.some((checkout) => checkout.id === session.repositories[0].checkoutId))
@@ -467,6 +471,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     try { setSavedCheckoutId(loadSelectedCheckoutId(localStorage, workspaceMachineId)); } catch { /* Device preference is optional. */ }
   }, [workspaceMachineId]);
 
+  const openMachineSettings = () => {
+    moreMenuRef.current?.removeAttribute('open');
+    shellRef.current?.querySelector('.new-session-menu')?.removeAttribute('open');
+    moreMenuRef.current?.querySelector<HTMLElement>('summary')?.focus();
+    setMachineSettingsOpen(true);
+  };
+
   const setDockerEnabled = async (enabled: boolean) => {
     const response = await fetch('/api/execution/docker', {
       method: 'PATCH',
@@ -476,7 +487,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const docker = await response.json() as ExecutionHealth['docker'] & { error?: string };
     if (!response.ok) throw new Error(docker.error || 'Could not save Docker settings.');
     setLocalExecutionHealth((current) => current && ({ ...current, docker }));
-    setHealth((current) => current && ({
+    if (!machineIdRef.current || machineIdRef.current === localMachineId) setHealth((current) => current && ({
       ...current,
       executions: {
         local: current.executions?.local || { enabled: true, providers: current.providers },
@@ -2140,6 +2151,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
                 />
                 <SessionPicker
+                  onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
                   worktrees={health?.worktrees}
                   sessions={sessions}
                   value={sessionId}
@@ -2317,6 +2329,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
 
       <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />
+      {!loading && <MachineSettingsDialog
+        open={machineSettingsOpen}
+        securityLevel={arena.machines.find((entry) => entry.machine.kind === 'local')?.securityLevel || 'guarded'}
+        executionHealth={localExecutionHealth}
+        onClose={() => setMachineSettingsOpen(false)}
+        onRefresh={refreshArena}
+        onSetDockerEnabled={setDockerEnabled}
+        onAvailableUpdates={setProviderUpdateCount}
+      />}
       {!loading && (
         <ActivityBar
           views={!arenaOpen && session ? ['changes', 'history', ...(reportsOffered ? ['reports' as const] : [])] : []}
@@ -2324,10 +2345,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           changeCount={repositoryTree?.files.length}
           arenaSection={arenaSection}
           unread={arenaUnread.length}
+          updateCount={localExecutionHealth?.docker.enabled && localExecutionHealth.docker.providers.claude.available ? providerUpdateCount : 0}
           moreRef={moreMenuRef}
           onMoreToggle={(event) => { if (event.currentTarget.open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
           onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
           more={<>
+            <button type="button" onClick={openMachineSettings}>Machine settings</button>
             {launcher.availabilityError && <button type="button" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</button>}
             {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <button type="button" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
               const source = moreMenuRef.current?.querySelector<HTMLElement>('summary');
@@ -2435,12 +2458,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : arenaOpen && health ? (
         <Arena
           machines={arena.machines}
-          executionHealth={localExecutionHealth}
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}
           onRefresh={refreshArena}
-          onSetDockerEnabled={setDockerEnabled}
           onOpenSession={openArenaSession}
           onNewSession={launcher.open}
           onArchiveSession={archiveArenaSession}
@@ -2455,6 +2476,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
           <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
           <SessionCreationForm
+            onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
             worktrees={health?.worktrees}
             key={projectId || 'loose'}
             submitLabel="Create and open"

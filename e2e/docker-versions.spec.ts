@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openMachineSettings } from './machine-settings';
 import type { DockerUpdateOperation, DockerVersionsStatus } from '../src/shared/types';
 
 const READY = { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };
@@ -58,13 +59,20 @@ for (const [when, failed] of [['the first read after starting', 0], ['a later po
       await route.fulfill(started ? polls[Math.min(read++, polls.length - 1)] : { status: 200, json: BEFORE });
     });
     await page.goto('/arena');
+    const gear = page.locator('.more-menu > summary');
+    await expect(gear.locator('.activity-badge.updates')).toHaveText('1');
+    const settings = await openMachineSettings(page);
     await expect(rows(page)).toContainText('Claude2.1.2262.1.280 available');
     const healthBefore = reads.health;
     await rows(page).getByRole('button', { name: 'Update', exact: true }).click();
     await expect(rows(page).getByRole('status')).toHaveText('Building Claude 2.1.280…');
     await expect(rows(page).getByRole('button', { name: 'Check for updates' })).toBeDisabled();
-    // Arena polls every two seconds, and a failed read costs one round.
+    // The watch retries a failed read without losing the intermediate progress.
     await expect(rows(page).getByRole('status')).toHaveText('Checking Claude 2.1.280 offline…', { timeout: 10_000 });
+    await settings.getByRole('button', { name: 'Close settings' }).click();
+    await expect(settings).toBeHidden();
+    await expect(gear.locator('.activity-badge.updates')).toHaveCount(0, { timeout: 15_000 });
+    await openMachineSettings(page);
     await expect(rows(page).getByRole('alert')).toHaveCount(0);
     await expect(rows(page).getByRole('status')).toHaveText('Claude 2.1.280 replaced 2.1.226. New turns use it.', { timeout: 10_000 });
     await expect(rows(page).getByRole('button', { name: 'Roll back to 2.1.226' })).toBeEnabled();
@@ -85,10 +93,30 @@ test('an update another device started is shown instead of starting a second one
     await route.fulfill({ json: other ? { ...BEFORE, operation: operation('building', { provider: 'codex', version: '0.152.0' }) } : BEFORE });
   });
   await page.goto('/arena');
+  await openMachineSettings(page);
   await rows(page).getByRole('button', { name: 'Update', exact: true }).click();
   await expect(rows(page).getByRole('alert')).toHaveText('Another Docker CLI update is running on this machine. Wait for it to finish.');
   await expect(rows(page).getByRole('status')).toHaveText('Building Codex 0.152.0…');
   await expect(rows(page).getByRole('button', { name: 'Update', exact: true })).toBeDisabled();
+});
+
+test('the gear counts both provider offers and a failed initial read can be retried in settings', async ({ page }) => {
+  await dockerReady(page);
+  let failed = true;
+  await page.route('**/api/execution/docker/versions*', async (route) => {
+    await route.fulfill(failed ? FAILED_READ : { json: {
+      ...BEFORE, providers: { ...BEFORE.providers, codex: { ...BEFORE.providers.codex, latest: { version: '0.160.0', downgrade: false } } },
+    } });
+  });
+  await page.goto('/arena');
+  const gear = page.locator('.more-menu > summary');
+  await expect(gear.locator('.activity-badge.updates')).toHaveCount(0);
+  await openMachineSettings(page);
+  await expect(rows(page).getByRole('alert')).toHaveText(FAILED_READ.json.error);
+  failed = false;
+  await rows(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(gear.locator('.activity-badge.updates')).toHaveText('2');
+  await expect(gear).toHaveAttribute('aria-description', '2 provider updates available');
 });
 
 test('a rollback to an older version asks first, and declining sends nothing', async ({ page }) => {
@@ -99,6 +127,7 @@ test('a rollback to an older version asks first, and declining sends nothing', a
     await route.fulfill({ json: BEFORE });
   });
   await page.goto('/arena');
+  await openMachineSettings(page);
   const messages: string[] = [];
   page.once('dialog', (dialog) => { messages.push(dialog.message()); void dialog.dismiss(); });
   await rows(page).getByRole('button', { name: 'Roll back to 0.152.0' }).click();

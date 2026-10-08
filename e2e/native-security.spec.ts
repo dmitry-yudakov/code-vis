@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { openMachineSettings } from './machine-settings';
 import type { PublicSession } from '../src/shared/types';
 
 let server: ChildProcess;
@@ -131,7 +132,7 @@ test('runs Native modes, records their tags, isolates Claude, and keeps new sess
     name: 'Native fixture', checkoutIds: [checkouts.find((checkout: { name: string }) => checkout.name === 'alpha').id],
   } })).ok()).toBe(true);
   await page.goto(origin);
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   await page.getByRole('button', { name: 'Start session' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation.locator('.execution-line')).toContainText('Native');
@@ -150,7 +151,8 @@ test('runs Native modes, records their tags, isolates Claude, and keeps new sess
   }
   await page.reload();
   await expect(conversation.locator('.mode-menu summary')).toHaveText('Full access');
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu').getByText('Advanced settings', { exact: true }).click();
   await page.locator('.new-session-menu').getByLabel('Global instructions').selectOption('isolated');
   await page.getByRole('button', { name: 'Start session' }).click();
   await expect(conversation.locator('.mode-menu summary')).toHaveText('Ask');
@@ -161,7 +163,8 @@ test('runs Native modes, records their tags, isolates Claude, and keeps new sess
       'This session runs without your global instructions, and Claude loads them itself in Native writing modes.');
   }
   await page.goto(`${origin}/arena`);
-  const security = page.getByRole('region', { name: 'Security level' });
+  const settings = await openMachineSettings(page);
+  const security = settings.getByRole('region', { name: 'Security level' });
   await expect(security).toContainText('Native — Local Claude and Codex write with your own setup');
   await expect(security).toContainText('Set CODEAI_SECURITY_LEVEL on this computer and restart CodeAI to change it.');
   await expect(security.locator('input, select, button')).toHaveCount(0);

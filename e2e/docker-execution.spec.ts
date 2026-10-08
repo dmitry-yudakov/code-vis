@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openMachineSettings } from './machine-settings';
 
 test.beforeEach(async ({ request, baseURL }) => {
   const response = await request.patch('/api/execution/docker', {
@@ -15,19 +16,23 @@ test.afterEach(async ({ request, baseURL }) => {
 
 test('Local remains the creation default and Docker cannot be selected while disabled', async ({ page, request }) => {
   await page.goto('/arena');
+  const settings = await openMachineSettings(page);
   await expect(page.getByRole('checkbox', { name: 'Enable Docker' })).not.toBeChecked();
+  await settings.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Execution', exact: true })).toHaveCount(0);
   const response = await request.post('/api/sessions', { data: { provider: 'claude', execution: 'docker', checkoutId: 'unavailable' } });
   expect(response.ok()).toBe(false);
   await page.goto('/');
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   await expect(page.locator('.new-session-menu option[value="docker"]')).toHaveJSProperty('disabled', true);
-  await expect(page.locator('.new-session-menu').getByRole('link', { name: 'Enable Docker in Arena' })).toBeVisible();
+  await page.locator('.new-session-menu').getByRole('button', { name: 'Enable Docker in Machine settings' }).click();
+  await expect(page.getByRole('dialog', { name: 'Machine settings' })).toBeVisible();
 });
 
 test('Docker can be enabled without restarting, persists on reload, and disabling restores Local', async ({ page, request }, testInfo) => {
   await page.goto('/arena');
+  const dialog = await openMachineSettings(page);
   const toggle = page.getByRole('checkbox', { name: 'Enable Docker' });
   const settings = page.getByRole('region', { name: 'Docker execution', exact: true });
   await toggle.click();
@@ -40,22 +45,27 @@ test('Docker can be enabled without restarting, persists on reload, and disablin
   await settings.getByRole('button', { name: 'Check again' }).click();
   await expect(toggle).toBeChecked();
   await page.reload();
+  await openMachineSettings(page);
   await expect(toggle).toBeChecked();
   expect((await (await request.get('/api/health')).json()).executions.docker.enabled).toBe(true);
+  await dialog.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
   const execution = page.getByRole('combobox', { name: 'Execution', exact: true });
   await expect(execution).toHaveValue('local');
   await execution.selectOption('docker');
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeDisabled();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await openMachineSettings(page);
   await toggle.click();
   await expect(toggle).not.toBeChecked();
+  await dialog.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
   await expect(execution).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeEnabled();
   const rejected = await request.post('/api/sessions', { data: { provider: 'claude', execution: 'docker' } });
   expect(rejected.status()).toBe(409);
   await page.reload();
+  await openMachineSettings(page);
   await expect(toggle).not.toBeChecked();
 });
 
@@ -64,6 +74,7 @@ test('failed saves remain visible and do not change the saved toggle', async ({ 
     status: 503, json: { error: 'Could not save Docker settings.' },
   }));
   await page.goto('/arena');
+  await openMachineSettings(page);
   const toggle = page.getByRole('checkbox', { name: 'Enable Docker' });
   await toggle.click();
   await expect(page.getByRole('region', { name: 'Docker execution', exact: true }).getByRole('alert')).toHaveText('Could not save Docker settings.');
@@ -97,9 +108,11 @@ test('Docker creation explains direct edits and an unavailable backend cannot cr
   await expect(page.getByRole('button', { name: 'Create and open' })).toBeEnabled();
   ready = true;
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  const dialog = await openMachineSettings(page);
   const settings = page.getByRole('region', { name: 'Docker execution', exact: true });
   await settings.getByRole('button', { name: 'Check again' }).click();
   await expect(settings.getByText('Ready', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
   await expect(execution).toHaveValue('local');
   await execution.selectOption('docker');
@@ -204,7 +217,7 @@ test('project creation offers Docker without a host provider and keeps the selec
   await expect(welcome.getByRole('heading')).toContainText(project.name);
   await expect(welcome.getByRole('button', { name: 'Create and open' })).toBeDisabled();
   await welcome.getByRole('combobox', { name: 'Execution', exact: true }).selectOption('docker');
-  await expect(welcome.getByRole('link', { name: 'Open Docker setup' })).toBeVisible();
+  await expect(welcome.getByRole('button', { name: 'Open Docker setup' })).toBeVisible();
   await expect(welcome.getByRole('button', { name: 'Create and open' })).toBeDisabled();
   readiness.dockerReady = true;
   await page.reload();
@@ -216,7 +229,7 @@ test('project creation offers Docker without a host provider and keeps the selec
   await expect(page.locator('.project-search-trigger')).toContainText(project.name);
   expect(creations[0]).toEqual({ provider: 'claude', execution: 'docker', projectId: project.id, checkoutMode: 'current' });
   await expectContinuationDisabled(conversation, 'Local');
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   const picker = page.locator('.new-session-menu');
   await expect(picker.getByRole('combobox', { name: 'Execution', exact: true })).toHaveValue('docker');
   await expect(picker.getByRole('button', { name: 'Start session' })).toBeEnabled();
@@ -296,7 +309,7 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   await expect(menu.locator('summary')).toHaveText('Opus · High');
 
   // Docker Agent edits without approvals, so a Docker session starts in Ask although Agent was last.
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   const picker = page.locator('.new-session-menu');
   await picker.getByRole('combobox', { name: 'Execution', exact: true }).selectOption('docker');
   await picker.getByRole('button', { name: 'Start session' }).click();

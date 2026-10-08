@@ -520,7 +520,7 @@ describe.sequential('CodexProcessRunner', () => {
     expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['relative/AGENTS.md'] }, '/repo', codexTurnSecurity('ask'))).toMatch(/invalid instruction source/);
     expect(codexAmbientInstructionNote({ instructionSources: ['/repo/AGENTS.md'] }, '/repo')).toBeUndefined();
     expect(codexAmbientInstructionNote({ instructionSources: ['/home/user/.codex/AGENTS.md', '/repo/AGENTS.md'] }, '/repo'))
-      .toBe('Local Codex also loads 1 instruction file from outside the repository, such as your global AGENTS.md. Global instructions in the Arena shows that file.');
+      .toBe('Local Codex also loads 1 instruction file from outside the repository, such as your global AGENTS.md. Global instructions in Machine settings shows that file.');
   });
 
   it('notes user and repository skills without blocking the turn', async () => {
