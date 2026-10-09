@@ -16,8 +16,12 @@ of work and let the user respond to another session without losing their place.
 
 - [immersiveArenaModel.ts:41](../src/features/shell/immersive/immersiveArenaModel.ts#L41) reuses the
   canonical Arena/Inbox derivation with machine-qualified rows and six-item pages.
-- [ArenaTools.tsx:60](../src/features/shell/immersive/ArenaTools.tsx#L60) renders Active, Inbox, and
-  Archived summaries and their existing create/open/archive/restore/read actions in world space.
+- [ArenaTools.tsx:69](../src/features/shell/immersive/ArenaTools.tsx#L69) renders Active, Inbox, and
+  Archived summaries with per-row ray targets and their existing create/open/archive/restore/read
+  actions in world space.
+- [ImmersiveWorkspace.tsx:118](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L118) re-arms
+  routed permission presentation when the selected view or loaded session changes, while ordinary
+  Arena polls leave the review where the reader put it.
 - [ImmersiveWorkspace.tsx:259](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L259) owns the
   fourth bounded panel; [AppShell.tsx:1243](../src/features/shell/AppShell.tsx#L1243) remains the
   canonical machine-qualified navigation/action owner and supplies the existing Arena poll.
@@ -38,6 +42,10 @@ of work and let the user respond to another session without losing their place.
 5. Show cached Offline summaries honestly; do not invent offline transcript access. Returning
    executors refresh through the existing home gateway. Handle identical session IDs on different
    machines without sharing drafts, actions, or layouts.
+6. A controller ray can select any visible summary in Active, Inbox, and Archived. Highlight the
+   aimed row, select it on trigger, and keep Open/Inspect and archive/restore as explicit actions.
+   Gaps and empty space must not select a row; disabled panels and in-flight actions must ignore
+   selection. Changing selection clears a pending archive confirmation.
 
 ## Acceptance criteria
 
@@ -47,6 +55,10 @@ of work and let the user respond to another session without losing their place.
 - [x] A background permission can be inspected/answered and the original draft/view restored;
   completion stays quiet and machine/run/request identity is preserved under racing updates.
 - [x] Create, archive/restore, Offline/reconnect, and failed actions preserve canonical behavior.
+- [x] Ray selection targets the aimed visible summary across pages and tabs, shows hover/selection
+  feedback, and preserves explicit actions, Offline restrictions, and archive confirmation identity.
+- [x] Inspect keeps the exact permission review open as the destination session finishes loading,
+  while subsequent Arena polls preserve the reader's detail page.
 - [ ] Quest 3S testing with six session summaries and two active runs passes the established
   combined-scene budgets and a 30-minute work run without forced exits or lost context.
 - [x] `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` pass, including duplicate
@@ -81,3 +93,22 @@ step, matching the visible world control. The physical Story 52 Quest 3S run rem
 
 Repository verification: `npm run lint` passed; `npm test` passed 69 files / 429 tests;
 `npm run build` passed; `npm run test:e2e` passed all 76 Chrome tests.
+
+October 9, 2026 — Added shared transparent hit geometry over each visible summary, aligned with
+the painted cards. A ray highlights the aimed card and trigger selects it; Open/Inspect remains
+explicit. Selection ignores disabled/busy content and changing cards clears archive confirmation.
+The texture budget is unchanged. The new regression failed against the previous build, which had
+no row targets. The isolated production build, TypeScript, 27 focused offline checks, four focused
+Chrome scenarios, screenshot inspection in both themes, and independent review passed. Browser
+coverage includes paging, empty space, exact Inbox selection without a permission decision,
+archive/restore, pending-action selection blocking, and Offline Open refusal.
+
+The requested review found a P1 permission-navigation race: the destination session's loaded
+snapshot reset Session tools after the routed permission had already been consumed. The same
+view/session reset now clears that consumed key, so the exact review is applied again after
+loading. Polls still preserve the reader's page. The background-permission scenario now uses shared
+session setup and holds the destination load before verifying the exact request, paging through a
+poll, approval identity, and Return to the original draft. The production build, TypeScript,
+30 focused offline checks and nine focused Chrome scenarios passed. A fresh second review found
+no remaining P0/P1/P2 issues in these changes. Physical Quest 3S ray-selection verification remains
+pending.

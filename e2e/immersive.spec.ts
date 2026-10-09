@@ -1034,6 +1034,77 @@ test('retains one XR store across machine/project navigation, loading races, his
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('Keep this local draft');
 });
 
+const arenaRowState = (page: Page, key: string) => page.evaluate((key) => {
+  let data: Record<string, unknown> | undefined;
+  window.xrScene?.scene.traverse((object) => { if (object.userData.immersiveArenaRow === key) data = object.userData; });
+  return data;
+}, key);
+async function selectArenaRow(page: Page, key: string) {
+  await pointAtAction(page, `arena-row:${key}`);
+  await expect.poll(() => arenaRowState(page, key)).toMatchObject({ hovered: true });
+  await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(() => arenaRowState(page, key)).toMatchObject({ selected: true });
+}
+
+for (const theme of ['light', 'dark']) test(`selects immersive Arena summaries with the ray in ${theme} theme`, async ({ page }) => {
+  await installAdapter(page);
+  await page.addInitScript((theme) => localStorage.setItem('code-ai:theme', theme), theme);
+  const fixture = await workspaceFixture(page, false, 0, 7);
+  const sessions = fixture.snapshot(LOCAL, 'Home', fixture.local).sessions;
+  const firstKey = `session:${LOCAL}:${SESSION}`;
+  const targetKey = `session:${LOCAL}:${sessions.find((item) => item.title === 'Older conversation 4')!.id}`;
+  const lastKey = `session:${LOCAL}:${sessions.find((item) => item.title === 'Older conversation 7')!.id}`;
+  await page.goto('/'); await enter(page);
+  const arenaState = () => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR Arena tools')?.userData);
+  await expect.poll(arenaState).toMatchObject({ tab: 'sessions', rows: 9, page: 0, pageCount: 2, selectedKey: firstKey });
+  await selectArenaRow(page, targetKey);
+  await expect(controls(page).locator('strong').first()).toHaveText('Canvas session');
+  await controls(page).locator('[data-immersive-action="arena:archive"]').click();
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Confirm archive')))).toBe(true);
+  await selectArenaRow(page, firstKey);
+  await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Confirm archive')))).toBe(false);
+
+  // Empty space below a short final page does not select a nonexistent summary.
+  for (let index = 0; index < 6; index++) await controls(page).locator('[data-immersive-action="arena:next"]').click();
+  await expect.poll(arenaState).toMatchObject({ page: 1 });
+  await selectArenaRow(page, lastKey);
+  await pointAtSpatialElement(page, 'Arena summaries');
+  await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(arenaState).toMatchObject({ selectedKey: lastKey });
+  await showPanel(page, 'arena'); await page.screenshot({ path: `test-results/vr-arena-ray-${theme}.png` }); await hideProjection(page);
+  await pointAtAction(page, 'arena:open');
+  await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect(controls(page).locator('strong').first()).toHaveText('Older conversation 7');
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__!.logicalTexturePixels)).toBeLessThanOrEqual(5_592_405);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+test('selects the exact Inbox summary with the immersive ray without deciding its permission', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page);
+  await page.route('**/api/arena', (route) => {
+    const machines = [fixture.snapshot(LOCAL, 'Home', fixture.local), fixture.snapshot(REMOTE, 'Laptop', fixture.remote)];
+    for (const machine of machines) machine.runs.active = [{
+      runId: `run-${machine.machine.id}`, sessionId: machine.sessions[0].id, participantId: AGENT,
+      state: 'needs-you', enqueuedAt: 1, pendingPermissionCount: 1,
+      pendingPermissions: [{ requestId: 'request', participantId: AGENT, tool: 'Edit', detail: machine.machine.label }],
+    }];
+    return route.fulfill({ json: { machines } });
+  });
+  const decisions: string[] = [];
+  page.on('request', (request) => { if (request.url().endsWith('/agent/permission')) decisions.push(request.url()); });
+  await page.goto('/'); await enter(page);
+  await controls(page).locator('[data-immersive-action="arena:inbox"]').click();
+  const key = `attention:machine:${REMOTE}:permission:run-${REMOTE}:request`;
+  await selectArenaRow(page, key);
+  await expect.poll(() => page.evaluate(() => window.xrScene?.scene.getObjectByName('VR Arena tools')?.userData))
+    .toMatchObject({ tab: 'inbox', rows: 2, selectedKey: key });
+  await expect(controls(page).locator('strong').first()).toHaveText('Canvas session');
+  expect(decisions).toEqual([]);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
 test('pages the immersive Arena, inspects an exact background permission, and returns to the prior draft', async ({ page }) => {
   await installAdapter(page);
   const fixture = await workspaceFixture(page, false, 0, 5);
@@ -1060,16 +1131,24 @@ test('pages the immersive Arena, inspects an exact background permission, and re
   await expect.poll(arenaState).toMatchObject({ tab: 'sessions', rows: 7, page: 0, pageCount: 2 });
   await controls(page).locator('[data-immersive-action="arena:next"]').click();
   await controls(page).locator('[data-immersive-action="arena:new"]').click();
-  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('launcher');
-  await controls(page).locator('[data-immersive-action="session:back"]').click();
-  await controls(page).locator('[data-immersive-action="session:tools"]').click();
+  await expect(page.locator('[data-immersive-setup-input]')).toHaveCount(1);
+  await setupAction(page, 'close');
+  await expect(page.locator('[data-immersive-setup-input]')).toHaveCount(0);
   await controls(page).locator('[data-immersive-action="arena:inbox"]').click();
   await expect.poll(arenaState).toMatchObject({
     tab: 'inbox', rows: 1, selectedKey: 'attention:machine:22222222-2222-4222-8222-222222222222:permission:arena-run:arena-request',
   });
+  await selectArenaRow(page, 'attention:machine:22222222-2222-4222-8222-222222222222:permission:arena-run:arena-request');
+  let releaseLoad!: () => void;
+  fixture.holdLoad = new Promise<void>((resolve) => { releaseLoad = resolve; });
   await controls(page).locator('[data-immersive-action="arena:inspect"]').click();
+  await expect(controls(page).getByRole('status')).toHaveText('Loading session…');
+  await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('permissions');
+  releaseLoad(); fixture.holdLoad = undefined;
   await expect(controls(page).locator('strong').first()).toHaveText('Empty remote session');
   await expect.poll(async () => (await sessionToolsState(page))?.tab).toBe('permissions');
+  await expect.poll(async () => (await sessionToolsState(page))?.permissionKey)
+    .toBe(JSON.stringify([REMOTE, EMPTY, 'arena-run', 'arena-request']));
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('src/arena.ts');
   await expect.poll(async () => (await sessionToolsState(page))?.pageCount).toBeGreaterThan(1);
   await controls(page).locator('[data-immersive-action="session:newer"]').click();
@@ -1093,6 +1172,8 @@ test('archives, restores, and refuses to open Offline sessions from the immersiv
   const fixture = await workspaceFixture(page, false, 0, 1);
   const older = fixture.snapshot(LOCAL, 'Home', fixture.local).sessions.find((item) => item.id !== SESSION)!;
   let archived = false;
+  let releaseArchive!: () => void;
+  const archivePending = new Promise<void>((resolve) => { releaseArchive = resolve; });
   const archiveRequests: string[] = [];
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().endsWith('/archive')) archiveRequests.push(request.url());
@@ -1105,7 +1186,8 @@ test('archives, restores, and refuses to open Offline sessions from the immersiv
     const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote);
     return route.fulfill({ json: { machines: [home, remote] } });
   });
-  await page.route(`**/api/sessions/${older.id}/archive`, (route) => {
+  await page.route(`**/api/sessions/${older.id}/archive`, async (route) => {
+    await archivePending;
     archived = true;
     return route.fulfill({ json: { session: { ...older, revision: 1, archivedAt: '2026-09-20T12:00:00.000Z' } } });
   });
@@ -1120,23 +1202,29 @@ test('archives, restores, and refuses to open Offline sessions from the immersiv
   await page.waitForTimeout(100);
   expect(archiveRequests).toEqual([]);
   await expect(controls(page).locator('strong').first()).toHaveText('Canvas session');
-  await controls(page).locator('[data-immersive-action="arena:next"]').click();
+  await selectArenaRow(page, `session:${LOCAL}:${older.id}`);
   await expect.poll(async () => (await arenaState())?.selectedKey).toBe(`session:${LOCAL}:${older.id}`);
   await controls(page).locator('[data-immersive-action="arena:archive"]').click();
   expect(archived).toBe(false);
   await controls(page).locator('[data-immersive-action="arena:confirm-archive"]').click();
+  await expect.poll(() => archiveRequests).toHaveLength(1);
+  await expect.poll(arenaState).toMatchObject({ busyKey: `session:${LOCAL}:${older.id}` });
+  await pointAtAction(page, `arena-row:session:${LOCAL}:${SESSION}`);
+  await page.mouse.down(); await page.mouse.up(); await hideProjection(page);
+  await expect.poll(arenaState).toMatchObject({ selectedKey: `session:${LOCAL}:${older.id}` });
+  releaseArchive();
   await expect.poll(() => archived).toBe(true);
   expect(archiveRequests).toHaveLength(1);
   await expect.poll(async () => (await arenaState())?.rows).toBe(2);
   await controls(page).locator('[data-immersive-action="arena:archived"]').click();
   await expect.poll(arenaState).toMatchObject({ tab: 'archived', rows: 1, selectedKey: `session:${LOCAL}:${older.id}` });
+  await selectArenaRow(page, `session:${LOCAL}:${older.id}`);
   await controls(page).locator('[data-immersive-action="arena:restore"]').click();
   await expect.poll(() => archived).toBe(false);
   await expect.poll(async () => (await arenaState())?.rows).toBe(0);
   await controls(page).locator('[data-immersive-action="arena:sessions"]').click();
   await expect.poll(async () => (await arenaState())?.rows).toBe(3);
-  await controls(page).locator('[data-immersive-action="arena:next"]').click();
-  await controls(page).locator('[data-immersive-action="arena:next"]').click();
+  await selectArenaRow(page, `session:${REMOTE}:${EMPTY}`);
   await expect.poll(async () => (await arenaState())?.selectedKey).toBe(`session:${REMOTE}:${EMPTY}`);
   await controls(page).locator('[data-immersive-action="arena:open"]').click();
   await expect(controls(page).locator('strong').first()).toHaveText('Canvas session');

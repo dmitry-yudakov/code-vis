@@ -115,8 +115,12 @@ export function ImmersiveWorkspace(props: ImmersiveWorkspaceProps & { onActionCo
     setAtBottom(value.atBottom); onConversationScroll(value);
   }, [onConversationScroll]);
   const activeChoice = choices.find((choice) => choice.sessionId === session?.id && (!session.machineId || choice.machineId === session.machineId));
-  useEffect(() => { setConversationTab('read'); setListOpen(!session); setSessionToolsOpen(false); }, [viewKey, session?.id]);
   const permissionSetupKey = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    setConversationTab('read'); setListOpen(!session); setSessionToolsOpen(false);
+    // The loaded snapshot resets the tools again; reapply its routed permission after that reset.
+    permissionSetupKey.current = undefined;
+  }, [viewKey, session?.id]);
   useEffect(() => {
     const key = props.sessionControls?.requestedPermissionKey;
     if (!key) { permissionSetupKey.current = undefined; return; }

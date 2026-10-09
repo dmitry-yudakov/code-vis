@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MeshBasicMaterial, PlaneGeometry } from 'three';
 import type { ThemeName } from '@/shared/design/tokens';
 import { texturePanel } from '@/features/diagram/spatial/immersiveResources';
 import type { SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
@@ -17,6 +18,10 @@ import { WorkspacePager, WorldButton } from './WorkspacePanel';
 const STATE_LABELS = {
   idle: 'Idle', running: 'Running', 'needs-you': 'Needs you', queued: 'Queued', failed: 'Failed', offline: 'Offline',
 } as const;
+const SUMMARY_WIDTH = 640;
+const SUMMARY_HEIGHT = 400;
+const PIXELS_PER_METER = SUMMARY_WIDTH / 1.32;
+const SUMMARY_ROW = { left: 8, top: 6, width: 624, height: 59, stride: 65 };
 
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
@@ -25,36 +30,40 @@ function truncate(value: string, limit: number): string {
 function createArenaSummaryResource(
   rows: readonly ImmersiveArenaRow[],
   selectedKey: string | undefined,
+  hoveredKey: string | undefined,
   theme: ThemeName,
   ledger: SpatialResourceLedger,
 ) {
   const canvas = document.createElement('canvas');
-  canvas.width = 640; canvas.height = 400;
+  canvas.width = SUMMARY_WIDTH; canvas.height = SUMMARY_HEIGHT;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Arena summary rasterization is unavailable.');
   const colors = immersiveTheme[theme];
-  const pixelsPerMeter = canvas.width / 1.32;
   context.fillStyle = colors.surface;
   context.fillRect(0, 0, canvas.width, canvas.height);
   if (!rows.length) {
     context.fillStyle = colors.secondaryText;
-    context.font = immersiveFont('reading', pixelsPerMeter);
+    context.font = immersiveFont('reading', PIXELS_PER_METER);
     context.fillText('Nothing here yet.', 28, 72);
   }
   rows.forEach((row, index) => {
-    const top = 6 + index * 65;
-    context.fillStyle = row.key === selectedKey ? colors.selected : colors.raised;
-    context.beginPath(); context.roundRect(8, top, 624, 59, 14); context.fill();
+    const top = SUMMARY_ROW.top + index * SUMMARY_ROW.stride;
+    context.fillStyle = row.key === selectedKey ? colors.selected : row.key === hoveredKey ? colors.hover : colors.raised;
+    context.beginPath(); context.roundRect(SUMMARY_ROW.left, top, SUMMARY_ROW.width, SUMMARY_ROW.height, 14); context.fill();
     context.fillStyle = row.unread ? colors.link : colors.secondaryText;
     context.beginPath(); context.arc(24, top + 19, 5, 0, Math.PI * 2); context.fill();
     context.fillStyle = row.key === selectedKey ? colors.selectedInk : colors.text;
-    context.font = immersiveFont('heading', pixelsPerMeter);
+    context.font = immersiveFont('heading', PIXELS_PER_METER);
     context.fillText(truncate(row.title, 34), 36, top + 23, 562);
     context.fillStyle = row.key === selectedKey ? colors.selectedInk : colors.secondaryText;
-    context.font = immersiveFont('label', pixelsPerMeter);
+    context.font = immersiveFont('label', PIXELS_PER_METER);
     context.fillText(`${STATE_LABELS[row.state]} · ${truncate(row.detail, 52)}`, 36, top + 48, 575);
   });
-  return texturePanel(canvas, [1.32, 0.825], ledger);
+  return {
+    ...texturePanel(canvas, [1.32, 0.825], ledger),
+    rowGeometry: ledger.trackGeometry(new PlaneGeometry(SUMMARY_ROW.width / PIXELS_PER_METER, SUMMARY_ROW.height / PIXELS_PER_METER)),
+    rowMaterial: ledger.trackMaterial(new MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })),
+  };
 }
 
 export function ArenaTools({ controls, theme, enabled, focused, pagerIcons, onNewSession, onController }: {
@@ -68,6 +77,7 @@ export function ArenaTools({ controls, theme, enabled, focused, pagerIcons, onNe
 }) {
   const [tab, setTab] = useState<ImmersiveArenaTab>('sessions');
   const [selectedKey, setSelectedKey] = useState<string>();
+  const [hoveredKey, setHoveredKey] = useState<string>();
   const [busyKey, setBusyKey] = useState<string>();
   const [confirmArchiveKey, setConfirmArchiveKey] = useState<string>();
   const busy = useRef(false);
@@ -88,7 +98,7 @@ export function ArenaTools({ controls, theme, enabled, focused, pagerIcons, onNe
   const summaryKey = JSON.stringify(visibleRows.map((row) => [
     row.key, row.title, row.detail, row.state, row.unread, row.actionable,
   ]));
-  const summary = useTextureResource((ledger) => createArenaSummaryResource(visibleRows, selected?.key, theme, ledger), [summaryKey, selected?.key, theme]);
+  const summary = useTextureResource((ledger) => createArenaSummaryResource(visibleRows, selected?.key, hoveredKey, theme, ledger), [summaryKey, selected?.key, hoveredKey, theme]);
   const primaryAction: ArenaActionName = selected?.attention?.kind === 'permission' ? 'inspect' : 'open';
   const secondaryAction: ArenaActionName = tab === 'archived' ? 'restore'
     : tab === 'sessions' && confirmArchiveKey === selected?.key ? 'confirm-archive'
@@ -143,7 +153,15 @@ export function ArenaTools({ controls, theme, enabled, focused, pagerIcons, onNe
     {button('inbox', [0, 0.63, 0], { selected: tab === 'inbox' })}
     {button('archived', [0.42, 0.63, 0], { selected: tab === 'archived' })}
     {summary && <mesh name="Arena summaries" geometry={summary.geometry} material={summary.material} position={[0, 0.06, 0]}
-      userData={{ visibleKeys: visibleRows.map((row) => row.key), focused }} />}
+      userData={{ visibleKeys: visibleRows.map((row) => row.key), focused }} pointerEvents="none" raycast={() => undefined} />}
+    {summary && visibleRows.map((row, index) => <mesh key={row.key} name={`Select ${row.title}`}
+      geometry={summary.rowGeometry} material={summary.rowMaterial}
+      position={[0, 0.06 + (SUMMARY_HEIGHT / 2 - SUMMARY_ROW.top - index * SUMMARY_ROW.stride - SUMMARY_ROW.height / 2) / PIXELS_PER_METER, 0.001]}
+      pointerEvents={enabled && !busyKey ? 'auto' : 'none'}
+      userData={{ immersiveAction: `arena-row:${row.key}`, immersiveArenaRow: row.key, hovered: hoveredKey === row.key, selected: selected?.key === row.key }}
+      onPointerOver={(event) => { event.stopPropagation(); if (enabled && !busy.current) setHoveredKey(row.key); }}
+      onPointerOut={() => setHoveredKey(undefined)}
+      onClick={(event) => { event.stopPropagation(); if (enabled && !busy.current) setSelectedKey(row.key); }} />)}
     <WorkspacePager label={`Summary ${rows.length ? selectedIndex + 1 : 0} of ${rows.length}`}
       previousAction="arena:previous" nextAction="arena:next" previousLabel="Previous summary" nextLabel="Next summary"
       position={[0, -0.56, 0]} theme={theme} icons={pagerIcons} previousDisabled={!rows.length} nextDisabled={!rows.length}
