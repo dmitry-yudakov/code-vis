@@ -836,6 +836,14 @@ commands as in your terminal. CodeAI retains session persistence, turn budgets, 
 attachments, and permission cards for requests the provider sends. Integrations and Codex model
 review decisions appear in the activity stream.
 
+Local Native Codex writing turns can delegate to provider-managed subagents. Their command and
+file-change approvals appear in the parent conversation's existing permission cards, labelled
+**Subagent** with the provider's nickname when available. CodeAI verifies each child's parent
+chain and current turn before accepting a decision. Child results stay in the provider workflow;
+they do not replace the parent's answer or create separate CodeAI conversations. Stop and mode
+changes cancel pending child cards and interrupt verified live descendants as well as the parent.
+Guarded, Docker, Ask and Plan retain their existing restrictions.
+
 | Mode | Claude | Codex |
 |---|---|---|
 | Agent | Your permission rules decide; the rest asks you | Read-only sandbox, on-request approval; your configured reviewer may be a model |

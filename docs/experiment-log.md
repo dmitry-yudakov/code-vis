@@ -4,6 +4,158 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
+## Story 102 — Native Codex subagent approval routing (2026-10-09)
+
+**Outcome:** the installed `codex-cli 0.161.0` delivers descendant approvals on the root App Server
+connection, and the implemented runner routes them through the parent's broker. Model `gpt-6-sol`,
+effort `low`. Real Native Auto and Native Agent delegated reviews each opened two labelled child
+cards, accepted the permitted read and scratch write, completed the parent answer, and ended with
+zero pending permissions. Native Auto cancellation at an open child card emitted `cancelled`,
+interrupted the run and ended with zero pending permissions. This is runner/protocol evidence,
+not a production browser, attached-executor or physical Quest acceptance run.
+
+### Disposable probe and protocol
+
+Each run used a fresh `/tmp/codeai-subagent-probe-<random>` or
+`/tmp/codeai-subagent-runner-probe-<random>` tree containing a README-only checkout, empty
+attachments, and a scratch provider runtime home. `bwrap` mounted `/` read-only, `/tmp` writable,
+the scratch home over the real provider home, and the provider's original `config.toml` and
+`auth.json` read-only at their usual locations. Only Codex accessed its login; neither the harness
+nor CodeAI read/copied credential content. Provider configuration and rules were unchanged.
+The fixture's CLI override selected `approvals_reviewer="user"` for predictable human cards;
+Native policy itself still inherits the configured reviewer. Existing permission features stayed
+disabled. All probe processes and scratch state were removed after verification.
+
+The root was asked to spawn one review subagent, have it read `README.md`, then run exactly
+`printf reviewed > review-marker.txt` with an explicit escalation, and wait for its review. Only
+those two scratch commands were allowed by the harness. File existence was independently checked;
+no persisted approval rule was requested. The successful Auto reviewer was labelled Boyle;
+Agent was Beauvoir; cancellation was Archimedes. The earlier harness run omitted its broker,
+correctly denied the child request and produced no marker; it is not passing implementation evidence.
+
+The raw protocol probes observed this ordering:
+
+1. Root `thread/start` and `turn/start` answered; root turn began.
+2. Child `turn/started` arrived automatically on the same connection. No child `thread/started`
+   or spawn collaboration item was delivered in these runs; parent collaboration `wait` items were.
+3. `thread/read` with `includeTurns: false` returned the exact child ID, `parentThreadId` pointing
+   to the root, matching `source.subAgent.thread_spawn.parent_thread_id`, and the root's family
+   `sessionId`. No child `thread/resume`, subscription operation or experimental API was needed.
+4. Child command approvals used numeric RPC IDs 0 and 1, the child's own thread/turn/item IDs,
+   command, working directory, reason, proposal and available decisions. The harness returned
+   `{ "id": <original id>, "result": { "decision": "accept" } }` once per callback.
+5. `serverRequest/resolved` matched each original callback; the child commands exited 0, child
+   completed, and parent completed its own answer. The marker existed in the scratch checkout.
+
+The sandbox inside this mount namespace could not start (`bwrap` namespace permission failure),
+so even the harmless README read requested escalation. This intentionally exercises approval
+routing; it does **not** establish successful Auto sandbox startup or change that separate gate.
+The [official App Server protocol](https://learn.chatgpt.com/docs/app-server) and
+[subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents) describe
+thread-scoped callbacks, child permissions and provider-managed orchestration.
+
+### TDD and independent reviews
+
+A test subagent demonstrated 14 new descendant failures with 62 existing runner/native checks
+passing before implementation, plus a broker regression failing because per-request `cancel`
+did not exist. It then extended ancestry bounds, concurrency, file identity, stale callbacks,
+parent/child lifecycle and existing isolation coverage.
+
+Two independent review subagents found a nested-ancestor closure race, malformed foreign-thread
+fallthrough, an execution-clock race and stale file-preview identity. The test subagent reproduced
+these failures before fixes, including descendant interruption after ancestor closure. A further
+review found missing card reconciliation after a pending metadata read failed or returned another
+thread; three more regressions demonstrated that failure before the notification fix. Previously
+verified cleanup targets are tracked separately from current approval eligibility. Reviews were
+repeated after corrections; both final reviewers reported no unresolved actionable findings and
+independently passed all 64 descendant/helper/broker checks.
+
+Final exact-source validation passed: **1,355 offline tests** in 125 files, strict TypeScript,
+the production build and `git diff --check`. Nested
+ancestry, file approvals, resuming roots, denial, stale identities, timeout races and mode-change
+teardown have automated evidence. Real probes cover direct child commands, parent continuation
+and run cancellation. Browser presentation, production attached transport and physical Quest
+were not rerun, and the running application was not restarted or deployed.
+
+## Story 101 — Persistent approval compatibility gate (2026-10-09)
+
+**Outcome: blocked before implementation.** Installed `codex-cli 0.161.0`, model
+`gpt-6-sol`, effort `low`. The actual `CodexProcessRunner` was given a disposable checkout,
+empty attachment directory, fresh provider threads, and the actual `resolveAgentPolicy`
+for each Ask/Plan and configured Guarded/Native combination. Ask/Plan resolve to Guarded
+at both machine levels. The existing runner verified the thread's read-only/no-network
+policy echo and sent `approvalPolicy: "never"` and the read-only turn sandbox.
+
+### Isolation and exact operation
+
+Each matrix used a fresh `/tmp/codeai-persistent-probe-<random>/` tree with `checkout/`,
+`attachments/`, `rules/`, and `provider-home/`. An executable named `write-marker` contained:
+
+```sh
+#!/bin/sh
+printf probe > "$1"
+```
+
+The rules-loaded matrix had exactly one scratch `rules/default.rules` entry:
+
+```text
+prefix_rule(pattern=["/tmp/codeai-persistent-probe-b9x6Xy/write-marker"], decision="allow")
+```
+
+Each turn requested one actual command-tool attempt to run this executable against a
+scratch checkout marker named `<machine-level>-<mode>.txt`, with no other tools, no retries,
+and no escalation. The model emitted `Shell` activity for `/bin/bash -lc` wrapping the
+executable and marker path. File existence was checked independently by the probe host.
+The rule was seeded as the story explicitly requires for this compatibility test; this
+is **not** evidence of saving an amendment through the approval RPC.
+
+The runner's transport spawned its unchanged App Server arguments inside a disposable
+`bwrap` mount namespace: `/` read-only, `/tmp` writable, scratch `provider-home/` bound over
+`~/.codex`, the provider's original `config.toml` and `auth.json` bound read-only at their
+usual locations, and scratch `rules/` bound over `~/.codex/rules`. Only Codex read its login;
+the probe never read, copied, printed, or persisted credential content. Provider runtime
+state and new thread history stayed in the scratch home. The real user configuration and
+rules were not changed. Namespace setup required sandbox escalation. An earlier proposal
+to make the real provider home writable was rejected by automatic approval review; it was
+replaced with the isolated runtime home, not retried.
+
+### Observed results
+
+| Configured machine level | Mode | Loaded allow prefix | Empty rules directory |
+|---|---|---|---|
+| Guarded | Ask | Marker written; command exit 0; no card | No marker; nested sandbox namespace failure |
+| Guarded | Plan | Marker written; command exit 0; no card | No marker; nested sandbox namespace failure |
+| Native | Ask | Marker written; command exit 0; no card | No marker; nested sandbox namespace failure |
+| Native | Plan | Marker written; command exit 0; no card | No marker; nested sandbox namespace failure |
+
+Each cell was a fresh App Server process/thread. The saved prefix allowed write execution
+despite the verified read-only policy; `never` alone did not protect the checkout. The
+empty-rules controls failed with `bwrap: No permissions to create a new namespace`, so
+they demonstrate no write, **not** successful sandbox enforcement or shipping acceptance.
+No conclusion about physical Quest, attached transport, or rule-save concurrency follows.
+
+### Isolation capability and next gate
+
+`codex app-server --ignore-rules --help` rejected the flag with exit 2; the inverse global
+spelling was already rejected while drafting. `codex exec --help` lists `--ignore-rules`,
+but changing CodeAI to the exec protocol is outside this implementation. Normal generated
+App Server thread/start and thread/resume schemas contained no rule-isolation parameter.
+The [official CLI reference](https://learn.chatgpt.com/docs/cli/reference) documents the
+option for exec; the [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+does not establish an equivalent App Server override. The [rules documentation](https://learn.chatgpt.com/docs/agent-configuration/rules)
+describes allow rules as authorizing execution outside the sandbox. This is consistent
+with the probe; no supported App Server isolation mechanism was verified.
+
+Story 101 stays blocked and its persistence action is absent. A supported isolation
+mechanism must be independently verified for fresh/resumed Ask/Plan and both user/project
+rules before implementing. Persistence RPC, fresh-process matching/nonmatching, concurrent
+amendments, save-failure behavior, browser/VR, and remote-owner storage checks remain pending.
+The requested independent read-only subagent review confirmed the gate decision and checked
+the four loaded markers and empty controls; no actionable documentation findings remained.
+The bypass also applies to rules seeded outside CodeAI. This is a blocked investigation review,
+not verification of an implemented persistence feature. `git diff --check` passed.
+Scratch process state was removed after the probes; no real provider-home rule was created.
+
 ## Story 82 — Native probes (2026-10-01)
 
 **Decision:** Native ships Claude Agent, Accept edits, Auto, and Full access, and Codex Agent, Auto,

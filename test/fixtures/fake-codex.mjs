@@ -46,6 +46,147 @@ let threadId = 'codex-thread-new';
 let turnId = 'codex-turn-1';
 let approvalPending = false;
 const threadConfigs = new Map();
+const delegatedThreads = new Map();
+let delegatedExpectedResponses = 0;
+let delegatedResponseCount = 0;
+
+function delegatedThread(id, parentThreadId, legacy = false) {
+  const thread = {
+    id, sessionId: threadId, preview: '', ephemeral: true, modelProvider: 'openai', createdAt: 1,
+    ...(legacy ? { source: { subAgent: { thread_spawn: { parent_thread_id: parentThreadId, depth: 1 } } } }
+      : { parentThreadId }),
+  };
+  delegatedThreads.set(id, thread);
+  return thread;
+}
+
+function delegatedSpawn(parent, child, legacy = false, notify = true) {
+  const thread = delegatedThread(child, parent, legacy);
+  if (notify) emit({ method: 'thread/started', params: { thread } });
+  emit({ method: 'item/completed', params: {
+    threadId: parent, turnId: parent === threadId ? turnId : `${parent}-turn`,
+    item: { id: `spawn-${child}`, type: 'collabAgentToolCall', tool: 'spawnAgent', status: 'completed',
+      senderThreadId: parent, receiverThreadIds: [child], agentsStates: {} },
+  } });
+  emit({ method: 'turn/started', params: { threadId: child, turn: { id: `${child}-turn`, status: 'inProgress', items: [] } } });
+}
+
+function delegatedApproval(id, child = 'reviewer', childTurn = `${child}-turn`, file = false) {
+  emit({ method: file ? 'item/fileChange/requestApproval' : 'item/commandExecution/requestApproval', id,
+    params: { threadId: child, turnId: childTurn, itemId: file ? 'shared-file' : 'review-command',
+      startedAtMs: Date.now(), ...(file ? { reason: null, grantRoot: null }
+        : { command: 'npm test -- review', cwd: process.cwd(), reason: 'Review the implementation' }) },
+  });
+}
+
+function delegatedComplete(child = 'reviewer', status = 'completed') {
+  emit({ method: 'turn/completed', params: { threadId: child,
+    turn: { id: `${child}-turn`, status, items: [], error: null } } });
+}
+
+function beginDelegation() {
+  delegatedExpectedResponses = 1;
+  if (mode.startsWith('subagent-lazy')) {
+    // Real Codex can send child lifecycle/callbacks without thread/started or spawnAgent items.
+    delegatedThread('reviewer', threadId);
+    emit({ method: 'turn/started', params: { threadId: 'reviewer', turn: { id: 'reviewer-turn', status: 'inProgress', items: [] } } });
+  } else if (mode === 'subagent-unknown') {
+    // No thread metadata or provider spawn relation exists for this request.
+  } else if (mode === 'subagent-shared-family') {
+    const thread = delegatedThread('reviewer', 'unrelated-root');
+    emit({ method: 'thread/started', params: { thread } });
+    emit({ method: 'turn/started', params: { threadId: 'reviewer', turn: { id: 'reviewer-turn', status: 'inProgress', items: [] } } });
+  } else if (mode === 'subagent-conflicting-parent') {
+    const thread = delegatedThread('reviewer', 'unrelated-root');
+    emit({ method: 'thread/started', params: { thread } });
+    emit({ method: 'item/completed', params: { threadId, turnId,
+      item: { id: 'spawn-reviewer', type: 'collabAgentToolCall', tool: 'spawnAgent', status: 'completed',
+        senderThreadId: threadId, receiverThreadIds: ['reviewer'], agentsStates: {} } } });
+    emit({ method: 'turn/started', params: { threadId: 'reviewer', turn: { id: 'reviewer-turn', status: 'inProgress', items: [] } } });
+  } else if (mode === 'subagent-malformed-parent') {
+    const thread = delegatedThread('reviewer', null);
+    emit({ method: 'thread/started', params: { thread } });
+    emit({ method: 'turn/started', params: { threadId: 'reviewer', turn: { id: 'reviewer-turn', status: 'inProgress', items: [] } } });
+  } else if (mode === 'subagent-ancestor-closed' || mode === 'subagent-ancestor-cancel') {
+    delegatedSpawn(threadId, 'review-coordinator');
+    delegatedSpawn('review-coordinator', 'reviewer');
+  } else {
+    // Legacy nested children omit thread/started to require metadata lookup from spawn information.
+    delegatedSpawn(threadId, mode === 'subagent-nested' ? 'review-coordinator' : 'reviewer', mode === 'subagent-nested');
+    if (mode === 'subagent-nested') delegatedSpawn('review-coordinator', 'reviewer', true, false);
+  }
+  if (mode === 'subagent-numeric-ids') {
+    delegatedExpectedResponses = 2;
+    delegatedApproval(0);
+    delegatedApproval('0');
+  } else if (mode === 'subagent-file-collision' || mode === 'subagent-lazy-file') {
+    emit({ method: 'item/started', params: { threadId, turnId,
+      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/parent-only.ts`, kind: 'update', diff: '' }] } } });
+    emit({ method: 'item/started', params: { threadId: 'reviewer', turnId: 'reviewer-turn',
+      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/reviewer-only.ts`, kind: 'update', diff: '' }] } } });
+    delegatedApproval('child-file', 'reviewer', 'reviewer-turn', true);
+  } else if (mode === 'subagent-lazy-read-race') {
+    // The callback is emitted after new metadata arrives during the outstanding thread/read.
+  } else if (mode === 'subagent-file-stale') {
+    emit({ method: 'item/started', params: { threadId: 'reviewer', turnId: 'reviewer-turn',
+      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/old.ts`, kind: 'update', diff: '' }] } } });
+    delegatedComplete();
+    emit({ method: 'turn/started', params: { threadId: 'reviewer', turn: { id: 'reviewer-next-turn', status: 'inProgress', items: [] } } });
+    delegatedApproval('child-file', 'reviewer', 'reviewer-next-turn', true);
+  } else if (mode === 'subagent-stale-turn' || mode === 'subagent-closed') {
+    delegatedComplete();
+    if (mode === 'subagent-stale-turn') emit({ method: 'turn/started', params: { threadId: 'reviewer', turn: { id: 'replacement-turn', status: 'inProgress', items: [] } } });
+    else emit({ method: 'thread/closed', params: { threadId: 'reviewer' } });
+    delegatedApproval('child-command');
+  } else {
+    delegatedApproval('child-command');
+  }
+  if (mode === 'subagent-duplicate') {
+    // Duplicate delivery of the same provider callback must not create or answer another card.
+    delegatedApproval('child-command');
+  }
+  if (mode === 'subagent-ancestor-closed' || mode === 'subagent-ancestor-cancel') emit({ method: 'thread/closed', params: { threadId: 'review-coordinator' } });
+  if (mode === 'subagent-malformed-foreign-empty' || mode === 'subagent-malformed-foreign-long') {
+    const foreign = mode.endsWith('empty') ? '' : 'x'.repeat(201);
+    emit({ method: 'item/agentMessage/delta', params: { threadId: foreign, turnId: 'foreign-turn', itemId: 'message-final', delta: 'FOREIGN FINAL' } });
+    emit({ method: 'item/completed', params: { threadId: foreign, turnId: 'foreign-turn', item: { id: 'message-final', type: 'agentMessage', phase: 'final_answer', text: 'FOREIGN FINAL' } } });
+    emit({ method: 'thread/tokenUsage/updated', params: { threadId: foreign, tokenUsage: { total: { inputTokens: 999, outputTokens: 999 } } } });
+    emit({ method: 'error', params: { threadId: foreign, turnId: 'foreign-turn', willRetry: false, error: { message: 'Foreign child failed', codexErrorInfo: 'serverError' } } });
+  }
+  if (mode === 'subagent-concurrent' || mode === 'subagent-lazy-concurrent') {
+    delegatedExpectedResponses = 2;
+    const unrelated = delegatedThread('unrelated-child', 'another-root');
+    emit({ method: 'thread/started', params: { thread: unrelated } });
+    emit({ method: 'turn/started', params: { threadId: 'unrelated-child', turn: { id: 'unrelated-child-turn', status: 'inProgress', items: [] } } });
+    delegatedApproval('child-unrelated', 'unrelated-child');
+  }
+  if (mode === 'subagent-lifecycle') {
+    emit({ method: 'item/agentMessage/delta', params: { threadId: 'reviewer', turnId: 'reviewer-turn', itemId: 'message-final', delta: 'CHILD SECRET FINAL' } });
+    emit({ method: 'item/completed', params: { threadId: 'reviewer', turnId: 'reviewer-turn', item: { id: 'message-final', type: 'agentMessage', phase: 'final_answer', text: 'CHILD SECRET FINAL' } } });
+    emit({ method: 'thread/tokenUsage/updated', params: { threadId: 'reviewer', tokenUsage: { total: { inputTokens: 999, outputTokens: 999 } } } });
+    emit({ method: 'error', params: { threadId: 'reviewer', turnId: 'reviewer-turn', willRetry: false, error: { message: 'Child review failed', codexErrorInfo: 'serverError' } } });
+    delegatedComplete('reviewer', 'failed');
+  }
+  if (mode === 'subagent-child-complete') delegatedComplete();
+  if (mode === 'subagent-child-closed') emit({ method: 'thread/closed', params: { threadId: 'reviewer' } });
+  if (mode === 'subagent-parent-card') {
+    delegatedExpectedResponses = 2;
+    delegatedApproval('parent-command', threadId, turnId);
+    delegatedComplete();
+  }
+  if (mode === 'subagent-lazy-child-complete') delegatedComplete();
+  if (mode === 'subagent-lazy-clock') {
+    delegatedExpectedResponses = 2;
+    delegatedComplete();
+    delegatedApproval('parent-command', threadId, turnId);
+  }
+  if (mode === 'subagent-request-resolved') {
+    emit({ method: 'serverRequest/resolved', params: { threadId: 'reviewer', requestId: 'child-command' } });
+    completeTurn('Parent continued after review.');
+  }
+  if (mode === 'subagent-parent-complete' || mode === 'subagent-lazy-parent-complete') completeTurn('Parent continued after review.');
+  if (mode === 'subagent-provider-exit') process.exit(2);
+}
 
 function threadResult(params, id = threadId) {
   // Codex applies a permission profile only when the request names no legacy sandbox mode.
@@ -169,10 +310,24 @@ while (true) {
       result(message.id, response);
     }
   }
+  else if (message.method === 'thread/read') {
+    if (mode === 'subagent-lazy-read-race' && message.params.threadId === 'reviewer') {
+      emit({ method: 'thread/started', params: { thread: delegatedThreads.get('reviewer') } });
+      delegatedApproval('child-command');
+      error(message.id, -32000, 'Thread not found');
+      continue;
+    }
+    const thread = message.params.threadId === threadId
+      ? { id: threadId, sessionId: threadId, parentThreadId: null, turns: [] }
+      : delegatedThreads.get(message.params.threadId);
+    if (thread) result(message.id, { thread: { ...thread, turns: [] } });
+    else error(message.id, -32000, 'Thread not found');
+  }
   else if (message.method === 'turn/start') {
     turnId = 'codex-turn-1';
     result(message.id, { turn: { id: turnId, items: [], itemsView: 'full', status: 'inProgress', error: null } });
-    if (mode === 'native-events') {
+    if (mode.startsWith('subagent-')) beginDelegation();
+    else if (mode === 'native-events') {
       for (const type of ['mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch', 'hookPrompt']) {
         emit({ method: 'item/started', params: { threadId, turnId, item: { id: type, type, server: 'probe', tool: 'read_marker', status: 'inProgress' } } });
       }
@@ -267,9 +422,20 @@ while (true) {
     emit({
       method: 'turn/completed',
       params: {
-        threadId, turn: { id: turnId, items: [], itemsView: 'full', status: 'interrupted', error: null },
+        threadId: message.params.threadId, turn: { id: message.params.turnId, items: [], itemsView: 'full', status: 'interrupted', error: null },
       },
     });
+  }
+  else if (!message.method && mode.startsWith('subagent-')
+    && (String(message.id).startsWith('child-') || ['subagent-parent-card', 'subagent-lazy-clock'].includes(mode) && message.id === 'parent-command'
+      || mode === 'subagent-numeric-ids' && String(message.id) === '0')) {
+    delegatedResponseCount += 1;
+    if (delegatedResponseCount === delegatedExpectedResponses
+      && !['subagent-cancel', 'subagent-ancestor-cancel', 'subagent-parent-complete', 'subagent-lazy-parent-complete', 'subagent-request-resolved', 'subagent-provider-exit'].includes(mode)) {
+      delegatedComplete();
+      emit({ method: 'thread/tokenUsage/updated', params: { threadId, tokenUsage: { total: { inputTokens: 11, outputTokens: 7 } } } });
+      completeTurn('Parent continued after review.');
+    }
   }
   else if (!message.method && approvalPending && String(message.id).startsWith('approval-')) {
     approvalPending = false;

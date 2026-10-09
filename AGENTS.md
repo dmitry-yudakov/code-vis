@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-10-07. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-09. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -187,6 +187,11 @@ Updated 2026-10-07. When a story ships, change the line that names it; each stor
 - **Shipped:** [Story 100](stories/STORY-20261008-optional-agent-timeout.md) —
   `CODEAI_AGENT_TIMEOUT_MS=0` disables the Ask/Plan execution clock for Claude/Codex and Local/Docker;
   writing budgets remain separate. All 1,297 offline tests, TypeScript and independent review passed.
+- **Shipped:** [Story 102](stories/STORY-20261009-codex-subagent-approvals.md) — verified Native
+  Codex review subagents use their parent conversation's permission cards; stale ancestry/turns
+  close cards, and teardown interrupts verified descendants. All 1,355 offline tests, TypeScript,
+  build, real Native Auto/Agent routing probes and repeated independent reviews passed. Browser,
+  production attached transport and physical Quest were not rerun; the application was not restarted.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the

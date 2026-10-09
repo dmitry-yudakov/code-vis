@@ -57,6 +57,31 @@ describe('PermissionBroker', () => {
     expect(settle).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels one request without closing unrelated or later requests', () => {
+    const broker = new PermissionBroker(5_000);
+    const child = vi.fn();
+    const parent = vi.fn();
+    broker.request('child', child);
+    broker.request('parent', parent);
+
+    broker.cancel('child');
+    broker.cancel('child');
+    broker.cancel('unknown');
+    expect(child).toHaveBeenCalledExactlyOnceWith('cancelled');
+    expect(parent).not.toHaveBeenCalled();
+    expect(broker.pendingCount).toBe(1);
+    expect(broker.decide('child', 'allow')).toBe(false);
+    const later = vi.fn();
+    broker.request('later', later);
+    expect(broker.decide('parent', 'allow')).toBe(true);
+    expect(broker.decide('later', 'deny')).toBe(true);
+    vi.advanceTimersByTime(10_000);
+    expect(child).toHaveBeenCalledTimes(1);
+    expect(parent).toHaveBeenCalledExactlyOnceWith('allow');
+    expect(later).toHaveBeenCalledExactlyOnceWith('deny');
+    expect(broker.pendingCount).toBe(0);
+  });
+
   it.each(['allow', 'cancelled'] as const)('clears a finite expiry after %s', (resolution) => {
     const broker = new PermissionBroker(5_000);
     const settle = vi.fn();

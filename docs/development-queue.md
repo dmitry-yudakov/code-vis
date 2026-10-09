@@ -1,6 +1,6 @@
 # CodeAI development queue
 
-**Updated:** October 7, 2026
+**Updated:** October 9, 2026
 
 This is the near-term queue for agent sessions: recovery first, a focused acceptance pass, title-bar
 tabs, then the first software-model producer and its persistence follow-up. The order comes from the October 1 development
@@ -47,6 +47,15 @@ feature has shipped. The order is priority, not a new dependency chain.
 
 ## Additional work
 
+- [Story 102 — Native Codex subagent approvals](../stories/STORY-20261009-codex-subagent-approvals.md)
+  is shipped: verified descendants use the parent's permission cards, with scoped cancellation
+  and stale-request protection. Offline checks, build, real Native Auto/Agent probes and repeated
+  independent reviews pass. Browser, attached transport and Quest checks were not rerun.
+- [Story 101 — Remember a Codex command approval from CodeAI](../stories/STORY-20261008-persistent-codex-approvals.md)
+  is blocked before implementation: real Codex 0.161.0 Ask/Plan wrote scratch markers with a
+  saved allow prefix, and no supported App Server rule isolation has been verified. See the
+  [probe evidence](experiment-log.md#story-101--persistent-approval-compatibility-gate-2026-10-09).
+  No queue priority has been assigned to this story.
 - [Story 97 — Compose the first message while creating a session](../stories/STORY-20261007-compose-new-session.md)
   specifies Arena setup with attachments and background launch, a managed CodeAI shortcut, and the
   desktop/VR journey. Implementation, automated verification, and independent review pass; physical

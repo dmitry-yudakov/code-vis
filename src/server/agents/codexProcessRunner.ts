@@ -13,6 +13,7 @@ import {
   codexMcpServerNames, codexThreadConfig, codexThreadPolicyIssue, codexTurnSecurity,
 } from './codexInvocation';
 import { frameGlobalInstructions } from './globalInstructions';
+import { codexThreadId, CodexSubagentThreads } from './codexSubagentThreads';
 
 interface RunnerOptions {
   transport?: ProcessTransport;
@@ -172,7 +173,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      const pending = new Map<string, { resolve(value: unknown): void; reject(error: unknown): void }>();
+      const pending = new Map<string, { resolve(value: unknown): void; reject(error: unknown): void; timer?: ReturnType<typeof setTimeout> }>();
       const emittedItems = new Set<string>();
       const itemDetails = new Map<string, string>();
       const itemPhases = new Map<string, string>();
@@ -196,9 +197,27 @@ export class CodexProcessRunner implements AgentProcessRunner {
       let clockStartedAt = Date.now();
       let remainingTimeoutMs = input.policy.timeoutMs;
       let pendingPermissions = 0;
+      let subagents: CodexSubagentThreads | undefined;
+      const callbacks = new Set<string>();
+      const approvals = new Map<string, {
+        threadId: string; turnId: string; requestId: string;
+        published: boolean;
+        cancel(sendResponse?: boolean): void;
+      }>();
+      const callbackKey = (id: RpcId) => `${typeof id}:${id}`;
+      const itemKey = (thread: string, turn: unknown, item: string) => JSON.stringify([thread, turn, item]);
+      const live = () => !settled && !termination && !fatalError && !turnCompleted && stdinOpen;
+      const reconcileApprovals = () => {
+        for (const approval of [...approvals.values()]) {
+          const invalid = approval.published
+            ? !subagents?.active(approval.threadId, approval.turnId)
+            : subagents?.ended(approval.threadId, approval.turnId);
+          if (approval.threadId !== sessionId && invalid) approval.cancel();
+        }
+      };
 
       const startTimeoutClock = () => {
-        if (input.policy.timeoutMs === 0 || settled || termination || pendingPermissions) return;
+        if (input.policy.timeoutMs === 0 || !live() || timeoutTimer || pendingPermissions) return;
         clockStartedAt = Date.now();
         timeoutTimer = setTimeout(() => interrupt('timeout'), remainingTimeoutMs);
       };
@@ -213,10 +232,14 @@ export class CodexProcessRunner implements AgentProcessRunner {
         child.stdin.write(`${JSON.stringify(message)}\n`);
       };
       const notify = (method: string, params: JsonRecord = {}) => write({ method, params });
-      const request = (method: string, params: JsonRecord = {}) => {
+      const request = (method: string, params: JsonRecord = {}, timeoutMs?: number) => {
         const id = nextRequestId++;
         return new Promise<unknown>((requestResolve, requestReject) => {
-          pending.set(String(id), { resolve: requestResolve, reject: requestReject });
+          const timer = timeoutMs === undefined ? undefined : setTimeout(() => {
+            pending.delete(String(id));
+            requestReject(new Error('Codex metadata lookup timed out'));
+          }, timeoutMs);
+          pending.set(String(id), { resolve: requestResolve, reject: requestReject, timer });
           write({ method, id, params });
         });
       };
@@ -243,6 +266,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         fatalError = error;
         pauseTimeoutClock();
         input.permissions?.cancelAll();
+        for (const approval of [...approvals.values()]) approval.cancel();
         closeInput();
       };
       const interrupt = (reason: 'cancelled' | 'timeout') => {
@@ -250,8 +274,12 @@ export class CodexProcessRunner implements AgentProcessRunner {
         termination = reason;
         pauseTimeoutClock();
         input.permissions?.cancelAll();
+        for (const approval of [...approvals.values()]) approval.cancel();
         log?.(`interrupt (${reason})`);
         if (sessionId && turnId && stdinOpen) {
+          for (const descendant of subagents?.activeTurns() ?? []) {
+            void request('turn/interrupt', descendant).catch(() => undefined);
+          }
           void request('turn/interrupt', { threadId: sessionId, turnId })
             .catch(() => undefined);
           scheduleKill();
@@ -269,9 +297,11 @@ export class CodexProcessRunner implements AgentProcessRunner {
         operation();
       };
 
-      const emitItem = (item: JsonRecord, completed: boolean) => {
-        const id = String(item.id);
+      const emitItem = (item: JsonRecord, completed: boolean, thread = sessionId, itemTurn: unknown = turnId, childTurn = false) => {
+        const id = itemKey(thread, itemTurn, String(item.id));
         const type = String(item.type);
+        // A child report belongs to its parent provider workflow, never to CodeAI's final answer.
+        if (childTurn && ['reasoning', 'agentMessage', 'plan'].includes(type)) return;
         if (type === 'reasoning') input.emit({ type: 'phase', phase: 'thinking' });
         if (type === 'agentMessage') {
           const phase = typeof item.phase === 'string' ? item.phase : itemPhases.get(id);
@@ -318,30 +348,43 @@ export class CodexProcessRunner implements AgentProcessRunner {
         const method = String(message.method);
         const rpcId = message.id;
         if ((typeof rpcId !== 'string' && typeof rpcId !== 'number') || !method.includes('/requestApproval')) return;
+        const key = callbackKey(rpcId);
+        if (callbacks.has(key)) return;
+        if (callbacks.size >= 1_024) {
+          stopWith(new AgentRunError('oversized-output', 'Codex exceeded the per-turn approval callback limit.'));
+          return;
+        }
+        callbacks.add(key);
         if (input.policy.execution === 'docker') {
           respondUnsupported(rpcId);
           stopWith(new AgentRunError('unsupported-flags', 'This escalation is unsupported by the Docker profile.'));
           return;
         }
         const params = record(message.params);
-        const correlated = params?.threadId === sessionId && (!turnId || params.turnId === turnId);
+        const thread = params?.threadId;
+        const requestedTurn = params?.turnId;
+        const isChild = thread !== sessionId;
+        const correlated = !isChild && (!turnId || requestedTurn === turnId);
         const isCommand = method === 'item/commandExecution/requestApproval';
         const isFile = method === 'item/fileChange/requestApproval';
-        if (!correlated || (!isCommand && !isFile)) {
+        if (!live() || !codexThreadId(thread) || !codexThreadId(requestedTurn)
+          || (!correlated && (!isChild || !subagents)) || (!isCommand && !isFile)) {
           respondUnsupported(rpcId);
           if (input.policy.level === 'native') input.emit({ type: 'activity', tool: 'Control request', detail: `CodeAI cannot answer ${sanitizeDetail(method)}.` });
           return;
         }
-        const itemId = typeof params?.itemId === 'string' ? params.itemId : '';
+        if (approvals.size >= 32) { respondUnsupported(rpcId); return; }
+        const itemId = itemKey(thread, requestedTurn, typeof params?.itemId === 'string' ? params.itemId : '');
         const tool = isCommand ? 'Shell' : 'Edit';
         const command = typeof params?.command === 'string' ? params.command : '';
-        const subject = !isCommand ? itemDetails.get(itemId) || (typeof params?.grantRoot === 'string' ? params.grantRoot : '')
+        const subject = () => !isCommand ? itemDetails.get(itemId) || (typeof params?.grantRoot === 'string' ? params.grantRoot : '')
           // `writeStdin` is text typed into a command that is already running, not a new command.
           : params?.kind === 'writeStdin' ? `input to a running command: ${command}` : command;
         const networkHost = record(params?.networkApprovalContext)?.host;
         const reason = typeof params?.reason === 'string' ? params.reason : '';
-        const detail = [
-          approvalSubject(subject, input.checkout.realPath, input.attachmentDirectory),
+        const detail = () => [
+          isChild ? `Subagent ${sanitizeDetail(subagents!.label(thread))}` : '',
+          approvalSubject(subject(), input.checkout.realPath, input.attachmentDirectory),
           typeof networkHost === 'string' && networkHost ? `network access to ${sanitizeDetail(networkHost)}` : '',
           // Codex asks in Auto for what leaves the sandbox, and also for commands its own rules flag.
           // The request does not say which, so the card says what Allow can mean at most.
@@ -351,26 +394,93 @@ export class CodexProcessRunner implements AgentProcessRunner {
         ].filter(Boolean).join(' — ');
         const requestId = randomUUID();
         let answered = false;
+        let published = false;
+        let sendResponse = true;
         const settle = (resolution: PermissionResolution) => {
           if (answered) return;
+          if (resolution === 'allow' && (!live() || (isChild && !subagents!.active(thread, requestedTurn)))) resolution = 'cancelled';
           answered = true;
-          pendingPermissions = Math.max(0, pendingPermissions - 1);
+          approvals.delete(key);
+          if (published) pendingPermissions = Math.max(0, pendingPermissions - 1);
           const decision = resolution === 'allow' ? 'accept' : resolution === 'cancelled' ? 'cancel' : 'decline';
-          try { respond(rpcId, { decision }); } catch { /* The child may already be gone. */ }
-          input.emit({ type: 'permission-resolved', requestId, decision: resolution });
-          if (!pendingPermissions && !termination && !fatalError) startTimeoutClock();
+          if (sendResponse) try { respond(rpcId, { decision }); } catch { /* The child may already be gone. */ }
+          if (published) input.emit({ type: 'permission-resolved', requestId, decision: resolution });
+          if (published && !pendingPermissions) startTimeoutClock();
         };
-        pendingPermissions += 1;
-        pauseTimeoutClock();
-        input.emit({ type: 'permission-request', requestId, tool, detail });
-        if (input.permissions) input.permissions.request(requestId, settle);
-        else settle('deny');
+        approvals.set(key, { threadId: thread, turnId: requestedTurn, requestId, published: false, cancel(send = true) {
+          sendResponse = send;
+          if (published && input.permissions) input.permissions.cancel(requestId);
+          else settle('cancelled');
+        } });
+        const publish = () => {
+          if (answered) return;
+          if (!live() || (isChild && !subagents!.active(thread, requestedTurn))) {
+            approvals.delete(key);
+            answered = true;
+            try { respondUnsupported(rpcId); } catch { /* Provider closed during discovery. */ }
+            return;
+          }
+          published = true;
+          approvals.get(key)!.published = true;
+          pendingPermissions += 1;
+          pauseTimeoutClock();
+          if (input.permissions) input.permissions.request(requestId, settle);
+          else settle('deny');
+          if (!answered) input.emit({ type: 'permission-request', requestId, tool, detail: detail() });
+        };
+        if (!isChild || subagents!.belongs(thread)) publish();
+        else void subagents!.verify(thread).then(publish).catch(() => publish());
       };
 
       const handleNotification = (message: JsonRecord) => {
         const method = String(message.method);
         const params = record(message.params);
-        if (input.policy.level === 'native' && typeof params?.threadId === 'string' && sessionId && params.threadId !== sessionId) return;
+        const thread = params?.threadId;
+        if (subagents && method === 'thread/started') {
+          subagents.observe(params?.thread);
+        }
+        if (method === 'serverRequest/resolved' && (typeof params?.requestId === 'string' || typeof params?.requestId === 'number')) {
+          const key = callbackKey(params.requestId);
+          const approval = approvals.get(key);
+          if (approval && approval.threadId === thread) approval.cancel(false);
+          return;
+        }
+        if (thread === sessionId && method === 'turn/started') {
+          const id = record(params?.turn)?.id;
+          if (!turnId && codexThreadId(id)) turnId = id;
+          return;
+        }
+        if (input.policy.level === 'native' && thread !== undefined && thread !== sessionId) {
+          if (!codexThreadId(thread) || !subagents || !live()) return;
+          if (method === 'turn/started') {
+            subagents.started(thread, record(params?.turn)?.id);
+            void subagents.verify(thread);
+          } else if (method === 'turn/completed') {
+            subagents.completed(thread, record(params?.turn)?.id);
+          } else if (['thread/closed', 'thread/archived', 'thread/deleted'].includes(method)) {
+            subagents.closed(thread);
+          }
+          // Keep file preview data scoped to its observed live turn while ancestry is being read.
+          // This grants no capability and is never shown until the descendant has been verified.
+          if ((method === 'item/started' || method === 'item/completed') && subagents.liveTurn(thread, params?.turnId)) {
+            const item = threadItem(params?.item);
+            if (item?.type === 'fileChange') {
+              const paths = changedPaths(item, input.checkout.realPath);
+              if (paths.length) itemDetails.set(itemKey(thread, params?.turnId, item.id as string), listPaths(paths, 12));
+            }
+          }
+          if (!subagents.belongs(thread)) return;
+          if (method === 'error' && params?.willRetry !== true) {
+            const error = record(params?.error);
+            input.emit({ type: 'activity', tool: 'Subagent', detail: sanitizeRunDetail(
+              `Subagent ${subagents.label(thread)} failed: ${typeof error?.message === 'string' ? error.message : 'provider error'}`,
+              input.checkout.realPath, input.attachmentDirectory) });
+          } else if ((method === 'item/started' || method === 'item/completed') && subagents.active(thread, params?.turnId)) {
+            const item = threadItem(params?.item);
+            if (item) emitItem(item, method === 'item/completed', thread, params?.turnId, true);
+          }
+          return;
+        }
         if (input.policy.level === 'native' && method.startsWith('item/autoApprovalReview/')) {
           const review = record(params?.review);
           const status = typeof review?.status === 'string' ? review.status : method.split('/').at(-1)!;
@@ -380,7 +490,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         }
         if (method === 'item/started' || method === 'item/completed') {
           const item = threadItem(params?.item);
-          if (item) emitItem(item, method === 'item/completed');
+          if (item) emitItem(item, method === 'item/completed', sessionId, params?.turnId);
           return;
         }
         if (method === 'item/agentMessage/delta' && typeof params?.delta === 'string') {
@@ -417,14 +527,20 @@ export class CodexProcessRunner implements AgentProcessRunner {
         }
         if (method === 'turn/completed') {
           const turn = record(params?.turn);
+          if (params?.threadId !== sessionId || (turnId && turn?.id !== turnId)) return;
+          turnCompleted = true;
+          input.permissions?.cancelAll();
+          for (const approval of [...approvals.values()]) approval.cancel();
+          for (const descendant of subagents?.activeTurns() ?? []) {
+            void request('turn/interrupt', descendant).catch(() => undefined);
+          }
           if (Array.isArray(turn?.items)) {
             for (const value of turn.items) {
               const item = threadItem(value);
-              if (item) emitItem(item, true);
+              if (item) emitItem(item, true, sessionId, turn?.id);
             }
           }
           const status = typeof turn?.status === 'string' ? turn.status : '';
-          turnCompleted = true;
           if (status === 'failed') {
             const turnError = record(turn?.error);
             log?.(`turn completed failed ${codexErrorKind(turnError?.codexErrorInfo)}: ${sanitizeRunDetail(
@@ -458,6 +574,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           const waiter = pending.get(String(message.id));
           if (!waiter) return;
           pending.delete(String(message.id));
+          if (waiter.timer) clearTimeout(waiter.timer);
           const error = record(message.error);
           if (error) waiter.reject(new RpcResponseError(
             typeof error.code === 'number' ? error.code : -32000,
@@ -494,7 +611,11 @@ export class CodexProcessRunner implements AgentProcessRunner {
       child.once('close', (code) => {
         log?.(`exit code=${code}${termination ? ` after ${termination}` : ''} (protocol ${protocolBytes}B)`);
         input.permissions?.cancelAll();
-        for (const waiter of pending.values()) waiter.reject(new Error('Codex App Server closed'));
+        for (const approval of [...approvals.values()]) approval.cancel(false);
+        for (const waiter of pending.values()) {
+          if (waiter.timer) clearTimeout(waiter.timer);
+          waiter.reject(new Error('Codex App Server closed'));
+        }
         pending.clear();
         if (settled) return;
         if (!fatalError && stdoutBuffer.trim()) {
@@ -597,6 +718,10 @@ export class CodexProcessRunner implements AgentProcessRunner {
             throw new AgentRunError('missing-session', 'Codex resumed an unexpected native provider session.', 'not-sent');
           }
           sessionId = providerThread.id;
+          if (input.policy.level === 'native' && input.policy.execution !== 'docker') {
+            subagents = new CodexSubagentThreads(sessionId,
+              (id) => request('thread/read', { threadId: id, includeTurns: false }, 3_000), reconcileApprovals);
+          }
           const policyIssue = codexThreadPolicyIssue(threadResult, input.checkout.realPath, security, input.policy.level);
           if (policyIssue) {
             throw new AgentRunError('unsupported-flags', policyIssue, 'not-sent', false);

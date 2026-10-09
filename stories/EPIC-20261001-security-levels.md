@@ -100,11 +100,17 @@ it closes the gap Story 79 left open: uncommitted work has no backup.
 | 82 | [native-security-level](STORY-20261001-native-security-level.md) | The level setting, and Native for Local Claude and Codex: their own setup and permission modes, plus Accept edits and Full access | Shipped | 79, 80 |
 | 83 | [turn-checkpoints](STORY-20261001-turn-checkpoints.md) | A private eligible-file checkpoint before each writing turn and explicit checkout Undo at both levels | Shipped | 82 |
 | 84 | claude-sandboxed-auto | Guarded Auto for Claude ([Story 79](STORY-20260928-sandboxed-auto-mode.md)'s open question 4): the remaining probes, then the policy | Blocked on this machine: `socat` and the AppArmor profile for `bwrap` need `sudo` | 79 |
+| 101 | [persistent-codex-approvals](STORY-20261008-persistent-codex-approvals.md) | Remember a provider-proposed command prefix from its approval card, with executing-machine scope visible | In progress; blocked on verified App Server rule isolation after real Ask/Plan write probes | 79, 82, 88 |
+| 102 | [codex-subagent-approvals](STORY-20261009-codex-subagent-approvals.md) | Route verified Native Codex descendant approvals through their parent conversation | Shipped; 1,355 offline tests, TypeScript, build, real Native Auto/Agent routing and repeated reviews pass | 82 |
 
 Story 82 comes first because the user asked for it directly. Story 83 is independent and can run
 beside it. Story 84 waits until someone wants Guarded Claude without cards and the machine change
 is made. Write each story from the template when it starts. The rows above are the scope, not the
 spec.
+
+Story 101 proposes an explicit human-selected exception to invariant 6 and Guarded's one-action
+cards. The existing invariant remains the implemented contract until that story ships; its spec
+requires verified read-only Ask/Plan compatibility and updated active safety prose before shipment.
 
 ## Where the code is
 

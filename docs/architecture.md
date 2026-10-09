@@ -410,6 +410,23 @@ disables expiry, while `5000`–`3600000` milliseconds enables auto-denial. The 
 A denial is reported to the model as a decision — the run continues. Cancelling resolves pending
 cards as denied before terminating the child. Provider completion also clears pending requests.
 
+Native Local Codex writing turns reuse this broker for provider-managed subagent command/file
+approvals. `codexSubagentThreads.ts` verifies a bounded ancestor chain from provider thread metadata
+(`parentThreadId`, or the older source parent field), and tracks each child's live turn separately.
+Child notifications and callbacks already arrive on the root App Server connection; a missing
+metadata notification triggers one `thread/read` per discovered thread, with a three-second
+lookup timeout. Discovery is limited to 64 threads, 16 ancestry levels and 128 completed turns
+per child; callbacks are limited to 32 pending and 1,024 identities per provider turn. Shared
+provider session IDs alone never grant approval eligibility.
+
+Cards identify their child in the detail and retain the root CodeAI run/session. File previews are
+keyed by thread, turn and item. Child text, usage, errors and completion cannot become the parent's
+answer or finish its run. Individual callback/turn/thread resolution and ancestry invalidation
+cancel only affected cards; root teardown cancels all. Previously verified live descendants remain
+interrupt targets even if their ancestry later becomes invalid. Guarded and Docker behavior, the
+browser request body, the session format and both disabled turn-wide permission features are
+unchanged.
+
 Waiting turns keep their concurrency slot and checkout access; a writing turn still blocks other
 turns on its checkout, Undo, and managed Build & restart. Browser detachment preserves the live
 request, but approvals are machine-memory state and cannot resume after a server restart or
