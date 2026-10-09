@@ -41,6 +41,27 @@ describe('PermissionBroker', () => {
     expect(broker.pendingCount).toBe(0);
   });
 
+  it('cancels only the affected request and keeps the broker open', () => {
+    const broker = new PermissionBroker(5_000);
+    const cancelled = vi.fn();
+    const pending = vi.fn();
+    broker.request('child', cancelled);
+    broker.request('parent', pending);
+
+    expect(broker.cancel('child')).toBe(true);
+    expect(cancelled).toHaveBeenCalledExactlyOnceWith('cancelled');
+    expect(broker.cancel('child')).toBe(false);
+    expect(broker.decide('child', 'allow')).toBe(false);
+    expect(pending).not.toHaveBeenCalled();
+    expect(broker.pendingCount).toBe(1);
+    expect(broker.decide('parent', 'allow')).toBe(true);
+    broker.request('next', pending);
+    expect(broker.decide('next', 'deny')).toBe(true);
+    vi.advanceTimersByTime(10_000);
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(pending.mock.calls).toEqual([['allow'], ['deny']]);
+  });
+
   it('still expires a finite request once and rejects a late answer', () => {
     const broker = new PermissionBroker(5_000);
     const settle = vi.fn();

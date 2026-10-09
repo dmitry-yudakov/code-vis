@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
 } from '@/shared/types';
@@ -13,6 +14,7 @@ import {
   codexMcpServerNames, codexThreadConfig, codexThreadPolicyIssue, codexTurnSecurity,
 } from './codexInvocation';
 import { frameGlobalInstructions } from './globalInstructions';
+import { captureDescendantProcesses, ProcessCaptureError, readProcessIdentity, stopDescendantProcesses } from './processDescendants';
 
 interface RunnerOptions {
   transport?: ProcessTransport;
@@ -176,6 +178,10 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const emittedItems = new Set<string>();
       const itemDetails = new Map<string, string>();
       const itemPhases = new Map<string, string>();
+      // Only provider activity from this tree admits a child; its active turn scopes approvals.
+      const agentTurns = new Map<string, string | undefined>();
+      const interruptedAgentTurns = new Set<string>();
+      const approvalRequests = new Map<string, { requestId: string; threadId: string }>();
       let nextRequestId = 1;
       let stdoutBuffer = '';
       let stderr = '';
@@ -191,6 +197,16 @@ export class CodexProcessRunner implements AgentProcessRunner {
       let fatalError: unknown;
       let termination: 'cancelled' | 'timeout' | undefined;
       let stdinOpen = true;
+      let closingInput = false;
+      let cleanup: Promise<void> | undefined;
+      let descendants: Awaited<ReturnType<typeof captureDescendantProcesses>> = [];
+      const processRoot = input.policy.execution === 'docker' ? Promise.resolve(undefined) : readProcessIdentity(child.pid);
+      let processSnapshot: typeof descendants = [];
+      let inventoryIncomplete = false;
+      let cleanupReported = false;
+      let captureInFlight: Promise<void> | undefined;
+      let processMonitor: ReturnType<typeof setInterval> | undefined;
+      let descendantCleanup: Promise<void> | undefined;
       let killTimer: ReturnType<typeof setTimeout> | undefined;
       let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
       let clockStartedAt = Date.now();
@@ -198,7 +214,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
       let pendingPermissions = 0;
 
       const startTimeoutClock = () => {
-        if (input.policy.timeoutMs === 0 || settled || termination || pendingPermissions) return;
+        if (input.policy.timeoutMs === 0 || !stdinOpen || settled || turnCompleted || termination || pendingPermissions) return;
         clockStartedAt = Date.now();
         timeoutTimer = setTimeout(() => interrupt('timeout'), remainingTimeoutMs);
       };
@@ -225,6 +241,49 @@ export class CodexProcessRunner implements AgentProcessRunner {
         id,
         error: { code: -32601, message: 'This server request is disabled by CodeAI.' },
       });
+      const reportUnconfirmedCleanup = () => {
+        if (cleanupReported) return;
+        cleanupReported = true;
+        input.emit({ type: 'activity', tool: 'Stopping Codex', detail: 'Delegated command termination or inventory is unconfirmed. The checkout and machine slot remain locked until cleanup can be confirmed.' });
+      };
+      const captureProcesses = async (retained: typeof descendants) => {
+        const root = await processRoot;
+        try {
+          const captured = await captureDescendantProcesses(root, retained);
+          processSnapshot = captured;
+          // An absent launcher cannot prove that an earlier incomplete inventory is now full.
+          if (inventoryIncomplete && root && (await readProcessIdentity(root.pid))?.started === root.started) {
+            inventoryIncomplete = false;
+          }
+          return captured;
+        } catch (error) {
+          inventoryIncomplete = true;
+          if (error instanceof ProcessCaptureError) processSnapshot = error.observed;
+          throw error;
+        }
+      };
+      const monitorProcesses = () => {
+        if (process.platform !== 'linux' || input.policy.execution === 'docker' || processMonitor || closingInput) return;
+        const capture = () => {
+          if (captureInFlight) return;
+          captureInFlight = (async () => {
+            processSnapshot = await captureProcesses(processSnapshot);
+          })().catch(() => stopWith(new AgentRunError('process-failed', 'Codex could not track its delegated process tree.')))
+            .finally(() => { captureInFlight = undefined; });
+        };
+        capture();
+        processMonitor = setInterval(capture, 100);
+        processMonitor.unref();
+      };
+      const interruptAgents = () => {
+        if (!stdinOpen) return;
+        for (const [threadId, agentTurnId] of agentTurns) if (agentTurnId) {
+          const key = `${threadId}:${agentTurnId}`;
+          if (interruptedAgentTurns.has(key)) continue;
+          interruptedAgentTurns.add(key);
+          void request('turn/interrupt', { threadId, turnId: agentTurnId }).catch(() => undefined);
+        }
+      };
       const scheduleKill = () => {
         if (killTimer) clearTimeout(killTimer);
         killTimer = setTimeout(() => {
@@ -233,10 +292,51 @@ export class CodexProcessRunner implements AgentProcessRunner {
         }, this.options.killGraceMs ?? 1_500);
       };
       const closeInput = () => {
-        if (!stdinOpen) return;
-        stdinOpen = false;
-        child.stdin.end();
+        if (!stdinOpen || closingInput) return;
+        closingInput = true;
+        if (processMonitor) clearInterval(processMonitor);
+        pauseTimeoutClock();
         scheduleKill();
+        cleanup = (async () => {
+          try {
+            await captureInFlight;
+            if (agentTurns.size && input.policy.execution !== 'docker') {
+              descendants = await captureProcesses(processSnapshot);
+            }
+            interruptAgents();
+            // Interrupting a turn deliberately preserves its background exec sessions. Stop
+            // those explicitly before EOF, including terminals from already completed children.
+            const threads = new Set(agentTurns.size ? [sessionId, ...agentTurns.keys()] : []);
+            for (const threadId of threads) {
+              const terminals = record(await request('thread/backgroundTerminals/list', { threadId }));
+              if (!Array.isArray(terminals?.data) || terminals.nextCursor != null) throw new Error('Invalid background terminal inventory');
+              for (const value of terminals.data) {
+                const terminal = record(value);
+                if (typeof terminal?.processId !== 'string') throw new Error('Invalid background terminal id');
+                const stopped = record(await request('thread/backgroundTerminals/terminate', { threadId, processId: terminal.processId }));
+                if (stopped?.terminated !== true) {
+                  // It may have exited naturally between inventory and termination. Confirm
+                  // absence; a false response alone also covers real termination failures.
+                  const remaining = record(await request('thread/backgroundTerminals/list', { threadId }));
+                  if (stopped?.terminated !== false || !Array.isArray(remaining?.data) || remaining.nextCursor != null
+                    || remaining.data.some(value => record(value)?.processId === terminal.processId)) {
+                    throw new Error('Background terminal termination was not confirmed');
+                  }
+                }
+              }
+              for (const agentId of agentTurns.keys()) threads.add(agentId);
+            }
+          } catch {
+            fatalError ||= new AgentRunError('process-failed', 'Codex could not confirm that delegated commands stopped.');
+          } finally {
+            if (agentTurns.size && input.policy.execution !== 'docker') {
+              try { descendants = await captureProcesses([...descendants, ...processSnapshot]); }
+              catch { fatalError ||= new AgentRunError('process-failed', 'Codex could not capture its delegated process tree.'); }
+            }
+            stdinOpen = false;
+            child.stdin.end();
+          }
+        })();
       };
       const stopWith = (error: unknown) => {
         if (fatalError) return;
@@ -251,13 +351,12 @@ export class CodexProcessRunner implements AgentProcessRunner {
         pauseTimeoutClock();
         input.permissions?.cancelAll();
         log?.(`interrupt (${reason})`);
+        interruptAgents();
         if (sessionId && turnId && stdinOpen) {
           void request('turn/interrupt', { threadId: sessionId, turnId })
             .catch(() => undefined);
-          scheduleKill();
-        } else {
-          closeInput();
         }
+        closeInput();
       };
       const abort = () => interrupt('cancelled');
       const finish = (operation: () => void) => {
@@ -265,13 +364,23 @@ export class CodexProcessRunner implements AgentProcessRunner {
         settled = true;
         if (timeoutTimer) clearTimeout(timeoutTimer);
         if (killTimer) clearTimeout(killTimer);
+        if (processMonitor) clearInterval(processMonitor);
         input.signal.removeEventListener('abort', abort);
         operation();
       };
 
-      const emitItem = (item: JsonRecord, completed: boolean) => {
-        const id = String(item.id);
+      const cancelAgentApprovals = (sourceThreadId: string) => {
+        for (const [key, approval] of approvalRequests) if (approval.threadId === sourceThreadId) {
+          approvalRequests.delete(key);
+          input.permissions?.cancel(approval.requestId);
+        }
+      };
+
+      const emitItem = (item: JsonRecord, completed: boolean, sourceThreadId = sessionId) => {
+        const id = `${sourceThreadId}:${String(item.id)}`;
         const type = String(item.type);
+        const isChild = sourceThreadId !== sessionId;
+        if (isChild && ['reasoning', 'agentMessage', 'plan'].includes(type)) return;
         if (type === 'reasoning') input.emit({ type: 'phase', phase: 'thinking' });
         if (type === 'agentMessage') {
           const phase = typeof item.phase === 'string' ? item.phase : itemPhases.get(id);
@@ -297,9 +406,26 @@ export class CodexProcessRunner implements AgentProcessRunner {
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Edit', detail: paths.length ? sanitizeDetail(listPaths(paths, 4)) : undefined });
         } else if (type === 'imageView') {
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'View image' });
-        } else if (['mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch', 'hookPrompt'].includes(type)) {
+        } else if (type === 'subAgentActivity' || type === 'collabAgentToolCall') {
+          if (type === 'subAgentActivity' && typeof item.agentThreadId === 'string') {
+            if (['started', 'interacted'].includes(String(item.kind)) && !agentTurns.has(item.agentThreadId)) {
+              agentTurns.set(item.agentThreadId, undefined);
+            }
+            if (item.kind === 'interrupted' && agentTurns.has(item.agentThreadId)) {
+              agentTurns.set(item.agentThreadId, undefined);
+              cancelAgentApprovals(item.agentThreadId);
+            }
+          } else if (item.tool === 'spawnAgent' && item.senderThreadId === sourceThreadId && Array.isArray(item.receiverThreadIds)) {
+            for (const childId of item.receiverThreadIds) {
+              if (typeof childId === 'string' && !agentTurns.has(childId)) agentTurns.set(childId, undefined);
+            }
+          }
+          if (agentTurns.size) monitorProcesses();
+          const detail = type === 'subAgentActivity' ? item.kind : item.tool;
+          if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Subagent', detail: typeof detail === 'string' ? sanitizeDetail(detail) : undefined });
+        } else if (['mcpToolCall', 'dynamicToolCall', 'webSearch', 'hookPrompt'].includes(type)) {
           if (input.policy.level === 'native') {
-            const labels: Record<string, string> = { mcpToolCall: 'MCP', dynamicToolCall: 'Dynamic tool', collabAgentToolCall: 'Subagent', webSearch: 'Web search', hookPrompt: 'Hook' };
+            const labels: Record<string, string> = { mcpToolCall: 'MCP', dynamicToolCall: 'Dynamic tool', webSearch: 'Web search', hookPrompt: 'Hook' };
             const detail = [item.server, item.tool, item.query].filter((value): value is string => typeof value === 'string').join(' · ');
             if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: labels[type], detail: detail ? sanitizeRunDetail(detail, input.checkout.realPath, input.attachmentDirectory) : undefined });
           } else {
@@ -318,16 +444,20 @@ export class CodexProcessRunner implements AgentProcessRunner {
         const method = String(message.method);
         const rpcId = message.id;
         if ((typeof rpcId !== 'string' && typeof rpcId !== 'number') || !method.includes('/requestApproval')) return;
+        if (!stdinOpen || turnCompleted || termination || fatalError) return;
         if (input.policy.execution === 'docker') {
           respondUnsupported(rpcId);
           stopWith(new AgentRunError('unsupported-flags', 'This escalation is unsupported by the Docker profile.'));
           return;
         }
         const params = record(message.params);
-        const correlated = params?.threadId === sessionId && (!turnId || params.turnId === turnId);
+        const sourceThreadId = typeof params?.threadId === 'string' ? params.threadId : '';
+        const childTurn = agentTurns.get(sourceThreadId);
+        const correlated = sourceThreadId === sessionId ? (!turnId || params?.turnId === turnId)
+          : Boolean(childTurn && params?.turnId === childTurn);
         const isCommand = method === 'item/commandExecution/requestApproval';
         const isFile = method === 'item/fileChange/requestApproval';
-        if (!correlated || (!isCommand && !isFile)) {
+        if (!correlated || !input.policy.interactivePermissions || (!isCommand && !isFile)) {
           respondUnsupported(rpcId);
           if (input.policy.level === 'native') input.emit({ type: 'activity', tool: 'Control request', detail: `CodeAI cannot answer ${sanitizeDetail(method)}.` });
           return;
@@ -335,7 +465,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         const itemId = typeof params?.itemId === 'string' ? params.itemId : '';
         const tool = isCommand ? 'Shell' : 'Edit';
         const command = typeof params?.command === 'string' ? params.command : '';
-        const subject = !isCommand ? itemDetails.get(itemId) || (typeof params?.grantRoot === 'string' ? params.grantRoot : '')
+        const subject = !isCommand ? itemDetails.get(`${sourceThreadId}:${itemId}`) || (typeof params?.grantRoot === 'string' ? params.grantRoot : '')
           // `writeStdin` is text typed into a command that is already running, not a new command.
           : params?.kind === 'writeStdin' ? `input to a running command: ${command}` : command;
         const networkHost = record(params?.networkApprovalContext)?.host;
@@ -350,13 +480,18 @@ export class CodexProcessRunner implements AgentProcessRunner {
           reason ? `reason given: ${sanitizeRunDetail(reason, input.checkout.realPath, input.attachmentDirectory)}` : '',
         ].filter(Boolean).join(' — ');
         const requestId = randomUUID();
+        const rpcKey = String(rpcId);
+        approvalRequests.set(rpcKey, { requestId, threadId: sourceThreadId });
         let answered = false;
         const settle = (resolution: PermissionResolution) => {
           if (answered) return;
           answered = true;
           pendingPermissions = Math.max(0, pendingPermissions - 1);
           const decision = resolution === 'allow' ? 'accept' : resolution === 'cancelled' ? 'cancel' : 'decline';
-          try { respond(rpcId, { decision }); } catch { /* The child may already be gone. */ }
+          // A provider-resolved request needs no second response on the wire.
+          if (approvalRequests.delete(rpcKey)) {
+            try { respond(rpcId, { decision }); } catch { /* The child may already be gone. */ }
+          }
           input.emit({ type: 'permission-resolved', requestId, decision: resolution });
           if (!pendingPermissions && !termination && !fatalError) startTimeoutClock();
         };
@@ -370,7 +505,45 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const handleNotification = (message: JsonRecord) => {
         const method = String(message.method);
         const params = record(message.params);
-        if (input.policy.level === 'native' && typeof params?.threadId === 'string' && sessionId && params.threadId !== sessionId) return;
+        if (method === 'thread/started') {
+          const thread = record(params?.thread);
+          const spawn = record(record(record(thread?.source)?.subAgent)?.thread_spawn);
+          const parentId = thread?.parentThreadId ?? spawn?.parent_thread_id;
+          if (typeof thread?.id === 'string' && thread.id !== sessionId && typeof parentId === 'string'
+            && (parentId === sessionId || agentTurns.has(parentId)) && !agentTurns.has(thread.id)) {
+            agentTurns.set(thread.id, undefined);
+            monitorProcesses();
+          }
+          return;
+        }
+        const sourceThreadId = typeof params?.threadId === 'string' ? params.threadId : sessionId;
+        const isChild = sourceThreadId !== sessionId;
+        if (isChild && !agentTurns.has(sourceThreadId)) return;
+        if (method === 'serverRequest/resolved') {
+          const key = String(params?.requestId);
+          const approval = approvalRequests.get(key);
+          if (approval?.threadId === sourceThreadId) {
+            approvalRequests.delete(key);
+            input.permissions?.cancel(approval.requestId);
+          }
+          return;
+        }
+        if (isChild && method === 'turn/started') {
+          const id = record(params?.turn)?.id;
+          if (typeof id === 'string' && id !== agentTurns.get(sourceThreadId)) {
+            cancelAgentApprovals(sourceThreadId);
+            agentTurns.set(sourceThreadId, id);
+            if (termination || closingInput) interruptAgents();
+          }
+          return;
+        }
+        if (turnCompleted || fatalError) {
+          if (method === 'item/started' || method === 'item/completed') {
+            const item = threadItem(params?.item);
+            if (item && ['subAgentActivity', 'collabAgentToolCall'].includes(String(item.type))) emitItem(item, method === 'item/completed', sourceThreadId);
+          }
+          return;
+        }
         if (input.policy.level === 'native' && method.startsWith('item/autoApprovalReview/')) {
           const review = record(params?.review);
           const status = typeof review?.status === 'string' ? review.status : method.split('/').at(-1)!;
@@ -380,7 +553,19 @@ export class CodexProcessRunner implements AgentProcessRunner {
         }
         if (method === 'item/started' || method === 'item/completed') {
           const item = threadItem(params?.item);
-          if (item) emitItem(item, method === 'item/completed');
+          if (item) emitItem(item, method === 'item/completed', sourceThreadId);
+          return;
+        }
+        if (isChild) {
+          if (method === 'turn/completed' && record(params?.turn)?.id === agentTurns.get(sourceThreadId)) {
+            const items = record(params?.turn)?.items;
+            if (Array.isArray(items)) for (const value of items) {
+              const item = threadItem(value);
+              if (item) emitItem(item, true, sourceThreadId);
+            }
+            agentTurns.set(sourceThreadId, undefined);
+            cancelAgentApprovals(sourceThreadId);
+          }
           return;
         }
         if (method === 'item/agentMessage/delta' && typeof params?.delta === 'string') {
@@ -425,6 +610,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           }
           const status = typeof turn?.status === 'string' ? turn.status : '';
           turnCompleted = true;
+          input.permissions?.cancelAll();
           if (status === 'failed') {
             const turnError = record(turn?.error);
             log?.(`turn completed failed ${codexErrorKind(turnError?.codexErrorInfo)}: ${sanitizeRunDetail(
@@ -447,6 +633,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         try { message = JSON.parse(line) as JsonRecord; }
         catch { throw new AgentRunError('malformed-stream', 'Codex emitted malformed App Server data.'); }
         if (typeof message.method === 'string' && message.id !== undefined) {
+          if (!stdinOpen || turnCompleted || termination || fatalError) return;
           if (message.method.includes('/requestApproval')) handleApproval(message);
           else if (typeof message.id === 'string' || typeof message.id === 'number') {
             respondUnsupported(message.id);
@@ -469,13 +656,20 @@ export class CodexProcessRunner implements AgentProcessRunner {
         if (typeof message.method === 'string') handleNotification(message);
       };
 
-      child.once('error', (error) => {
+      child.on('error', (error) => {
+        // A failed signal also emits `error`. A live launcher must finish cleanup before its
+        // run can settle, and repeated failed signals must retain an error listener.
+        if (child.pid) {
+          reportUnconfirmedCleanup();
+          stopWith(new AgentRunError('process-failed', 'Codex App Server failed during execution.', turnRequestSent ? 'possibly-sent' : 'not-sent'));
+          return;
+        }
         finish(() => reject((error as NodeJS.ErrnoException).code === 'ENOENT'
           ? new AgentRunError('missing-binary', `Codex executable was not found: ${path.basename(this.options.binary)}`, 'not-sent', false)
           : new AgentRunError('process-failed', 'Codex App Server could not be started.', 'not-sent')));
       });
       child.stdout.on('data', (chunk: Buffer) => {
-        if (settled || fatalError) return;
+        if (settled) return;
         try {
           protocolBytes += chunk.length;
           stdoutBuffer += chunk.toString('utf8');
@@ -486,17 +680,54 @@ export class CodexProcessRunner implements AgentProcessRunner {
             newline = stdoutBuffer.indexOf('\n');
           }
           if (Buffer.byteLength(stdoutBuffer) > MAX_EVENT_BYTES) throw oversizedEvent(turnRequestSent, input.session.action === 'resume');
-        } catch (error) { stopWith(error); }
+        } catch (error) { stdoutBuffer = ''; stopWith(error); }
       });
       child.stderr.on('data', (chunk: Buffer) => {
         if (Buffer.byteLength(stderr) < 65_536) stderr += chunk.toString('utf8').slice(0, 65_536);
       });
-      child.once('close', (code) => {
+      const stopCapturedProcesses = async () => {
+        await captureInFlight;
+        if (!agentTurns.size && !descendants.length && !processSnapshot.length) return;
+        let owned = [...descendants, ...processSnapshot];
+        for (;;) {
+          try {
+            try { owned = await captureProcesses(owned); }
+            catch { owned = processSnapshot; }
+            await stopDescendantProcesses(owned);
+            if (!inventoryIncomplete) return;
+          } catch {
+            // Keep admission while known workers are alive or the inventory is incomplete.
+          }
+          reportUnconfirmedCleanup();
+          await delay(1_000);
+        }
+      };
+      child.once('exit', () => {
+        if (processMonitor) clearInterval(processMonitor);
+        stdinOpen = false;
+        pauseTimeoutClock();
+        input.permissions?.cancelAll();
+        // The launcher is dead. Release SDK waits here rather than waiting for inherited pipes.
+        for (const waiter of pending.values()) waiter.reject(new Error('Codex App Server exited'));
+        pending.clear();
+        // An inherited stdout/stderr can keep `close` waiting after the launcher exits. Stop
+        // captured workers first, so those descriptors close and the run can settle.
+        descendantCleanup = (async () => {
+          await stopCapturedProcesses();
+          await cleanup;
+          // The final SDK capture can finish after the first stop. This pass must also run
+          // before `close`, because a late worker may hold the inherited pipes open.
+          await stopCapturedProcesses();
+        })();
+      });
+      child.once('close', async (code) => {
         log?.(`exit code=${code}${termination ? ` after ${termination}` : ''} (protocol ${protocolBytes}B)`);
         input.permissions?.cancelAll();
         for (const waiter of pending.values()) waiter.reject(new Error('Codex App Server closed'));
         pending.clear();
         if (settled) return;
+        await descendantCleanup;
+        await cleanup;
         if (!fatalError && stdoutBuffer.trim()) {
           try { processLine(stdoutBuffer); }
           catch (error) { fatalError = error; }
@@ -540,11 +771,12 @@ export class CodexProcessRunner implements AgentProcessRunner {
 
       void (async () => {
         try {
+          await processRoot;
           await request('initialize', {
             // `title` is display metadata; `name` is the client identifier Codex already knows
             // this app by, so it keeps its historical spelling like `serviceName` below.
             clientInfo: { name: 'cartograph_web2', title: 'CodeAI', version: '0.1.0' },
-            capabilities: null,
+            capabilities: { experimentalApi: true },
           });
           notify('initialized');
           const [mcp, hooks, skills] = input.policy.level === 'native' ? [undefined, undefined, undefined] : await Promise.all([
@@ -613,6 +845,10 @@ export class CodexProcessRunner implements AgentProcessRunner {
               false,
             );
           }
+          // No model has run yet. Refuse an older protocol before delegation can leave commands
+          // alive; listing an empty new thread also checks the experimental capability handshake.
+          const terminals = record(await request('thread/backgroundTerminals/list', { threadId: sessionId }));
+          if (!Array.isArray(terminals?.data)) throw new AgentRunError('unsupported-flags', 'Codex does not support delegated command cleanup. Update the Codex CLI.', 'not-sent', false);
           input.emit({ type: 'session-started', sessionId });
           const turnInput = [
             { type: 'text', text: input.prompt, text_elements: [] },

@@ -726,6 +726,7 @@ export interface ResolvedAgentPolicy {
  */
 export interface PermissionGate {
   request(requestId: string, settle: (resolution: PermissionResolution) => void): void;
+  cancel(requestId: string): boolean;
   cancelAll(): void;
 }
 

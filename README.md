@@ -1080,12 +1080,30 @@ read-only sandbox with network disabled; Agent uses the same sandbox and asks be
 writes or leaves it; [Auto](#auto) uses CodeAI's own permission profile. Every turn that can ask names you as the
 approval reviewer and is refused if App Server reports another one, such as `auto_review` from your
 Codex config. Server-owned overrides disable MCP servers, apps,
-plugins, hooks, web search, subagents, and custom commands; preflight also queries the effective
+plugins, hooks, web search, and custom commands; preflight also queries the effective
 integration inventory and fails closed if an ambient MCP server or hook remains enabled. Instruction
 files local Codex loads from outside the repository, such as your global `AGENTS.md`, and enabled user or
 repository skills are your own Codex configuration: readiness reports them as a note instead of
 withholding the provider, and [Global instructions](#global-instructions) in Machine settings shows that file. App Server approval requests are correlated to the active turn, sanitized, and
 resolved as one-shot allow/deny decisions through the same permission cards.
+
+Guarded enables Codex's built-in subagents; Native keeps your Codex configuration. Ask for them
+in the conversation, for example: “Spawn two subagents to review the changes for bugs and test gaps,
+wait for both, and summarize their findings.” Applicable repository instructions may also request
+delegation. Subagents inherit the turn's permissions; Ask/Plan remain read-only, Agent/Auto
+escalations use the same permission cards, and Docker work stays inside its container. Their
+activity appears in the conversation while the main agent consolidates their answers. They share
+the parent run's execution clock and checkout lease; cancelling the run or completing the parent
+turn shuts down its provider process, retained commands and captured workers. CodeAI does not expose separate
+subagent chats or add them as session participants.
+
+Codex must support the background-terminal inventory and termination protocol; an older CLI is
+refused before the user request is sent. On Linux, CodeAI also tracks observed provider descendants and
+stops captured surviving workers after launcher exit, before the run releases its checkout. This covers
+worker processes left alive by their sandbox wrappers. Docker retains its whole-container cleanup.
+If termination or the process inventory is unconfirmed, CodeAI shows “Stopping Codex” and keeps
+the checkout and machine slot locked while retrying. An incomplete inventory cannot be cleared
+by an empty snapshot after the original launcher has exited.
 
 A checkout need not be a Git repository. CodeAI's own Git reads never adopt a folder as a repository
 because of `HEAD`, `config`, `objects`, and `refs` files at its root (`safe.bareRepository=explicit`),

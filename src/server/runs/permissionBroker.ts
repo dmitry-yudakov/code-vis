@@ -36,6 +36,10 @@ export class PermissionBroker implements PermissionGate {
     return this.finish(requestId, decision);
   }
 
+  cancel(requestId: string): boolean {
+    return this.finish(requestId, 'cancelled');
+  }
+
   cancelAll(): void {
     this.closed = true;
     for (const requestId of [...this.pending.keys()]) this.finish(requestId, 'cancelled');

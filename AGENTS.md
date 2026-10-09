@@ -6,7 +6,7 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 ## Now
 
-Updated 2026-10-08. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-09. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -198,6 +198,12 @@ Updated 2026-10-08. When a story ships, change the line that names it; each stor
   real Docker metadata/turn checks and independent review pass; the running app has not been restarted.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
+- **Shipped:** [Story 103](stories/STORY-20261009-codex-subagents.md) — requested Codex
+  subagents keep the turn's permissions, share approval handling and consolidate into the parent's
+  answer; delegated command cleanup includes a Linux process fallback that retains locks while
+  termination or inventory is unconfirmed. All 1,373 offline tests,
+  TypeScript, production build, real Codex delegation/cancellation checks and independent review
+  pass; the running app has not been restarted.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the
