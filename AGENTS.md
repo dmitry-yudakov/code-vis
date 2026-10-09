@@ -192,8 +192,25 @@ Updated 2026-10-09. When a story ships, change the line that names it; each stor
   close cards, and teardown interrupts verified descendants. All 1,355 offline tests, TypeScript,
   build, real Native Auto/Agent routing probes and repeated independent reviews passed. Browser,
   production attached transport and physical Quest were not rerun; the application was not restarted.
+- **Shipped:** [Story 104](stories/STORY-20261008-quiet-arena-settings.md) — the security notice can
+  be dismissed, Docker/provider updates and global-instructions defaults live under the gear's
+  Machine settings, and new-session instructions live under Advanced settings. Focused offline
+  checks, TypeScript, production build, browser checks and screenshot/diff review pass.
+- **Shipped:** [Story 105](stories/STORY-20261008-create-worktrees-during-turns.md) — create and
+  start an independent Local worktree beside an existing source or verified sibling task, including
+  the gear's background launch and provisioned Docker Git helpers. Retry preserves clean retained
+  creation after transient helper failure. Offline checks, TypeScript, build, six browser checks,
+  real Docker metadata/turn checks and independent review pass; the running app has not been restarted.
 - **Shipped:** [Story 65](stories/STORY-20260921-tolerate-newer-session-format.md) — a session in a
   newer format hides only that session instead of closing the store; Stories 63 and 64 depended on it.
+- **Shipped:** [Story 103](stories/STORY-20261009-codex-subagents.md) — requested Codex
+  subagents keep the turn's permissions, share approval handling and consolidate into the parent's
+  answer; delegated command cleanup includes a Linux process fallback that retains locks while
+  termination, ownership or inventory is unconfirmed. Integrated with Story 102; host fallback
+  force-stops workers and the launcher after SDK cleanup to avoid TERM-handler replacements.
+  All 1,442 offline tests, TypeScript, the isolated production build, real Native/Guarded probes and
+  repeated security/lifecycle reviews pass. macOS coverage is simulated; browser, signed-in Docker, attached
+  transport and Quest were not rerun. The running app has not been restarted.
 - **Plan of record:** [vision.md's sequence](docs/vision.md#sequence) for breadth (the arena and the
   machines behind it), the [software-model epic](stories/EPIC-20260705-north-star-roadmap.md) for
   depth (the model, lenses, and the change loop), and the
@@ -313,7 +330,11 @@ importing file's own directory; keep `./…` for same-directory siblings.
   Its source checkout is absent and source index/HEAD/configuration stay read-only. Shared branch
   refs/objects remain shared Git state and are outside Undo. Only verified durable journal records
   grant these mounts; arbitrary linked worktrees remain unsupported. Ordinary-source writers are
-  excluded while a linked worker/helper holds the common metadata lease. Writing turns save
+  excluded while a linked worker or directly bound helper holds the common metadata lease.
+  A managed Git helper alongside an already running Local source writer pins the journal-verified
+  common-directory inode through a temporary read-only local-driver volume; readers and descriptor
+  remain held until container and volume cleanup are confirmed. Provider workers retain their
+  direct mounts and source-writer exclusion. Writing turns save
   bounded eligible-file checkpoints on the executing host,
   outside worker mounts; explicit Undo refuses newer changes and changed Git HEAD/index. New Docker participants share a persistent provider home per
   installation/provider; existing individual homes retain their native history. Never mount the running CodeAI installation or provider host
@@ -338,7 +359,7 @@ importing file's own directory; keep `./…` for same-directory siblings.
   Local writing turns load the user's provider setup: Claude omits safe mode and isolation flags;
   Codex leaves integrations, network/writable-root settings, and the approval reviewer to the user.
   Codex still disables `request_permissions_tool` and `exec_permission_approvals`, because CodeAI
-  handles one approval at a time. Native Agent, Accept edits (Claude), Auto, and Full access take
+  grants approval for one action per card. Native Agent, Accept edits (Claude), Auto, and Full access take
   exclusive checkout access and the build budget. Full access reaches everything the desktop user
   can reach, including checkpoint storage. Undo covers eligible checkout files only; it never
   restores private/ignored files, Git history/index, external actions or writes elsewhere.

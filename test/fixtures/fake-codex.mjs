@@ -7,6 +7,7 @@ import os from 'node:os';
 const args = process.argv.slice(2);
 const mode = process.env.CODEAI_FAKE_CODEX_MODE || 'normal';
 const recordPath = process.env.CODEAI_FAKE_CODEX_RECORD;
+const incomingDelegation = mode === 'subagent' || /^subagent-(approval-|background|crash|wait|stop-failure|late-|foreign-approval|mcp|metadata|source|legacy)/.test(mode);
 // `codex sandbox … -- true` is CodeAI's model-free check that the workspace sandbox can start.
 if (args[0] === 'sandbox') {
   if (process.env.CODEAI_FAKE_CODEX_SANDBOX_RECORD) {
@@ -45,6 +46,8 @@ const APPROVAL_COMMANDS = {
 let threadId = 'codex-thread-new';
 let turnId = 'codex-turn-1';
 let approvalPending = false;
+let childApprovalsRemaining = 0;
+let turnSent = false;
 const threadConfigs = new Map();
 const delegatedThreads = new Map();
 let delegatedExpectedResponses = 0;
@@ -323,10 +326,115 @@ while (true) {
     if (thread) result(message.id, { thread: { ...thread, turns: [] } });
     else error(message.id, -32000, 'Thread not found');
   }
+  else if (message.method === 'thread/backgroundTerminals/list') {
+    if (mode === 'no-subagent-cleanup') error(message.id, -32601, 'Method not found');
+    else if (turnSent && message.params.threadId === 'child-thread' && mode === 'subagent-background-close') process.exit(0);
+    else result(message.id, { data: turnSent && message.params.threadId === 'child-thread'
+      && (mode.startsWith('subagent-background') || mode === 'subagent-mcp') && !(mode === 'subagent-background-exited' && transcript.requests.some(request => request.method === 'thread/backgroundTerminals/terminate'))
+      ? [{ processId: 'worker-process' }] : [], nextCursor: null });
+  }
+  else if (message.method === 'thread/backgroundTerminals/terminate') result(message.id, { terminated: !['subagent-background-refuse', 'subagent-background-exited'].includes(mode) });
   else if (message.method === 'turn/start') {
+    turnSent = true;
     turnId = 'codex-turn-1';
     result(message.id, { turn: { id: turnId, items: [], itemsView: 'full', status: 'inProgress', error: null } });
-    if (mode.startsWith('subagent-')) beginDelegation();
+    if (!incomingDelegation && mode.startsWith('subagent-')) beginDelegation();
+    else if (incomingDelegation) {
+      let agentThreadId = 'child-thread';
+      const childTurnId = 'child-turn';
+      delegatedThread(agentThreadId, threadId);
+      if (mode.startsWith('subagent-approval') || mode === 'subagent-foreign-approval' || mode === 'subagent-mcp') {
+        emit({ method: 'thread/started', params: { thread: delegatedThreads.get(agentThreadId) } });
+      }
+      const activity = { type: 'subAgentActivity', id: 'spawn-child', kind: 'started', agentThreadId, agentPath: '/root/reviewer' };
+      if (mode.endsWith('-metadata') || mode.endsWith('-source')) {
+        emit({ method: 'thread/started', params: { thread: { id: agentThreadId,
+          ...(mode.endsWith('-metadata') ? { parentThreadId: threadId }
+            : { source: { subAgent: { thread_spawn: { parent_thread_id: threadId } } } }),
+        } } });
+      } else if (mode === 'subagent-legacy') {
+        emit({ method: 'item/completed', params: { threadId, turnId, item: {
+          type: 'collabAgentToolCall', id: 'spawn-child', tool: 'spawnAgent', status: 'completed',
+          senderThreadId: threadId, receiverThreadIds: [agentThreadId],
+        } } });
+      } else {
+        emit({ method: 'item/started', params: { threadId, turnId, item: activity } });
+        emit({ method: 'item/completed', params: { threadId, turnId, item: activity } });
+      }
+      emit({ method: 'turn/started', params: { threadId: agentThreadId, turn: { id: childTurnId, status: 'inProgress' } } });
+      if (mode === 'subagent-approval-nested') {
+        emit({ method: 'item/started', params: { threadId: agentThreadId, turnId: childTurnId,
+          item: { ...activity, id: 'spawn-grandchild', agentThreadId: 'grandchild-thread' } } });
+        agentThreadId = 'grandchild-thread';
+        emit({ method: 'thread/started', params: { thread: delegatedThread(agentThreadId, 'child-thread') } });
+        emit({ method: 'turn/started', params: { threadId: agentThreadId, turn: { id: childTurnId, status: 'inProgress' } } });
+      }
+      if (mode.startsWith('subagent-approval')) {
+        approvalPending = true;
+        const isFile = mode === 'subagent-approval-file';
+        // Deliberately reuse an item id in the parent and child to verify approval subjects.
+        emit({ method: 'item/started', params: { threadId, turnId, item: {
+          type: 'fileChange', id: 'same-item', changes: [{ path: `${process.cwd()}/parent.txt`, kind: 'update' }],
+        } } });
+        emit({ method: 'item/started', params: { threadId: agentThreadId, turnId: childTurnId, item: isFile
+          ? { type: 'fileChange', id: 'same-item', changes: [{ path: `${process.cwd()}/child.txt`, kind: 'update' }] }
+          : { type: 'commandExecution', id: 'same-item', command: 'npm test' },
+        } });
+        emit({ id: 'approval-child', method: isFile ? 'item/fileChange/requestApproval' : 'item/commandExecution/requestApproval',
+          params: { threadId: agentThreadId, turnId: childTurnId, itemId: 'same-item', command: isFile ? undefined : 'npm test' } });
+        if (mode === 'subagent-approval-concurrent') {
+          childApprovalsRemaining = 2;
+          emit({ id: 'approval-child-2', method: 'item/commandExecution/requestApproval',
+            params: { threadId: agentThreadId, turnId: childTurnId, itemId: 'second', command: 'npm run lint' } });
+        } else if (['subagent-approval-resolved', 'subagent-approval-finish', 'subagent-approval-interrupted'].includes(mode)) {
+          if (mode === 'subagent-approval-resolved') emit({ method: 'serverRequest/resolved', params: { threadId: agentThreadId, requestId: 'approval-child' } });
+          if (mode === 'subagent-approval-interrupted') emit({ method: 'item/completed', params: { threadId, turnId,
+            item: { ...activity, id: 'interrupt-child', kind: 'interrupted' } } });
+          completeTurn('Child request cancelled.');
+          // Late requests after the root completes must not reopen cards or fail the result.
+          emit({ id: 'approval-late', method: 'item/commandExecution/requestApproval', params: { threadId: agentThreadId, turnId: childTurnId, command: 'late' } });
+          emit({ id: 'late-input', method: 'item/tool/requestUserInput', params: { threadId: agentThreadId } });
+        }
+      } else if (['subagent-crash', 'subagent-crash-metadata', 'subagent-wait-ignore', 'subagent-stop-failure', 'subagent-late-stdio'].includes(mode)) {
+        // Inherited stdout keeps the parent's close event open even after it exits.
+        const worker = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], {
+          detached: true, stdio: mode === 'subagent-stop-failure' ? 'ignore' : ['ignore', 1, 2],
+        });
+        transcript.workerPid = worker.pid; persist();
+        if (mode === 'subagent-late-stdio') completeTurn('Parent summary.');
+        if (mode.startsWith('subagent-crash') || mode === 'subagent-stop-failure') {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          process.exit(2);
+        }
+      } else if (mode === 'subagent-wait') {
+        // Remain alive until the parent turn is interrupted.
+      } else if (mode === 'subagent-foreign-approval') {
+        for (const [id, thread, turn] of [['foreign', 'unrelated', childTurnId], ['stale', agentThreadId, 'old-turn']]) {
+          emit({ id, method: 'item/commandExecution/requestApproval', params: { threadId: thread, turnId: turn, itemId: 'x', command: 'echo unsafe' } });
+          transcript.responses.push(readJsonLine()); persist();
+        }
+        completeTurn('Unrelated requests refused.');
+      } else if (mode === 'subagent-mcp') {
+        emit({ method: 'item/started', params: { threadId: agentThreadId, turnId: childTurnId,
+          item: { type: 'mcpToolCall', id: 'child-mcp', server: 'ambient', tool: 'read' } } });
+      } else {
+        emit({ method: 'item/completed', params: { threadId, turnId,
+          item: { type: 'collabAgentToolCall', id: 'wait-child', tool: 'wait', senderThreadId: threadId, receiverThreadIds: [agentThreadId] } } });
+        emit({ method: 'item/agentMessage/delta', params: { threadId: agentThreadId, turnId: childTurnId, itemId: 'child-answer', delta: 'Child-only answer.' } });
+        emit({ method: 'thread/tokenUsage/updated', params: { threadId: agentThreadId, tokenUsage: { total: { inputTokens: 999, outputTokens: 999 } } } });
+        emit({ method: 'turn/completed', params: { threadId: agentThreadId, turn: {
+          id: childTurnId, status: 'completed', items: [{ type: 'agentMessage', id: 'child-answer', phase: 'final_answer', text: 'Child-only answer.' }],
+        } } });
+        emit({ method: 'error', params: { threadId: agentThreadId, willRetry: false, error: { message: 'Child-only error.' } } });
+        completeTurn('Parent summary.');
+        if (mode === 'subagent-late-grandchild') {
+          delegatedThread('grandchild-thread', agentThreadId);
+          emit({ method: 'item/started', params: { threadId: agentThreadId, turnId: childTurnId,
+            item: { ...activity, id: 'late-spawn', agentThreadId: 'grandchild-thread' } } });
+          emit({ method: 'turn/started', params: { threadId: 'grandchild-thread', turn: { id: 'late-turn', status: 'inProgress' } } });
+        }
+      }
+    }
     else if (mode === 'native-events') {
       for (const type of ['mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch', 'hookPrompt']) {
         emit({ method: 'item/started', params: { threadId, turnId, item: { id: type, type, server: 'probe', tool: 'read_marker', status: 'inProgress' } } });
@@ -418,6 +526,7 @@ while (true) {
     }
   }
   else if (message.method === 'turn/interrupt') {
+    if (mode === 'subagent-wait-ignore' && message.params.threadId === threadId) continue;
     result(message.id, {});
     emit({
       method: 'turn/completed',
@@ -438,6 +547,7 @@ while (true) {
     }
   }
   else if (!message.method && approvalPending && String(message.id).startsWith('approval-')) {
+    if (childApprovalsRemaining && --childApprovalsRemaining) continue;
     approvalPending = false;
     const accepted = message.result?.decision === 'accept';
     completeTurn(accepted ? 'Approved once.' : 'Declined and continued.');

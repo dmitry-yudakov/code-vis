@@ -1,5 +1,8 @@
 # Story 98 — Create worktrees alongside unrelated turns and explain conflicts
 
+Follow-up: [Story 105](STORY-20261008-create-worktrees-during-turns.md) supersedes this release's
+same-source Local-turn exclusion. The original scope and verification below describe Story 98.
+
 **Status:** Shipped · **Type:** Full-stack · **Depends on:**
 [Story 92](STORY-20261005-session-worktrees.md),
 [Story 95](STORY-20261007-docker-worktrees.md),

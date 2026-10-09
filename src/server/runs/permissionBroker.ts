@@ -36,9 +36,8 @@ export class PermissionBroker implements PermissionGate {
     return this.finish(requestId, decision);
   }
 
-  /** Close one provider callback without closing other requests or the run's broker. */
-  cancel(requestId: string): void {
-    this.finish(requestId, 'cancelled');
+  cancel(requestId: string): boolean {
+    return this.finish(requestId, 'cancelled');
   }
 
   cancelAll(): void {

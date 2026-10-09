@@ -15,8 +15,14 @@ creation and maintenance, then grants exclusive source/common-Git and destinatio
 live turns, Git reads and Undo. Fresh journal membership includes managed siblings; bounded
 contained-metadata validation proves ordinary checkouts independent. Unregistered linked or
 redirected metadata and unseen checkout scopes are conservatively excluded without trusting their
-Git pointers. Unrelated proved checkouts remain usable. Ownership covers bounded offline preflight,
-an immutable durable intent, Git creation/materialization, session save, and confirmed helper cleanup.
+Git pointers. Story 105 allows existing Local turns at exact, freshly verified source and ready
+sibling roots, plus explicitly read-only Git/helper mounts, during scope acquisition. Writing
+Docker turns and writable common-metadata leases remain incompatible. Undo, nested/enclosing or
+unproved scopes, and competing maintenance/creation still exclude admission; new affected turns
+wait through persistence. Source identity, contained metadata, strict configuration and destination
+linkage are checked again at mutation boundaries. Unrelated proved checkouts remain usable.
+Ownership covers bounded offline preflight, an immutable durable intent, Git creation/materialization,
+session save, and confirmed helper cleanup.
 Busy HTTP 409 responses identify the executing machine and bounded blocker sessions; desktop,
 Arena and VR retain choices and request identity for explicit Retry. `<dataDir>/worktrees/` holds
 the private allowlist and recovery facts; `CODEAI_WORKTREES_ROOT/<worktreeId>` holds committed files.
@@ -32,9 +38,14 @@ by executing checkout path, with no new portable repository identity. Format 10 
 worktree provenance without private paths. Project bindings stay on the source, managed session
 bindings are fixed, and New chat/Local continuation shares the exact worktree with fresh provider
 sessions. Self-project/report access still tests the project’s original binding, and managed rebuild
-still builds the installation. Archive and Restore retain all resources. Docker provisioning blocks
-managed creation and subsequent operations because the existing helper cannot read linked metadata;
-there is no host-Git fallback or wider Docker mount.
+still builds the installation. Archive and Restore retain all resources. After Docker provisioning,
+verified managed helpers read the journal-authorized common Git directory read-only. Alongside an
+existing Local source writer they pin its verified directory descriptor through a temporary local
+Docker volume; otherwise they retain the direct bind and metadata lease. Container and volume
+removal must be confirmed before releasing the descriptor/readers, and startup reconciliation
+removes orphan pins after their helpers. Local checkpoints, turns and creation recovery remain
+independent of the source task; there is no host-Git fallback. Docker provider workers retain their
+direct mounts and source-writer exclusion.
 
 Story 57 adds an opt-in Docker transport in `src/server/execution/`; its release verification is
 tracked in [docker-execution.md](docker-execution.md). Version 4 session records persist Local/Docker
@@ -56,7 +67,7 @@ login commands work before any session exists. Conversations expose execution ex
 continuation through `POST /api/sessions` with `sourceSessionId` and the target execution. The server
 copies only project/repository bindings into a fresh session, checking the source revision after
 Docker validation; the device initializes an editable recap without sending a turn.
-Arena's Docker toggle writes only a boolean through the device-authorized, same-origin
+The Machine settings dialog's Docker toggle writes only a boolean through the device-authorized, same-origin
 `PATCH /api/execution/docker`. The private `docker/settings.json` record in the data directory
 overrides the environment default on every config read, so new requests see changes without a
 restart. Accepted turns retain their original configuration. Provisioning and login remain terminal
@@ -410,8 +421,8 @@ disables expiry, while `5000`–`3600000` milliseconds enables auto-denial. The 
 A denial is reported to the model as a decision — the run continues. Cancelling resolves pending
 cards as denied before terminating the child. Provider completion also clears pending requests.
 
-Native Local Codex writing turns reuse this broker for provider-managed subagent command/file
-approvals. `codexSubagentThreads.ts` verifies a bounded ancestor chain from provider thread metadata
+Native and Guarded Local Codex writing turns reuse this broker for provider-managed subagent
+command/file approvals. Guarded enables built-in delegation without widening its per-turn policy. `codexSubagentThreads.ts` verifies a bounded ancestor chain from provider thread metadata
 (`parentThreadId`, or the older source parent field), and tracks each child's live turn separately.
 Child notifications and callbacks already arrive on the root App Server connection; a missing
 metadata notification triggers one `thread/read` per discovered thread, with a three-second
@@ -423,9 +434,20 @@ Cards identify their child in the detail and retain the root CodeAI run/session.
 keyed by thread, turn and item. Child text, usage, errors and completion cannot become the parent's
 answer or finish its run. Individual callback/turn/thread resolution and ancestry invalidation
 cancel only affected cards; root teardown cancels all. Previously verified live descendants remain
-interrupt targets even if their ancestry later becomes invalid. Guarded and Docker behavior, the
-browser request body, the session format and both disabled turn-wide permission features are
-unchanged.
+interrupt and terminal-cleanup targets even if their ancestry later becomes invalid or they
+complete. Early root callbacks wait for the actual turn ID; a stale root cannot be allowed later.
+The browser request body, session format, Docker escalation refusal and both disabled turn-wide
+permission features retain their contracts. One tracker owns discovery, approval eligibility and
+cleanup ownership, with spawn activity used only as a discovery hint.
+
+SDK cleanup waits for the started turn identity, acknowledges active-turn interruptions and stops
+background terminals before EOF. Linux additionally monitors the provider process tree before
+sending user input and force-stops captured survivors before releasing admission. Host fallback
+uses SIGKILL for workers and the launcher after SDK/EOF stopping, avoiding another TERM-handler
+window that could create replacements. Outside Linux, failed
+SDK stopping, missing metadata or discovery overflow holds admission and reports “Stopping Codex”;
+a coordinator exit alone is no proof that workers stopped. A permanently unconfirmed cleanup may
+keep admission locked for the process lifetime. Physical non-Linux behavior is not yet verified.
 
 Waiting turns keep their concurrency slot and checkout access; a writing turn still blocks other
 turns on its checkout, Undo, and managed Build & restart. Browser detachment preserves the live

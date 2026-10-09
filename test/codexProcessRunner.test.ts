@@ -2,6 +2,7 @@ import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
 import { checkCodex } from '@/server/agents/codexPreflight';
@@ -90,7 +91,7 @@ describe.sequential('CodexProcessRunner', () => {
     expect(turn.params.input.filter((item: { type: string }) => item.type === 'localImage')
       .map((item: { path: string }) => path.basename(item.path)).sort()).toEqual(['canvas.png', 'report-1.jpg']);
     const thread = invocation.requests.find((request: { method: string }) => request.method === 'thread/start');
-    expect(thread.params.config).toMatchObject({ mcp_servers: {}, features: { multi_agent: false } });
+    expect(thread.params.config).toMatchObject({ mcp_servers: {}, features: { multi_agent: true } });
   });
 
   it('keeps Default params unchanged and sends a chosen model on every request but effort only on the turn', async () => {
@@ -123,6 +124,200 @@ describe.sequential('CodexProcessRunner', () => {
     const effortOnly = (await run({ effort: 'medium' })).invocation;
     expect(params(effortOnly, 'thread/start')).not.toHaveProperty('model');
     expect(Object.keys(params(effortOnly, 'turn/start')).sort()).toEqual([...turnKeys, 'effort'].sort());
+  });
+
+  it.each(['ask', 'plan', 'agent', 'auto'] as const)('enables built-in subagents in Guarded %s on start and resume', async (mode) => {
+    for (const action of ['start', 'resume'] as const) {
+      const { invocation } = await run({ mode, action, sessionId: action === 'resume' ? 'old-thread' : undefined });
+      expect(invocation.args.join(' ')).toContain('--enable multi_agent');
+      expect(invocation.args.join(' ')).not.toContain('--disable multi_agent');
+      const thread = invocation.requests.find((request: RecordedRequest) => request.method === `thread/${action}`).params;
+      expect(thread.config.features).toMatchObject({ multi_agent: true, hooks: false, request_permissions_tool: false, exec_permission_approvals: false });
+      expect(thread.developerInstructions).toContain('built-in subagents');
+      expect(thread.developerInstructions).toContain('Wait for');
+      expect(thread.developerInstructions).not.toContain('web search, subagents');
+    }
+  });
+
+  it.each([
+    { mode: 'ask', execution: 'local', fakeMode: 'subagent' },
+    { mode: 'agent', execution: 'local', fakeMode: 'subagent-legacy' },
+    { mode: 'ask', execution: 'local', fakeMode: 'subagent-metadata' },
+    { mode: 'ask', execution: 'local', fakeMode: 'subagent-source' },
+    { mode: 'agent', execution: 'docker', fakeMode: 'subagent' },
+  ] as const)('keeps $fakeMode output and completion separate from the $execution parent', async ({ fakeMode, ...options }) => {
+    process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+    const { result, events } = await run(options);
+    expect(result.finalText).toBe('Parent summary.');
+    expect(result.sessionId).toBe('codex-thread-new');
+    expect(result.usage).toBeUndefined();
+    expect(events.filter(event => event.type === 'text-delta').map(event => event.text).join('')).toBe('Parent summary.');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'activity', tool: 'Subagent' }));
+  });
+
+  it.each(['command', 'file', 'metadata', 'source'] as const)('routes a child %s approval through the parent permission broker', async kind => {
+    process.env.CODEAI_FAKE_CODEX_MODE = `subagent-approval-${kind}`;
+    const permissions = new PermissionBroker(0);
+    const { result, events, invocation } = await run({ mode: 'agent', permissions, onEvent(event) {
+      if (event.type === 'permission-request') setTimeout(() => permissions.decide(event.requestId!, 'allow'), 0);
+    } });
+    expect(result.finalText).toBe('Approved once.');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'permission-request', detail: expect.stringContaining(kind === 'file' ? 'child.txt' : 'npm test') }));
+    expect(invocation.responses).toContainEqual({ id: 'approval-child', result: { decision: 'accept' } });
+    expect(permissions.pendingCount).toBe(0);
+  });
+
+  it('refuses foreign-thread and stale child-turn approvals without raising cards', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-foreign-approval';
+    const { result, events, invocation } = await run({ mode: 'agent', permissions: new PermissionBroker(0) });
+    expect(result.finalText).toBe('Unrelated requests refused.');
+    expect(events.some(event => event.type === 'permission-request')).toBe(false);
+    expect(invocation.responses).toEqual([
+      expect.objectContaining({ id: 'foreign', error: { code: -32601, message: expect.any(String) } }),
+      expect.objectContaining({ id: 'stale', error: { code: -32601, message: expect.any(String) } }),
+    ]);
+  });
+
+  it.each(['resolved', 'finish', 'interrupted'] as const)('clears child approval on provider %s and ignores late requests', async reason => {
+    process.env.CODEAI_FAKE_CODEX_MODE = `subagent-approval-${reason}`;
+    const permissions = new PermissionBroker(0);
+    const { result, events, invocation } = await run({ mode: 'agent', permissions });
+    expect(result.finalText).toBe('Child request cancelled.');
+    expect(events.filter(event => event.type === 'permission-resolved').map(event => event.decision)).toEqual(['cancelled']);
+    expect(invocation.responses).toEqual(reason !== 'resolved' ? [{ id: 'approval-child', result: { decision: 'cancel' } }] : []);
+    expect(permissions.pendingCount).toBe(0);
+  });
+
+  it.each(['deny', 'cancel', 'nested'] as const)('handles %s for an approval in the delegated tree', async action => {
+    process.env.CODEAI_FAKE_CODEX_MODE = action === 'nested' ? 'subagent-approval-nested' : 'subagent-approval-command';
+    const permissions = new PermissionBroker(0);
+    const controller = new AbortController();
+    const events: AgentProcessEvent[] = [];
+    const pending = run({ mode: 'agent', permissions, signal: controller.signal, onEvent(event) {
+      events.push(event);
+      if (event.type === 'permission-request') setTimeout(() => {
+        if (action === 'cancel') controller.abort();
+        else permissions.decide(event.requestId!, action === 'deny' ? 'deny' : 'allow');
+      }, 0);
+    } });
+    if (action === 'cancel') await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
+    else expect((await pending).result.finalText).toBe(action === 'deny' ? 'Declined and continued.' : 'Approved once.');
+    expect(events.filter(event => event.type === 'permission-resolved').map(event => event.decision)).toEqual([action === 'cancel' ? 'cancelled' : action === 'deny' ? 'deny' : 'allow']);
+    expect(permissions.pendingCount).toBe(0);
+  });
+
+  it('pauses the shared execution clock until all concurrent child approvals are resolved', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-approval-concurrent';
+    const permissions = new PermissionBroker(0);
+    let cards = 0;
+    const { result, events } = await run({ mode: 'agent', timeoutMs: 500, permissions, onEvent(event) {
+      if (event.type === 'permission-request') setTimeout(() => permissions.decide(event.requestId!, 'allow'), ++cards * 800);
+    } });
+    expect(result.finalText).toBe('Approved once.');
+    expect(events.filter(event => event.type === 'permission-resolved').map(event => event.decision)).toEqual(['allow', 'allow']);
+    expect(permissions.pendingCount).toBe(0);
+  });
+
+  it('still refuses disabled integrations inside a proven subagent', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-mcp';
+    await expect(run()).rejects.toMatchObject({ code: 'unsupported-flags', delivery: 'possibly-sent' });
+    const invocation = JSON.parse(await readFile(process.env.CODEAI_FAKE_CODEX_RECORD!, 'utf8'));
+    expect(invocation.requests).toContainEqual(expect.objectContaining({ method: 'thread/backgroundTerminals/terminate', params: { threadId: 'child-thread', processId: 'worker-process' } }));
+  });
+
+  it('terminates retained terminals from a completed child before returning the parent answer', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-background';
+    const { result, invocation } = await run();
+    expect(result.finalText).toBe('Parent summary.');
+    expect(invocation.requests).toContainEqual(expect.objectContaining({ method: 'thread/backgroundTerminals/terminate', params: { threadId: 'child-thread', processId: 'worker-process' } }));
+  });
+
+  it('accepts cleanup when a listed terminal exits before its termination request', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-background-exited';
+    expect((await run()).result.finalText).toBe('Parent summary.');
+  });
+
+  it.each(['refuse', 'close'] as const)('does not claim success when delegated cleanup encounters %s', async failure => {
+    process.env.CODEAI_FAKE_CODEX_MODE = `subagent-background-${failure}`;
+    await expect(run()).rejects.toMatchObject({ code: 'process-failed', message: 'Codex could not confirm that delegated commands stopped.' });
+  });
+
+  it('refuses a protocol without delegated terminal cleanup before sending the user request', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'no-subagent-cleanup';
+    await expect(run()).rejects.toMatchObject({ code: 'unsupported-flags', delivery: 'not-sent' });
+    const invocation = JSON.parse(await readFile(process.env.CODEAI_FAKE_CODEX_RECORD!, 'utf8'));
+    expect(invocation.requests.some((request: RecordedRequest) => request.method === 'turn/start')).toBe(false);
+  });
+
+  it('interrupts a grandchild proved during shutdown and includes it in cleanup', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-late-grandchild';
+    const { result, invocation } = await run();
+    expect(result.finalText).toBe('Parent summary.');
+    expect(invocation.requests).toContainEqual(expect.objectContaining({ method: 'turn/interrupt', params: { threadId: 'grandchild-thread', turnId: 'late-turn' } }));
+    expect(invocation.requests).toContainEqual(expect.objectContaining({ method: 'thread/backgroundTerminals/list', params: { threadId: 'grandchild-thread' } }));
+  });
+
+  it.each(['subagent-crash', 'subagent-crash-metadata'])('stops inherited-stdio descendants on %s', async fakeMode => {
+    process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+    await expect(run({ timeoutMs: 0 })).rejects.toMatchObject({ code: 'process-failed' });
+  });
+
+  it.skipIf(process.platform !== 'linux')('holds the run while an owned worker cannot be stopped and retries until it can', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-stop-failure';
+    const realKill = process.kill.bind(process);
+    let workerPid = 0;
+    let refused = true;
+    let denials = 0;
+    let settled = false;
+    const events: AgentProcessEvent[] = [];
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === workerPid && signal && refused) {
+        denials += 1;
+        throw Object.assign(new Error('simulated permission denial'), { code: 'EPERM' });
+      }
+      return realKill(pid, signal);
+    });
+    const outcome = run({ mode: 'auto', level: 'native', timeoutMs: 0, onEvent(event) { events.push(event); } })
+      .then(result => { settled = true; return { result, error: undefined }; },
+        error => { settled = true; return { result: undefined, error }; });
+    try {
+      await vi.waitFor(async () => {
+        workerPid = JSON.parse(await readFile(process.env.CODEAI_FAKE_CODEX_RECORD!, 'utf8')).workerPid || 0;
+        expect(workerPid).toBeGreaterThan(1);
+      });
+      await vi.waitFor(() => expect(denials).toBeGreaterThan(0));
+      await delay(100);
+      expect(settled).toBe(false);
+      expect(realKill(workerPid, 0)).toBe(true);
+      await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({ type: 'activity', tool: 'Stopping Codex' })), { timeout: 2000 });
+      refused = false;
+      expect((await outcome).error).toMatchObject({ code: 'process-failed' });
+      const stat = await readFile(`/proc/${workerPid}/stat`, 'utf8').catch(() => '');
+      expect(!stat || stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ')).toBe(true);
+    } finally {
+      refused = false;
+      if (workerPid) try { realKill(workerPid, 'SIGKILL'); } catch {}
+      await outcome;
+      killSpy.mockRestore();
+    }
+  });
+
+  it('starts cleanup when the parent never acknowledges its interruption', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-wait-ignore';
+    const controller = new AbortController();
+    await expect(run({ timeoutMs: 0, signal: controller.signal, onEvent(event) {
+      if (event.type === 'activity' && event.tool === 'Subagent') setTimeout(() => controller.abort(), 200);
+    } })).rejects.toMatchObject({ code: 'cancelled' });
+  });
+
+  it.each(['cancelled', 'timeout'] as const)('ends the whole provider process when a subagent is $0', async reason => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-wait';
+    const controller = new AbortController();
+    await expect(run({ signal: controller.signal, timeoutMs: reason === 'timeout' ? 500 : 5_000,
+      onEvent(event) { if (reason === 'cancelled' && event.type === 'activity' && event.tool === 'Subagent') controller.abort(); },
+    })).rejects.toMatchObject({ code: reason });
+    const invocation = JSON.parse(await readFile(process.env.CODEAI_FAKE_CODEX_RECORD!, 'utf8'));
+    expect(invocation.requests).toContainEqual(expect.objectContaining({ method: 'turn/interrupt', params: { threadId: 'child-thread', turnId: 'child-turn' } }));
   });
 
   it('resumes only the stored Codex thread and preserves plan markers', async () => {
@@ -243,7 +438,7 @@ describe.sequential('CodexProcessRunner', () => {
     expect(params(started.invocation, 'turn/start')).not.toHaveProperty('sandboxPolicy');
     expect(thread.config).toMatchObject({
       default_permissions: 'codeai-auto', permissions: { 'codeai-auto': profile },
-      mcp_servers: {}, web_search: 'disabled', features: { multi_agent: false, request_permissions_tool: false, exec_permission_approvals: false },
+      mcp_servers: {}, web_search: 'disabled', features: { multi_agent: true, request_permissions_tool: false, exec_permission_approvals: false },
     });
     expect(thread.developerInstructions).toBe(codexDeveloperInstructions('auto'));
     expect(thread.developerInstructions).toContain('request approval for that one command or patch');
@@ -520,7 +715,7 @@ describe.sequential('CodexProcessRunner', () => {
     expect(codexThreadPolicyIssue({ ...thread, instructionSources: ['relative/AGENTS.md'] }, '/repo', codexTurnSecurity('ask'))).toMatch(/invalid instruction source/);
     expect(codexAmbientInstructionNote({ instructionSources: ['/repo/AGENTS.md'] }, '/repo')).toBeUndefined();
     expect(codexAmbientInstructionNote({ instructionSources: ['/home/user/.codex/AGENTS.md', '/repo/AGENTS.md'] }, '/repo'))
-      .toBe('Local Codex also loads 1 instruction file from outside the repository, such as your global AGENTS.md. Global instructions in the Arena shows that file.');
+      .toBe('Local Codex also loads 1 instruction file from outside the repository, such as your global AGENTS.md. Global instructions in Machine settings shows that file.');
   });
 
   it('notes user and repository skills without blocking the turn', async () => {

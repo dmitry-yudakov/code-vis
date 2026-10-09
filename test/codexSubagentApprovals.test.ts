@@ -283,13 +283,28 @@ describe.sequential('Native Codex descendant approval routing', () => {
     expect(run.lateDecisions).toEqual([false]);
   });
 
+  it('routes a requested Guarded Agent subagent through the parent broker', async () => {
+    const run = await runDelegation('subagent-direct', { level: 'guarded', execution: 'local', mode: 'agent' });
+    expect(run.failure).toBeUndefined();
+    expect(run.cards).toHaveLength(1);
+    expect(run.callbackResponses).toEqual([{ id: 'child-command', result: { decision: 'accept' } }]);
+    expect(run.permissions.pendingCount).toBe(0);
+    expect(run.result?.finalText).toBe('Parent continued after review.');
+  });
+
   it.each([
-    { level: 'guarded', execution: 'local', mode: 'agent' },
     { level: 'native', execution: 'local', mode: 'ask' },
     { level: 'native', execution: 'local', mode: 'plan' },
-    { level: 'native', execution: 'docker', mode: 'agent' },
-  ] as const)('retains subagent isolation in $execution/$level/$mode', async (policy) => {
+  ] as const)('refuses subagent escalation in noninteractive $mode', async (policy) => {
     const run = await runDelegation('subagent-direct', policy);
+    expect(run.failure).toBeUndefined();
+    expect(run.cards).toEqual([]);
+    expect(run.callbackResponses.every((message) => message.result?.decision !== 'accept')).toBe(true);
+    expect(run.result?.finalText).toBe('Parent continued after review.');
+  });
+
+  it('refuses subagent escalation unsupported by the Docker profile', async () => {
+    const run = await runDelegation('subagent-direct', { level: 'native', execution: 'docker', mode: 'agent' });
     expect(run.failure).toMatchObject({ code: 'unsupported-flags' });
     expect(run.cards).toEqual([]);
     expect(run.callbackResponses.every((message) => message.result?.decision !== 'accept')).toBe(true);

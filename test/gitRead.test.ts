@@ -17,7 +17,7 @@ import { getConfig } from '@/server/config';
 import { createManagedWorktree, readWorktreeRecords } from '@/server/repository/managedWorktrees';
 import { CheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getSessionStore } from '@/server/storage/sessionStore';
-import { isolatedGitRead, withGitReadLease } from '@/server/repository/gitRead';
+import { isolatedGitRead, runGitRead, withGitReadLease } from '@/server/repository/gitRead';
 import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { runRegistry } from '@/server/runs/runRegistry';
 
@@ -55,6 +55,28 @@ async function writePersonalIgnore(patterns: string): Promise<void> {
   await writeFile(personalIgnorePath(), patterns);
 }
 
+async function managedFixture() {
+  const worktreesRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'codeai-helper-worktrees-')));
+  directories.push(worktreesRoot);
+  vi.stubEnv('CODEAI_REPOSITORIES_ROOT', repository);
+  vi.stubEnv('CODEAI_WORKTREES_ROOT', worktreesRoot);
+  await execute('git', ['add', '.'], { cwd: repository });
+  await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'], { cwd: repository });
+  const checkoutId = (await new CheckoutRegistry(repository).list())[0].id;
+  await createManagedWorktree({ provider: 'claude', checkoutId, checkoutMode: 'worktree', creationRequestId: crypto.randomUUID() }, getConfig());
+  const [record] = await readWorktreeRecords(dataDir);
+  await recordProvisionedProfile();
+  return record;
+}
+
+function runningSource() {
+  const runId = crypto.randomUUID();
+  expect(runRegistry.reserve({ runId, sessionId: crypto.randomUUID(), participantId: crypto.randomUUID(),
+    providerKey: runId, checkoutId: 'source', checkoutPath: repository, execution: 'local', access: 'write', cancel() {} }).accepted).toBe(true);
+  runRegistry.activate(runId, { execute: () => new Promise(() => {}), cancelQueued: async () => {} });
+  return () => { runRegistry.finish(runId); };
+}
+
 const changedPaths = async () => (await readWorkingTree(repository)).files.map((file) => file.path);
 
 afterEach(async () => {
@@ -86,17 +108,8 @@ describe('Git read isolation', () => {
     } finally { confirm(); cleanup.mockRestore(); }
   });
   it('binds only verified common Git metadata read-only for Local managed reads after provisioning', async () => {
-    const worktreesRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'codeai-helper-worktrees-')));
-    directories.push(worktreesRoot);
-    vi.stubEnv('CODEAI_REPOSITORIES_ROOT', repository);
-    vi.stubEnv('CODEAI_WORKTREES_ROOT', worktreesRoot);
-    await execute('git', ['add', '.'], { cwd: repository });
-    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'], { cwd: repository });
-    const checkoutId = (await new CheckoutRegistry(repository).list())[0].id;
+    const record = await managedFixture();
     try {
-      await createManagedWorktree({ provider: 'claude', checkoutId, checkoutMode: 'worktree', creationRequestId: crypto.randomUUID() }, getConfig());
-      const [record] = await readWorktreeRecords(dataDir);
-      await recordProvisionedProfile();
       vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false');
       mocks.command.mockImplementation(async (input: string[]) => {
         if (input[2] === 'info') return 'engine-original';
@@ -109,11 +122,80 @@ describe('Git read isolation', () => {
         `type=bind,src=${record.destination},dst=/workspace,readonly`,
         `type=bind,src=${record.originGit.path},dst=${record.originGit.path},readonly`,
       ]);
+      expect(mocks.command.mock.calls.some(([input]) => input[2] === 'volume' && input[3] === 'create')).toBe(false);
       const before = mocks.command.mock.calls.length;
       await writeFile(path.join(record.destination, '.git'), 'gitdir: /outside/private\n');
       await expect(readWorkingTree(record.destination)).rejects.toThrow();
       expect(mocks.command).toHaveBeenCalledTimes(before);
     } finally { await getSessionStore(dataDir).close(); }
+  });
+  it.each(['linkage', 'volume-create', 'container-create'] as const)('retains pinned metadata and readers through unconfirmed %s cleanup', async (failure) => {
+    const record = await managedFixture();
+    const finishSource = runningSource();
+    const runtime = getDockerRuntime(getConfig());
+    let descriptor = '';
+    let volume = '';
+    let createdVolume = false;
+    let labels: Record<string, string> = {};
+    let confirmContainer!: () => void;
+    let confirmVolume!: () => void;
+    const containerStopped = new Promise<void>((resolve) => { confirmContainer = resolve; });
+    const volumeRemoved = new Promise<void>((resolve) => { confirmVolume = resolve; });
+    const remove = vi.spyOn(runtime, 'removeContainer').mockRejectedValueOnce(new Error('stop unconfirmed'))
+      .mockImplementation(async () => containerStopped);
+    mocks.command.mockImplementation(async (input: string[]) => {
+      const args = input.slice(2);
+      if (args[0] === 'info') return 'engine-original';
+      if (args[0] === 'volume' && args[1] === 'create') {
+        descriptor = args.find((arg) => arg.startsWith('device='))!.slice(7);
+        volume = args.at(-1)!; createdVolume = true;
+        labels = Object.fromEntries(args.filter((_, index) => args[index - 1] === '--label').map((arg) => arg.split('=')));
+        if (failure === 'volume-create') throw new Error('volume create response lost');
+        return volume;
+      }
+      if (args[0] === 'volume' && args[1] === 'ls') return createdVolume ? volume : '';
+      if (args[0] === 'volume' && args[1] === 'inspect') return JSON.stringify(labels);
+      if (args[0] === 'volume' && args[1] === 'rm') { await volumeRemoved; createdVolume = false; return ''; }
+      if (args[0] === 'create') {
+        expect(args.filter((arg) => arg.startsWith('type=bind'))).toEqual([`type=bind,src=${record.destination},dst=/workspace,readonly`]);
+        expect(args).toContain(`type=volume,src=${volume},dst=${record.originGit.path},readonly,volume-nocopy`);
+        if (failure === 'container-create') throw new Error('container create response lost');
+        await writeFile(path.join(record.destination, '.git'), 'gitdir: /outside/private\n');
+        return 'helper-id';
+      }
+      if (args[0] === 'container' && args[1] === 'ls') return failure === 'container-create' && descriptor ? 'helper-id' : '';
+      if (args[0] === 'network' && args[1] === 'ls') return '';
+      throw new Error(`Unexpected helper command ${args[0]}`);
+    });
+    // A volume-create failure has no container; make its first volume removal unconfirmed too.
+    const removePin = failure === 'volume-create' ? vi.spyOn(runtime, 'removeGitPin').mockRejectedValueOnce(new Error('volume cleanup unconfirmed')) : undefined;
+    try {
+      await expect(runGitRead(record.destination, ['status'])).rejects.toThrow('termination is unconfirmed');
+      finishSource();
+      expect((await stat(descriptor)).isDirectory()).toBe(true);
+      expect(runRegistry.acquireCheckoutWrite(record.destination)).toBeUndefined();
+      expect(runRegistry.acquireCheckoutWrite(repository)).toBeUndefined();
+      expect(runRegistry.acquireMaintenance()).toBe('live-runs');
+      confirmContainer();
+      expect((await stat(descriptor)).isDirectory()).toBe(true);
+      confirmVolume();
+      await vi.waitFor(async () => { await expect(stat(descriptor)).rejects.toMatchObject({ code: 'ENOENT' }); });
+      const writer = runRegistry.acquireCheckoutWrite(record.destination);
+      expect(writer).toBeDefined(); writer!();
+      expect(runRegistry.acquireMaintenance()).toBe('acquired'); runRegistry.releaseMaintenance();
+    } finally {
+      finishSource(); confirmContainer(); confirmVolume(); remove.mockRestore(); removePin?.mockRestore();
+      await getSessionStore(dataDir).close();
+    }
+  });
+  it('never pins metadata to bypass source Undo', async () => {
+    const record = await managedFixture();
+    mocks.command.mockImplementation(async (input: string[]) => input[2] === 'info' ? 'engine-original' : '');
+    const undo = runRegistry.acquireCheckoutWrite(repository)!;
+    try {
+      await expect(runGitRead(record.destination, ['status'])).rejects.toThrow('unavailable for this Git read');
+      expect(mocks.command.mock.calls.some(([input]) => input[2] === 'create' || input[2] === 'volume' && input[3] === 'create')).toBe(false);
+    } finally { undo(); await getSessionStore(dataDir).close(); }
   });
   it('keeps host Git for status and diff while Docker is enabled but not yet provisioned', async () => {
     vi.stubEnv('CODEAI_DOCKER_ENABLED', 'true');

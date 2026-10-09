@@ -636,7 +636,10 @@ single close button closes the focused view and focuses its neighbour. A live tu
 open. Closing a view preserves its conversation and device draft for reopening.
 
 **Arena** in the activity bar opens an overview of active sessions, grouped first by execution
-machine and then by project.
+machine and then by project. The security notice can be dismissed; this device remembers the
+choice for this machine and security level. **More → Machine settings** keeps security details,
+Docker controls, and global-instructions defaults available. Available Docker provider updates
+appear as a count on the More gear, including while a conversation is open.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
 latest activity. An inactive session can be archived from its card, or from inside it with
 **More → Archive session**. Desktop archiving takes one click without a confirmation dialog;
@@ -650,7 +653,8 @@ machine, catching up on the next load after downtime. Restore preserves the comp
 and starts a fresh 48-hour window. The threshold is fixed for now. If Docker recovery is unavailable,
 Docker conversations stay active until recovery succeeds.
 Use **New session** there to open setup, choose the machine/project or repository, execution,
-checkout, provider, [Global instructions](#global-instructions), mode, and model/effort. The optional
+checkout, provider, mode, and model/effort. **Advanced settings** holds the session’s
+[Global instructions](#global-instructions) choice. The optional
 **First message** field accepts Enter to submit and Shift+Enter for a newline. Attach screenshots
 by choosing, pasting, or dropping them, and attach nonempty UTF-8 text files through the same picker.
 Files are limited to four, 128 KiB each, 256 KiB per message, and 8 MiB saved per session; PDF,
@@ -842,7 +846,8 @@ file-change approvals appear in the parent conversation's existing permission ca
 chain and current turn before accepting a decision. Child results stay in the provider workflow;
 they do not replace the parent's answer or create separate CodeAI conversations. Stop and mode
 changes cancel pending child cards and interrupt verified live descendants as well as the parent.
-Guarded, Docker, Ask and Plan retain their existing restrictions.
+Guarded also supports requested built-in delegation; Ask/Plan stay read-only and Docker
+escalations remain unsupported.
 
 | Mode | Claude | Codex |
 |---|---|---|
@@ -957,8 +962,8 @@ sets `CODEAI_*_MODEL` sends that model on every Default turn.
 ### Global instructions
 
 Your own instructions for a provider (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) apply in CodeAI
-too, and you decide where. **Global instructions** in the Arena shows, for each provider on this
-machine, a switch, the file it resolves to, and the file's text, read-only. Both switches are on
+too, and you decide where. **More → Machine settings → Global instructions** shows, for each
+provider on this machine, a switch, the file it resolves to, and the file's text, read-only. Both switches are on
 until you change one.
 
 - **At Guarded, Claude** runs in safe mode, which turns its own `CLAUDE.md` loading off together with hooks,
@@ -970,19 +975,19 @@ until you change one.
 - **At Native, Local Claude** loads its own file in writing modes; the switch still applies to
   Ask/Plan and Docker. Explicitly isolated sessions disable Native Claude writing modes.
 - **Local Codex** loads its own `AGENTS.md` whatever CodeAI sends, so the switch cannot turn it off
-  there; the Arena says so. The Codex switch applies to **Docker Codex**, which gets the text in its
+  there; Machine settings says so. The Codex switch applies to **Docker Codex**, which gets the text in its
   developer instructions.
 - CodeAI reads the file the provider reads: `$CLAUDE_CONFIG_DIR/CLAUDE.md`, or
   `$CODEX_HOME/AGENTS.override.md` when it holds text and else `$CODEX_HOME/AGENTS.md`, when the
   variable is an absolute path, and the folders in your home directory otherwise. Your own symbolic
   links are followed, and a file both providers share is shown once.
 - The file must be a regular UTF-8 file of at most 32 KiB without NUL bytes. One that is not is
-  left out whole, never truncated, and the Arena and readiness say why.
+  left out whole, never truncated, and Machine settings and readiness say why.
 - Two kinds of link are refused, with the reason shown. One that lives under the repositories root
   (`CODEAI_REPOSITORIES_ROOT`) or a temp directory, because a turn that edits a checkout could
   repoint it at any file you can read and the next turn would be handed that file. And one that ends
   in a provider folder's private files, such as `auth.json`. You can keep the file itself under the
-  repositories root: the Arena marks it, and a turn there can then change what it says, as it can
+  repositories root: Machine settings marks it, and a turn there can then change what it says, as it can
   change any file in its checkout. On Linux CodeAI proves that the file it opened is the one it
   resolved; on a system where it cannot (macOS), a file under the repositories root is not read.
   `~/.claude` and `~/.codex` themselves stay yours even when the repositories root is your home
@@ -998,7 +1003,8 @@ started with.
 
 A session can carry its own choice, made when it is created: **Default** follows the machine's
 switch at each turn, **Use** and **Isolate** hold whatever the switch says. The conversation's
-**＋** menu and the Arena's **New session** form offer it, and this device remembers the last choice;
+**＋** menu and the Arena's **New session** form offer it under **Advanced settings**, and this
+device remembers the last choice;
 VR sessions follow the machine's switch. An isolated local session refuses a Codex agent, because
 local Codex cannot be isolated: use Docker for an isolated Codex. The line under the composer shows
 what applies to the addressed agent on this machine: **global instructions**, **isolated**, or
@@ -1038,16 +1044,18 @@ looking read-only, they are arbitrary command execution.
 
 ## Safety model
 
-Optional **Docker** execution is being implemented in Story 57. Turn on **Enable Docker** in Arena
-to save this machine's preference without restarting; the UI shows when setup is still needed. See the
+Optional **Docker** execution is being implemented in Story 57. Turn on **Enable Docker** in
+**More → Machine settings** to save this machine's preference without restarting; the UI shows
+when setup is still needed. See the
 [Docker setup and verification guide](docs/docker-execution.md) for its release status, provider-owned
 login, direct-edit scope, network restrictions, and cleanup. Select Local or Docker directly when
 creating a session in a project or Arena. Sign in once with `npm run docker:login -- claude` or
 `npm run docker:login -- codex`; new Docker conversations share that provider's login, settings and
 history in persistent Docker storage, separate from the host provider setup. Existing individual
 Docker homes retain their history in place. When Claude Code or Codex publishes a new version,
-**Update** it in Arena's Docker section, or run `npm run docker:upgrade -- <provider> <version>`:
-the new CLI is checked offline before turns use it, and **Roll back** returns to the previous one.
+**Update** it in **More → Machine settings → Docker execution**, or run
+`npm run docker:upgrade -- <provider> <version>`: the new CLI is checked offline before turns
+use it, and **Roll back** returns to the previous one.
 The line under the composer names the execution; its menu offers
 **Continue in Docker…/Local…**, opening a fresh session on the same repositories with a recap ready
 to review and send, or says why it cannot yet. Docker sessions persist execution and
@@ -1081,12 +1089,36 @@ read-only sandbox with network disabled; Agent uses the same sandbox and asks be
 writes or leaves it; [Auto](#auto) uses CodeAI's own permission profile. Every turn that can ask names you as the
 approval reviewer and is refused if App Server reports another one, such as `auto_review` from your
 Codex config. Server-owned overrides disable MCP servers, apps,
-plugins, hooks, web search, subagents, and custom commands; preflight also queries the effective
+plugins, hooks, web search, and custom commands; preflight also queries the effective
 integration inventory and fails closed if an ambient MCP server or hook remains enabled. Instruction
 files local Codex loads from outside the repository, such as your global `AGENTS.md`, and enabled user or
 repository skills are your own Codex configuration: readiness reports them as a note instead of
-withholding the provider, and [Global instructions](#global-instructions) in the Arena shows that file. App Server approval requests are correlated to the active turn, sanitized, and
+withholding the provider, and [Global instructions](#global-instructions) in Machine settings shows that file. App Server approval requests are correlated to the active turn, sanitized, and
 resolved as one-shot allow/deny decisions through the same permission cards.
+
+Guarded enables Codex's built-in subagents; Native keeps your Codex configuration. Ask for them
+in the conversation, for example: “Spawn two subagents to review the changes for bugs and test gaps,
+wait for both, and summarize their findings.” Applicable repository instructions may also request
+delegation. Subagents inherit the turn's permissions; Ask/Plan remain read-only, Agent/Auto
+escalations use the same permission cards, and Docker work stays inside its container. Their
+activity appears in the conversation while the main agent consolidates their answers. They share
+the parent run's execution clock and checkout lease; cancelling the run or completing the parent
+turn shuts down its provider process, retained commands and captured workers. CodeAI does not expose separate
+subagent chats or add them as session participants.
+
+Codex must support the background-terminal inventory and termination protocol; an older CLI is
+refused before the user request is sent. On Linux, CodeAI also tracks observed provider descendants and
+stops captured surviving workers after launcher exit, before the run releases its checkout. This covers
+worker processes left alive by their sandbox wrappers. SDK interruption and terminal termination
+provide graceful stopping; the host fallback force-kills captured workers and its launcher so
+TERM handlers cannot replace them during fallback. Docker retains its whole-container cleanup.
+If termination or the process inventory is unconfirmed, CodeAI shows “Stopping Codex” and keeps
+the checkout and machine slot locked while retrying. An incomplete inventory cannot be cleared
+by an empty snapshot after the original launcher has exited. Outside Linux, SDK cleanup retries
+while keeping its coordinator alive. Missing child ownership, failed interruption, or discovery
+overflow also retains admission; if the coordinator dies before cleanup is confirmed, its exit
+cannot release that admission. This path has simulated macOS regression coverage with real worker
+processes, but has not been verified on a physical macOS machine.
 
 A checkout need not be a Git repository. CodeAI's own Git reads never adopt a folder as a repository
 because of `HEAD`, `config`, `objects`, and `refs` files at its root (`safe.bareRepository=explicit`),
@@ -1189,7 +1221,11 @@ does not restore Git history/index. Repository-wide Git administration stays out
 worker. Only CodeAI-managed worktrees receive these extra mounts; arbitrary linked worktrees remain
 unsupported. Docker still refuses sources overlapping CodeAI's installation, data or provider storage.
 Continue in Docker/Local keeps the exact managed worktree. An ordinary-source writer waits while a
-linked Docker worker or Git helper holds its metadata; separate linked workers can coexist.
+linked Docker worker or directly bound Git helper holds its metadata; separate linked workers can
+coexist. Helpers reading a managed worktree alongside an existing Local source writer pin the
+verified common Git directory through a read-only local Docker volume. Local checkpoints and turns
+can therefore start independently after provisioning too. If the daemon cannot access this machine's
+directory descriptor, the helper refuses the read; idle-source reads keep their existing direct bind.
 
 `CODEAI_WORKTREES_ROOT` defaults to `~/.code-ai/worktrees` (the former
 `CODEAI_WEB2_WORKTREES_ROOT` spelling is accepted). It must be separate from the installation,
@@ -1199,8 +1235,15 @@ checkouts outside ordinary discovery. Their path hashes remain machine-local che
 Local managed sessions use format 10, Docker managed sessions format 11; ordinary records retain
 their existing format versions. Older builds hide format 11 sessions individually.
 
-Creation briefly needs an idle machine, including queued turns and Undo. A durable intent holds the
-request UUID, original commit/bindings, generated identities, and Git linkage. **Retry** after a lost
+Creation can run alongside Local turns at the verified source checkout or its ready managed
+worktrees, including a turn waiting for approval. It captures committed HEAD once; unfinished edits
+and concurrent later commits do not alter that baseline. Read-only Git helpers and managed Docker
+Ask/Plan workers can coexist with creation. Writing Docker turns, Undo, unverified or overlapping
+nested/enclosing checkout scopes, competing creation and maintenance still block it. Newly accepted
+turns on affected checkouts wait briefly until creation finishes. A new Docker worker still cannot
+start until an ordinary-source writer finishes because its common-metadata bind needs a stable root.
+A durable intent holds the request UUID, original commit/bindings, generated identities, and Git
+linkage. **Retry** after a lost
 response or failed session save finishes that same creation; changed choices use a new request UUID.
 Startup admission reconciles unfinished intents. Ambiguous partial state is retained and unavailable,
 with no force removal or reset. The journal and saved sessions share the 1,000-session host limit.

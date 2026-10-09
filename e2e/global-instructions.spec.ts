@@ -1,3 +1,4 @@
+import { openMachineSettings } from './machine-settings';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext, Page } from '@playwright/test';
 
@@ -27,14 +28,17 @@ async function ask(page: Page, answer: string) {
 async function startSession(page: Page, instructions?: 'Use' | 'Isolate') {
   const tabs = page.getByRole('tab');
   const before = await tabs.count();
-  await page.locator('.new-session-menu summary').click();
-  if (instructions) await page.locator('.new-session-menu').getByLabel('Global instructions').selectOption({ label: instructions });
+  await page.locator('.new-session-menu > summary').click();
+  if (instructions) {
+    await page.locator('.new-session-menu').getByText('Advanced settings', { exact: true }).click();
+    await page.locator('.new-session-menu').getByLabel('Global instructions').selectOption({ label: instructions });
+  }
   await page.getByRole('button', { name: 'Start session' }).click();
   await expect(tabs).toHaveCount(before + 1);
   await expect(page.locator('.new-session-menu[open]')).toHaveCount(0);
 }
 
-test('shows the global instructions in the Arena, switches them, and isolates a session', async ({ page, request, baseURL }) => {
+test('shows the global instructions in Machine settings, switches them, and isolates a session', async ({ page, request, baseURL }) => {
   for (const provider of ['claude', 'codex'] as const) await switchInstructions(request, baseURL!, provider, true);
   const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: { id: string; name: string }[] };
   const projectName = `E2E instructions ${Date.now()}`;
@@ -51,9 +55,10 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
   await expect(line).toHaveText('global instructions');
   await ask(page, WITH);
 
-  // The Arena shows each provider's file, read-only, with the notes about when a switch applies.
+  // Machine settings shows each provider's file, read-only, with the notes about when a switch applies.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  const section = page.getByRole('region', { name: 'Global instructions' });
+  const settings = await openMachineSettings(page);
+  const section = settings.getByRole('region', { name: 'Global instructions' });
   await expect(section).toContainText('Takes effect on the next Docker Codex turn and in a Claude agent’s next provider session.');
   const rows = section.locator('.arena-instruction');
   await expect(rows).toHaveCount(2);
@@ -65,9 +70,9 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
   await rows.nth(0).getByText('Show file').click();
   await expect(rows.nth(0).locator('pre')).toContainText('CODEAI-FIXTURE-MARKER: pineapple');
   await expect(section.locator('textarea, [contenteditable]')).toHaveCount(0);
-  // The file may have been edited since the page loaded: the Arena's Refresh reads it again.
+  // Refresh reads the file again if it changed after settings opened.
   const reread = page.waitForResponse((response) => response.url().endsWith('/api/instructions') && response.request().method() === 'GET');
-  await page.getByRole('main', { name: 'Arena' }).getByRole('button', { name: 'Refresh' }).click();
+  await settings.getByRole('button', { name: 'Refresh', exact: true }).click();
   expect((await reread).ok()).toBe(true);
 
   // Switching Claude off is saved on this machine and survives a reload.
@@ -77,6 +82,7 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
   await expect(claudeSwitch).not.toBeChecked();
   await expect(section.getByRole('checkbox', { name: 'Use global instructions for Codex' })).toBeChecked();
   await page.reload();
+  await openMachineSettings(page);
   await expect(claudeSwitch).not.toBeChecked();
 
   // The Default session now runs without them, and says so under its composer.
@@ -93,6 +99,7 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
 
   // Isolate is the session's own too, and the device remembers the last choice for the next form.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  await openMachineSettings(page);
   await claudeSwitch.click();
   await expect(claudeSwitch).toBeChecked();
   await page.goto('/');
@@ -101,9 +108,9 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
   await expect(line).toHaveText('isolated');
   await expect(line).toHaveAttribute('title', /^This agent runs without your global instructions\./);
   await ask(page, WITHOUT);
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   await expect(page.locator('.new-session-menu').getByLabel('Global instructions')).toHaveValue('isolated');
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
 
   // The Arena's form opens at the remembered choice and carries the one made there.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
@@ -113,6 +120,7 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
   await expect(create.getByLabel('Global instructions')).toHaveValue('isolated');
   await create.getByLabel('Project').selectOption({ label: projectName });
   await expect(create.getByLabel('Global instructions').locator('option[value="isolated"]')).toHaveJSProperty('disabled', false);
+  await create.getByText('Advanced settings', { exact: true }).click();
   await create.getByLabel('Global instructions').selectOption({ label: 'Default' });
   const created = page.waitForRequest((sent) => sent.url().endsWith('/api/sessions') && sent.method() === 'POST');
   await create.getByRole('button', { name: 'Create and open' }).click();
@@ -147,10 +155,10 @@ test('shows the global instructions in the Arena, switches them, and isolates a 
   expect((await codexCreated).postDataJSON()).not.toHaveProperty('instructions');
   // Local Codex always loads its own file, and the device still remembers Isolate for the next form.
   await expect(line).toHaveText('global instructions');
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   await page.locator('.new-session-menu').getByLabel('New session provider').selectOption({ label: 'Claude' });
   await expect(page.locator('.new-session-menu').getByLabel('Global instructions')).toHaveValue('isolated');
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
 
   // Local Codex always loads its own global file, so the server refuses to isolate it.
   const refused = await request.post('/api/sessions', { data: { provider: 'codex', projectId: project.id, instructions: 'isolated' } });

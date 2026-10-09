@@ -209,7 +209,7 @@ const INSTRUCTIONS_LINE: Record<InstructionsLine, { label: string; title: string
   isolated: { label: 'isolated', title: `This agent runs without your global instructions. ${TAKES_EFFECT}` },
   unavailable: {
     label: 'global instructions unavailable',
-    title: 'Global instructions are on for this agent, but this machine has none it can give it. Global instructions in the Arena shows why.',
+    title: 'Global instructions are on for this agent, but this machine has none it can give it. Global instructions in Machine settings shows why.',
   },
 };
 

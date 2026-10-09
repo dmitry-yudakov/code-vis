@@ -112,11 +112,14 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
         <label><span>Mode</span><select aria-label="Mode" value={settings.mode} disabled={launcher.turnSettingsLocked} onChange={(event) => launcher.setSettings({ mode: event.target.value as 'ask' | 'plan' | 'agent' })}>
           {(['ask', 'plan', 'agent'] as const).map((mode) => <option key={mode} value={mode} disabled={!launcher.modes.includes(mode)}>{AGENT_MODE_LABELS[mode]}</option>)}
         </select></label>
+        <ModelMenu choices={launcher.health} selection={settings.modelSelection} disabled={launcher.turnSettingsLocked} onChange={(modelSelection) => launcher.setSettings({ modelSelection })} />
+        </div>
+      </details>
+      <details className="session-advanced-settings">
+        <summary>Advanced settings</summary>
         <label><span>Global instructions</span><select aria-label="Global instructions" value={launchInstructions(settings.instructions, settings.execution, settings.provider) ?? 'default'} disabled={locked} onChange={(event) => launcher.setSettings({ instructions: event.target.value === 'default' ? undefined : event.target.value as 'global' | 'isolated' })}>
           <option value="default">Default</option><option value="global">Use</option><option value="isolated" title={settings.execution === 'local' && settings.provider === 'codex' ? 'Local Codex always loads your global AGENTS.md. Use Docker for an isolated Codex.' : undefined} disabled={isolatesLocalCodex('isolated', settings.execution, settings.provider)}>Isolate{settings.execution === 'local' && settings.provider === 'codex' ? ' · Docker only for Codex' : ''}</option>
         </select></label>
-        <ModelMenu choices={launcher.health} selection={settings.modelSelection} disabled={launcher.turnSettingsLocked} onChange={(modelSelection) => launcher.setSettings({ modelSelection })} />
-        </div>
       </details>
       <p>{launcher.hasContent ? 'Start in the background. Your current workspace stays open.' : 'Open the new session and start a conversation.'}</p>
       {launcher.createdSession && <button type="button" onClick={launcher.openCreated}>Open created session</button>}

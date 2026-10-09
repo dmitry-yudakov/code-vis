@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { MAX_QUEUED_RUNS, RunRegistry, type RunAccess } from '@/server/runs/runRegistry';
-import type { AgentEvent } from '@/shared/types';
+import type { AgentEvent, AgentExecution } from '@/shared/types';
 
 interface TurnOptions {
   sessionId?: string;
@@ -10,6 +10,7 @@ interface TurnOptions {
   checkoutId?: string;
   checkoutPath?: string;
   access?: RunAccess;
+  execution?: AgentExecution;
 }
 
 function turn(registry: RunRegistry, options: TurnOptions = {}) {
@@ -24,6 +25,7 @@ function turn(registry: RunRegistry, options: TurnOptions = {}) {
     checkoutId: options.checkoutId || `checkout:${crypto.randomUUID()}`,
     checkoutPath: options.checkoutPath,
     access: options.access || 'read',
+    execution: options.execution,
     cancel: vi.fn(),
   });
   expect(reservation).toMatchObject({ accepted: true, runId });
@@ -37,6 +39,75 @@ async function scheduled(): Promise<void> {
 }
 
 describe('machine run scheduler', () => {
+  it('creates alongside verified Local turns and read-only Git leases while new affected turns wait', async () => {
+    const registry = new RunRegistry(3);
+    const source = turn(registry, { checkoutPath: '/repos/a', access: 'write', execution: 'local' });
+    const sibling = turn(registry, { checkoutPath: '/worktrees/a', access: 'write', execution: 'local' });
+    await scheduled();
+    const read = registry.acquireCheckoutRead('/repos/a', undefined, true)!;
+    const admission = registry.acquireWorktreeCreation();
+    if (!admission.acquired) throw new Error('Creation was refused');
+    try {
+      expect(admission.lease.acquireScopes(['/repos/a', '/worktrees/a', '/worktrees/new'], {
+        root: '/worktrees', registered: ['/worktrees/a'], independent: ['/repos/a'],
+        concurrentTurnRoots: ['/repos/a', '/worktrees/a'],
+      })).toEqual({ acquired: true });
+      expect(registry.acquireCheckoutWrite('/repos/a')).toBeUndefined();
+      expect(registry.acquireCheckoutWrite('/worktrees/a')).toBeUndefined();
+      expect(registry.acquireCheckoutRead('/repos/a/.git', undefined, true)).toBeUndefined();
+      const nextRead = registry.acquireCheckoutRead('/worktrees/a', undefined, true)!;
+      expect(nextRead).toBeTypeOf('function'); nextRead();
+      expect(registry.acquireCheckoutRead('/worktrees/new', undefined, true)).toBeUndefined();
+      const next = turn(registry, { checkoutPath: '/repos/a', access: 'write' });
+      registry.finish(source.runId); read(); await scheduled();
+      expect(next.execute).not.toHaveBeenCalled();
+      admission.lease.release(); await scheduled();
+      expect(next.execute).toHaveBeenCalledOnce(); registry.finish(next.runId);
+    } finally { read(); admission.lease.release(); registry.finish(source.runId); registry.finish(sibling.runId); }
+  });
+
+  it.each(['/repos', '/repos/a/nested', '/worktrees/a/nested', '/worktrees/unverified'])('still excludes a turn at %s around concurrent roots', (checkoutPath) => {
+    const registry = new RunRegistry();
+    const run = turn(registry, { checkoutPath, access: 'write' });
+    const admission = registry.acquireWorktreeCreation();
+    if (!admission.acquired) throw new Error('Creation was refused');
+    try {
+      expect(admission.lease.acquireScopes(['/repos/a', '/worktrees/a', '/worktrees/unverified'], {
+        root: '/worktrees', registered: ['/worktrees/a', '/worktrees/unverified'], independent: ['/repos/a'],
+        concurrentTurnRoots: ['/repos/a', '/worktrees/a'],
+      })).toMatchObject({ acquired: false, conflict: { kind: 'turn' } });
+    } finally { admission.lease.release(); registry.finish(run.runId); }
+  });
+
+  it('allows read-only common Git mounts while still excluding Docker writers, Undo and unclassified reads', () => {
+    const registry = new RunRegistry();
+    const proof = { root: '/worktrees', registered: ['/worktrees/a'], independent: ['/repos/a'],
+      concurrentTurnRoots: ['/repos/a', '/worktrees/a'] };
+    const admission = registry.acquireWorktreeCreation();
+    if (!admission.acquired) throw new Error('Creation was refused');
+    try {
+      const writer = turn(registry, { checkoutPath: '/worktrees/a', access: 'write', execution: 'docker' });
+      expect(admission.lease.acquireScopes(['/repos/a', '/worktrees/a'], proof)).toMatchObject({ acquired: false, conflict: { kind: 'turn' } });
+      registry.finish(writer.runId);
+      const undo = registry.acquireCheckoutWrite('/worktrees/a')!;
+      expect(admission.lease.acquireScopes(['/repos/a', '/worktrees/a'], proof)).toMatchObject({ acquired: false, conflict: { kind: 'recovery' } });
+      undo();
+      const unknownRead = registry.acquireCheckoutRead('/repos/a/.git')!;
+      expect(admission.lease.acquireScopes(['/repos/a', '/worktrees/a'], proof)).toMatchObject({ acquired: false, conflict: { kind: 'git-read' } });
+      unknownRead();
+      const readOnly = registry.acquireCheckoutRead('/repos/a/.git', undefined, true)!;
+      expect(admission.lease.acquireScopes(['/repos/a', '/worktrees/a'], proof)).toEqual({ acquired: true });
+      const nextReadOnly = registry.acquireCheckoutRead('/repos/a/.git', undefined, true)!;
+      expect(nextReadOnly).toBeTypeOf('function'); nextReadOnly();
+      expect(registry.acquireMaintenance()).toBe('live-runs');
+      admission.lease.release();
+      expect(registry.acquireCheckoutWrite('/repos/a')).toBeUndefined();
+      expect(registry.acquireMaintenance()).toBe('live-runs');
+      readOnly();
+      expect(registry.acquireMaintenance()).toBe('acquired'); registry.releaseMaintenance();
+    } finally { admission.lease.release(); }
+  });
+
   it('admits only proved ordinary checkout roots and metadata while unknown Local checkouts wait', async () => {
     const registry = new RunRegistry(3);
     const admission = registry.acquireWorktreeCreation();

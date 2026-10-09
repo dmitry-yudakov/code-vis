@@ -110,3 +110,10 @@ completion/exit, parent/child simultaneous cards, timeout and mode-interruption 
 Real provider evidence covers direct command approvals in Native Auto and Agent, parent continuation,
 and cancellation. Browser checks, production attached transport and physical Quest were not rerun;
 the existing approval wire format and surfaces were reused unchanged.
+
+## Integration follow-up
+
+[Story 103](STORY-20261009-codex-subagents.md) integrates this ancestry and approval owner with
+requested Guarded delegation and retained command/process cleanup. Its verification records the
+combined revision; the original Guarded-enablement exclusion above describes this story's initial
+scope. Story 101 remains blocked on persistent approval isolation.

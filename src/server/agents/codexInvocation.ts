@@ -14,7 +14,6 @@ const CODEX_DISABLED_FEATURES = [
   'goals',
   'hooks',
   'image_generation',
-  'multi_agent',
   'plugins',
   'remote_plugin',
   'skill_mcp_dependency_install',
@@ -35,6 +34,7 @@ export function buildCodexAppServerArgs(level: SecurityLevel = 'guarded'): strin
     '--stdio',
     '--strict-config',
     ...(level === 'native' ? [] : ['-c', 'mcp_servers={}', '-c', 'web_search="disabled"']),
+    ...(level === 'native' ? [] : ['--enable', 'multi_agent']),
     ...(level === 'native' ? TURN_PERMISSION_FEATURES : CODEX_DISABLED_FEATURES).flatMap((feature) => ['--disable', feature]),
   ];
 }
@@ -129,7 +129,7 @@ export function codexThreadConfig(
   return {
     mcp_servers: mcpServers,
     web_search: 'disabled',
-    features: Object.fromEntries(CODEX_DISABLED_FEATURES.map((feature) => [feature, false])),
+    features: { ...Object.fromEntries(CODEX_DISABLED_FEATURES.map((feature) => [feature, false])), multi_agent: true },
     ...(security?.permissionProfile ? {
       default_permissions: security.permissionProfile,
       permissions: { [security.permissionProfile]: CODEX_AUTO_PROFILE },
@@ -138,8 +138,11 @@ export function codexThreadConfig(
 }
 
 const CODEX_INSTRUCTIONS_HEAD = `You are running inside CodeAI's bounded repository conversation.
-Use only Codex's built-in repository, shell, and file-change tools. Do not invoke skills, plugins,
-MCP servers, apps/connectors, hooks, web search, subagents, goals, memories, or custom commands.`;
+Use only Codex's built-in repository, shell, file-change tools, and built-in subagents.
+Use subagents when the user or applicable repository instructions request delegation or review.
+Subagents inherit this turn's permissions and must stay within its task and execution limits.
+Wait for their results and close them before finishing; summarize their findings in your own answer.
+Do not invoke skills, plugins, MCP servers, apps/connectors, hooks, web search, goals, memories, or custom commands.`;
 
 const CODEX_DEVELOPER_INSTRUCTIONS = `${CODEX_INSTRUCTIONS_HEAD}
 Never broaden the configured sandbox or network policy. Treat the attachment directory as read-only.`;
@@ -252,7 +255,7 @@ export function codexAmbientInstructionNote(value: unknown, cwd: string): string
     return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
   }).length;
   if (!ambient) return undefined;
-  return `Local Codex also loads ${ambient} instruction file${ambient === 1 ? '' : 's'} from outside the repository, such as your global AGENTS.md. Global instructions in the Arena shows that file.`;
+  return `Local Codex also loads ${ambient} instruction file${ambient === 1 ? '' : 's'} from outside the repository, such as your global AGENTS.md. Global instructions in Machine settings shows that file.`;
 }
 
 /** Returns a public, path-free reason when command-line isolation did not take effect. */

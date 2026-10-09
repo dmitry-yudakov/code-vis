@@ -1,7 +1,7 @@
 import { getConfig } from '@/server/config';
 import path from 'node:path';
 import type {
-  AgentEvent, AgentMode, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
+  AgentEvent, AgentExecution, AgentMode, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
 } from '@/shared/types';
 import { changesCheckout } from '@/shared/agentModes';
 import type { WorktreeCreationConflict } from '@/shared/worktreeCreation';
@@ -27,6 +27,7 @@ interface RunRecord {
   checkoutId: string;
   checkoutPath?: string;
   access: RunAccess;
+  execution?: AgentExecution;
   mode?: AgentMode;
   changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
   modeChange?: Promise<RunModeOutcome>;
@@ -73,7 +74,11 @@ export type RunReservation =
 export type MaintenanceAdmission = 'acquired' | 'held' | 'live-runs';
 export type WorktreeAdmissionConflict = Omit<WorktreeCreationConflict, 'machineId' | 'sourceCheckoutId'>;
 type ScopeAdmission = { acquired: true } | { acquired: false; conflict: WorktreeAdmissionConflict };
-interface CheckoutScopeProof { root: string; registered: string[]; independent?: string[] }
+interface CheckoutScopeProof {
+  root: string; registered: string[]; independent?: string[];
+  /** Freshly verified exact checkout roots; creation never changes their files or indices. */
+  concurrentTurnRoots?: string[];
+}
 export interface WorktreeCreationLease {
   token: symbol;
   acquireScopes(paths: string[], proof?: CheckoutScopeProof): ScopeAdmission;
@@ -94,6 +99,7 @@ export interface ReserveRunInput {
   checkoutId: string;
   checkoutPath?: string;
   access: RunAccess;
+  execution?: AgentExecution;
   mode?: AgentMode;
   changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
   cancel(): void;
@@ -110,7 +116,7 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
  * reloads mid-run only detaches its stream; provider execution and queued work continue here.
  */
 export class RunRegistry implements MaintenanceLease {
-  private readonly checkoutReaders = new Map<symbol, string>();
+  private readonly checkoutReaders = new Map<symbol, { path: string; creationCompatible: boolean }>();
   private readonly checkoutWriters = new Map<symbol, string>();
   private maintenance = false;
   private creation?: { token: symbol; paths: string[]; proof?: CheckoutScopeProof };
@@ -128,15 +134,18 @@ export class RunRegistry implements MaintenanceLease {
   /** Protect a helper's bind source from an Agent in an enclosing checkout renaming it.
    * An existing writer at the exact root cannot rename its own mounted root; UI Git reads
    * can still observe that checkout while it runs. New overlapping writers wait for this read.
+   * Only actual read-only operations are creation-compatible; a writable Docker worker retains
+   * an incompatible lease even though its common Git root is mounted read-only.
    */
-  acquireCheckoutRead(checkoutPath: string, writeLease?: symbol): (() => void) | undefined {
-    if (this.creation && this.creation.token !== writeLease && this.creationContains(checkoutPath)) return undefined;
+  acquireCheckoutRead(checkoutPath: string, writeLease?: symbol, creationCompatible = false): (() => void) | undefined {
+    if (this.creation && this.creation.token !== writeLease && this.creationContains(checkoutPath)
+      && !(creationCompatible && this.creationReaderCompatible(this.creation.proof, checkoutPath))) return undefined;
     if ([...this.checkoutWriters.entries()].some(([token, writer]) => token !== writeLease && pathsOverlap(writer, checkoutPath))) return undefined;
     if ([...this.liveByRunId.values()].some((run) => run.access === 'write'
       && (run.state === 'running' || run.state === 'needs-you') && run.checkoutPath
       && run.checkoutPath !== checkoutPath && pathContains(run.checkoutPath, checkoutPath))) return undefined;
     const token = Symbol();
-    this.checkoutReaders.set(token, checkoutPath);
+    this.checkoutReaders.set(token, { path: checkoutPath, creationCompatible });
     return () => { this.checkoutReaders.delete(token); this.schedule(); };
   }
 
@@ -145,7 +154,8 @@ export class RunRegistry implements MaintenanceLease {
   acquireCheckoutWrite(checkoutPath: string): ((() => void) & { token: symbol }) | undefined {
     if (this.maintenance
       || this.creationContains(checkoutPath)
-      || [...this.checkoutReaders.values(), ...this.checkoutWriters.values()].some((held) => pathsOverlap(held, checkoutPath))
+      || [...this.checkoutReaders.values()].some((held) => pathsOverlap(held.path, checkoutPath))
+      || [...this.checkoutWriters.values()].some((held) => pathsOverlap(held, checkoutPath))
       || [...this.liveByRunId.values()].some((run) => run.checkoutPath
         ? pathsOverlap(run.checkoutPath, checkoutPath) : run.access === 'write')) return undefined;
     const token = Symbol();
@@ -223,16 +233,24 @@ export class RunRegistry implements MaintenanceLease {
         if (this.creation !== creation || creation.paths.length || !paths.length) throw new Error('Invalid worktree scope grant');
         const overlaps = (held: string) => paths.some((target) => pathsOverlap(held, target));
         const conflicts = (held: string) => overlaps(held) || unknownCheckoutPath(proof, held);
-        const runs = [...this.liveByRunId.values()].filter((run) => !run.checkoutPath || conflicts(run.checkoutPath));
+        const runs = [...this.liveByRunId.values()].filter((run) => {
+          const compatible = run.checkoutPath && proof?.concurrentTurnRoots?.includes(run.checkoutPath)
+            && !(run.execution === 'docker' && run.access === 'write');
+          return !compatible && (!run.checkoutPath || conflicts(run.checkoutPath));
+        });
         if (runs.length) return { acquired: false, conflict: { kind: 'turn', blockingTurns: runs.slice(0, 8).map((run) => ({
           sessionId: run.sessionId, ...(run.activated ? { runId: run.runId } : {}),
           state: run.activated ? run.state as 'queued' | 'running' | 'needs-you' : 'preparing',
         })), ...(runs.length > 8 ? { additionalTurns: runs.length - 8 } : {}) } };
         if ([...this.checkoutWriters.values()].some(conflicts)) return { acquired: false, conflict: { kind: 'recovery' } };
-        if ([...this.checkoutReaders.values()].some(conflicts)) return { acquired: false, conflict: { kind: 'git-read' } };
+        if ([...this.checkoutReaders.values()].some((reader) => conflicts(reader.path)
+          && !(reader.creationCompatible && this.creationReaderCompatible(proof, reader.path)))) {
+          return { acquired: false, conflict: { kind: 'git-read' } };
+        }
         creation.paths = [...new Set(paths)];
         if (proof) creation.proof = { root: proof.root, registered: [...proof.registered],
-          ...(proof.independent ? { independent: [...proof.independent] } : {}) };
+          ...(proof.independent ? { independent: [...proof.independent] } : {}),
+          ...(proof.concurrentTurnRoots ? { concurrentTurnRoots: [...proof.concurrentTurnRoots] } : {}) };
         return { acquired: true };
       },
       release: () => { if (this.creation === creation) { this.creation = undefined; this.schedule(); } },
@@ -527,7 +545,7 @@ export class RunRegistry implements MaintenanceLease {
     if (candidate.checkoutPath
       && [...this.checkoutWriters.values()].some((writer) => pathsOverlap(writer, candidate.checkoutPath!))) return false;
     if (candidate.access === 'write' && candidate.checkoutPath
-      && [...this.checkoutReaders.values()].some((reader) => pathsOverlap(candidate.checkoutPath!, reader))) return false;
+      && [...this.checkoutReaders.values()].some((reader) => pathsOverlap(candidate.checkoutPath!, reader.path))) return false;
     const sameCheckout = (other: RunRecord) => other.checkoutId === candidate.checkoutId
       || Boolean(candidate.checkoutPath && other.checkoutPath && pathsOverlap(candidate.checkoutPath, other.checkoutPath));
     const running = [...this.liveByRunId.values()].filter((run) => (
@@ -551,6 +569,10 @@ export class RunRegistry implements MaintenanceLease {
     const held = this.creation;
     return Boolean(held?.paths.length && (!checkoutPath || held.paths.some((scope) => pathsOverlap(scope, checkoutPath))
       || unknownCheckoutPath(held.proof, checkoutPath)));
+  }
+
+  private creationReaderCompatible(proof: CheckoutScopeProof | undefined, checkoutPath: string): boolean {
+    return Boolean(proof?.concurrentTurnRoots?.some((root) => checkoutPath === root || checkoutPath === path.join(root, '.git')));
   }
 
   private schedule(): void {

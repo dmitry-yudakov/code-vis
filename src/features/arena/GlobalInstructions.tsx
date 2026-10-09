@@ -82,10 +82,11 @@ export function GlobalInstructionsView({ view, error, saving, dockerEnabled, sec
  * This machine's global instructions: one switch per provider and the file each one reads. The
  * server resolves every path and text; this view names only a provider and its switch.
  */
-export function GlobalInstructions({ dockerEnabled, securityLevel = 'guarded', refreshing, onChanged }: {
+export function GlobalInstructions({ active = true, dockerEnabled, securityLevel = 'guarded', refreshing, onChanged }: {
+  active?: boolean;
   dockerEnabled?: boolean;
   securityLevel?: SecurityLevel;
-  /** The Arena is refreshing: the files may have changed too, so they are read again once it is done. */
+  /** Machine readiness is refreshing: read the files again when it finishes. */
   refreshing: boolean;
   onChanged(): void;
 }) {
@@ -107,7 +108,7 @@ export function GlobalInstructions({ dockerEnabled, securityLevel = 'guarded', r
     }
   }, []);
 
-  useEffect(() => { if (!refreshing) void request(); }, [refreshing, request]);
+  useEffect(() => { if (active && !refreshing) void request(); }, [active, refreshing, request]);
 
   const onSwitch = (provider: AgentProvider, enabled: boolean) => {
     setSaving(true);

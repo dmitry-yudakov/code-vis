@@ -4,14 +4,13 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import type {
-  ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary, ExecutionHealth,
+  ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
 } from '@/shared/types';
 import {
   buildMultiMachineInbox, groupArenaSessions, unreadArenaAttention,
   type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
-import { DockerVersions } from './DockerVersions';
-import { GlobalInstructions } from './GlobalInstructions';
+import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 
 const STATE_LABELS = {
@@ -60,12 +59,10 @@ function machineTime(machine: ArenaMachineSnapshot): string {
 
 export function Arena({
   machines,
-  executionHealth,
   deviceState,
   section,
   refreshError,
   onRefresh,
-  onSetDockerEnabled,
   onOpenSession,
   onNewSession,
   onArchiveSession,
@@ -79,12 +76,10 @@ export function Arena({
   refreshError?: string;
   onRefresh(): Promise<void>;
   onOpenSession(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): void;
-  executionHealth?: ExecutionHealth;
   onNewSession(): void;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
-  onSetDockerEnabled(enabled: boolean): Promise<void>;
   onAcknowledge(itemIds: string[]): void;
 }) {
   const inbox = useMemo(() => buildMultiMachineInbox(machines, deviceState), [deviceState, machines]);
@@ -92,12 +87,8 @@ export function Arena({
   const sessions = machines.flatMap((machine) => machine.sessions);
   const archivedSessions = machines.flatMap((machine) => machine.archivedSessions);
   const onlineMachines = machines.filter((machine) => machine.machine.state === 'online');
-  const [savingDocker, setSavingDocker] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [dockerError, setDockerError] = useState<string>();
-  const docker = executionHealth?.docker;
-  const securityLevel = machines.find((machine) => machine.machine.kind === 'local')?.securityLevel || 'guarded';
-  const dockerSetupNeeded = Boolean(docker?.enabled && !docker.providers.claude.available);
+  const localMachine = machines.find((machine) => machine.machine.kind === 'local');
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
   const [restoring, setRestoring] = useState<string>();
@@ -134,62 +125,20 @@ export function Arena({
           {showMachines && <span>{machines.length} machines{offlineMachines ? `, ${offlineMachines} offline` : ''}</span>}
         </div>
         <div className="arena-heading-actions">
-          <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+          <button type="button" disabled={refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
           <button type="button" className="arena-primary" disabled={!onlineMachines.length} onClick={onNewSession}>
             New session
           </button>
         </div>
       </header>
 
-      <section className="arena-docker-settings" aria-label="Security level">
-        <div className="arena-docker-setting"><strong>Security level</strong></div>
-        <p>{securityLevel === 'native' ? 'Native — Local Claude and Codex write with your own setup' : 'Guarded — CodeAI sets the rules for Local turns'}</p>
-        <p>Set <code>CODEAI_SECURITY_LEVEL</code> on this computer and restart CodeAI to change it.</p>
-      </section>
-      {docker && (
-        <section className="arena-docker-settings" aria-label="Docker execution">
-          <div className="arena-docker-setting">
-            <div>
-              <strong>Docker execution</strong>
-              <span role="status">{savingDocker ? 'Saving…' : !docker.enabled ? 'Off'
-                : docker.providers.claude.available ? 'Ready' : 'Setup needed'}</span>
-            </div>
-            <label>
-              <input type="checkbox" checked={docker.enabled} disabled={savingDocker || refreshing} onChange={(event) => {
-                setSavingDocker(true);
-                setDockerError(undefined);
-                void onSetDockerEnabled(event.target.checked).catch((error: unknown) => {
-                  setDockerError(error instanceof Error ? error.message : 'Could not save Docker settings.');
-                }).finally(() => setSavingDocker(false));
-              }} />
-              Enable Docker
-            </label>
-          </div>
-          {docker.enabled && docker.providers.claude.available && <DockerVersions onSwitched={refresh} />}
-          {dockerSetupNeeded && (
-            <div className="arena-docker-setup">
-              <p>{docker.providers.claude.message}</p>
-              <p>Start Docker, then run <code>npm run docker:provision</code> in your installed CodeAI directory for first-time setup.</p>
-              <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>{refreshing ? 'Checking…' : 'Check again'}</button>
-            </div>
-          )}
-          {/* Open while setup is unfinished; one row once Docker is ready or off. */}
-          <details className="arena-docker-setup" open={dockerSetupNeeded}>
-            <summary>Setup and sign-in</summary>
-            <p>Make Docker available for new sessions on this machine. Local remains the default.</p>
-            <p>Sign in once for each provider you use: <code>npm run docker:login -- claude</code> or <code>npm run docker:login -- codex</code>.</p>
-            <p>New Docker conversations share that provider’s login, settings and history in persistent Docker storage. Your host provider setup stays separate, apart from what Global instructions passes on.</p>
-          </details>
-          {dockerError && <p role="alert">{dockerError}</p>}
-        </section>
-      )}
-
-      <GlobalInstructions dockerEnabled={docker?.enabled} securityLevel={securityLevel} refreshing={refreshing} onChanged={refresh} />
+      {localMachine && <SecurityLevelNotice key={`${localMachine.machine.id}:${localMachine.securityLevel}`}
+        machineId={localMachine.machine.id} level={localMachine.securityLevel || 'guarded'} />}
 
       {refreshError && (
         <div className="arena-refresh-error" role="status">
           <span>{refreshError} Showing the last good overview.</span>
-          <button type="button" disabled={savingDocker || refreshing} onClick={refresh}>Try again</button>
+          <button type="button" disabled={refreshing} onClick={refresh}>Try again</button>
         </div>
       )}
 

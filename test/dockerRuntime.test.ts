@@ -123,6 +123,7 @@ describe('Docker termination and orphan recovery', () => {
         return '';
       }
       if (args[0] === 'network' && args[1] === 'ls') return '';
+      if (args[0] === 'volume' && args[1] === 'ls') return '';
       throw new Error(`Unexpected recovery command: ${args[0]}`);
     });
     expect(await runtime.reconcile()).toEqual([interruptedSession]);
@@ -135,6 +136,62 @@ describe('Docker termination and orphan recovery', () => {
     });
     // A second application crash after removal must not lose the delivery failure ledger.
     expect(await resumed.reconcile()).toEqual([interruptedSession]);
+  });
+
+  it('reconciles only orphaned Git pins after their helpers and preserves provider homes', async () => {
+    const { runtime } = await fixture();
+    const volumes = new Map<string, Record<string, string>>();
+    const add = (name: string, instance: string, kind = 'git-pin', owner = runtime.owner) => volumes.set(name, {
+      [`${DOCKER_LABEL}.owner`]: owner, [`${DOCKER_LABEL}.kind`]: kind, [`${DOCKER_LABEL}.instance`]: instance,
+    });
+    const old = `codeai-git-pin-${runtime.owner}-old`;
+    const current = `codeai-git-pin-${runtime.owner}-current`;
+    add(old, 'previous'); add(current, runtime.instance);
+    add('provider-home', 'previous', 'provider-home'); add('foreign', 'previous', 'git-pin', 'foreign');
+    let helper = true;
+    mocks.command.mockImplementation(async (input: string[]) => {
+      const args = input.slice(2);
+      if (args[0] === 'info') return 'engine-original';
+      if (args[0] === 'container' && args[1] === 'ls') return helper ? 'old-helper' : '';
+      if (args[0] === 'inspect') return JSON.stringify({ [`${DOCKER_LABEL}.owner`]: runtime.owner,
+        [`${DOCKER_LABEL}.kind`]: 'git', [`${DOCKER_LABEL}.instance`]: 'previous' });
+      if (args[0] === 'container' && args[1] === 'rm') { helper = false; return ''; }
+      if (args[0] === 'volume' && args[1] === 'ls') {
+        const name = args.find((arg) => arg.startsWith('name='))!;
+        return [...volumes.keys()].filter((volume) => new RegExp(name.slice(5)).test(volume)).join('\n');
+      }
+      if (args[0] === 'volume' && args[1] === 'inspect') return JSON.stringify(volumes.get(args[2]));
+      if (args[0] === 'volume' && args[1] === 'rm') {
+        expect(helper).toBe(false); expect(args[2]).toBe(old); volumes.delete(args[2]); return '';
+      }
+      if (args[0] === 'network' && args[1] === 'ls') return '';
+      throw new Error(`Unexpected pin recovery command ${args[0]}`);
+    });
+    expect(await runtime.reconcile()).toEqual([]);
+    expect([...volumes.keys()]).toEqual([current, 'provider-home', 'foreign']);
+    // Ownership and inventory must also be proved for a specifically named cleanup.
+    const command = (args: string[]) => mocks.command(['--host', 'fixture', ...args]);
+    await expect(runtime.removeGitPin(command, 'foreign')).rejects.toThrow('ownership');
+    await expect(runtime.removeGitPin(command, 'provider-home')).rejects.toThrow('ownership');
+  });
+
+  it.each(['removal', 'inventory', 'engine'] as const)('keeps Git pin cleanup unconfirmed after %s failure', async (failure) => {
+    const { runtime } = await fixture();
+    let present = true;
+    const command = vi.fn(async (args: string[]) => {
+      if (args[0] === 'info') return failure === 'engine' ? 'replacement' : 'engine-original';
+      if (args[1] === 'ls') return present ? 'owned-pin' : '';
+      if (args[1] === 'inspect') return JSON.stringify({ [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.kind`]: 'git-pin' });
+      if (args[1] === 'rm') {
+        if (failure === 'removal') throw new Error('daemon stopped');
+        // A successful response alone cannot prove an authoritative empty inventory.
+        if (failure !== 'inventory') present = false;
+        return '';
+      }
+      throw new Error('Unexpected pin cleanup command');
+    });
+    await expect(runtime.removeGitPin(command, 'owned-pin')).rejects.toThrow();
+    expect(present).toBe(true);
   });
 });
 

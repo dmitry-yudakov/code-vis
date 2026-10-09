@@ -15,7 +15,7 @@ import { atomicWrite, getSessionStore, SessionStoreError, type SessionStore } fr
 import { createSessionRequestSchema } from '@/shared/protocol';
 import { durableSessionSchema } from '@/shared/sessionSchema';
 import type { DurableSession, ServerCheckout, SessionWorktree, WorktreeCapability } from '@/shared/types';
-import { GIT_READ_OPTIONS, gitReadEnvironment, isolatedGitRead, withGitReadLease } from './gitRead';
+import { acquireCommonGitRead, GIT_READ_OPTIONS, gitReadEnvironment, isolatedGitRead, withGitReadLease } from './gitRead';
 import { DockerTerminationError } from '@/server/execution/dockerRuntime';
 
 const MAX_RECORDS = 1_000;
@@ -71,8 +71,17 @@ async function creationScopes(lease: WorktreeCreationLease, records: WorktreeRec
     } catch { unproved.push(checkout.realPath); }
   }
   const family = records.filter((record) => overlap(record.originPath, source) || overlap(record.originGit.path, path.join(source, '.git')));
+  const concurrentTurnRoots = independent.includes(source) ? [source] : [];
+  for (const record of family) {
+    if (record.state !== 'ready') continue;
+    try { await linkage(record, config); concurrentTurnRoots.push(record.destination); }
+    catch (error) {
+      if (error instanceof DockerTerminationError) throw error;
+      /* A changed or unfinished checkout grants no concurrent-turn authority. */
+    }
+  }
   const admission = lease.acquireScopes([source, destination, ...family.map((record) => record.destination), ...unproved],
-    { root: config.worktreesRoot, registered: records.map((record) => record.destination), independent });
+    { root: config.worktreesRoot, registered: records.map((record) => record.destination), independent, concurrentTurnRoots });
   if (!admission.acquired) await creationBusy(config, admission.conflict, sourceCheckoutId);
 }
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -90,10 +99,12 @@ async function git(cwd: string, args: string[], allowedExitCodes: number[] = [],
   // Mutations run only under the affected creation scopes after strict source preflight.
   // Every inspection after provisioning runs in the credential-free helper, including recovery.
   if (provisioned && args[0] !== 'worktree' && args[0] !== 'read-tree') {
-    const release = runRegistry.acquireCheckoutRead(record?.originGit.path || cwd, writeLease);
+    const common = record ? await acquireCommonGitRead(record.originPath, record.originGit, writeLease) : undefined;
+    const release = common?.release || runRegistry.acquireCheckoutRead(cwd, writeLease, true);
     if (!release) conflict('The source checkout is being edited. Retry after that turn finishes.');
     return withGitReadLease(release, () => isolatedGitRead(cwd, ['-c', 'core.excludesFile=/dev/null', '-c', 'credential.helper=', '-c', 'protocol.allow=never', ...args], config, { allowedExitCodes, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 },
-      record ? commonGitReadBind(record.originGit.path) : []));
+      record ? commonGitReadBind(record.originGit.path) : [], record ? async () => { await linkage(record, config, writeLease); } : undefined,
+      common?.pinned));
   }
   return new Promise((resolve, reject) => execFile('git', [
     ...GIT_READ_OPTIONS, '-c', 'core.excludesFile=/dev/null', '-c', 'credential.helper=', '-c', 'protocol.allow=never',
@@ -171,7 +182,12 @@ async function containedMetadata(gitDirectory: string): Promise<void> {
       if (entry.isDirectory()) await walk(location);
     }
   }
-  await walk(gitDirectory);
+  // Ref locks and loose objects can disappear during an ordinary concurrent Git operation.
+  // Repeat the entire proof, within the original budget; never waive symbolic-link checks.
+  for (let attempt = 0; ; attempt++) {
+    try { await walk(gitDirectory); return; }
+    catch (error) { if (!missing(error) || attempt >= 2) throw error; }
+  }
 }
 
 /** Cheap structural eligibility; it never executes Git or walks the metadata contents. */
@@ -193,7 +209,7 @@ async function sourceMetadata(checkout: ServerCheckout) {
 }
 
 async function sourcePreflight(checkout: ServerCheckout, baseCommit?: string, full = false, writeLease?: symbol) {
-  const release = runRegistry.acquireCheckoutRead(checkout.realPath, writeLease);
+  const release = runRegistry.acquireCheckoutRead(checkout.realPath, writeLease, true);
   if (!release) conflict('The source checkout is being edited. Retry after that turn finishes.');
   try { return await inspectSource(checkout, baseCommit, full, writeLease); }
   finally { release(); }
@@ -381,10 +397,10 @@ function commonGitReadBind(common: string): string[] {
 /** An ordinary-source writer can rename metadata; hold this through helper/worker termination.
  * Linked workers can coexist: their read-only common root cannot rename these mounted roots.
  */
-export async function acquireManagedGitRead(location: string, config: AppConfig): Promise<() => void> {
+export async function acquireManagedGitRead(location: string, config: AppConfig, writable = false): Promise<() => void> {
   const record = (await readWorktreeRecords(config.dataDir)).find((item) => item.destination === location);
   if (!record) return () => {};
-  const release = runRegistry.acquireCheckoutRead(record.originGit.path);
+  const release = runRegistry.acquireCheckoutRead(record.originGit.path, undefined, !writable);
   if (!release) conflict('The source checkout is being edited. Retry this worktree operation after that turn finishes.');
   return release;
 }
@@ -401,11 +417,15 @@ async function finish(record: WorktreeRecord, config: AppConfig, store: SessionS
     if (await lstat(record.destination).catch((error) => { if (missing(error)) return undefined; throw error; })) conflict('The worktree destination already exists; creation refused.');
     // Persist before the first mutation. A crash in this state is inspected, never overwritten.
     record.state = 'creating'; await writeRecord(config, record);
+    await validatePlacement(record, config);
+    await sourcePreflight(source, record.session.worktree!.baseCommit, false, writeLease);
     await git(record.originPath, ['worktree', 'add', '--no-checkout', '-b', record.session.worktree!.branch, record.destination, record.session.worktree!.baseCommit]);
     const linked = await linkage(record, config, writeLease);
     record.gitDirectory = linked.gitDirectory;
     record.checkoutDirectory = { path: record.destination, identity: identity(await lstat(record.destination)) };
     await writeRecord(config, record);
+    await linkage(record, config, writeLease);
+    await sourcePreflight(source, record.session.worktree!.baseCommit, false, writeLease);
     await git(record.destination, ['read-tree', '--reset', '-u', record.session.worktree!.baseCommit]);
     record.gitDirectory = (await linkage(record, config, writeLease)).gitDirectory;
     record.state = 'materialized'; await writeRecord(config, record);
@@ -420,19 +440,18 @@ async function finish(record: WorktreeRecord, config: AppConfig, store: SessionS
       return finish(record, config, store, writeLease);
     }
     // Only an entirely completed, clean baseline is unambiguous. Never reset partial/user work.
-    try {
-      const linked = await linkage(record, config, writeLease);
-      if ((await git(record.destination, ['rev-parse', 'HEAD'], [], record, writeLease)).trim() !== record.session.worktree!.baseCommit
-        || linked.branch !== record.session.worktree!.branch
-        || (await git(record.destination, ['status', '--porcelain', '--untracked-files=all'], [], record, writeLease)).trim()) throw new Error('partial');
-      record.gitDirectory = linked.gitDirectory;
-      record.checkoutDirectory = { path: record.destination, identity: identity(await lstat(record.destination)) };
-      record.state = 'materialized'; await writeRecord(config, record);
-    } catch (error) {
-      if (error instanceof DockerTerminationError) throw error;
+    // A failed inspection proves no corruption. Retain the retryable intent on helper/IO failure;
+    // only successful observations of a different or dirty checkout establish ambiguity.
+    const linked = await linkage(record, config, writeLease);
+    if ((await git(record.destination, ['rev-parse', 'HEAD'], [], record, writeLease)).trim() !== record.session.worktree!.baseCommit
+      || linked.branch !== record.session.worktree!.branch
+      || (await git(record.destination, ['status', '--porcelain', '--untracked-files=all'], [], record, writeLease)).trim()) {
       record.state = 'unavailable'; record.reason = 'Partial worktree creation is ambiguous. Worktree and branch are retained; inspect them with Git before recovery.';
       await writeRecord(config, record); conflict(record.reason);
     }
+    record.gitDirectory = linked.gitDirectory;
+    record.checkoutDirectory = { path: record.destination, identity: identity(await lstat(record.destination)) };
+    record.state = 'materialized'; await writeRecord(config, record);
   }
   await linkage(record, config, writeLease);
   const session = await store.savePreparedWorktreeSession(record.session as DurableSession);

@@ -17,7 +17,7 @@ async function startSession(page: Page) {
   const openViews = page.getByRole('tab');
   const before = await openViews.count();
   // Toasts sit under the header's menus, so none can cover Start session.
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   await page.getByRole('button', { name: 'Start session' }).click();
   await expect(openViews).toHaveCount(before + 1);
   // The conversation is already open, so its composer can be typed into before the new session
@@ -579,7 +579,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
 
 test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.new-session-menu summary')).toBeVisible();
+  await expect(page.locator('.new-session-menu > summary')).toBeVisible();
   const initiallyOpen = page.locator('.workspace-tab-close');
   while (await initiallyOpen.count()) await initiallyOpen.first().click();
   await startSession(page);
@@ -1024,9 +1024,9 @@ test('stacks notices as toasts in the canvas corner and lets only what can wait 
   await expect(failure).toHaveAttribute('data-tone', 'error');
   // On a phone the stack rises above the panel overlays, and the header's menus above the stack.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   await page.getByRole('button', { name: 'Start session' }).click({ trial: true });
-  await page.locator('.new-session-menu summary').click();
+  await page.locator('.new-session-menu > summary').click();
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.clock.fastForward(60_000);
   await settle();
@@ -1736,7 +1736,7 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await conversation.getByLabel(/^Execution: /).click();
   const continuation = conversation.getByRole('menu', { name: 'Execution' }).getByRole('menuitem', { name: 'Continue in Docker…', exact: true });
   await expect(continuation).toBeDisabled();
-  await expect(continuation).toHaveAccessibleDescription('Enable Docker in Arena to continue there.');
+  await expect(continuation).toHaveAccessibleDescription('Enable Docker in More → Machine settings to continue there.');
   await page.keyboard.press('Escape');
 
   await conversation.locator('textarea').fill('Show two alternatives');
@@ -1865,7 +1865,7 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   const header = page.locator('.app-header');
   await expect(header.getByRole('link')).toHaveCount(0);
   await expect(header.getByRole('button', { name: /^(Repository|Arena|Inbox)/ })).toHaveCount(0);
-  await expect(header.locator('details:not(.new-session-menu, .device-menu)')).toHaveCount(0);
+  await expect(header.locator('details:not(.new-session-menu, .device-menu, .session-advanced-settings)')).toHaveCount(0);
   const bar = activityBar(page);
   await expect(bar.locator(':scope > :is(button, a), .more-menu > summary')).toHaveCount(5);
   await expect(activityView(page, 'Changes')).toHaveAccessibleName('Changes, 2 files');

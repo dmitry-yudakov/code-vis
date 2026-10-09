@@ -4,6 +4,86 @@ Manual real-agent evidence for the root application. Entries recorded before Aug
 the product **Cartograph** and its package `web2`; that prose is left as it was written. Variables
 named `CODEAI_WEB2_*` in those entries are now spelled `CODEAI_*` and the old names still work.
 
+## Stories 102–105 — Codex integration (2026-10-09)
+
+The starting refs were verified before writes: `feat/codex-approvals` and HEAD were `044bd89`,
+`origin/fix/codex-subagents` was `f3e8d08`, and their base was `8e1a7f0`. The working tree was
+clean. Incoming files were reconciled with a three-way file merge, with no Git index change,
+commit, app restart or deployment. Machine settings is now Story 104 and concurrent Local
+worktree creation Story 105; persistent approvals remains blocked under Story 101.
+
+The runner uses Story 102's bounded metadata/ancestry owner in Native and Guarded turns. Spawn
+activity discovers candidates without granting membership. Typed callback identities,
+deduplication, turn-scoped previews and registration before card publication remain intact.
+The test subagent independently reproduced all five approval failures against incoming code;
+the corresponding retained HEAD regressions pass after integration. Dedicated failure-first
+checks also reproduce non-Linux SDK failure beside a real live worker, missing ownership beside
+an empty root inventory, cancellation before input and stale root callbacks before the actual
+turn ID. Repeated security/lifecycle reviews added coverage for cleanup ordering and retention.
+
+### Installed-provider evidence with the integrated runner
+
+The installed `codex-cli 0.161.0` was invoked only by bounded Local runner probes in fresh
+`/tmp/codeai-subagents-runner-*` checkouts with separate disposable attachments. Codex used the
+owner's existing sign-in and configuration; the harness did not read or copy credentials,
+change provider settings/rules, request persisted permission rules or stage/commit files.
+The integration handshake used `experimentalApi: true` in every probe.
+
+- Guarded Ask delegated a marker read, returned the child's exact `ORIGINAL\n` through the
+  parent's summary, preserved both markers and finished with zero pending cards.
+- Guarded Auto delegated an eligible edit (`marker.txt` became `CHANGED`), showed a labelled
+  Halley child card for the protected `.claude/protected.txt` command and respected Deny.
+  The protected marker remained `PROTECTED\n`; the parent completed with zero pending cards.
+- Guarded Auto cancellation ran a delegated foreground Node heartbeat. Both root and child
+  interruption RPCs completed; the child terminal inventory reported process `19209`, and its
+  termination returned true. Linux identity cleanup also ran before settlement. The runner
+  returned `cancelled`, and heartbeat size stayed **20 bytes** across a subsequent one-second
+  interval. No cards remained and both unrelated markers were unchanged.
+- Native Agent delegated the same bounded writes. The Noether child surfaced two Shell cards
+  through the parent broker, and both were denied. Both markers remained unchanged; the child
+  completed, the parent summarized the denials and SDK inventories were empty before settlement.
+
+With the experimental handshake, the recorded Native Agent and Guarded cancellation flows
+included parent `subAgentActivity` discovery and child `turn/started` notifications, without a
+preceding child `thread/started`. One lazy `thread/read` returned the exact child ID and matching
+current/legacy parent fields. Approval/completion events continued on the parent's connection;
+no child resume or extra subscription was needed. These runs verify that ordering for the
+installed CLI, while the retained fixtures also exercise lifecycle/callback-first ordering from
+Story 102's earlier nonexperimental probes. They do not promise a universal event ordering.
+
+Final integrated validation: **1,440 tests in 131 files**, strict TypeScript, the production build
+in `.next-e2e` and whitespace checks passed. Existing Google font fetching needed the network-enabled
+build retry. Full process tests ran on the host outside the sandbox; the sandbox's wrapper-signal
+behavior caused a false orphan-test failure. Both independent reviewers repeated their audits
+after repairs and reported no actionable critical/high/medium findings.
+
+### Authorized pre-commit review follow-up
+
+The owner requested another review and then a commit. The fresh independent reviewer reproduced
+an additional high-severity race: host fallback TERM could let a worker's handler spawn a detached
+replacement and exit. An actual runner/RunRegistry reproduction released admission beside the
+survivor. Failure-first helper and runner regressions now cover that path. Host fallback uses
+SIGKILL for captured identities and the launcher after the existing SDK graceful path; identity
+checks and retained admission on failed stopping remain. The actual runner reproduction then
+reported no survivor. Repeated review found no actionable critical/high/medium issues.
+
+Final pre-commit checks passed **1,442 tests in 132 files**, TypeScript, the isolated production
+build and whitespace checks. The installed Codex Guarded Auto heartbeat cancellation was repeated:
+SDK interruption/terminal stop completed, force fallback cleaned captured workers, the runner
+returned `cancelled`, heartbeat size stayed 20 bytes afterward and no permissions remained.
+The resulting integration is authorized for a commit recording both reviewed branch parents;
+the earlier unstaged/no-commit record above describes the first integration phase.
+
+### Limits
+
+Actual macOS/other non-Linux execution, signed-in Docker turns, production attached transport,
+browser presentation and physical Quest acceptance were not rerun. Non-Linux tests simulate
+`process.platform = 'darwin'` but use actual probe-owned workers; they verify the cleanup contract,
+not platform parity. An unconfirmed SDK/ownership/inventory state intentionally retains checkout
+and machine admission, potentially for the process lifetime if its coordinator is gone. Linux
+polling cleans up captured descendants; it cannot contain arbitrary work detached before capture.
+The running application remains untouched.
+
 ## Story 102 — Native Codex subagent approval routing (2026-10-09)
 
 **Outcome:** the installed `codex-cli 0.161.0` delivers descendant approvals on the root App Server

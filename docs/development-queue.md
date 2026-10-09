@@ -47,6 +47,13 @@ feature has shipped. The order is priority, not a new dependency chain.
 
 ## Additional work
 
+- [Story 103 — Requested Codex subagents](../stories/STORY-20261009-codex-subagents.md) integrates
+  Guarded delegation and cleanup with Story 102's verified Native approval owner. One bounded
+  tracker and one parent broker preserve per-turn approvals and retained cleanup admission.
+- [Story 104 — Machine settings](../stories/STORY-20261008-quiet-arena-settings.md) and
+  [Story 105 — Worktrees during Local turns](../stories/STORY-20261008-create-worktrees-during-turns.md)
+  preserve the incoming gear/settings and exact-checkout concurrency improvements. Their original
+  branch IDs collided with Stories 101 and 102; the stable file paths are unchanged.
 - [Story 102 — Native Codex subagent approvals](../stories/STORY-20261009-codex-subagent-approvals.md)
   is shipped: verified descendants use the parent's permission cards, with scoped cancellation
   and stale-request protection. Offline checks, build, real Native Auto/Agent probes and repeated

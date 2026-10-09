@@ -27,6 +27,7 @@ interface ChildThread {
 /** Per-run ancestry and live turns. Shared provider session IDs never grant membership. */
 export class CodexSubagentThreads {
   private readonly threads = new Map<string, ChildThread>();
+  private overflow = false;
 
   constructor(
     private readonly root: string,
@@ -41,7 +42,25 @@ export class CodexSubagentThreads {
       entry = { known: false, invalid: false, closed: false, verified: false, completed: new Set() };
       this.threads.set(id, entry);
     }
+    if (!entry) this.overflow = true;
     return entry;
+  }
+
+  /** Discovery hints never grant ancestry; thread metadata must verify them. */
+  discover(id: string): boolean { return !!this.entry(id); }
+
+  interrupted(id: string): void {
+    const turn = this.threads.get(id)?.turn;
+    if (turn) this.completed(id, turn);
+  }
+
+  /** Completed/closed children can still own background terminals. */
+  verifiedThreads(): string[] {
+    return [...this.threads].filter(([, entry]) => entry.verified).map(([id]) => id);
+  }
+
+  get cleanupUnverified(): boolean {
+    return this.overflow || [...this.threads.values()].some(entry => !entry.verified);
   }
 
   observe(value: unknown): void {
@@ -63,6 +82,7 @@ export class CodexSubagentThreads {
       if (typeof nickname === 'string') entry.nickname = nickname;
     }
     entry.known = true;
+    this.ancestry(thread.id, true);
     this.changed?.();
   }
 
@@ -89,12 +109,16 @@ export class CodexSubagentThreads {
   }
 
   belongs(id: string): boolean {
+    return this.ancestry(id, false);
+  }
+
+  private ancestry(id: string, teardown: boolean): boolean {
     const seen = new Set<string>();
     while (id !== this.root) {
       if (seen.has(id) || seen.size >= MAX_DEPTH) return false;
       seen.add(id);
       const entry = this.threads.get(id);
-      if (!entry?.known || entry.invalid || entry.closed || !entry.parent) return false;
+      if (!entry?.known || entry.invalid || (!teardown && entry.closed) || !entry.parent) return false;
       id = entry.parent;
     }
     // Remember proven membership for teardown even if later metadata revokes approval eligibility.
@@ -133,7 +157,7 @@ export class CodexSubagentThreads {
     if (seen.has(id) || seen.size >= MAX_DEPTH) return false;
     seen.add(id);
     const entry = this.entry(id);
-    if (!entry || entry.invalid || entry.closed) return false;
+    if (!entry || entry.invalid) return false;
     if (!entry.known) {
       entry.metadata ??= this.read(id).then((value) => {
         const thread = record(record(value)?.thread);
@@ -142,8 +166,9 @@ export class CodexSubagentThreads {
       }).catch(() => { entry.invalid = true; this.changed?.(); });
       await entry.metadata;
     }
-    if (entry.invalid || entry.closed || !entry.parent) return false;
+    if (entry.invalid || !entry.parent) return false;
     await this.verify(entry.parent, seen);
+    this.ancestry(id, true);
     return this.belongs(id);
   }
 }

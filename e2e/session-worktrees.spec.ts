@@ -37,6 +37,67 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
+test('gear launches an independent worktree while the source task waits for approval', async ({ page }) => {
+  const catalog = await (await page.request.get(`${origin}/api/checkouts`)).json() as CheckoutsResponse;
+  const checkoutId = catalog.checkouts.find((checkout) => !checkout.worktree)!.id;
+  const { project } = await (await page.request.post(`${origin}/api/projects`, {
+    data: { name: `Gear worktree ${Date.now()}`, checkoutIds: [checkoutId] },
+  })).json();
+  const { session: sourceSession } = await (await page.request.post(`${origin}/api/sessions`, {
+    data: { provider: 'claude', projectId: project.id },
+  })).json() as { session: PublicSession };
+  const preparedContext = { projectId: project.id, checkoutId, bindingsFingerprint: 'a'.repeat(64) };
+  // The managed-parent/fixed-route transport is simulated. Worktree creation, scheduling and
+  // approvals use the production server; the actual fixed route has a real-Git unit check.
+  await page.route('**/api/codeai-session', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: {
+      available: true, machineId: catalog.hostId, phase: 'idle', checkoutId, checkoutName: 'source',
+    } });
+    const body = route.request().postDataJSON();
+    if (body.action === 'prepare') return route.fulfill({ json: { preparedContext, project } });
+    const response = await page.request.post(`${origin}/api/sessions`, { data: {
+      provider: body.provider, projectId: project.id, checkoutMode: body.checkoutMode,
+      creationRequestId: body.creationRequestId, execution: 'local', instructions: body.instructions,
+    } });
+    return route.fulfill({ status: response.status(), json: await response.json() });
+  });
+  await page.goto(origin);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(sourceSession.id);
+  await conversation.locator('.mode-menu summary').click();
+  await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+  await conversation.locator('textarea').fill('Continue the source task');
+  await conversation.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+  const relatedRuns = async () => (await (await page.request.get(`${origin}/api/agent/runs`)).json()).active;
+  try {
+    await expect(conversation.locator('textarea')).toBeDisabled();
+    await page.locator('.more-menu > summary').click();
+    await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New CodeAI session' });
+    await dialog.getByLabel('Session checkout', { exact: true }).selectOption('worktree');
+    await dialog.getByLabel('Mode', { exact: true }).selectOption('agent');
+    await dialog.getByRole('textbox').fill('Work independently in a new checkout');
+    const created = page.waitForResponse((response) => response.url().endsWith('/api/codeai-session')
+      && response.request().method() === 'POST' && response.request().postDataJSON().action === 'create');
+    await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+    const response = await created; expect(response.status()).toBe(201);
+    const { session } = await response.json() as { session: PublicSession };
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(sourceSession.id);
+    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await expect.poll(relatedRuns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionId: sourceSession.id, state: 'needs-you' }),
+      expect.objectContaining({ sessionId: session.id, state: 'needs-you' }),
+    ]));
+    expect(await readFile(path.join(directory, 'worktrees', session.worktree!.id, 'a.txt'), 'utf8')).toBe('baseline');
+    expect(await readFile(path.join(source, 'a.txt'), 'utf8')).toBe('source human work');
+  } finally {
+    for (const run of await relatedRuns()) await page.request.post(`${origin}/api/agent/cancel`, { data: { runId: run.runId } });
+    await expect.poll(relatedRuns).toEqual([]);
+  }
+});
+
 test('execution and managed checkout choices remain independent in the desktop launcher', async ({ page }) => {
   const catalog = await (await page.request.get(`${origin}/api/checkouts`)).json() as CheckoutsResponse;
   const { session: blocker } = await (await page.request.post(`${origin}/api/sessions`, {

@@ -1,19 +1,20 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdtemp, mkdir, open, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getConfig } from '../src/server/config';
 import { DockerRuntime, saveDockerProvision } from '../src/server/execution/dockerRuntime';
 import { dockerCommand, localDockerEndpoint } from '../src/server/execution/dockerCommand';
-import { providerVolume, validateDockerCheckout } from '../src/server/execution/dockerProfile';
+import { containerSecurity, providerVolume, validateDockerCheckout } from '../src/server/execution/dockerProfile';
 import { CheckoutRegistry } from '../src/server/repository/checkoutRegistry';
-import { createManagedWorktree, readWorktreeRecords } from '../src/server/repository/managedWorktrees';
+import { createManagedWorktree, readWorktreeRecords, reconcileWorktrees } from '../src/server/repository/managedWorktrees';
 import { runGitRead } from '../src/server/repository/gitRead';
 import { TurnCheckpoints } from '../src/server/repository/turnCheckpoints';
-import { getSessionStore } from '../src/server/storage/sessionStore';
+import { atomicWrite, getSessionStore } from '../src/server/storage/sessionStore';
 import { runRegistry } from '../src/server/runs/runRegistry';
 
 const execute = promisify(execFile);
@@ -42,8 +43,32 @@ async function main() {
     const sourceHead = await git('rev-parse', 'HEAD');
     const sourceIndex = await readFile(path.join(source, '.git', 'index'));
     const sourceConfig = await readFile(path.join(source, '.git', 'config'));
-    const checkoutId = (await new CheckoutRegistry(source).list())[0].id;
     await saveDockerProvision(config.dataDir, image);
+    const common = path.join(source, '.git');
+    const savedCommon = path.join(root, 'pinned-original-git');
+    await writeFile(path.join(common, 'pin-proof'), 'original inode');
+    const pinned = await open(common, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const pinVolume = `codeai-git-pin-${runtime.owner}-${randomUUID()}`;
+    let pinContainer: string | undefined;
+    try {
+      await command(['volume', 'create', ...runtime.labels('git-pin'), '--driver', 'local',
+        '--opt', 'type=none', '--opt', 'o=bind,ro', '--opt', `device=/proc/${process.pid}/fd/${pinned.fd}`, pinVolume]);
+      pinContainer = (await command(['create', ...runtime.labels('git'), ...containerSecurity(process.getuid!(), process.getgid!()), '--network', 'none',
+        '--mount', `type=volume,src=${pinVolume},dst=/pinned,readonly,volume-nocopy`,
+        '--entrypoint', '/bin/cat', image, '/pinned/pin-proof'])).trim();
+      await rename(common, savedCommon); await mkdir(common);
+      await writeFile(path.join(common, 'pin-proof'), 'replacement inode');
+      assert.equal((await command(['start', '--attach', pinContainer])).trim(), 'original inode');
+    } finally {
+      if (pinContainer) await runtime.removeContainer(command, pinContainer);
+      await runtime.removeGitPin(command, pinVolume);
+      if (await readFile(path.join(savedCommon, 'pin-proof')).catch(() => undefined)) {
+        await rm(common, { recursive: true, force: true }); await rename(savedCommon, common);
+      }
+      await pinned.close(); await rm(path.join(common, 'pin-proof'));
+    }
+    process.stdout.write('PASS helper common-metadata FD remains pinned across rename/replacement before start\n');
+    const checkoutId = (await new CheckoutRegistry(source).list())[0].id;
     const request = (execution: 'local' | 'docker') => ({ provider: 'codex' as const, execution,
       checkoutId, checkoutMode: 'worktree' as const, creationRequestId: randomUUID() });
     await createManagedWorktree(request('local'), config);
@@ -53,6 +78,31 @@ async function main() {
     const record = records.find((entry) => entry.session.id === docker.id)!;
     const other = records.find((entry) => entry.session.id !== docker.id)!;
     const otherIndex = await readFile(path.join(other.gitDirectory!.path, 'index'));
+    const sourceRun = randomUUID();
+    const newRun = randomUUID();
+    const pendingTask = () => new Promise<void>(() => {});
+    assert.equal(runRegistry.reserve({ runId: sourceRun, sessionId: randomUUID(), participantId: identity.participantId,
+      providerKey: sourceRun, checkoutId, checkoutPath: source, execution: 'local', access: 'write', cancel() {} }).accepted, true);
+    runRegistry.activate(sourceRun, { execute: pendingTask, cancelQueued: async () => {} });
+    try {
+      const next = await createManagedWorktree(request('local'), config);
+      const nextRecord = (await readWorktreeRecords(config.dataDir)).find((entry) => entry.session.id === next.id)!;
+      // A fully materialized retained creation must recover through the same safe helper path.
+      nextRecord.state = 'creating';
+      await atomicWrite(path.join(config.dataDir, 'worktrees', `${nextRecord.request.creationRequestId}.json`), nextRecord);
+      await reconcileWorktrees(config);
+      assert.equal((await readWorktreeRecords(config.dataDir)).find((entry) => entry.session.id === next.id)!.state, 'ready');
+      const checks = new TurnCheckpoints(config.dataDir);
+      const recovery = await checks.capture({ runId: newRun, sessionId: next.id, messageId: randomUUID(),
+        checkoutId: nextRecord.checkoutId, checkoutPath: nextRecord.destination });
+      assert.equal(runRegistry.reserve({ runId: newRun, sessionId: next.id, participantId: next.primaryAgentId,
+        providerKey: newRun, checkoutId: nextRecord.checkoutId, checkoutPath: nextRecord.destination,
+        execution: 'local', access: 'write', cancel() {} }).accepted, true);
+      runRegistry.activate(newRun, { execute: pendingTask, cancelQueued: async () => {} });
+      assert.deepEqual(runRegistry.list().active.map((run) => run.state), ['running', 'running']);
+      await checks.finish(recovery);
+    } finally { runRegistry.finish(sourceRun); runRegistry.finish(newRun); }
+    process.stdout.write('PASS provisioned Local creation/recovery, checkpoint and independent turn alongside a source writer\n');
     const unrelated = path.join(root, 'unrelated'); await mkdir(unrelated);
     await execute('git', ['init', '-q'], { cwd: unrelated });
     worker = await runtime.createWorker({ ...identity, runId: randomUUID() }, { checkout: unrelated, mode: 'ask' });
@@ -63,11 +113,11 @@ async function main() {
     finally { runRegistry.release(runId); await worker.stop(); worker = undefined; }
     worker = await runtime.createWorker({ ...identity, runId: randomUUID() }, { checkout: record.destination, mode: 'ask' });
     try {
-      await assert.rejects(createManagedWorktree(request('local'), config), /Git read/);
+      await createManagedWorktree(request('local'), config);
       assert.equal(runRegistry.acquireMaintenance(), 'live-runs');
     } finally { await worker.stop(); worker = undefined; }
     assert.equal(runRegistry.acquireMaintenance(), 'acquired'); runRegistry.releaseMaintenance();
-    process.stdout.write('PASS creation beside an unrelated real worker, shared-metadata refusal, cleanup and restart admission\n');
+    process.stdout.write('PASS creation beside unrelated and read-only sibling workers, cleanup and restart admission\n');
     assert.equal((await runGitRead(record.destination, ['branch', '--show-current'])).trim(), docker.worktree!.branch);
     const checkpoints = new TurnCheckpoints(config.dataDir);
     const checkpoint = await checkpoints.capture({ runId: randomUUID(), sessionId: docker.id, messageId: randomUUID(),
@@ -92,6 +142,7 @@ async function main() {
         await forbiddenWrite(path.join(record.gitDirectory!.path, 'index'));
         await assert.rejects(exec(['git', '-C', '/workspace', 'branch', 'forbidden-branch']));
       } else {
+        await assert.rejects(createManagedWorktree(request('local'), config), /Git read/);
         await exec(['sh', '-c', 'printf "Docker change\\n" > /workspace/file.txt']);
         assert.match(await runGitRead(record.destination, ['diff', '--no-ext-diff', '--no-textconv']), /Docker change/);
         await exec(['git', '-C', '/workspace', 'add', 'file.txt']);
