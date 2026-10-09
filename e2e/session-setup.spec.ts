@@ -18,6 +18,220 @@ async function openSetup(page: Page, target: DurableProject) {
   return dialog;
 }
 
+test('same-project Arena card opens a background turn that completed before acceptance returned', async ({ page, request }) => {
+  const { project: target } = await project(request);
+  const source = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.goto('/'); await chooseProject(page, target);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  await page.locator('.conversation-drawer textarea').fill('Keep the source draft');
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  // Buffer the real provider response so the accepted run is already retained when launch returns.
+  await page.route('**/api/agent/message', async (route) => route.fulfill({ response: await route.fetch() }));
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+  await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
+  await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+  await dialog.getByLabel('Mode', { exact: true }).selectOption('ask');
+  await dialog.getByRole('textbox').fill('Background Arena completion');
+  await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page).toHaveURL(/\/arena$/);
+  await page.getByRole('button', { name: 'Open Background Arena completion', exact: true }).click();
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(conversation).toContainText('Background Arena completion');
+  await expect(conversation).toContainText('First turn complete.');
+  await expect(conversation.locator('.chat-message.user.sent')).toHaveCount(1);
+  await page.getByRole('tab', { name: new RegExp(source.title) }).click();
+  await expect(conversation.locator('textarea')).toHaveValue('Keep the source draft');
+});
+
+test('same-project background approvals and replies stay connected while another launch queues', async ({ page, request }) => {
+  const { project: target } = await project(request);
+  const source = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.goto('/'); await chooseProject(page, target);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  const launches: PublicSession[] = [];
+  const start = async (text: string, mode: 'ask' | 'agent') => {
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('button', { name: 'New session', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
+    await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+    await dialog.getByLabel('Mode', { exact: true }).selectOption(mode);
+    await dialog.getByRole('textbox').fill(text);
+    const created = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+    launches.push((await (await created).json()).session);
+    await expect(dialog).not.toBeVisible();
+    await page.getByRole('button', { name: `Open ${text}`, exact: true }).click();
+  };
+  try {
+    await start('Background approval connection', 'agent');
+    const conversation = page.getByRole('complementary', { name: 'Conversation' });
+    await expect(conversation).toContainText('Background approval connection');
+    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await start('Background queued connection', 'ask');
+    await expect(conversation).toContainText('Background queued connection');
+    await expect(page.getByRole('tab', { name: /Background approval connection/ })).toHaveClass(/awaiting-approval/);
+    await expect(page.getByRole('tab', { name: /Background queued connection/ })).toHaveClass(/queued/);
+    await page.getByRole('tab', { name: /Background approval connection/ }).click();
+    await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
+    await expect(conversation).toContainText('Edit approved — I applied it.');
+    await page.getByRole('tab', { name: /Background queued connection/ }).click();
+    await expect(conversation).toContainText('First turn complete.');
+    await expect(conversation.locator('.chat-message.user.sent')).toHaveCount(1);
+  } finally {
+    for (const session of launches) {
+      const discovery = await (await request.get(`/api/agent/runs?sessionId=${session.id}`)).json();
+      for (const run of discovery.active) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
+    }
+  }
+});
+
+for (const scope of ['same-project', 'other-project']) test(`${scope} background startup failure replays its retained error without reload`, async ({ page, request }) => {
+  const { project: target } = await project(request);
+  const sourceProject = scope === 'same-project' ? target : (await project(request, `Other ${Date.now()}`, 'beta')).project;
+  const source = (await (await request.post('/api/sessions', { data: { projectId: sourceProject.id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.goto('/'); await chooseProject(page, sourceProject);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  const runId = crypto.randomUUID();
+  const failure = 'The turn checkpoint could not be saved. The agent did not start.';
+  await page.route('**/api/agent/message', async (route) => {
+    const body = route.request().postDataJSON();
+    const saved = (await (await request.get(`/api/sessions/${body.sessionId}`)).json()).session as PublicSession;
+    saved.messages.push({ id: body.messageId, role: 'user', authorId: saved.participants.find((item) => item.kind === 'human')!.id,
+      addressedParticipantId: body.participantId, text: body.text, createdAt: new Date().toISOString(),
+      status: 'failed', delivery: 'not-sent', mode: body.mode, diagramAttachments: [] });
+    const run = { runId, sessionId: saved.id, participantId: body.participantId, mode: body.mode,
+      state: 'finished', enqueuedAt: Date.now(), finishedAt: Date.now(), pendingPermissionCount: 0,
+      pendingPermissions: [], outcome: 'failed', status: failure };
+    await page.route(`**/api/sessions/${saved.id}`, (snapshot) => snapshot.fulfill({ json: { session: saved } }));
+    await page.route(/\/api\/agent\/runs(?:\?.*)?$/, (discovery) => discovery.fulfill({ json: { active: [], recent: [run] } }));
+    await page.route(`**/api/agent/stream?runId=${runId}`, (stream) => stream.fulfill({
+      headers: { 'Content-Type': 'application/x-ndjson', 'X-CodeAI-Replay-Events': '2', 'X-CodeAI-Run-Finished': 'true' },
+      body: [JSON.stringify({ type: 'error', runId, code: 'internal', message: failure, retryable: true, delivery: 'not-sent' }),
+        JSON.stringify({ type: 'done', runId, durationMs: 0, cancelled: false })].join('\n') + '\n',
+    }));
+    await route.fulfill({ headers: { 'X-CodeAI-Run-Id': runId }, body: '' });
+  });
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+  await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
+  await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+  await dialog.getByRole('textbox').fill('Background failed connection');
+  await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole('region', { name: 'Notifications' }).getByRole('button', { name: 'Open session', exact: true }).click();
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await expect(conversation).toContainText('Background failed connection');
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(failure);
+  await expect(conversation.locator('.chat-message.user.failed')).toHaveCount(1);
+});
+
+test('same-project background stream reconnects after a failed attachment when its Arena card reopens', async ({ page, request }) => {
+  const { project: target } = await project(request);
+  const source = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.goto('/'); await chooseProject(page, target);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  let releaseFailure!: () => void;
+  const failure = new Promise<void>((resolve) => { releaseFailure = resolve; });
+  let attachments = 0;
+  await page.route('**/api/agent/stream?runId=*', async (route) => {
+    attachments++;
+    if (attachments === 1) { await failure; await route.abort(); }
+    else await route.continue();
+  });
+  let launched: PublicSession | undefined;
+  try {
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('button', { name: 'New session', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
+    await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+    await dialog.getByLabel('Mode', { exact: true }).selectOption('agent');
+    await dialog.getByRole('textbox').fill('Background stream retry');
+    const created = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+    launched = (await (await created).json()).session;
+    await expect(dialog).not.toBeVisible();
+    await expect.poll(() => attachments).toBe(1);
+    await page.getByRole('button', { name: 'Open Background stream retry', exact: true }).click();
+    const conversation = page.getByRole('complementary', { name: 'Conversation' });
+    await expect(conversation).toContainText('Background stream retry');
+    releaseFailure();
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('Lost the connection to a running turn.');
+    await expect(page.getByRole('tab', { name: /Background stream retry/ })).not.toHaveClass(/working|awaiting-approval/);
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('button', { name: 'Open Background stream retry', exact: true }).click();
+    await expect.poll(() => attachments).toBe(2);
+    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
+    await expect(conversation).toContainText('Edit approved — I applied it.');
+    expect(attachments).toBe(2);
+  } finally {
+    releaseFailure();
+    if (launched) {
+      const discovery = await (await request.get(`/api/agent/runs?sessionId=${launched.id}`)).json();
+      for (const run of discovery.active) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
+    }
+  }
+});
+
+test('opening a completed Arena turn preserves the next agent and mode after a running mode change', async ({ page, request }) => {
+  const { project: target } = await project(request);
+  const session = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.goto('/'); await chooseProject(page, target);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  try {
+    await conversation.getByLabel(/^Mode: /).click();
+    await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+    await conversation.locator('textarea').fill('Completed Arena choices');
+    await conversation.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await conversation.getByLabel(/^Mode: /).click();
+    const changing = page.waitForResponse('**/api/agent/mode');
+    await conversation.getByRole('radio', { name: 'Plan', exact: true }).click();
+    expect((await changing).status()).toBe(200);
+    await expect(conversation.getByRole('button', { name: 'Execute plan', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Completed Arena choices/ })).not.toHaveClass(/working|awaiting-approval/);
+
+    await conversation.locator('.add-agent-menu summary').click();
+    await conversation.getByLabel('Role').selectOption('reviewer');
+    await conversation.getByRole('button', { name: 'Add participant', exact: true }).click();
+    await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+    await conversation.getByLabel(/^Mode: /).click();
+    await conversation.getByRole('radio', { name: 'Ask', exact: true }).click();
+    await conversation.locator('textarea').fill('Keep the next turn draft');
+    let retainedEvents = '';
+    await page.route('**/api/agent/stream?runId=*', async (route) => {
+      const response = await route.fetch();
+      retainedEvents = await response.text();
+      await route.fulfill({ response });
+    });
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    const replay = page.waitForResponse((response) => response.url().includes('/api/agent/stream?runId='));
+    await page.getByRole('button', { name: 'Open Completed Arena choices', exact: true }).click();
+    const stream = await replay;
+    expect(stream.headers()['x-codeai-run-finished']).toBe('true');
+    expect(retainedEvents).toContain('"type":"mode-changed"');
+    // Wait for replay and its final snapshot refresh before checking idle selections.
+    await page.waitForLoadState('networkidle');
+    await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+    await expect(conversation.getByLabel(/^Mode: Ask/)).toBeVisible();
+    await expect(conversation.locator('textarea')).toHaveValue('Keep the next turn draft');
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences') || '{}')))
+      .toMatchObject({ mode: 'ask' });
+    await expect(page.locator('.toast').filter({ hasText: 'Reconnected to' })).toHaveCount(0);
+    await expect(conversation.locator('.chat-message.user')).toHaveCount(1);
+    await expect(conversation.locator('.chat-message.assistant')).toHaveCount(1);
+  } finally {
+    const discovery = await (await request.get(`/api/agent/runs?sessionId=${session.id}`)).json();
+    for (const run of discovery.active) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
+  }
+});
+
 test('a rejected first turn can change mode and model while retaining its created session', async ({ page, request }) => {
   const { project: target } = await project(request);
   await page.route('**/api/health', async (route) => {

@@ -24,6 +24,8 @@ fresh session so the user can begin there. Implementation follows the reviewed s
 - [src/features/session-launch/sessionLaunch.ts:52](../src/features/session-launch/sessionLaunch.ts#L52) — explicit target create/send, immutable UUID retry, canonical delivery reconciliation, and stream detachment.
 - [src/features/session-launch/SessionSetupDialog.tsx:16](../src/features/session-launch/SessionSetupDialog.tsx#L16) — desktop modal, focus, first message, files/images/reports, settings, and recovery actions.
 - [src/features/shell/AppShell.tsx:1667](../src/features/shell/AppShell.tsx#L1667) — navigation guards, source choice preservation, deliberate opening, toasts, gear entry, and shared VR owner.
+- [src/features/shell/AppShell.tsx:1900](../src/features/shell/AppShell.tsx#L1900) — reusable scoped recovery for accepted background turns, live and retained event replay, and independent stream ownership.
+- [e2e/session-setup.spec.ts:21](../e2e/session-setup.spec.ts#L21) — same-project Arena opening, concurrent approvals/queueing, retained errors across projects, and reconnection after a failed attachment.
 - [src/features/shell/immersive/SessionSetup.tsx:27](../src/features/shell/immersive/SessionSetup.tsx#L27) — floating controller setup, paged evidence/settings, existing keyboard/dictation controls, and in-world outcome.
 - [src/features/shell/immersive/ImmersiveWorkspace.tsx:89](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L89) — setup routing, permission suspension, three-second capture, and stale upload handling.
 - [src/app/api/codeai-session/route.ts:20](../src/app/api/codeai-session/route.ts#L20) — personal-device-only managed availability/preparation/creation; server-owned self target.
@@ -371,6 +373,15 @@ Implementation sequence:
 
 ## Acceptance criteria
 
+- [x] October 9 follow-up: opening a background-created session through its Arena card loads
+      canonical messages even when its machine and project are already selected.
+- [x] October 9 follow-up: accepted background turns attach to live or retained run events without
+      changing focus or detaching other turns; first-message progress, approvals, replies, and
+      failures update without reloading.
+- [x] October 9 follow-up: production browser regressions exercise actual Arena-card opening,
+      background approval/completion, completion before opening, and retained startup errors.
+- [x] October 9 review: replaying a completed turn preserves the agent and mode chosen for the
+      next message, including remembered device preferences, and does not announce an active run.
 - [x] Merge review preserves Story 98's scoped worktree admission, project revision validation,
       and executor-specific blocker details in desktop, CodeAI, and VR setup, alongside durable
       creation replay and same-request retries.
@@ -571,3 +582,41 @@ Verification on the combined code:
 - Independent server and client reviews report no remaining critical or high findings.
 
 Physical Quest 3S acceptance and the real-provider/transport checks listed above remain pending.
+
+## Background opening and turn recovery
+
+October 9, 2026: opening a new background session from its Arena card could show no conversation
+when its machine and project were already selected. Arena refreshed its own summary, while the
+conversation cache and run subscriptions retained their previous contents. The toast's Open action
+fetched a snapshot directly and therefore concealed the Arena-card defect in earlier coverage.
+
+Same-project Arena opening now reloads the saved conversation. Accepted background launches invoke
+the existing scoped recovery owner without changing focus or detaching other streams. Recovery
+replays retained turns as well as live work, so a fast completion or startup failure remains visible
+when opened, including across projects. Failed attachments release their reservations for a later
+reopen; overlapping discoveries and local sends keep one presentation owner. Stale project responses,
+individual metadata-read failures, and retained errors superseded by newer messages are guarded.
+Completed replay preserves idle agent/mode choices and device preferences while still reconciling
+replies and failures; only active recovery announces a reconnection.
+
+Verification:
+
+- All **1,442 offline tests** pass. The suite used Local access and Guarded security, with inherited
+  repository root/depth, execution timeout, and concurrency settings removed for its default-setting
+  checks. Its fixtures required access outside the initial sandbox.
+- The production build into `.next-e2e` passes; the running installation was not rebuilt or restarted.
+- All **23 production session-setup browser checks** pass, including six new checks for Arena-card
+  opening after early completion, approval/completion while another launch queues, retained startup
+  errors in the same and another project, reconnection after a failed stream, and preservation of
+  next-turn choices after a retained mode change. The original three
+  checks failed against the prior build; the reconnection check reproduced the stranded reservation
+  before its correction. Both existing desktop themes and narrow setup checks remain covered.
+- Three existing live mode-change checks and the participant-handoff/reload check pass. The latter
+  now attaches its fixture repository explicitly so it can run independently. The new completed-turn
+  regression reproduced the selected-agent reset before the review correction. Its notification
+  assertion was corrected to allow the notification panel to be absent when no notices exist.
+- Independent read-only review prompted stream-reservation, local-send ownership, per-session
+  metadata failure, superseded-error, and completed-replay selection corrections; final review
+  reports no material findings.
+
+Real-provider turns, production attached transport, and physical Quest 3S acceptance were not rerun.

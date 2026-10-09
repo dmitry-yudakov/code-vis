@@ -187,6 +187,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
   const sendingSessions = useRef(new Set<string>());
   const runControllers = useRef(new Map<string, AbortController>());
+  const recoverRuns = useRef<(targetSessionId?: string, runId?: string) => Promise<void>>(async () => undefined);
   const runsBySessionRef = useRef<Record<string, RunPresentation>>({});
   const toolActivityKeyRef = useRef(0);
   const snapshotRef = useRef<CanvasSnapshot | undefined>(undefined);
@@ -406,7 +407,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const current = sessionsRef.current;
     const prior = current.find((item) => item.id === snapshot.id);
     const hydrated = { ...hydrateSession(snapshot, prior, workspace.getView(snapshot.id)), machineId: sourceMachineId };
-    if (sourceMachineId !== machineIdRef.current) return hydrated;
+    if (sourceMachineId !== machineIdRef.current || snapshot.projectId !== projectIdRef.current) return hydrated;
     const next = prior
       ? current.map((item) => item.id === snapshot.id ? hydrated : item)
       : [hydrated, ...current];
@@ -1315,6 +1316,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     let userMessageId = turn.userMessageId;
     let streamRunId = turn.runId;
     let terminalUnreadRecorded = false;
+    // Completed replay restores outcomes, while idle composer choices belong to the next turn.
+    const finishedReplay = turn.recovering && response.headers.get('X-CodeAI-Run-Finished') === 'true';
     const replayHeader = Number.parseInt(response.headers.get('X-CodeAI-Replay-Events') || '0', 10);
     const replayEventCount = turn.recovering && Number.isFinite(replayHeader)
       ? Math.max(0, replayHeader)
@@ -1332,12 +1335,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       ));
       if (event.type === 'mode-changed') {
         turn.mode = event.mode;
-        mutateSession(turn.sessionId, (current) => ({ ...current, defaultMode: event.mode }));
-        updatePreferences((current) => ({ ...current, mode: event.mode }));
+        if (!finishedReplay) {
+          mutateSession(turn.sessionId, (current) => ({ ...current, defaultMode: event.mode }));
+          updatePreferences((current) => ({ ...current, mode: event.mode }));
+        }
       }
       if (event.type === 'run-started') {
         userMessageId ||= event.messageId;
-        mutateSession(turn.sessionId, (current) => ({ ...current, addressedAgentId: event.participantId }));
+        if (!finishedReplay) mutateSession(turn.sessionId, (current) => ({ ...current, addressedAgentId: event.participantId }));
         await refreshSession(turn.sessionId);
       }
       if (event.type === 'permission-request') {
@@ -1672,14 +1677,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     const targetWorkspaceMachineId = targetMachine.machine.id !== localMachineId ? targetMachine.machine.id : undefined;
     workspace.openInProject(target.projectId, target.id, undefined, targetWorkspaceMachineId);
     router.push('/', { scroll: false });
-    if (targetMachine.machine.id === machineId && target.projectId === projectId) return;
+    if (targetMachine.machine.id === machineId && target.projectId === projectId) {
+      void refreshSession(target.id).then((saved) => {
+        if (machineIdRef.current !== targetMachine.machine.id || projectIdRef.current !== target.projectId) return;
+        if (!saved) { notifyError(new Error('Could not load the saved conversation. Reload and try again.'), 'Could not open the session.'); return; }
+        void recoverRuns.current(target.id);
+      });
+      return;
+    }
     selectMachineCatalog(targetMachine);
     setLoading(true);
     setProjectId(target.projectId);
     sessionsRef.current = [];
     setSessions([]);
     setRepositoryTree(undefined);
-  }, [localMachineId, machineId, projectId, router, selectMachineCatalog, workspace.openInProject]);
+  }, [localMachineId, machineId, notifyError, projectId, refreshSession, router, selectMachineCatalog, workspace.openInProject]);
 
   const [launchFocus, setLaunchFocus] = useState<{ sessionId: string; request: string }>();
   const launchNavigation = useRef('');
@@ -1742,6 +1754,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     onResult: (result, settings, autoOpen) => {
       rememberLaunchChoices(result.session, settings);
       void arena.refresh();
+      if (settings.machineId === machineId && result.session.projectId === projectId) {
+        if (result.started) void recoverRuns.current(result.session.id, result.runId);
+        else applyServerSnapshot(result.session, settings.machineId);
+      }
       if (autoOpen) void openLaunchedSession(result.session, settings, launchNavigation.current);
       else announceLaunch(result, settings);
     },
@@ -1889,39 +1905,71 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (loading || !workspace.ready) return;
     const discoveryController = new AbortController();
     const attachmentControllers = new Map<string, AbortController>();
-    void (async () => {
+    const completedRunIds = new Set<string>();
+    const recover = async (targetSessionId?: string, targetRunId?: string) => {
       try {
-        const response = await fetch(apiPath('/api/agent/runs'), {
+        // A targeted launch/open also reloads terminal messages when the retained run has expired.
+        if (targetSessionId) await refreshSession(targetSessionId);
+        if (discoveryController.signal.aborted) return;
+        const query = targetSessionId ? `?sessionId=${encodeURIComponent(targetSessionId)}` : '';
+        const response = await fetch(apiPath(`/api/agent/runs${query}`), {
           cache: 'no-store',
           signal: discoveryController.signal,
         });
         const data = await response.json().catch(() => ({})) as RunDiscovery & { error?: string };
         if (!response.ok) throw new Error(data.error || 'Could not discover running turns.');
+        if (discoveryController.signal.aborted) return;
+        // Acceptance can arrive after a fast failure/completion. Replay that exact run, or the
+        // latest retained turn when deliberately opening a session with no active work.
+        const openedSessionId = targetSessionId ?? focusedSessionIdRef.current;
+        const retained = targetRunId ? data.recent.filter((run) => run.runId === targetRunId)
+          : openedSessionId && !data.active.some((run) => run.sessionId === openedSessionId)
+            ? data.recent.filter((run) => run.sessionId === openedSessionId).slice(-1) : [];
 
         const relevant: Array<{ run: RunDescriptor; session: SessionSnapshot }> = [];
-        for (const run of data.active) {
+        for (const run of [...data.active, ...retained]) {
           // A local send already owns this session's response stream. Never replace its subscriber.
-          if (runsBySessionRef.current[run.sessionId]) continue;
+          if (runsBySessionRef.current[run.sessionId] || sendingSessions.current.has(run.sessionId)
+            || attachmentControllers.has(run.runId) || completedRunIds.has(run.runId)) continue;
+          // Reserve before any await so overlapping launch/open discovery cannot attach twice.
+          const controller = new AbortController();
+          attachmentControllers.set(run.runId, controller);
           let owningSession = sessionsRef.current.find((item) => item.id === run.sessionId);
           if (!owningSession) {
-            const sessionResponse = await fetch(apiPath(`/api/sessions/${encodeURIComponent(run.sessionId)}`), {
-              cache: 'no-store',
-              signal: discoveryController.signal,
-            });
-            const sessionData = await sessionResponse.json().catch(() => ({})) as { session?: PublicSession; error?: string };
-            if (!sessionResponse.ok || !sessionData.session) continue;
-            if (sessionData.session.projectId !== projectId) continue;
-            owningSession = applyServerSnapshot(sessionData.session);
+            try {
+              const sessionResponse = await fetch(apiPath(`/api/sessions/${encodeURIComponent(run.sessionId)}`), {
+                cache: 'no-store', signal: discoveryController.signal,
+              });
+              const sessionData = await sessionResponse.json().catch(() => ({})) as { session?: PublicSession; error?: string };
+              if (discoveryController.signal.aborted) return;
+              if (!sessionResponse.ok || !sessionData.session || sessionData.session.projectId !== projectId) {
+                attachmentControllers.delete(run.runId); continue;
+              }
+              owningSession = applyServerSnapshot(sessionData.session);
+            } catch (error) {
+              attachmentControllers.delete(run.runId);
+              if (!discoveryController.signal.aborted) notifyError(error, 'Could not recover that session.');
+              continue;
+            }
           }
-          if (owningSession.projectId !== projectId) continue;
+          if (owningSession.projectId !== projectId) { attachmentControllers.delete(run.runId); continue; }
           relevant.push({ run, session: owningSession });
         }
 
-        if (relevant.length) notify({ tone: 'info', message: `Reconnected to ${relevant.length} active turn${relevant.length === 1 ? '' : 's'}.` });
+        const activeCount = relevant.filter(({ run }) => run.state !== 'finished').length;
+        if (activeCount) notify({ tone: 'info', message: `Reconnected to ${activeCount} active turn${activeCount === 1 ? '' : 's'}.` });
         await Promise.allSettled(relevant.map(async ({ run, session: owningSession }) => {
           workspace.ensure(run.sessionId);
-          setRunOutcome(run.sessionId);
           const recoveredSession = await refreshSession(run.sessionId) || owningSession;
+          const controller = attachmentControllers.get(run.runId)!;
+          const latestUser = recoveredSession.messages.findLast((message) => message.role === 'user');
+          const superseded = run.state === 'finished' && latestUser
+            && Date.parse(latestUser.createdAt) > (run.finishedAt ?? run.enqueuedAt);
+          if (discoveryController.signal.aborted || runsBySessionRef.current[run.sessionId]
+            || sendingSessions.current.has(run.sessionId) || superseded) {
+            attachmentControllers.delete(run.runId); return;
+          }
+          setRunOutcome(run.sessionId);
           const participant = findAgentParticipant(recoveredSession.participants, run.participantId);
           const acceptedMessage = latestRunUserMessage(recoveredSession.messages, run.participantId);
           const recoveredMode = run.mode || acceptedMessage?.mode || participant?.defaultMode || 'agent';
@@ -1941,9 +1989,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             permissions: [],
             pendingPermissionCount: run.pendingPermissionCount,
           });
-          mutateSession(run.sessionId, (current) => ({ ...current, addressedAgentId: run.participantId }));
-          const controller = new AbortController();
-          attachmentControllers.set(run.runId, controller);
           runControllers.current.set(run.sessionId, controller);
           try {
             const stream = await fetch(apiPath(`/api/agent/stream?runId=${encodeURIComponent(run.runId)}`), {
@@ -1952,13 +1997,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             });
             if (stream.status === 404) return;
             if (!stream.ok) throw new Error('Could not attach to the running turn.');
-            await consumeStream(stream, {
+            if (stream.headers.get('X-CodeAI-Run-Finished') !== 'true') {
+              mutateSession(run.sessionId, (current) => ({ ...current, addressedAgentId: run.participantId }));
+            }
+            const result = await consumeStream(stream, {
               sessionId: run.sessionId,
               runId: run.runId,
               mode: recoveredMode,
               recovering: true,
               userMessageId: acceptedMessage?.id,
             });
+            if (!result.receivedFinal && !result.streamError && stream.headers.get('X-CodeAI-Run-Finished') !== 'true') {
+              throw new Error('The run stream ended before its result.');
+            }
+            completedRunIds.add(run.runId);
           } catch {
             if (!controller.signal.aborted) {
               updateRun(run.sessionId, (current) => ({ ...current, runFailed: true }));
@@ -1972,8 +2024,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               }
             }
           } finally {
-            await refreshSession(run.sessionId);
+            if (!discoveryController.signal.aborted) await refreshSession(run.sessionId);
             removeRun(run.sessionId, run.runId);
+            attachmentControllers.delete(run.runId);
           }
         }));
       } catch (error) {
@@ -1981,8 +2034,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           notifyError(error, 'Could not recover running turns.');
         }
       }
-    })();
+    };
+    recoverRuns.current = recover;
+    void recover();
     return () => {
+      if (recoverRuns.current === recover) recoverRuns.current = async () => undefined;
       discoveryController.abort();
       for (const controller of attachmentControllers.values()) controller.abort();
     };

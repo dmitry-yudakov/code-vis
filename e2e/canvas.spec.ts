@@ -1356,6 +1356,7 @@ test('traces an Agent run without implying progress and shifts to wait for appro
 test('adds a role participant and performs an explicit quick handoff', async ({ page }) => {
   await page.goto('/');
   await startSession(page);
+  await ensureRepository(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const composer = conversation.locator('textarea');
 
