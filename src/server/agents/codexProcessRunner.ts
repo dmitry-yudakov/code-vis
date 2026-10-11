@@ -191,6 +191,8 @@ export class CodexProcessRunner implements AgentProcessRunner {
       let turnStart: Promise<unknown> | undefined;
       let turnRequestSent = false;
       let turnCompleted = false;
+      let turnSucceeded = false;
+      let shutdownKillSent = false;
       let finalText = '';
       let assistantFallback = '';
       let usage: AgentProcessResult['usage'];
@@ -331,7 +333,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         killTimer = setTimeout(() => {
           // Graceful stopping belongs to the SDK/EOF path. Host fallback must not let a
           // launcher's TERM handler replace workers after the last ancestry snapshot either.
-          child.kill('SIGKILL');
+          if (child.kill('SIGKILL')) shutdownKillSent = true;
         }, this.options.killGraceMs ?? 1_500);
       };
       const discover = (id: string) => {
@@ -748,6 +750,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
             }
           }
           const status = typeof turn?.status === 'string' ? turn.status : '';
+          turnSucceeded = status === 'completed';
           if (status === 'failed') {
             const turnError = record(turn?.error);
             log?.(`turn completed failed ${codexErrorKind(turnError?.codexErrorInfo)}: ${sanitizeRunDetail(
@@ -869,8 +872,8 @@ export class CodexProcessRunner implements AgentProcessRunner {
           await stopCapturedProcesses();
         })();
       });
-      child.once('close', async (code) => {
-        log?.(`exit code=${code}${termination ? ` after ${termination}` : ''} (protocol ${protocolBytes}B)`);
+      child.once('close', async (code, signal) => {
+        log?.(`exit code=${code} signal=${signal ?? 'none'}${shutdownKillSent ? ' after forced shutdown' : ''}${termination ? ` after ${termination}` : ''} (protocol ${protocolBytes}B)`);
         input.permissions?.cancelAll();
         for (const approval of [...approvals.values()]) approval.cancel(false);
         for (const waiter of pending.values()) {
@@ -897,7 +900,10 @@ export class CodexProcessRunner implements AgentProcessRunner {
           finish(() => reject(new AgentRunError('timeout', 'Codex exceeded the configured time limit.')));
           return;
         }
-        if (code !== 0 || !turnCompleted) {
+        // The runner's shutdown fallback can kill a slow App Server after it already returned
+        // a successful turn. Preserve that answer only after all cleanup barriers above settle.
+        const stoppedAfterSuccess = turnSucceeded && shutdownKillSent && signal === 'SIGKILL';
+        if (!turnCompleted || (code !== 0 && !stoppedAfterSuccess)) {
           finish(() => reject(classifyCodexFailure(stderr || 'Codex App Server closed early', input.session.action, turnRequestSent ? 'possibly-sent' : 'not-sent')));
           return;
         }

@@ -31,6 +31,7 @@ interface RunOptions {
   effort?: string;
   level?: 'guarded' | 'native';
   execution?: 'local' | 'docker';
+  debug?: boolean;
 }
 
 type RecordedRequest = { method: string; params: Record<string, unknown> };
@@ -51,7 +52,7 @@ describe.sequential('CodexProcessRunner', () => {
     process.env.CODEAI_FAKE_CODEX_RECORD = recordPath;
     const events: AgentProcessEvent[] = [];
     const mode = options.mode || 'ask';
-    const runner = new CodexProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50,
+    const runner = new CodexProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50, debug: options.debug,
       ...(options.execution === 'docker' ? { transport: { spawn: (executable: string, args: string[]) => spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'] }) } } : {}),
     });
     const result = await runner.run({
@@ -681,6 +682,27 @@ describe.sequential('CodexProcessRunner', () => {
     const started = Date.now();
     await expect(run({ timeoutMs: 3_000 })).rejects.toMatchObject({ code: 'oversized-output', message: 'Codex emitted an oversized App Server event.' });
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it.each(['local', 'docker'] as const)('preserves a completed answer after forced %s shutdown', async execution => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'shutdown-completed';
+    const diagnostics = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { result, invocation } = await run({ execution, debug: true });
+      expect(result).toMatchObject({
+        finalText: 'Completed before shutdown.', sessionId: 'codex-thread-new',
+        outputBytes: Buffer.byteLength('Completed before shutdown.'),
+        usage: { inputTokens: 11, outputTokens: 7 },
+      });
+      expect(invocation.requests.filter((request: RecordedRequest) => request.method === 'thread/backgroundTerminals/list')).toHaveLength(2);
+      expect(invocation.requests.some((request: RecordedRequest) => request.method === 'turn/interrupt')).toBe(false);
+      expect(diagnostics.mock.calls.flat().join('\n')).toContain('exit code=null signal=SIGKILL after forced shutdown');
+    } finally { diagnostics.mockRestore(); }
+  });
+
+  it.each(['shutdown-failed', 'shutdown-interrupted', 'shutdown-cleanup-failure', 'shutdown-crash', 'shutdown-external-signal', 'signal-crash'])('keeps %s a failure despite any final text', async fakeMode => {
+    process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+    await expect(run()).rejects.toMatchObject({ code: 'process-failed', delivery: 'possibly-sent' });
   });
 
   it('classifies missing sessions, malformed JSONL, crashes, and ambient integrations', async () => {

@@ -9,7 +9,7 @@ import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
 import type { AgentProcessEvent } from '@/shared/types';
 
-const tree = vi.hoisted(() => ({ failures: 0, root: 'original', afterFailure: 'original', startupFailure: false, captures: 0, lateCapture: false, lateInherited: false, stopped: [] as number[] }));
+const tree = vi.hoisted(() => ({ failures: 0, stopFailures: 0, root: 'original', afterFailure: 'original', startupFailure: false, captures: 0, lateCapture: false, lateInherited: false, stopped: [] as number[] }));
 vi.mock('@/server/agents/processDescendants', async importOriginal => {
   const actual = await importOriginal<typeof import('@/server/agents/processDescendants')>();
   return { ...actual,
@@ -35,6 +35,7 @@ vi.mock('@/server/agents/processDescendants', async importOriginal => {
       return retained;
     }),
     stopDescendantProcesses: vi.fn(async (owned: { pid: number; started: string }[]) => {
+      if (owned.length && tree.stopFailures-- > 0) throw new Error('Transient worker stopping failure');
       tree.stopped.push(...owned.map(process => process.pid));
       if (tree.lateInherited) await actual.stopDescendantProcesses(owned);
     }),
@@ -44,7 +45,7 @@ vi.mock('@/server/agents/processDescendants', async importOriginal => {
 describe('Codex cleanup admission', () => {
   const directories: string[] = [];
   beforeEach(() => {
-    Object.assign(tree, { failures: 0, root: 'original', afterFailure: 'original', startupFailure: false, captures: 0, lateCapture: false, lateInherited: false, stopped: [] });
+    Object.assign(tree, { failures: 0, stopFailures: 0, root: 'original', afterFailure: 'original', startupFailure: false, captures: 0, lateCapture: false, lateInherited: false, stopped: [] });
     vi.stubEnv('CODEAI_FAKE_CODEX_MODE', 'subagent');
   });
   afterEach(async () => {
@@ -105,8 +106,16 @@ describe('Codex cleanup admission', () => {
 
   it('stops a worker captured by SDK cleanup after launcher-exit cleanup finishes', async () => {
     tree.lateCapture = true;
-    await expect(run([])).rejects.toMatchObject({ code: 'process-failed' });
+    await expect(run([])).resolves.toMatchObject({ finalText: 'Parent summary.' });
     expect(tree.stopped).toContain(900999);
+  });
+
+  it('preserves a completed answer after repeated shutdown timers while worker stopping retries', async () => {
+    tree.lateCapture = true; tree.stopFailures = 1;
+    const events: AgentProcessEvent[] = [];
+    await expect(run(events)).resolves.toMatchObject({ finalText: 'Parent summary.' });
+    expect(tree.stopped).toContain(900999);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'activity', tool: 'Stopping Codex' }));
   });
 
   it.skipIf(process.platform !== 'linux')('stops late captured workers before their inherited output can block close', async () => {
@@ -124,7 +133,7 @@ describe('Codex cleanup admission', () => {
         expect(workerPid).toBeGreaterThan(1);
       });
       await vi.waitFor(() => expect(tree.stopped).toContain(workerPid), { timeout: 1000 });
-      expect(await outcome).toMatchObject({ code: 'process-failed' });
+      expect(await outcome).toMatchObject({ finalText: 'Parent summary.' });
     } finally {
       if (workerPid) try { process.kill(workerPid, 'SIGKILL'); } catch {}
       await outcome;

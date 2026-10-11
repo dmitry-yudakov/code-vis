@@ -208,6 +208,8 @@ Updated 2026-10-09. When a story ships, change the line that names it; each stor
   answer; delegated command cleanup includes a Linux process fallback that retains locks while
   termination, ownership or inventory is unconfirmed. Integrated with Story 102; host fallback
   force-stops workers and the launcher after SDK cleanup to avoid TERM-handler replacements.
+  Completed root answers survive the runner's forced shutdown after confirmed cleanup; the
+  October 11 follow-up passes 179 focused checks, TypeScript and independent review.
   All 1,442 offline tests, TypeScript, the isolated production build, real Native/Guarded probes and
   repeated security/lifecycle reviews pass. macOS coverage is simulated; browser, signed-in Docker, attached
   transport and Quest were not rerun. The running app has not been restarted.

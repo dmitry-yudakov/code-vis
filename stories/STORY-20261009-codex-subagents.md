@@ -178,3 +178,58 @@ Host `SIGKILL` fallback covers the launcher as well as captured descendants; SDK
 background-terminal termination, then EOF, remain the graceful path. Linux polling still covers
 observed descendants and cannot contain arbitrary work detached before capture, including through
 a provider-owned graceful signal handler. No operating-system containment guarantee is added.
+
+## Completed-answer shutdown follow-up — October 11, 2026
+
+**Status:** Shipped
+
+The owner reported “Codex App Server exited before returning a complete response.” The affected
+Native Auto thread saved its final answer and task completion at 09:29:40 UTC; CodeAI recorded
+`exit code=null` roughly 1.5 seconds later, matching its launcher shutdown grace period. The
+runner currently rejects every nonzero/null exit even after a completed turn, including its own
+forced shutdown of an App Server that does not exit promptly after EOF.
+
+Preserve a successfully completed root answer when CodeAI's shutdown timer force-stops the
+launcher. Keep cleanup barriers, genuine process failures, cancellation, timeout and provider
+errors authoritative. Record the termination signal in existing debug diagnostics without
+logging raw provider stderr.
+
+### Where the code is
+
+- `src/server/agents/codexProcessRunner.ts:328` — schedules the launcher shutdown fallback.
+- `src/server/agents/codexProcessRunner.ts:875` — classifies exit before returning the answer.
+- `test/fixtures/fake-codex.mjs:564` — EOF fixture behavior.
+- `test/codexProcessRunner.test.ts:687` — completion and process failure regressions.
+- `test/codexProcessCleanup.test.ts:113` — repeated shutdown timer and worker stopping regression.
+
+### Acceptance criteria
+
+- [x] A real fixture process completes its root answer, waits after EOF and is force-stopped;
+      the runner preserves the answer, provider session and usage on Local and Docker transports.
+- [x] A crash or externally signalled exit remains a failure; failed/interrupted turns and
+      cleanup errors cannot become successful responses through the shutdown fallback.
+- [x] Existing debug exit diagnostics include the signal and identify the runner's forced stop.
+- [x] Failure-first regression, focused lifecycle/approval checks, TypeScript and independent
+      review pass; record the verification and any remaining limits.
+
+### How to verify
+
+Run the focused Codex runner, cleanup, approval and process-descendant Vitest suites and
+`npm run lint`. The EOF regression must fail before the runner fix and pass afterwards.
+The running application is not restarted or deployed as part of this fix.
+
+### Verification and limits
+
+Both Local and Docker-style stdio fixture regressions failed with the owner's exact error before
+the runner fix. The independent reviewer identified a repeated-timer race: a second kill attempt
+against an already exited launcher could overwrite the evidence of the first successful forced
+stop. Its delayed-capture/worker-retry regression also failed before the monotonic flag fix.
+Two existing late-worker tests now require the completed parent answer after workers stop.
+
+All **179 focused tests in 13 files**, strict TypeScript and `git diff --check` pass. The final
+independent review reports no remaining actionable findings. Provider completion semantics agree
+with the [official OpenAI App Server documentation](https://learn.chatgpt.com/docs/app-server).
+The historic CodeAI log omitted the signal, so the exact historic termination signal cannot be
+proved; the saved completed answer, shutdown timing and reproduced error identify the matching
+runner failure. No signed-in provider turn, real Docker daemon, build, browser or physical-device
+check was rerun. No saved session record was changed, and the running app was not restarted.

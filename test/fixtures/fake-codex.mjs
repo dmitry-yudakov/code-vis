@@ -328,6 +328,7 @@ while (true) {
   }
   else if (message.method === 'thread/backgroundTerminals/list') {
     if (mode === 'no-subagent-cleanup') error(message.id, -32601, 'Method not found');
+    else if (turnSent && mode === 'shutdown-cleanup-failure') error(message.id, -32000, 'Terminal inventory failed');
     else if (turnSent && message.params.threadId === 'child-thread' && mode === 'subagent-background-close') process.exit(0);
     else result(message.id, { data: turnSent && message.params.threadId === 'child-thread'
       && (mode.startsWith('subagent-background') || mode === 'subagent-mcp') && !(mode === 'subagent-background-exited' && transcript.requests.some(request => request.method === 'thread/backgroundTerminals/terminate'))
@@ -447,6 +448,11 @@ while (true) {
     }
     else if (mode === 'malformed') writeSync(1, '{not-json}\n');
     else if (mode === 'crash') process.exit(2);
+    else if (mode === 'signal-crash') process.kill(process.pid, 'SIGKILL');
+    else if (mode.startsWith('shutdown-')) {
+      emit({ method: 'thread/tokenUsage/updated', params: { threadId, tokenUsage: { total: { inputTokens: 11, outputTokens: 7 } } } });
+      completeTurn('Completed before shutdown.', mode === 'shutdown-failed' ? 'failed' : mode === 'shutdown-interrupted' ? 'interrupted' : 'completed');
+    }
     else if (mode === 'wait') { /* wait for turn/interrupt */ }
     else if (mode === 'long-run') {
       // Command output streams back as notifications: a long turn emits far more than its answer.
@@ -556,3 +562,9 @@ while (true) {
 }
 
 persist();
+// Emulate an App Server whose shutdown work outlives EOF and requires CodeAI's kill fallback.
+if (mode.startsWith('shutdown-')) {
+  if (mode === 'shutdown-crash') process.exit(2);
+  if (mode === 'shutdown-external-signal') process.kill(process.pid, 'SIGKILL');
+  await new Promise(() => setInterval(() => {}, 1_000));
+}
