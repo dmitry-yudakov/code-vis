@@ -4,6 +4,18 @@ A local-first Next.js application for working on a trusted repository through a 
 local-agent conversation and a Mermaid canvas. The repository root **is** the application: one
 private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
+## UI design principles
+
+Prefer a concise, functional UI that makes the next action clear. Avoid walls of text in routine flows.
+
+- Resolve confusion through controls, placement, grouping, and feedback before adding explanation.
+- Put status cues on the control that leads to the relevant action: an update dot on **Machine
+  settings**, for example, with update details inside settings.
+- Use short labels and direct actions. Reveal secondary detail on demand in tooltips, expandable
+  sections, or detail views.
+- Keep essential consequences and error recovery visible and concise. Give icons and status cues
+  accessible names or descriptions; do not rely on color alone.
+
 ## Now
 
 Updated 2026-10-09. When a story ships, change the line that names it; each story file keeps its own
