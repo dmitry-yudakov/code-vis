@@ -116,7 +116,7 @@ test('the gear counts both provider offers and a failed initial read can be retr
   failed = false;
   await rows(page).getByRole('button', { name: 'Check for updates' }).click();
   await expect(gear.locator('.activity-badge.updates')).toHaveText('2');
-  await expect(gear).toHaveAttribute('aria-description', '2 provider updates available');
+  await expect(gear).toHaveAttribute('aria-description', '2 Docker agent updates available');
 });
 
 test('a rollback to an older version asks first, and declining sends nothing', async ({ page }) => {

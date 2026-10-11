@@ -186,6 +186,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .activity-badge { position: absolute; right: 5px; bottom: 6px; min-width: 16px; height: 16px; padding: 0 4px; display: grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--ink-2); font: 700 9px/1 var(--mono); }
 .activity-badge.attention { background: var(--wait); }
 .activity-badge.updates { top: 3px; bottom: auto; background: var(--plot); }
+.settings-update-dot { display: inline-block; width: 6px; height: 6px; margin-left: 8px; border-radius: 50%; vertical-align: middle; background: var(--plot); }
 
 .machine-settings-dialog { width: min(760px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow: hidden; padding: 20px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--shell); }
 .machine-settings-dialog[open] { display: flex; flex-direction: column; }

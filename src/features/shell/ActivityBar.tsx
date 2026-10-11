@@ -26,6 +26,10 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
   onMoreToggle?(event: SyntheticEvent<HTMLDetailsElement>): void;
   onToggleView(view: SideTab): void;
 }) {
+  const updateDescription = updateCount > 0
+    ? `${updateCount} Docker agent update${updateCount === 1 ? '' : 's'} available`
+    : undefined;
+
   return (
     <nav className="activity-bar" aria-label="Views">
       {views.map((view) => {
@@ -66,10 +70,10 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
         {unread > 0 && <span className="activity-badge attention" aria-hidden="true">{unread}</span>}
       </Link>
       <details ref={moreRef} className="more-menu" onToggle={onMoreToggle}>
-        <summary aria-label="More" aria-description={updateCount ? `${updateCount} provider update${updateCount === 1 ? '' : 's'} available` : undefined}
-          title={updateCount ? `More · ${updateCount} provider update${updateCount === 1 ? '' : 's'} available` : 'More'}>
+        <summary aria-label="More" aria-description={updateDescription}
+          title={updateDescription ? `More · ${updateDescription}` : 'More'}>
           <ShellIcon name="more" />
-          {updateCount > 0 && <span className="activity-badge updates" aria-label={`${updateCount} provider update${updateCount === 1 ? '' : 's'} available`}>{updateCount}</span>}
+          {updateDescription && <span className="activity-badge updates" aria-label={updateDescription}>{updateCount}</span>}
         </summary>
         <div>{more}</div>
       </details>

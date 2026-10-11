@@ -1671,6 +1671,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }]));
   const arenaInbox = buildMultiMachineInbox(arena.machines, arena.deviceState);
   const arenaUnread = unreadArenaAttention(arenaInbox);
+  const availableProviderUpdateCount = localExecutionHealth?.docker.enabled && localExecutionHealth.docker.providers.claude.available
+    ? providerUpdateCount : 0;
 
   const openArenaSession = useCallback((targetMachine: ArenaMachineSnapshot, target: ArenaSessionSummary) => {
     if (targetMachine.machine.state !== 'online') return;
@@ -2401,12 +2403,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           changeCount={repositoryTree?.files.length}
           arenaSection={arenaSection}
           unread={arenaUnread.length}
-          updateCount={localExecutionHealth?.docker.enabled && localExecutionHealth.docker.providers.claude.available ? providerUpdateCount : 0}
+          updateCount={availableProviderUpdateCount}
           moreRef={moreMenuRef}
           onMoreToggle={(event) => { if (event.currentTarget.open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
           onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
           more={<>
-            <button type="button" onClick={openMachineSettings}>Machine settings</button>
+            <button type="button" onClick={openMachineSettings}
+              aria-description={availableProviderUpdateCount > 0 ? 'Docker agent updates available' : undefined}>
+              Machine settings
+              {availableProviderUpdateCount > 0 && <span className="settings-update-dot" aria-hidden="true" />}
+            </button>
             {launcher.availabilityError && <button type="button" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</button>}
             {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <button type="button" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
               const source = moreMenuRef.current?.querySelector<HTMLElement>('summary');
