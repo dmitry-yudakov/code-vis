@@ -64,15 +64,15 @@ test('gear launches an independent worktree while the source task waits for appr
   await page.goto(origin);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(sourceSession.id);
-  await conversation.locator('.mode-menu summary').click();
-  await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+  await conversation.locator('.mode-menu > button').click();
+  await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Continue the source task');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
   const relatedRuns = async () => (await (await page.request.get(`${origin}/api/agent/runs`)).json()).active;
   try {
     await expect(conversation.locator('textarea')).toBeDisabled();
-    await page.locator('.more-menu > summary').click();
+    await page.locator('.more-menu > button').click();
     await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New CodeAI session' });
     await dialog.getByLabel('Session checkout', { exact: true }).selectOption('worktree');
@@ -118,7 +118,7 @@ test('execution and managed checkout choices remain independent in the desktop l
   await page.goto(origin); await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: 'No project' }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
-  const form = page.locator('.new-session-menu').getByRole('form', { name: 'Create project session' });
+  const form = page.locator('.desktop-picker-paper:visible').getByRole('form', { name: 'Create project session' });
   await form.getByRole('combobox', { name: 'Repository', exact: true }).selectOption({ label: 'source' });
   await form.getByRole('combobox', { name: 'Session checkout' }).selectOption('worktree');
   for (const execution of ['docker', 'local', 'docker']) {
@@ -171,7 +171,7 @@ for (const theme of ['light', 'dark']) test(`creates and retains a managed workt
   const destination = path.join(directory, 'worktrees', session.worktree!.id);
   expect(await readFile(path.join(destination, 'a.txt'), 'utf8')).toBe('baseline');
   await expect(readFile(path.join(destination, '.env.local'))).rejects.toThrow();
-  await conversation.locator('.mode-menu summary').click(); await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+  await conversation.locator('.mode-menu > button').click(); await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Checkpoint change'); await conversation.getByRole('button', { name: 'Send' }).click();
   await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Checkpoint fixture finished.');
@@ -201,7 +201,7 @@ for (const theme of ['light', 'dark']) test(`creates and retains a managed workt
 test('retries a lost creation response with the same identity and exposes managed binding restrictions', async ({ page }) => {
   await page.goto(origin); await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: 'No project' }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
-  const form = page.locator('.new-session-menu').getByRole('form', { name: 'Create project session' });
+  const form = page.locator('.desktop-picker-paper:visible').getByRole('form', { name: 'Create project session' });
   await form.getByRole('combobox', { name: 'Repository', exact: true }).selectOption({ label: 'source' });
   await form.getByRole('combobox', { name: 'Session checkout' }).selectOption('worktree');
   const payloads: Array<Record<string, unknown>> = []; let saved: PublicSession | undefined;
@@ -212,6 +212,11 @@ test('retries a lost creation response with the same identity and exposes manage
     return route.continue();
   });
   await form.getByRole('button', { name: 'Start session', exact: true }).click();
+  await expect(form.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await expect(form).toBeHidden();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await expect(form.getByRole('combobox', { name: 'Session checkout' })).toHaveValue('worktree');
   await expect(form.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled();
   await form.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(saved!.id);

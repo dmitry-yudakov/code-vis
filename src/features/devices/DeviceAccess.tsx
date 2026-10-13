@@ -1,5 +1,10 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import Paper from '@mui/material/Paper';
+import Alert from '@mui/material/Alert';
+import TextField from '@mui/material/TextField';
+
 import {
   createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode,
 } from 'react';
@@ -75,13 +80,13 @@ export function DeviceAccessGate({ children }: { children: ReactNode }) {
   if (!status) {
     return (
       <main className="device-access-screen">
-        <div className="device-access-card" role="status">
+        <Paper className="device-access-card" sx={{ p: { xs: 3, sm: 5 } }} role="status">
           <div className="brand-mark">C</div>
           <span className="eyebrow">Personal workspace</span>
           <h1>{statusError ? 'CodeAI is unavailable' : 'Opening CodeAI…'}</h1>
           {statusError && <p className="device-access-error">{statusError}</p>}
-          {statusError && <button type="button" onClick={() => void refresh()}>Try again</button>}
-        </div>
+          {statusError && <Button type="button" onClick={() => void refresh()}>Try again</Button>}
+        </Paper>
       </main>
     );
   }
@@ -89,52 +94,39 @@ export function DeviceAccessGate({ children }: { children: ReactNode }) {
   if (status.mode === 'paired' && !status.authenticated) {
     return (
       <main className="device-access-screen">
-        <section className="device-access-card" aria-labelledby="pair-device-title">
+        <Paper component="section" className="device-access-card" sx={{ p: { xs: 3, sm: 5 } }} aria-labelledby="pair-device-title">
           <div className="brand-mark">C</div>
           <span className="eyebrow">{status.hostLabel} · Personal device</span>
           <h1 id="pair-device-title">Pair this device</h1>
           {!status.transportSecure ? (
-            <div className="device-access-warning" role="alert">
+            <Alert severity="warning" className="device-access-warning">
               <strong>Secure transport is not active.</strong>
               <p>Open the exact HTTPS address configured on the home machine and start it with <code>npm run start:remote</code>.</p>
-            </div>
+            </Alert>
           ) : (
             <>
               <p>On {status.hostLabel}, run <code>npm run device:pair</code>. Enter the one-time code it prints; it expires after ten minutes.</p>
               <form onSubmit={(event) => void pair(event)}>
                 <label>
                   Device name
-                  <input
-                    value={label}
-                    maxLength={64}
-                    autoComplete="nickname"
-                    onChange={(event) => setLabel(event.target.value)}
-                    placeholder="Living-room tablet"
-                    required
+                  <TextField
+                    value={label} autoComplete="nickname" onChange={(event) => setLabel(event.target.value)} placeholder="Living-room tablet" required slotProps={{ htmlInput: { "maxLength": 64 } }}
                   />
                 </label>
                 <label>
                   Pairing code
-                  <input
-                    value={code}
-                    maxLength={32}
-                    autoComplete="one-time-code"
-                    autoCapitalize="characters"
-                    spellCheck={false}
-                    onChange={(event) => setCode(event.target.value)}
-                    placeholder="ABCD-EFGH-JKLM-NPQR"
-                    required
-                    autoFocus
+                  <TextField
+                    value={code} autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} onChange={(event) => setCode(event.target.value)} placeholder="ABCD-EFGH-JKLM-NPQR" required autoFocus slotProps={{ htmlInput: { "maxLength": 32 } }}
                   />
                 </label>
-                {pairingError && <p className="device-access-error" role="alert">{pairingError}</p>}
-                <button type="submit" disabled={pairing || !label.trim() || !code.trim()}>
+                {pairingError && <Alert severity="error">{pairingError}</Alert>}
+                <Button type="submit" disabled={pairing || !label.trim() || !code.trim()}>
                   {pairing ? 'Pairing…' : 'Pair device'}
-                </button>
+                </Button>
               </form>
             </>
           )}
-        </section>
+        </Paper>
       </main>
     );
   }

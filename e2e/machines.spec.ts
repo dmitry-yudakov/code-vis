@@ -143,10 +143,10 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   releaseReadiness(); await refreshedHome; delayedHomeReadiness = undefined;
   if (securityLevel === 'native') {
     await expect(conversation.locator('.execution-line')).toContainText('Native');
-    await conversation.locator('.mode-menu summary').click();
-    await expect(conversation.getByRole('radio', { name: 'Accept edits', exact: true })).toBeVisible();
-    await expect(conversation.getByRole('radio', { name: 'Full access', exact: true })).toBeVisible();
-    await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+    await conversation.locator('.mode-menu > button').click();
+    await expect(page.getByRole('radio', { name: 'Accept edits', exact: true })).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Full access', exact: true })).toBeVisible();
+    await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   }
   await conversation.locator('textarea').fill('Answer on the laptop');
   await conversation.getByRole('button', { name: 'Send' }).click();
@@ -167,7 +167,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   await expect(settings.getByRole('checkbox', { name: 'Enable Docker' })).toBeChecked();
   await settings.getByRole('button', { name: 'Close settings' }).click();
   await conversation.getByLabel(/^Execution: /).click();
-  const continuation = conversation.getByRole('menuitem', { name: 'Continue in Docker…', exact: true });
+  const continuation = page.getByRole('menuitem', { name: 'Continue in Docker…', exact: true });
   await expect(continuation).toBeDisabled();
   await expect(continuation).toHaveAccessibleDescription('Docker is disabled on this execution machine.');
   await conversation.getByLabel(/^Execution: /).press('Escape');
@@ -178,9 +178,9 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   await page.goBack();
   if (securityLevel === 'native') {
     await expect(conversation.locator('.execution-line')).toContainText('Native');
-    await conversation.locator('.mode-menu summary').click();
-    await expect(conversation.getByRole('radio', { name: 'Full access', exact: true })).toBeVisible();
-    await conversation.locator('.mode-menu summary').click();
+    await conversation.locator('.mode-menu > button').click();
+    await expect(page.getByRole('radio', { name: 'Full access', exact: true })).toBeVisible();
+    await conversation.locator('.mode-menu > button').click();
   } else await expect(conversation.locator('.execution-line')).not.toContainText('Native');
 
   online = false;

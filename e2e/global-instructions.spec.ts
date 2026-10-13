@@ -28,14 +28,14 @@ async function ask(page: Page, answer: string) {
 async function startSession(page: Page, instructions?: 'Use' | 'Isolate') {
   const tabs = page.getByRole('tab');
   const before = await tabs.count();
-  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu > button').click();
   if (instructions) {
-    await page.locator('.new-session-menu').getByText('Advanced settings', { exact: true }).click();
-    await page.locator('.new-session-menu').getByLabel('Global instructions').selectOption({ label: instructions });
+    await page.locator('.desktop-picker-paper:visible').getByText('Advanced settings', { exact: true }).click();
+    await page.locator('.desktop-picker-paper:visible').getByLabel('Global instructions').selectOption({ label: instructions });
   }
   await page.getByRole('button', { name: 'Start session' }).click();
   await expect(tabs).toHaveCount(before + 1);
-  await expect(page.locator('.new-session-menu[open]')).toHaveCount(0);
+  await expect(page.locator('.new-session-menu > button[aria-expanded="true"]')).toHaveCount(0);
 }
 
 test('shows the global instructions in Machine settings, switches them, and isolates a session', async ({ page, request, baseURL }) => {
@@ -108,9 +108,9 @@ test('shows the global instructions in Machine settings, switches them, and isol
   await expect(line).toHaveText('isolated');
   await expect(line).toHaveAttribute('title', /^This agent runs without your global instructions\./);
   await ask(page, WITHOUT);
-  await page.locator('.new-session-menu > summary').click();
-  await expect(page.locator('.new-session-menu').getByLabel('Global instructions')).toHaveValue('isolated');
-  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu > button').click();
+  await expect(page.locator('.desktop-picker-paper:visible').getByLabel('Global instructions')).toHaveValue('isolated');
+  await page.locator('.new-session-menu > button').click();
 
   // The Arena's form opens at the remembered choice and carries the one made there.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
@@ -155,10 +155,10 @@ test('shows the global instructions in Machine settings, switches them, and isol
   expect((await codexCreated).postDataJSON()).not.toHaveProperty('instructions');
   // Local Codex always loads its own file, and the device still remembers Isolate for the next form.
   await expect(line).toHaveText('global instructions');
-  await page.locator('.new-session-menu > summary').click();
-  await page.locator('.new-session-menu').getByLabel('New session provider').selectOption({ label: 'Claude' });
-  await expect(page.locator('.new-session-menu').getByLabel('Global instructions')).toHaveValue('isolated');
-  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu > button').click();
+  await page.locator('.desktop-picker-paper:visible').getByLabel('New session provider').selectOption({ label: 'Claude' });
+  await expect(page.locator('.desktop-picker-paper:visible').getByLabel('Global instructions')).toHaveValue('isolated');
+  await page.locator('.new-session-menu > button').click();
 
   // Local Codex always loads its own global file, so the server refuses to isolate it.
   const refused = await request.post('/api/sessions', { data: { provider: 'codex', projectId: project.id, instructions: 'isolated' } });

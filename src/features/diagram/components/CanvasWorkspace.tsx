@@ -1,5 +1,9 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
@@ -116,18 +120,18 @@ export function CanvasWorkspace({
     <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
         {target && !image && (
-          <div className="canvas-surface-control" role="group" aria-label="Canvas surface">
-            <button type="button" aria-pressed={surface === 'flat'} onClick={() => onSurfaceChange('flat')}>Flat</button>
-            <button type="button" aria-pressed={surface === 'spatial'} onClick={() => onSurfaceChange('spatial')}>Spatial</button>
-          </div>
+          <ToggleButtonGroup className="canvas-surface-control" value={surface} exclusive size="small" aria-label="Canvas surface">
+            <ToggleButton value="flat" type="button" aria-pressed={surface === 'flat'} onClick={() => onSurfaceChange('flat')}>Flat</ToggleButton>
+            <ToggleButton value="spatial" type="button" aria-pressed={surface === 'spatial'} onClick={() => onSurfaceChange('spatial')}>Spatial</ToggleButton>
+          </ToggleButtonGroup>
         )}
         <div className="canvas-top-actions">
-          {image && <button type="button" onClick={onCloseImage}>Back to canvas</button>}
+          {image && <Button type="button" onClick={onCloseImage}>Back to canvas</Button>}
           {session.previousDiagramId && target && !image && (
-            <button type="button" onClick={() => onSelectDiagram(session.previousDiagramId!)}>← Previous version</button>
+            <Button type="button" onClick={() => onSelectDiagram(session.previousDiagramId!)}>← Previous version</Button>
           )}
-          {target && <button type="button" onClick={onNewSketch}>New sketch</button>}
-          <button type="button" onClick={onToggleFocus}>{focusMode ? 'Exit focus' : 'Focus'}</button>
+          {target && <Button type="button" onClick={onNewSketch}>New sketch</Button>}
+          <Button type="button" onClick={onToggleFocus}>{focusMode ? 'Exit focus' : 'Focus'}</Button>
         </div>
       </div>
 
@@ -169,7 +173,7 @@ export function CanvasWorkspace({
             <p className="eyebrow">Conversational code canvas</p>
             <h1>Start with a question.<br />Or draw what you mean.</h1>
             <p>Claude can read and search this repository, explain it in prose, or create a Mermaid diagram when a visual would help. You can also sketch first and send the drawing as the instruction.</p>
-            <button type="button" className="primary-cta sketch-cta" onClick={onNewSketch}>Start a sketch <span>✎</span></button>
+            <Button variant="contained" type="button" className="primary-cta sketch-cta" onClick={onNewSketch}>Start a sketch <span>✎</span></Button>
             <div className="quick-prompts">
               {[
                 'Map the architecture of this project',
@@ -177,7 +181,7 @@ export function CanvasWorkspace({
                 'Visualize staged changes',
                 'Visualize the last commit',
               ].map((prompt) => (
-                <button type="button" key={prompt} onClick={() => { onComposer(prompt); onOpenChat(); }}>{prompt}<span>↗</span></button>
+                <Button type="button" key={prompt} onClick={() => { onComposer(prompt); onOpenChat(); }}>{prompt}<span>↗</span></Button>
               ))}
             </div>
           </div>

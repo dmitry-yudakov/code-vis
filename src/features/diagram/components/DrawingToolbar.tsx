@@ -1,5 +1,10 @@
 'use client';
 
+import Paper from '@mui/material/Paper';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import IconButton from '@mui/material/IconButton';
+import Button from '@mui/material/Button';
 import type { Ref } from 'react';
 import type { DrawingTool } from '@/shared/types';
 
@@ -27,9 +32,9 @@ export function DrawingToolbar({
   rootRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div ref={rootRef} className="drawing-toolbar" role="toolbar" aria-label="Diagram drawing tools">
-      {TOOLS.map((item) => (
-        <button
+    <Paper ref={rootRef} className="drawing-toolbar" role="toolbar" aria-label="Diagram drawing tools">
+      <ToggleButtonGroup value={tool} exclusive size="small">{TOOLS.map((item) => (
+        <ToggleButton value={item.id} selected={tool === item.id}
           key={item.id}
           type="button"
           className={tool === item.id ? 'active' : ''}
@@ -40,12 +45,12 @@ export function DrawingToolbar({
           onClick={() => onTool(item.id)}
         >
           <span aria-hidden="true">{item.icon}</span>
-        </button>
-      ))}
+        </ToggleButton>
+      ))}</ToggleButtonGroup>
       <span className="tool-separator" />
-      <button type="button" disabled={readOnly || !canUndo} onClick={onUndo} aria-label="Undo drawing">↶</button>
-      <button type="button" disabled={readOnly || !canRedo} onClick={onRedo} aria-label="Redo drawing">↷</button>
-      <button type="button" disabled={readOnly} onClick={onClear} aria-label="Clear all ink">Clear</button>
-    </div>
+      <IconButton type="button" disabled={readOnly || !canUndo} onClick={onUndo} aria-label="Undo drawing">↶</IconButton>
+      <IconButton type="button" disabled={readOnly || !canRedo} onClick={onRedo} aria-label="Redo drawing">↷</IconButton>
+      <Button type="button" disabled={readOnly} onClick={onClear} aria-label="Clear all ink">Clear</Button>
+    </Paper>
   );
 }

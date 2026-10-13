@@ -1,0 +1,31 @@
+{
+  "before": {
+    "chunks": 10,
+    "js": 1212487,
+    "gzip": 343043
+  },
+  "after": {
+    "chunks": 14,
+    "js": 1544168,
+    "gzip": 449938
+  },
+  "delta": {
+    "js": 331681,
+    "gzip": 106895
+  },
+  "baselineCommit": "05cd440721fe9a0f34bfb41e79c8381bfb4f9a57",
+  "fixture": "Fresh 1440x900 Chrome context; empty Claude session in the alpha project; wait for composer and network idle; no scene/diagram activation. Responses under /_next/static ending in .js, summed uncompressed and individually gzip-compressed.",
+  "browser": "155.0.8059.39",
+  "allEmittedChunks": {
+    "before": {
+      "chunks": 109,
+      "js": 15422127,
+      "gzip": 5487414
+    },
+    "after": {
+      "chunks": 114,
+      "js": 15771266,
+      "gzip": 5599277
+    }
+  }
+}

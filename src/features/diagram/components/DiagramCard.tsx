@@ -1,5 +1,9 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import ButtonBase from '@mui/material/ButtonBase';
+import Paper from '@mui/material/Paper';
+
 import { useEffect, useState } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { DiagramArtifact } from '@/shared/types';
@@ -29,20 +33,20 @@ export function DiagramCard({ artifact, active, theme, onSelect }: {
   }, [artifact.id, artifact.source, artifact.status, theme]);
 
   return (
-    <section className={`diagram-card ${active ? 'active' : ''}`}>
-      <button type="button" className="diagram-card-preview" onClick={onSelect}>
+    <Paper component="section" className={`diagram-card ${active ? 'active' : ''}`}>
+      <ButtonBase type="button" className="diagram-card-preview" onClick={onSelect}>
         <span className="diagram-card-label">Diagram {artifact.ordinal}{active ? ' · active' : ''}</span>
         {svg && <span className="diagram-card-svg" data-mermaid-theme={theme} dangerouslySetInnerHTML={{ __html: svg }} />}
         {!svg && !error && artifact.status === 'ready' && <span className="card-loading">Rendering…</span>}
         {(error || artifact.status !== 'ready') && (
           <span className="diagram-card-error">{artifact.error || error || 'Diagram unavailable'}</span>
         )}
-      </button>
+      </ButtonBase>
       <div className="diagram-card-actions">
-        <button type="button" onClick={onSelect}>Open on canvas</button>
-        <button type="button" onClick={() => navigator.clipboard.writeText(artifact.source)}>Copy source</button>
+        <Button type="button" onClick={onSelect}>Open on canvas</Button>
+        <Button type="button" onClick={() => navigator.clipboard.writeText(artifact.source)}>Copy source</Button>
       </div>
       <EvidencePanel evidence={artifact.evidence} />
-    </section>
+    </Paper>
   );
 }

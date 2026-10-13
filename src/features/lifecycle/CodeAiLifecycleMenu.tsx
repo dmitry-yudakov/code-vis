@@ -1,5 +1,9 @@
 'use client';
 
+import Alert from '@mui/material/Alert';
+
+import Button from '@mui/material/Button';
+
 import { lifecycleConfirmation } from './lifecycleFlow';
 import type { CodeAiLifecycleOwner } from './useCodeAiLifecycle';
 
@@ -8,13 +12,13 @@ export function CodeAiLifecycleMenu({ lifecycle, checkoutName }: { lifecycle: Co
   return (
     <section className="lifecycle-menu" aria-label="Build and restart CodeAI">
       {lifecycle.confirming ? <>
-        <p className="lifecycle-warning" role="alert">{lifecycleConfirmation(checkoutName)}</p>
+        <Alert severity="warning">{lifecycleConfirmation(checkoutName)}</Alert>
         <div className="lifecycle-actions">
-          <button type="button" className="lifecycle-confirm" onClick={lifecycle.confirm}>Build and restart</button>
-          <button type="button" onClick={lifecycle.dismiss}>Cancel</button>
+          <Button type="button" color="warning" variant="contained" onClick={lifecycle.confirm}>Build and restart</Button>
+          <Button type="button" onClick={lifecycle.dismiss}>Cancel</Button>
         </div>
       </> : (
-        <button type="button" disabled={!lifecycle.canRequest} onClick={lifecycle.ask}>Build &amp; restart CodeAI</button>
+        <Button type="button" disabled={!lifecycle.canRequest} onClick={lifecycle.ask}>Build &amp; restart CodeAI</Button>
       )}
       {lifecycle.status && <p role="status">{lifecycle.status}</p>}
     </section>

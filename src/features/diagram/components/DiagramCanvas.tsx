@@ -1,5 +1,9 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import Paper from '@mui/material/Paper';
+import IconButton from '@mui/material/IconButton';
+
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { CanvasTarget, DrawingMark, DrawingTool, Point } from '@/shared/types';
@@ -350,7 +354,7 @@ export function DiagramCanvas({
       <div className="diagram-error-state">
         <div><strong>Diagram unavailable</strong><p>{artifact.error || renderError}</p></div>
         <pre>{artifact.source}</pre>
-        <button type="button" onClick={() => navigator.clipboard.writeText(artifact.source)}>Copy Mermaid source</button>
+        <Button type="button" onClick={() => navigator.clipboard.writeText(artifact.source)}>Copy Mermaid source</Button>
       </div>
     );
   }
@@ -400,34 +404,28 @@ export function DiagramCanvas({
           </div>
         )}
       </div>
-      <div ref={controlsRef} className="canvas-controls" aria-label="Canvas view controls">
-        <button type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom((value) => Math.max(0.08, value / 1.2)); }} aria-label="Zoom out">−</button>
+      <Paper ref={controlsRef} className="canvas-controls" aria-label="Canvas view controls">
+        <IconButton type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom((value) => Math.max(0.08, value / 1.2)); }} aria-label="Zoom out">−</IconButton>
         <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom((value) => Math.min(8, value * 1.2)); }} aria-label="Zoom in">+</button>
-        <button type="button" onClick={fit}>Fit</button>
-        <button type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
+        <IconButton type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom((value) => Math.min(8, value * 1.2)); }} aria-label="Zoom in">+</IconButton>
+        <Button type="button" onClick={fit}>Fit</Button>
+        <Button type="button" onClick={() => { viewIsFittedRef.current = false; setFitted(false); setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</Button>
         {/* Everything past the rule downloads a file. `.mmd` and `JSON` named the format rather
             than what they save, and sat in the same row as the view controls. */}
         <span className="control-separator" aria-hidden="true" />
         {artifact && (
-          <button
-            type="button"
-            className="control-download"
-            title="Download the Mermaid source (.mmd)"
-            onClick={() => download(`diagram-${artifact.ordinal}.mmd`, artifact.source, 'text/plain')}
-          >Source</button>
+          <Button
+            type="button" className="control-download" title="Download the Mermaid source (.mmd)" onClick={() => download(`diagram-${artifact.ordinal}.mmd`, artifact.source, 'text/plain')}
+          >Source</Button>
         )}
-        <button
-          type="button"
-          className="control-download"
-          title="Download this canvas and its marks (.json)"
-          onClick={() => download(
+        <Button
+          type="button" className="control-download" title="Download this canvas and its marks (.json)" onClick={() => download(
             `${target.kind}-${artifact?.ordinal ?? sketch?.ordinal ?? image?.id}-marks.json`,
             JSON.stringify({ version: 1, ...target, marks: state.marks, viewBox: snapshot?.viewBox }, null, 2),
             'application/json',
           )}
-        >Marks</button>
-      </div>
+        >Marks</Button>
+      </Paper>
     </div>
   );
 }

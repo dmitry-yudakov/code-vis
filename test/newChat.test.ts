@@ -44,6 +44,6 @@ describe('conversation New chat', () => {
     { running: true }, { continuing: true }, { participantBusy: true },
     { recovery: { busy: true } as Props['recovery'] }, { session: undefined }, { activeAgent: undefined },
   ])('disables the action when the current chat cannot be replaced: %j', (overrides) => {
-    expect(header(overrides)).toMatch(/<button[^>]*aria-label="New chat"[^>]*disabled=""/);
+    expect(header(overrides)).toMatch(/<button(?=[^>]*aria-label="New chat")(?=[^>]*disabled="")[^>]*>/);
   });
 });

@@ -60,7 +60,7 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const attach = conversation.getByLabel('Attach', { exact: true });
   await attach.click();
-  await conversation.getByRole('menu', { name: 'Attach to the next instruction' }).getByRole('menuitem', { name: 'Headset report…' }).click();
+  await page.getByRole('menu', { name: 'Attach to the next instruction' }).getByRole('menuitem', { name: 'Headset report…' }).click();
   const sidePanel = page.locator('.repository-sidebar');
   const views = page.getByRole('navigation', { name: 'Views' });
   await expect(page.getByRole('complementary', { name: 'CodeAI reports' })).toBeVisible();
@@ -131,7 +131,7 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   await expect(views.getByRole('button', { name: 'History', exact: true })).toBeVisible();
   await expect(views.getByRole('button', { name: 'Reports', exact: true })).toHaveCount(0);
   await attach.click();
-  const attachMenu = conversation.getByRole('menu', { name: 'Attach to the next instruction' });
+  const attachMenu = page.getByRole('menu', { name: 'Attach to the next instruction' });
   await expect(attachMenu.getByRole('menuitem', { name: 'New sketch' })).toBeVisible();
   await expect(attachMenu.getByRole('menuitem', { name: 'Headset report…' })).toHaveCount(0);
 });

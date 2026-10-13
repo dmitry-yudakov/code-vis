@@ -14,6 +14,8 @@ next-env.d.ts
 coverage/
 test-results/
 playwright-report/
+# Reviewed desktop screenshot references are generated locally, not committed.
+/e2e/mui-desktop.spec.ts-snapshots/
 
 # Local environment and provider credentials — never commit these.
 .env

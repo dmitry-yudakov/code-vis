@@ -61,7 +61,7 @@ test('gates paired mode, enters with a one-time code, manages the device, and si
   await page.getByRole('button', { name: 'Pair device' }).click();
 
   await expect(page.getByRole('heading', { name: 'Arena', exact: true })).toBeVisible();
-  await page.locator('.device-menu > summary').click();
+  await page.locator('.device-menu > button').click();
   await expect(page.getByText('Kitchen tablet · This device')).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Pair this device' })).toBeVisible();

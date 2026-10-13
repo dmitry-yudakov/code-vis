@@ -1,5 +1,7 @@
 'use client';
 
+import IconButton from '@mui/material/IconButton';
+
 import { useEffect, type ReactNode } from 'react';
 
 import { RepositoryChangesView } from './RepositoryChangesView';
@@ -38,7 +40,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
       reports={reports}
       open={open}
       tab={tab}
-      actions={<button className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh Git status" disabled={changes.loading} onClick={changes.refresh}>↻</button>}
+      actions={<IconButton className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh Git status" disabled={changes.loading} onClick={changes.refresh}>↻</IconButton>}
       inspector={checkoutId && changes.selectedFile ? (
         <RepositoryDiffInspector
           file={changes.selectedFile}

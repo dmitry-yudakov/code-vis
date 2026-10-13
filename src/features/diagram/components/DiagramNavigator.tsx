@@ -1,5 +1,9 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import Paper from '@mui/material/Paper';
+import ButtonBase from '@mui/material/ButtonBase';
+
 import type { ThemeName } from '@/shared/design/tokens';
 import type { SessionSnapshot, DiagramArtifact } from '@/shared/types';
 import { getArtifacts, getSketches } from '@/features/conversation/sessionStore';
@@ -59,8 +63,8 @@ export function DiagramNavigator({
   return (
     <div className="navigator-list">
       {entries.map((entry) => (
-        <div className={`navigator-item ${session.activeDiagramId === entry.id ? 'active' : ''}`} key={entry.id}>
-          <button type="button" className="navigator-select" onClick={() => onSelect(entry.id)}>
+        <Paper className={`navigator-item ${session.activeDiagramId === entry.id ? 'active' : ''}`} key={entry.id}>
+          <ButtonBase type="button" className="navigator-select" onClick={() => onSelect(entry.id)}>
             <CanvasThumbnail
               artifact={entry.artifact}
               sketch={entry.sketch}
@@ -69,13 +73,13 @@ export function DiagramNavigator({
               fallback={entry.badge}
             />
             <span><strong>{entry.title}</strong><small>{formatCreated(entry.createdAt)}</small></span>
-          </button>
+          </ButtonBase>
           {entry.lineage && <div className="lineage">{entry.lineage}</div>}
           <div className="navigator-actions">
-            <button type="button" onClick={() => onPin(entry.id)}>{session.pinnedDiagramIds.includes(entry.id) ? 'Unpin' : 'Pin'}</button>
-            <button type="button" onClick={() => onToggleAttachment(entry.id)}>{pendingAttachmentIds.includes(entry.id) ? 'Remove attachment' : 'Attach next'}</button>
+            <Button type="button" onClick={() => onPin(entry.id)}>{session.pinnedDiagramIds.includes(entry.id) ? 'Unpin' : 'Pin'}</Button>
+            <Button type="button" onClick={() => onToggleAttachment(entry.id)}>{pendingAttachmentIds.includes(entry.id) ? 'Remove attachment' : 'Attach next'}</Button>
           </div>
-        </div>
+        </Paper>
       ))}
       {!entries.length && <p>No diagrams or sketches yet.</p>}
     </div>

@@ -1,6 +1,6 @@
 # CodeAI development queue
 
-**Updated:** October 9, 2026
+**Updated:** October 13, 2026
 
 This is the near-term queue for agent sessions: recovery first, a focused acceptance pass, title-bar
 tabs, then the first software-model producer and its persistence follow-up. The order comes from the October 1 development
@@ -47,6 +47,10 @@ feature has shipped. The order is priority, not a new dependency chain.
 
 ## Additional work
 
+- [Story 106 — MUI desktop controls and panels](../stories/STORY-20261013-mui-desktop-ui.md)
+  is shipped across all four stages with one shared theme, preserved workflow/layout contracts,
+  84 reviewed visual baselines, full offline and desktop browser checks, available spatial/XR checks,
+  and two independent implementation reviews. No queue priority was changed.
 - [Story 103 — Requested Codex subagents](../stories/STORY-20261009-codex-subagents.md) integrates
   Guarded delegation and cleanup with Story 102's verified Native approval owner. One bounded
   tracker and one parent broker preserve per-turn approvals and retained cleanup admission.

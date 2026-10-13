@@ -59,7 +59,7 @@ for (const [when, failed] of [['the first read after starting', 0], ['a later po
       await route.fulfill(started ? polls[Math.min(read++, polls.length - 1)] : { status: 200, json: BEFORE });
     });
     await page.goto('/arena');
-    const gear = page.locator('.more-menu > summary');
+    const gear = page.locator('.more-menu > button');
     await expect(gear.locator('.activity-badge.updates')).toHaveText('1');
     const settings = await openMachineSettings(page);
     await expect(rows(page)).toContainText('Claude2.1.2262.1.280 available');
@@ -109,7 +109,7 @@ test('the gear counts both provider offers and a failed initial read can be retr
     } });
   });
   await page.goto('/arena');
-  const gear = page.locator('.more-menu > summary');
+  const gear = page.locator('.more-menu > button');
   await expect(gear.locator('.activity-badge.updates')).toHaveCount(0);
   await openMachineSettings(page);
   await expect(rows(page).getByRole('alert')).toHaveText(FAILED_READ.json.error);

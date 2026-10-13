@@ -1,5 +1,8 @@
 'use client';
 
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import IconButton from '@mui/material/IconButton';
 import { useEffect, useRef } from 'react';
 import type { RunState, SessionSnapshot } from '@/shared/types';
 
@@ -38,22 +41,27 @@ export function WorkspaceTabs({
   const focusedSession = openSessions.find((session) => session.id === focusedSessionId);
   const focusedLive = Boolean(focusedSession && runsBySession[focusedSession.id]);
 
+
+  // MUI owns selection scrolling. Its scrollButtons=false mode needs help only when the
+  // clipping viewport changes size without changing the selected tab's own geometry.
   useEffect(() => {
-    const tablist = tablistRef.current;
-    if (!tablist) return;
-    const revealFocused = () => {
+    const scroller = tablistRef.current;
+    if (!scroller) return;
+    let width = scroller.clientWidth;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = scroller.clientWidth;
+      if (nextWidth === width) return;
+      width = nextWidth;
       const tab = focusedSessionId && tabRefs.current.get(focusedSessionId);
       if (!tab) return;
-      const bounds = tablist.getBoundingClientRect();
+      const bounds = scroller.getBoundingClientRect();
       const selected = tab.getBoundingClientRect();
-      if (selected.left < bounds.left) tablist.scrollLeft += selected.left - bounds.left;
-      else if (selected.right > bounds.right) tablist.scrollLeft += selected.right - bounds.right;
-    };
-    revealFocused();
-    const observer = new ResizeObserver(revealFocused);
-    observer.observe(tablist);
+      if (selected.left < bounds.left) scroller.scrollLeft += selected.left - bounds.left;
+      else if (selected.right > bounds.right) scroller.scrollLeft += selected.right - bounds.right;
+    });
+    observer.observe(scroller);
     return () => observer.disconnect();
-  }, [focusedSessionId, focusedSession?.title, openSessionIds]);
+  }, [focusedSessionId]);
 
   function closeView(id: string) {
     if (runsBySession[id]) return;
@@ -69,8 +77,10 @@ export function WorkspaceTabs({
   if (!openSessions.length) return null;
 
   return (
-    <div className="workspace-tabs">
-      <div className="workspace-tablist" role="tablist" aria-label="Open session views" ref={tablistRef}>
+    <div className="workspace-tabs" style={{ maxWidth: openSessions.length * 180 + 34 }}>
+      <Tabs className="workspace-tablist" aria-label="Open session views" value={focusedSessionId ?? false}
+        variant="scrollable" scrollButtons={false} slotProps={{ scroller: { ref: tablistRef, style: { containerType: 'inline-size' } } }}
+        onChange={(_, id: string) => onFocus(id)}>
         {openSessions.map((session, index) => {
           const selected = session.id === focusedSessionId;
           const run = runsBySession[session.id];
@@ -79,9 +89,10 @@ export function WorkspaceTabs({
           const needsYou = run?.state === 'needs-you';
           const unread = unreadBySession[session.id] || 0;
           return (
-            <button
+            <Tab component="button"
+              sx={{ width: 180, maxWidth: 'min(180px, 100cqw)', flex: '0 0 180px', flexDirection: 'row' }}
+              value={session.id}
               type="button"
-              role="tab"
               className={`workspace-tab ${selected ? 'active' : ''} ${running ? 'working' : ''} ${queued ? 'queued' : ''} ${needsYou ? 'awaiting-approval' : ''}`.trim()}
               key={session.id}
               ref={(node) => {
@@ -93,7 +104,6 @@ export function WorkspaceTabs({
               tabIndex={selected ? 0 : -1}
               aria-label={`${session.title}${run ? ` — ${run.status}` : ''}`}
               title={run ? `${session.title} — ${run.status}` : session.title}
-              onClick={() => onFocus(session.id)}
               onKeyDown={(event) => {
                 if (event.key === 'Delete' && !run) {
                   event.preventDefault();
@@ -103,22 +113,24 @@ export function WorkspaceTabs({
                 const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
                 if (!direction) return;
                 event.preventDefault();
+                event.stopPropagation();
                 const next = openSessions[(index + direction + openSessions.length) % openSessions.length];
                 onFocus(next.id);
                 tabRefs.current.get(next.id)?.focus();
               }}
-            >
+              label={<>
               <span className="workspace-tab-state" aria-hidden="true" />
               <span>{session.title}</span>
               {queued && <span className="queue-badge">Q{run.queuePosition || 1}</span>}
               {needsYou && run.pendingApprovals > 0 && <span className="approval-badge">{run.pendingApprovals}</span>}
               {unread > 0 && <span className="unread-badge">{unread}</span>}
-            </button>
+              </>}
+            />
           );
         })}
-      </div>
+      </Tabs>
       {focusedSession && (
-        <button
+        <IconButton
           type="button"
           className="workspace-tab-close"
           disabled={focusedLive}
@@ -127,7 +139,7 @@ export function WorkspaceTabs({
             : `Close ${focusedSession.title} view`}
           title={focusedLive ? 'This view stays open until its turn finishes' : 'Close focused view'}
           onClick={() => closeView(focusedSession.id)}
-        >×</button>
+        >×</IconButton>
       )}
     </div>
   );

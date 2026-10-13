@@ -14,15 +14,16 @@ test.afterEach(async ({ request }) => {
 });
 
 async function startSession(page: Page) {
+  await expect(page.locator('.new-session-menu > button')).toBeVisible();
   const openViews = page.getByRole('tab');
   const before = await openViews.count();
   // Toasts sit under the header's menus, so none can cover Start session.
-  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu > button').click();
   await page.getByRole('button', { name: 'Start session' }).click();
   await expect(openViews).toHaveCount(before + 1);
   // The conversation is already open, so its composer can be typed into before the new session
   // replaces the old one. The menu closes once creation has been applied.
-  await expect(page.locator('.new-session-menu[open]')).toHaveCount(0);
+  await expect(page.locator('.new-session-menu > button[aria-expanded="true"]')).toHaveCount(0);
 }
 
 /** A toast in the Notifications stack, found by its text. */
@@ -69,8 +70,9 @@ function modePicker(scope: Page | Locator) {
 }
 
 async function chooseMode(scope: Page | Locator, name: 'Ask' | 'Plan' | 'Agent' | 'Auto') {
+  const page = 'page' in scope ? scope.page() : scope;
   await modePicker(scope).click();
-  await scope.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio', { name, exact: true }).click();
+  await page.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio', { name, exact: true }).click();
   await expect(modePicker(scope)).toHaveText(name);
 }
 
@@ -86,9 +88,9 @@ function activityView(page: Page, name: 'Changes' | 'History' | 'Reports') {
 /** Theme and export live in More, the activity bar's gear, which stays open until toggled again. */
 async function fromMoreMenu(page: Page, name: string) {
   const menu = page.locator('.more-menu');
-  await menu.locator('summary').click();
-  await menu.getByRole('button', { name, exact: true }).click();
-  await menu.locator('summary').click();
+  await menu.locator(':scope > button').click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name, exact: true }).click();
+  await menu.locator(':scope > button').click();
 }
 
 /** The side panel starts closed unless the session has no repository yet. */
@@ -101,7 +103,8 @@ async function attachRepository(page: Page, name: string) {
   await openRepositoryPanel(page);
   const manager = page.getByRole('region', { name: 'Session repositories' });
   // A single repository collapses the manager; attaching another starts by opening it.
-  if (!await manager.locator('details').evaluate((details: HTMLDetailsElement) => details.open)) await manager.locator('summary').click();
+  const disclosure = manager.getByRole('button', { name: /^Session repositories/ });
+  if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
   await manager.getByRole('combobox', { name: 'Repository to add' }).selectOption({ label: name });
   await manager.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(manager.locator('.repository-binding').filter({ hasText: name })).toHaveCount(1);
@@ -579,7 +582,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
 
 test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.new-session-menu > summary')).toBeVisible();
+  await expect(page.locator('.new-session-menu > button')).toBeVisible();
   const initiallyOpen = page.locator('.workspace-tab-close');
   while (await initiallyOpen.count()) await initiallyOpen.first().click();
   await startSession(page);
@@ -825,10 +828,10 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   // Starting from the overview chooses project/provider/mode, opens the resulting view, and does
   // not itself start a provider run.
   await arena.getByRole('button', { name: 'New session' }).click();
-  const create = arena.getByRole('region', { name: 'Create session' });
+  const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await create.getByLabel('Project').selectOption({ label: betaProject });
   await create.getByLabel('Provider').selectOption('claude');
-  await create.getByRole('radio', { name: 'Plan' }).click();
+  await create.getByLabel('Mode', { exact: true }).selectOption('plan');
   await create.getByRole('button', { name: 'Create and open' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
@@ -864,8 +867,8 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   const card = project.locator('.arena-card');
   await expect(card).toHaveCount(1);
 
-  await card.locator('.arena-card-menu summary').click();
-  await card.getByRole('button', { name: 'Archive session' }).click();
+  await card.locator('.arena-card-menu > button').click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session' }).click();
   await expect(project).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   expect(dialogs).toEqual([]);
@@ -923,19 +926,19 @@ test('archives the open session from the More menu', async ({ page, request }) =
   page.on('request', (sent) => { if (sent.method() === 'POST' && sent.url().endsWith('/archive')) archiveRequests.push(sent.url()); });
 
   const menu = page.locator('.more-menu');
-  const archive = menu.getByRole('button', { name: 'Archive session', exact: true });
+  const archive = page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session', exact: true });
   await ensureRepository(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Wait for reload cancellation.');
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.workspace-tab.active')).toHaveClass(/working/);
-  await menu.locator('summary').click();
+  await menu.locator(':scope > button').click();
   await expect(archive).toBeDisabled();
-  await menu.locator('summary').click();
+  await menu.locator(':scope > button').click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(toast(page, 'cancelled')).toHaveAttribute('data-tone', 'info');
 
-  await menu.locator('summary').click();
+  await menu.locator(':scope > button').click();
   await expect(archive).toBeEnabled();
   expect(archiveRequests).toEqual([]);
   await expect(page.getByRole('tab')).toHaveCount(2);
@@ -946,9 +949,9 @@ test('archives the open session from the More menu', async ({ page, request }) =
   await page.route('**/api/sessions/*/archive', async (route) => { await archiveHeld; await route.continue(); });
   await archive.click();
   await expect(menu).not.toHaveAttribute('open');
-  await menu.locator('summary').click();
+  await menu.locator(':scope > button').click();
   await expect(archive).toBeDisabled();
-  await menu.locator('summary').click();
+  await menu.locator(':scope > button').click();
   releaseArchive();
   await expect(page.getByRole('tab')).toHaveCount(1);
   expect(dialogs).toEqual([]);
@@ -1024,9 +1027,9 @@ test('stacks notices as toasts in the canvas corner and lets only what can wait 
   await expect(failure).toHaveAttribute('data-tone', 'error');
   // On a phone the stack rises above the panel overlays, and the header's menus above the stack.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu > button').click();
   await page.getByRole('button', { name: 'Start session' }).click({ trial: true });
-  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu > button').click();
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.clock.fastForward(60_000);
   await settle();
@@ -1036,8 +1039,8 @@ test('stacks notices as toasts in the canvas corner and lets only what can wait 
 
   // Undo archive turns into the restored toast, which leaves 6 s later once the pointer is away.
   const menu = page.locator('.more-menu');
-  await menu.locator('summary').click();
-  await menu.getByRole('button', { name: 'Archive session', exact: true }).click();
+  await menu.locator(':scope > button').click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session', exact: true }).click();
   const archived = toast(page, /^Archived “/);
   await expect(archived).toHaveAttribute('data-tone', 'success');
   expect(dialogs).toEqual([]);
@@ -1207,7 +1210,7 @@ test('preserves device views when the session catalog request fails', async ({ p
     });
   });
   await page.reload();
-  await expect(page.getByRole('alert').filter({ hasText: 'Temporary catalog failure' })).toHaveClass('toast');
+  await expect(page.getByRole('alert').filter({ hasText: 'Temporary catalog failure' })).toHaveClass(/\btoast\b/);
   await expect(page.getByRole('button', { name: 'Continue in new session' })).toHaveCount(0);
   const after = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
   expect(JSON.parse(after!)).toEqual(JSON.parse(before!));
@@ -1335,6 +1338,7 @@ test('recovers a host-wide run in its canonical project scope', async ({ page })
 test('traces an Agent run without implying progress and shifts to wait for approval', async ({ page }) => {
   await page.goto('/');
   await startSession(page);
+  await ensureRepository(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await chooseMode(conversation, 'Agent');
 
@@ -1364,8 +1368,8 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(conversation.locator('.chat-message.assistant')).toBeVisible();
 
-  await conversation.locator('.add-agent-menu summary').click();
-  const addAgentPanel = conversation.locator('.add-agent-menu > div');
+  await conversation.locator('.add-agent-menu > button').click();
+  const addAgentPanel = page.locator('.desktop-picker-paper:visible');
   await expect(addAgentPanel).toBeVisible();
   const [drawerBox, addAgentPanelBox] = await Promise.all([
     conversation.boundingBox(),
@@ -1377,8 +1381,8 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   expect(addAgentPanelBox!.x + addAgentPanelBox!.width).toBeLessThanOrEqual(
     drawerBox!.x + drawerBox!.width,
   );
-  await conversation.getByLabel('Role').selectOption('reviewer');
-  await conversation.getByRole('button', { name: 'Add participant' }).click();
+  await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant' }).click();
   await expect(addAgentPanel).toBeHidden();
   await expect(conversation.locator('.participant-chip')).toHaveCount(2);
   await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
@@ -1416,12 +1420,13 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
 test('sends each agent\'s own model and effort, keeps them across a reload, and fits a phone', async ({ page }) => {
   await page.goto('/');
   await startSession(page);
+  await ensureRepository(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const composer = conversation.locator('textarea');
   const menu = conversation.locator('.model-menu');
-  const summary = menu.locator('summary');
-  const models = menu.getByRole('radiogroup', { name: 'Model' });
-  const efforts = menu.getByRole('radiogroup', { name: 'Effort' });
+  const summary = menu.getByRole('button', { name: /Model and effort/ });
+  const models = page.getByRole('radiogroup', { name: 'Model' });
+  const efforts = page.getByRole('radiogroup', { name: 'Effort' });
   const answers = conversation.locator('.chat-message.assistant');
   let turns = 0;
   const send = async (text?: string) => {
@@ -1436,7 +1441,7 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
     await summary.click();
     await models.getByRole('radio', { name: model, exact: true }).click();
     if (effort) await efforts.getByRole('radio', { name: effort, exact: true }).click();
-    await summary.click();
+    await page.keyboard.press('Escape');
   };
 
   // Default sends neither field, exactly as before.
@@ -1452,7 +1457,7 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   await expect(summary).toHaveText('Haiku');
   await summary.click();
   await expect(efforts).toHaveCount(0);
-  await summary.click();
+  await page.keyboard.press('Escape');
 
   await choose('Sonnet', 'Low');
   await expect(summary).toHaveText('Sonnet · Low');
@@ -1460,9 +1465,9 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   expect(chosen).toMatchObject({ participantId: plain.participantId, model: 'sonnet', effort: 'low' });
 
   // A second agent starts at this device's last choice for its provider and keeps its own choice.
-  await conversation.locator('.add-agent-menu summary').click();
-  await conversation.getByLabel('Role').selectOption('reviewer');
-  await conversation.getByRole('button', { name: 'Add participant' }).click();
+  await conversation.locator('.add-agent-menu > button').click();
+  await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant' }).click();
   await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
   await expect(summary).toHaveText('Sonnet · Low');
   await choose('Opus', 'Extra high');
@@ -1481,9 +1486,9 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   await page.reload({ waitUntil: 'networkidle' });
   await ensureConversationOpen(page);
   const reloaded = page.getByRole('complementary', { name: 'Conversation' });
-  await expect(reloaded.locator('.model-menu summary')).toHaveText('Opus · Extra high');
+  await expect(reloaded.locator('.model-menu > button')).toHaveText('Opus · Extra high');
   await reloaded.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
-  await expect(reloaded.locator('.model-menu summary')).toHaveText('Sonnet · Low');
+  await expect(reloaded.locator('.model-menu > button')).toHaveText('Sonnet · Low');
 
   // At phone width nothing in the composer row overlaps, and the open menu stays on screen.
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1504,8 +1509,8 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
     }
   }
   const expectOnScreen = async (menu: Locator) => {
-    await menu.locator('summary').click();
-    const panel = (await menu.locator(':scope > div').boundingBox())!;
+    await menu.locator(':scope > button').click();
+    const panel = (await page.locator('.desktop-picker-paper:visible').boundingBox())!;
     expect(panel.x).toBeGreaterThanOrEqual(0);
     expect(panel.x + panel.width).toBeLessThanOrEqual(390);
     expect(panel.y).toBeGreaterThanOrEqual(0);
@@ -1520,14 +1525,15 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   const phoneMenu = row.locator('.model-menu');
   const phoneComposer = page.getByRole('complementary', { name: 'Conversation' }).locator('textarea');
   await page.keyboard.press('Escape');
-  await expect(phoneMenu).not.toHaveAttribute('open');
-  await row.locator('.model-menu summary').click();
-  await phoneComposer.click();
-  await expect(phoneMenu).not.toHaveAttribute('open');
-  await row.locator('.model-menu summary').click();
+  await expect(phoneMenu.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  await row.locator('.model-menu > button').click();
+  const fieldBox = (await phoneComposer.boundingBox())!;
+  await page.mouse.click(fieldBox.x + 10, fieldBox.y + 10);
+  await expect(phoneMenu.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Escape');
   await phoneComposer.fill('One more turn.');
   await phoneComposer.press('Enter');
-  await expect(phoneMenu).not.toHaveAttribute('open');
+  await expect(phoneMenu.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('starts new sessions and agents at this device\'s last mode, model, and effort', async ({ page, request }) => {
@@ -1542,12 +1548,12 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await startSession(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const menu = conversation.locator('.model-menu');
-  const summary = menu.locator('summary');
+  const summary = menu.getByRole('button', { name: /Model and effort/ });
   const choose = async (model: string, effort?: string) => {
     await summary.click();
-    await menu.getByRole('radiogroup', { name: 'Model' }).getByRole('radio', { name: model, exact: true }).click();
-    if (effort) await menu.getByRole('radiogroup', { name: 'Effort' }).getByRole('radio', { name: effort, exact: true }).click();
-    await summary.click();
+    await page.getByRole('radiogroup', { name: 'Model' }).getByRole('radio', { name: model, exact: true }).click();
+    if (effort) await page.getByRole('radiogroup', { name: 'Effort' }).getByRole('radio', { name: effort, exact: true }).click();
+    await page.keyboard.press('Escape');
   };
   const tabs = page.locator('.workspace-tab');
   const openTab = async (index: number) => {
@@ -1581,9 +1587,9 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   // another agent's choice moves the device's last one.
   const chip = (role: string) => conversation.locator('.participant-chip').filter({ hasText: role });
   const addAgent = async (role: string) => {
-    await conversation.locator('.add-agent-menu summary').click();
-    await conversation.getByLabel('Role').selectOption(role);
-    await conversation.getByRole('button', { name: 'Add participant' }).click();
+    await conversation.locator('.add-agent-menu > button').click();
+    await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption(role);
+    await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant' }).click();
     await expect(conversation.locator('.participant-chip.active')).toContainText(`Claude ${role[0].toUpperCase()}${role.slice(1)}`);
   };
   await addAgent('reviewer');
@@ -1642,9 +1648,9 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('button', { name: 'New session' }).click();
-  const create = arena.getByRole('region', { name: 'Create session' });
-  await expect(create.getByRole('radio', { name: 'Plan' })).toBeChecked();
-  await create.getByRole('radio', { name: 'Agent' }).click();
+  const create = page.getByRole('dialog', { name: 'New session', exact: true });
+  await expect(create.getByLabel('Mode', { exact: true })).toHaveValue('plan');
+  await create.getByLabel('Mode', { exact: true }).selectOption('agent');
   await create.getByRole('button', { name: 'Create and open' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(modePicker(conversation)).toHaveText('Agent');
@@ -1660,7 +1666,7 @@ test('offers Auto only where the provider advertises it, keeps it for its sessio
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await startSession(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
-  const modes = conversation.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio');
+  const modes = page.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio');
 
   // This server's Claude does not advertise Auto, so the picker does not list it, even disabled.
   await modePicker(conversation).click();
@@ -1710,10 +1716,10 @@ test('offers Auto only where the provider advertises it, keeps it for its sessio
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('button', { name: 'New session' }).click();
-  const create = arena.getByRole('region', { name: 'Create session' });
-  await expect(create.getByRole('radio')).toHaveCount(3);
-  await expect(create.getByRole('radio', { name: 'Auto' })).toHaveCount(0);
-  await expect(create.getByRole('radio', { name: 'Ask' })).toBeChecked();
+  const create = page.getByRole('dialog', { name: 'New session', exact: true });
+  await expect(create.getByLabel('Mode', { exact: true }).locator('option')).toHaveCount(3);
+  await expect(create.getByLabel('Mode', { exact: true }).locator('option[value=auto]')).toHaveCount(0);
+  await expect(create.getByLabel('Mode', { exact: true })).toHaveValue('ask');
 });
 
 test('attaches from the composer, picks a mode from the keyboard, and names the execution under it', async ({ page, request, baseURL }) => {
@@ -1735,7 +1741,7 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await expect(picker).toHaveText('Ask');
   await expect(hint).toHaveText('Read-only · git history');
   await conversation.getByLabel(/^Execution: /).click();
-  const continuation = conversation.getByRole('menu', { name: 'Execution' }).getByRole('menuitem', { name: 'Continue in Docker…', exact: true });
+  const continuation = page.getByRole('menu', { name: 'Execution' }).getByRole('menuitem', { name: 'Continue in Docker…', exact: true });
   await expect(continuation).toBeDisabled();
   await expect(continuation).toHaveAccessibleDescription('Enable Docker in More → Machine settings to continue there.');
   await page.keyboard.press('Escape');
@@ -1749,7 +1755,7 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
 
   // Closed, the attach menu renders no thumbnail; open, it renders the ones it shows.
   const attach = conversation.getByLabel('Attach', { exact: true });
-  const attachMenu = conversation.getByRole('menu', { name: 'Attach to the next instruction' });
+  const attachMenu = page.getByRole('menu', { name: 'Attach to the next instruction' });
   const chips = conversation.locator('.attachment-chip');
   await expect(conversation.locator('.attach-menu .canvas-thumbnail [data-mermaid-theme]')).toHaveCount(0);
   await attach.click();
@@ -1786,7 +1792,7 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await expect(chips).toContainText('Your sketch included');
 
   // One popover at a time: opening the picker from the keyboard closes the attach menu.
-  const modes = conversation.getByRole('radiogroup', { name: 'Agent mode' });
+  const modes = page.getByRole('radiogroup', { name: 'Agent mode' });
   await attach.click();
   await picker.focus();
   await page.keyboard.press('Enter');
@@ -1810,7 +1816,8 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await expect(picker).toHaveAccessibleName('Mode: Agent. Edits files · asks first');
   await expect(picker).toHaveCSS('background-color', 'rgb(168, 98, 10)');
   await picker.hover();
-  await expect(picker).toHaveCSS('background-color', 'rgb(168, 98, 10)');
+  await expect(picker).toHaveClass(/MuiButton-colorWarning/);
+  await page.mouse.move(0, 0);
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(picker).toHaveCSS('background-color', 'rgb(224, 162, 82)');
   await page.emulateMedia({ colorScheme: 'light' });
@@ -1832,9 +1839,9 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   const phoneBar = (await activityBar(page).boundingBox())!;
   const phoneConversation = (await conversation.boundingBox())!;
   expect(phoneBar.x + phoneBar.width).toBeLessThanOrEqual(phoneConversation.x);
-  await page.locator('.more-menu > summary').click();
-  await expect(page.locator('.more-menu').getByRole('group', { name: 'Theme' })).toBeVisible();
-  await page.locator('.more-menu > summary').click();
+  await page.locator('.more-menu > button').click();
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('group', { name: 'Theme' })).toBeVisible();
+  await page.locator('.more-menu > button').click();
   await page.setViewportSize({ width: 1280, height: 720 });
 
   // On a phone the side panel is an overlay, so the composer's way to History closes the conversation.
@@ -1868,7 +1875,7 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   await expect(header.getByRole('button', { name: /^(Repository|Arena|Inbox)/ })).toHaveCount(0);
   await expect(header.locator('details:not(.new-session-menu, .device-menu, .session-advanced-settings)')).toHaveCount(0);
   const bar = activityBar(page);
-  await expect(bar.locator(':scope > :is(button, a), .more-menu > summary')).toHaveCount(5);
+  await expect(bar.locator(':scope > :is(button, a), .more-menu > button')).toHaveCount(5);
   await expect(activityView(page, 'Changes')).toHaveAccessibleName('Changes, 2 files');
   await expect(activityView(page, 'Changes').locator('.activity-badge')).toHaveText('2');
   const [barBox, canvasBox] = await Promise.all([bar.boundingBox(), page.locator('.canvas-workspace').boundingBox()]);
@@ -1899,15 +1906,15 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
 
   // More opens beside the bar and stays on screen.
   const more = page.locator('.more-menu');
-  await more.locator('summary').click();
-  const menu = more.locator(':scope > div');
+  await more.locator(':scope > button').click();
+  const menu = page.locator('.desktop-picker-paper:visible');
   await expect(menu.getByRole('group', { name: 'Theme' })).toBeVisible();
   await expect(menu.getByRole('button', { name: 'Export session' })).toBeVisible();
   const menuBox = (await menu.boundingBox())!;
   expect(menuBox.x).toBeGreaterThanOrEqual(barBox!.x + barBox!.width);
   expect(menuBox.y).toBeGreaterThanOrEqual(0);
   expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(900);
-  await more.locator('summary').click();
+  await more.locator(':scope > button').click();
 
   // The Arena and the Inbox are pages until they become side-panel views; the open one is marked.
   await bar.getByRole('link', { name: 'Arena', exact: true }).click();
@@ -2013,7 +2020,7 @@ test('hides the canvas for a wide conversation, and never hides it with the conv
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
   await canvasToggle.click();
   await conversation.getByLabel('Attach', { exact: true }).click();
-  await conversation.getByRole('menu', { name: 'Attach to the next instruction' }).getByRole('menuitem', { name: 'New sketch' }).click();
+  await page.getByRole('menu', { name: 'Attach to the next instruction' }).getByRole('menuitem', { name: 'New sketch' }).click();
   await expect(canvasToggle).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Sketch 1');
   await conversation.getByRole('button', { name: 'Open on canvas' }).first().click();
@@ -2061,11 +2068,13 @@ test('hides the canvas for a wide conversation, and never hides it with the conv
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
 });
 
-test('docks only the panels that fit the live shell width', async ({ page }) => {
+test('docks only the panels that fit the live shell width', async ({ page, request }) => {
   // The bands are the column minimums plus the 48px activity bar: one dock from 688, two from 1008.
   await page.setViewportSize({ width: 1008, height: 720 });
-  await page.goto('/');
-  await startSession(page);
+  await openAlphaProject(page, request, 'Dock widths');
+  await openRepositoryPanel(page);
+  if (await conversationToggle(page).getAttribute('aria-pressed') === 'true') await closeConversation(page);
+  await openConversation(page);
 
   const shell = page.locator('.app-shell');
   const repository = page.getByRole('complementary', { name: 'Repository' });
@@ -2099,12 +2108,12 @@ test('docks only the panels that fit the live shell width', async ({ page }) => 
   await expect(activityView(page, 'Changes')).toHaveAttribute('aria-pressed', 'true');
   // More opens over the side panel overlay rather than under it.
   const more = page.locator('.more-menu');
-  await more.locator('summary').click();
-  const menuBox = (await more.locator(':scope > div').boundingBox())!;
+  await more.locator(':scope > button').click();
+  const menuBox = (await page.locator('.desktop-picker-paper:visible').boundingBox())!;
   expect(menuBox.x).toBeLessThan(overlayBox!.x + overlayBox!.width);
-  expect(await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.more-menu')),
+  expect(await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.desktop-picker-paper')),
     [menuBox.x + menuBox.width / 2, menuBox.y + menuBox.height / 2])).toBe(true);
-  await more.locator('summary').click();
+  await more.locator(':scope > button').click();
 
   const conversationSeparator = page.getByRole('separator', { name: 'Resize conversation panel' });
   const conversationWidth = Number(await conversationSeparator.getAttribute('aria-valuenow'));
@@ -2134,9 +2143,13 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
 
   const root = page.locator('html');
   await expect(root).toHaveAttribute('data-theme', 'dark');
-  await expect(page.getByRole('button', { name: 'Dark', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.more-menu > button').click();
+  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
 
   await startSession(page);
+  await ensureRepository(page);
+  await ensureConversationOpen(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const composer = conversation.locator('textarea');
   await composer.fill('Draw a simple architecture');
@@ -2210,7 +2223,9 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
 
   await page.reload();
   await expect(root).toHaveAttribute('data-theme', 'dark');
-  await expect(page.getByRole('button', { name: 'Dark', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.more-menu > button').click();
+  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
   await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
 
   const blockedContext = await page.context().browser()!.newContext({ colorScheme: 'dark' });
@@ -2221,9 +2236,13 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   const blockedPage = await blockedContext.newPage();
   await blockedPage.goto('/');
   await expect(blockedPage.locator('html')).not.toHaveAttribute('data-theme', /.+/);
-  await expect(blockedPage.getByRole('button', { name: 'System', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
+  await blockedPage.locator('.more-menu > button').click();
+  await expect(blockedPage.getByRole('button', { name: 'System', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await blockedPage.keyboard.press('Escape');
   await fromMoreMenu(blockedPage, 'Dark');
   await expect(blockedPage.locator('html')).not.toHaveAttribute('data-theme', /.+/);
-  await expect(blockedPage.getByRole('button', { name: 'System', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
+  await blockedPage.locator('.more-menu > button').click();
+  await expect(blockedPage.getByRole('button', { name: 'System', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await blockedPage.keyboard.press('Escape');
   await blockedContext.close();
 });

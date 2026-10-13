@@ -23,8 +23,8 @@ test('an unmanaged server offers no Build & restart, even in CodeAI’s own proj
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(name) }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(name);
-  await page.locator('.more-menu > summary').click();
-  await expect(page.locator('.more-menu').getByRole('button', { name: 'Export session' })).toBeVisible();
+  await page.locator('.more-menu > button').click();
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Export session' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Build & restart CodeAI' })).toHaveCount(0);
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
 });
@@ -73,13 +73,13 @@ test('a managed server’s control confirms, follows the build and restart, and 
   await page.getByRole('option', { name: new RegExp(self.name) }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(self.name);
   const menu = page.locator('.more-menu');
-  await menu.locator('summary').click();
-  await expect(menu.getByRole('status')).toContainText('Serving release release-a.');
-  await menu.getByRole('button', { name: 'Build & restart CodeAI' }).click();
-  await expect(menu.getByRole('alert')).toContainText('from installation?');
-  await expect(menu.getByRole('alert')).toContainText('runs it on this machine');
+  await menu.locator(':scope > button').click();
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('Serving release release-a.');
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Build & restart CodeAI' }).click();
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('alert')).toContainText('from installation?');
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('alert')).toContainText('runs it on this machine');
   expect(posted).toEqual([]);
-  await menu.getByRole('button', { name: 'Build and restart' }).click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Build and restart' }).click();
 
   await expect(page.locator('.lifecycle-pill')).toContainText('Building CodeAI');
   expect(posted).toEqual([{ action: 'build-and-restart', projectId: self.id }]);
@@ -102,9 +102,9 @@ test('a managed server’s control confirms, follows the build and restart, and 
   // The reloaded page returns to the project it was showing and says what happened.
   await expect(page.locator('.project-search-trigger')).toContainText(self.name);
   await expect(page.getByPlaceholder(/Ask anything about this project/)).toHaveValue('Kept for after the restart');
-  await menu.locator('summary').click();
-  await expect(menu.getByRole('status')).toContainText('Serving release release-b.');
-  await expect(menu.getByRole('status')).toContainText('the new release is running');
+  await menu.locator(':scope > button').click();
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('Serving release release-b.');
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('the new release is running');
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
   expect(posted).toHaveLength(1);
 });

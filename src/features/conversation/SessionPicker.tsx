@@ -1,5 +1,12 @@
 'use client';
 
+import Alert from '@mui/material/Alert';
+
+import NativeSelect from '@mui/material/NativeSelect';
+import Button from '@mui/material/Button';
+import { Disclosure } from '@/features/shell/Disclosure';
+
+import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { useEffect, useRef, useState } from 'react';
 import type {
   AgentExecution, AgentProvider, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
@@ -76,39 +83,38 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
     }}>
       <label>
         <span>Execution</span>
-        <select value={execution} disabled={creating} onChange={(event) => setExecution(event.target.value as AgentExecution)}>
+        <NativeSelect value={execution} disabled={creating} onChange={(event) => setExecution(event.target.value as AgentExecution)}>
           <option value="local">Local</option>
           <option value="docker" disabled={!dockerEnabled}>Docker{dockerEnabled ? '' : ' · enable in Machine settings'}</option>
-        </select>
+        </NativeSelect>
       </label>
       {!dockerEnabled && (onOpenMachineSettings
-        ? <button type="button" onClick={onOpenMachineSettings}>Enable Docker in Machine settings</button>
+        ? <Button type="button" onClick={onOpenMachineSettings}>Enable Docker in Machine settings</Button>
         : <p>Enable Docker in Machine settings on the executing machine.</p>)}
       {execution === 'docker' && <p>Ask and Plan use a read-only repository. Agent edits it directly without individual approvals.</p>}
       {!project && (
         <label>
           <span>Repository</span>
-          <select value={checkoutId} disabled={creating} onChange={(event) => setCheckoutId(event.target.value)}>
+          <NativeSelect value={checkoutId} disabled={creating} onChange={(event) => setCheckoutId(event.target.value)}>
             <option value="">{execution === 'docker' ? 'Choose one repository' : 'No repository'}</option>
             {checkouts.map((checkout) => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
-          </select>
+          </NativeSelect>
         </label>
       )}
       <CheckoutChoice value={checkoutMode} choice={choice} disabled={creating} onChange={setCheckoutMode} />
       {invalidBinding && <p role="status">Docker requires exactly one primary repository on this machine. {project ? 'Update this project’s repositories to continue.' : 'Choose a repository to continue.'}</p>}
       <label>
         <span>New session with</span>
-        <select aria-label="New session provider" value={provider || ''} disabled={creating || !providers.length}
-          onChange={(event) => onNewProvider(event.target.value as AgentProvider)}>
+        <NativeSelect value={provider || ''} disabled={creating || !providers.length} onChange={(event) => onNewProvider(event.target.value as AgentProvider)} inputProps={{ "aria-label": "New session provider" }}>
           {!providers.length && <option value="">No provider available</option>}
           {providers.map((value) => <option value={value} key={value}>{PROVIDER_LABELS[value]}</option>)}
-        </select>
+        </NativeSelect>
       </label>
-      <details className="session-advanced-settings">
-        <summary>Advanced settings</summary>
+      <Disclosure className="session-advanced-settings" title={<>Advanced settings</>}>
+
         <label>
           <span>Global instructions</span>
-          <select value={instructions ?? 'default'} disabled={creating} onChange={(event) => (
+          <NativeSelect value={instructions ?? 'default'} disabled={creating} onChange={(event) => (
             setChosenInstructions(event.target.value === 'default' ? undefined : event.target.value as GlobalInstructionsChoice)
           )}>
             <option value="default">Default</option>
@@ -116,16 +122,16 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
             {provider && isolatesLocalCodex('isolated', execution, provider)
               ? <option value="isolated" disabled title={LOCAL_CODEX_ISOLATION_MESSAGE}>Isolate · Docker only for Codex</option>
               : <option value="isolated">Isolate</option>}
-          </select>
+          </NativeSelect>
         </label>
-      </details>
+      </Disclosure>
       {!providers.length && <p role="status">{execution === 'docker'
         ? <>{selectedHealth?.claude.message || 'Docker needs setup.'} {onOpenMachineSettings
-          ? <button type="button" onClick={onOpenMachineSettings}>Open Docker setup</button>
+          ? <Button type="button" onClick={onOpenMachineSettings}>Open Docker setup</Button>
           : 'Open Machine settings on the executing machine for Docker setup.'}</>
         : 'Install and authenticate Claude Code or Codex for Local, or select Docker.'}</p>}
-      {failed && <p role="alert">{error || 'Could not create the session. Try again.'}</p>}
-      <button type="submit" disabled={creating || !provider || invalidBinding || invalidWorktree}>{creating ? 'Creating…' : failed ? 'Retry' : submitLabel}</button>
+      {failed && <Alert severity="error">{error || 'Could not create the session. Try again.'}</Alert>}
+      <Button type="submit" disabled={creating || !provider || invalidBinding || invalidWorktree}>{creating ? 'Creating…' : failed ? 'Retry' : submitLabel}</Button>
     </form>
   );
 }
@@ -135,32 +141,31 @@ export function SessionPicker({ sessions, value, onChange, ...creation }: Sessio
   value?: string;
   onChange(value: string): void;
 }) {
-  const newSessionMenu = useRef<HTMLDetailsElement>(null);
   return (
     <div className="session-picker">
       <label className="all-sessions-picker">
         <span aria-hidden="true">⌄</span>
-        <select id="all-sessions" aria-label="All sessions" title="All sessions" value={value || ''}
-          disabled={!sessions.length} onChange={(event) => onChange(event.target.value)}>
+        <NativeSelect disableUnderline IconComponent={() => null}
+          sx={{ position: 'absolute', inset: 0, width: 28, height: 28, '& select': { color: 'transparent', p: 0, height: '100%', width: '100%' }, '& option': { color: 'text.primary', bgcolor: 'background.paper' } }} id="all-sessions" title="All sessions" value={value || ''} disabled={!sessions.length} onChange={(event) => onChange(event.target.value)} inputProps={{ "aria-label": "All sessions", title: "All sessions" }}>
           {!value && <option value="" disabled>{sessions.length ? 'Choose a session' : 'No sessions yet'}</option>}
           {sessions.map((session) => (
             <option value={session.id} key={session.id}>
               {findAgentParticipant(session.participants, session.primaryAgentId)?.displayName || 'Agent'} · {session.title} · {session.execution === 'docker' ? 'Docker' : 'Local'}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
-      <details className="new-session-menu" ref={newSessionMenu}>
-        <summary role="button" aria-label="New session" title="New session">＋</summary>
-        <div>
-          <SessionCreationForm {...creation} key={`${creation.project?.id || 'loose'}:${value || 'empty'}`}
+      <DesktopPopover keepMounted className="new-session-menu" label="New session" summary="＋" icon placement="bottom-end">
+        {(close) => <div>
+          <SessionCreationForm {...creation}
+            onOpenMachineSettings={creation.onOpenMachineSettings ? () => { close(); creation.onOpenMachineSettings?.(); } : undefined} key={`${creation.project?.id || 'loose'}:${value || 'empty'}`}
             onNew={async (provider, options) => {
               const created = await creation.onNew(provider, options);
-              if (created && newSessionMenu.current) newSessionMenu.current.open = false;
+              if (created) close();
               return created;
             }} />
-        </div>
-      </details>
+        </div>}
+      </DesktopPopover>
     </div>
   );
 }

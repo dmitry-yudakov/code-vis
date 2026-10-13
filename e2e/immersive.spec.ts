@@ -877,6 +877,19 @@ for (const location of ['Arena', 'Inbox', 'Flat', 'Spatial', 'Empty'] as const) 
       await expect(page.locator('.empty-canvas')).toBeVisible();
     }
     await expect(page.locator('.app-loading')).toHaveCount(0);
+    // The loading placeholder can disappear before the catalog's initial view is persisted.
+    await expect.poll(() => page.evaluate(({ scopeId, sessionId, agentId }) => {
+      const saved = JSON.parse(localStorage.getItem('code-ai:device:v1:workspace') || '{}');
+      const scope = saved.scopes?.[scopeId];
+      const view = scope?.views?.[sessionId];
+      return scope?.focusedSessionId === sessionId && view?.addressedAgentId === agentId;
+    }, { scopeId: location === 'Empty' ? `machine:${REMOTE}:project:${REMOTE_PROJECT}` : `project:${PROJECT}`,
+      sessionId: location === 'Empty' ? EMPTY : SESSION, agentId: AGENT })).toBe(true);
+    if (location === 'Flat') await expect.poll(() => page.evaluate(({ projectId, sessionId }) => {
+      const saved = JSON.parse(localStorage.getItem('code-ai:device:v1:workspace') || '{}');
+      return saved.scopes?.[`project:${projectId}`]?.views?.[sessionId]
+        ?.canvasViews?.['sketch-fixture']?.fitted;
+    }, { projectId: PROJECT, sessionId: SESSION })).toBe(true);
     const before = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:workspace'));
     await enter(page);
     expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
@@ -1015,7 +1028,11 @@ test('retains one XR store across machine/project navigation, loading races, his
   await page.getByRole('main', { name: 'Arena' }).getByRole('tab', { name: /^Inbox/ }).click();
   await page.goBack();
   await expect(controls(page)).toBeVisible();
+  // Let the newly mounted flat canvas seed its record before the next navigation failure.
+  const localAnnotationSaved = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/sessions/${SESSION}/annotations`) && response.request().method() === 'PUT');
   await openSession(page, SESSION);
+  await localAnnotationSaved;
   state.failLoad = true;
   await openSession(page, EMPTY);
   await expect(controls(page).getByRole('status')).toContainText('Remote session loading failed');
@@ -1469,9 +1486,9 @@ for (const failImport of [false, true]) {
     await page.goto('/');
     if (failImport) await expect(page.locator('.immersive-entry [role="alert"]')).toContainText('The immersive renderer could not load');
     else {
-      await page.locator('.more-menu > summary').click();
+      await page.locator('.more-menu > button').click();
       await expect(page.getByText('VR unavailable', { exact: true })).toBeVisible();
-      await page.locator('.more-menu > summary').click();
+      await page.locator('.more-menu > button').click();
     }
     expect(await page.evaluate(() => window.__CODEAI_XR_BUNDLE_EVALUATIONS__)).toBeUndefined();
     expect(await page.evaluate(() => window.__CODEAI_SPATIAL_INSTRUMENTATION__)).toBeUndefined();

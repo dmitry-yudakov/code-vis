@@ -1,8 +1,11 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import Button from '@mui/material/Button';
+import NativeSelect from '@mui/material/NativeSelect';
+
+import { useMemo, useState } from 'react';
 import type { AgentMode, AgentParticipant, AgentProvider, AgentRole } from '@/shared/types';
-import { useMenuDismiss } from './useMenuDismiss';
+import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 
 const HANDOFF_PROMPTS: Record<AgentRole, string> = {
@@ -28,18 +31,15 @@ export function ParticipantControls({
   onAdd(provider: AgentProvider, role: AgentRole): void;
   onHandoff(participantId: string, text: string, mode: AgentMode): void;
 }) {
-  const addMenuRef = useRef<HTMLDetailsElement>(null);
   const [provider, setProvider] = useState<AgentProvider>(providers[0] || 'claude');
   const [role, setRole] = useState<AgentRole>('reviewer');
   const selected = agents.find((agent) => agent.id === activeAgentId) || agents[0];
   const quickAgents = useMemo(() => agents.filter((agent) => agent.id !== selected?.id), [agents, selected?.id]);
   const safeProvider = providers.includes(provider) ? provider : providers[0];
 
-  useMenuDismiss(addMenuRef);
 
   const addParticipant = () => {
     if (!safeProvider) return;
-    addMenuRef.current?.removeAttribute('open');
     onAdd(safeProvider, role);
   };
 
@@ -47,47 +47,47 @@ export function ParticipantControls({
     <div className="participant-controls">
       <div className="participant-row" aria-label="Session agents">
         {agents.map((agent) => (
-          <button
+          <Button
             type="button"
             key={agent.id}
             className={`participant-chip ${agent.id === selected?.id ? 'active' : ''}`}
             aria-pressed={agent.id === selected?.id}
+            variant={agent.id === selected?.id ? 'contained' : 'outlined'}
             disabled={disabled}
             title={`${PROVIDER_LABELS[agent.provider]} · ${AGENT_ROLE_LABELS[agent.role]}${agent.id === primaryAgentId ? ' · main agent' : ''}`}
             onClick={() => onSelect(agent.id)}
           >
             <span>@{agent.displayName}</span>
             <small>{AGENT_ROLE_LABELS[agent.role]}{agent.id === primaryAgentId ? ' · Main' : ''}</small>
-          </button>
+          </Button>
         ))}
-        <details ref={addMenuRef} className="add-agent-menu">
-          <summary aria-label="Add agent">＋ Agent</summary>
-          <div>
+        <DesktopPopover className="add-agent-menu" anchorSelector=".participant-controls" label="Add agent" summary="＋ Agent" disabled={disabled}>
+          {(close) => <div className="participant-add-form">
             <label>Provider
-              <select value={safeProvider} disabled={disabled || busy || !providers.length} onChange={(event) => setProvider(event.target.value as AgentProvider)}>
+              <NativeSelect value={safeProvider} disabled={disabled || busy || !providers.length} onChange={(event) => setProvider(event.target.value as AgentProvider)}>
                 {providers.map((item) => <option key={item} value={item}>{PROVIDER_LABELS[item]}</option>)}
-              </select>
+              </NativeSelect>
             </label>
             <label>Role
-              <select value={role} disabled={disabled || busy} onChange={(event) => setRole(event.target.value as AgentRole)}>
+              <NativeSelect value={role} disabled={disabled || busy} onChange={(event) => setRole(event.target.value as AgentRole)}>
                 {AGENT_ROLES.map((item) => <option key={item} value={item}>{AGENT_ROLE_LABELS[item]}</option>)}
-              </select>
+              </NativeSelect>
             </label>
-            <button type="button" disabled={disabled || busy || !safeProvider} onClick={addParticipant}>
+            <Button type="button" disabled={disabled || busy || !safeProvider} onClick={() => { close(); addParticipant(); }}>
               {busy ? 'Adding…' : 'Add participant'}
-            </button>
-          </div>
-        </details>
+            </Button>
+          </div>}
+        </DesktopPopover>
       </div>
       {selected && selected.id !== primaryAgentId && (
-        <button type="button" className="make-main-action" disabled={disabled || busy} onClick={() => onMakePrimary(selected.id)}>
+        <Button type="button" className="make-main-action" disabled={disabled || busy} onClick={() => onMakePrimary(selected.id)}>
           Make @{selected.displayName} the main agent
-        </button>
+        </Button>
       )}
       {quickAgents.length > 0 && (
         <div className="handoff-actions" aria-label="Quick handoffs">
           {quickAgents.map((agent) => (
-            <button
+            <Button
               type="button"
               key={agent.id}
               disabled={disabled}
@@ -95,7 +95,7 @@ export function ParticipantControls({
               onClick={() => onHandoff(agent.id, HANDOFF_PROMPTS[agent.role], agent.defaultMode)}
             >
               @{agent.displayName} · {agent.role === 'reviewer' ? 'Review this' : agent.role === 'tester' ? 'Verify this' : agent.role === 'coder' ? 'Take next step' : 'What next?'}
-            </button>
+            </Button>
           ))}
         </div>
       )}

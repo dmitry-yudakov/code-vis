@@ -1,5 +1,9 @@
 'use client';
 
+import { Disclosure } from '@/features/shell/Disclosure';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { TextFile } from '@/shared/textFiles';
@@ -43,20 +47,20 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
     return (
       <article className={`chat-message user ${message.status}`}>
         <div className="message-meta">
-          <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{message.level === 'native' ? 'Native · ' : ''}{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+          <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}{message.mode && message.mode !== 'ask' ? <Chip className="mode-tag" component="em" variant="outlined" color={message.mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(message.mode) ? 'warning' : 'default'} label={`${message.level === 'native' ? 'Native · ' : ''}${AGENT_MODE_LABELS[message.mode]}`} /> : null}</span>
           <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
         </div>
         <p>{message.text}</p>
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
         {message.reportAttachments?.length ? <div className="message-attachments report">{reportAttachmentSummary(message.reportAttachments)}</div> : null}
         {message.imageAttachments?.length ? <div className="message-attachments image">{imageAttachmentSummary(message.imageAttachments)}</div> : null}
-        {message.fileAttachments?.map((file, index) => <details className="message-attachments" key={index}>
-          <summary>{file.name} · {file.bytes} bytes</summary><pre>{file.text}</pre></details>)}
+        {message.fileAttachments?.map((file, index) => <Disclosure className="message-attachments" key={index} title={<>{file.name} · {file.bytes} bytes</>}>
+          <pre>{file.text}</pre></Disclosure>)}
         {message.status !== 'sent' && (
           <div className="message-state">
             <span>{message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
-            {onRetry && <button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
-              message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent')}>Retry</button>}
+            {onRetry && <Button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
+              message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent')}>Retry</Button>}
           </div>
         )}
       </article>
@@ -66,7 +70,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   return (
     <article className={`chat-message assistant ${message.status}`}>
       <div className="message-meta">
-        <span>{author?.displayName || 'Agent'}{author?.kind === 'agent' ? ` · ${PROVIDER_LABELS[author.provider]}/${AGENT_ROLE_LABELS[author.role]}` : ''}{message.mode && message.mode !== 'ask' ? <em className={`mode-tag mode-${message.mode}`}>{message.level === 'native' ? 'Native · ' : ''}{AGENT_MODE_LABELS[message.mode]}</em> : null}</span>
+        <span>{author?.displayName || 'Agent'}{author?.kind === 'agent' ? ` · ${PROVIDER_LABELS[author.provider]}/${AGENT_ROLE_LABELS[author.role]}` : ''}{message.mode && message.mode !== 'ask' ? <Chip className="mode-tag" component="em" variant="outlined" color={message.mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(message.mode) ? 'warning' : 'default'} label={`${message.level === 'native' ? 'Native · ' : ''}${AGENT_MODE_LABELS[message.mode]}`} /> : null}</span>
         <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       </div>
       <div className="assistant-blocks">
@@ -103,7 +107,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
       {message.planProposed && onExecutePlan && (
         <div className="plan-approval">
           <span>{executePlanBlocked || 'Nothing runs until you approve. Executing resumes this same session in Agent mode.'}</span>
-          <button type="button" disabled={running || Boolean(executePlanBlocked)} title={executePlanBlocked} onClick={() => onExecutePlan(message.authorId)}>Execute plan</button>
+          <Button type="button" disabled={running || Boolean(executePlanBlocked)} title={executePlanBlocked} onClick={() => onExecutePlan(message.authorId)}>Execute plan</Button>
         </div>
       )}
     </article>

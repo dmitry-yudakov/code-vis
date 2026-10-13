@@ -14,13 +14,13 @@ function tabs(props: Partial<ComponentProps<typeof WorkspaceTabs>> = {}) {
     openSessionIds: [SESSION_A, SESSION_B], focusedSessionId: SESSION_A,
     runsBySession: {}, unreadBySession: {}, onFocus: vi.fn(), onClose: vi.fn(),
     ...props,
-  }));
+  })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }
 
 describe('workspace tabs', () => {
   it('keeps close controls outside the tablist accessibility tree', () => {
     const markup = tabs();
-    const tablist = markup.match(/<div class="workspace-tablist"[\s\S]*?<\/div>/)?.[0];
+    const tablist = markup.match(/<div[^>]*role="tablist"[\s\S]*?<\/div>/)?.[0];
     expect(tablist).toBeDefined();
     expect(tablist).toContain('role="tab"');
     expect(tablist).not.toContain('workspace-tab-close');
@@ -29,7 +29,7 @@ describe('workspace tabs', () => {
 
   it.each(['running', 'queued', 'needs-you'] as const)('protects a %s view from the close button', (state) => {
     const markup = tabs({ runsBySession: { [SESSION_A]: { state, status: state, pendingApprovals: 1 } } });
-    expect(markup).toMatch(/class="workspace-tab-close" disabled=""/);
+    expect(markup).toMatch(/<button(?=[^>]*class="[^"]*workspace-tab-close)(?=[^>]*disabled="")[^>]*>/);
     expect(markup).toContain('Cannot close First session while its turn is active');
     expect(markup).toContain(`First session — ${state}`);
   });
@@ -57,11 +57,11 @@ describe('All sessions picker', () => {
       newProvider: 'claude', creating: false, checkouts: [], onChange: vi.fn(),
       onNewProvider: vi.fn(), onNew: vi.fn(),
     }));
-    expect(markup).toContain('id="all-sessions" aria-label="All sessions" title="All sessions"');
+    expect(markup).toMatch(/<select(?=[^>]*id="all-sessions")(?=[^>]*aria-label="All sessions")(?=[^>]*title="All sessions")[^>]*>/);
     expect(markup).toContain('<option value="" disabled="" selected="">Choose a session</option>');
     expect(markup).toContain('Closed view');
     expect(markup).toContain('Overflow view');
-    expect(markup).toContain('aria-label="New session" title="New session"');
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="New session")(?=[^>]*title="New session")[^>]*>/);
     expect(markup).not.toContain('aria-label="Session"');
   });
 });

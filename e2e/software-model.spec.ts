@@ -15,7 +15,7 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
     const conversation = page.getByRole('complementary', { name: 'Conversation' });
     await conversation.getByLabel(/^Mode: /).click();
-    await conversation.getByRole('radio', { name: 'Ask', exact: true }).click();
+    await page.getByRole('radio', { name: 'Ask', exact: true }).click();
     await conversation.locator('textarea').fill('/model\nSoftware-model fixture');
     await conversation.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(conversation.getByText('Normal answer complete.', { exact: true })).toBeVisible();

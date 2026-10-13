@@ -1,6 +1,11 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import TextField from '@mui/material/TextField';
+import Paper from '@mui/material/Paper';
+import ListItemButton from '@mui/material/ListItemButton';
+import { AttachmentChip } from './AttachmentChip';
+
+import { useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from 'react';
 import type { ThemeName } from '@/shared/design/tokens';
 import { AGENT_MODES, isLaunchMode } from '@/shared/agentModes';
 import type { AgentExecution, AgentMode, AgentProvider, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection, SecurityLevel } from '@/shared/types';
@@ -8,14 +13,12 @@ import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { canvasTargetId } from '@/features/conversation/sessionStore';
 import type { RecentCanvas } from '@/features/conversation/recentCanvases';
 import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip, effortLabel, executionModeHint } from '@/features/agents/toolActivity';
-import { useMenuDismiss } from '@/features/agents/useMenuDismiss';
 import { CanvasThumbnail } from '@/features/diagram/components/CanvasThumbnail';
 import { offeredEfforts, offeredModelSelection } from '@/shared/modelChoices';
+import Button from '@mui/material/Button';
+import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import type { TextFile } from '@/shared/textFiles';
 import { carriesFiles, pastedImageFiles, pendingImageDetail, type PendingImage } from './imageAttachments';
-
-// Opening one of the composer's popovers closes the others, which would overlap.
-const MENU_GROUP = 'composer-menu';
 
 const ICON_PATHS = {
   plus: 'M12 5v14M5 12h14',
@@ -32,47 +35,23 @@ function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
   return <svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={ICON_PATHS[name]} /></svg>;
 }
 
-/** The arrow keys move between a menu's enabled items; from its summary they enter at either end. */
-function moveBetweenItems(event: KeyboardEvent<HTMLDetailsElement>) {
-  const menu = event.currentTarget;
-  if (!menu.open || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
-  const items = [...menu.querySelectorAll<HTMLButtonElement>(':scope > div button:not(:disabled)')];
-  if (!items.length) return;
-  event.preventDefault();
-  const index = items.indexOf(document.activeElement as HTMLButtonElement);
-  const next = event.key === 'ArrowDown' ? (index + 1) % items.length : (index <= 0 ? items.length : index) - 1;
-  items[next].focus();
-}
-
 /**
- * A `<details>` popover of the composer, opening upward. Escape or a press outside closes it, and so
+ * A MUI popover of the composer, opening upward. Escape or a press outside closes it, and so
  * does a running turn when the menu is disabled by one. Choosing an item closes it and returns focus
- * to its summary.
+ * to its trigger.
  */
-function ComposerMenu({ className, label, summary, disabled = false, children }: {
+function ComposerMenu({ className, label, summary, disabled = false, color = 'primary', children }: {
   className: string;
   label: string;
   summary: ReactNode;
   disabled?: boolean;
+  color?: 'primary' | 'warning' | 'error';
   children(close: () => void): ReactNode;
 }) {
-  const menuRef = useRef<HTMLDetailsElement>(null);
-  useMenuDismiss(menuRef);
-  useEffect(() => {
-    if (disabled) menuRef.current?.removeAttribute('open');
-  }, [disabled]);
-  const close = () => {
-    menuRef.current?.removeAttribute('open');
-    menuRef.current?.querySelector('summary')?.focus();
-  };
   return (
-    <details ref={menuRef} className={`composer-menu ${className}`} name={MENU_GROUP} onKeyDown={moveBetweenItems}>
-      <summary aria-label={label} title={label} aria-disabled={disabled || undefined}
-        onClick={disabled ? (event) => event.preventDefault() : undefined}>
-        {summary}
-      </summary>
-      <div>{children(close)}</div>
-    </details>
+    <DesktopPopover group="composer-picker" className={`composer-menu ${className}`} label={label} summary={summary} disabled={disabled} color={color} anchorSelector=".instruction-composer">
+      {children}
+    </DesktopPopover>
   );
 }
 
@@ -96,13 +75,13 @@ function MenuItem({ role, label, detail, checked, disabled, title, className, le
   const longTitle = title && title !== detail ? title : undefined;
   const describedBy = [detail && `${id}-detail`, longTitle && `${id}-title`].filter(Boolean).join(' ');
   return (
-    <button type="button" role={role} aria-checked={checked} aria-label={label} aria-describedby={describedBy || undefined}
-      className={className} disabled={disabled} title={title} onClick={onClick}>
+    <ListItemButton component="button" type="button" role={role} aria-checked={checked} aria-label={label} aria-describedby={describedBy || undefined}
+      className={className} selected={checked} sx={{ gap: 1, width: '100%', whiteSpace: 'normal', textAlign: 'left' }} disabled={disabled} title={title} onClick={onClick}>
       {lead}
       <span className="menu-item-text"><span>{label}</span>{detail && <small id={`${id}-detail`}>{detail}</small>}</span>
       {longTitle && <span id={`${id}-title`} hidden>{longTitle}</span>}
       {children}
-    </button>
+    </ListItemButton>
   );
 }
 
@@ -120,7 +99,7 @@ function ModePicker({ mode, execution, unsupportedModes, disabled, onChange, lev
   isolated: boolean;
 }) {
   return (
-    <ComposerMenu className={`mode-menu mode-${mode}`} disabled={disabled}
+    <ComposerMenu className={`mode-menu mode-${mode}`} disabled={disabled} color={mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(mode) ? 'warning' : 'primary'}
       label={`Mode: ${AGENT_MODE_LABELS[mode]}. ${agentModeHint(mode, execution, level, provider)}`}
       summary={<>{AGENT_MODE_LABELS[mode]}<Icon name="chevronDown" /></>}>
       {(close) => (
@@ -269,12 +248,6 @@ export function ModelMenu({ choices, selection, disabled, onChange }: {
   disabled: boolean;
   onChange(selection: ModelSelection): void;
 }) {
-  const menuRef = useRef<HTMLDetailsElement>(null);
-  useMenuDismiss(menuRef);
-  // A turn streams in just above the composer, so a running turn closes the menu.
-  useEffect(() => {
-    if (disabled) menuRef.current?.removeAttribute('open');
-  }, [disabled]);
   const models = choices?.models ?? [];
   if (!models.length && !choices?.efforts?.length) return null;
   const efforts = offeredEfforts(choices, selection.model);
@@ -283,16 +256,12 @@ export function ModelMenu({ choices, selection, disabled, onChange }: {
   // Offered-only: a model that does not allow the current effort resets it to Default.
   const choose = (next: ModelSelection) => onChange(offeredModelSelection(next, choices));
   const option = (key: string, label: string, checked: boolean, title: string | undefined, next: ModelSelection) => (
-    <button key={key} type="button" role="radio" aria-checked={checked} className={checked ? 'active' : ''}
-      disabled={disabled} title={title} onClick={() => choose(next)}>{label}</button>
+    <Button sx={{ maxWidth: '100%', overflowWrap: 'anywhere' }} key={key} type="button" role="radio" aria-checked={checked} variant={checked ? 'contained' : 'outlined'}
+      disabled={disabled} title={title} onClick={() => choose(next)}>{label}</Button>
   );
   return (
-    <details ref={menuRef} className="model-menu" name={MENU_GROUP}>
-      <summary aria-disabled={disabled || undefined} title={`Model and effort for this agent's next turn: ${label}`}
-        onClick={disabled ? (event) => event.preventDefault() : undefined}>
-        {label}
-      </summary>
-      <div>
+    <DesktopPopover group="composer-picker" className="model-menu" disabled={disabled} label={`Model and effort for this agent's next turn: ${label}`} summary={label} anchorSelector=".instruction-composer">
+      {() => <div className="model-options">
         <span>Model</span>
         <div role="radiogroup" aria-label="Model">
           {option(':default', 'Default', !selection.model, DEFAULT_MODEL_TITLE, { effort: selection.effort })}
@@ -305,8 +274,8 @@ export function ModelMenu({ choices, selection, disabled, onChange }: {
             {efforts.map((effort) => option(effort, effortLabel(effort), selection.effort === effort, undefined, { model: selection.model, effort }))}
           </div>
         </>}
-      </div>
-    </details>
+      </div>}
+    </DesktopPopover>
   );
 }
 
@@ -394,7 +363,7 @@ export function InstructionComposer({
     if (takesDrop) onAddImages?.(Array.from(event.dataTransfer.files));
   };
   // An image on the clipboard becomes a chip, and nothing is put into the text.
-  const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+  const paste = (event: ClipboardEvent<HTMLDivElement>) => {
     const files = pastedImageFiles(event.clipboardData);
     if (!files.length || !onAddImages) return;
     event.preventDefault();
@@ -410,48 +379,34 @@ export function InstructionComposer({
   }, [value]);
   return (
     <>
-    <div className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
+    <Paper sx={{ p: 1 }} className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
       {attached.length + reports.length + images.length + files.length > 0 && (
         <div className="attachment-chips" aria-label="Attachments">
           {attached.map((canvas) => {
             const id = canvasTargetId(canvas);
-            const label = canvas.kind === 'sketch'
-              ? 'Your sketch'
-              : id === activeDiagramId ? 'Active diagram' : 'Additional diagram';
+            const label = canvas.kind === 'sketch' ? 'Your sketch' : id === activeDiagramId ? 'Active diagram' : 'Additional diagram';
             const marks = markCounts[id] || 0;
-            return (
-              <span className={`attachment-chip ${canvas.kind}`} key={id}>
-                <span>{label} included{marks > 0 ? ` · ${marks} ${marks === 1 ? 'mark' : 'marks'}` : ''}</span>
-                <button type="button" aria-label={`Remove ${canvas.kind} attachment`} onClick={() => onRemoveAttachment(id)}>×</button>
-              </span>
-            );
+            return <AttachmentChip className={canvas.kind} key={id} removeLabel={`Remove ${canvas.kind} attachment`} onRemove={() => onRemoveAttachment(id)}>
+              <span>{label} included{marks > 0 ? ` · ${marks} ${marks === 1 ? 'mark' : 'marks'}` : ''}</span>
+            </AttachmentChip>;
           })}
-          {reports.map((report) => (
-            <span className="attachment-chip report" key={report.id}>
-              <span>{report.label}</span>
-              <button type="button" aria-label="Remove report attachment" onClick={() => onRemoveReport?.(report.id)}>×</button>
-            </span>
-          ))}
-          {files.map((file, index) => <span className="attachment-chip" key={`file-${index}`}><span>{file.name}</span>
-            <button type="button" aria-label={`Remove file ${file.name}`} onClick={() => onRemoveFile?.(index)}>×</button></span>)}
-          {images.map((image, index) => (
-            <span className="attachment-chip image" key={image.id}>
-              <button type="button" className="image-open" aria-label={`Open image ${index + 1} on canvas`}
-                title="Open on canvas to draw" disabled={running} onClick={() => onOpenImage?.(image.id)}>
-                <img src={image.dataUrl} alt="" />
-                <span>{`Image ${index + 1} · ${pendingImageDetail(image)}${image.marks?.length ? ` · ${image.marks.length} ${image.marks.length === 1 ? 'mark' : 'marks'}` : ''}`}</span>
-              </button>
-              <button type="button" aria-label={`Remove image ${index + 1}`} onClick={() => onRemoveImage?.(image.id)}>×</button>
-            </span>
-          ))}
+          {reports.map((report) => <AttachmentChip className="report" key={report.id} removeLabel="Remove report attachment" onRemove={() => onRemoveReport?.(report.id)}><span>{report.label}</span></AttachmentChip>)}
+          {files.map((file, index) => <AttachmentChip key={`file-${index}`} removeLabel={`Remove file ${file.name}`} onRemove={() => onRemoveFile?.(index)}><span>{file.name}</span></AttachmentChip>)}
+          {images.map((image, index) => <AttachmentChip className="image" key={image.id} removeLabel={`Remove image ${index + 1}`} onRemove={() => onRemoveImage?.(image.id)}>
+            <Button type="button" variant="text" className="image-open" aria-label={`Open image ${index + 1} on canvas`}
+              title="Open on canvas to draw" disabled={running} onClick={() => onOpenImage?.(image.id)}>
+              <img src={image.dataUrl} alt="" />
+              <span>{`Image ${index + 1} · ${pendingImageDetail(image)}${image.marks?.length ? ` · ${image.marks.length} ${image.marks.length === 1 ? 'mark' : 'marks'}` : ''}`}</span>
+            </Button>
+          </AttachmentChip>)}
         </div>
       )}
-      <textarea
-        ref={ref}
+      <TextField fullWidth
+        multiline inputRef={ref}
         value={value}
         disabled={running}
         rows={1}
-        maxLength={8_000}
+        slotProps={{ htmlInput: { maxLength: 8_000, 'aria-label': 'Instruction' }, input: { inputComponent: 'textarea' } }}
         placeholder={attached.some((canvas) => canvas.kind === 'sketch')
           ? 'Describe what you drew, or just send the sketch…'
           : reports.length ? 'Explain what the report shows, or just send it…'
@@ -481,18 +436,18 @@ export function InstructionComposer({
         />
         <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={false} onChange={onModeChange} level={securityLevel} provider={provider} isolated={isolated} />
         <ModelMenu choices={modelChoices} selection={modelSelection} disabled={running} onChange={onModelSelectionChange} />
-        <button
+        <Button
           type="button"
-          className={running ? 'cancel-button' : 'send-button'}
+          className={running ? 'cancel-button' : 'send-button'} variant="contained"
           aria-label={running ? 'Cancel' : 'Send'}
           title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : sendBlocked || 'Send'}
           disabled={running ? !cancelReady : Boolean(sendBlocked) || !canSend}
           onClick={running ? onCancel : onSend}
         >
           <span aria-hidden="true">{running ? '■' : '↑'}</span>
-        </button>
+        </Button>
       </div>
-    </div>
+    </Paper>
     <ExecutionLine execution={execution} mode={mode} continuation={continuation} instructions={instructions} level={securityLevel} provider={provider} />
     </>
   );

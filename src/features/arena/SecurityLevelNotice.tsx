@@ -1,5 +1,8 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import Paper from '@mui/material/Paper';
+
 import { useEffect, useState } from 'react';
 import type { SecurityLevel } from '@/shared/types';
 
@@ -18,14 +21,14 @@ export function SecurityLevelNotice({ machineId, level }: { machineId: string; l
     try { setDismissed(localStorage.getItem(storageKey) === level); } catch { /* optional device storage */ }
   }, [level, storageKey]);
   if (dismissed) return null;
-  return <section className="arena-docker-settings" aria-label="Security level">
+  return <Paper component="section" sx={{ p: 2, mt: 2 }} className="arena-docker-settings" aria-label="Security level">
     <div className="arena-docker-setting">
       <strong>Security level</strong>
-      <button type="button" aria-label="Dismiss security notice" onClick={() => {
+      <Button type="button" aria-label="Dismiss security notice" onClick={() => {
         setDismissed(true);
         try { localStorage.setItem(storageKey, level); } catch { /* dismissal still holds in memory */ }
-      }}>Dismiss</button>
+      }}>Dismiss</Button>
     </div>
     <SecurityLevelDetails level={level} />
-  </section>;
+  </Paper>;
 }

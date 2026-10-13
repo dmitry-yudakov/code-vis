@@ -35,9 +35,10 @@ describe('sheet and instrument visual language', () => {
   it('gives every native and custom control a focus-visible treatment', async () => {
     const css = await readFile(globalsPath, 'utf8');
 
-    expect(css).toContain(':where(button, select, textarea, input, a, summary, [tabindex]):focus-visible');
+    expect(css).toMatch(/:where\(button[^\n]+:focus-visible/);
     expect(css).toContain('.project-search-input:focus-within');
-    expect(css).toContain('.instruction-composer:focus-within');
+    const theme = await readFile(new URL('../src/features/shell/desktopTheme.ts', import.meta.url), 'utf8');
+    expect(theme).toContain('&.Mui-focusVisible');
   });
 
   it('uses Archivo only for the header lockup and display-scale empty headings', async () => {

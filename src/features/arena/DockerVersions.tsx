@@ -1,5 +1,9 @@
 'use client';
 
+import Alert from '@mui/material/Alert';
+
+import Button from '@mui/material/Button';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type {
@@ -53,12 +57,12 @@ export function DockerVersionsView({ status, error, busy, onUpdate, onCheck }: {
             </span>
             <span className="arena-docker-version-actions">
               {cli.latest && (
-                <button type="button" disabled={disabled} onClick={() => onUpdate(provider, 'latest', cli.latest!)}>Update</button>
+                <Button type="button" disabled={disabled} onClick={() => onUpdate(provider, 'latest', cli.latest!)}>Update</Button>
               )}
               {cli.previous && (
-                <button type="button" disabled={disabled} onClick={() => onUpdate(provider, 'previous', cli.previous!)}>
+                <Button type="button" disabled={disabled} onClick={() => onUpdate(provider, 'previous', cli.previous!)}>
                   {cli.previous.downgrade ? 'Roll back' : 'Return'} to {cli.previous.version}
-                </button>
+                </Button>
               )}
             </span>
           </div>
@@ -68,9 +72,9 @@ export function DockerVersionsView({ status, error, busy, onUpdate, onCheck }: {
         <div>
           {status?.operation && <p role="status">{dockerUpdateText(status.operation)}</p>}
           {status?.releases.failed && <p>Couldn’t check for updates.</p>}
-          {error && <p role="alert">{error}</p>}
+          {error && <Alert severity="error">{error}</Alert>}
         </div>
-        <button type="button" disabled={disabled} onClick={onCheck}>{busy === 'check' ? 'Checking…' : 'Check for updates'}</button>
+        <Button type="button" disabled={disabled} onClick={onCheck}>{busy === 'check' ? 'Checking…' : 'Check for updates'}</Button>
       </div>
     </div>
   );

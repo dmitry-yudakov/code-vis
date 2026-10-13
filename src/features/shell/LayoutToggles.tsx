@@ -1,5 +1,6 @@
 'use client';
 
+import IconButton from '@mui/material/IconButton';
 import { ShellIcon } from './ShellIcon';
 
 /**
@@ -24,16 +25,16 @@ export function LayoutToggles({ canvasShown, canvasToggleable, conversationShown
   return (
     <div className="layout-toggles" role="group" aria-label="Layout">
       {canvasToggleable && (
-        <button
+        <IconButton
           type="button"
           className="layout-toggle"
           aria-label="Canvas"
           aria-pressed={canvasShown}
           title={canvasShown ? 'Hide the canvas' : 'Show the canvas'}
           onClick={onToggleCanvas}
-        ><ShellIcon name="canvas" /></button>
+        ><ShellIcon name="canvas" /></IconButton>
       )}
-      <button
+      <IconButton
         type="button"
         className="layout-toggle"
         aria-label={conversationLabel}
@@ -43,7 +44,7 @@ export function LayoutToggles({ canvasShown, canvasToggleable, conversationShown
       >
         <ShellIcon name="conversation" />
         {badge > 0 && <span className={`layout-badge ${approvals ? 'attention' : ''}`.trim()} aria-hidden="true">{badge}</span>}
-      </button>
+      </IconButton>
     </div>
   );
 }

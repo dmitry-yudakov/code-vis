@@ -1,5 +1,9 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import ListItemButton from '@mui/material/ListItemButton';
+import Paper from '@mui/material/Paper';
+
 import type { GitChangedFile, GitFileStatus, GitWorkingTree } from '@/shared/types';
 
 const STATUS_MARK: Record<GitFileStatus, string> = {
@@ -26,11 +30,8 @@ function FileRow({ file, selected, onSelect }: {
 }) {
   const parts = pathParts(file.path);
   return (
-    <button
-      type="button"
-      className={`repository-file ${selected ? 'selected' : ''}`}
-      aria-pressed={selected}
-      onClick={onSelect}
+    <ListItemButton component="button" selected={selected}
+      type="button" className={`repository-file ${selected ? 'selected' : ''}`} aria-pressed={selected} onClick={onSelect}
     >
       <span className={`git-status-mark status-${file.status}`} aria-label={file.status}>{STATUS_MARK[file.status]}</span>
       <span className="repository-file-path">
@@ -46,7 +47,7 @@ function FileRow({ file, selected, onSelect }: {
           {file.unstaged && <i title="Working tree">W</i>}
         </span>
       )}
-    </button>
+    </ListItemButton>
   );
 }
 
@@ -65,17 +66,17 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
   return (
     <div className="repository-summary-scroll">
       {loading && !tree ? <div className="repository-state"><span className="pulse-dot" /><p>Reading working tree…</p></div> : error ? (
-        <div className="repository-state error"><strong>Status unavailable</strong><p>{error}</p><button type="button" onClick={onRetry}>Try again</button></div>
+        <div className="repository-state error"><strong>Status unavailable</strong><p>{error}</p><Button type="button" onClick={onRetry}>Try again</Button></div>
       ) : tree && !tree.isRepository ? (
         <div className="repository-state"><span className="repository-state-mark">◇</span><strong>Not a Git repository</strong><p>This repository can still be used as working context; Git changes are unavailable.</p></div>
       ) : tree ? (
         <>
           <div className="repository-view-heading"><span className="eyebrow">Changes</span></div>
-          <div className="git-branch-summary">
+          <Paper className="git-branch-summary">
             <span aria-hidden="true">⑂</span>
             <div><small>Current branch</small><strong>{tree.branch || 'Unknown branch'}</strong></div>
             {(tree.ahead || tree.behind) ? <em>{tree.ahead ? `↑${tree.ahead}` : ''}{tree.ahead && tree.behind ? ' ' : ''}{tree.behind ? `↓${tree.behind}` : ''}</em> : null}
-          </div>
+          </Paper>
           <div className="git-change-heading">
             <div><span className="eyebrow">Working tree</span><strong>{tree.files.length ? `${tree.files.length} changed ${tree.files.length === 1 ? 'file' : 'files'}` : 'Clean'}</strong></div>
             {/* Only the counts that are actually non-zero, spelled out. `S 0  W 0  U 5` gives two

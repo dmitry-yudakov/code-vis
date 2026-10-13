@@ -58,6 +58,17 @@ npm run build     # production build
 npm run test:e2e  # production build + Playwright/installed Chrome canvas workflow
 ```
 
+Desktop screenshot comparisons are opt-in with `CODEAI_E2E_VISUAL=1`; ordinary browser behavior
+and geometry assertions always run. The MUI PNG references stay local and are Git-ignored. To
+generate them, review the images, then run comparisons against the reviewed set:
+
+```sh
+CODEAI_DIST_DIR=.next-e2e npm run build
+CODEAI_E2E_VISUAL=1 CODEAI_E2E_PORT=3124 CODEAI_DIST_DIR=.next-e2e npx playwright test e2e/mui-desktop.spec.ts --update-snapshots
+# Inspect e2e/mui-desktop.spec.ts-snapshots/ before accepting the references.
+CODEAI_E2E_VISUAL=1 CODEAI_E2E_PORT=3124 CODEAI_DIST_DIR=.next-e2e npx playwright test e2e/mui-desktop.spec.ts
+```
+
 ## Personal devices
 
 Normal development and production startup remain local and need no sign-in. To open the same

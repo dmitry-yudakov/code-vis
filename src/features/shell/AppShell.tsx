@@ -1,5 +1,8 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+
 import { worktreeCreationError } from '@/features/conversation/worktreeCreationError';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -65,6 +68,7 @@ import { useDeviceAccess } from '@/features/devices/DeviceAccess';
 import { machineApiBase, machineApiPath } from '@/features/machines/routes';
 import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { instructionsLine, isolatesLocalCodex, LOCAL_CODEX_ISOLATION_MESSAGE, nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
+import type { DesktopPopoverHandle } from './DesktopPopover';
 import { useTheme, type ThemePreference } from './useTheme';
 import { usePanelLayout } from './usePanelLayout';
 import { ActivityBar } from './ActivityBar';
@@ -144,7 +148,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
-  const moreMenuRef = useRef<HTMLDetailsElement>(null);
+  const moreMenuRef = useRef<DesktopPopoverHandle>(null);
   const [machineSettingsOpen, setMachineSettingsOpen] = useState(false);
   const [providerUpdateCount, setProviderUpdateCount] = useState(0);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
@@ -473,9 +477,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [workspaceMachineId]);
 
   const openMachineSettings = () => {
-    moreMenuRef.current?.removeAttribute('open');
-    shellRef.current?.querySelector('.new-session-menu')?.removeAttribute('open');
-    moreMenuRef.current?.querySelector<HTMLElement>('summary')?.focus();
+    moreMenuRef.current?.close();
+    moreMenuRef.current?.trigger?.focus();
     setMachineSettingsOpen(true);
   };
 
@@ -2360,15 +2363,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           {!loading && <>
             {/* Readiness is news only when something is wrong or the provider has something to say. */}
             {(!providerHealth?.available || providerHealth.message) && (
-              <span
-                className={`health-pill ${providerHealth?.available ? 'ready notice' : 'warning'}`}
-                title={providerHealth?.message || health?.message || 'Local readiness'}
-              >
-                <span />{providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'}
-              </span>
+              <Chip className="health-pill" variant="outlined" color="warning" title={providerHealth?.message || health?.message || 'Local readiness'} label={providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'} />
             )}
             {lifecycle.badge && (
-              <span className="health-pill lifecycle-pill" role="status" title={lifecycle.status}><span />{lifecycle.badge}</span>
+              <Chip className="health-pill lifecycle-pill" role="status" color="warning" variant="outlined" title={lifecycle.status} label={lifecycle.badge} />
             )}
             <DeviceMenu />
             {!arenaOpen && session && (
@@ -2405,45 +2403,37 @@ export function AppShell({ children }: { children: ReactNode }) {
           unread={arenaUnread.length}
           updateCount={availableProviderUpdateCount}
           moreRef={moreMenuRef}
-          onMoreToggle={(event) => { if (event.currentTarget.open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
+          onMoreToggle={(open) => { if (open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
           onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
           more={<>
-            <button type="button" onClick={openMachineSettings}
-              aria-description={availableProviderUpdateCount > 0 ? 'Docker agent updates available' : undefined}>
+            <Button type="button" onClick={openMachineSettings} aria-description={availableProviderUpdateCount > 0 ? 'Docker agent updates available' : undefined}>
               Machine settings
               {availableProviderUpdateCount > 0 && <span className="settings-update-dot" aria-hidden="true" />}
-            </button>
-            {launcher.availabilityError && <button type="button" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</button>}
-            {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <button type="button" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
-              const source = moreMenuRef.current?.querySelector<HTMLElement>('summary');
-              moreMenuRef.current?.removeAttribute('open'); void launcher.openCodeAi(source);
-            }}>New CodeAI session</button>}
+            </Button>
+            {launcher.availabilityError && <Button type="button" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</Button>}
+            {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <Button type="button" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
+              const source = moreMenuRef.current?.trigger;
+              moreMenuRef.current?.close(); void launcher.openCodeAi(source);
+            }}>New CodeAI session</Button>}
             {launcher.availability && !launcher.availability.available && launcher.availability.message && <p>{launcher.availability.message}</p>}
             <div className="theme-selector" role="group" aria-label="Theme">
               {THEME_PREFERENCES.map((choice) => (
-                <button
-                  key={choice}
-                  type="button"
-                  className={themePreference === choice ? 'active' : ''}
-                  aria-pressed={themePreference === choice}
-                  onClick={() => setThemePreference(choice)}
+                <Button
+                  key={choice} type="button" className={themePreference === choice ? 'active' : ''} variant={themePreference === choice ? 'contained' : 'outlined'} aria-pressed={themePreference === choice} onClick={() => setThemePreference(choice)}
                 >
                   {choice[0].toUpperCase() + choice.slice(1)}
-                </button>
+                </Button>
               ))}
             </div>
-            {!arenaOpen && session && <button type="button" onClick={() => exportSession(session)}>Export session</button>}
+            {!arenaOpen && session && <Button type="button" onClick={() => exportSession(session)}>Export session</Button>}
             {!arenaOpen && session && (
-              <button
-                type="button"
-                disabled={!canArchiveSession}
-                title={sessionLive ? 'Wait for the current turn to finish before archiving.'
-                  : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined}
-                onClick={() => {
-                  moreMenuRef.current?.removeAttribute('open');
+              <Button
+                type="button" disabled={!canArchiveSession} title={sessionLive ? 'Wait for the current turn to finish before archiving.'
+                  : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined} onClick={() => {
+                  moreMenuRef.current?.close();
                   void archiveOpenSession();
                 }}
-              >Archive session</button>
+              >Archive session</Button>
             )}
             {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
             {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}

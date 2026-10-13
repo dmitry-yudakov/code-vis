@@ -8,6 +8,16 @@ import type {
   AgentExecution, AgentMode, ChatMessage as ChatMessageRecord, DiagramArtifact, InstructionsLine, Participant,
 } from '@/shared/types';
 
+// Inspect menu contents independently of the portal; real overlay interaction is covered in Chrome.
+vi.mock('@/features/shell/DesktopPopover', () => ({
+  DesktopPopover: ({ className, label, summary, disabled, children }: {
+    className: string; label: string; summary: React.ReactNode; disabled?: boolean;
+    children(close: () => void): React.ReactNode;
+  }) => createElement('details', { className },
+    createElement('summary', { 'aria-label': label, 'aria-disabled': disabled || undefined }, summary),
+    createElement('div', null, children(vi.fn()))),
+}));
+
 const artifact: DiagramArtifact = {
   id: 'diagram-8', sessionId: 't1', messageId: 'message-1', ordinal: 8, source: 'flowchart LR\n  A --> B',
   createdAt: '2026-09-25T11:00:00.000Z', status: 'ready', derivedFromDiagramIds: [], evidence: [],
@@ -57,7 +67,7 @@ function render(options: {
     onOpenHistory: vi.fn(),
     onNewSketch: vi.fn(),
     onOpenReports: options.reports ? vi.fn() : undefined,
-  }));
+  })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }
 
 /** The `<details>` menu with this class, as its summary's name and text and its items' names, states, and details. */
@@ -135,9 +145,9 @@ describe('composer mode picker', () => {
     }));
     const base = { id: 'm1', createdAt: '2026-09-30T10:00:00.000Z' };
     expect(chat({ ...base, role: 'user', authorId: 'human', addressedParticipantId: 'agent-1', text: 'Add the test.', status: 'sent', diagramAttachments: [], mode: 'auto' }))
-      .toContain('<em class="mode-tag mode-auto">Auto</em>');
+      .toMatch(/<em[^>]*class="[^"]*MuiChip-root[^>]*>[\s\S]*?Auto[\s\S]*?<\/em>/);
     expect(chat({ ...base, role: 'assistant', authorId: 'agent-1', status: 'complete', rawMarkdown: 'Done.', blocks: [{ kind: 'markdown', markdown: 'Done.' }], mode: 'auto' }))
-      .toContain('<em class="mode-tag mode-auto">Auto</em>');
+      .toMatch(/<em[^>]*class="[^"]*MuiChip-root[^>]*>[\s\S]*?Auto[\s\S]*?<\/em>/);
   });
 
   it('uses the Docker hints and explanations in a Docker session', () => {
@@ -248,5 +258,13 @@ describe('composer execution line', () => {
 
   it('stays open to a running turn, whose reason the continuation carries', () => {
     expect(menu(render({ running: true, unavailable: 'Wait for this turn to finish.' }), 'execution-menu')!.disabled).toBe(false);
+  });
+});
+
+describe('MUI conversation controls', () => {
+  it('uses an outlined MUI instruction field and library buttons', () => {
+    const markup = render();
+    expect(markup).toContain('MuiOutlinedInput-root');
+    expect(markup).toContain('MuiButton-root');
   });
 });

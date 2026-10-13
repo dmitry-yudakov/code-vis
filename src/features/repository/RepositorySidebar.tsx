@@ -1,5 +1,6 @@
 'use client';
 
+import Paper from '@mui/material/Paper';
 import type { ReactNode } from 'react';
 import type { SideTab } from '@/features/shell/panelLayout';
 
@@ -30,7 +31,7 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
   const changes = shown === 'changes';
 
   return (
-    <aside className={`repository-sidebar ${changes && inspector ? 'has-inspector' : ''}`} aria-label={SIDE_PANEL_LABELS[shown]}>
+    <Paper component="aside" square variant="elevation" elevation={0} className={`repository-sidebar ${changes && inspector ? 'has-inspector' : ''}`} aria-label={SIDE_PANEL_LABELS[shown]}>
       <section className="repository-summary-panel">
         <header className="repository-panel-header">
           <h2 className="side-panel-title">{SIDE_PANEL_TITLES[shown]}</h2>
@@ -47,6 +48,6 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
         ) : shown === 'reports' ? reports : history}
       </section>
       {changes && inspector}
-    </aside>
+    </Paper>
   );
 }

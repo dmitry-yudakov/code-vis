@@ -186,23 +186,23 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   try {
     await conversation.getByLabel(/^Mode: /).click();
-    await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+    await page.getByRole('radio', { name: 'Agent', exact: true }).click();
     await conversation.locator('textarea').fill('Completed Arena choices');
     await conversation.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
     await conversation.getByLabel(/^Mode: /).click();
     const changing = page.waitForResponse('**/api/agent/mode');
-    await conversation.getByRole('radio', { name: 'Plan', exact: true }).click();
+    await page.getByRole('radio', { name: 'Plan', exact: true }).click();
     expect((await changing).status()).toBe(200);
     await expect(conversation.getByRole('button', { name: 'Execute plan', exact: true })).toBeVisible();
     await expect(page.getByRole('tab', { name: /Completed Arena choices/ })).not.toHaveClass(/working|awaiting-approval/);
 
-    await conversation.locator('.add-agent-menu summary').click();
-    await conversation.getByLabel('Role').selectOption('reviewer');
-    await conversation.getByRole('button', { name: 'Add participant', exact: true }).click();
+    await conversation.locator('.add-agent-menu > button').click();
+    await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
+    await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant', exact: true }).click();
     await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
     await conversation.getByLabel(/^Mode: /).click();
-    await conversation.getByRole('radio', { name: 'Ask', exact: true }).click();
+    await page.getByRole('radio', { name: 'Ask', exact: true }).click();
     await conversation.locator('textarea').fill('Keep the next turn draft');
     let retainedEvents = '';
     await page.route('**/api/agent/stream?runId=*', async (route) => {
@@ -254,9 +254,10 @@ test('a rejected first turn can change mode and model while retaining its create
   await expect(dialog.getByLabel('Project', { exact: true })).toBeDisabled();
   await expect(dialog.getByLabel('Provider', { exact: true })).toBeDisabled();
   await dialog.getByLabel('Mode', { exact: true }).selectOption('plan');
-  const menu = dialog.locator('.model-menu'); await menu.locator('summary').click();
-  await menu.getByRole('radio', { name: 'Replacement model', exact: true }).click();
-  await menu.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
+  const menu = dialog.locator('.model-menu'); await menu.getByRole('button', { name: /Model and effort/ }).click();
+  await page.getByRole('radio', { name: 'Replacement model', exact: true }).click();
+  await page.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
+  await page.keyboard.press('Escape');
   await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   expect(turns).toHaveLength(2);
@@ -375,12 +376,12 @@ test('managed gear setup targets CodeAI while preserving the source task and its
   await page.getByRole('option', { name: new RegExp(source.name) }).click();
   const sourceInput = page.locator('.conversation-drawer textarea'); await sourceInput.fill('Keep my current task');
   await page.locator('.instruction-composer input[type=file]').setInputFiles({ name: 'source.txt', mimeType: 'text/plain', buffer: Buffer.from('keep source evidence') });
-  await page.locator('.more-menu > summary').click(); await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
+  await page.locator('.more-menu > button').click(); await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New CodeAI session' });
   await expect(dialog.getByRole('textbox')).toBeFocused();
   await dialog.getByRole('textbox').fill('Fix CodeAI'); await dialog.getByRole('textbox').press('Enter');
   await expect(dialog).not.toBeVisible();
-  await expect(page.locator('.more-menu > summary')).toBeFocused();
+  await expect(page.locator('.more-menu > button')).toBeFocused();
   await expect(sourceInput).toHaveValue('Keep my current task'); await expect(page.locator('.instruction-composer')).toContainText('source.txt');
   await expect(page.locator('.project-search-trigger')).toContainText(source.name);
   expect(creations).toMatchObject([{ action: 'create', preparedContext }]);
@@ -398,14 +399,15 @@ for (const width of [1280, 390]) test(`setup model and effort choices remain usa
   });
   const dialog = await openSetup(page, target);
   const menu = dialog.locator('.model-menu');
-  await menu.locator('summary').click();
-  await menu.getByRole('radio', { name: 'Setup model', exact: true }).click();
-  await menu.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
-  await expect(menu.locator('summary')).toHaveText('Setup model · High');
+  await menu.getByRole('button', { name: /Model and effort/ }).click();
+  await page.getByRole('radio', { name: 'Setup model', exact: true }).click();
+  await page.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(menu.getByRole('button', { name: /Model and effort/ })).toHaveText('Setup model · High');
   await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeInViewport();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
-  await expect(menu.locator('summary')).toHaveText('Setup model · High');
+  await expect(menu.getByRole('button', { name: /Model and effort/ })).toHaveText('Setup model · High');
 });
 
 test('empty completion after Cancel does not navigate and announces the created session', async ({ page, request }) => {
@@ -438,7 +440,7 @@ async function chooseProject(page: Page, target: DurableProject) {
   await page.getByRole('option', { name: new RegExp(target.name) }).click();
 }
 async function gear(page: Page) {
-  await page.locator('.more-menu > summary').click();
+  await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
   return page.getByRole('dialog', { name: 'New CodeAI session' });
 }
@@ -571,4 +573,20 @@ test('regular composer Retry rehydrates exact file evidence alongside a newer pe
   await page.route('**/api/agent/message', (route) => { files = route.request().postDataJSON().fileAttachments; return route.fulfill({ status: 503, json: { error: 'Inspection only' } }); });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(() => files).toEqual([{ name: 'newer.txt', text: 'Keep newer evidence' }, { name: 'original.txt', text: 'Exact original 🌍\n' }]);
+});
+
+
+test('delayed managed preparation focuses the first-message textarea after the dialog enters', async ({ page, request }) => {
+  const { project: self, catalog, checkout } = await project(request, `Delayed focus ${Date.now()}`, 'installation');
+  let release!: () => void;
+  const prepared = new Promise<void>((resolve) => { release = resolve; });
+  await managedSetup(page, request, self, catalog, checkout.id, prepared);
+  await page.goto('/');
+  await gear(page);
+  await expect(page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('status').filter({ hasText: /^Preparing CodeAI project/ })).toHaveText('Preparing CodeAI project…');
+  const dialog = page.getByRole('dialog', { name: 'New CodeAI session', exact: true });
+  // Keep preparation pending beyond MUI's completed enter transition.
+  await page.waitForTimeout(300);
+  release();
+  await expect(dialog.getByRole('textbox', { name: 'First message (optional)' })).toBeFocused();
 });

@@ -8,6 +8,12 @@ private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
 Prefer a concise, functional UI that makes the next action clear. Avoid walls of text in routine flows.
 
+- Use MUI for ordinary desktop controls and panel chrome. The shared theme is
+  `src/features/shell/desktopTheme.ts`; appearance has one owner above the device gate. Reuse MUI
+  components and variants before adding feature-specific styles or wrappers. Custom pane geometry,
+  canvas/SVG/ink, thumbnails, Markdown/code/diffs, hidden file inputs, and Three.js/VR rendering
+  remain specialized content.
+
 - Resolve confusion through controls, placement, grouping, and feedback before adding explanation.
 - Put status cues on the control that leads to the relevant action: an update dot on **Machine
   settings**, for example, with update details inside settings.
@@ -18,7 +24,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-09. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-13. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -208,6 +214,11 @@ Updated 2026-10-09. When a story ships, change the line that names it; each stor
   be dismissed, Docker/provider updates and global-instructions defaults live under the gear's
   Machine settings, and new-session instructions live under Advanced settings. Focused offline
   checks, TypeScript, production build, browser checks and screenshot/diff review pass.
+- **Shipped:** [Story 106](stories/STORY-20261013-mui-desktop-ui.md) — ordinary desktop controls
+  and panels use compact MUI components with one shared light/dark/system theme. All 1,457 offline
+  tests, TypeScript, isolated production build, 141 desktop browser checks, available spatial/XR
+  checks, 84 reviewed screenshot baselines, and two implementation reviews pass. Initial desktop
+  JavaScript grows by 104.4 KiB gzipped. The running app has not been restarted.
 - **Shipped:** [Story 105](stories/STORY-20261008-create-worktrees-during-turns.md) — create and
   start an independent Local worktree beside an existing source or verified sibling task, including
   the gear's background launch and provisioned Docker Git helpers. Retry preserves clean retained

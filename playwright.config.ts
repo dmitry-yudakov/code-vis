@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 45_000,
   fullyParallel: false,
+  // Reviewed PNG references stay local; ordinary browser assertions always run.
+  ignoreSnapshots: process.env.CODEAI_E2E_VISUAL !== '1',
   // Files share one host store and scheduler; concurrent suites can change each other's runs/projects.
   workers: 1,
   reporter: [['list']],
@@ -28,7 +30,7 @@ export default defineConfig({
   webServer: {
     command: `npx next start -p ${e2ePort}`,
     url: `${e2eBaseUrl}/api/projects`,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 30_000,
     env: {
       ...process.env,

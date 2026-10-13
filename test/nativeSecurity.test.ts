@@ -23,6 +23,13 @@ const args = (mode: AgentMode, native = true, execution: 'local' | 'docker' = 'l
   appendSystemPrompt: 'USER_INSTRUCTIONS',
 });
 
+vi.mock('@/features/shell/DesktopPopover', () => ({
+  DesktopPopover: ({ className, label, summary, disabled, children }: {
+    className: string; label: string; summary: React.ReactNode; disabled?: boolean;
+    children(close: () => void): React.ReactNode;
+  }) => createElement('details', { className }, createElement('summary', { 'aria-label': label, 'aria-disabled': disabled || undefined }, summary), createElement('div', null, children(vi.fn()))),
+}));
+
 describe('machine security level', () => {
   it('defaults to Guarded and freezes its first value for the process', () => {
     vi.stubEnv('CODEAI_SECURITY_LEVEL', ''); vi.stubEnv('CODEAI_WEB2_SECURITY_LEVEL', '');

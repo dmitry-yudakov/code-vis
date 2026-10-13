@@ -134,7 +134,7 @@ describe('image chips and statements', () => {
     onModelSelectionChange: vi.fn(), onSend: vi.fn(), onCancel: vi.fn(), onRemoveAttachment: vi.fn(), onAddImages: vi.fn(),
     onRemoveImage: vi.fn(), onToggleAttachment: vi.fn(), onOpenHistory: vi.fn(), onNewSketch: vi.fn(),
   }));
-  const sendButton = (markup: string) => markup.match(/<button[^>]*class="send-button"[^>]*>/)![0];
+  const sendButton = (markup: string) => markup.match(/<button[^>]*class="[^"]*send-button[^"]*"[^>]*>/)![0];
 
   it('shows each pending image as a chip with its thumbnail, and lets an image alone be sent', () => {
     const markup = composer([pending, { ...pending, id: 'image-b', mediaType: 'image/jpeg' }]);

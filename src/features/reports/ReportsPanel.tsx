@@ -1,5 +1,11 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import Paper from '@mui/material/Paper';
+import ButtonBase from '@mui/material/ButtonBase';
+import IconButton from '@mui/material/IconButton';
+import Alert from '@mui/material/Alert';
+
 import { useEffect, useState } from 'react';
 import type { ImmersiveReportDetail } from '@/shared/immersiveReport';
 import type { ArenaMachineSnapshot } from '@/shared/types';
@@ -42,22 +48,22 @@ export function ReportsPanel({ owner, machines, pendingIds, canAttach, onToggleA
 
   const attachButton = (id: string) => {
     const pending = pendingIds.includes(id);
-    return <button type="button" disabled={!pending && !canAttach} onClick={() => onToggleAttachment(id)}>
+    return <Button type="button" disabled={!pending && !canAttach} onClick={() => onToggleAttachment(id)}>
       {pending ? 'Remove attachment' : 'Attach next'}
-    </button>;
+    </Button>;
   };
 
   if (selected) {
     return (
       <div className="report-detail">
-        <button type="button" className="report-back" onClick={() => setSelectedId(undefined)}>← All reports</button>
+        <Button type="button" className="report-back" onClick={() => setSelectedId(undefined)}>← All reports</Button>
         <strong>{reportTitle(selected)}</strong>
         <small>{reportCaptureLabel(selected.context, machines, owner.projectId)}</small>
         {selected.screenshot && (
           <img src={immersiveReportPath(owner.projectId, selected.id, true)} alt={`Screenshot from the report received ${reportTime(selected.receivedAt)}`} />
         )}
         {selected.note && <p>{selected.note}</p>}
-        {detailError && <p className="report-error" role="alert">{detailError}</p>}
+        {detailError && <Alert severity="error">{detailError}</Alert>}
         {detail && detail.report.errors.length > 0 && (
           <ol className="report-errors" aria-label="Errors in this report">
             {detail.report.errors.map((error, index) => (
@@ -81,12 +87,12 @@ export function ReportsPanel({ owner, machines, pendingIds, canAttach, onToggleA
           {owner.loading ? 'Reading reports…' : `${owner.reports.length} report${owner.reports.length === 1 ? '' : 's'}`}
           {owner.skipped ? ` · ${owner.skipped} unreadable skipped` : ''}
         </span>
-        <button type="button" aria-label="Refresh reports" title="Refresh reports" disabled={owner.loading} onClick={() => void owner.refresh()}>↻</button>
+        <IconButton type="button" aria-label="Refresh reports" title="Refresh reports" disabled={owner.loading} onClick={() => void owner.refresh()}>↻</IconButton>
       </div>
-      {owner.error && <p className="report-error" role="alert">{owner.error}</p>}
+      {owner.error && <Alert severity="error">{owner.error}</Alert>}
       {owner.reports.map((report) => (
-        <div className={`report-item ${pendingIds.includes(report.id) ? 'attached' : ''}`} key={report.id}>
-          <button type="button" className="report-select" onClick={() => setSelectedId(report.id)}>
+        <Paper className={`report-item ${pendingIds.includes(report.id) ? 'attached' : ''}`} key={report.id}>
+          <ButtonBase type="button" className="report-select" onClick={() => setSelectedId(report.id)}>
             {report.screenshot
               ? <img src={immersiveReportPath(owner.projectId, report.id, true)} alt="" loading="lazy" />
               : <span className="report-mark" aria-hidden="true">{report.kind === 'error' ? '!' : '◎'}</span>}
@@ -95,9 +101,9 @@ export function ReportsPanel({ owner, machines, pendingIds, canAttach, onToggleA
               <span className="report-description">{reportDescription(report)}</span>
               <small>{reportCaptureLabel(report.context, machines, owner.projectId)}</small>
             </span>
-          </button>
+          </ButtonBase>
           <div className="navigator-actions">{attachButton(report.id)}</div>
-        </div>
+        </Paper>
       ))}
       {!owner.loading && !owner.reports.length && !owner.error && (
         <p>No reports yet. Use Report in the headset’s tool strip to capture what you see.</p>

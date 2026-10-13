@@ -1,5 +1,10 @@
 'use client';
 
+import Button from '@mui/material/Button';
+import Paper from '@mui/material/Paper';
+import ListItemButton from '@mui/material/ListItemButton';
+import Checkbox from '@mui/material/Checkbox';
+
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -478,10 +483,10 @@ export function SpatialRoom({
         <p className="spatial-instructions">Drag the background to orbit; wheel or pinch to dolly. F focuses, 0 resets, Alt+arrows orbit, Shift+arrows pan, and +/− dollies. In Arrange, drag to move, Shift-drag to rotate, or Alt-drag for depth.</p>
       </div>
 
-      <aside className="spatial-controls" aria-label="Spatial room controls">
+      <Paper component="aside" className="spatial-controls" aria-label="Spatial room controls">
         <header>
           <div><strong>Room panels</strong><span>{selectedTargets.length} shown{selection.omitted ? ` · ${selection.omitted} omitted` : ''}</span></div>
-          <button type="button" onClick={onOpenFlat}>Open in Flat</button>
+          <Button type="button" onClick={onOpenFlat}>Open in Flat</Button>
         </header>
         <div
           ref={listRef}
@@ -499,7 +504,7 @@ export function SpatialRoom({
             const id = canvasTargetId(target);
             const resource = resources[id];
             return (
-              <div
+              <ListItemButton component="div" tabIndex={-1} selected={id === activeId}
                 key={id}
                 role="option"
                 aria-selected={id === activeId}
@@ -509,7 +514,7 @@ export function SpatialRoom({
               >
                 <span>{spatialTargetLabel(target)}</span>
                 <small>{resource?.status === 'omitted' ? 'Preview omitted' : resource?.status === 'error' ? 'Preview error' : `${session.annotations[id]?.marks.length || 0} marks`}</small>
-              </div>
+              </ListItemButton>
             );
           })}
         </div>
@@ -517,22 +522,22 @@ export function SpatialRoom({
         <div className="spatial-control-section">
           <strong>Camera</strong>
           <div className="spatial-button-grid">
-            {CAMERA_CONTROLS.map(([kind, label]) => <button type="button" key={kind} onClick={() => sceneRef.current?.moveCamera(kind)}>{label}</button>)}
+            {CAMERA_CONTROLS.map(([kind, label]) => <Button type="button" key={kind} onClick={() => sceneRef.current?.moveCamera(kind)}>{label}</Button>)}
           </div>
           <div className="spatial-primary-controls">
-            <button type="button" onClick={focus}>Focus selected</button>
-            <button type="button" onClick={reset}>Reset room</button>
+            <Button type="button" onClick={focus}>Focus selected</Button>
+            <Button type="button" onClick={reset}>Reset room</Button>
           </div>
         </div>
         <div className="spatial-control-section">
-          <label className="spatial-arrange-toggle"><input type="checkbox" checked={arranging} onChange={(event) => setArranging(event.target.checked)} /> Arrange selected panel</label>
+          <label className="spatial-arrange-toggle"><Checkbox checked={arranging} onChange={(event) => setArranging(event.target.checked)} /> Arrange selected panel</label>
           {arranging && (
             <div className="spatial-button-grid panel-nudges">
-              {PANEL_NUDGES.map(([label, delta]) => <button type="button" key={label} onClick={() => sceneRef.current?.nudgePanel(activeId, delta)}>{label}</button>)}
+              {PANEL_NUDGES.map(([label, delta]) => <Button type="button" key={label} onClick={() => sceneRef.current?.nudgePanel(activeId, delta)}>{label}</Button>)}
             </div>
           )}
         </div>
-      </aside>
+      </Paper>
     </section>
   );
 }

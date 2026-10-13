@@ -106,7 +106,7 @@ describe('toast stack model', () => {
 
 describe('toast stack', () => {
   function render(toasts: Toast[]) {
-    return renderToStaticMarkup(createElement(ToastStack, { toasts, onRemove: () => {} }));
+    return renderToStaticMarkup(createElement(ToastStack, { toasts, onRemove: () => {} })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
   }
 
   it('renders nothing while there is nothing to say', () => {
@@ -122,8 +122,8 @@ describe('toast stack', () => {
 
     expect(markup).toContain('<section class="toast-region" aria-label="Notifications"');
     expect(markup.indexOf('Archived “Auth”.')).toBeLessThan(markup.indexOf('Could not save the drawing.'));
-    expect(markup).toMatch(/<div class="toast" data-tone="success" role="status"[^>]*>/);
-    expect(markup).toMatch(/<div class="toast" data-tone="error" role="alert"[^>]*>/);
+    expect(markup).toMatch(/<div(?=[^>]*class="[^"]*\btoast\b)(?=[^>]*data-tone="success")(?=[^>]*role="status")[^>]*>/);
+    expect(markup).toMatch(/<div(?=[^>]*class="[^"]*\btoast\b)(?=[^>]*data-tone="error")(?=[^>]*role="alert")[^>]*>/);
     expect(markup.match(/class="toast-glyph"/g)).toHaveLength(2);
     expect(markup).toContain('<span class="toast-count"><span aria-hidden="true">×2</span><span class="sr-only"> (2 times)</span></span>');
     expect(markup).toContain('>Undo archive</button>');
@@ -136,6 +136,6 @@ describe('toast stack', () => {
       actions: [{ label: 'Continue in new session', onSelect: () => {}, disabled: true }],
     }]));
 
-    expect(markup).toMatch(/<button type="button" disabled="">Continue in new session<\/button>/);
+    expect(markup).toMatch(/<button(?=[^>]*type="button")(?=[^>]*disabled="")[^>]*>Continue in new session<\/button>/);
   });
 });

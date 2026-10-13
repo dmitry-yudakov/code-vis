@@ -14,7 +14,7 @@ const STATUS: DockerVersionsStatus = {
 
 function render(status?: DockerVersionsStatus, options: { busy?: 'check' | 'start'; error?: string } = {}) {
   return renderToStaticMarkup(createElement(DockerVersionsView, { status, ...options, onUpdate: vi.fn(), onCheck: vi.fn() }))
-    .replace(/<!-- -->/g, '');
+    .replace(/<!-- -->/g, '').replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, '');
 }
 
 function rows(markup: string) {
@@ -52,7 +52,7 @@ describe('Arena Docker CLI rows', () => {
       'Claude 2.1.226 2.1.280 available [Update (disabled)]',
       'Codex 0.156.1 up to date [Roll back to 0.152.0 (disabled)]',
     ]);
-    expect(markup).toMatch(/<button type="button" disabled="">Check for updates<\/button>/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Check for updates<\/button>/);
     expect(markup).toContain(`<p role="status">${dockerUpdateText(operation(state))}</p>`);
   });
 
@@ -83,6 +83,6 @@ describe('Arena Docker CLI rows', () => {
       { error: 'Another Docker CLI update is running on this machine.' });
     expect(rows(markup)[0]).toBe('Claude 2.1.226 2.1.280 available [Update]');
     expect(markup).toContain('<p role="status">Claude is in use by a turn. Try again when it finishes.</p>');
-    expect(markup).toContain('<p role="alert">Another Docker CLI update is running on this machine.</p>');
+    expect(markup).toMatch(/<div[^>]*role="alert"[^>]*>[\s\S]*?Another Docker CLI update is running on this machine\.[\s\S]*?<\/div>/);
   });
 });

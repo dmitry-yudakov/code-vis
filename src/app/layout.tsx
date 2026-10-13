@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Archivo, Geist, Geist_Mono, Inter } from 'next/font/google';
+import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
+import { DesktopThemeProvider } from '@/features/shell/DesktopThemeProvider';
 import './globals.css';
 
 const geist = Geist({
@@ -42,7 +44,7 @@ export const viewport: Viewport = {
   colorScheme: 'light dark',
 };
 
-const themeScript = `(function(){try{var t=localStorage.getItem("code-ai:theme");var r=document.documentElement;if(t==="light"||t==="dark")r.setAttribute("data-theme",t);else r.removeAttribute("data-theme")}catch(e){document.documentElement.removeAttribute("data-theme")}})()`;
+const themeScript = `(function(){var r=document.documentElement;var t="system";try{t=localStorage.getItem("code-ai:theme")}catch(e){}if(t==="light"||t==="dark")r.setAttribute("data-theme",t);else{t="system";r.removeAttribute("data-theme")}r.setAttribute("data-appearance",t==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):t)})()`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
@@ -54,7 +56,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>{children}</body>
+      <body><AppRouterCacheProvider><DesktopThemeProvider>{children}</DesktopThemeProvider></AppRouterCacheProvider></body>
     </html>
   );
 }

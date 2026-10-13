@@ -1,5 +1,10 @@
 'use client';
 
+import Alert from '@mui/material/Alert';
+
+import Button from '@mui/material/Button';
+
+import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { useEffect, useState } from 'react';
 import type { PairedDeviceSummary } from '@/shared/types';
 import { useDeviceAccess } from './DeviceAccess';
@@ -55,14 +60,13 @@ export function DeviceMenu() {
   };
 
   return (
-    <details className="device-menu" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary title={`Paired as ${status.device.label}`}>Devices</summary>
-      <div>
+    <DesktopPopover className="device-menu" label="Devices" description={`Paired as ${status.device.label}`} summary="Devices" placement="bottom-end" onOpenChange={setOpen}>
+      {() => <div>
         <header>
           <strong>Personal devices</strong>
           <small>{status.hostLabel}</small>
         </header>
-        {error && <p className="device-menu-error" role="alert">{error}</p>}
+        {error && <Alert severity="error">{error}</Alert>}
         <div className="device-menu-list">
           {devices.map((device) => (
             <div className="device-menu-item" key={device.id}>
@@ -70,14 +74,14 @@ export function DeviceMenu() {
                 <strong>{device.label}{device.current ? ' · This device' : ''}</strong>
                 <small>Paired {pairedDate(device.pairedAt)}</small>
               </span>
-              <button type="button" disabled={Boolean(revoking)} onClick={() => void revoke(device)}>
+              <Button type="button" disabled={Boolean(revoking)} onClick={() => void revoke(device)}>
                 {revoking === device.id ? 'Working…' : device.current ? 'Sign out' : 'Revoke'}
-              </button>
+              </Button>
             </div>
           ))}
         </div>
         <p>To add another device, run <code>npm run device:pair</code> on this machine.</p>
-      </div>
-    </details>
+      </div>}
+    </DesktopPopover>
   );
 }

@@ -1,5 +1,9 @@
 'use client';
 
+import Chip from '@mui/material/Chip';
+import Paper from '@mui/material/Paper';
+import Button from '@mui/material/Button';
+
 import { useEffect, useMemo, useRef } from 'react';
 import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
@@ -96,14 +100,14 @@ export function ConversationDrawer({
   if (!open) return null;
   const lastMessage = session?.messages[session.messages.length - 1];
   return (
-    <aside className="conversation-drawer" aria-label="Conversation">
+    <Paper component="aside" square variant="elevation" elevation={0} className="conversation-drawer" aria-label="Conversation">
       <header>
         <div>
           <strong>{session?.title || 'New session'}</strong>
-          {activeAgent && <span className={`provider-badge provider-${activeAgent.provider}`}>{PROVIDER_LABELS[activeAgent.provider]} · {AGENT_ROLE_LABELS[activeAgent.role]}</span>}
+          {activeAgent && <Chip component="span" className="provider-badge" variant="outlined" label={`${PROVIDER_LABELS[activeAgent.provider]} · ${AGENT_ROLE_LABELS[activeAgent.role]}`} />}
           {repositoryContext && <p className="conversation-repository-context">{repositoryContext}</p>}
         </div>
-        <button
+        <Button
           type="button"
           className="drawer-new-chat"
           aria-label="New chat"
@@ -112,7 +116,7 @@ export function ConversationDrawer({
             : 'New chat with the same project and settings'}
           disabled={!session || !activeAgent || running || continuing || participantBusy || recovery?.busy}
           onClick={onNewChat}
-        ><ShellIcon name="newChat" /></button>
+        ><ShellIcon name="newChat" /></Button>
       </header>
       <div className="conversation-scroll">
         {session?.messages.map((message) => (
@@ -222,6 +226,6 @@ export function ConversationDrawer({
           onOpenReports={onOpenReports}
         />
       </div>
-    </aside>
+    </Paper>
   );
 }

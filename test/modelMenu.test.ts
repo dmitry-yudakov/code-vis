@@ -4,6 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { InstructionComposer } from '@/features/conversation/InstructionComposer';
 import type { ModelSelection, ProviderHealth } from '@/shared/types';
 
+// Open-content assertions complement the real picker/focus checks in Chrome.
+vi.mock('@/features/shell/DesktopPopover', () => ({
+  DesktopPopover: ({ className, label, summary, disabled, children }: {
+    className: string; label: string; summary: React.ReactNode; disabled?: boolean;
+    children(close: () => void): React.ReactNode;
+  }) => createElement('details', { className }, createElement('summary', { 'aria-label': label, 'aria-disabled': disabled || undefined }, summary), createElement('div', null, children(vi.fn()))),
+}));
+
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const CHOICES: Pick<ProviderHealth, 'models' | 'efforts'> = {
   models: [
@@ -36,7 +44,7 @@ function render(options: { choices?: Pick<ProviderHealth, 'models' | 'efforts'>;
     onToggleAttachment: vi.fn(),
     onOpenHistory: vi.fn(),
     onNewSketch: vi.fn(),
-  }));
+  })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }
 
 function radiogroup(markup: string, label: string) {

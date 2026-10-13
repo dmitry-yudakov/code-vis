@@ -33,7 +33,7 @@ async function openProject(page: Page, request: APIRequestContext, count = 3) {
 
 async function expectSelectedInView(page: Page) {
   await expect.poll(async () => {
-    const list = (await page.getByRole('tablist', { name: 'Open session views' }).boundingBox())!;
+    const list = (await page.locator('.workspace-tablist .MuiTabs-scroller').boundingBox())!;
     const tab = (await page.getByRole('tab', { selected: true }).boundingBox())!;
     return tab.x >= list.x - 1 && tab.x + tab.width <= list.x + list.width + 1;
   }).toBe(true);
@@ -81,9 +81,9 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   expect(canvas.height).toBe(852);
   const count = await visibleControls(page);
   expect(count).toBeLessThanOrEqual(27); // Same one-session fixture measured on the pre-story build.
-  await page.locator('.more-menu summary').click();
+  await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
-  await page.locator('.more-menu summary').click();
+  await page.locator('.more-menu > button').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await picker.hover();
   await expectSessionChevronVisible(picker);
@@ -94,9 +94,9 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   expect(await visibleControls(page)).toBe(count);
   await expectSelectedInView(page);
   await page.screenshot({ path: '/tmp/codeai-story73-dark.png' });
-  await page.locator('.more-menu summary').click();
+  await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'Light', exact: true }).click();
-  await page.locator('.more-menu summary').click();
+  await page.locator('.more-menu > button').click();
   await page.screenshot({ path: '/tmp/codeai-story73-light.png' });
 });
 
@@ -134,6 +134,10 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   await expect(tabs).toHaveCount(7);
   await expect(tabs.last()).toBeFocused();
   await expectSelectedInView(page);
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expectSelectedInView(page);
+  await page.setViewportSize({ width: 850, height: 900 });
+  await expectSelectedInView(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await expectSelectedInView(page);
   for (const control of [picker, page.locator('.project-search-trigger'), page.getByRole('group', { name: 'Layout' })]) {
@@ -145,7 +149,7 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   await expectSelectedInView(page);
   await page.getByRole('tab', { selected: true }).press('ArrowRight');
   expect(await page.getByRole('tab', { selected: true }).evaluate((tab) => {
-    const bounds = tab.parentElement!.getBoundingClientRect();
+    const bounds = tab.closest('.MuiTabs-scroller')!.getBoundingClientRect();
     const box = tab.getBoundingClientRect();
     const style = getComputedStyle(tab);
     const width = parseFloat(style.outlineWidth);
@@ -175,7 +179,7 @@ test('title-bar tabs preserve stored layouts and protect approval-blocked views'
   await expect(conversation.locator('textarea')).toHaveValue('Remember this draft');
   await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
   await conversation.getByLabel(/^Mode: /).click();
-  await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+  await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Request an edit approval');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(conversation.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();

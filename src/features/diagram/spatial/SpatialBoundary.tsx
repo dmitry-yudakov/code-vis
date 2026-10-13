@@ -1,5 +1,7 @@
 'use client';
 
+import Button from '@mui/material/Button';
+
 import dynamic from 'next/dynamic';
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import type { SpatialRoomProps } from './spatialTypes';
@@ -74,7 +76,7 @@ export function SpatialBoundary(props: SpatialRoomProps) {
       <div className="spatial-status spatial-fallback" role="alert">
         <strong>Spatial is unavailable</strong>
         <span>{failure || 'This browser or device does not provide a usable WebGL context.'}</span>
-        <button type="button" onClick={props.onOpenFlat}>Return to Flat</button>
+        <Button type="button" onClick={props.onOpenFlat}>Return to Flat</Button>
       </div>
     );
   }

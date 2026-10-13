@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState } from 'react';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ResolvedTheme = Exclude<ThemePreference, 'system'>;
@@ -31,13 +31,24 @@ function stampPreference(preference: ThemePreference): void {
   } else {
     document.documentElement.setAttribute('data-theme', preference);
   }
+  document.documentElement.setAttribute('data-appearance', preference === 'system' ? (systemIsDark() ? 'dark' : 'light') : preference);
 }
 
-export function useTheme(): {
+type Appearance = {
   preference: ThemePreference;
   resolved: ResolvedTheme;
   setPreference: (next: ThemePreference) => void;
-} {
+};
+
+export const AppearanceContext = createContext<Appearance | undefined>(undefined);
+
+export function useTheme(): Appearance {
+  const appearance = useContext(AppearanceContext);
+  if (!appearance) throw new Error('Appearance requires DesktopThemeProvider.');
+  return appearance;
+}
+
+export function useAppearanceOwner(): Appearance {
   const [preference, setPreferenceState] = useState<ThemePreference>(() => (
     typeof window === 'undefined' ? 'system' : readPreference()
   ));
@@ -53,7 +64,10 @@ export function useTheme(): {
   useEffect(() => {
     if (preference !== 'system') return;
     const media = window.matchMedia(DARK_QUERY);
-    const update = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    const update = (event: MediaQueryListEvent) => {
+      setSystemDark(event.matches);
+      stampPreference('system');
+    };
     setSystemDark(media.matches);
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);

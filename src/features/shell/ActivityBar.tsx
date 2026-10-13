@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode, RefObject, SyntheticEvent } from 'react';
+import IconButton from '@mui/material/IconButton';
+import { DesktopPopover, type DesktopPopoverHandle } from './DesktopPopover';
+import type { ReactNode, RefObject } from 'react';
 import { ARENA_SECTION_PATHS, type ArenaSection } from '@/features/arena/routes';
 import type { SideTab } from './panelLayout';
 import { ShellIcon } from './ShellIcon';
@@ -22,8 +24,8 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
   unread: number;
   updateCount?: number;
   more: ReactNode;
-  moreRef?: RefObject<HTMLDetailsElement | null>;
-  onMoreToggle?(event: SyntheticEvent<HTMLDetailsElement>): void;
+  moreRef?: RefObject<DesktopPopoverHandle | null>;
+  onMoreToggle?(open: boolean): void;
   onToggleView(view: SideTab): void;
 }) {
   const updateDescription = updateCount > 0
@@ -35,7 +37,7 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
       {views.map((view) => {
         const count = view === 'changes' ? changeCount : 0;
         return (
-          <button
+          <IconButton
             key={view}
             type="button"
             className="activity-item"
@@ -46,19 +48,19 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
           >
             <ShellIcon name={view} />
             {count > 0 && <span className="activity-badge" aria-hidden="true">{count}</span>}
-          </button>
+          </IconButton>
         );
       })}
       {views.length > 0 && <span className="activity-divider" aria-hidden="true" />}
-      <Link
+      <IconButton component={Link}
         href={ARENA_SECTION_PATHS.sessions}
         scroll={false}
         className="activity-item"
         aria-label="Arena"
         aria-current={arenaSection === 'sessions' ? 'page' : undefined}
         title="Arena"
-      ><ShellIcon name="arena" /></Link>
-      <Link
+      ><ShellIcon name="arena" /></IconButton>
+      <IconButton component={Link}
         href={ARENA_SECTION_PATHS.inbox}
         scroll={false}
         className="activity-item"
@@ -68,15 +70,12 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
       >
         <ShellIcon name="inbox" />
         {unread > 0 && <span className="activity-badge attention" aria-hidden="true">{unread}</span>}
-      </Link>
-      <details ref={moreRef} className="more-menu" onToggle={onMoreToggle}>
-        <summary aria-label="More" aria-description={updateDescription}
-          title={updateDescription ? `More · ${updateDescription}` : 'More'}>
-          <ShellIcon name="more" />
-          {updateDescription && <span className="activity-badge updates" aria-label={updateDescription}>{updateCount}</span>}
-        </summary>
-        <div>{more}</div>
-      </details>
+      </IconButton>
+      <DesktopPopover control={moreRef} className="more-menu" label="More" description={updateDescription}
+        icon width={240} placement="right-end" onOpenChange={onMoreToggle}
+        summary={<><ShellIcon name="more" />{updateDescription && <span className="activity-badge updates" aria-label={updateDescription}>{updateCount}</span>}</>}>
+        {() => <div className="desktop-more-content">{more}</div>}
+      </DesktopPopover>
     </nav>
   );
 }

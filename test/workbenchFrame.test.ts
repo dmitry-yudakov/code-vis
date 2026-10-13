@@ -65,8 +65,9 @@ describe('activity bar', () => {
     expect(activityBar()).not.toContain('aria-current');
   });
 
-  it('keeps More\'s contents in its menu', () => {
-    expect(activityBar()).toMatch(/<details class="more-menu"><summary aria-label="More" title="More">[\s\S]*<\/summary><div>[\s\S]*Export session/);
+  it('keeps More closed until requested; its portalled content is exercised in Chrome', () => {
+    expect(activityBar()).toMatch(/aria-label="More"[^>]*aria-expanded="false"/);
+    expect(activityBar()).not.toContain('Export session');
   });
 });
 

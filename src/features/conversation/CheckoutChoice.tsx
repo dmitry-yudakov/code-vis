@@ -1,3 +1,5 @@
+
+import NativeSelect from '@mui/material/NativeSelect';
 import { useRef } from 'react';
 import { createUuid } from '@/shared/uuid';
 import { WORKTREE_BASELINE, worktreeChoice } from './worktreeChoice';
@@ -21,11 +23,11 @@ export function CheckoutChoice({ value, choice, disabled, onChange }: {
   return <>
     <label>
       <span>Checkout</span>
-      <select aria-label="Session checkout" value={value} disabled={disabled}
+      <NativeSelect inputProps={{ 'aria-label': "Session checkout" }} value={value} disabled={disabled}
         onChange={(event) => onChange(event.target.value as 'current' | 'worktree')}>
         <option value="current">Use current checkout</option>
         <option value="worktree" disabled={!choice.available}>Create a worktree</option>
-      </select>
+      </NativeSelect>
     </label>
     {choice.source && <p>Source: {choice.source.name}{choice.source.worktreeCreation?.branch ? ` · ${choice.source.worktreeCreation.branch}` : ''}</p>}
     {value === 'worktree' && <p>{WORKTREE_BASELINE}</p>}

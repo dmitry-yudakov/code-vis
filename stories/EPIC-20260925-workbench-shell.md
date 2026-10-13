@@ -1,10 +1,15 @@
 # EPIC — A workbench shell: activity bar, status bar, and flat panes
 
-**Status:** Draft · **Updated:** September 25, 2026 · **Owns:** the frame of the flat desktop shell
+**Status:** Draft · **Updated:** October 13, 2026 · **Owns:** the frame of the flat desktop shell
 after [Story 62](STORY-20260920-simplify-flat-shell.md): where views, layout toggles, session tabs,
 ambient state, notices, and composer controls live. It continues the
 [shell design-system epic](EPIC-20260828-shell-design-system.md), whose invariants still hold. The
 immersive workspace is unaffected.
+
+[Story 106](STORY-20261013-mui-desktop-ui.md) implements MUI as the default for ordinary desktop
+controls and panel chrome, with a staged migration and reviewed visual baselines. Its reviewed
+production screenshots replace the boards' handcrafted control styling as the appearance oracle;
+this epic still owns placement, pane geometry, control budgets, and the remaining shell features.
 
 ## Motivation
 
@@ -30,7 +35,10 @@ title bar, and a compact chat composer.
 
 ## Design
 
-The verification oracle is [docs/design/workbench-shell/](../docs/design/workbench-shell/). Serve
+The placement/geometry oracle is [docs/design/workbench-shell/](../docs/design/workbench-shell/).
+Story 106’s [visual fixtures](../e2e/mui-desktop.spec.ts) and reviewed local screenshots own the
+implemented control appearance: compact MUI components with the existing light/dark palette. The boards’
+handcrafted skins remain historical references; planned shell features remain planned. Serve
 `docs/design` over HTTP and open any `.dc.html` board; `canvas.json` lists the boards and the four
 design notes. The editable original is a private Claude Design canvas:
 https://claude.ai/artifact/WKfhHJmFZuTRsnphe41FVE. If an implementation deliberately diverges, update

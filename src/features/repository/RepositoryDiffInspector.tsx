@@ -1,5 +1,7 @@
 'use client';
 
+import Button from '@mui/material/Button';
+
 import type { GitChangedFile } from '@/shared/types';
 import type { RepositoryDiffState } from './useRepositoryDiff';
 
@@ -33,12 +35,12 @@ export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
   return (
     <section className="repository-inspector diff-inspector" aria-label={`Changes in ${file.path}`}>
       <header className="diff-inspector-header">
-        <button type="button" aria-label="Close file changes" title="Back to changed files" onClick={onClose}>←</button>
+        <Button type="button" aria-label="Close file changes" title="Back to changed files" onClick={onClose}>←</Button>
         <div><span className="eyebrow">{file.status} · read only</span><strong>{file.path}</strong></div>
       </header>
       <div className="diff-inspector-scroll">
         {loading ? <div className="repository-state"><span className="pulse-dot" /><p>Reading patch…</p></div> : error ? (
-          <div className="repository-state error"><strong>Diff unavailable</strong><p>{error}</p><button type="button" onClick={onRetry}>Try again</button></div>
+          <div className="repository-state error"><strong>Diff unavailable</strong><p>{error}</p><Button type="button" onClick={onRetry}>Try again</Button></div>
         ) : diff ? (
           <>
             {diff.staged !== undefined && <section className="diff-section"><header><strong>Staged</strong><span>index</span></header><Patch source={diff.staged} /></section>}

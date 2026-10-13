@@ -1,5 +1,6 @@
 'use client';
 
+import Button from '@mui/material/Button';
 import dynamic from 'next/dynamic';
 import { useImmersiveLayout } from './useImmersiveLayout';
 import { PANEL_IDS, PANEL_TITLES, PANEL_COMMAND_LABELS } from './workspaceLayout';
@@ -129,9 +130,9 @@ export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, o
 
   return <div className={`immersive-entry ${availability}`}>
     {availability === 'active' ? <strong>Immersive workspace active</strong>
-      : enabled ? <button type="button" className="immersive-enter" disabled={!controller || availability === 'entering'} onClick={() => void controller?.enter()}>
+      : enabled ? <Button type="button" className="immersive-enter" disabled={!controller || availability === 'entering'} onClick={() => void controller?.enter()}>
         {availability === 'entering' ? 'Entering VR…' : controller ? 'Enter VR' : 'Preparing VR…'}
-      </button>
+      </Button>
         : null}
     {enabled && reason && <span role="alert">{reason}</span>}
     {enabled && authorized && <RendererBoundary onError={(message) => handleAvailability('failed', `The immersive renderer could not load: ${message}`)}>

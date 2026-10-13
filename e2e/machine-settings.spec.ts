@@ -19,7 +19,7 @@ test('security can be dismissed across reloads and remains available from settin
   await expect(settings.getByRole('region', { name: 'Global instructions' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(settings).toBeHidden();
-  await expect(page.locator('.more-menu > summary')).toBeFocused();
+  await expect(page.locator('.more-menu > button')).toBeFocused();
 });
 
 test('a changed security level shows the notice again', async ({ page }) => {
@@ -57,9 +57,9 @@ test('dismissing one machine does not dismiss another machine', async ({ page })
 for (const theme of ['Light', 'Dark']) {
   test(`settings fit a narrow screen in ${theme} theme`, async ({ page }, testInfo) => {
     await page.goto('/arena');
-    await page.locator('.more-menu > summary').click();
+    await page.locator('.more-menu > button').click();
     await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: theme, exact: true }).click();
-    await page.locator('.more-menu > summary').click();
+    await page.locator('.more-menu > button').click();
     await page.setViewportSize({ width: 360, height: 800 });
     const settings = await openMachineSettings(page);
     await expect(settings.getByRole('checkbox', { name: 'Enable Docker' })).toBeVisible();
@@ -82,8 +82,8 @@ test('both new-session forms hide global instructions under Advanced settings', 
   await setup.getByLabel('Global instructions').selectOption('isolated');
   await setup.getByRole('button', { name: 'Create and open' }).click();
   await expect(setup).toBeHidden();
-  await page.locator('.new-session-menu > summary').click();
-  const form = page.locator('.new-session-menu');
+  await page.locator('.new-session-menu > button').click();
+  const form = page.locator('.desktop-picker-paper:visible');
   await expect(form.getByLabel('Global instructions')).toBeHidden();
   await form.getByText('Advanced settings', { exact: true }).click();
   await expect(form.getByLabel('Global instructions')).toHaveValue('isolated');

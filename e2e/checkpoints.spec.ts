@@ -61,7 +61,7 @@ test('offers durable Undo, confirms its scope, restores real uncommitted work, a
   const originalStatus = await git('status', '--porcelain');
   const index = await readFile(path.join(checkout, '.git/index'));
   const change = async () => {
-    await conversation.locator('.mode-menu summary').click(); await conversation.getByRole('radio', { name: 'Agent', exact: true }).click();
+    await conversation.locator('.mode-menu > button').click(); await page.getByRole('radio', { name: 'Agent', exact: true }).click();
     await conversation.locator('textarea').fill('Checkpoint change'); await conversation.getByRole('button', { name: 'Send' }).click();
     await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
     await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Checkpoint fixture finished.');

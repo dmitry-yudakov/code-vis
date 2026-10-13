@@ -17,21 +17,22 @@ const VIEW: View = {
 };
 
 function render(view: View | undefined, options: { error?: string; saving?: boolean; dockerEnabled?: boolean } = {}) {
-  return renderToStaticMarkup(createElement(GlobalInstructionsView, { view, ...options, onSwitch: vi.fn() })).replace(/<!-- -->/g, '');
+  return renderToStaticMarkup(createElement(GlobalInstructionsView, { view, ...options, onSwitch: vi.fn() })).replace(/<!-- -->/g, '').replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, '');
 }
 
 /** Each row as its switch, then its text; a file view shows as `[file: …]`. */
 function rows(markup: string) {
-  return [...markup.matchAll(/<div class="arena-instruction">([\s\S]*?)<\/div>/g)].map(([, row]) => row
+  return [...markup.matchAll(/<div class="arena-instruction">([\s\S]*?)(?=<div class="arena-instruction">|<\/section>)/g)].map(([, row]) => row
     .replace(/<input[^>]*>/, (input) => `[${input.includes('checked=""') ? 'on' : 'off'}${input.includes('disabled=""') ? ', disabled' : ''}] `)
-    .replace(/<details[^>]*><summary>Show file<\/summary><pre[^>]*>([\s\S]*?)<\/pre><\/details>/, (_, text: string) => ` [file: ${text.trim()}]`)
+    .replace(/<button[^>]*>[\s\S]*?Show file[\s\S]*?<\/button>/g, '')
+    .replace(/<pre[^>]*>([\s\S]*?)<\/pre>/g, (_, text: string) => ` [file: ${text.trim()}]`)
     .replace(/<\/(code|span|label|p)>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
 }
 
 describe('Arena Global instructions', () => {
   it('shows each provider\'s switch, path, and file, with the local-Codex and timing notes', () => {
     const markup = render(VIEW);
-    expect(markup).toContain('<section class="arena-instructions" aria-label="Global instructions">');
+    expect(markup).toMatch(/<section[^>]*arena-instructions[^>]*aria-label="Global instructions"/);
     expect(markup).toContain('<span>Takes effect on the next Docker Codex turn and in a Claude agent’s next provider session.</span>');
     expect(rows(markup)).toEqual([
       '[on] Claude ~/.claude/CLAUDE.md [file: Claude rules.]',
@@ -98,7 +99,7 @@ describe('Arena Global instructions', () => {
     expect(rows(render(VIEW, { saving: true }))[0]).toMatch(/^\[on, disabled\] Claude/);
     const failed = render(undefined, { error: 'Could not read the global instructions on this machine.' });
     expect(rows(failed)).toEqual([]);
-    expect(failed).toContain('<p role="alert">Could not read the global instructions on this machine.</p>');
+    expect(failed).toMatch(/<div[^>]*role="alert"[^>]*>[\s\S]*?Could not read the global instructions on this machine\.[\s\S]*?<\/div>/);
   });
 });
 
@@ -114,7 +115,7 @@ describe('the conversation\'s New session form', () => {
       initialExecution, executionHealth: health, checkouts: [{ id: 'checkout-a', name: 'alpha', relativePath: 'alpha' }], hostId: 'host',
       newProvider, preferredInstructions, creating: false, onNewProvider: vi.fn(), onNew: vi.fn(),
     }));
-    const [, options] = markup.match(/<span>Global instructions<\/span><select[^>]*>([\s\S]*?)<\/select>/)!;
+    const [, options] = markup.match(/<span>Global instructions<\/span>[\s\S]*?<select[^>]*>([\s\S]*?)<\/select>/)!;
     return [...options.matchAll(/<option([^>]*)>([^<]*)<\/option>/g)].map(([, attributes, text]) => (
       `${text}${attributes.includes('selected=""') ? ' (selected)' : ''}${attributes.includes('disabled=""') ? ' (disabled)' : ''}`
         + (attributes.match(/title="([^"]*)"/)?.[1].replace(/^/, ' — ') ?? '')

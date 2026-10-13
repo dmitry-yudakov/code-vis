@@ -1,5 +1,11 @@
 'use client';
 
+import Alert from '@mui/material/Alert';
+
+import { Disclosure } from '@/features/shell/Disclosure';
+import Paper from '@mui/material/Paper';
+import Checkbox from '@mui/material/Checkbox';
+
 import { useCallback, useEffect, useState } from 'react';
 import { INSTRUCTION_ISSUE_TEXT } from '@/shared/globalInstructions';
 import { PROVIDER_LABELS } from '@/shared/participants';
@@ -10,10 +16,10 @@ const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
 /** The file as it is passed: whole, read-only, and closed until asked for. */
 function InstructionText({ text }: { text: string }) {
   return (
-    <details className="arena-instructions-file">
-      <summary>Show file</summary>
+    <Disclosure className="arena-instructions-file" title={<>Show file</>}>
+
       <pre tabIndex={0}>{text}</pre>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -35,7 +41,7 @@ export function GlobalInstructionsView({ view, error, saving, dockerEnabled, sec
   onSwitch(provider: AgentProvider, enabled: boolean): void;
 }) {
   return (
-    <section className="arena-instructions" aria-label="Global instructions">
+    <Paper component="section" sx={{ p: 2, mt: 2 }} className="arena-instructions" aria-label="Global instructions">
       <div className="arena-instructions-heading">
         <strong>Global instructions</strong>
         <span>Takes effect on the next Docker Codex turn and in a Claude agent’s next provider session.</span>
@@ -48,8 +54,8 @@ export function GlobalInstructionsView({ view, error, saving, dockerEnabled, sec
         return (
           <div className="arena-instruction" key={provider}>
             <label>
-              <input type="checkbox" checked={instructions.enabled} disabled={saving}
-                aria-label={`Use global instructions for ${PROVIDER_LABELS[provider]}`}
+              <Checkbox checked={instructions.enabled} disabled={saving}
+                slotProps={{ input: { 'aria-label': `Use global instructions for ${PROVIDER_LABELS[provider]}` } }}
                 onChange={(event) => onSwitch(provider, event.target.checked)} />
               {PROVIDER_LABELS[provider]}
             </label>
@@ -73,8 +79,8 @@ export function GlobalInstructionsView({ view, error, saving, dockerEnabled, sec
           {view.providers.claude.text !== undefined && <InstructionText text={view.providers.claude.text} />}
         </div>
       )}
-      {error && <p role="alert">{error}</p>}
-    </section>
+      {error && <Alert severity="error">{error}</Alert>}
+    </Paper>
   );
 }
 

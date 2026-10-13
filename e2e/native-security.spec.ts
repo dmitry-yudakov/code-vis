@@ -31,6 +31,10 @@ test.beforeAll(async () => {
     try { return (await fetch(`${origin}/api/health`)).status; } catch { return 0; }
   }, { timeout: 20_000 }).toBe(200);
 });
+test.afterEach(async ({ page }) => {
+  // Finish active fixture responses before Playwright disposes the request context.
+  await page.unrouteAll({ behavior: 'wait' });
+});
 test.afterAll(async () => {
   if (server?.exitCode === null) {
     const stopped = new Promise<void>((resolve) => server.once('exit', () => resolve()));
@@ -65,13 +69,13 @@ test('never falls back to Full access when it is the only supported mode', async
   });
   await openFixture(page, 'codex');
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
-  await expect(conversation.locator('.mode-menu summary')).toHaveText('Ask');
+  await expect(conversation.locator('.mode-menu > button')).toHaveText('Ask');
   await conversation.locator('textarea').fill('Do it');
   await expect(conversation.getByRole('button', { name: 'Send' })).toBeDisabled();
   await expect(conversation.locator('.inline-status')).toContainText('Ask and Plan unavailable');
-  await conversation.locator('.mode-menu summary').click();
-  await conversation.getByRole('radio', { name: 'Full access', exact: true }).click();
-  await expect(conversation.locator('.mode-menu summary')).toHaveText('Full access');
+  await conversation.locator('.mode-menu > button').click();
+  await page.getByRole('radio', { name: 'Full access', exact: true }).click();
+  await expect(conversation.locator('.mode-menu > button')).toHaveText('Full access');
   await expect(conversation.getByRole('button', { name: 'Send' })).toBeEnabled();
 });
 
@@ -103,7 +107,7 @@ test('shows the isolation reason and permits an earlier Ask retry independently 
   await page.reload();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const reason = 'This session runs without your global instructions, and Claude loads them itself in Native writing modes.';
-  await expect(conversation.locator('.mode-menu summary')).toHaveText('Agent');
+  await expect(conversation.locator('.mode-menu > button')).toHaveText('Agent');
   await expect(conversation.locator('.inline-status')).toHaveText(reason);
   await conversation.locator('textarea').fill('Do it');
   await expect(conversation.getByRole('button', { name: 'Send' })).toBeDisabled();
@@ -116,7 +120,7 @@ test('shows the isolation reason and permits an earlier Ask retry independently 
     await route.fulfill({ status: 409, json: { error: 'Retry fixture received.' } });
   });
   await conversation.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(conversation.locator('.mode-menu summary')).toHaveText('Ask');
+  await expect(conversation.locator('.mode-menu > button')).toHaveText('Ask');
   await expect(conversation.locator('textarea')).toHaveValue('Do it\n\nEarlier Ask');
   await expect(conversation.getByRole('button', { name: 'Send' })).toBeEnabled();
   await conversation.getByRole('button', { name: 'Send' }).click();
@@ -132,13 +136,13 @@ test('runs Native modes, records their tags, isolates Claude, and keeps new sess
     name: 'Native fixture', checkoutIds: [checkouts.find((checkout: { name: string }) => checkout.name === 'alpha').id],
   } })).ok()).toBe(true);
   await page.goto(origin);
-  await page.locator('.new-session-menu > summary').click();
+  await page.locator('.new-session-menu > button').click();
   await page.getByRole('button', { name: 'Start session' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation.locator('.execution-line')).toContainText('Native');
   for (const mode of ['Agent', 'Accept edits', 'Auto', 'Full access']) {
-    await conversation.locator('.mode-menu summary').click();
-    await conversation.getByRole('radio', { name: mode, exact: true }).click();
+    await conversation.locator('.mode-menu > button').click();
+    await page.getByRole('radio', { name: mode, exact: true }).click();
     await conversation.locator('textarea').fill('Hello');
     await conversation.getByRole('button', { name: 'Send' }).click();
     // The fake deliberately requests an edit in every interactive mode, including Full access.
@@ -150,16 +154,16 @@ test('runs Native modes, records their tags, isolates Claude, and keeps new sess
     await expect(conversation.locator('.chat-message.assistant .mode-tag').last()).toHaveText(label);
   }
   await page.reload();
-  await expect(conversation.locator('.mode-menu summary')).toHaveText('Full access');
-  await page.locator('.new-session-menu > summary').click();
-  await page.locator('.new-session-menu').getByText('Advanced settings', { exact: true }).click();
-  await page.locator('.new-session-menu').getByLabel('Global instructions').selectOption('isolated');
+  await expect(conversation.locator('.mode-menu > button')).toHaveText('Full access');
+  await page.locator('.new-session-menu > button').click();
+  await page.locator('.desktop-picker-paper:visible').getByText('Advanced settings', { exact: true }).click();
+  await page.locator('.desktop-picker-paper:visible').getByLabel('Global instructions').selectOption('isolated');
   await page.getByRole('button', { name: 'Start session' }).click();
-  await expect(conversation.locator('.mode-menu summary')).toHaveText('Ask');
-  await conversation.locator('.mode-menu summary').click();
+  await expect(conversation.locator('.mode-menu > button')).toHaveText('Ask');
+  await conversation.locator('.mode-menu > button').click();
   for (const mode of ['Agent', 'Accept edits', 'Auto', 'Full access']) {
-    await expect(conversation.getByRole('radio', { name: mode, exact: true })).toBeDisabled();
-    await expect(conversation.getByRole('radio', { name: mode, exact: true })).toHaveAttribute('title',
+    await expect(page.getByRole('radio', { name: mode, exact: true })).toBeDisabled();
+    await expect(page.getByRole('radio', { name: mode, exact: true })).toHaveAttribute('title',
       'This session runs without your global instructions, and Claude loads them itself in Native writing modes.');
   }
   await page.goto(`${origin}/arena`);

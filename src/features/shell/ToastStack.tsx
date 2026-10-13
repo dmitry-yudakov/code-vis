@@ -1,5 +1,8 @@
 'use client';
 
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toastLifetime, type Toast, type ToastTone } from './toasts';
 
@@ -105,13 +108,15 @@ function ToastCard({ toast, paused, onRemove }: {
 
   return (
     <div className={leaving ? 'toast-slot leaving' : 'toast-slot'} inert={Boolean(leaving)}><div className="toast-clip">
-      <div
+      <Alert
+        severity={toast.tone}
+        icon={<span className="toast-glyph" aria-hidden="true"><svg viewBox="0 0 24 24">{GLYPHS[toast.tone]}</svg></span>}
+        action={<IconButton type="button" className="toast-dismiss" aria-label="Dismiss notification" onClick={() => setLeaving('dismissed')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7 7 17M7 7l10 10" /></svg></IconButton>}
         className="toast"
         data-tone={toast.tone}
         role={toast.tone === 'error' ? 'alert' : 'status'}
         onKeyDown={(event) => { if (event.key === 'Escape') setLeaving('dismissed'); }}
       >
-        <span className="toast-glyph" aria-hidden="true"><svg viewBox="0 0 24 24">{GLYPHS[toast.tone]}</svg></span>
         <div className="toast-body">
           <p>
             {toast.message}
@@ -122,20 +127,17 @@ function ToastCard({ toast, paused, onRemove }: {
           {Boolean(toast.actions?.length) && (
             <div className="toast-actions">
               {toast.actions!.map((action) => (
-                <button key={action.label} type="button" disabled={action.disabled} onClick={() => {
+                <Button key={action.label} type="button" disabled={action.disabled} onClick={() => {
                   action.onSelect();
                   // A persistent toast follows its state: Continue clears a run outcome only once it
                   // sends, and Refresh approval status clears only once the status is confirmed.
                   if (!toast.persistent) setLeaving('chosen');
-                }}>{action.label}</button>
+                }}>{action.label}</Button>
               ))}
             </div>
           )}
         </div>
-        <button type="button" className="toast-dismiss" aria-label="Dismiss notification" onClick={() => setLeaving('dismissed')}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7 7 17M7 7l10 10" /></svg>
-        </button>
-      </div>
+      </Alert>
     </div></div>
   );
 }

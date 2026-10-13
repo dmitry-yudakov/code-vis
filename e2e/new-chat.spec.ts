@@ -42,11 +42,11 @@ for (const choice of [
     const newChat = conversation.getByRole('button', { name: 'New chat', exact: true });
     await expect(newChat).toBeVisible({ timeout: 2_000 });
     await conversation.getByLabel(/^Mode: /).click();
-    await conversation.getByRole('radio', { name: choice.label, exact: true }).click();
-    await conversation.locator('.model-menu summary').click();
-    await conversation.getByRole('radio', { name: 'Test model', exact: true }).click();
-    await conversation.getByRole('radio', { name: 'High', exact: true }).click();
-    await conversation.locator('.model-menu summary').click();
+    await page.getByRole('radio', { name: choice.label, exact: true }).click();
+    await conversation.locator('.model-menu > button').click();
+    await page.getByRole('radio', { name: 'Test model', exact: true }).click();
+    await page.getByRole('radio', { name: 'High', exact: true }).click();
+    await conversation.locator('.model-menu > button').click();
     await conversation.locator('textarea').fill('Keep this draft in the old chat.');
 
     const createdResponse = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
@@ -69,7 +69,7 @@ for (const choice of [
     await expect(conversation.locator('textarea')).toHaveValue('');
     await expect(conversation.locator('.chat-message')).toHaveCount(0);
     await expect(conversation.getByLabel(/^Mode: /)).toHaveText(choice.label);
-    await expect(conversation.locator('.model-menu summary')).toHaveText('Test model · High');
+    await expect(conversation.locator('.model-menu > button')).toHaveText('Test model · High');
     await page.reload();
     if (choice.loose) {
       await page.locator('.project-search-trigger').click();
@@ -77,7 +77,7 @@ for (const choice of [
     }
     await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(created.id);
     await expect(conversation.getByLabel(/^Mode: /)).toHaveText(choice.label);
-    await expect(conversation.locator('.model-menu summary')).toHaveText('Test model · High');
+    await expect(conversation.locator('.model-menu > button')).toHaveText('Test model · High');
 
     await page.setViewportSize({ width: 760, height: 800 });
     await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-1/);
