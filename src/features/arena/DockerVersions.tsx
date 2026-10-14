@@ -3,6 +3,7 @@
 import Alert from '@mui/material/Alert';
 
 import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PROVIDER_LABELS } from '@/shared/participants';
@@ -70,7 +71,10 @@ export function DockerVersionsView({ status, error, busy, onUpdate, onCheck }: {
       })}
       <div className="arena-docker-version-footer">
         <div>
-          {status?.operation && <p role="status">{dockerUpdateText(status.operation)}</p>}
+          {status?.operation && <div className="arena-docker-version-status">
+            {running && <CircularProgress size={14} aria-hidden="true" />}
+            <p role="status">{dockerUpdateText(status.operation)}</p>
+          </div>}
           {status?.releases.failed && <p>Couldn’t check for updates.</p>}
           {error && <Alert severity="error">{error}</Alert>}
         </div>

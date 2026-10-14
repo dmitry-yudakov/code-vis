@@ -6,6 +6,7 @@ import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import { Disclosure } from '@/features/shell/Disclosure';
 
 import { useState } from 'react';
@@ -60,7 +61,7 @@ export function MachineSettingsDialog({ open, securityLevel, executionHealth, on
             <span role="status">{savingDocker ? 'Saving…' : !docker.enabled ? 'Off'
               : docker.providers.claude.available ? 'Ready' : 'Setup needed'}</span>
           </div>
-          <label>
+          <FormControlLabel sx={{ m: 0 }} label="Enable Docker" control={
             <Checkbox checked={docker.enabled} disabled={savingDocker || refreshing} onChange={(event) => {
               setSavingDocker(true);
               setDockerError(undefined);
@@ -68,8 +69,7 @@ export function MachineSettingsDialog({ open, securityLevel, executionHealth, on
                 setDockerError(error instanceof Error ? error.message : 'Could not save Docker settings.');
               }).finally(() => setSavingDocker(false));
             }} />
-            Enable Docker
-          </label>
+          } />
         </div>
         {/* Keep the owner mounted while closed: the gear badge and update watch stay current. */}
         {docker.enabled && docker.providers.claude.available && <DockerVersions active={open} onSwitched={refresh} onAvailableUpdates={onAvailableUpdates} />}

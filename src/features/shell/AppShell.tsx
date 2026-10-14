@@ -2,6 +2,9 @@
 
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Divider from '@mui/material/Divider';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 
 import { worktreeCreationError } from '@/features/conversation/worktreeCreationError';
 
@@ -2406,36 +2409,35 @@ export function AppShell({ children }: { children: ReactNode }) {
           onMoreToggle={(open) => { if (open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
           onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
           more={<>
-            <Button type="button" onClick={openMachineSettings} aria-description={availableProviderUpdateCount > 0 ? 'Docker agent updates available' : undefined}>
+            <Button type="button" variant="text" color="inherit" onClick={openMachineSettings} aria-description={availableProviderUpdateCount > 0 ? 'Docker agent updates available' : undefined}>
               Machine settings
               {availableProviderUpdateCount > 0 && <span className="settings-update-dot" aria-hidden="true" />}
             </Button>
-            {launcher.availabilityError && <Button type="button" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</Button>}
-            {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <Button type="button" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
+            {launcher.availabilityError && <Button type="button" variant="text" color="inherit" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</Button>}
+            {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <Button type="button" variant="text" color="inherit" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
               const source = moreMenuRef.current?.trigger;
               moreMenuRef.current?.close(); void launcher.openCodeAi(source);
             }}>New CodeAI session</Button>}
             {launcher.availability && !launcher.availability.available && launcher.availability.message && <p>{launcher.availability.message}</p>}
-            <div className="theme-selector" role="group" aria-label="Theme">
+            <ToggleButtonGroup exclusive fullWidth color="primary" value={themePreference} aria-label="Theme"
+              onChange={(_, choice: ThemePreference | null) => { if (choice) setThemePreference(choice); }}>
               {THEME_PREFERENCES.map((choice) => (
-                <Button
-                  key={choice} type="button" className={themePreference === choice ? 'active' : ''} variant={themePreference === choice ? 'contained' : 'outlined'} aria-pressed={themePreference === choice} onClick={() => setThemePreference(choice)}
-                >
+                <ToggleButton key={choice} value={choice}>
                   {choice[0].toUpperCase() + choice.slice(1)}
-                </Button>
+                </ToggleButton>
               ))}
-            </div>
-            {!arenaOpen && session && <Button type="button" onClick={() => exportSession(session)}>Export session</Button>}
+            </ToggleButtonGroup>
+            {!arenaOpen && session && <Button type="button" variant="text" color="inherit" onClick={() => exportSession(session)}>Export session</Button>}
             {!arenaOpen && session && (
               <Button
-                type="button" disabled={!canArchiveSession} title={sessionLive ? 'Wait for the current turn to finish before archiving.'
+                type="button" variant="text" color="inherit" disabled={!canArchiveSession} title={sessionLive ? 'Wait for the current turn to finish before archiving.'
                   : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined} onClick={() => {
                   moreMenuRef.current?.close();
                   void archiveOpenSession();
                 }}
               >Archive session</Button>
             )}
-            {vrUnavailable && <p><strong>VR unavailable</strong>{vrUnavailable}</p>}
+            {vrUnavailable && <><Divider /><p><strong>VR unavailable</strong>{vrUnavailable}</p></>}
             {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
           </>}
         />

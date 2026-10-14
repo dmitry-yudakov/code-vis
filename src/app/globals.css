@@ -80,7 +80,6 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .device-menu-error { padding: 7px; border-radius: 6px; color: var(--stop-ink) !important; background: var(--stop-wash); }
 /* One control height across the whole 48px bar. Left to their own padding these land on five
    different heights and the row reads as unaligned. */
-.theme-selector { flex: none; height: 28px; display: inline-flex; align-items: center; padding: 2px; }
 .layout-toggles { flex: none; display: flex; align-items: center; gap: 2px; }
 .header-actions .layout-toggle { position: relative; width: 30px; height: 28px; display: grid; place-items: center; padding: 0; }
 .header-actions .layout-toggle:hover { color: var(--ink); background: var(--control-wash); }
@@ -142,11 +141,11 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-heading > div:first-child { display: flex; align-items: baseline; gap: 12px; }
 .arena-heading > div:first-child > span { color: var(--muted); font-size: 12px; }
 .arena-heading-actions { flex: none; display: flex; gap: 7px; }
-.arena-docker-setting, .arena-docker-setting > div, .arena-docker-setting label { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.arena-docker-setting, .arena-docker-setting > div { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .arena-docker-setting { justify-content: space-between; }
 .arena-docker-setting span, .arena-docker-settings p { color: var(--muted); }
 .arena-docker-settings p { margin: 8px 0 0; line-height: 1.5; }
-details.arena-docker-setup { margin-top: 6px; }
+.arena-docker-settings .arena-docker-setup { margin-top: 12px; }
 .arena-docker-settings p[role="alert"] { color: var(--stop-ink); }
 .arena-instructions-heading, .arena-instruction, .arena-instruction label { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
 .arena-instructions-heading span, .arena-instructions p, .arena-instruction > span { color: var(--muted); }
@@ -164,7 +163,9 @@ details.arena-docker-setup { margin-top: 6px; }
 .arena-docker-version-current { min-width: 64px; font-variant-numeric: tabular-nums; }
 .arena-docker-version-offer { flex: 1; color: var(--muted); }
 .arena-docker-version-actions, .arena-docker-version-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.arena-docker-version-footer { justify-content: space-between; }
+.arena-docker-version-actions { margin-left: auto; justify-content: flex-end; }
+.arena-docker-version-footer { justify-content: space-between; margin-top: 4px; }
+.arena-docker-version-status { display: flex; align-items: center; gap: 8px; }
 .arena-docker-version-footer p { margin: 0; }
 .arena-refresh-error { max-width: 1440px; margin: 20px auto 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px 10px 15px; }
 .arena-sections { max-width: 1440px; margin: 16px auto 0; display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
@@ -743,7 +744,7 @@ details.arena-docker-setup { margin-top: 6px; }
 
 .project-search-trigger { max-width: 100%; min-width: 0; display: flex; gap: 6px; overflow: hidden; }
 .project-search-popover { display: grid; gap: 8px; min-width: 0; }
-.desktop-more-content { display: grid; gap: 10px; }
+.desktop-more-content { display: grid; gap: 6px; }
 .desktop-more-content > button { width: 100%; justify-content: flex-start; text-align: left; }
 .desktop-more-content p { margin: 0; overflow-wrap: anywhere; }
 .workspace-tab { flex-direction: row; width: 180px; flex: 0 0 180px; max-width: 100%; display: flex; justify-content: flex-start; align-items: center; gap: 6px; overflow: hidden; }
