@@ -51,7 +51,9 @@ Edits and commands run inside a sandbox without asking: the working tree is writ
 const NATIVE_CONTRACT: Partial<Record<AgentMode, string>> = {
   agent: 'Your permission settings decide what runs without asking. Anything else requests approval. Codex uses the reviewer your configuration names, which may be a model. A denial is a decision: do not retry it or work around it.',
   edits: 'File edits in the working tree run without asking. Commands may request approval according to your permission settings. A denial is a decision: do not retry it or work around it.',
-  auto: 'The provider decides what runs, using your own setup. Claude uses a model to approve or block actions; Codex uses its configured workspace sandbox and approval reviewer. A provider request may raise an approval card. Do not work around a denial. No CodeAI sandbox or network restriction is promised.',
+  auto: `The provider decides what runs, using your own setup. Claude uses a model to approve or block actions; Codex uses its configured workspace sandbox and approval reviewer. A provider request may raise an approval card.
+In Codex, .git is read-only inside the workspace sandbox: staging, unstaging and committing may need approval for one command. If an authorized command is blocked only by sandbox permissions, request approval for that command through Codex's exec_command with sandbox_permissions="require_escalated" and a justification, and let the configured reviewer decide. A sandbox failure alone is not an approval denial. Requesting approval for one command does not change the configured sandbox policy.
+Do not work around a denial. No CodeAI sandbox or network restriction is promised.`,
   full: 'Nothing asks for approval. You can reach everything the desktop user can reach. Stay within the requested task. Uncommitted work has no backup: do not delete or overwrite files the task does not require.',
 };
 
