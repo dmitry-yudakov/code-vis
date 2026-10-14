@@ -124,15 +124,15 @@ function beginDelegation() {
     delegatedApproval('0');
   } else if (mode === 'subagent-file-collision' || mode === 'subagent-lazy-file') {
     emit({ method: 'item/started', params: { threadId, turnId,
-      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/parent-only.ts`, kind: 'update', diff: '' }] } } });
+      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/parent-only.ts`, kind: { type: 'update', move_path: null }, diff: '' }] } } });
     emit({ method: 'item/started', params: { threadId: 'reviewer', turnId: 'reviewer-turn',
-      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/reviewer-only.ts`, kind: 'update', diff: '' }] } } });
+      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/reviewer-only.ts`, kind: { type: 'update', move_path: null }, diff: '' }] } } });
     delegatedApproval('child-file', 'reviewer', 'reviewer-turn', true);
   } else if (mode === 'subagent-lazy-read-race') {
     // The callback is emitted after new metadata arrives during the outstanding thread/read.
   } else if (mode === 'subagent-file-stale') {
     emit({ method: 'item/started', params: { threadId: 'reviewer', turnId: 'reviewer-turn',
-      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/old.ts`, kind: 'update', diff: '' }] } } });
+      item: { id: 'shared-file', type: 'fileChange', status: 'inProgress', changes: [{ path: `${process.cwd()}/old.ts`, kind: { type: 'update', move_path: null }, diff: '' }] } } });
     delegatedComplete();
     emit({ method: 'turn/started', params: { threadId: 'reviewer', turn: { id: 'reviewer-next-turn', status: 'inProgress', items: [] } } });
     delegatedApproval('child-file', 'reviewer', 'reviewer-next-turn', true);
@@ -372,17 +372,22 @@ while (true) {
       }
       if (mode.startsWith('subagent-approval')) {
         approvalPending = true;
-        const isFile = mode === 'subagent-approval-file';
+        const isFile = mode.startsWith('subagent-approval-file');
         // Deliberately reuse an item id in the parent and child to verify approval subjects.
         emit({ method: 'item/started', params: { threadId, turnId, item: {
-          type: 'fileChange', id: 'same-item', changes: [{ path: `${process.cwd()}/parent.txt`, kind: 'update' }],
+          type: 'fileChange', id: 'same-item', changes: [{ path: `${process.cwd()}/parent.txt`, kind: { type: 'update', move_path: null } }],
         } } });
         emit({ method: 'item/started', params: { threadId: agentThreadId, turnId: childTurnId, item: isFile
-          ? { type: 'fileChange', id: 'same-item', changes: [{ path: `${process.cwd()}/child.txt`, kind: 'update' }] }
+          ? { type: 'fileChange', id: 'same-item', changes: [{ path: `${process.cwd()}/child.txt`, kind: { type: 'update', move_path: null } }] }
           : { type: 'commandExecution', id: 'same-item', command: 'npm test' },
         } });
         emit({ id: 'approval-child', method: isFile ? 'item/fileChange/requestApproval' : 'item/commandExecution/requestApproval',
           params: { threadId: agentThreadId, turnId: childTurnId, itemId: 'same-item', command: isFile ? undefined : 'npm test' } });
+        if (mode === 'subagent-approval-file-patch') {
+          emit({ method: 'item/fileChange/patchUpdated', params: { threadId: agentThreadId, turnId: 'stale-turn', itemId: 'same-item', changes: [{ path: `${process.cwd()}/STALE.txt`, kind: { type: 'delete' }, diff: 'STALE PATCH' }] } });
+          emit({ method: 'item/fileChange/patchUpdated', params: { threadId: agentThreadId, turnId: childTurnId, itemId: 'same-item', changes: [{ path: `${process.cwd()}/child.txt`, kind: { type: 'update', move_path: `${process.cwd()}/child-renamed.txt` }, diff: 'FRESH CHILD PATCH' }] } });
+        }
+
         if (mode === 'subagent-approval-concurrent') {
           childApprovalsRemaining = 2;
           emit({ id: 'approval-child-2', method: 'item/commandExecution/requestApproval',
@@ -454,6 +459,17 @@ while (true) {
       completeTurn('Completed before shutdown.', mode === 'shutdown-failed' ? 'failed' : mode === 'shutdown-interrupted' ? 'interrupted' : 'completed');
     }
     else if (mode === 'wait') { /* wait for turn/interrupt */ }
+    else if (mode === 'chronological') {
+      const item = (value, completed = false) => emit({ method: completed ? 'item/completed' : 'item/started', params: { threadId, turnId, item: value } });
+      item({ type: 'agentMessage', id: 'commentary', phase: 'commentary', text: 'Same answer.' }, true);
+      item({ type: 'commandExecution', id: 'first', command: 'false', status: 'inProgress', headers: { Authorization: 'SECRET-HEADER' } });
+      item({ type: 'commandExecution', id: 'second', command: 'true', status: 'inProgress' });
+      item({ type: 'commandExecution', id: 'second', command: 'true', status: 'completed', aggregatedOutput: '\u001b[31mok\u001b[0m', exitCode: 0, durationMs: 3 }, true);
+      item({ type: 'commandExecution', id: 'first', command: 'false', status: 'failed', aggregatedOutput: 'failed output', exitCode: 1 }, true);
+      item({ type: 'commandExecution', id: 'completion-first', command: 'true', status: 'completed', aggregatedOutput: 'late', exitCode: 0 }, true);
+      item({ type: 'commandExecution', id: 'unknown', command: 'maybe' }, true);
+      completeTurn('Same answer.');
+    }
     else if (mode === 'long-run') {
       // Command output streams back as notifications: a long turn emits far more than its answer.
       for (let index = 0; index < 5; index += 1) {
@@ -465,7 +481,7 @@ while (true) {
       // One event that never ends; the turn stays open until interrupted.
       writeSync(1, `{"method":"item/commandExecution/outputDelta","params":{"delta":"${'x'.repeat(1_100_000)}`);
     }
-    else if (['approval-command', 'approval-network', 'approval-long-command', 'approval-unexplained', 'approval-stdin'].includes(mode)) {
+    else if (['approval-command', 'approval-network', 'approval-long-command', 'approval-unexplained', 'approval-stdin', 'approval-extra-permissions'].includes(mode)) {
       approvalPending = true;
       const item = {
         type: 'commandExecution', id: 'command-1', command: APPROVAL_COMMANDS[mode] ?? `npm test --prefix ${process.cwd()}`,
@@ -479,6 +495,7 @@ while (true) {
           // Codex's own rules ask for some commands without the model giving a reason.
           ...(mode === 'approval-unexplained' ? {} : { reason: `Run the tests in ${process.cwd()}` }),
           ...(mode === 'approval-stdin' ? { kind: 'writeStdin' } : {}),
+          ...(mode === 'approval-extra-permissions' ? { additionalPermissions: { fileSystem: { write: ['/outside'] } } } : {}),
           ...(mode === 'approval-network' ? { networkApprovalContext: { host: 'registry.example.test', protocol: 'https' } } : {}) },
       });
     }
@@ -488,9 +505,9 @@ while (true) {
       const item = {
         type: 'fileChange', id: 'file-1', status: 'inProgress',
         changes: [
-          ...['a', 'b', 'c', 'd', 'e'].map((name) => ({ path: `${process.cwd()}/src/${name}.ts`, kind: 'update', diff: '@@ fake @@' })),
-          { path: `${os.homedir()}/.ssh/config`, kind: 'update', diff: '@@ fake @@' },
-          { path: `${process.cwd()}-secrets/key`, kind: 'add', diff: '@@ fake @@' },
+          ...['a', 'b', 'c', 'd', 'e'].map((name) => ({ path: `${process.cwd()}/src/${name}.ts`, kind: { type: 'update', move_path: null }, diff: '@@ fake @@' })),
+          { path: `${os.homedir()}/.ssh/config`, kind: { type: 'update', move_path: null }, diff: '@@ fake @@' },
+          { path: `${process.cwd()}-secrets/key`, kind: { type: 'add' }, diff: '@@ fake @@' },
         ],
       };
       if (mode === 'approval-file-outside') emit({ method: 'item/started', params: { threadId, turnId, item } });
@@ -499,17 +516,23 @@ while (true) {
         params: { threadId, turnId, itemId: item.id, startedAtMs: Date.now(), reason: null, grantRoot: null },
       });
     }
-    else if (mode === 'approval-file') {
+    else if (['approval-file', 'approval-file-late', 'approval-file-rename', 'approval-file-patch-update', 'approval-file-unknown-kind', 'approval-file-add-move', 'approval-file-delete-move'].includes(mode)) {
       approvalPending = true;
+      const kind = mode === 'approval-file-unknown-kind' ? { type: 'future' }
+        : mode === 'approval-file-add-move' ? { type: 'add', move_path: `${process.cwd()}/UNREVIEWED.md` }
+        : mode === 'approval-file-delete-move' ? { type: 'delete', move_path: `${process.cwd()}/UNREVIEWED.md` }
+        : { type: 'update', move_path: mode === 'approval-file-rename' ? `${process.cwd()}/RENAMED.md` : null };
       const item = {
         type: 'fileChange', id: 'file-1', status: 'inProgress',
-        changes: [{ path: `${process.cwd()}/README.md`, kind: 'update', diff: '@@ fake @@' }],
+        changes: [{ path: `${process.cwd()}/README.md`, kind, diff: '@@ fake @@' }],
       };
-      emit({ method: 'item/started', params: { threadId, turnId, item } });
+      if (mode !== 'approval-file-late') emit({ method: 'item/started', params: { threadId, turnId, item } });
       emit({
         method: 'item/fileChange/requestApproval', id: 'approval-file-1',
         params: { threadId, turnId, itemId: item.id, startedAtMs: Date.now(), reason: 'Update the requested file' },
       });
+      if (mode === 'approval-file-late') emit({ method: 'item/started', params: { threadId, turnId, item } });
+      if (mode === 'approval-file-patch-update') emit({ method: 'item/fileChange/patchUpdated', params: { threadId, turnId, itemId: item.id, changes: [{ path: `${process.cwd()}/README.md`, kind: { type: 'update', move_path: `${process.cwd()}/RENAMED.md` }, diff: '@@ revised patch @@' }] } });
     }
     else {
       emit({ method: 'future/notification', params: { additive: true } });

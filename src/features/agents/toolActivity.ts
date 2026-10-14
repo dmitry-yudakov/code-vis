@@ -8,6 +8,9 @@ export interface ToolActivityEntry {
 }
 
 export interface PendingPermission {
+  review?: import('@/shared/turnActivity').ApprovalReview;
+  actor?: import('@/shared/turnActivity').ActivityActor;
+  toolKey?: string;
   requestId: string;
   participantId: string;
   tool: string;

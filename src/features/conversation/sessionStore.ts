@@ -1,6 +1,7 @@
 import type {
   CanvasTarget, SessionSnapshot, DiagramArtifact, PublicSession, SketchCanvas,
 } from '@/shared/types';
+import { boundSessionActivity, type TurnRecord } from '@/shared/turnActivity';
 
 const ACTIVE_CHECKOUT_KEY = 'code-ai:device:v1:active-checkout';
 
@@ -45,6 +46,16 @@ export function canvasTargetId(target: CanvasTarget): string {
  */
 export type SessionHydrationState = Pick<SessionSnapshot, 'addressedAgentId' | 'activeDiagramId' | 'previousDiagramId' | 'defaultMode'>;
 
+export function mergeTurnActivity(session: SessionSnapshot, turn: TurnRecord): SessionSnapshot {
+  return { ...session, messages: boundSessionActivity(session.messages.map(message => {
+    if (message.role !== 'user' || message.id !== turn.userMessageId) return message;
+    const prior = message.turn;
+    if (prior && (prior.runId !== turn.runId || prior.sequence > turn.sequence
+      || prior.sequence === turn.sequence && (prior.history === 'saved' || turn.history !== 'saved'))) return message;
+    return { ...message, turn };
+  }), turn.runId) };
+}
+
 export function hydrateSession(
   snapshot: PublicSession,
   prior?: SessionSnapshot,
@@ -52,12 +63,21 @@ export function hydrateSession(
 ): SessionSnapshot {
   const base = structuredClone(snapshot) as SessionSnapshot;
   if (prior) {
+    base.messages = base.messages.map(message => {
+      if (message.role !== 'user') return message;
+      const previous = prior.messages.find(item => item.id === message.id);
+      if (previous?.role !== 'user' || !previous.turn || previous.turn.runId !== message.turn?.runId) return message;
+      const newer = previous.turn.sequence > message.turn.sequence
+        || previous.turn.sequence === message.turn.sequence && previous.turn.incomplete && message.turn.history !== 'saved';
+      return newer ? { ...message, turn: previous.turn } : message;
+    });
     for (const [id, annotation] of Object.entries(prior.annotations)) {
       if (!base.annotations[id] || annotation.updatedAt > base.annotations[id].updatedAt) {
         base.annotations[id] = structuredClone(annotation);
       }
     }
   }
+  base.messages = boundSessionActivity(base.messages);
   const canvasIds = new Set([
     ...getArtifacts(base).map((artifact) => artifact.id),
     ...getSketches(base).map((sketch) => sketch.id),

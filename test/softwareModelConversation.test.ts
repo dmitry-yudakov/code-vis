@@ -45,7 +45,8 @@ async function fixture() {
       checkout: { id: 'checkout', name: 'Repo', relativePath: 'repo', realPath: checkoutPath },
       config, sessionStore: store, transcriptDelta: '', signal: new AbortController().signal, modelStore: models,
       emit: (event) => {
-        if (event.type === 'assistant-message') expect(spy).toHaveBeenCalledWith(session.id, session.primaryAgentId, user.id, event.message);
+        if (event.type === 'assistant-message') expect(spy).toHaveBeenCalledWith(session.id, session.primaryAgentId, user.id, event.message,
+          expect.objectContaining({ userMessageId: user.id, lifecycle: 'completed' }));
         events.push(event);
       },
       runner: options.runner ?? { run: async (input) => {

@@ -11,7 +11,6 @@ import type { ThemeName } from '@/shared/design/tokens';
 import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord, Participant } from '@/shared/types';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { DiagramCard } from '@/features/diagram/components/DiagramCard';
-import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 import { reportAttachmentSummary } from '@/features/reports/reportModel';
 import { imageAttachmentSummary } from './imageAttachments';
 
@@ -30,12 +29,13 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, running, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan }: {
   message: ChatMessageType;
   theme: ThemeName;
   participants: Participant[];
   activeDiagramId?: string;
   running?: boolean;
+  liveState?: 'queued' | 'running' | 'needs-you';
   executePlanBlocked?: string;
   onSelectDiagram(id: string): void;
   onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
@@ -56,10 +56,10 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
         {message.imageAttachments?.length ? <div className="message-attachments image">{imageAttachmentSummary(message.imageAttachments)}</div> : null}
         {message.fileAttachments?.map((file, index) => <Disclosure className="message-attachments" key={index} title={<>{file.name} · {file.bytes} bytes</>}>
           <pre>{file.text}</pre></Disclosure>)}
-        {message.status !== 'sent' && (
+        {(liveState || message.status !== 'sent') && (
           <div className="message-state">
-            <span>{message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
-            {onRetry && <Button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
+            <span>{liveState === 'queued' ? 'Queued' : liveState === 'needs-you' ? 'Needs approval' : liveState ? 'Working' : message.status === 'sending' ? 'Checking delivery' : message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
+            {onRetry && !running && !liveState && message.status !== 'sending' && <Button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
               message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent')}>Retry</Button>}
           </div>
         )}
@@ -70,7 +70,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   return (
     <article className={`chat-message assistant ${message.status}`}>
       <div className="message-meta">
-        <span>{author?.displayName || 'Agent'}{author?.kind === 'agent' ? ` · ${PROVIDER_LABELS[author.provider]}/${AGENT_ROLE_LABELS[author.role]}` : ''}{message.mode && message.mode !== 'ask' ? <Chip className="mode-tag" component="em" variant="outlined" color={message.mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(message.mode) ? 'warning' : 'default'} label={`${message.level === 'native' ? 'Native · ' : ''}${AGENT_MODE_LABELS[message.mode]}`} /> : null}</span>
+        <span>{author?.displayName || 'Agent'}{message.mode && message.mode !== 'ask' ? <Chip className="mode-tag" component="em" variant="outlined" color={message.mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(message.mode) ? 'warning' : 'default'} label={`${message.level === 'native' ? 'Native · ' : ''}${AGENT_MODE_LABELS[message.mode]}`} /> : null}</span>
         <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       </div>
       <div className="assistant-blocks">

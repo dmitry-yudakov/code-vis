@@ -11,6 +11,13 @@ controls and panel chrome, with a staged migration and reviewed visual baselines
 production screenshots replace the boards' handcrafted control styling as the appearance oracle;
 this epic still owns placement, pane geometry, control budgets, and the remaining shell features.
 
+[Story 107](STORY-20261013-chronological-chat.md) owns the subsequent conversation redesign:
+chronological durable tool activity, reachable approvals, accepted-send clearing, and compact
+conversation rows. It is a separate full-stack follow-up. It also implements a conversation-first
+default for new empty sessions without a saved device layout; explicit canvas actions, saved
+layouts, and existing overlay/focus rules retain precedence. Story 76 keeps the remaining
+non-conversation pane styling.
+
 ## Motivation
 
 The user, on September 25, 2026, with a screenshot of VS Code beside the running app:
@@ -100,7 +107,7 @@ removed every element the browser cannot back without new server work (see *Need
 | 73 | [title-bar-tabs](STORY-20261003-title-bar-tabs.md) | Session tabs in the title bar; All sessions opens closed and overflow views; one close button after the tablist preserves keyboard focus | **Shipped** | 72 |
 | 74 | status-bar | Status bar: branch, needs-you with its reason, run state while the conversation is closed, provider not ready. Notices moved to Story 78 | Planned | — |
 | 75 | arena-in-the-side-panel | Arena and Inbox as side-panel views sharing `arenaModel` ordering, with Open the full Arena | Planned | 72 |
-| 76 | flat-panes | Pane and section headers, borderless icon buttons, flat message rows, the floating canvas bar, and the remaining eyebrow labels | Planned | 72–75 |
+| 76 | flat-panes | Pane and section headers, borderless icon buttons, the floating canvas bar, and the remaining eyebrow labels; conversation rows belong to Story 107 | Planned | 72–75 |
 | 77 | phone-bottom-bar | Below 688px a bottom bar replaces the activity bar; Inbox lives inside Arena, Reports in More | Planned | 72 |
 | 78 | [toast-notifications](STORY-20260928-toast-notifications.md) | Notices become a stack of toasts in the canvas's top-right corner, with a tone, actions, and a lifetime | **In progress** | — |
 
@@ -126,8 +133,9 @@ future work, so the running app's canvas body begins at 48px and includes its ex
 
 ## Needs the server (separate full-stack stories, not scheduled here)
 
-- Tool rows that stay in the transcript and show completion: `tool-activity` has no call id or
-  completion event.
+- Tool rows that stay in the transcript and show completion: implemented by
+  [Story 107](STORY-20261013-chronological-chat.md), with persistent identities, results, and bounded
+  activity snapshots alongside the legacy event projection. No queue priority was changed.
 - Queueing a second instruction during a running turn: the scheduler rejects it with
   `session-conflict`.
 - Diagram names: `DiagramArtifact` has no name field.

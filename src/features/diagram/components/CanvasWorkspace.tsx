@@ -158,7 +158,6 @@ export function CanvasWorkspace({
           <DiagramCanvas
             key={activeId}
             target={target}
-            readOnly={Boolean(image && running)}
             theme={theme}
             initialMarks={marks}
             initialView={image ? undefined : canvasView}

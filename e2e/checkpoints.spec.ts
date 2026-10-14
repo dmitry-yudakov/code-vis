@@ -34,7 +34,7 @@ test.beforeAll(async () => {
       CODEAI_REPOSITORIES_ROOT: checkout, CODEAI_DATA_DIR: path.join(directory, 'data'),
       CODEAI_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'), CODEAI_CODEX_BIN: path.resolve('test/fixtures/not-a-real-codex'),
       CLAUDE_CONFIG_DIR: path.resolve('test/fixtures/provider-homes/claude'), CODEX_HOME: path.resolve('test/fixtures/provider-homes/codex'),
-      CODEAI_FAKE_MODE: 'checkpoint', CODEAI_DIST_DIR: '.next-e2e',
+      CODEAI_FAKE_MODE: 'checkpoint', CODEAI_DIST_DIR: process.env.CODEAI_DIST_DIR || '.next-e2e',
     }, stdio: 'ignore',
   });
   await expect.poll(async () => {
@@ -63,7 +63,7 @@ test('offers durable Undo, confirms its scope, restores real uncommitted work, a
   const change = async () => {
     await conversation.locator('.mode-menu > button').click(); await page.getByRole('radio', { name: 'Agent', exact: true }).click();
     await conversation.locator('textarea').fill('Checkpoint change'); await conversation.getByRole('button', { name: 'Send' }).click();
-    await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
+    await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
     await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Checkpoint fixture finished.');
     await expect(conversation.getByRole('button', { name: 'Undo this turn' })).toBeEnabled();
   };

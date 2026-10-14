@@ -259,7 +259,7 @@ test('pastes and drops images into the composer as chips and sends them with the
   await expect(page.locator('.chat-message.user .message-attachments.image')).toHaveText('1 image attached');
   await expect(chips).toHaveCount(0);
   const stored = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
-  expect(stored.version).toBe(8);
+  expect(stored.version).toBe(13);
   expect(stored.messages[0]).toMatchObject({ role: 'user', imageAttachments: [{ mediaType: 'image/png' }] });
   // The record says what the message carried and holds none of it.
   expect(JSON.stringify(stored)).not.toContain('base64');
@@ -270,36 +270,33 @@ test('pastes and drops images into the composer as chips and sends them with the
   await composer.fill('Second look');
   let outages = 1;
   await page.route('**/api/agent/message', (route) => outages-- > 0
-    ? route.fulfill({ status: 503, json: { error: 'Simulated outage.' } }) : route.fallback());
+    ? route.fulfill({ status: 400, json: { error: 'Simulated outage.' } }) : route.fallback());
   await send.click();
   await expect(page.getByRole('alert').filter({ hasText: 'Simulated outage.' })).toBeVisible();
   await expect(composer).toHaveValue('Second look');
   await expect(chips).toHaveCount(1);
 
-  // A cancelled turn keeps it too. Retry restores the text, and asks for the image once none is waiting.
+  // Acceptance consumes the submitted image; new evidence belongs to the editable next draft.
   await composer.fill('Wait for reload cancellation.');
   await send.click();
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
-  // While the turn runs the composer takes no drop, and the file still never replaces the page.
+  await expect(chips).toHaveCount(0);
   expect(await dragFile(page, '.instruction-composer', 'dragover')).toBe(true);
-  await expect(dropZone).not.toHaveClass(/drop-target/);
+  await expect(dropZone).toHaveClass(/drop-target/);
   expect(await deliverImage(page, 'drop', 64, 48)).toBe(true);
+  await expect(chips).toHaveCount(1);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const cancelled = page.locator('.chat-message.user.cancelled');
   await expect(cancelled).toHaveCount(1);
   await expect(cancelled.locator('.message-attachments.image')).toHaveText('1 image attached');
   await expect(chips).toHaveCount(1);
-  // Retry with an image still waiting says nothing: that image goes with the retried text. The
-  // notice would come in the same render as the restored text.
-  await composer.fill('');
+  // An unrelated next-draft image cannot stand in for the original. Replacement is explicit.
   await cancelled.getByRole('button', { name: 'Retry' }).click();
+  await expect(composer).toHaveValue('');
+  await expect(chips).toHaveCount(1);
+  await notices.getByRole('button', { name: 'Replace draft', exact: true }).click();
   await expect(composer).toHaveValue('Wait for reload cancellation.');
-  expect(await notices.filter({ hasText: 'That message carried an image' }).count()).toBe(0);
-  await page.getByRole('button', { name: 'Remove image 1' }).click();
-  await composer.fill('');
-  await cancelled.getByRole('button', { name: 'Retry' }).click();
-  await expect(composer).toHaveValue('Wait for reload cancellation.');
-  await expect(notices.filter({ hasText: 'That message carried an image' })).toBeVisible();
+  await expect(notices.filter({ hasText: 'The original image is not stored' })).toBeVisible();
   await expect(chips).toHaveCount(0);
 });
 
@@ -344,7 +341,7 @@ test('an Execute plan turn leaves the composer\'s images for the next message', 
   await selectProject(page, project.name);
   const composer = page.locator('.instruction-composer textarea');
   const chips = page.locator('.attachment-chip.image');
-  const answers = page.locator('.chat-message.assistant');
+  const answers = page.locator('.chat-message.assistant.complete');
 
   await chooseMode(page, 'Plan');
   await composer.fill('Plan the parser extraction.');
@@ -354,7 +351,7 @@ test('an Execute plan turn leaves the composer\'s images for the next message', 
 
   // The image waits for the composed message; the plan's own turn (and Continue's) does not take it.
   // The fake Claude asks to edit a file in Agent mode; denied, it answers without listing its files,
-  // so the record is the proof: the message holds no images and the session stays below version 8.
+  // so the record is the proof: the new user message holds no images.
   await deliverImage(page, 'paste', 64, 48);
   await expect(chips).toHaveCount(1);
   await execute.click();
@@ -363,7 +360,7 @@ test('an Execute plan turn leaves the composer\'s images for the next message', 
   await expect(answers.last()).toContainText('Edit denied');
   await expect(chips).toHaveCount(1);
   const stored = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
-  expect(stored.version).toBe(4);
+  expect(stored.version).toBe(13);
   expect(stored.messages.filter((message) => message.role === 'user').at(-1)).toMatchObject({ mode: 'agent' });
   expect(stored.messages.filter((message) => message.role === 'user').at(-1)).not.toHaveProperty('imageAttachments');
 });
@@ -435,6 +432,7 @@ test('opens screenshot chips on the canvas, keeps ink per image and session, and
   await selectProject(page, project.name);
   await chooseMode(page, 'Ask');
   // Leave a durable sketch attached: the image frame must not replace its export viewport.
+  await page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: 'Canvas', exact: true }).click();
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
   await page.getByRole('button', { name: 'Spatial', exact: true }).click();
@@ -510,7 +508,7 @@ test('opens screenshot chips on the canvas, keeps ink per image and session, and
   expect(JSON.stringify(stored)).not.toContain('base64');
 });
 
-test('keeps screenshot pixels and ink after export failure, rejection, and cancellation; Remove closes it', async ({ page, request }) => {
+test('keeps screenshot ink before acceptance and preserves new image ink after cancellation', async ({ page, request }) => {
   test.setTimeout(90_000);
   const { project } = await projectWith(request, `Image canvas failures ${Date.now()}`, 'alpha');
   await page.goto('/');
@@ -546,28 +544,28 @@ test('keeps screenshot pixels and ink after export failure, rejection, and cance
   await expect(page.locator('[data-mark-id]')).toHaveCount(1);
   let outages = 1;
   await page.route('**/api/agent/message', (route) => outages-- > 0
-    ? route.fulfill({ status: 503, json: { error: 'Drawing test outage.' } }) : route.fallback());
+    ? route.fulfill({ status: 400, json: { error: 'Drawing test outage.' } }) : route.fallback());
   await send.click();
   await expect(page.getByRole('alert').filter({ hasText: 'Drawing test outage.' })).toBeVisible();
   await expect(page.locator('[data-mark-id]')).toHaveCount(1);
   await expect(composer).toHaveValue('Keep this drawing.');
   await composer.fill('Wait for reload cancellation.');
   await send.click();
-  await expect(page.getByRole('button', { name: 'Open image 1 on canvas' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Pen (P)' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Undo drawing' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Clear all ink' })).toBeDisabled();
-  // Global shortcuts and the pointer must not bypass the pending image's edit lock.
-  await page.getByRole('button', { name: 'Fit', exact: true }).focus();
-  await page.keyboard.press('Control+z');
-  await page.locator('svg.ink-layer').click({ position: { x: 100, y: 80 } });
-  await expect(page.locator('[data-mark-id]')).toHaveCount(1);
   const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
   await expect(cancel).toBeEnabled();
+  await expect(chip).toHaveCount(0);
+  await expect(page.locator('[data-mark-id]')).toHaveCount(0);
+  // A new screenshot can be annotated while the submitted turn runs.
+  await deliverImage(page, 'paste', 160, 120);
+  await page.getByRole('button', { name: 'Open image 1 on canvas' }).click();
+  await drawOnImage(page);
+  await expect(page.getByRole('button', { name: 'Pen (P)' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Undo drawing' })).toBeEnabled();
   await cancel.click();
   await expect(page.locator('.chat-message.user.cancelled')).toHaveCount(1);
   await expect(page.locator('[data-mark-id]')).toHaveCount(1);
-  await expect(chip.locator('img')).toHaveAttribute('src', original!);
+  await expect(chip).toHaveCount(1);
+  await expect(chip.locator('img')).not.toHaveAttribute('src', original!);
   await page.getByRole('button', { name: 'Remove image 1' }).click();
   await expect(chip).toHaveCount(0);
   await expect(page.locator('[data-mark-id]')).toHaveCount(0);
@@ -603,6 +601,7 @@ test('keeps the sending session canvas frame when navigation occurs during image
   await page.goto('/');
   await selectProject(page, project.name);
   await chooseMode(page, 'Ask');
+  await page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: 'Canvas', exact: true }).click();
   await page.getByRole('button', { name: /Start a sketch/ }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
   await deliverImage(page, 'paste', 320, 200);

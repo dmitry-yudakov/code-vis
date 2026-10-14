@@ -209,8 +209,12 @@ describe('composer attach menu', () => {
     expect(names(render({ reports: true }))).toEqual(['All history…', 'New sketch', 'Headset report…']);
   });
 
-  it('is disabled while a turn runs, as the instruction field is', () => {
-    expect(menu(render({ running: true }), 'attach-menu')!.disabled).toBe(true);
+  it('keeps the next draft and attachments editable while a turn runs, with Stop available', () => {
+    const markup = render({ running: true });
+    expect(menu(markup, 'attach-menu')!.disabled).toBe(false);
+    expect(menu(markup, 'attach-menu')!.items.find((item) => item.name === 'New sketch')?.disabled).toBe(true);
+    expect(markup.match(/<textarea[^>]*aria-label="Instruction"[^>]*>/)?.[0]).not.toMatch(/disabled/);
+    expect(markup).toContain('aria-label="Cancel"');
     expect(menu(render(), 'attach-menu')!.disabled).toBe(false);
   });
 });

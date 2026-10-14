@@ -49,6 +49,11 @@ export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
   ...DEFAULT_PANEL_WIDTHS,
 };
 
+/** Called once after loading a session and its device preferences. Artifact arrival is not navigation. */
+export function initialSessionLayout(saved: PanelLayout | undefined, defaults: PanelLayout, hasCanvasContent: boolean): PanelLayout {
+  return saved ?? { ...defaults, conversationOpen: true, canvasOpen: hasCanvasContent };
+}
+
 export function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }

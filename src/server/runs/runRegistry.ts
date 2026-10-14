@@ -4,6 +4,7 @@ import type {
   AgentEvent, AgentExecution, AgentMode, RunDescriptor, RunDiscovery, RunOutcome, RunPermissionSummary, RunState,
 } from '@/shared/types';
 import { changesCheckout } from '@/shared/agentModes';
+import { boundedDisplay, type TurnRecord } from '@/shared/turnActivity';
 import type { WorktreeCreationConflict } from '@/shared/worktreeCreation';
 import type { PermissionBroker } from './permissionBroker';
 
@@ -51,6 +52,9 @@ interface RunRecord {
   /** Every event except assistant-delta, which is accumulated into `deltaText` instead. */
   transcript: AgentEvent[];
   deltaText: string;
+  turn?: TurnRecord;
+  /** Full live review is separate from the compact Arena summaries and durable display budgets. */
+  liveReviews?: Map<string, Extract<AgentEvent, { type: 'permission-request' }>>;
   subscribers: Map<string, (event: AgentEvent) => void>;
   lastQueuePosition?: number;
   completion: Promise<void>;
@@ -383,6 +387,7 @@ export class RunRegistry implements MaintenanceLease {
       if (event.type === 'mode-changed') {
         run.mode = event.mode;
       } else if (event.type === 'permission-request') {
+        (run.liveReviews ??= new Map()).set(event.requestId, event);
         run.pendingPermissions.set(event.requestId, {
           requestId: event.requestId,
           participantId: event.participantId,
@@ -394,6 +399,7 @@ export class RunRegistry implements MaintenanceLease {
           : `Waiting for approval — ${event.tool}`;
         if (run.state === 'running') run.state = 'needs-you';
       } else if (event.type === 'permission-resolved') {
+        run.liveReviews?.delete(event.requestId);
         run.pendingPermissions.delete(event.requestId);
         if (run.state === 'needs-you' && !run.pendingPermissions.size) {
           run.state = 'running';
@@ -410,10 +416,13 @@ export class RunRegistry implements MaintenanceLease {
         run.outcome = event.cancelled ? 'cancelled' : run.outcome || 'completed';
         if (run.outcome === 'completed') run.status = 'Turn completed';
       }
-      if (event.type === 'assistant-delta') {
-        run.deltaText += event.delta;
+      if (event.type === 'turn-activity') {
+        if (!run.turn || event.turn.sequence >= run.turn.sequence) run.turn = event.turn;
+      } else if (event.type === 'assistant-delta') {
+        run.deltaText = boundedDisplay(run.deltaText + event.delta, 256 * 1024).text;
       } else {
-        run.transcript.push(event);
+        // Full review is recovered only for requests that are still live.
+        run.transcript.push(event.type === 'permission-request' ? { ...event, review: undefined } : event);
         if (run.transcript.length > MAX_TRANSCRIPT) {
           const index = run.transcript.findIndex((item) => DROPPABLE.has(item.type));
           run.transcript.splice(index < 0 ? 0 : index, 1);
@@ -432,8 +441,13 @@ export class RunRegistry implements MaintenanceLease {
     if (!run || !run.activated) return undefined;
     const attachmentId = crypto.randomUUID();
     run.subscribers.set(attachmentId, subscriber);
-    const replay = [...run.transcript];
+    const replay = run.transcript.map(event => event.type === 'permission-request' && run.liveReviews?.has(event.requestId)
+      ? run.liveReviews.get(event.requestId)! : event);
     if (run.deltaText) replay.push({ type: 'assistant-delta', runId: run.runId, delta: run.deltaText });
+    if (run.turn) replay.push({ type: 'turn-activity', runId: run.runId, turn: run.turn });
+    for (const [requestId, event] of run.liveReviews ?? []) {
+      if (!replay.some(item => item.type === 'permission-request' && item.requestId === requestId)) replay.push(event);
+    }
     return { runId: run.runId, attachmentId, replay, finished: Boolean(run.finishedAt) };
   }
 
@@ -505,6 +519,7 @@ export class RunRegistry implements MaintenanceLease {
     run.state = 'finished';
     run.finishedAt = Date.now();
     run.pendingPermissions.clear();
+    run.liveReviews?.clear();
     run.subscribers.clear();
     this.liveByRunId.delete(runId);
     this.recentByRunId.set(runId, run);

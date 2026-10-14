@@ -158,8 +158,8 @@ describe('message route scheduler integration', () => {
       role: 'user', status: 'sending',
     }));
     const queuedSession = await store.getSession(queued!.sessionId);
-    expect(queuedSession.version).toBe(version);
-    expect(queuedSession.execution).toBe(version === 4 ? 'local' : undefined);
+    expect(queuedSession.version).toBe(13);
+    expect(queuedSession.execution).toBe('local');
 
     routeState.resolvers.get(discovery.active[0].runId)?.();
     await vi.waitFor(() => expect(routeState.started).toContain(queued!.runId));

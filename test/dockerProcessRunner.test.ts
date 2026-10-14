@@ -8,7 +8,7 @@ import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { RunRegistry } from '@/server/runs/runRegistry';
 import { writeTextFiles } from '@/server/storage/textFiles';
 import { buildConversationPrompt } from '@/server/conversation/prompt';
-import type { AgentProcessRun } from '@/shared/types';
+import type { AgentProcessEvent, AgentProcessRun } from '@/shared/types';
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), run: vi.fn(), options: vi.fn() }));
 vi.mock('@/server/execution/dockerRuntime', async (original) => ({
@@ -46,6 +46,20 @@ async function fixture() {
 
 describe('Docker protocol transport lifecycle', () => {
   afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
+
+  it.each(['claude', 'codex'] as const)('forwards normalized chronology, review metadata and final identities unchanged for %s', async provider => {
+    const { input } = await fixture();
+    const events: AgentProcessEvent[] = [
+      { type: 'history', activity: { kind: 'assistant', key: 'thread:comment', text: 'Inspecting', phase: 'commentary', actor: { provider, threadId: 'thread' } } },
+      { type: 'history', activity: { kind: 'tool', key: 'thread:tool', tool: 'Read', input: 'hello.txt', output: 'Hello 🌍', status: 'succeeded', actor: { provider, parentToolId: 'delegation' } } },
+      { type: 'permission-request', requestId: 'request', tool: 'Run', detail: 'pwd', toolKey: 'thread:tool', review: { completeness: 'complete', text: 'pwd' } },
+    ];
+    const result = { finalText: 'Done', sessionId: 'native-history', durationMs: 1, outputBytes: 4, finalBlockId: 'thread:final', finalBlockIds: ['thread:final'] };
+    mocks.run.mockImplementationOnce(async (translated: AgentProcessRun) => { for (const event of events) translated.emit(event); return result; });
+    const runner = new DockerProcessRunner({ ...getConfig(), dockerEnabled: true }, provider, { sessionId: 'session', participantId: 'participant' });
+    expect(await runner.run(input)).toEqual(result);
+    expect(vi.mocked(input.emit).mock.calls.map(([event]) => event)).toEqual(events);
+  });
 
   it.each(['claude', 'codex'] as const)('routes exact text evidence through the existing context mount for %s', async (provider) => {
     const { input } = await fixture();

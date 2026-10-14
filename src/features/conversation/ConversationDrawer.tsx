@@ -1,10 +1,9 @@
 'use client';
 
-import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
 import type {
@@ -16,22 +15,31 @@ import { ChatMessage } from './ChatMessage';
 import { InstructionComposer, type PendingReportChip } from './InstructionComposer';
 import type { PendingImage } from './imageAttachments';
 import { recentCanvases } from './recentCanvases';
-import { PermissionCard } from '@/features/agents/PermissionCard';
+import { displayedTurn } from './runPresentation';
 import { ParticipantControls } from '@/features/agents/ParticipantControls';
-import { AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
 import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { TurnCheckpoint } from './TurnCheckpoint';
 import type { TurnCheckpointControls } from './useTurnCheckpoint';
+import type { TurnRecord } from '@/shared/turnActivity';
+import { ApprovalArea, type PermissionFeedback } from './ApprovalArea';
+import { TurnActivity, StreamingMarkdown } from './TurnActivity';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 
 export function ConversationDrawer({
   open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
+  turn, liveMessageId, liveState, permissionFeedback, onRefreshPermissions, retryBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan,
   continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
+  turn?: TurnRecord;
+  liveMessageId?: string;
+  retryBlocked?: boolean;
+  liveState?: 'queued' | 'running' | 'needs-you';
+  permissionFeedback?: Record<string, PermissionFeedback>;
+  onRefreshPermissions?(): void;
   session?: SessionSnapshot;
   theme: ThemeName;
   focusRequest?: string;
@@ -91,20 +99,55 @@ export function ConversationDrawer({
   onNewSketch(): void;
   onOpenReports?(): void;
 }) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const positions = useRef(new Map<string, { top: number; follow: boolean }>());
+  const following = useRef(true);
+  const observedActivity = useRef(new Map<string, string>());
+  const [hasNewActivity, setHasNewActivity] = useState(false);
+  const [reviewRequest, setReviewRequest] = useState<{ id: string; revision: number; scope: string }>();
+  const key = `${session?.machineId || ''}:${session?.id || ''}`;
+  const activitySignature = `${session?.messages.map(message => `${message.id}:${message.status}:${message.role === 'user' ? message.turn?.sequence || 0 : ''}`).join('|')}|${turn?.sequence || 0}|${preview.length}|${toolActivity.length}`;
+  const jump = () => {
+    following.current = true;
+    setHasNewActivity(false);
+    const scroll = scrollRef.current;
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    positions.current.set(key, { top: scroll?.scrollTop || 0, follow: true });
+  };
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll || !open) return;
+    const saved = positions.current.get(key);
+    following.current = saved?.follow ?? true;
+    scroll.scrollTop = following.current ? scroll.scrollHeight : saved!.top;
+    setHasNewActivity(false);
+  }, [key, open]);
   // Streaming re-renders the drawer many times a second; the canvases change only with the session.
   const canvases = useMemo(() => session ? recentCanvases(session, Date.now()) : [], [session]);
-  useEffect(() => {
-    if (open) endRef.current?.scrollIntoView({ block: 'end' });
-  }, [open, preview, toolActivity.length, permissions.length, session?.messages.length]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const previous = observedActivity.current.get(key);
+    observedActivity.current.set(key, activitySignature);
+    if (following.current) { const scroll = scrollRef.current; if (scroll) scroll.scrollTop = scroll.scrollHeight; }
+    else if (previous !== undefined && previous !== activitySignature) setHasNewActivity(true);
+  }, [open, key, activitySignature]);
   if (!open) return null;
   const lastMessage = session?.messages[session.messages.length - 1];
+  const recordFor = (message: NonNullable<typeof session>['messages'][number]) => {
+    if (message.role !== 'user') return undefined;
+    return displayedTurn(message.turn, turn?.userMessageId === message.id ? turn : undefined);
+  };
+  const canonicalIds = new Set(session?.messages.flatMap(message => recordFor(message)?.entries.flatMap(entry => entry.kind === 'assistant' && entry.canonicalMessageId ? [entry.canonicalMessageId] : []) || []));
+  const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => <ChatMessage
+    message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
+    running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
+    executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
+    onSelectDiagram={onSelectDiagram} onRetry={retryBlocked ? undefined : onRetry} onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined} />;
   return (
     <Paper component="aside" square variant="elevation" elevation={0} className="conversation-drawer" aria-label="Conversation">
       <header>
         <div>
           <strong>{session?.title || 'New session'}</strong>
-          {activeAgent && <Chip component="span" className="provider-badge" variant="outlined" label={`${PROVIDER_LABELS[activeAgent.provider]} · ${AGENT_ROLE_LABELS[activeAgent.role]}`} />}
           {repositoryContext && <p className="conversation-repository-context">{repositoryContext}</p>}
         </div>
         <Button
@@ -118,31 +161,33 @@ export function ConversationDrawer({
           onClick={onNewChat}
         ><ShellIcon name="newChat" /></Button>
       </header>
-      <div className="conversation-scroll">
-        {session?.messages.map((message) => (
-          <div key={message.id}>
-          <ChatMessage
-            key={message.id}
-            message={message}
-            theme={theme}
-            participants={session.participants}
-            activeDiagramId={session.activeDiagramId}
-            running={running}
-            executePlanBlocked={nativeClaudeIsolationIssue({
-              provider: agents.find((agent) => agent.id === message.authorId)?.provider || 'claude',
-              execution: session.execution, level: securityLevel, mode: 'agent', choice: session.instructions,
-            })}
-            onSelectDiagram={onSelectDiagram}
-            onRetry={onRetry}
-            onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined}
-          />
-          {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
-          </div>
-        ))}
+      <div className="conversation-scroll" ref={scrollRef} onScroll={() => {
+        const scroll = scrollRef.current;
+        if (!scroll) return;
+        following.current = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40;
+        positions.current.set(key, { top: scroll.scrollTop, follow: following.current });
+        if (following.current) setHasNewActivity(false);
+      }} onClickCapture={event => {
+        if ((event.target as HTMLElement).closest('.activity-tool button')) {
+          following.current = false;
+          positions.current.set(key, { top: scrollRef.current?.scrollTop || 0, follow: false });
+        }
+      }}>
+        {session?.messages.map(message => {
+          if (message.role === 'assistant' && canonicalIds.has(message.id)) return null;
+          const record = recordFor(message);
+          return <div key={message.id} data-message-id={message.id}>
+            {renderMessage(message)}
+            {record && <TurnActivity turn={record} agentName={agents.find(agent => agent.id === record.participantId)?.displayName || 'Agent'}
+              permissions={record.runId === turn?.runId ? permissions : []} onReview={id => setReviewRequest({ id, revision: Date.now(), scope: `${key}:${turn?.runId || ""}` })}
+              renderFinal={id => { const final = session.messages.find(item => item.id === id); return final ? renderMessage(final) : null; }} />}
+            {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
+          </div>;
+        })}
         {recovery?.error && !recovery.checkpoint && <TurnCheckpoint controls={recovery} />}
-        {running && toolActivity.length > 0 && (
+        {running && !turn?.entries.some(entry => entry.kind === 'tool') && toolActivity.length > 0 && (
           <div className="tool-timeline" aria-label="Agent tool activity">
-            <span className="tool-timeline-title">Working in the repository</span>
+            <span className="tool-timeline-title">Summary only · tool details unavailable</span>
             <ol>
               {toolActivity.map((entry, index) => (
                 <li key={entry.key} className={`${index === toolActivity.length - 1 ? 'current' : ''} ${entry.denied ? 'denied' : ''}`.trim()}>
@@ -153,25 +198,18 @@ export function ConversationDrawer({
             </ol>
           </div>
         )}
-        {permissions.map((request) => (
-          <PermissionCard
-            key={request.requestId}
-            request={request}
-            participant={agents.find((agent) => agent.id === request.participantId)}
-            busy={decidingPermission === request.requestId}
-            onDecide={onDecidePermission}
-          />
-        ))}
-        {preview && (
+        {preview && !turn?.entries.some(entry => entry.kind === 'assistant') && (
           <article className="chat-message assistant streaming">
             <div className="message-meta"><span>{activeAgent?.displayName || 'Agent'}</span><span>streaming</span></div>
-            <p className="stream-preview">{preview}<span className="typing-cursor" /></p>
+            <StreamingMarkdown text={preview} />
           </article>
         )}
-        {!session?.messages.length && <div className="drawer-empty">Your conversation history will stay here while you work on the canvas.</div>}
-        <div ref={endRef} />
+        {!session?.messages.length && <div className="drawer-empty">Start a conversation about your project.</div>}
       </div>
       <div className="drawer-composer">
+        {hasNewActivity && <Button className="jump-latest" onClick={jump}>Jump to latest · New activity</Button>}
+        <ApprovalArea key={`${key}:${turn?.runId || ""}`} requests={permissions} agents={agents} deciding={decidingPermission} feedback={permissionFeedback}
+          reviewRequest={reviewRequest?.scope === `${key}:${turn?.runId || ""}` ? reviewRequest : undefined} onDecide={onDecidePermission} onStop={onCancel} onRefresh={onRefreshPermissions} />
         <ParticipantControls
           agents={agents}
           activeAgentId={activeAgent?.id}
@@ -213,7 +251,7 @@ export function ConversationDrawer({
           onChange={onComposer}
           onModeChange={onModeChange}
           onModelSelectionChange={onModelSelectionChange}
-          onSend={onSend}
+          onSend={() => { jump(); onSend(); }}
           onCancel={onCancel}
           onRemoveAttachment={onRemoveAttachment}
           onRemoveReport={onRemoveReport}

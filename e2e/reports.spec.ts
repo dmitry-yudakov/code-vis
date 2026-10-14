@@ -86,7 +86,7 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   const userMessages = async () => ((await (await request.get(`/api/sessions/${self.session.id}`)).json()).session as PublicSession)
     .messages.filter((message) => message.role === 'user');
   const stored = (await (await request.get(`/api/sessions/${self.session.id}`)).json()).session as PublicSession;
-  expect(stored.version).toBe(5);
+  expect(stored.version).toBe(13);
   expect(stored.messages[0]).toMatchObject({
     role: 'user', text: 'The panel at the right is clipped.',
     reportAttachments: [{ reportId: unplaced, kind: 'capture', screenshotIncluded: true, errorCount: 0 }],
@@ -98,7 +98,7 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   await composer.fill('Draft kept');
   let outages = 1;
   await page.route('**/api/agent/message', (route) => outages-- > 0
-    ? route.fulfill({ status: 503, json: { error: 'Simulated outage.' } }) : route.fallback());
+    ? route.fulfill({ status: 400, json: { error: 'Simulated outage.' } }) : route.fallback());
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Simulated outage.' })).toBeVisible();
   await expect(composer).toHaveValue('Draft kept');
@@ -120,7 +120,7 @@ test('lists CodeAI reports only in its own project, and attaches one to an expla
   const cancelled = page.locator('.chat-message.user.cancelled');
   await expect(cancelled).toHaveCount(1);
   await expect(cancelled.locator('.message-attachments.report')).toHaveText('1 CodeAI report attached · screenshot');
-  await page.getByRole('button', { name: 'Remove report attachment' }).click();
+  await expect(page.locator('.attachment-chip.report')).toHaveCount(0);
   await composer.fill('');
   await cancelled.getByRole('button', { name: 'Retry' }).click();
   await expect(composer).toHaveValue('Wait for reload cancellation.');

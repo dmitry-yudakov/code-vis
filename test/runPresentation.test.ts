@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  applyRunEvent, isReplayedStreamEvent, latestRunUserMessage, runOutcomeFromError,
+  applyRunEvent, displayedTurn, isReplayedStreamEvent, latestRunUserMessage, runOutcomeFromError,
   unreadAfterRunAttention, withSessionRunOutcome,
   type RunPresentation, type SessionRunOutcomes,
 } from '@/features/conversation/runPresentation';
 import type { AgentEvent, AssistantMessage, UserMessage } from '@/shared/types';
+import { createTurn, updateActivity } from '@/shared/turnActivity';
 
 function presentation(sessionId: string, participantId: string): RunPresentation {
   return {
@@ -21,6 +22,25 @@ function presentation(sessionId: string, participantId: string): RunPresentation
 }
 
 describe('run presentation isolation', () => {
+  it('shows the saved copy on equal sequence and never replaces it with another run', () => {
+    const saved = createTurn('run', 'message', 'agent', '2026-10-13T00:00:00.000Z');
+    const unsaved = { ...saved, history: 'unsaved' as const, incomplete: true };
+    expect(displayedTurn(saved, unsaved)).toBe(saved);
+    expect(displayedTurn(saved, { ...unsaved, runId: 'other', sequence: 99 })).toBe(saved);
+    expect(displayedTurn(saved, { ...unsaved, sequence: 1 })).toMatchObject({ sequence: 1, history: 'unsaved' });
+    expect(displayedTurn(undefined, unsaved)).toBe(unsaved);
+  });
+  it('merges ordered snapshots by server sequence and preserves full live approval review', () => {
+    const first = updateActivity(createTurn('run', 'message', 'agent', '2026-10-13T00:00:00.000Z'), 1,
+      { kind: 'tool', key: 'read', tool: 'Read', status: 'running' });
+    const second = updateActivity(first, 1, { kind: 'tool', key: 'read', tool: 'Read', status: 'succeeded' });
+    let run = applyRunEvent(presentation('session', 'agent'), { type: 'turn-activity', runId: 'run', turn: second });
+    run = applyRunEvent(run, { type: 'turn-activity', runId: 'run', turn: first });
+    expect(run.turn?.entries[0]).toMatchObject({ status: 'succeeded' });
+    expect(run.userMessageId).toBe('message');
+    run = applyRunEvent(run, { type: 'permission-request', runId: 'run', requestId: 'permission', participantId: 'agent', tool: 'Run', detail: 'summary', review: { completeness: 'complete', text: 'Full command' } });
+    expect(run.permissions[0]).toMatchObject({ review: { completeness: 'complete', text: 'Full command' } });
+  });
   it('marks only the reported leading events as replayed', () => {
     expect([0, 1, 2, 3].map((index) => isReplayedStreamEvent(index, 2))).toEqual([
       true, true, false, false,

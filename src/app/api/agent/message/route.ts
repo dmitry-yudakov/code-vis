@@ -1,3 +1,4 @@
+import { createTurn } from '@/shared/turnActivity';
 import { randomUUID } from 'node:crypto';
 import { boundedRequestBody } from '@/server/machines/boundedBody';
 import { textFileRecords } from '@/server/storage/textFiles';
@@ -275,6 +276,7 @@ export async function POST(request: Request): Promise<Response> {
     }, { status: 409 });
   }
   const userMessage: UserMessage = {
+    turn: createTurn(runId, parsed.data.messageId, participant.id, new Date().toISOString()),
     id: parsed.data.messageId,
     role: 'user',
     authorId: human.id,

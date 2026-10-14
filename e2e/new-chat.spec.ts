@@ -89,10 +89,7 @@ for (const choice of [
     expect(button.x).toBeGreaterThanOrEqual(header.x);
     expect((await request.get(`/api/sessions/${session.id}`)).ok()).toBe(true);
     await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
-    if (choice.loose) {
-      await expect(conversation).toBeHidden();
-      await page.getByRole('button', { name: 'Conversation', exact: true }).click();
-    }
+    await expect(conversation).toBeVisible();
     await expect(conversation.locator('textarea')).toHaveValue('Keep this draft in the old chat.');
   });
 }

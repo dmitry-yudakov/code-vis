@@ -10,6 +10,8 @@ import { buildClaudeArgs } from './claudeInvocation';
 import { frameGlobalInstructions } from './globalInstructions';
 import { AgentRunError } from './agentRunError';
 import type { ProcessTransport } from '@/server/execution/processTransport';
+import { claudeDisplayInput, displayIdentity, displayResult, displayText } from './providerDisplay';
+import type { ActivityActor } from '@/shared/turnActivity';
 
 export { AgentRunError } from './agentRunError';
 
@@ -164,6 +166,32 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let outputBytes = 0;
       let finalText = '';
       let assistantFallback = '';
+      let finalBlockId: string | undefined;
+      let rootTextCandidate: string | undefined;
+      let rootTextCandidates: string[] = [];
+      let finalBlockIds: string[] | undefined;
+      let rootFinalPhase = false;
+      let anonymousMessage = 0;
+      const messageScopes = new Map<string, { id: string; block: number; blockType?: string; streaming?: boolean }>();
+      const toolNames = new Map<string, string>();
+      const rememberTool = (key: string, name: string) => {
+        if (toolNames.size >= 1000 && !toolNames.has(key)) toolNames.delete(toolNames.keys().next().value!);
+        toolNames.set(key, name);
+      };
+      const actorFor = (parent?: string): ActivityActor => ({ provider: 'claude', ...(parent ? { parentToolId: parent, name: 'Subagent' } : {}) });
+      const toolKey = (id: string, parent = '') => displayIdentity(['tool', parent, id]);
+      const blockKey = (id: string, index: number, parent = '') => displayIdentity(['text', parent, id, index]);
+      const scopeFor = (parent: string) => {
+        const scopeKey = displayIdentity([parent]);
+        let scope = messageScopes.get(scopeKey);
+        if (!scope) {
+          scope = { id: `anonymous-${++anonymousMessage}`, block: 0 };
+          // Display-only scopes must not grow with an unbounded number of delegated messages.
+          if (messageScopes.size >= 1000) messageScopes.delete(messageScopes.keys().next().value!);
+          messageScopes.set(scopeKey, scope);
+        }
+        return scope;
+      };
       let sessionId = providerSessionId;
       let settled = false;
       let termination: 'cancelled' | 'timeout' | undefined;
@@ -172,6 +200,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       const emittedToolUseIds = new Set<string>();
       const emittedTurnIds = new Set<string>();
       const countTurn = (id: string) => {
+        id = displayIdentity([id]);
         if (emittedTurnIds.has(id)) return;
         emittedTurnIds.add(id);
         input.emit({ type: 'turn-started' });
@@ -249,6 +278,10 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         const tool = typeof request.tool_name === 'string' ? request.tool_name : 'tool';
         const toolInput = request.input && typeof request.input === 'object' ? request.input as Record<string, unknown> : undefined;
         const described = describeToolUse(tool, toolInput, input.checkout.realPath, input.attachmentDirectory);
+        const projected = claudeDisplayInput(tool, toolInput, input.checkout.realPath, input.attachmentDirectory);
+        const parent = typeof event.parent_tool_use_id === 'string' ? event.parent_tool_use_id
+          : typeof request.parent_tool_use_id === 'string' ? request.parent_tool_use_id : '';
+        const associatedTool = typeof request.tool_use_id === 'string' ? toolKey(request.tool_use_id, parent) : undefined;
         const requestId = randomUUID();
         log?.(`recv permission request ${tool}${described.detail ? ` (${described.detail})` : ''}`);
 
@@ -272,7 +305,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
 
         pendingPermissions += 1;
         pauseTimeoutClock();
-        input.emit({ type: 'permission-request', requestId, tool: described.tool, detail: described.detail || '' });
+        input.emit({ type: 'permission-request', requestId, tool: described.tool, detail: described.detail || '',
+          review: projected.review, actor: actorFor(parent), ...(associatedTool ? { toolKey: associatedTool } : {}) });
         if (!input.permissions) {
           settle('deny');
           return;
@@ -309,21 +343,41 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           const toolInput = event.tool_input && typeof event.tool_input === 'object' ? event.tool_input as Record<string, unknown> : undefined;
           const described = describeToolUse(tool, toolInput, input.checkout.realPath, input.attachmentDirectory);
           input.emit({ type: 'activity', ...described, denied: true });
+          input.emit({ type: 'history', activity: { kind: 'tool', key: toolKey(typeof event.tool_use_id === 'string' ? event.tool_use_id : `denied-${++anonymousMessage}`),
+            actor: actorFor(), tool, summary: described.detail, status: 'denied' } });
           return;
         }
         if (event.type === 'stream_event') {
           const stream = event.event as Record<string, unknown> | undefined;
           const message = stream?.message as Record<string, unknown> | undefined;
+          const parent = typeof event.parent_tool_use_id === 'string' ? event.parent_tool_use_id : '';
+          if (stream?.type === 'message_start') {
+            messageScopes.delete(displayIdentity([parent]));
+            const scope = scopeFor(parent);
+            scope.streaming = true;
+            if (typeof message?.id === 'string') scope.id = displayIdentity([message.id]);
+            if (!parent) { rootTextCandidate = undefined; rootTextCandidates = []; rootFinalPhase = false; }
+          }
+          const scope = scopeFor(parent);
+          if (typeof stream?.index === 'number') scope.block = stream.index;
+          const key = blockKey(scope.id, scope.block, parent);
           if (!event.parent_tool_use_id && stream?.type === 'message_start' && typeof message?.id === 'string') countTurn(message.id);
           const delta = stream?.delta as Record<string, unknown> | undefined;
+          if (!parent && stream?.type === 'message_delta' && typeof delta?.stop_reason === 'string') rootFinalPhase = delta.stop_reason === 'end_turn';
           if (stream?.type === 'content_block_delta' && delta?.type === 'text_delta' && typeof delta.text === 'string') {
             if (textDeltaCount === 0) log?.('recv first text delta');
             textDeltaCount += 1;
             textDeltaBytes += Buffer.byteLength(delta.text);
             input.emit({ type: 'text-delta', text: delta.text });
+            input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: delta.text, append: true } });
+            if (!parent) {
+              rootTextCandidate = key;
+              if (!rootTextCandidates.includes(key)) rootTextCandidates = [...rootTextCandidates.slice(-999), key];
+            }
           }
           const block = stream?.content_block as Record<string, unknown> | undefined;
           if (stream?.type === 'content_block_start' && typeof block?.type === 'string') {
+            scope.blockType = block.type;
             log?.(`recv ${block.type} block start`);
           }
           if (stream?.type === 'content_block_start' && block?.type === 'thinking') {
@@ -331,28 +385,79 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           }
           if (stream?.type === 'content_block_start' && block?.type === 'text') {
             input.emit({ type: 'phase', phase: 'responding' });
+            input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: typeof block.text === 'string' ? block.text : '' } });
+            if (!parent) {
+              rootTextCandidate = key;
+              if (!rootTextCandidates.includes(key)) rootTextCandidates = [...rootTextCandidates.slice(-999), key];
+            }
+          }
+          if (stream?.type === 'content_block_start' && block?.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
+            rememberTool(toolKey(block.id, parent), block.name);
+            const toolInput = block.input && typeof block.input === 'object' ? block.input as Record<string, unknown> : undefined;
+            const projected = claudeDisplayInput(block.name, toolInput, input.checkout.realPath, input.attachmentDirectory);
+            input.emit({ type: 'history', activity: { kind: 'tool', key: toolKey(block.id, parent), actor: actorFor(parent), tool: block.name,
+              summary: describeToolUse(block.name, toolInput, input.checkout.realPath, input.attachmentDirectory).detail, input: projected.text,
+              omittedBytes: projected.omittedBytes, status: 'running' } });
+            if (!parent) { rootTextCandidate = undefined; rootTextCandidates = []; rootFinalPhase = false; }
+          }
+          if (stream?.type === 'content_block_stop' && scope.blockType === 'text') {
+            // An empty append closes a block without replacing streamed text.
+            input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: '', append: true, complete: true } });
           }
           return;
         }
         if (event.type === 'assistant') {
           const message = event.message as Record<string, unknown> | undefined;
+          const parent = typeof event.parent_tool_use_id === 'string' ? event.parent_tool_use_id : '';
+          const scope = scopeFor(parent);
+          const messageId = typeof message?.id === 'string' ? displayIdentity([message.id]) : scope.streaming ? scope.id : `assistant-${++anonymousMessage}`;
           if (!event.parent_tool_use_id) countTurn(typeof message?.id === 'string' ? message.id : `unidentified:${emittedTurnIds.size}`);
           const content = Array.isArray(message?.content) ? message.content : [];
           const parts = content.filter((part): part is Record<string, unknown> => Boolean(part) && typeof part === 'object');
-          for (const part of parts) {
+          if (!parent) {
+            rootTextCandidate = undefined; rootTextCandidates = [];
+            rootFinalPhase = typeof message?.stop_reason === 'string' ? message.stop_reason === 'end_turn'
+              : scope.streaming === true && scope.id === messageId && rootFinalPhase;
+          }
+          for (const [index, part] of parts.entries()) {
+            if (part.type === 'text' && typeof part.text === 'string') {
+              const key = blockKey(messageId, index, parent);
+              input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: part.text, complete: true } });
+              if (!parent) { rootTextCandidate = key; rootTextCandidates = [...rootTextCandidates.slice(-999), key]; }
+            }
             if (part.type !== 'tool_use' || typeof part.name !== 'string') continue;
-            const toolUseId = typeof part.id === 'string' ? part.id : `${part.name}:${emittedToolUseIds.size}`;
-            if (emittedToolUseIds.has(toolUseId)) continue;
-            emittedToolUseIds.add(toolUseId);
+            const toolUseId = typeof part.id === 'string' ? part.id : `unidentified-tool-${++anonymousMessage}`;
             const toolInput = part.input && typeof part.input === 'object' ? part.input as Record<string, unknown> : undefined;
             const activity = describeToolUse(part.name, toolInput, input.checkout.realPath, input.attachmentDirectory);
+            const projected = claudeDisplayInput(part.name, toolInput, input.checkout.realPath, input.attachmentDirectory);
+            rememberTool(toolKey(toolUseId, parent), part.name);
+            input.emit({ type: 'history', activity: { kind: 'tool', key: toolKey(toolUseId, parent), actor: actorFor(parent), tool: part.name,
+              summary: activity.detail, input: projected.text, omittedBytes: projected.omittedBytes, status: 'running' } });
+            if (!parent) { rootTextCandidate = undefined; rootTextCandidates = []; rootFinalPhase = false; }
+            if (emittedToolUseIds.has(toolKey(toolUseId, parent))) continue;
+            if (emittedToolUseIds.size >= 1000) emittedToolUseIds.delete(emittedToolUseIds.values().next().value!);
+            emittedToolUseIds.add(toolKey(toolUseId, parent));
             log?.(`recv tool_use ${activity.tool}${activity.detail ? ` (${activity.detail})` : ''}`);
             input.emit({ type: 'activity', ...activity });
           }
-          assistantFallback = parts
+          if (!parent && parts.some(part => part.type === 'text')) assistantFallback = parts
             .filter((part) => part.type === 'text' && typeof part.text === 'string')
             .map((part) => part.text as string)
             .join('');
+          scope.streaming = false;
+          messageScopes.delete(displayIdentity([parent]));
+          return;
+        }
+        if (event.type === 'user') {
+          const parent = typeof event.parent_tool_use_id === 'string' ? event.parent_tool_use_id : '';
+          const message = event.message as Record<string, unknown> | undefined;
+          for (const part of Array.isArray(message?.content) ? message.content : []) {
+            if (!part || part.type !== 'tool_result' || typeof part.tool_use_id !== 'string') continue;
+            const output = displayResult(part.content);
+            input.emit({ type: 'history', activity: { kind: 'tool', key: toolKey(part.tool_use_id, parent), actor: actorFor(parent), tool: toolNames.get(toolKey(part.tool_use_id, parent)) || 'Tool',
+              output: output.text, omittedBytes: output.omittedBytes, status: part.is_error === true ? 'failed' : 'succeeded',
+              ...(part.is_error === true ? { error: displayText(output.text).text } : {}) } });
+          }
           return;
         }
         if (event.type === 'result') {
@@ -361,6 +466,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             throw classifyResultError(subtype, String(event.result || event.error || ''), input.policy, input.session.action);
           }
           if (typeof event.result === 'string') finalText = event.result;
+          finalBlockId = rootFinalPhase ? rootTextCandidate : undefined;
+          finalBlockIds = rootFinalPhase && rootTextCandidates.length ? rootTextCandidates : undefined;
           if (typeof event.session_id === 'string') sessionId = event.session_id;
           // Streaming input keeps stdin open for control responses; the turn is over, so release it.
           closeChildInput();
@@ -421,7 +528,11 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           finish(() => reject(classifyFailure(stderr, input.session.action)));
           return;
         }
-        finalText ||= assistantFallback;
+        if (!finalText) {
+          finalText = assistantFallback;
+          finalBlockId ||= rootFinalPhase ? rootTextCandidate : undefined;
+          finalBlockIds ||= rootFinalPhase && rootTextCandidates.length ? rootTextCandidates : undefined;
+        }
         if (!finalText.trim()) {
           finish(() => reject(new AgentRunError('absent-result', 'Claude Code finished without an assistant response.')));
           return;
@@ -432,6 +543,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         }
         finish(() => resolve({
           finalText,
+          ...(finalBlockId ? { finalBlockId } : {}),
+          ...(finalBlockIds ? { finalBlockIds } : {}),
           sessionId,
           durationMs: Date.now() - startedAt,
           outputBytes: Buffer.byteLength(finalText),

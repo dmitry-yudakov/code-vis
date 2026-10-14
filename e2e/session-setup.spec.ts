@@ -69,13 +69,13 @@ test('same-project background approvals and replies stay connected while another
     await start('Background approval connection', 'agent');
     const conversation = page.getByRole('complementary', { name: 'Conversation' });
     await expect(conversation).toContainText('Background approval connection');
-    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
     await start('Background queued connection', 'ask');
     await expect(conversation).toContainText('Background queued connection');
     await expect(page.getByRole('tab', { name: /Background approval connection/ })).toHaveClass(/awaiting-approval/);
     await expect(page.getByRole('tab', { name: /Background queued connection/ })).toHaveClass(/queued/);
     await page.getByRole('tab', { name: /Background approval connection/ }).click();
-    await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
+    await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
     await expect(conversation).toContainText('Edit approved — I applied it.');
     await page.getByRole('tab', { name: /Background queued connection/ }).click();
     await expect(conversation).toContainText('First turn complete.');
@@ -165,8 +165,8 @@ test('same-project background stream reconnects after a failed attachment when i
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('button', { name: 'Open Background stream retry', exact: true }).click();
     await expect.poll(() => attachments).toBe(2);
-    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
-    await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
+    await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
+    await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
     await expect(conversation).toContainText('Edit approved — I applied it.');
     expect(attachments).toBe(2);
   } finally {
@@ -189,7 +189,7 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     await page.getByRole('radio', { name: 'Agent', exact: true }).click();
     await conversation.locator('textarea').fill('Completed Arena choices');
     await conversation.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
     await conversation.getByLabel(/^Mode: /).click();
     const changing = page.waitForResponse('**/api/agent/mode');
     await page.getByRole('radio', { name: 'Plan', exact: true }).click();
@@ -197,10 +197,10 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     await expect(conversation.getByRole('button', { name: 'Execute plan', exact: true })).toBeVisible();
     await expect(page.getByRole('tab', { name: /Completed Arena choices/ })).not.toHaveClass(/working|awaiting-approval/);
 
-    await conversation.locator('.add-agent-menu > button').click();
+    await conversation.getByRole('button', { name: 'Session agents', exact: true }).click();
     await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
-    await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant', exact: true }).click();
-    await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+    await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
+    await expect(conversation.getByRole('button', { name: 'Session agents', exact: true })).toContainText('Claude Reviewer');
     await conversation.getByLabel(/^Mode: /).click();
     await page.getByRole('radio', { name: 'Ask', exact: true }).click();
     await conversation.locator('textarea').fill('Keep the next turn draft');
@@ -218,14 +218,14 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     expect(retainedEvents).toContain('"type":"mode-changed"');
     // Wait for replay and its final snapshot refresh before checking idle selections.
     await page.waitForLoadState('networkidle');
-    await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+    await expect(conversation.getByRole('button', { name: 'Session agents', exact: true })).toContainText('Claude Reviewer');
     await expect(conversation.getByLabel(/^Mode: Ask/)).toBeVisible();
     await expect(conversation.locator('textarea')).toHaveValue('Keep the next turn draft');
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences') || '{}')))
       .toMatchObject({ mode: 'ask' });
     await expect(page.locator('.toast').filter({ hasText: 'Reconnected to' })).toHaveCount(0);
     await expect(conversation.locator('.chat-message.user')).toHaveCount(1);
-    await expect(conversation.locator('.chat-message.assistant')).toHaveCount(1);
+    await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
   } finally {
     const discovery = await (await request.get(`/api/agent/runs?sessionId=${session.id}`)).json();
     for (const run of discovery.active) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
@@ -556,23 +556,25 @@ test('report-only setup labels evidence captured in another project and starts w
   expect(sent?.reportAttachments).toEqual([{ reportId }]); expect(sent?.sessionId).not.toBe(source.id);
 });
 
-test('regular composer Retry rehydrates exact file evidence alongside a newer pending file', async ({ page, request }) => {
+test('regular composer Retry explicitly replaces newer evidence with the exact original file', async ({ page, request }) => {
   const { project: target } = await project(request);
   await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } });
   await page.goto('/'); await chooseProject(page, target);
   const composer = page.locator('.instruction-composer');
   await composer.locator('input[type=file]').setInputFiles({ name: 'original.txt', mimeType: 'text/plain', buffer: Buffer.from('Exact original 🌍\n') });
   await composer.locator('textarea').fill('Keep my evidence'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(composer.getByRole('button', { name: 'Remove file original.txt' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const cancelled = page.locator('.chat-message.user.cancelled'); await expect(cancelled).toHaveCount(1);
-  await composer.getByRole('button', { name: 'Remove file original.txt' }).click();
   await composer.locator('input[type=file]').setInputFiles({ name: 'newer.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep newer evidence') });
   await cancelled.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(composer).toContainText('original.txt'); await expect(composer).toContainText('newer.txt');
+  await expect(composer).not.toContainText('original.txt'); await expect(composer).toContainText('newer.txt');
+  await page.getByRole('button', { name: 'Replace draft', exact: true }).click();
+  await expect(composer).toContainText('original.txt'); await expect(composer).not.toContainText('newer.txt');
   let files: unknown;
   await page.route('**/api/agent/message', (route) => { files = route.request().postDataJSON().fileAttachments; return route.fulfill({ status: 503, json: { error: 'Inspection only' } }); });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect.poll(() => files).toEqual([{ name: 'newer.txt', text: 'Keep newer evidence' }, { name: 'original.txt', text: 'Exact original 🌍\n' }]);
+  await expect.poll(() => files).toEqual([{ name: 'original.txt', text: 'Exact original 🌍\n' }]);
 });
 
 

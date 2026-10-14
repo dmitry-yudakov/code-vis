@@ -11,6 +11,9 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const ASSISTANT_ID = '77777777-7777-4777-8777-777777777777';
 const NOW = '2026-09-04T12:00:00.000Z';
 
+// Polling can still be reading an intercepted Arena response when the last assertion finishes.
+test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'wait' }); });
+
 for (const securityLevel of ['guarded', 'native'] as const) {
 test(`opens a ${securityLevel} executor session, streams, and preserves its offline card`, async ({ page }) => {
   let online = true;

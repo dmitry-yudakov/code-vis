@@ -1,3 +1,4 @@
+import { boundedDisplay, type TurnRecord } from '@/shared/turnActivity';
 import {
   MAX_TOOL_ACTIVITY_ENTRIES, permissionLabel, toolActivityLabel,
   type PendingPermission, type ToolActivityEntry,
@@ -5,6 +6,8 @@ import {
 import type { AgentEvent, AgentMode, ChatMessage, RunDescriptor, RunState, UserMessage } from '@/shared/types';
 
 export interface RunPresentation {
+  turn?: import('@/shared/turnActivity').TurnRecord;
+  userMessageId?: string;
   runId?: string;
   sessionId: string;
   participantId: string;
@@ -31,6 +34,13 @@ export interface SessionRunOutcome {
 }
 
 export type SessionRunOutcomes = Record<string, SessionRunOutcome>;
+
+export function displayedTurn(saved?: TurnRecord, live?: TurnRecord): TurnRecord | undefined {
+  if (!saved) return live;
+  if (!live || live.runId !== saved.runId) return saved;
+  return live.sequence > saved.sequence
+    || live.sequence === saved.sequence && saved.history !== 'saved' && live.history === 'saved' ? live : saved;
+}
 
 /** The stream endpoint reports how many leading events are historical replay. */
 export function isReplayedStreamEvent(eventIndex: number, replayEventCount: number): boolean {
@@ -85,11 +95,19 @@ export function applyRunEvent(
   toolActivityKey?: number,
 ): RunPresentation {
   const identified = { ...run, runId: event.runId };
+  if (event.type === 'turn-activity') return {
+    ...identified,
+    userMessageId: event.turn.userMessageId,
+    turn: !run.turn || run.turn.runId !== event.runId || event.turn.sequence > run.turn.sequence
+      || event.turn.sequence === run.turn.sequence && (event.turn.history === 'saved' || event.turn.incomplete)
+      ? event.turn : run.turn,
+  };
   if (event.type === 'mode-changed') return { ...identified, mode: event.mode };
   if (event.type === 'run-started') {
     return {
       ...identified,
       participantId: event.participantId,
+      userMessageId: event.messageId,
       state: 'running',
       queuePosition: undefined,
     };
@@ -120,9 +138,12 @@ export function applyRunEvent(
       participantId: event.participantId,
       tool: event.tool,
       detail: event.detail,
+      review: event.review,
+      actor: event.actor,
+      toolKey: event.toolKey,
     };
     const permissions = run.permissions.some((item) => item.requestId === request.requestId)
-      ? run.permissions
+      ? run.permissions.map(item => item.requestId === request.requestId ? request : item)
       : [...run.permissions, request];
     return {
       ...identified,
@@ -143,7 +164,7 @@ export function applyRunEvent(
     };
   }
   if (event.type === 'assistant-delta') {
-    return { ...identified, preview: run.preview + event.delta };
+    return { ...identified, preview: boundedDisplay(run.preview + event.delta, 256 * 1024).text };
   }
   if (event.type === 'assistant-message') {
     return { ...identified, preview: '' };

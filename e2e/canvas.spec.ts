@@ -40,6 +40,31 @@ async function ensureConversationOpen(page: Page) {
   if (!await page.getByRole('complementary', { name: 'Conversation' }).count()) await conversationToggle(page).click();
 }
 
+async function showCanvas(page: Page) {
+  const toggle = page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: 'Canvas', exact: true });
+  if (await toggle.getAttribute('aria-pressed') === 'false') await toggle.click();
+}
+
+function sessionAgents(page: Page) {
+  return page.getByRole('button', { name: 'Session agents', exact: true });
+}
+
+async function selectAgent(page: Page, role: string) {
+  await sessionAgents(page).click();
+  await page.locator('.desktop-picker-paper:visible .participant-row').getByRole('button').filter({ hasText: role }).click();
+}
+
+async function reviewerHandoff(page: Page) {
+  await sessionAgents(page).click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: /@Claude Reviewer · Review this/ }).click();
+}
+
+async function expectSelectedMain(page: Page) {
+  await sessionAgents(page).click();
+  await expect(page.locator('.desktop-picker-paper:visible .participant-row button[aria-pressed="true"]')).toContainText('Main');
+  await page.keyboard.press('Escape');
+}
+
 async function openConversation(page: Page) {
   await expect(conversationToggle(page)).toHaveAttribute('aria-pressed', 'false');
   await conversationToggle(page).click();
@@ -158,6 +183,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect(repositoryManager.locator('.repository-binding strong')).toHaveText([
     'beta', 'packages/deep-app', 'alpha',
   ]);
+  await showCanvas(page);
 
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
@@ -165,15 +191,15 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   const composer = page.getByPlaceholder(/Ask anything about this project/);
   await composer.fill('Draw a simple architecture');
   await page.getByRole('button', { name: 'Send' }).click();
-  // Transient tool activity is visible while the run is in flight and gone afterwards.
-  const timeline = page.locator('.tool-timeline');
+  // Tool activity stays in the same chronological rows when the turn finishes.
+  const timeline = conversation.getByLabel('Turn activity', { exact: true });
   await expect(timeline).toBeVisible();
-  await expect(timeline).toContainText('Reading README.md');
-  await expect(timeline).toContainText('Searching architecture in src');
+  await expect(timeline).toContainText('Read · README.md');
+  await expect(timeline).toContainText('Grep · architecture in src');
   await expect(page.locator('.run-ribbon')).toHaveClass(/working/);
   await expect(page.locator('.run-ribbon-tick')).not.toHaveCount(0);
   await expect(page.locator('.diagram-canvas-shell')).toBeVisible();
-  await expect(timeline).toHaveCount(0);
+  await expect(timeline.locator('.activity-tool')).toHaveCount(4);
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
   await expect(page.locator('.run-ribbon-tick')).toHaveCount(0);
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
@@ -338,6 +364,7 @@ test('loads the bounded spatial room on demand and restores its device-only layo
   await createNamedProject(page, name);
   await startSession(page);
   await ensureRepository(page);
+  await showCanvas(page);
 
   const composer = page.getByPlaceholder(/Ask anything about this project/);
   await composer.fill('Spatial fixture');
@@ -513,6 +540,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
   await createNamedProject(page, `E2E immersive ${Date.now()}`);
   await startSession(page);
   await ensureRepository(page);
+  await showCanvas(page);
 
   const prompts = ['Spatial fixture', ...Array.from({ length: 6 }, (_, index) => `XR history ${index + 1}`)];
   for (const prompt of prompts) {
@@ -599,7 +627,7 @@ test('keeps multiple session views and their device layout usable during backgro
   await secondConversation.locator('textarea').fill('Wait for reload cancellation.');
   await secondConversation.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.workspace-tab').nth(1)).toHaveClass(/working/);
-  await expect(page.locator('.tool-timeline')).toContainText('Reading README.md');
+  await expect(page.locator('.turn-activity')).toContainText('Read · README.md');
 
   await page.getByRole('tab').nth(0).click();
   const backgroundConversation = page.getByRole('complementary', { name: 'Conversation' });
@@ -656,7 +684,7 @@ test('runs two turns, queues a third, and recovers background approval and promo
   await chooseMode(page, 'Agent');
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Request an edit approval');
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Pending approvals', exact: true })).toBeVisible();
 
   await startSession(page);
   await attachRepository(page, 'alpha');
@@ -681,8 +709,8 @@ test('runs two turns, queues a third, and recovers background approval and promo
   await expect(tabs.nth(2)).toHaveClass(/queued/);
 
   await tabs.nth(1).click();
-  await expect(page.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
-  await page.getByRole('button', { name: 'Allow' }).click();
+  await expect(page.getByRole('region', { name: 'Pending approvals', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Allow once', exact: true }).click();
   await expect(tabs.nth(2)).toHaveClass(/working/);
   await expect(tabs.nth(2)).not.toHaveClass(/queued/);
 
@@ -768,7 +796,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   await chooseMode(alphaConversation, 'Agent');
   await alphaConversation.locator('textarea').fill('Arena permission from Alpha');
   await alphaConversation.getByRole('button', { name: 'Send' }).click();
-  await expect(alphaConversation.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
+  await expect(alphaConversation.getByRole('region', { name: 'Pending approvals', exact: true })).toBeVisible();
 
   // Leave the blocked session. Project navigation stays available and its permission reaches the
   // host-wide Inbox without first reopening the owning project/session.
@@ -971,6 +999,7 @@ test('stacks notices as toasts in the canvas corner and lets only what can wait 
   await page.goto('/');
   await createNamedProject(page, `Toasts ${Date.now()}`);
   await startSession(page);
+  await showCanvas(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const away = () => page.mouse.move(5, 700);
   // A toast that has begun to leave still shows while its row closes, so a toast is checked as
@@ -1005,7 +1034,7 @@ test('stacks notices as toasts in the canvas corner and lets only what can wait 
   await page.clock.fastForward(11_000);
   await expect(refused).toHaveCount(0);
 
-  // A send refused by a busy run offers to cancel that run.
+  // A rejected busy send retains the blocker’s explicit cancellation action and its rejection message.
   await ensureRepository(page);
   await page.route('**/api/agent/message', (route) => route.fulfill({ status: 409, json: {
     error: 'Another turn is using this provider session.', activeRun: { runId: 'run-busy', sessionId: 'session-busy' },
@@ -1071,14 +1100,14 @@ test('keeps Refresh approval status until the approval status is confirmed', asy
   await chooseMode(conversation, 'Agent');
   await conversation.locator('textarea').fill('Make one approved edit.');
   await conversation.getByRole('button', { name: 'Send' }).click();
-  const approval = conversation.getByLabel(/Approval required: Edit/);
+  const approval = conversation.getByRole('region', { name: 'Pending approvals', exact: true });
   await expect(approval).toBeVisible();
 
   // The decision never arrives, and at first its status cannot be read either.
   const statusRead = /\/api\/agent\/runs\?sessionId=/;
   await page.route('**/api/agent/permission', (route) => route.abort());
   await page.route(statusRead, (route) => route.abort());
-  await approval.getByRole('button', { name: 'Allow' }).click();
+  await approval.getByRole('button', { name: 'Allow once', exact: true }).click();
   const unknown = toast(page, 'Delivery could not be confirmed');
   await expect(unknown).toHaveAttribute('data-tone', 'error');
   const refresh = unknown.getByRole('button', { name: 'Refresh approval status' });
@@ -1099,11 +1128,12 @@ test('keeps Refresh approval status until the approval status is confirmed', asy
   await expect(unknown).toHaveCount(0);
   await approval.getByRole('button', { name: 'Deny' }).click();
   await expect(approval).toHaveCount(0);
-  await expect(conversation.locator('.chat-message.assistant')).toContainText('Edit denied');
+  await expect(conversation.locator('.chat-message.assistant.complete')).toContainText('Edit denied');
 });
 
 test('keeps a toast on screen beside the Spatial room, at every width', async ({ page, request }) => {
   await openAlphaProject(page, request, 'Spatial toasts');
+  await showCanvas(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Draw a simple architecture');
   await conversation.getByRole('button', { name: 'Send' }).click();
@@ -1282,11 +1312,12 @@ test('sketches a blank canvas and sends the drawing as the instruction', async (
   await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.chat-message.user')).toContainText('1 sketch attached');
-  await expect(page.locator('.chat-message.assistant')).toBeVisible();
+  await expect(page.locator('.chat-message.assistant.complete')).toBeVisible();
 
   await closeConversation(page);
   await page.reload();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Drawing layer with 1 marks', exact: true })).toBeVisible();
   await activityView(page, 'History').click();
   await expect(page.locator('.navigator-item')).toContainText('Sketch 1');
 });
@@ -1297,7 +1328,7 @@ test('discovers, reattaches, and cancels a turn that outlives a reload', async (
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Wait for reload cancellation.');
   await conversation.getByRole('button', { name: 'Send' }).click();
-  await expect(page.locator('.tool-timeline')).toContainText('Reading README.md');
+  await expect(page.locator('.turn-activity')).toContainText('Read · README.md');
 
   const discovery = page.waitForResponse((response) => response.url().endsWith('/api/agent/runs'));
   await page.reload();
@@ -1324,7 +1355,7 @@ test('recovers a host-wide run in its canonical project scope', async ({ page })
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Wait for reload cancellation.');
   await conversation.getByRole('button', { name: 'Send' }).click();
-  await expect(page.locator('.tool-timeline')).toContainText('Reading README.md');
+  await expect(page.locator('.turn-activity')).toContainText('Read · README.md');
 
   await page.reload();
   await expect(page.locator('.project-search-trigger')).toContainText(ownerProject);
@@ -1339,6 +1370,7 @@ test('traces an Agent run without implying progress and shifts to wait for appro
   await page.goto('/');
   await startSession(page);
   await ensureRepository(page);
+  await showCanvas(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await chooseMode(conversation, 'Agent');
 
@@ -1346,14 +1378,14 @@ test('traces an Agent run without implying progress and shifts to wait for appro
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('.run-ribbon')).toHaveClass(/awaiting-approval/);
   await expect(page.locator('.run-ribbon')).not.toHaveAttribute('role', 'progressbar');
-  await expect(conversation.getByLabel(/Approval required: Edit/)).toBeVisible();
+  await expect(conversation.getByRole('region', { name: 'Pending approvals', exact: true })).toBeVisible();
   await expect(page.locator('.run-ribbon-line')).toHaveCSS('animation-name', 'ribbon-breathe');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(page.locator('.run-ribbon-line')).toHaveCSS('animation-name', 'none');
 
   await conversation.getByRole('button', { name: 'Deny' }).click();
-  await expect(conversation.getByLabel(/Approval required: Edit/)).toHaveCount(0);
-  await expect(conversation.locator('.chat-message.assistant')).toContainText('Edit denied');
+  await expect(conversation.getByRole('region', { name: 'Pending approvals', exact: true })).toHaveCount(0);
+  await expect(conversation.locator('.chat-message.assistant.complete')).toContainText('Edit denied');
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
 });
 
@@ -1366,9 +1398,9 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
 
   await composer.fill('Summarize the current architecture in one paragraph.');
   await conversation.getByRole('button', { name: 'Send' }).click();
-  await expect(conversation.locator('.chat-message.assistant')).toBeVisible();
+  await expect(conversation.locator('.chat-message.assistant.complete')).toBeVisible();
 
-  await conversation.locator('.add-agent-menu > button').click();
+  await sessionAgents(page).click();
   const addAgentPanel = page.locator('.desktop-picker-paper:visible');
   await expect(addAgentPanel).toBeVisible();
   const [drawerBox, addAgentPanelBox] = await Promise.all([
@@ -1382,39 +1414,41 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
     drawerBox!.x + drawerBox!.width,
   );
   await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
-  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant' }).click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
   await expect(addAgentPanel).toBeHidden();
-  await expect(conversation.locator('.participant-chip')).toHaveCount(2);
-  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+  await sessionAgents(page).click();
+  await expect(page.locator('.desktop-picker-paper:visible .participant-row button')).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  await expect(sessionAgents(page)).toContainText('Claude Reviewer');
 
   // Select the main coder, then use the reviewer handoff chip. It prefills but does not send.
-  await conversation.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
-  await conversation.getByRole('button', { name: /@Claude Reviewer · Review this/ }).click();
+  await selectAgent(page, 'Main');
+  await reviewerHandoff(page);
   await expect(composer).toHaveValue(/Review the latest proposal or changes above/);
-  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+  await expect(sessionAgents(page)).toContainText('Claude Reviewer');
   await expect(conversation.locator('.chat-message.user')).toHaveCount(1);
 
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(conversation.locator('.chat-message.user')).toHaveCount(2);
   await expect(conversation.locator('.chat-message.user').last()).toContainText('→ @Claude Reviewer');
-  await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Claude Reviewer');
+  await expect(conversation.locator('.chat-message.assistant.complete').last()).toContainText('Claude Reviewer');
 
   // A completed retained reviewer run must not announce itself as live or rewrite the persisted
   // device-local selection when this browser reloads.
-  await conversation.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
+  await selectAgent(page, 'Main');
   const discovery = page.waitForResponse((response) => response.url().endsWith('/api/agent/runs'));
   await page.reload({ waitUntil: 'networkidle' });
   expect((await (await discovery).json()).active).toHaveLength(0);
   await expect(page.locator('.unread-badge, .layout-badge')).toHaveCount(0);
   await ensureConversationOpen(page);
-  await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('.participant-chip.active')).toContainText('Main');
+  await expectSelectedMain(page);
   await expect(page.locator('.stream-preview')).toHaveCount(0);
   await expect(page.locator('.toast')).toHaveCount(0);
 
-  const reloadedConversation = page.getByRole('complementary', { name: 'Conversation' });
-  await reloadedConversation.locator('.participant-chip').filter({ hasText: 'Reviewer' }).click();
-  await reloadedConversation.getByRole('button', { name: 'Make @Claude Reviewer the main agent' }).click();
-  await expect(reloadedConversation.locator('.participant-chip.active')).toContainText('Main');
+  await selectAgent(page, 'Reviewer');
+  await sessionAgents(page).click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Make @Claude Reviewer the main agent' }).click();
+  await expectSelectedMain(page);
 });
 
 test('sends each agent\'s own model and effort, keeps them across a reload, and fits a phone', async ({ page }) => {
@@ -1427,7 +1461,7 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   const summary = menu.getByRole('button', { name: /Model and effort/ });
   const models = page.getByRole('radiogroup', { name: 'Model' });
   const efforts = page.getByRole('radiogroup', { name: 'Effort' });
-  const answers = conversation.locator('.chat-message.assistant');
+  const answers = conversation.locator('.chat-message.assistant.complete');
   let turns = 0;
   const send = async (text?: string) => {
     const requested = page.waitForRequest((request) => request.url().endsWith('/api/agent/message'));
@@ -1465,19 +1499,18 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   expect(chosen).toMatchObject({ participantId: plain.participantId, model: 'sonnet', effort: 'low' });
 
   // A second agent starts at this device's last choice for its provider and keeps its own choice.
-  await conversation.locator('.add-agent-menu > button').click();
+  await sessionAgents(page).click();
   await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
-  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant' }).click();
-  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
+  await expect(sessionAgents(page)).toContainText('Claude Reviewer');
   await expect(summary).toHaveText('Sonnet · Low');
   await choose('Opus', 'Extra high');
   await expect(summary).toHaveText('Opus · Extra high');
 
-  const mainChip = conversation.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' });
-  await mainChip.click();
+  await selectAgent(page, 'Main');
   await expect(summary).toHaveText('Sonnet · Low');
   // A handoff addresses the reviewer, so the turn carries the reviewer's choice.
-  await conversation.getByRole('button', { name: /@Claude Reviewer · Review this/ }).click();
+  await reviewerHandoff(page);
   await expect(summary).toHaveText('Opus · Extra high');
   const handoff = await send();
   expect(handoff.participantId).not.toBe(plain.participantId);
@@ -1487,7 +1520,7 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   await ensureConversationOpen(page);
   const reloaded = page.getByRole('complementary', { name: 'Conversation' });
   await expect(reloaded.locator('.model-menu > button')).toHaveText('Opus · Extra high');
-  await reloaded.locator('.participant-chip').filter({ hasText: '@Claude' }).filter({ hasText: 'Main' }).click();
+  await selectAgent(page, 'Main');
   await expect(reloaded.locator('.model-menu > button')).toHaveText('Sonnet · Low');
 
   // At phone width nothing in the composer row overlaps, and the open menu stays on screen.
@@ -1546,6 +1579,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await page.goto('/');
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await startSession(page);
+  await showCanvas(page);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const menu = conversation.locator('.model-menu');
   const summary = menu.getByRole('button', { name: /Model and effort/ });
@@ -1581,30 +1615,29 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await conversation.locator('textarea').fill('Plan a small refactor.');
   await conversation.getByRole('button', { name: 'Send' }).click();
   expect((await requested).postDataJSON()).toMatchObject({ mode: 'plan', model: 'opus', effort: 'high' });
-  await expect(conversation.locator('.chat-message.assistant')).toHaveCount(1);
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
 
   // A new agent starts there too. Every agent keeps the choice it started with, or its own, when
   // another agent's choice moves the device's last one.
-  const chip = (role: string) => conversation.locator('.participant-chip').filter({ hasText: role });
   const addAgent = async (role: string) => {
-    await conversation.locator('.add-agent-menu > button').click();
+    await sessionAgents(page).click();
     await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption(role);
-    await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant' }).click();
-    await expect(conversation.locator('.participant-chip.active')).toContainText(`Claude ${role[0].toUpperCase()}${role.slice(1)}`);
+    await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
+    await expect(sessionAgents(page)).toContainText(`Claude ${role[0].toUpperCase()}${role.slice(1)}`);
   };
   await addAgent('reviewer');
   await expect(summary).toHaveText('Opus · High');
   await choose('Default', 'Default');
   await expect(summary).toHaveText('Default');
-  await chip('Main').click();
+  await selectAgent(page, 'Main');
   await expect(summary).toHaveText('Opus · High');
   await addAgent('tester');
   await expect(summary).toHaveText('Default');
-  await chip('Main').click();
+  await selectAgent(page, 'Main');
   await choose('Sonnet', 'Low');
-  await chip('Tester').click();
+  await selectAgent(page, 'Tester');
   await expect(summary).toHaveText('Default');
-  await chip('Reviewer').click();
+  await selectAgent(page, 'Reviewer');
   await expect(summary).toHaveText('Default');
 
   // A session keeps its own mode when another session changes the device's last mode.
@@ -1619,9 +1652,9 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await expect(summary).toHaveText('Opus · High');
   await openTab(2);
   await expect(modePicker(conversation)).toHaveText('Agent');
-  await chip('Main').click();
+  await selectAgent(page, 'Main');
   await expect(summary).toHaveText('Sonnet · Low');
-  await chip('Reviewer').click();
+  await selectAgent(page, 'Reviewer');
   await expect(summary).toHaveText('Default');
   await startSession(page);
   await expect(modePicker(conversation)).toHaveText('Agent');
@@ -1749,6 +1782,7 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await conversation.locator('textarea').fill('Show two alternatives');
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(conversation.locator('.diagram-card')).toHaveCount(2);
+  await showCanvas(page);
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
   // Mermaid renders one at a time; once the cards have rendered, a thumbnail would have too.
   await expect(conversation.locator('.diagram-card-svg svg')).toHaveCount(2);
@@ -1878,6 +1912,7 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   await expect(bar.locator(':scope > :is(button, a), .more-menu > button')).toHaveCount(5);
   await expect(activityView(page, 'Changes')).toHaveAccessibleName('Changes, 2 files');
   await expect(activityView(page, 'Changes').locator('.activity-badge')).toHaveText('2');
+  await showCanvas(page);
   const [barBox, canvasBox] = await Promise.all([bar.boundingBox(), page.locator('.canvas-workspace').boundingBox()]);
   expect(barBox!.width).toBe(48);
   expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(canvasBox!.x + 1);
@@ -1927,7 +1962,7 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   await expect(bar.getByRole('link', { name: 'Arena', exact: true })).not.toHaveAttribute('aria-current', /.+/);
 });
 
-test('hides the canvas for a wide conversation, and never hides it with the conversation', async ({ page, request }) => {
+test('opens and hides the canvas for a wide conversation, and never hides it with the conversation', async ({ page, request }) => {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: Array<{ id: string; name: string }> };
   const name = `Canvas toggle ${Date.now()}`;
   await request.post('/api/projects', { data: { name, checkoutIds: [checkouts.find((checkout) => checkout.name === 'alpha')!.id] } });
@@ -1939,6 +1974,8 @@ test('hides the canvas for a wide conversation, and never hides it with the conv
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Draw a simple architecture');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: 'Canvas', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await conversation.getByRole('button', { name: 'Open on canvas', exact: true }).first().click();
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
 
@@ -2057,7 +2094,7 @@ test('hides the canvas for a wide conversation, and never hides it with the conv
   await chooseMode(conversation, 'Agent');
   await conversation.locator('textarea').fill('Make one approved edit.');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(conversation.getByLabel(/Approval required: Edit/)).toBeVisible();
+  await expect(conversation.getByRole('region', { name: 'Pending approvals', exact: true })).toBeVisible();
   await expect(conversationToggle(page)).toHaveAccessibleName('Conversation');
   await closeConversation(page);
   await expect(conversationToggle(page)).toHaveAccessibleName('Conversation, 1 action waiting for your approval');
@@ -2154,6 +2191,7 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   const composer = conversation.locator('textarea');
   await composer.fill('Draw a simple architecture');
   await conversation.getByRole('button', { name: 'Send' }).click();
+  await conversation.getByRole('button', { name: 'Open on canvas', exact: true }).first().click();
   await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();
   await expect(conversation.locator('.diagram-card-svg[data-mermaid-theme="dark"] svg')).toBeVisible();
   await expect(page.locator('.tool-timeline')).toHaveCount(0);

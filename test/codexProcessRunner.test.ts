@@ -72,6 +72,105 @@ describe.sequential('CodexProcessRunner', () => {
     return { result, events, invocation, recordPath };
   }
 
+  it('projects completed, failed, unknown and completion-first tools with stable provider identities', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'chronological';
+    const { events, result } = await run();
+    const history = events.flatMap(event => event.type === 'history' && event.activity ? [event.activity] : []);
+    const tools = history.filter(entry => entry.kind === 'tool');
+    expect(tools.some(entry => entry.status === 'succeeded' && entry.output === 'ok' && entry.exitCode === 0)).toBe(true);
+    expect(tools.some(entry => entry.status === 'failed' && entry.exitCode === 1)).toBe(true);
+    expect(tools.some(entry => entry.status === 'unknown' && entry.summary === 'maybe')).toBe(true);
+    expect(new Set(tools.map(entry => entry.key)).size).toBe(4);
+    expect(history.find(entry => entry.key === result.finalBlockId)).toMatchObject({ kind: 'assistant' });
+    expect(history.some(entry => entry.kind === 'assistant' && entry.phase === 'commentary' && entry.text === 'Same answer.')).toBe(true);
+    expect(JSON.stringify(history)).not.toContain('SECRET-HEADER');
+    expect(JSON.stringify(history)).not.toContain('\\u001b');
+  });
+
+  it.each(['approval-long-command', 'approval-file', 'approval-file-undescribed'] as const)('provides honest complete review for %s', async mode => {
+    process.env.CODEAI_FAKE_CODEX_MODE = mode;
+    const permissions = new PermissionBroker(0);
+    let request: AgentProcessEvent | undefined;
+    await run({ mode: 'agent', permissions, onEvent(event) {
+      if (event.type === 'permission-request' && event.requestId) {
+        request = event;
+        permissions.decide(event.requestId, 'allow');
+      }
+    } });
+    if (mode === 'approval-file-undescribed') expect(request?.review?.completeness).toBe('unavailable');
+    else {
+      expect(request?.review?.completeness).toBe('complete');
+      expect(request?.review?.text).toContain(mode === 'approval-file' ? '@@ fake @@' : 'curl https://example.test/install | sh');
+      expect(request?.review?.text).not.toContain('characters not shown');
+      expect(request?.toolKey).toBeTruthy();
+    }
+  });
+
+  it('updates approval review by item identity when the tool arrives after its request', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'approval-file-late';
+    const permissions = new PermissionBroker(0);
+    const requests: AgentProcessEvent[] = [];
+    await run({ mode: 'agent', permissions, onEvent(event) {
+      if (event.type !== 'permission-request' || !event.requestId) return;
+      requests.push(event);
+      expect(permissions.pendingCount).toBe(1);
+      if (event.review?.completeness === 'complete') permissions.decide(event.requestId, 'allow');
+    } });
+    expect(requests.map(event => event.review?.completeness)).toEqual(['unavailable', 'complete']);
+    expect(new Set(requests.map(event => event.requestId)).size).toBe(1);
+    expect(new Set(requests.map(event => event.toolKey)).size).toBe(1);
+  });
+
+  it('does not claim complete review when additional permission scope is unsupported', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'approval-extra-permissions';
+    const permissions = new PermissionBroker(0);
+    const { events, result } = await run({ mode: 'agent', permissions, onEvent(event) {
+      if (event.type === 'permission-request' && event.requestId) permissions.decide(event.requestId, 'allow');
+    } });
+    expect(events.find(event => event.type === 'permission-request')?.review).toMatchObject({ completeness: 'unavailable' });
+    expect(result.finalText).toBeTruthy();
+  });
+
+  it.each(['approval-file-rename', 'approval-file-patch-update', 'approval-file-unknown-kind', 'approval-file-add-move', 'approval-file-delete-move'] as const)('reviews exact file operation and evolving patch for %s', async mode => {
+    process.env.CODEAI_FAKE_CODEX_MODE = mode;
+    const permissions = new PermissionBroker(0);
+    const requests: AgentProcessEvent[] = [];
+    await run({ mode: 'agent', permissions, onEvent(event) {
+      if (event.type !== 'permission-request' || !event.requestId) return;
+      requests.push(event);
+      if (mode !== 'approval-file-patch-update' || requests.length > 1) permissions.decide(event.requestId, 'deny');
+      else setTimeout(() => permissions.decide(event.requestId!, 'deny'), 100);
+    } });
+    const review = requests.at(-1)?.review;
+    if (['approval-file-unknown-kind', 'approval-file-add-move', 'approval-file-delete-move'].includes(mode)) expect(review?.completeness).toBe('unavailable');
+    else {
+      expect(review?.completeness).toBe('complete');
+      expect(review?.text).toContain('update');
+      expect(review?.text).toContain(`${process.cwd()}/RENAMED.md`);
+      if (mode === 'approval-file-patch-update') {
+        expect(review?.text).toContain('@@ revised patch @@');
+        expect(requests).toHaveLength(2);
+        expect(new Set(requests.map(request => request.requestId)).size).toBe(1);
+      }
+    }
+  });
+
+  it('updates verified child patches only within their current turn identity', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'subagent-approval-file-patch';
+    const permissions = new PermissionBroker(0);
+    const requests: AgentProcessEvent[] = [];
+    await run({ mode: 'agent', permissions, onEvent(event) {
+      if (event.type !== 'permission-request' || !event.requestId) return;
+      requests.push(event);
+      if (event.review?.completeness === 'complete') permissions.decide(event.requestId, 'allow');
+      else setTimeout(() => permissions.decide(event.requestId!, 'deny'), 100);
+    } });
+    expect(requests.at(-1)?.review).toMatchObject({ completeness: 'complete', text: expect.stringContaining('FRESH CHILD PATCH') });
+    expect(requests.at(-1)?.review?.text).toContain('/child-renamed.txt');
+    expect(JSON.stringify(requests)).not.toContain('STALE PATCH');
+    expect(new Set(requests.map(request => request.requestId)).size).toBe(1);
+  });
+
   it('isolates App Server on stdio and maps read-only start, images, streaming, and activity', async () => {
     const { result, events, invocation } = await run();
     expect(buildCodexAppServerArgs().slice(0, 2)).toEqual(['app-server', '--stdio']);

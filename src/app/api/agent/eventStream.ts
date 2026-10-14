@@ -31,7 +31,15 @@ export function agentEventStream(input: {
   const write = (event: AgentEvent) => {
     if (!attached) return;
     try {
-      controller?.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      const chunk = encoder.encode(`${JSON.stringify(event)}\n`);
+      // A slow/disconnected reader can recover from the registry's coalesced snapshot. Never
+      // accumulate an unbounded queue of full history snapshots behind its network socket.
+      if (controller && (controller.desiredSize ?? 0) < chunk.byteLength) {
+        controller.error(new Error('The event reader fell behind. Reconnect to recover current activity.'));
+        detach();
+        return;
+      }
+      controller?.enqueue(chunk);
     } catch {
       detach();
     }
@@ -49,7 +57,7 @@ export function agentEventStream(input: {
     cancel() {
       detach();
     },
-  });
+  }, { highWaterMark: 8 * 1024 * 1024, size: chunk => chunk.byteLength });
 
   const headers = new Headers(NDJSON_HEADERS);
   if (input.headers) new Headers(input.headers).forEach((value, key) => headers.set(key, value));

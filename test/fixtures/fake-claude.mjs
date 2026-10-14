@@ -69,7 +69,91 @@ const record = (extra) => {
 };
 record();
 
-if (mode === 'turn-counting') {
+if (prompt.includes('[chronological-ui]')) {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  const assistant = (id, content, stop_reason = null, parent_tool_use_id) => emit({ type: 'assistant', parent_tool_use_id, message: { id, content, stop_reason } });
+  const text = (id, value) => assistant(id, [{ type: 'text', text: value }]);
+  const tool = (id, name, input, parent) => assistant(`message-${id}`, [{ type: 'tool_use', id, name, input }], null, parent);
+  const result = (id, content, is_error = false, parent_tool_use_id) => emit({ type: 'user', parent_tool_use_id, message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error }] } });
+  text('before', 'I will inspect the conversation renderer.');
+  tool('read', 'Read', { file_path: path.join(process.cwd(), 'README.md') });
+  result('read', 'Repository overview.');
+  text('after', 'The approval needs to stay reachable.');
+  tool('parallel-first', 'Bash', { command: 'first command' });
+  tool('parallel-second', 'Bash', { command: 'second command' });
+  result('parallel-second', 'Second finished first.');
+  result('parallel-first', 'First finished second.');
+  tool('child-read', 'Read', { file_path: path.join(process.cwd(), 'package.json') }, 'delegated-review');
+  result('child-read', 'Child review evidence.', false, 'delegated-review');
+  for (let i = 0; i < 18; i++) {
+    text(`progress-${i}`, `Progress ${i + 1}. **Streaming Markdown** stays readable.\n\nThe history keeps individual tool results and their observed order.`);
+    await new Promise(resolve => setTimeout(resolve, 55));
+  }
+  const command = 'printf "reviewed"\n' + '# full review line\n'.repeat(1500) + '# LAST REVIEW LINE';
+  const firstInput = prompt.includes('unavailable review') ? { command, headers: { Authorization: 'OMITTED-FIXTURE-SECRET' } } : { command };
+  tool('approve-first', 'Bash', firstInput);
+  emit({ type: 'control_request', request_id: 'ui-first', request: { subtype: 'can_use_tool', tool_name: 'Bash', tool_use_id: 'approve-first', input: firstInput } });
+  tool('approve-second', 'Bash', { command: 'false' });
+  emit({ type: 'control_request', request_id: 'ui-second', request: { subtype: 'can_use_tool', tool_name: 'Bash', tool_use_id: 'approve-second', input: { command: 'false' } } });
+  const decisions = [readJsonLine(), readJsonLine()];
+  record({ decisions });
+  result('approve-first', 'The action was denied.', true);
+  result('approve-second', 'Allowed action failed with exit 1.', true);
+  if (prompt.includes('sequential review')) {
+    await new Promise(resolve => setTimeout(resolve, 700));
+    tool('approve-third', 'Bash', { command: 'true' });
+    emit({ type: 'control_request', request_id: 'ui-third', request: { subtype: 'can_use_tool', tool_name: 'Bash', tool_use_id: 'approve-third', input: { command: 'true' } } });
+    readJsonLine();
+    result('approve-third', 'Finished.');
+  }
+  const final = 'Updated conversation.\n\n```mermaid\nflowchart LR\n  User --> Agent\n```';
+  assistant('final-ui', [{ type: 'text', text: final }], 'end_turn');
+  emit({ type: 'result', subtype: 'success', result: final, session_id: sessionId });
+}
+else if (['result-without-final-identity', 'result-without-final-identity-after-stream'].includes(mode)) {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  if (mode === 'result-without-final-identity-after-stream') {
+    emit({ type: 'stream_event', event: { type: 'message_start', message: { id: 'earlier-message' } } });
+    emit({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'end_turn' } } });
+  }
+  emit({ type: 'assistant', message: { id: 'commentary-only', content: [{ type: 'text', text: 'Repeated final text.' }] } });
+  emit({ type: 'result', subtype: 'success', result: 'Repeated final text.', session_id: sessionId });
+}
+else if (['chronological-stream', 'chronological-stream-null-snapshot'].includes(mode)) {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  const stream = event => emit({ type: 'stream_event', event });
+  stream({ type: 'message_start', message: { id: 'commentary-stream' } });
+  stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+  stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Before tool.' } });
+  stream({ type: 'content_block_stop', index: 0 });
+  stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'stream-tool', name: 'Bash', input: {} } });
+  stream({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"command":"true"}' } });
+  stream({ type: 'content_block_stop', index: 1 });
+  emit({ type: 'assistant', message: { id: 'commentary-stream', content: [{ type: 'text', text: 'Before tool.' }, { type: 'tool_use', id: 'stream-tool', name: 'Bash', input: { command: 'true' } }] } });
+  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'stream-tool', content: [{ type: 'text', text: 'Done' }, { type: 'image', source: { data: 'PRIVATE-BINARY' } }] }] } });
+  stream({ type: 'message_start', message: { id: 'final-stream' } });
+  for (const [index, text] of ['First final.', 'Second final.'].entries()) {
+    stream({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } });
+    stream({ type: 'content_block_delta', index, delta: { type: 'text_delta', text } });
+    stream({ type: 'content_block_stop', index });
+  }
+  stream({ type: 'message_delta', delta: { stop_reason: 'end_turn' } });
+  emit({ type: 'assistant', message: { id: 'final-stream', stop_reason: mode === 'chronological-stream-null-snapshot' ? null : 'end_turn', content: [{ type: 'text', text: 'First final.' }, { type: 'text', text: 'Second final.' }] } });
+  emit({ type: 'result', subtype: 'success', result: 'First final.Second final.', session_id: sessionId });
+}
+else if (mode === 'chronological') {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  const assistant = (id, content, stop_reason = null, parent_tool_use_id) => emit({ type: 'assistant', parent_tool_use_id, message: { id, content, stop_reason } });
+  assistant('commentary', [{ type: 'text', text: 'Same answer.' }]);
+  assistant('tools', [{ type: 'tool_use', id: 'read-one', name: 'Read', input: { file_path: path.join(process.cwd(), 'README.md'), headers: { Authorization: 'SECRET-HEADER' } } }]);
+  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'read-one', content: '\u001b[31mread output\u001b[0m', is_error: false }] } });
+  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'late', content: 'failed output', is_error: true }] } });
+  assistant('late-start', [{ type: 'tool_use', id: 'late', name: 'Bash', input: { command: 'false' } }]);
+  assistant('child', [{ type: 'text', text: 'Child reply.' }], 'end_turn', 'delegation');
+  assistant('final', [{ type: 'text', text: 'Same answer.' }], 'end_turn');
+  emit({ type: 'result', subtype: 'success', result: 'Same answer.', session_id: sessionId });
+}
+else if (mode === 'turn-counting') {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
   emit({ type: 'stream_event', event: { type: 'message_start', message: { id: 'assistant-1' } } });
   emit({ type: 'assistant', message: { id: 'assistant-1', content: [{ type: 'text', text: 'Thinking' }] } });
@@ -163,8 +247,10 @@ else if (streamingInput) {
   const text = decision.behavior === 'allow'
     ? 'Edit approved — I applied it.'
     : `Edit denied — continuing without it. (${decision.message})`;
-  emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text' } } });
-  emit({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
+  emit({ type: 'stream_event', event: { type: 'message_start', message: { id: 'approval-answer' } } });
+  emit({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } });
+  emit({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
+  emit({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'end_turn' } } });
   emit({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: sessionId });
   process.exit(0);
 }
@@ -184,8 +270,9 @@ else {
     : concurrencyProbe ? 12_000
       : Number(process.env.CODEAI_FAKE_TOOL_DELAY_MS || 0);
   if (toolDelay > 0) await new Promise((resolve) => setTimeout(resolve, toolDelay));
-  emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'thinking' } } });
-  emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text' } } });
+  emit({ type: 'stream_event', event: { type: 'message_start', message: { id: 'normal-answer' } } });
+  emit({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } } });
+  emit({ type: 'stream_event', event: { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } } });
   // The current request reaches the child as one JSON value, so match its `text` field rather
   // than the bracketed framing the prompt used before the historical-context encoding landed.
   const asked = (value) => prompt.includes(`"text":${JSON.stringify(value)}`);
@@ -226,9 +313,10 @@ else {
     ? readdirSync(attachmentDirectory).filter((name) => name.startsWith('image-')).sort()
     : [];
   if (imageFiles.length) text = `${text}\n\nImage files: ${imageFiles.join(', ')}.`;
-  const delta = JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
+  const delta = JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } } });
   writeOut(delta.slice(0, 17));
   await new Promise((resolve) => setTimeout(resolve, 5));
   writeOut(`${delta.slice(17)}\n`);
+  emit({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'end_turn' } } });
   emit({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: sessionId });
 }

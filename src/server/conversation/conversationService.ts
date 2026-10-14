@@ -24,6 +24,8 @@ import { nativeMessageLevel } from '@/shared/agentModes';
 import { isSoftwareModelRequest } from '@/shared/softwareModel';
 import { readModelEmission } from '@/server/model/agentEmission';
 import { repositoryModels, type RepositoryModelStore } from '@/server/model/repositoryModelStore';
+import { createTurn, updateActivity, finishTurn, type ProcessActivity, type TurnRecord } from '@/shared/turnActivity';
+import { TurnHistoryWriter } from './turnHistoryWriter';
 
 export async function publishCompletedAssistant(input: {
   runId: string;
@@ -71,6 +73,21 @@ export async function runConversation(input: {
   let inputPossiblySent = false;
   const participant = serverAgent(session, request.participantId);
   if (!participant) throw new Error('Unknown addressed agent participant');
+  const user = session.messages.find(message => message.id === request.messageId);
+  let turn: TurnRecord = { ...(user?.role === 'user' && user.turn || createTurn(runId, request.messageId, participant.id, new Date().toISOString())), lifecycle: 'running' };
+  let attemptNumber = 0;
+  let sawHistory = false;
+  const historyWriter = new TurnHistoryWriter(record => sessionStore.saveTurnActivity(session.id, record), record => {
+    if (record.sequence !== turn.sequence) return;
+    turn = record;
+    emit({ type: 'turn-activity', runId, turn });
+  });
+  const activity = (event: ProcessActivity, flush = false) => {
+    turn = updateActivity(turn, attemptNumber, event);
+    emit({ type: 'turn-activity', runId, turn });
+    historyWriter.set(turn);
+    if (flush) void historyWriter.flush();
+  };
   const host = await sessionStore.host();
   if (participant.session.started && participant.session.hostId !== host.id) {
     throw new Error(`This provider session belongs to another host (${participant.session.hostId}) and cannot be resumed here.`);
@@ -87,6 +104,7 @@ export async function runConversation(input: {
   });
 
   try {
+    historyWriter.set(turn);
     directory = await createRunDirectory(config.dataDir);
     const manifest = await writeDiagramAttachments(directory, request.diagramAttachments, {
       maxCount: config.maxDiagramAttachments,
@@ -110,6 +128,7 @@ export async function runConversation(input: {
     for (;;) {
       signal.throwIfAborted();
       const attempt = turnMode.begin();
+      attemptNumber += 1;
       mode = attempt.mode;
       await input.beforeAttempt?.(mode);
       if (attempt.signal.aborted) continue;
@@ -165,7 +184,10 @@ export async function runConversation(input: {
           effort: request.effort,
           ...instructions,
           emit(event) {
-            if (event.type === 'session-started' && event.sessionId) {
+            if (event.type === 'history' && event.activity) {
+              sawHistory = true;
+              activity(event.activity, event.activity.kind !== 'assistant' || Boolean(event.activity.complete));
+            } else if (event.type === 'session-started' && event.sessionId) {
               providerSessionId = event.sessionId;
               resuming = true;
               sessionMark = sessionMark
@@ -181,10 +203,26 @@ export async function runConversation(input: {
             } else if (event.type === 'permission-request' && event.requestId) {
               if (!pending.size) spentMs += Date.now() - workingSince;
               pending.add(event.requestId);
-              emit({ type: 'permission-request', runId, requestId: event.requestId, participantId: participant.id, tool: event.tool || 'tool', detail: event.detail || '' });
+              activity({ kind: 'approval', key: `approval:${event.requestId}`, requestId: event.requestId,
+                tool: event.tool || 'tool', summary: event.detail || '', state: 'pending', toolKey: event.toolKey, review: event.review, actor: event.actor });
+              // Flush preceding display activity before exposing a decision. A failed history write
+              // reports incomplete history but cannot disable the broker. A resolved request stays stale.
+              // A storage stall must not hide an answerable broker request indefinitely.
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              void Promise.race([historyWriter.flush(), new Promise<void>(resolve => {
+                timer = setTimeout(resolve, 1000); timer.unref?.();
+              })]).then(() => {
+                if (timer) clearTimeout(timer);
+                if (pending.has(event.requestId!)) emit({ type: 'permission-request', runId, requestId: event.requestId!, participantId: participant.id,
+                  tool: event.tool || 'tool', detail: event.detail || '', review: event.review, actor: event.actor, toolKey: event.toolKey });
+              });
             } else if (event.type === 'permission-resolved' && event.requestId && event.decision) {
               pending.delete(event.requestId);
               if (!pending.size) workingSince = Date.now();
+              const previous = turn.entries.find(entry => entry.kind === 'approval' && entry.requestId === event.requestId);
+              activity({ kind: 'approval', key: `approval:${event.requestId}`, requestId: event.requestId, tool: previous?.kind === 'approval' ? previous.tool : 'tool',
+                summary: previous?.kind === 'approval' ? previous.summary : '', state: 'resolved', decision: event.decision,
+                ...(previous?.kind === 'approval' ? { review: previous.review } : {}) }, true);
               emit({ type: 'permission-resolved', runId, requestId: event.requestId, decision: event.decision });
             } else if (event.type === 'phase' && event.phase) {
               emit({
@@ -211,6 +249,12 @@ export async function runConversation(input: {
       if (sessionMarkError) throw sessionMarkError;
       signal.throwIfAborted();
       if (!attempt.signal.aborted) break;
+      // Cleanup has ended this attempt. Its missing outcomes cannot remain live while the next
+      // namespace runs, even though the user's overall turn is still in progress.
+      turn = finishTurn(turn, 'running');
+      emit({ type: 'turn-activity', runId, turn });
+      historyWriter.set(turn);
+      void historyWriter.flush();
       continuation = true;
       emit({ type: 'status', runId, phase: 'resuming', label: `Resuming ${providerName} in ${turnMode.mode} mode` });
       // The retained attachment directory contains the original evidence and refreshed Git context.
@@ -244,6 +288,10 @@ export async function runConversation(input: {
       ...(nativeMessageLevel(mode, policy.level) ? { level: 'native' as const } : {}),
       planProposed: planProposed || undefined,
     };
+    if (!sawHistory) activity({ kind: 'gap', key: 'legacy-history', reason: 'This provider supplied summary-only activity; ordered details are unavailable.' });
+    // A history write failure is independent of the canonical answer commit.
+    await historyWriter.flush();
+    const finalTurn = finishTurn(turn, 'completed', { attempt: attemptNumber, key: result.finalBlockId, keys: result.finalBlockIds, messageId: assistantId });
     await publishCompletedAssistant({
       runId,
       sessionId: session.id,
@@ -251,9 +299,12 @@ export async function runConversation(input: {
       userMessageId: request.messageId,
       message,
       emit,
-      commit: (sessionId, participantId, userMessageId, assistantMessage) => (
-        sessionStore.completeAssistantMessage(sessionId, participantId, userMessageId, assistantMessage)
-      ),
+      commit: async (sessionId, participantId, userMessageId, assistantMessage) => {
+        const saved = await sessionStore.completeAssistantMessage(sessionId, participantId, userMessageId, assistantMessage, finalTurn);
+        turn = { ...finalTurn, history: 'saved' };
+        emit({ type: 'turn-activity', runId, turn });
+        return saved;
+      },
     });
     if (model.status === 'accepted') {
       const merged = (input.modelStore ?? repositoryModels).merge(checkout.realPath, model.emission);
@@ -264,12 +315,16 @@ export async function runConversation(input: {
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
   } catch (error) {
+    turn = finishTurn(turn, signal.aborted || error instanceof AgentRunError && error.code === 'cancelled' ? 'cancelled' : 'failed');
+    historyWriter.set(turn);
+    await historyWriter.flush();
     // A saved message spans mode attempts, including input sent before a provider acknowledged it.
     if (inputPossiblySent && error instanceof AgentRunError && error.delivery === 'not-sent') {
       throw new AgentRunError(error.code, error.message, 'possibly-sent', error.retryable);
     }
     throw error;
   } finally {
+    await historyWriter.close();
     turnMode.close();
     if (directory) await removeRunDirectory(directory).catch(() => undefined);
   }

@@ -14,6 +14,7 @@ import {
   clamp,
   dockCapacityForWidth,
   isCanvasHidden,
+  initialSessionLayout,
   parsePanelWidths,
   parseViewPanelLayouts,
   reconcilePanelLayouts,
@@ -49,7 +50,7 @@ export function useDockCapacity(shellRef: RefObject<HTMLElement | null>): { capa
   return measurement;
 }
 
-export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean, viewId?: string) {
+export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean, viewId?: string, hasCanvasContent?: boolean) {
   const { capacity: dockCapacity, width: shellWidth } = useDockCapacity(shellRef);
   const [layouts, setLayouts] = useState<Record<string, PanelLayout>>({});
   const [defaultLayout, setDefaultLayout] = useState(DEFAULT_PANEL_LAYOUT);
@@ -84,6 +85,12 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       setStorageReady(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!storageReady || !viewId || hasCanvasContent === undefined) return;
+    setLayouts((current) => current[viewId] ? current
+      : storePanelLayout(current, viewId, initialSessionLayout(undefined, defaultLayout, hasCanvasContent)));
+  }, [defaultLayout, hasCanvasContent, storageReady, viewId]);
 
   useEffect(() => {
     if (!storageReady) return;
@@ -137,9 +144,9 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       return dockCapacity === 1 && !isCanvasHidden(next, dockCapacity) ? { ...next, repositoryOpen: false } : next;
     });
   }, [dockCapacity, setLayout]);
-  const openConversationFor = useCallback((targetViewId: string) => {
+  const openConversationFor = useCallback((targetViewId: string, hasCanvasContent = false) => {
     setLayouts((current) => {
-      const prior = current[targetViewId] || defaultLayout;
+      const prior = initialSessionLayout(current[targetViewId], defaultLayout, hasCanvasContent);
       return storePanelLayout(current, targetViewId, {
         ...prior,
         lastOpened: 'dock',

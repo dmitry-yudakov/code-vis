@@ -10,8 +10,9 @@ import {
 } from '@/server/storage/sessionStore';
 import { durableSessionSchema } from '@/shared/sessionSchema';
 import {
-  getArtifacts, hydrateSession, loadSelectedCheckoutId, saveSelectedCheckoutId, serializeSessionExport,
+  getArtifacts, hydrateSession, loadSelectedCheckoutId, saveSelectedCheckoutId, serializeSessionExport, mergeTurnActivity,
 } from '@/features/conversation/sessionStore';
+import { ACTIVITY_LIMITS, createTurn, finishTurn, serializedBytes, updateActivity } from '@/shared/turnActivity';
 import type { AssistantMessage, DurableSession, UserMessage } from '@/shared/types';
 
 const LEGACY_RECORDS_DIRECTORY = ['th', 'reads'].join('');
@@ -267,7 +268,7 @@ describe('host-owned session store', () => {
       { ...versionThree, execution: null },
       { ...versionThree, version: 4 },
       { ...session, version: 4, execution: 'unknown' },
-      { ...session, version: 13, execution: 'local' },
+      { ...session, version: 14, execution: 'local' },
       { ...versionThree, version: 5 },
       { ...versionThree, version: 6 },
       { ...session, version: 4, execution: 'docker', repositories: [] },
@@ -816,6 +817,33 @@ describe('sessions written by a newer CodeAI', () => {
 });
 
 describe('browser session helpers', () => {
+  it.each(['snapshot', 'stream'] as const)('bounds newer unsaved browser activity after a %s merge without changing prior state', source => {
+    const fixture = durableFixture(crypto.randomUUID(), crypto.randomUUID());
+    fixture.version = 13;
+    fixture.annotations = {};
+    fixture.pinnedDiagramIds = [];
+    const template = fixture.messages[0] as UserMessage;
+    const prior = hydrateSession(publicSession({ ...fixture, messages: [] }));
+    const turns = Array.from({ length: 10 }, (_, index) => {
+      let turn = createTurn(crypto.randomUUID(), crypto.randomUUID(), fixture.primaryAgentId, template.createdAt);
+      for (let i = 0; i < 4; i++) turn = updateActivity(turn, 1, { kind: 'assistant', key: String(i), text: 'x'.repeat(250 * 1024), complete: true });
+      return { ...finishTurn(turn, index === 9 ? 'running' : 'failed'), history: 'unsaved' as const };
+    });
+    prior.messages = turns.map(turn => ({ ...template, id: turn.userMessageId, status: turn.lifecycle === 'running' ? 'sending' : 'failed', turn }));
+    const snapshot = publicSession({ ...fixture, messages: prior.messages.map(message => {
+      if (message.role !== 'user' || !message.turn) return message;
+      return { ...message, turn: { ...finishTurn(createTurn(message.turn.runId, message.id, fixture.primaryAgentId, template.createdAt), message.turn.lifecycle), history: 'saved' as const } };
+    }) });
+    const before = JSON.stringify(prior);
+    const active = turns.at(-1)!;
+    const hydrated = source === 'snapshot' ? hydrateSession(snapshot, prior) : mergeTurnActivity(prior, { ...active, sequence: active.sequence + 1 });
+    const bytes = hydrated.messages.reduce((sum, message) => sum + (message.role === 'user' && message.turn ? serializedBytes(message.turn) : 0), 0);
+    expect(bytes).toBeLessThanOrEqual(ACTIVITY_LIMITS.sessionBytes);
+    expect(hydrated.messages[0]).toMatchObject({ text: template.text, turn: { incomplete: true, entries: [{ kind: 'gap' }] } });
+    expect(hydrated.messages.at(-1)).toMatchObject({ turn: { lifecycle: 'running', entries: active.entries } });
+    expect(JSON.stringify(prior)).toBe(before);
+  });
+
   it('stores only the device checkout preference and never reads the legacy browser key', () => {
     const storage = new MemoryStorage();
     storage.setItem('code-ai:web2:v1:checkout-a', '{"legacy":true}');

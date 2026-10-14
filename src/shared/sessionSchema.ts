@@ -1,3 +1,5 @@
+import { turnRecordSchema } from './turnActivitySchema';
+import { ACTIVITY_LIMITS, serializedBytes, type TurnRecord } from './turnActivity';
 import { z } from 'zod';
 import { AGENT_MODES, isNativeMessage, LAUNCH_MODES } from './agentModes';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
@@ -192,6 +194,7 @@ const assistantBlockSchema = z.discriminatedUnion('kind', [
 ]);
 
 export const userMessageSchema = z.object({
+  turn: turnRecordSchema.optional(),
   id: z.string().uuid(),
   role: z.literal('user'),
   authorId: participantId,
@@ -231,7 +234,8 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 12;
+export const MAX_READABLE_SESSION_VERSION = 13;
+export const TURN_ACTIVITY_SESSION_VERSION = 13;
 export const SESSION_SETUP_VERSION = 12;
 export const WORKTREE_SESSION_VERSION = 10;
 /** Older builds must hide Docker worktrees, which format 10 permits only on Local. */
@@ -269,7 +273,7 @@ const sessionBase = {
   version: z.union([
     z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION),
     z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION), z.literal(NATIVE_MODE_SESSION_VERSION),
-    z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION), z.literal(SESSION_SETUP_VERSION),
+    z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION), z.literal(SESSION_SETUP_VERSION), z.literal(TURN_ACTIVITY_SESSION_VERSION),
   ]),
   worktree: sessionWorktreeSchema.optional(),
   execution: z.enum(['local', 'docker']).optional(),
@@ -292,7 +296,7 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
     creationReceipt?: unknown;
     worktree?: unknown;
     execution?: 'local' | 'docker';
@@ -303,7 +307,7 @@ function validateSession(
     primaryAgentId: string;
     messages: Array<{
       id: string; role: string; authorId: string; addressedParticipantId?: string;
-      reportAttachments?: unknown; imageAttachments?: unknown; fileAttachments?: unknown; mode?: string; level?: string;
+      turn?: TurnRecord; reportAttachments?: unknown; imageAttachments?: unknown; fileAttachments?: unknown; mode?: string; level?: string;
     }>;
     pinnedDiagramIds: string[];
     annotations: Record<string, { diagramId: string }>;
@@ -329,7 +333,14 @@ function validateSession(
   if (value.creationReceipt !== undefined && value.version < SESSION_SETUP_VERSION) {
     ctx.addIssue({ code: 'custom', message: 'Creation receipts require format 12.', path: ['creationReceipt'] });
   }
+  if (value.messages.reduce((bytes, message) => bytes + (message.turn ? serializedBytes(message.turn) : 0), 0) > ACTIVITY_LIMITS.sessionBytes) {
+    ctx.addIssue({ code: 'custom', message: 'Session activity exceeds byte limit.', path: ['messages'] });
+  }
   value.messages.forEach((message, index) => {
+    if (message.turn && (value.version < TURN_ACTIVITY_SESSION_VERSION || message.role !== 'user'
+      || message.turn.userMessageId !== message.id || message.turn.participantId !== message.addressedParticipantId)) {
+      ctx.addIssue({ code: 'custom', message: 'Turn activity requires format 13 and its owning user message.', path: ['messages', index, 'turn'] });
+    }
     if (message.fileAttachments !== undefined && value.version < SESSION_SETUP_VERSION) {
       ctx.addIssue({ code: 'custom', message: 'Text-file evidence requires format 12.', path: ['messages', index, 'fileAttachments'] });
     }

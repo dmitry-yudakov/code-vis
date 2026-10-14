@@ -122,7 +122,7 @@ describe.sequential('CodeAI reports as durable message evidence', () => {
     const neighbour = await sessionIn('checkout-self');
     const neighbourBytes = await readFile(sessionFile(neighbour.id), 'utf8');
     expect((await send(session, [], undefined, 'A plain first question.')).status).toBe(200);
-    expect((await store.getSession(session.id)).version).toBe(4);
+    expect((await store.getSession(session.id)).version).toBe(13);
     const before = (await store.getSession(session.id)).messages;
 
     const reportId = await capture();
@@ -130,7 +130,7 @@ describe.sequential('CodeAI reports as durable message evidence', () => {
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('"type":"assistant-message"');
     const after = await store.getSession(session.id);
-    expect(after.version).toBe(5);
+    expect(after.version).toBe(13);
     expect(after.messages.slice(0, before.length)).toEqual(before);
     expect(after.messages.find((message) => message.id === sent.messageId)).toMatchObject({
       text: 'Investigate the attached CodeAI report.',
@@ -285,6 +285,14 @@ describe.sequential('CodeAI reports as durable message evidence', () => {
     await writeFile(sessionFile(three.id), `${JSON.stringify({ ...legacy, version: 3 }, null, 2)}\n`);
     const five = await sessionIn('checkout-self');
     expect((await send(five, [await capture()])).status).toBe(200);
+    const recorded = await store.getSession(five.id);
+    // Keep an actual legacy report fixture without format 13 turn metadata.
+    const legacyFive = { ...recorded, version: 5, messages: recorded.messages.map(message => {
+      if (message.role !== 'user') return message;
+      const { turn: _turn, ...legacy } = message;
+      return legacy;
+    }) };
+    await writeFile(sessionFile(five.id), `${JSON.stringify(legacyFive, null, 2)}\n`);
     const files = await Promise.all([three, four, five].map((session) => readFile(sessionFile(session.id), 'utf8')));
     const listed = await store.listSessions();
     expect(listed.map((session) => session.version).sort()).toEqual([3, 4, 5]);
@@ -292,7 +300,7 @@ describe.sequential('CodeAI reports as durable message evidence', () => {
     expect(await Promise.all([three, four, five].map((session) => readFile(sessionFile(session.id), 'utf8')))).toEqual(files);
 
     expect((await send({ ...three, version: 3 }, [await capture()])).status).toBe(200);
-    expect(await store.getSession(three.id)).toMatchObject({ version: 5, execution: 'local' });
+    expect(await store.getSession(three.id)).toMatchObject({ version: 13, execution: 'local' });
     // A version 3 or 4 record keeps its strict message schema.
     const upgraded = await store.getSession(five.id);
     expect(durableSessionSchema.safeParse({ ...upgraded, version: 4 }).success).toBe(false);

@@ -19,6 +19,7 @@ import {
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
+import { boundSessionActivity, finishTurn, type TurnRecord } from '@/shared/turnActivity';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
@@ -38,7 +39,7 @@ const MAX_SESSIONS = 1_000;
 const MAX_PROJECTS = 1_000;
 
 function upgradeForMessage(session: DurableSession, message: ChatMessage): void {
-  const needed = message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
+  const needed = message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
     : message.role === 'user' && message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
     : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
     : message.role === 'user' && message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
@@ -107,6 +108,8 @@ interface WriterLock {
 interface MutationResult<T> {
   result: T;
   changed: boolean;
+  /** Display history has its own turn sequence and cannot invalidate a canonical edit. */
+  preserveRevision?: true;
 }
 
 /** Reads only the stable machine identity without acquiring the store's exclusive writer lock. */
@@ -735,10 +738,25 @@ export class SessionStore {
       }
       upgradeForMessage(session, message);
       session.messages.push(structuredClone(message));
+      session.messages = boundSessionActivity(session.messages, message.turn?.runId);
       if (session.messages.length === 1) session.title = message.text.trim().slice(0, 56) || 'Sketch session';
       durableSessionSchema.parse(session);
       await beforeSave?.();
       return { result: { session, appended: true }, changed: true };
+    });
+  }
+
+  /** Serialized with transcript mutations; only the newest bounded display snapshot is retained. */
+  async saveTurnActivity(id: string, turn: TurnRecord): Promise<DurableSession> {
+    return this.mutate(id, session => {
+      const message = session.messages.find(item => item.id === turn.userMessageId);
+      if (!message || message.role !== 'user' || message.addressedParticipantId !== turn.participantId
+        || message.turn && message.turn.runId !== turn.runId) throw new Error('Unknown turn owner');
+      if (message.turn && message.turn.sequence > turn.sequence) return { result: session, changed: false };
+      message.turn = { ...structuredClone(turn), history: 'saved' };
+      upgradeForMessage(session, message);
+      session.messages = boundSessionActivity(session.messages, turn.runId);
+      return { result: session, changed: true, preserveRevision: true };
     });
   }
 
@@ -754,6 +772,8 @@ export class SessionStore {
       if (message.status === status && message.delivery === delivery) return { result: session, changed: false };
       message.status = status;
       message.delivery = delivery;
+      if (message.turn) message.turn = { ...finishTurn(message.turn, status), history: 'saved' };
+      session.messages = boundSessionActivity(session.messages, message.turn?.runId);
       return { result: session, changed: true };
     });
   }
@@ -764,6 +784,7 @@ export class SessionStore {
     participantId: string,
     userMessageId: string,
     assistant: AssistantMessage,
+    finalTurn?: TurnRecord,
   ): Promise<DurableSession> {
     return this.mutate(id, (session) => {
       const prior = session.messages.find((message) => message.id === assistant.id);
@@ -778,10 +799,19 @@ export class SessionStore {
         throw new Error('Unknown addressed user message');
       }
       user.status = 'sent';
+      if (finalTurn) {
+        if (finalTurn.userMessageId !== user.id || finalTurn.participantId !== participantId || user.turn && user.turn.runId !== finalTurn.runId) throw new Error('Unknown final turn owner');
+        user.turn = { ...structuredClone(finalTurn), history: 'saved' };
+        upgradeForMessage(session, user);
+      }
+      if (user.turn && user.turn.lifecycle !== 'completed') {
+        user.turn = { ...finishTurn(user.turn, 'completed'), history: 'saved', incomplete: true };
+      }
       delete user.delivery;
       upgradeForMessage(session, assistant);
       session.messages.push(structuredClone(assistant));
       participant.lastObservedMessageId = assistant.id;
+      session.messages = boundSessionActivity(session.messages, user.turn?.runId);
       return { result: session, changed: true };
     });
   }
@@ -1106,7 +1136,7 @@ export class SessionStore {
       const session = await this.getSession(id);
       const outcome = await operation(session);
       if (outcome.changed) {
-        session.revision += 1;
+        if (!outcome.preserveRevision) session.revision += 1;
         session.updatedAt = this.now().toISOString();
         await this.writeSession(session);
       }
@@ -1260,6 +1290,18 @@ export class SessionStore {
     await chmod(this.archivedSessionsDirectory, 0o700);
     await chmod(this.projectsDirectory, 0o700);
     await this.finishInterruptedSessionTransitions();
+    // A process restart has no live provider/permission owner. Keep evidence, never resume work.
+    for (const name of await this.sessionFileNames(this.sessionsDirectory)) {
+      const session = await this.readSessionFile(path.join(this.sessionsDirectory, name)).catch(skipNewerFormat);
+      if (!session) continue;
+      let changed = false;
+      for (const message of session.messages) {
+        if (message.role !== 'user' || !message.turn || !['queued', 'running'].includes(message.turn.lifecycle)) continue;
+        message.turn = { ...finishTurn(message.turn, 'interrupted'), history: 'saved' };
+        message.status = 'failed'; message.delivery = 'possibly-sent'; changed = true;
+      }
+      if (changed) { session.revision += 1; session.messages = boundSessionActivity(session.messages); await this.writeSession(session); }
+    }
   }
 
   private async finishInterruptedSessionTransitions(): Promise<void> {

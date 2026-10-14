@@ -24,7 +24,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-13. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-14. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -214,6 +214,13 @@ Updated 2026-10-13. When a story ships, change the line that names it; each stor
   be dismissed, Docker/provider updates and global-instructions defaults live under the gear's
   Machine settings, and new-session instructions live under Advanced settings. Focused offline
   checks, TypeScript, production build, browser checks and screenshot/diff review pass.
+- **Shipped:** [Story 107](stories/STORY-20261013-chronological-chat.md) — durable chronological
+  chat activity, approvals above the composer, accepted-draft clearing, safe delivery reconciliation,
+  stable scrolling, and compact conversation controls. Format 13 preserves bounded tool history;
+  all 1,539 offline tests, TypeScript, isolated production build, 157 desktop/immersive browser cases,
+  real Claude/Codex read probes, screenshot review, and repeated independent reviews pass. Real
+  provider approval actions, signed-in Docker turns, production attached transport, and physical
+  Quest were not rerun; the running app has not been restarted.
 - **Shipped:** [Story 106](stories/STORY-20261013-mui-desktop-ui.md) — ordinary desktop controls
   and panels use compact MUI components with one shared light/dark/system theme. All 1,457 offline
   tests, TypeScript, isolated production build, 141 desktop browser checks, available spatial/XR

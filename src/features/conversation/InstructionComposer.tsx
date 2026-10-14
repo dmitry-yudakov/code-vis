@@ -124,11 +124,11 @@ function ModePicker({ mode, execution, unsupportedModes, disabled, onChange, lev
   );
 }
 
-function AttachMenu({ canvases, attachedIds, theme, disabled, onToggle, onOpenHistory, onNewSketch, onOpenReports, onChooseFiles }: {
+function AttachMenu({ canvases, attachedIds, theme, sketchDisabled, onToggle, onOpenHistory, onNewSketch, onOpenReports, onChooseFiles }: {
   canvases: RecentCanvas[];
   attachedIds: string[];
   theme: ThemeName;
-  disabled: boolean;
+  sketchDisabled: boolean;
   onToggle(id: string): void;
   onOpenHistory(): void;
   onNewSketch(): void;
@@ -136,7 +136,7 @@ function AttachMenu({ canvases, attachedIds, theme, disabled, onToggle, onOpenHi
   onChooseFiles?(): void;
 }) {
   return (
-    <ComposerMenu className="attach-menu" label="Attach" disabled={disabled} summary={<Icon name="plus" />}>
+    <ComposerMenu className="attach-menu" label="Attach" summary={<Icon name="plus" />}>
       {(close) => (<>
         <span className="composer-menu-heading">This session</span>
         {!canvases.length && <p>No diagrams or sketches yet.</p>}
@@ -162,6 +162,7 @@ function AttachMenu({ canvases, attachedIds, theme, disabled, onToggle, onOpenHi
           {onChooseFiles && <MenuItem role="menuitem" label="Files or screenshot…" onClick={() => { onChooseFiles(); close(); }} />}
           <span role="separator" />
           <MenuItem role="menuitem" label="New sketch" detail="Draw, then send the drawing as the instruction" lead={<Icon name="pen" />}
+            disabled={sketchDisabled}
             onClick={() => { onNewSketch(); close(); }} />
           {onOpenReports && (
             <MenuItem role="menuitem" label="Headset report…" detail="CodeAI's own project" lead={<Icon name="report" />}
@@ -345,7 +346,7 @@ export function InstructionComposer({
   const [dropTarget, setDropTarget] = useState(false);
   // A drawing, a report, or an image is an instruction in itself, so such a turn does not need typed text.
   const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0 || files.length > 0;
-  const takesDrop = Boolean(onAddImages) && !running;
+  const takesDrop = Boolean(onAddImages);
   // A dragged file is always taken here: left to the browser, a drop would replace the page with the file.
   const dragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!carriesFiles(event.dataTransfer)) return;
@@ -394,7 +395,7 @@ export function InstructionComposer({
           {files.map((file, index) => <AttachmentChip key={`file-${index}`} removeLabel={`Remove file ${file.name}`} onRemove={() => onRemoveFile?.(index)}><span>{file.name}</span></AttachmentChip>)}
           {images.map((image, index) => <AttachmentChip className="image" key={image.id} removeLabel={`Remove image ${index + 1}`} onRemove={() => onRemoveImage?.(image.id)}>
             <Button type="button" variant="text" className="image-open" aria-label={`Open image ${index + 1} on canvas`}
-              title="Open on canvas to draw" disabled={running} onClick={() => onOpenImage?.(image.id)}>
+              title="Open on canvas to draw" onClick={() => onOpenImage?.(image.id)}>
               <img src={image.dataUrl} alt="" />
               <span>{`Image ${index + 1} · ${pendingImageDetail(image)}${image.marks?.length ? ` · ${image.marks.length} ${image.marks.length === 1 ? 'mark' : 'marks'}` : ''}`}</span>
             </Button>
@@ -404,7 +405,6 @@ export function InstructionComposer({
       <TextField fullWidth
         multiline inputRef={ref}
         value={value}
-        disabled={running}
         rows={1}
         slotProps={{ htmlInput: { maxLength: 8_000, 'aria-label': 'Instruction' }, input: { inputComponent: 'textarea' } }}
         placeholder={attached.some((canvas) => canvas.kind === 'sketch')
@@ -427,7 +427,7 @@ export function InstructionComposer({
           canvases={recentCanvases}
           attachedIds={attached.map(canvasTargetId)}
           theme={theme}
-          disabled={running}
+          sketchDisabled={running}
           onToggle={onToggleAttachment}
           onOpenHistory={onOpenHistory}
           onNewSketch={onNewSketch}

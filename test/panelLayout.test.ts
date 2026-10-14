@@ -7,6 +7,7 @@ import {
   MAX_VIEW_PANEL_LAYOUTS,
   dockCapacityForWidth,
   isCanvasHidden,
+  initialSessionLayout,
   parsePanelWidths,
   parseViewPanelLayouts,
   reconcilePanelLayouts,
@@ -23,6 +24,18 @@ function viewId(index: number): string {
 }
 
 describe('panel layout geometry', () => {
+  it('initializes empty sessions with full conversation without changing saved layouts', () => {
+    const empty = initialSessionLayout(undefined, DEFAULT_PANEL_LAYOUT, false);
+    expect(empty).toMatchObject({ conversationOpen: true, canvasOpen: false });
+    expect(isCanvasHidden(empty, 2)).toBe(true);
+    expect(isCanvasHidden(empty, 1)).toBe(true);
+    expect(isCanvasHidden(empty, 0)).toBe(false);
+    expect(isCanvasHidden({ ...empty, focusMode: true }, 2)).toBe(false);
+    expect(initialSessionLayout(DEFAULT_PANEL_LAYOUT, DEFAULT_PANEL_LAYOUT, false)).toBe(DEFAULT_PANEL_LAYOUT);
+    expect(initialSessionLayout(undefined, DEFAULT_PANEL_LAYOUT, true)).toMatchObject({ canvasOpen: true });
+    // Receiving the first diagram cannot overwrite an initialized session preference.
+    expect(initialSessionLayout(empty, DEFAULT_PANEL_LAYOUT, true)).toBe(empty);
+  });
   it('derives both docking thresholds from the column minimums and the activity bar', () => {
     expect(dockCapacityForWidth(687)).toBe(0);
     expect(dockCapacityForWidth(688)).toBe(1);

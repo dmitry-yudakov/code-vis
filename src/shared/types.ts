@@ -134,7 +134,7 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
   /** Server-only receipt; never included in public sessions. */
   creationReceipt?: { requestId: string; fingerprint: string };
   worktree?: SessionWorktree;
@@ -448,6 +448,7 @@ export type SecurityLevel = 'guarded' | 'native';
 export type AgentMode = 'ask' | 'plan' | 'agent' | 'edits' | 'auto' | 'full';
 
 export interface UserMessage {
+  turn?: import('./turnActivity').TurnRecord;
   id: string;
   role: 'user';
   authorId: string;
@@ -492,7 +493,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
   worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
@@ -582,13 +583,14 @@ export type AgentErrorCode =
 export type PermissionResolution = 'allow' | 'deny' | 'timeout' | 'cancelled';
 
 export type AgentEvent =
+  | { type: 'turn-activity'; runId: string; turn: import('./turnActivity').TurnRecord }
   | { type: 'run-started'; runId: string; sessionId: string; messageId: string; participantId: string }
   | { type: 'mode-changed'; runId: string; mode: AgentMode }
   | { type: 'status'; runId: string; phase: AgentPhase; label: string }
   | { type: 'tool-activity'; runId: string; tool: string; detail?: string; denied?: boolean }
   | { type: 'assistant-delta'; runId: string; delta: string }
   | { type: 'assistant-message'; runId: string; message: AssistantMessage }
-  | { type: 'permission-request'; runId: string; requestId: string; participantId: string; tool: string; detail: string }
+  | { type: 'permission-request'; runId: string; requestId: string; participantId: string; tool: string; detail: string; review?: import('./turnActivity').ApprovalReview; actor?: import('./turnActivity').ActivityActor; toolKey?: string }
   | { type: 'permission-resolved'; runId: string; requestId: string; decision: PermissionResolution }
   | {
       type: 'error';
@@ -731,7 +733,11 @@ export interface PermissionGate {
 }
 
 export interface AgentProcessEvent {
-  type: 'session-started' | 'turn-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved';
+  type: 'session-started' | 'turn-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved' | 'history';
+  activity?: import('./turnActivity').ProcessActivity;
+  review?: import('./turnActivity').ApprovalReview;
+  actor?: import('./turnActivity').ActivityActor;
+  toolKey?: string;
   sessionId?: string;
   text?: string;
   tool?: string;
@@ -771,6 +777,8 @@ export interface AgentProcessRun {
 }
 
 export interface AgentProcessResult {
+  finalBlockId?: string;
+  finalBlockIds?: string[];
   finalText: string;
   sessionId: string;
   durationMs: number;

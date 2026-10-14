@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, SessionSnapshot } from '@/shared/types';
 import { immersiveChatLines } from '@/features/diagram/spatial/immersiveTranscript';
 import { buildConversationHistory } from '@/features/shell/immersive/conversationHistoryModel';
+import { createTurn, updateActivity } from '@/shared/turnActivity';
+import { applyRunEvent, type RunPresentation } from '@/features/conversation/runPresentation';
 import { probeImmersiveCapability } from '@/features/diagram/spatial/immersiveCapability';
 import {
   MAX_IMMERSIVE_TEXTURE_PIXELS,
@@ -76,6 +78,19 @@ function session(messageCount = 28): SessionSnapshot {
 }
 
 describe('immersive transcript content', () => {
+  it('keeps its established transcript and live preview when desktop turn history is present', () => {
+    const fixture = session(2);
+    const first = fixture.messages[0];
+    if (first.role !== 'user') throw new Error('Missing user');
+    const baseline = buildConversationHistory(fixture, 'Still working').entries.map(item => item.entry);
+    first.turn = updateActivity(createTurn('run', first.id, agentId, first.createdAt), 1,
+      { kind: 'tool', key: 'read', tool: 'Read', status: 'succeeded', output: 'Desktop history details' });
+    let presentation: RunPresentation = { runId: 'run', sessionId: fixture.id, participantId: agentId, mode: 'ask', state: 'running', status: '', preview: '', toolActivity: [], permissions: [], runFailed: false };
+    presentation = applyRunEvent(presentation, { type: 'turn-activity', runId: 'run', turn: first.turn });
+    presentation = applyRunEvent(presentation, { type: 'assistant-delta', runId: 'run', delta: 'Still working' });
+    expect(buildConversationHistory(fixture, presentation.preview).entries.map(item => item.entry)).toEqual(baseline);
+  });
+
   it('preserves long identifiers, whitespace, and Unicode across the complete bubble history', () => {
     const fixture = session(1);
     const first = fixture.messages[0];

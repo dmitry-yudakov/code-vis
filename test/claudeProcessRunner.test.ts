@@ -9,6 +9,7 @@ import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
 import type { AgentMode, AgentProcessEvent } from '@/shared/types';
+import { createTurn, updateActivity } from '@/shared/turnActivity';
 
 const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
@@ -59,6 +60,58 @@ describe.sequential('ClaudeProcessRunner', () => {
     });
     return { result, events, sessionId: id, invocation: JSON.parse(await readFile(path.join(directory, 'fake-invocation.json'), 'utf8')) };
   }
+
+  it('retains tool identities/results and root final identity without private provider fields', async () => {
+    process.env.CODEAI_FAKE_MODE = 'chronological';
+    const { events, result } = await run();
+    const history = events.flatMap(event => event.type === 'history' && event.activity ? [event.activity] : []);
+    const tools = history.filter(entry => entry.kind === 'tool');
+    expect(tools.some(entry => entry.status === 'succeeded' && entry.output === 'read output')).toBe(true);
+    expect(tools.some(entry => entry.status === 'failed' && entry.output === 'failed output')).toBe(true);
+    expect(new Set(tools.map(entry => entry.key)).size).toBe(2);
+    const text = history.filter(entry => entry.kind === 'assistant');
+    expect(text.find(entry => entry.key === result.finalBlockId)).toMatchObject({ text: 'Same answer.', complete: true });
+    expect(text.filter(entry => entry.text === 'Same answer.')).toHaveLength(2);
+    expect(text.find(entry => entry.text === 'Child reply.')?.actor?.parentToolId).toBe('delegation');
+    expect(JSON.stringify(history)).not.toContain('SECRET-HEADER');
+    expect(JSON.stringify(history)).not.toContain('\\u001b');
+  });
+
+  it.each(['chronological-stream', 'chronological-stream-null-snapshot'])('reconciles %s boundaries and multiple final blocks without exposing tool JSON or image bytes', async mode => {
+    process.env.CODEAI_FAKE_MODE = mode;
+    const { events, result } = await run();
+    const history = events.flatMap(event => event.type === 'history' && event.activity ? [event.activity] : []);
+    const turn = history.reduce((record, activity) => updateActivity(record, 0, activity), createTurn('run', 'message', 'claude', new Date().toISOString()));
+    expect(turn.entries.filter(entry => entry.kind === 'assistant').map(entry => entry.text)).toEqual(['Before tool.', 'First final.', 'Second final.']);
+    expect(turn.entries.filter(entry => entry.kind === 'tool')).toHaveLength(1);
+    expect(turn.entries.find(entry => entry.kind === 'tool')).toMatchObject({ tool: 'Bash', status: 'succeeded', output: 'Done\n[Image result omitted]' });
+    expect(result.finalBlockIds).toHaveLength(2);
+    expect(result.finalBlockIds).not.toContain(history[0].key);
+    expect(JSON.stringify(history)).not.toContain('PRIVATE-BINARY');
+  });
+
+  it.each(['result-without-final-identity', 'result-without-final-identity-after-stream'])('does not relabel commentary as a canonical result for %s', async mode => {
+    process.env.CODEAI_FAKE_MODE = mode;
+    const { events, result } = await run();
+    expect(events.some(event => event.type === 'history' && event.activity?.kind === 'assistant' && event.activity.text === result.finalText)).toBe(true);
+    expect(result.finalBlockId).toBeUndefined();
+    expect(result.finalBlockIds).toBeUndefined();
+  });
+
+  it('provides complete proposed edit review independently of its summary', async () => {
+    const permissions = new PermissionBroker(0);
+    let request: AgentProcessEvent | undefined;
+    await run({ mode: 'agent', permissions, onEvent(event) {
+      if (event.type === 'permission-request' && event.requestId) {
+        request = event;
+        queueMicrotask(() => permissions.decide(event.requestId!, 'allow'));
+      }
+    } });
+    expect(request?.review).toMatchObject({ completeness: 'complete' });
+    expect(request?.review?.text).toContain('old_string');
+    expect(request?.review?.text).toContain('new_string');
+    expect(request?.detail).toBe('README.md');
+  });
 
   it('uses a session id first and resume later without transcript replay', async () => {
     const first = await run({ action: 'start' });
@@ -312,7 +365,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     it('lets an allowed edit proceed and a denied edit continue the turn', async () => {
       const allowBroker = new PermissionBroker(5_000);
       const allowed = await run({ mode: 'agent', permissions: allowBroker, onEvent: autoDecide(allowBroker, 'allow') });
-      expect(allowed.events.filter((event) => event.type === 'permission-request')).toEqual([
+      expect(allowed.events.filter((event) => event.type === 'permission-request')).toMatchObject([
         { type: 'permission-request', requestId: expect.any(String), tool: 'Edit', detail: 'README.md' },
       ]);
       expect(allowed.events.filter((event) => event.type === 'permission-resolved').map((event) => event.decision)).toEqual(['allow']);

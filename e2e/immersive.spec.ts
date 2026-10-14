@@ -459,10 +459,10 @@ test.describe('VR conversation input', () => {
     });
     await conversationAction(page, 'add');
     await expect.poll(() => additions).toBe(1);
-    await expect(page.getByRole('button', { name: '@Reviewer Reviewer', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Session agents', exact: true })).toContainText('@Reviewer');
     await conversationAction(page, 'make-primary'); await expect.poll(() => changes).toBe(1);
     await conversationAction(page, 'previous-agent');
-    await expect(page.getByRole('button', { name: '@Claude Coder', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Session agents', exact: true })).toContainText('@Claude');
     for (let cycle = 0; cycle < 5; cycle++) {
       for (const action of ['read', 'compose', 'agents']) {
         await conversationAction(page, action);
@@ -874,7 +874,8 @@ for (const location of ['Arena', 'Inbox', 'Flat', 'Spatial', 'Empty'] as const) 
     if (location === 'Empty') {
       await page.getByRole('link', { name: 'Arena', exact: true }).click();
       await page.getByRole('button', { name: 'Open Empty remote session', exact: true }).click();
-      await expect(page.locator('.empty-canvas')).toBeVisible();
+      await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Canvas', exact: true })).toHaveAttribute('aria-pressed', 'false');
     }
     await expect(page.locator('.app-loading')).toHaveCount(0);
     // The loading placeholder can disappear before the catalog's initial view is persisted.
@@ -1275,7 +1276,10 @@ test('archives the open session from Session tools after a confirmation and brin
   });
   let releaseStream!: () => void;
   const stream = new Promise<void>((resolve) => { releaseStream = resolve; });
-  await page.route('**/api/agent/stream?*', async (route) => { await stream; await route.fulfill({ contentType: 'application/x-ndjson', body: '' }); });
+  await page.route('**/api/agent/stream?*', async (route) => {
+    await stream;
+    await route.fulfill({ contentType: 'application/x-ndjson', headers: { 'X-CodeAI-Run-Finished': 'true' }, body: '' });
+  });
   const archives: unknown[] = [];
   await page.route(`**/api/sessions/${SESSION}/archive`, async (route) => {
     archives.push(route.request().postDataJSON());
@@ -1330,6 +1334,64 @@ test('archives the open session from Session tools after a confirmation and brin
   await expect(panel(page, 'arena')).toHaveAttribute('data-open', 'true');
   arenaHold = undefined; releaseArena();
   expect(await page.evaluate(() => window.xrFixture.entries)).toBe(1);
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
+for (const surface of ['session', 'conversation'] as const) test(`disconnected turns retain ${surface} Cancel and reconcile through VR Refresh`, async ({ page }) => {
+  await installAdapter(page);
+  await workspaceFixture(page, true);
+  const runId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const run = { runId, sessionId: SESSION, participantId: AGENT, state: 'running', enqueuedAt: 1,
+    pendingPermissionCount: 0, pendingPermissions: [] };
+  let live = true;
+  let discoveryReads = 0;
+  await page.route('**/api/agent/runs*', route => {
+    discoveryReads++;
+    return route.fulfill({ json: { active: live ? [run] : [], recent: [] } });
+  });
+  let disconnect!: () => void;
+  const stream = new Promise<void>(resolve => { disconnect = resolve; });
+  await page.route('**/api/agent/stream?*', async route => {
+    await stream;
+    await route.fulfill({ contentType: 'application/x-ndjson', body: '' });
+  });
+  const cancellations: string[] = [];
+  await page.route('**/api/agent/cancel', route => {
+    cancellations.push(route.request().postDataJSON().runId);
+    return route.fulfill({ json: { ok: true } });
+  });
+  const enabled = (action: string) => page.evaluate(action => {
+    let enabled: boolean | undefined;
+    window.xrScene?.scene.traverse(object => {
+      if (object.userData.immersiveAction === action) enabled = !object.userData.disabled;
+    });
+    return enabled;
+  }, action);
+  await page.goto('/'); await enter(page); await sessionAction(page, 'tools');
+  await expect.poll(() => enabled('session:cancel')).toBe(true);
+  disconnect();
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
+  await expect(page.locator('.conversation-drawer .inline-status')).toContainText('Reconnecting to the accepted turn');
+  await expect.poll(() => enabled('session:cancel')).toBe(true);
+  if (surface === 'conversation') {
+    await sessionAction(page, 'tools');
+    await conversationAction(page, 'compose');
+  }
+  await expect.poll(() => enabled(`${surface}:cancel`)).toBe(true);
+  if (surface === 'session') await sessionAction(page, 'cancel');
+  else await conversationAction(page, 'cancel');
+  await expect.poll(() => cancellations).toEqual([runId]);
+  if (surface === 'conversation') await sessionAction(page, 'tools');
+  const readsBeforeRefresh = discoveryReads;
+  await sessionAction(page, 'refresh');
+  await expect.poll(() => discoveryReads).toBeGreaterThan(readsBeforeRefresh);
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
+  await expect(page.locator('.conversation-drawer .inline-status')).toContainText('Reconnecting to the accepted turn');
+  await expect.poll(() => enabled('session:cancel')).toBe(true);
+  live = false;
+  await sessionAction(page, 'refresh');
+  await expect.poll(() => enabled('session:archive')).toBe(true);
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
@@ -2244,7 +2306,8 @@ test('compares canvases, writes canonical controller marks, and sends the marked
   await page.route('**/api/agent/message', (route) => {
     messageRequests += 1;
     sent = route.request().postDataJSON();
-    return route.fulfill({ status: 503, json: { error: 'Injected send failure after capture.' } });
+    // A settled validation rejection permits the next local export attempt; a 5xx is ambiguous.
+    return route.fulfill({ status: 400, json: { error: 'Injected send rejection after capture.' } });
   });
   await conversationAction(page, 'send');
   await expect.poll(() => sent?.diagramAttachments.length).toBe(1);
@@ -2507,7 +2570,7 @@ test('VR session tools create a repository-free session, attach a checkout, and 
     const input = page.locator('[data-immersive-message-input]');
     await input.fill(`VR real ${decision} turn`);
     await conversationAction(page, 'send');
-    await expect.poll(() => page.locator('.permission-card').count()).toBe(1);
+    await expect(page.getByRole('region', { name: 'Pending approvals', exact: true })).toHaveCount(1);
     await sessionAction(page, 'tools'); await sessionAction(page, 'permissions');
     await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('README.md');
     await showPanel(page, 'conversation'); await page.screenshot({ path: `test-results/vr-permission-${decision}.png` }); await hideProjection(page);

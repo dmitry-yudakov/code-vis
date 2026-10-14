@@ -16,6 +16,8 @@ import {
 import { frameGlobalInstructions } from './globalInstructions';
 import { codexThreadId, CodexSubagentThreads } from './codexSubagentThreads';
 import { captureDescendantProcesses, ProcessCaptureError, readProcessIdentity, stopDescendantProcesses } from './processDescendants';
+import { displayIdentity, displayResult, displayText } from './providerDisplay';
+import { reviewPayload, type ApprovalReview, type ActivityActor, type ToolStatus } from '@/shared/turnActivity';
 
 interface RunnerOptions {
   transport?: ProcessTransport;
@@ -109,11 +111,14 @@ function changedPaths(item: JsonRecord, repositoryRoot: string): string[] {
   const inside: string[] = [];
   const outside: string[] = [];
   for (const change of item.changes) {
-    const target = record(change)?.path;
-    if (typeof target !== 'string') continue;
-    const relative = relativeWithin(repositoryRoot, target);
-    if (relative) inside.push(relative);
-    else outside.push(target.startsWith(`${os.homedir()}${path.sep}`) ? `~${target.slice(os.homedir().length)}` : target);
+    const changed = record(change);
+    const kind = record(changed?.kind);
+    for (const target of [changed?.path, kind?.type === 'update' ? kind.move_path : undefined]) {
+      if (typeof target !== 'string') continue;
+      const relative = relativeWithin(repositoryRoot, target);
+      if (relative) inside.push(relative);
+      else outside.push(target.startsWith(`${os.homedir()}${path.sep}`) ? `~${target.slice(os.homedir().length)}` : target);
+    }
   }
   return [...outside, ...inside];
 }
@@ -179,6 +184,26 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const emittedItems = new Set<string>();
       const itemDetails = new Map<string, string>();
       const itemPhases = new Map<string, string>();
+      const fileReviews = new Map<string, ApprovalReview>();
+      const rememberDisplay = <T>(map: Map<string, T>, key: string, value: T, limit = 1000) => {
+        if (map.size >= limit && !map.has(key)) map.delete(map.keys().next().value!);
+        map.set(key, value);
+      };
+      const captureFileReview = (id: string, item: JsonRecord) => {
+        const changes = Array.isArray(item.changes) ? item.changes.map(value => record(value)).filter((value): value is JsonRecord => Boolean(value)) : [];
+        let incomplete = !Array.isArray(item.changes) || changes.length !== item.changes.length || changes.length === 0;
+        const diff = changes.map(change => {
+          const kind = record(change.kind);
+          const validKind = kind && (kind.type === 'add' || kind.type === 'delete'
+            || kind.type === 'update' && (kind.move_path === null || typeof kind.move_path === 'string'));
+          if (!validKind || typeof change.path !== 'string' || typeof change.diff !== 'string'
+            || Object.keys(kind || {}).some(key => key !== 'type' && !(kind?.type === 'update' && key === 'move_path'))) incomplete = true;
+          return `${validKind ? kind.type : '[operation unavailable]'} ${typeof change.path === 'string' ? change.path : '[path unavailable]'}${kind?.type === 'update' && typeof kind.move_path === 'string' ? `\nMove to: ${kind.move_path}` : ''}\n${typeof change.diff === 'string' ? change.diff : '[diff unavailable]'}`;
+        }).join('\n\n');
+        rememberDisplay(fileReviews, id, reviewPayload(diff,
+          incomplete ? 'The provider did not supply the complete proposed edit and operation.' : undefined), 16);
+        return diff;
+      };
       const interruptions = new Map<string, Promise<unknown>>();
       const discoveries = new Map<string, Promise<unknown>>();
       const deferredCapabilities = new Set<string>();
@@ -195,6 +220,8 @@ export class CodexProcessRunner implements AgentProcessRunner {
       let shutdownKillSent = false;
       let finalText = '';
       let assistantFallback = '';
+      let finalBlockId: string | undefined;
+      let fallbackBlockId: string | undefined;
       let usage: AgentProcessResult['usage'];
       let settled = false;
       let fatalError: unknown;
@@ -220,12 +247,13 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const callbacks = new Set<string>();
       const approvals = new Map<string, {
         threadId: string; turnId: string; requestId: string;
+        itemId: string;
         published: boolean;
         cancel(sendResponse?: boolean): void;
         publish(): void;
       }>();
       const callbackKey = (id: RpcId) => `${typeof id}:${id}`;
-      const itemKey = (thread: string, turn: unknown, item: string) => JSON.stringify([thread, turn, item]);
+      const itemKey = (thread: string, turn: unknown, item: string) => displayIdentity([thread, turn, item]);
       const live = () => !settled && !termination && !fatalError && !turnCompleted && stdinOpen;
       const reconcileApprovals = () => {
         for (const approval of [...approvals.values()]) {
@@ -454,32 +482,62 @@ export class CodexProcessRunner implements AgentProcessRunner {
       const emitItem = (item: JsonRecord, completed: boolean, thread = sessionId, itemTurn: unknown = turnId, childTurn = false) => {
         const id = itemKey(thread, itemTurn, String(item.id));
         const type = String(item.type);
+        const actor: ActivityActor = { provider: 'codex', threadId: thread, ...(childTurn ? { name: `Subagent ${subagents?.label(thread) || thread}` } : {}) };
         // A child report belongs to its parent provider workflow, never to CodeAI's final answer.
         if (childTurn && ['reasoning', 'agentMessage', 'plan'].includes(type)) return;
         if (type === 'reasoning') input.emit({ type: 'phase', phase: 'thinking' });
         if (type === 'agentMessage') {
-          const phase = typeof item.phase === 'string' ? item.phase : itemPhases.get(id);
-          if (phase) itemPhases.set(id, phase);
+          const phase = item.phase === 'commentary' || item.phase === 'final_answer' ? item.phase : itemPhases.get(id);
+          if (phase) rememberDisplay(itemPhases, id, phase);
+          if (typeof item.text === 'string' || !completed) input.emit({ type: 'history', activity: {
+            kind: 'assistant', key: id, actor, text: typeof item.text === 'string' ? item.text : '', complete: completed,
+            ...(phase === 'final_answer' ? { phase: 'final' } : phase === 'commentary' ? { phase: 'commentary' } : {}),
+          } });
           input.emit({ type: 'phase', phase: 'responding' });
           if (completed && typeof item.text === 'string') {
-            if (phase === 'final_answer') finalText = item.text;
-            else assistantFallback = item.text;
+            if (phase === 'final_answer') { finalText = item.text; finalBlockId = id; }
+            else { assistantFallback = item.text; fallbackBlockId = id; }
           }
           return;
         }
-        if (type === 'plan' && completed && typeof item.text === 'string') assistantFallback = item.text;
+        if (type === 'plan' && completed && typeof item.text === 'string') {
+          assistantFallback = item.text; fallbackBlockId = id;
+          input.emit({ type: 'history', activity: { kind: 'assistant', key: id, actor, text: item.text, complete: true } });
+        }
+        const status: ToolStatus = item.status === 'failed' || item.success === false || (typeof item.exitCode === 'number' && item.exitCode !== 0) ? 'failed'
+          : ['declined', 'denied'].includes(String(item.status)) ? 'denied'
+          : ['cancelled', 'interrupted'].includes(String(item.status)) ? 'cancelled'
+          : item.status === 'completed' || item.success === true ? 'succeeded' : completed ? 'unknown' : 'running';
+        const emitTool = (tool: string, fields: { summary?: string; input?: string; output?: string; diff?: string } = {}, omittedBytes = 0) => {
+          const safeFields = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined).map(([key, value]) => {
+            const display = displayText(withoutRunPaths(value!, input.checkout.realPath, input.attachmentDirectory));
+            omittedBytes += display.omittedBytes;
+            return [key, display.text];
+          }));
+          input.emit({ type: 'history', activity: { kind: 'tool', key: id, actor, tool, status, ...safeFields, omittedBytes,
+            ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}),
+            ...(typeof item.durationMs === 'number' && item.durationMs >= 0 ? { durationMs: item.durationMs } : {}),
+            ...(status === 'failed' ? { error: typeof safeFields.output === 'string' && safeFields.output ? displayText(safeFields.output).text : 'The provider reported that this tool failed.' } : {}),
+          } });
+        };
         if (type === 'commandExecution') {
           const detail = typeof item.command === 'string'
             ? sanitizeRunDetail(item.command, input.checkout.realPath, input.attachmentDirectory)
             : undefined;
-          if (detail) itemDetails.set(id, detail);
+          if (detail) rememberDisplay(itemDetails, id, detail);
+          emitTool('Shell', { summary: detail, input: typeof item.command === 'string' ? item.command : undefined,
+            output: typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : undefined });
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Shell', detail });
         } else if (type === 'fileChange') {
           const paths = changedPaths(item, input.checkout.realPath);
           // An approval card lists many more paths than an activity line has room for.
-          if (paths.length) itemDetails.set(id, listPaths(paths, 12));
+          if (paths.length) rememberDisplay(itemDetails, id, displayText(listPaths(paths, 12)).text);
+          const diff = captureFileReview(id, item);
+          emitTool('Edit', { summary: paths.length ? sanitizeDetail(listPaths(paths, 4)) : undefined, diff });
+          for (const approval of approvals.values()) if (approval.published && approval.itemId === id) approval.publish();
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Edit', detail: paths.length ? sanitizeDetail(listPaths(paths, 4)) : undefined });
         } else if (type === 'imageView') {
+          emitTool('View image', { output: '[Image content omitted]' });
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'View image' });
         } else if (type === 'subAgentActivity' || type === 'collabAgentToolCall') {
           if (type === 'subAgentActivity' && typeof item.agentThreadId === 'string') {
@@ -491,11 +549,18 @@ export class CodexProcessRunner implements AgentProcessRunner {
             }
           }
           const detail = type === 'subAgentActivity' ? item.kind : item.tool;
+          emitTool('Subagent', { summary: typeof detail === 'string' ? detail : undefined });
           if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: 'Subagent', detail: typeof detail === 'string' ? sanitizeDetail(detail) : undefined });
         } else if (['mcpToolCall', 'dynamicToolCall', 'webSearch', 'hookPrompt'].includes(type)) {
           if (input.policy.level === 'native') {
             const labels: Record<string, string> = { mcpToolCall: 'MCP', dynamicToolCall: 'Dynamic tool', webSearch: 'Web search', hookPrompt: 'Hook' };
             const detail = [item.server, item.tool, item.query].filter((value): value is string => typeof value === 'string').join(' · ');
+            const result = record(item.result);
+            const content = type === 'dynamicToolCall' && Array.isArray(item.contentItems)
+              ? item.contentItems.map(value => { const part = record(value); return part?.type === 'inputText' ? { type: 'text', text: part.text } : { type: 'binary' }; })
+              : result?.content;
+            const output = displayResult(content);
+            emitTool(labels[type], { summary: detail, input: '[Unsupported provider arguments omitted]', output: output.text }, output.omittedBytes);
             if (!emittedItems.has(id)) input.emit({ type: 'activity', tool: labels[type], detail: detail ? sanitizeRunDetail(detail, input.checkout.realPath, input.attachmentDirectory) : undefined });
           } else {
             stopWith(new AgentRunError(
@@ -505,7 +570,14 @@ export class CodexProcessRunner implements AgentProcessRunner {
               false,
             ));
           }
+        } else if (type === 'functionCallOutput') {
+          const output = typeof item.output === 'string' ? item.output : Array.isArray(item.output)
+            ? item.output.map(value => { const part = record(value); return part?.type === 'input_text' ? { type: 'text', text: part.text } : { type: 'binary' }; }) : undefined;
+          const projected = displayResult(output);
+          input.emit({ type: 'history', activity: { kind: 'tool', key: id, actor, tool: typeof item.name === 'string' ? item.name : 'Tool',
+            output: projected.text, omittedBytes: projected.omittedBytes, status: 'unknown' } });
         }
+        if (emittedItems.size >= 1000) emittedItems.delete(emittedItems.values().next().value!);
         emittedItems.add(id);
       };
 
@@ -573,7 +645,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           if (published) input.emit({ type: 'permission-resolved', requestId, decision: resolution });
           if (published && !pendingPermissions) startTimeoutClock();
         };
-        approvals.set(key, { threadId: thread, turnId: requestedTurn, requestId, published: false, publish: () => publish(), cancel(send = true) {
+        approvals.set(key, { threadId: thread, turnId: requestedTurn, requestId, itemId, published: false, publish: () => publish(), cancel(send = true) {
           sendResponse = send;
           if (published && input.permissions) input.permissions.cancel(requestId);
           else settle('cancelled');
@@ -587,13 +659,31 @@ export class CodexProcessRunner implements AgentProcessRunner {
             try { respondUnsupported(rpcId); } catch { /* Provider closed during discovery. */ }
             return;
           }
-          published = true;
-          approvals.get(key)!.published = true;
-          pendingPermissions += 1;
-          pauseTimeoutClock();
-          if (input.permissions) input.permissions.request(requestId, settle);
-          else settle('deny');
-          if (!answered) input.emit({ type: 'permission-request', requestId, tool, detail: detail() });
+          if (!published) {
+            published = true;
+            approvals.get(key)!.published = true;
+            pendingPermissions += 1;
+            pauseTimeoutClock();
+            if (input.permissions) input.permissions.request(requestId, settle);
+            else settle('deny');
+          }
+          let review = isCommand
+            ? reviewPayload([
+              params?.kind === 'writeStdin' ? `Input to a running command:\n${command}` : `Command:\n${command}`,
+              typeof params?.cwd === 'string' ? `Working directory: ${params.cwd}` : '',
+              typeof params?.environmentId === 'string' ? `Environment: ${params.environmentId}` : '',
+              typeof networkHost === 'string' ? `Network access: ${networkHost} (${String(record(params?.networkApprovalContext)?.protocol || 'protocol not supplied')})` : '',
+              reason ? `Reason given: ${reason}` : '',
+            ].filter(Boolean).join('\n\n'),
+            params?.additionalPermissions ? 'This request includes additional permission scope that cannot be completely reviewed here.'
+              : params?.kind && !['command', 'writeStdin'].includes(String(params.kind)) ? 'This approval action is not supported for complete review.'
+              : command ? undefined : 'The provider did not supply the complete command.')
+            : fileReviews.get(itemId) || { completeness: 'unavailable' as const, reason: 'The provider did not supply the complete proposed edit.' };
+          if (!isCommand && review.completeness === 'complete' && typeof params?.grantRoot === 'string') {
+            review = reviewPayload(`${review.text}\n\nRequested write scope: ${params.grantRoot}`);
+          }
+          if (!answered) input.emit({ type: 'permission-request', requestId, tool, detail: detail(), review, toolKey: itemId,
+            actor: { provider: 'codex', threadId: thread, ...(isChild ? { name: `Subagent ${subagents!.label(thread)}` } : {}) } });
         };
         if (!isChild || subagents!.belongs(thread)) publish();
         else void subagents!.verify(thread).then(publish).catch(() => publish());
@@ -643,11 +733,14 @@ export class CodexProcessRunner implements AgentProcessRunner {
           }
           // Keep file preview data scoped to its observed live turn while ancestry is being read.
           // This grants no capability and is never shown until the descendant has been verified.
-          if ((method === 'item/started' || method === 'item/completed') && subagents.liveTurn(thread, params?.turnId)) {
-            const item = threadItem(params?.item);
+          if (['item/started', 'item/completed', 'item/fileChange/patchUpdated'].includes(method) && subagents.liveTurn(thread, params?.turnId)) {
+            const item = threadItem(method === 'item/fileChange/patchUpdated'
+              ? { id: params?.itemId, type: 'fileChange', changes: params?.changes, status: 'inProgress' } : params?.item);
             if (item?.type === 'fileChange') {
               const paths = changedPaths(item, input.checkout.realPath);
-              if (paths.length) itemDetails.set(itemKey(thread, params?.turnId, item.id as string), listPaths(paths, 12));
+              const key = itemKey(thread, params?.turnId, item.id as string);
+              if (paths.length) rememberDisplay(itemDetails, key, displayText(listPaths(paths, 12)).text);
+              captureFileReview(key, item);
             }
           }
           if (!subagents.belongs(thread)) {
@@ -675,9 +768,15 @@ export class CodexProcessRunner implements AgentProcessRunner {
             input.emit({ type: 'activity', tool: 'Subagent', detail: sanitizeRunDetail(
               `Subagent ${subagents.label(thread)} failed: ${typeof error?.message === 'string' ? error.message : 'provider error'}`,
               input.checkout.realPath, input.attachmentDirectory) });
-          } else if ((method === 'item/started' || method === 'item/completed') && subagents.active(thread, params?.turnId)) {
-            const item = threadItem(params?.item);
+          } else if (['item/started', 'item/completed', 'item/fileChange/patchUpdated'].includes(method) && subagents.active(thread, params?.turnId)) {
+            const item = threadItem(method === 'item/fileChange/patchUpdated'
+              ? { id: params?.itemId, type: 'fileChange', changes: params?.changes, status: 'inProgress' } : params?.item);
             if (item) emitItem(item, method === 'item/completed', thread, params?.turnId, true);
+          } else if (method === 'item/commandExecution/outputDelta' && subagents.active(thread, params?.turnId) && typeof params?.delta === 'string') {
+            const output = displayText(params.delta);
+            input.emit({ type: 'history', activity: { kind: 'tool', key: itemKey(thread, params.turnId, typeof params.itemId === 'string' ? params.itemId : 'unidentified-command'),
+              actor: { provider: 'codex', threadId: thread, name: `Subagent ${subagents.label(thread)}` }, tool: 'Shell', status: 'running',
+              output: output.text, appendOutput: true, omittedBytes: output.omittedBytes } });
           }
           return;
         }
@@ -690,6 +789,11 @@ export class CodexProcessRunner implements AgentProcessRunner {
               emitItem(item, method === 'item/completed', sessionId, params?.turnId);
             }
           }
+          return;
+        }
+        if (method === 'item/fileChange/patchUpdated' && thread === sessionId && params?.turnId === turnId) {
+          const item = threadItem({ id: params?.itemId, type: 'fileChange', changes: params?.changes, status: 'inProgress' });
+          if (item) emitItem(item, false, sessionId, params?.turnId);
           return;
         }
         if (input.policy.level === 'native' && method.startsWith('item/autoApprovalReview/')) {
@@ -706,6 +810,16 @@ export class CodexProcessRunner implements AgentProcessRunner {
         }
         if (method === 'item/agentMessage/delta' && typeof params?.delta === 'string') {
           input.emit({ type: 'text-delta', text: params.delta });
+          const id = itemKey(sessionId, params.turnId, typeof params.itemId === 'string' ? params.itemId : 'unidentified-text');
+          const phase = itemPhases.get(id);
+          input.emit({ type: 'history', activity: { kind: 'assistant', key: id, actor: { provider: 'codex', threadId: sessionId }, text: params.delta, append: true,
+            ...(phase === 'final_answer' ? { phase: 'final' } : phase === 'commentary' ? { phase: 'commentary' } : {}) } });
+          return;
+        }
+        if (method === 'item/commandExecution/outputDelta' && typeof params?.delta === 'string') {
+          const output = displayText(params.delta);
+          input.emit({ type: 'history', activity: { kind: 'tool', key: itemKey(sessionId, params.turnId, typeof params.itemId === 'string' ? params.itemId : 'unidentified-command'),
+            actor: { provider: 'codex', threadId: sessionId }, tool: 'Shell', status: 'running', output: output.text, appendOutput: true, omittedBytes: output.omittedBytes } });
           return;
         }
         if (method.startsWith('item/reasoning/')) {
@@ -907,7 +1021,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           finish(() => reject(classifyCodexFailure(stderr || 'Codex App Server closed early', input.session.action, turnRequestSent ? 'possibly-sent' : 'not-sent')));
           return;
         }
-        finalText ||= assistantFallback;
+        if (!finalText) { finalText = assistantFallback; finalBlockId = fallbackBlockId; }
         if (!finalText.trim()) {
           finish(() => reject(new AgentRunError('absent-result', 'Codex finished without an assistant response.')));
           return;
@@ -918,6 +1032,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
         }
         finish(() => resolve({
           finalText,
+          ...(finalBlockId ? { finalBlockId } : {}),
           sessionId,
           durationMs: Date.now() - startedAt,
           outputBytes: Buffer.byteLength(finalText),

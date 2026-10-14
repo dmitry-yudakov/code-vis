@@ -18,6 +18,9 @@ vi.mock('@/server/machines/machineRegistry', () => ({
 }));
 
 import { proxyMachineRequest } from '@/server/machines/machineGateway';
+import { createTurn, updateActivity } from '@/shared/turnActivity';
+import { readNdjson } from '@/features/conversation/ndjson';
+import type { AgentEvent } from '@/shared/types';
 
 describe('machine API gateway', () => {
   beforeEach(() => vi.stubGlobal('fetch', fetchMock));
@@ -40,6 +43,25 @@ describe('machine API gateway', () => {
     expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${CREDENTIAL}`);
     expect(new Headers(init.headers).get('cookie')).toBeNull();
     expect(new Headers(init.headers).get('origin')).toBeNull();
+  });
+
+  it('round-trips executing-machine turn identities, Unicode tool results and full approval reviews', async () => {
+    const runId = crypto.randomUUID();
+    const turn = updateActivity(createTurn(runId, crypto.randomUUID(), 'remote-agent', new Date().toISOString()), 2,
+      { kind: 'tool', key: 'remote-thread:tool', tool: 'Read', status: 'succeeded', output: 'Remote result 🌍', actor: { provider: 'codex', threadId: 'remote-thread' } });
+    const source: AgentEvent[] = [
+      { type: 'turn-activity', runId, turn },
+      { type: 'permission-request', runId, requestId: crypto.randomUUID(), participantId: 'remote-agent', tool: 'Run', detail: 'pwd', review: { completeness: 'complete', text: 'pwd' }, toolKey: 'remote-thread:next-tool' },
+    ];
+    fetchMock.mockResolvedValue(new Response(source.map(event => JSON.stringify(event)).join('\n') + '\n', {
+      headers: { 'Content-Type': 'application/x-ndjson', 'X-CodeAI-Run-Id': runId, 'X-CodeAI-Replay-Events': '2' },
+    }));
+    const response = await proxyMachineRequest(REMOTE_ID, ['agent', 'stream'], new Request(`https://home.test/api/agent/stream?runId=${runId}`));
+    const received: AgentEvent[] = [];
+    for await (const event of readNdjson<AgentEvent>(response)) received.push(event);
+    expect(received).toEqual(source);
+    expect(response.headers.get('X-CodeAI-Run-Id')).toBe(runId);
+    expect(response.headers.get('X-CodeAI-Replay-Events')).toBe('2');
   });
 
   it('denies arbitrary/auth paths and bounds request bodies before network work', async () => {

@@ -309,7 +309,7 @@ describe.sequential('images as part of a message', () => {
     await response.text();
     await vi.waitFor(() => expect(runRegistry.currentRuns).toEqual([]));
     const saved = await store.getSession(session.id);
-    expect(saved.version).toBe(12);
+    expect(saved.version).toBe(13);
     const message = saved.messages.find((item) => item.id === messageId) as UserMessage;
     expect(message.fileAttachments?.[0]).toMatchObject({ ...file, bytes: Buffer.byteLength(file.text) });
     const run = routeState.runs.at(-1)!;
@@ -327,14 +327,14 @@ describe.sequential('images as part of a message', () => {
     const neighbourBytes = await readFile(sessionFile(neighbour.id), 'utf8');
     expect((await send(session, undefined, undefined, 'A plain first question.')).status).toBe(200);
     expect((await send(session, [], undefined, 'A second plain question.')).status).toBe(200);
-    expect((await store.getSession(session.id)).version).toBe(4);
+    expect((await store.getSession(session.id)).version).toBe(13);
     expect(routeState.runs.at(-1)!.files).not.toContain('image-attachments.json');
 
     const sent = await send(session, [png(), jpeg()]);
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('"type":"assistant-message"');
     const after = await store.getSession(session.id);
-    expect(after.version).toBe(IMAGE_ATTACHMENT_SESSION_VERSION);
+    expect(after.version).toBe(13);
     expect(after.messages.find((message) => message.id === sent.messageId)).toMatchObject({
       text: 'What is wrong here?',
       imageAttachments: [{ mediaType: 'image/png', bytes: PNG.length }, { mediaType: 'image/jpeg', bytes: JPEG.length }],

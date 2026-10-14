@@ -247,7 +247,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .canvas-titleblock { position: absolute; z-index: 7; left: 12px; bottom: 12px; display: flex; align-items: baseline; gap: 9px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--floating-backdrop); box-shadow: var(--shadow); }
 .canvas-titleblock strong { font: 650 12.5px/1.2 var(--sans); letter-spacing: -.01em; }
 .canvas-titleblock span { color: var(--muted); font: 10px/1.2 var(--mono); }
-.inline-status { display: flex; align-items: center; gap: 7px; padding-left: 4px; color: var(--muted); font-size: 10px; }
+.inline-status { display: flex; align-items: center; gap: 7px; padding-left: 4px; color: var(--ink-2); font-size: 10px; }
 .inline-status > span { width: 6px; height: 6px; border-radius: 50%; background: var(--live); }
 .inline-status.working > span { background: var(--live); }
 
@@ -753,3 +753,35 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 
 .desktop-more-content p { margin: 0; display: grid; gap: 3px; color: var(--muted); }
 .desktop-more-content p strong { color: var(--ink); }
+
+/* Chronological conversation: fixed decisions, restrained history, bounded detail surfaces. */
+.conversation-approvals { min-width: 0; display: grid; gap: 4px; }
+.approval-heading, .approval-actions { display: flex; align-items: center; gap: 6px; }
+.approval-heading strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.approval-heading span, .conversation-approvals small { font-size: 11px; }
+.approval-heading button { min-width: 28px; padding: 2px; }
+.approval-summary { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 12px/1.4 var(--mono); }
+.approval-actions { justify-content: flex-end; flex-wrap: wrap; }
+.approval-review-content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); }
+.conversation-scroll .chat-message { border: 0; border-radius: 6px; padding: 10px 8px; }
+.conversation-scroll .chat-message.assistant { margin-right: 0; background: transparent; }
+.conversation-scroll .chat-message.user { margin-left: 0; }
+.activity-tool { min-width: 0; margin: 4px 0; }
+.activity-tool .MuiAccordion-root { background: transparent; }
+.tool-summary { display: flex; min-width: 0; width: 100%; align-items: baseline; gap: 10px; }
+.tool-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.5 var(--mono); }
+.tool-summary small { flex-shrink: 0; margin-left: auto; font-size: 11px; }
+.activity-tool pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); }
+.activity-tool p { margin: 4px 0; font-size: 12px; }
+.activity-tool small, .history-state, .activity-gap { color: var(--muted); font-size: 11px; }
+.activity-approval { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.tool-error { color: var(--stop-ink, var(--ink)); overflow-wrap: anywhere; }
+.turn-activity { margin-bottom: 10px; }
+.turn-checkpoint { margin-bottom: 12px; padding: 4px 8px !important; }
+.participant-menu { display: grid; gap: 8px; }
+.participant-menu .participant-row { display: grid; }
+.jump-latest { justify-self: center; }
+.activity-tool .MuiAccordionSummary-content { min-width: 0; }
+.activity-tool .MuiAccordionSummary-root { min-width: 0; width: 100%; }
+.tool-summary { flex: 1; overflow: hidden; }
+.turn-checkpoint { border: 0; background: transparent; }

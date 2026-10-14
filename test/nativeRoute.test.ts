@@ -64,25 +64,30 @@ describe.sequential('Native messages and route boundaries', () => {
     expect(saved.version).toBe(9);
     expect(saved.messages.at(-1)?.level).toBe('native');
   });
-  it.each(['agent', 'auto', 'edits', 'full'] as const)('records %s at format 9, with a level only where needed, and never downgrades', async (mode) => {
+  it.each(['agent', 'auto', 'edits', 'full'] as const)('records %s with chronological history and a level only where needed, and never downgrades', async (mode) => {
     const current = await session();
     expect((await send(current, mode)).status).toBe(200);
     const saved = await store.getSession(current.id);
-    expect(saved.version).toBe(9);
+    expect(saved.version).toBe(13);
     expect(saved.messages.map((message) => [message.role, message.mode, message.level])).toEqual([
       ['user', mode, mode === 'agent' || mode === 'auto' ? 'native' : undefined],
       ['assistant', mode, mode === 'agent' || mode === 'auto' ? 'native' : undefined],
     ]);
     expect(durableSessionSchema.safeParse(saved).success).toBe(true);
-    expect(durableSessionSchema.safeParse({ ...saved, version: 8 }).success).toBe(false);
+    const legacyMessages = saved.messages.map(message => {
+      if (message.role !== 'user') return message;
+      const { turn: _turn, ...legacy } = message;
+      return legacy;
+    });
+    expect(durableSessionSchema.safeParse({ ...saved, version: 8, messages: legacyMessages }).success).toBe(false);
     const assistantOnly = { ...saved, version: 8, messages: saved.messages.filter((message) => message.role === 'assistant') };
     expect(durableSessionSchema.safeParse(assistantOnly).success).toBe(false);
     expect((await send(current, 'ask')).status).toBe(200);
-    expect((await store.getSession(current.id)).version).toBe(9);
+    expect((await store.getSession(current.id)).version).toBe(13);
   });
-  it('keeps ordinary read-only sessions at their old version and refuses a client-supplied level', async () => {
+  it('records read-only turn history and refuses a client-supplied level', async () => {
     const current = await session(); expect((await send(current, 'ask')).status).toBe(200);
-    expect((await store.getSession(current.id)).version).toBe(4);
+    expect((await store.getSession(current.id)).version).toBe(13);
     expect((await send(current, 'full', { level: 'native' })).status).toBe(400);
     expect((await send(current, 'turbo')).status).toBe(400);
   });

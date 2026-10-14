@@ -142,19 +142,19 @@ describe.sequential('Auto mode on the message route and in session records', () 
     expect(routeState.runs.map((run) => run.mode)).toEqual(['agent']);
   });
 
-  it('upgrades a session to version 6 with its first Auto message, and only that session', async () => {
+  it('keeps chronological history format for Auto messages without upgrading neighbouring sessions', async () => {
     const session = await sessionFor('codex');
     const neighbour = await sessionFor('codex');
     const neighbourBytes = await readFile(sessionFile(neighbour.id), 'utf8');
     expect((await send(session, 'ask', 'A plain first question.')).status).toBe(200);
     expect((await send(session, 'agent')).status).toBe(200);
-    expect((await store.getSession(session.id)).version).toBe(4);
+    expect((await store.getSession(session.id)).version).toBe(13);
 
     const sent = await send(session, 'auto');
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('"type":"assistant-message"');
     const after = await store.getSession(session.id);
-    expect(after.version).toBe(AUTO_MODE_SESSION_VERSION);
+    expect(after.version).toBe(13);
     expect(after.messages.slice(-2).map((message) => [message.role, message.mode])).toEqual([['user', 'auto'], ['assistant', 'auto']]);
     expect(routeState.runs.map((run) => [run.mode, run.profile])).toEqual([
       ['ask', 'ask-readonly'], ['agent', 'agent-full'], ['auto', 'auto-sandboxed'],
@@ -166,7 +166,7 @@ describe.sequential('Auto mode on the message route and in session records', () 
 
     // A later message in another mode keeps the session readable by this version only.
     expect((await send(session, 'ask', 'And a follow-up.')).status).toBe(200);
-    expect((await store.getSession(session.id)).version).toBe(6);
+    expect((await store.getSession(session.id)).version).toBe(13);
   });
 
   it('never lowers a version: a report on a version 6 session keeps 6, and older sessions upgrade in one step', async () => {
@@ -196,7 +196,13 @@ describe.sequential('Auto mode on the message route and in session records', () 
   it('accepts Auto messages only at version 6, report evidence from version 5, and no Auto role default', async () => {
     const session = await sessionFor('codex');
     await send(session, 'auto');
-    const six = await store.getSession(session.id);
+    const saved = await store.getSession(session.id);
+    // Exercise the original mode schema independently from format 13 turn history.
+    const six = { ...saved, version: 6, messages: saved.messages.map(item => {
+      if (item.role !== 'user') return item;
+      const { turn: _turn, ...legacy } = item;
+      return legacy;
+    }) };
     expect(AUTO_MODE_SESSION_VERSION).toBe(6);
     expect(MAX_READABLE_SESSION_VERSION).toBeGreaterThanOrEqual(AUTO_MODE_SESSION_VERSION);
     expect(durableSessionSchema.safeParse(six).success).toBe(true);

@@ -47,6 +47,10 @@ feature has shipped. The order is priority, not a new dependency chain.
 
 ## Additional work
 
+- [Story 107 — Chronological chat and reachable approvals](../stories/STORY-20261013-chronological-chat.md)
+  is shipped with accepted-send clearing, persistent ordered tool activity, reachable approvals, and
+  conversation layout/readability improvements. Verification is recorded in the story; no queue
+  priority was changed.
 - [Story 106 — MUI desktop controls and panels](../stories/STORY-20261013-mui-desktop-ui.md)
   is shipped across all four stages with one shared theme, preserved workflow/layout contracts,
   84 reviewed visual baselines, full offline and desktop browser checks, available spatial/XR checks,
