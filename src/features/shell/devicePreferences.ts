@@ -1,7 +1,7 @@
 import type {
   AgentExecution, AgentMode, AgentParticipant, AgentProvider, GlobalInstructionsChoice, ModelSelection, ProviderHealth,
 } from '@/shared/types';
-import { LAUNCH_MODES, isAgentMode, isLaunchMode, type LaunchMode } from '@/shared/agentModes';
+import { SESSION_LAUNCH_MODES, isAgentMode, isLaunchMode, type SessionLaunchMode } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { parseModelSelection, type DeviceViewState } from './workspaceViews';
 
@@ -50,18 +50,19 @@ export function serializeDevicePreferences(preferences: DevicePreferences): stri
   return JSON.stringify({ version: 1, ...preferences });
 }
 
-/** The modes a New session form may offer: what the provider supports, never the extra writing modes. */
-export function launchModes(supportedModes: readonly AgentMode[] | undefined): LaunchMode[] {
-  return LAUNCH_MODES.filter((mode) => supportedModes?.includes(mode));
+/** The modes a New session form may offer for this provider and execution. */
+export function launchModes(supportedModes: readonly AgentMode[] | undefined, execution: AgentExecution = 'local'): SessionLaunchMode[] {
+  return SESSION_LAUNCH_MODES.filter((mode) => supportedModes?.includes(mode) && (mode !== 'auto' || execution === 'local'));
 }
 
 /**
  * The mode of a session without its own: this device's last mode, or Ask. Docker Agent edits without
- * individual approvals, so a Docker session never inherits Agent; it has to be chosen there. Auto
- * edits without individual approvals too, so no session inherits it: it is chosen in the session.
+ * individual approvals, so a Docker session never inherits Agent; it has to be chosen there.
+ * Auto is inherited only for Local execution; readiness still controls whether it can be used.
  */
-export function inheritedMode(lastMode: AgentMode | undefined, execution: AgentExecution | undefined): LaunchMode {
-  return !lastMode || !isLaunchMode(lastMode) || (lastMode === 'agent' && execution === 'docker') ? 'ask' : lastMode;
+export function inheritedMode(lastMode: AgentMode | undefined, execution: AgentExecution | undefined): SessionLaunchMode {
+  const mode = lastMode && (isLaunchMode(lastMode) || lastMode === 'auto') ? lastMode : 'ask';
+  return execution === 'docker' && (mode === 'agent' || mode === 'auto') ? 'ask' : mode;
 }
 
 /** The agent's own choice on this device, or else the last choice made here for its provider. */
@@ -101,11 +102,11 @@ export function namedLaunchInstructions(
   return launchInstructions(choice, execution, provider) === choice ? choice ?? 'default' : undefined;
 }
 
-type LaunchChoice = { provider: AgentProvider; mode: LaunchMode };
+type LaunchChoice = { provider: AgentProvider; mode: SessionLaunchMode };
 
 /**
  * Where a New session form opens: this device's last provider and mode when the machine can run
- * them, else what the form already shows. A last extra writing mode opens the form at Ask.
+ * them, else what the form already shows. Accept edits and Full access open the form at Ask.
  */
 export function launchChoice(
   preferences: Pick<DevicePreferences, 'provider' | 'mode'>,

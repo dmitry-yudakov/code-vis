@@ -48,7 +48,7 @@ export function useSessionLauncher(options: LauncherOptions) {
   const providers = draft?.settings.execution === 'docker' && machine?.machine.kind === 'local'
     ? options.executions?.docker.providers : machine?.machine.kind === 'local' ? options.executions?.local.providers ?? machine.providers : machine?.providers;
   const health = draft && providers?.[draft.settings.provider];
-  const modes = launchModes(health?.supportedModes);
+  const modes = launchModes(health?.supportedModes, draft?.settings.execution);
   const checkoutChoice = worktreeChoice({ execution: draft?.settings.execution, project: selectedProject,
     checkoutId: draft?.settings.checkoutId, checkouts: machine?.checkouts ?? [], hostId: machine?.machine.id, capability: machine?.worktrees });
   const reports = useImmersiveReports(state.open && draft && draft.settings.machineId === options.localMachineId ? draft.settings.projectId : undefined);
@@ -139,7 +139,7 @@ export function useSessionLauncher(options: LauncherOptions) {
     if (update.machineId || update.provider || update.execution) {
       const fallback = Object.entries(nextHealth ?? {}).find(([, value]) => value.available)?.[0] as LaunchSettings['provider'] | undefined;
       if (!nextHealth?.[settings.provider]?.available) settings.provider = fallback ?? 'claude';
-      const supported = launchModes(nextHealth?.[settings.provider]?.supportedModes);
+      const supported = launchModes(nextHealth?.[settings.provider]?.supportedModes, settings.execution);
       if (!supported.includes(settings.mode)) settings.mode = supported[0] ?? 'ask';
       settings.modelSelection = offeredModelSelection(props.current.preferences.models?.[settings.provider], nextHealth?.[settings.provider]);
     }

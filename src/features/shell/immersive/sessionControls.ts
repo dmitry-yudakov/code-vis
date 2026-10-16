@@ -1,5 +1,5 @@
 import type { PendingPermission } from '@/features/agents/toolActivity';
-import type { LaunchMode } from '@/shared/agentModes';
+import type { SessionLaunchMode } from '@/shared/agentModes';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import type { AgentMode, AgentProvider, ArenaMachineSnapshot, CheckoutSummary } from '@/shared/types';
 import type { TurnCheckpointControls } from '@/features/conversation/useTurnCheckpoint';
@@ -42,7 +42,7 @@ export interface SessionCreation {
   machineId: string;
   projectId?: string;
   provider: AgentProvider;
-  mode: LaunchMode;
+  mode: SessionLaunchMode;
 }
 
 /**

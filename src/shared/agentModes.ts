@@ -4,14 +4,17 @@ import type { AgentExecution, AgentMode, SecurityLevel } from './types';
 export const AGENT_MODES = ['ask', 'plan', 'agent', 'edits', 'auto', 'full'] as const satisfies readonly AgentMode[];
 
 /**
- * The modes a new session or a role default may use. Extra writing modes are chosen inside a
- * session, where the checkout is in view, and are never carried into another one.
+ * The modes a role default may use, also offered before provider readiness is known.
  */
 export const LAUNCH_MODES = ['ask', 'plan', 'agent'] as const satisfies readonly AgentMode[];
 export type LaunchMode = (typeof LAUNCH_MODES)[number];
 export function isLaunchMode(mode: AgentMode): mode is LaunchMode {
   return (LAUNCH_MODES as readonly AgentMode[]).includes(mode);
 }
+
+/** New Local sessions may also use Auto when the provider advertises it. */
+export const SESSION_LAUNCH_MODES = [...LAUNCH_MODES, 'auto'] as const satisfies readonly AgentMode[];
+export type SessionLaunchMode = (typeof SESSION_LAUNCH_MODES)[number];
 
 export function isAgentMode(value: unknown): value is AgentMode {
   return (AGENT_MODES as readonly unknown[]).includes(value);

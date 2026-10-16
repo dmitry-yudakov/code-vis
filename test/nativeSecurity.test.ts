@@ -110,10 +110,12 @@ describe('Native modes in the conversation', () => {
       expect(entry.meta).toBe(`Assistant · ${label}`);
     }
   });
-  it('orders six modes, keeps writing exclusive, and never inherits extra modes into a new session', () => {
+  it('orders six modes, keeps writing exclusive, and inherits only Auto among the extra modes', () => {
     expect(AGENT_MODES).toEqual(['ask', 'plan', 'agent', 'edits', 'auto', 'full']);
     for (const mode of ['agent', 'edits', 'auto', 'full'] as const) expect(changesCheckout(mode)).toBe(true);
-    for (const mode of ['edits', 'auto', 'full'] as const) expect(inheritedMode(mode, 'local')).toBe('ask');
+    for (const mode of ['edits', 'full'] as const) expect(inheritedMode(mode, 'local')).toBe('ask');
+    expect(inheritedMode('auto', 'local')).toBe('auto');
+    expect(inheritedMode('auto', 'docker')).toBe('ask');
     expect(unsupportedModes(undefined)).toEqual(['edits', 'auto', 'full']);
     expect(unsupportedModes(AGENT_MODES, 'docker')).toEqual(['edits', 'auto', 'full']);
   });

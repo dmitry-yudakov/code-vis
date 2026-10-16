@@ -24,6 +24,7 @@ import { pastedImageFiles } from '@/features/conversation/imageAttachments';
 import { launchInstructions } from '@/features/shell/devicePreferences';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { PROVIDER_LABELS } from '@/shared/participants';
+import { SESSION_LAUNCH_MODES, type SessionLaunchMode } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { launchText } from './sessionLaunch';
 import type { SessionLauncher } from './useSessionLauncher';
@@ -117,8 +118,8 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
         <label><span>Provider</span><NativeSelect inputProps={{ 'aria-label': "Provider" }} value={settings.provider} disabled={locked} onChange={(event) => launcher.setSettings({ provider: event.target.value as 'claude' | 'codex' })}>
           {(['claude', 'codex'] as const).map((provider) => <option key={provider} value={provider} disabled={!launcher.providers?.[provider]?.available}>{PROVIDER_LABELS[provider]}</option>)}
         </NativeSelect></label>
-        <label><span>Mode</span><NativeSelect inputProps={{ 'aria-label': "Mode" }} value={settings.mode} disabled={launcher.turnSettingsLocked} onChange={(event) => launcher.setSettings({ mode: event.target.value as 'ask' | 'plan' | 'agent' })}>
-          {(['ask', 'plan', 'agent'] as const).map((mode) => <option key={mode} value={mode} disabled={!launcher.modes.includes(mode)}>{AGENT_MODE_LABELS[mode]}</option>)}
+        <label><span>Mode</span><NativeSelect inputProps={{ 'aria-label': "Mode" }} value={settings.mode} disabled={launcher.turnSettingsLocked} onChange={(event) => launcher.setSettings({ mode: event.target.value as SessionLaunchMode })}>
+          {SESSION_LAUNCH_MODES.filter((mode) => mode !== 'auto' || launcher.modes.includes(mode)).map((mode) => <option key={mode} value={mode} disabled={!launcher.modes.includes(mode)}>{AGENT_MODE_LABELS[mode]}</option>)}
         </NativeSelect></label>
         <ModelMenu choices={launcher.health} selection={settings.modelSelection} disabled={launcher.turnSettingsLocked} onChange={(modelSelection) => launcher.setSettings({ modelSelection })} />
         </div>

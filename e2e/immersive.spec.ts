@@ -2723,6 +2723,32 @@ test('VR launcher captures the selected remote project and mode and preserves ch
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
+test('VR setup restores Auto and offers it alongside Ask, Plan, and Agent', async ({ page }) => {
+  await installAdapter(page);
+  const fixture = await workspaceFixture(page, true);
+  const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
+  home.providers.claude.supportedModes = ['ask', 'plan', 'agent', 'auto'];
+  await page.route('**/api/health', (route) => route.fulfill({ json: {
+    ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true,
+    securityLevel: 'guarded', providers: home.providers,
+  } }));
+  await page.route('**/api/arena', (route) => route.fulfill({ json: { machines: [home] } }));
+  await page.addInitScript(() => localStorage.setItem('code-ai:device:v1:preferences', JSON.stringify({ version: 1, mode: 'auto' })));
+  await page.goto('/'); await enter(page);
+  await controls(page).locator('[data-immersive-action="arena:new"]').click();
+  await setupAction(page, 'settings'); await setupAction(page, 'agents');
+  await expect.poll(() => setupDetails(page)).toContain('Mode: auto');
+  for (const mode of ['ask', 'plan', 'agent', 'auto']) {
+    await setupAction(page, 'mode');
+    await expect.poll(() => setupDetails(page)).toContain(`Mode: ${mode}`);
+  }
+  await setupAction(page, 'clear');
+  await sessionAction(page, 'tools'); await sessionAction(page, 'launcher');
+  await setupAction(page, 'settings'); await setupAction(page, 'agents');
+  await expect.poll(() => setupDetails(page)).toContain('Mode: auto');
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
+});
+
 test('VR launcher opens at this device\'s last mode', async ({ page }) => {
   await installAdapter(page); await workspaceFixture(page, true);
   await page.addInitScript(() => localStorage.setItem('code-ai:device:v1:preferences', JSON.stringify({ version: 1, mode: 'plan' })));

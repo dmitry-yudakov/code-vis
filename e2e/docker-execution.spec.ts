@@ -303,12 +303,14 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   await page.getByRole('radiogroup', { name: 'Agent mode' }).getByRole('radio', { name: 'Agent', exact: true }).click();
   await expect(modePicker).toHaveText('Agent');
   await choose('Opus', 'High');
-  await conversation.locator('.add-agent-menu > button').click();
+  const agents = conversation.getByRole('button', { name: 'Session agents', exact: true });
+  await agents.click();
   await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
-  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add participant' }).click();
-  await expect(conversation.locator('.participant-chip.active')).toContainText('Claude Reviewer');
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
+  await expect(agents).toContainText('Claude Reviewer');
   await choose('Sonnet', 'Low');
-  await conversation.locator('.participant-chip').filter({ hasText: 'Main' }).click();
+  await agents.click();
+  await page.locator('.desktop-picker-paper:visible .participant-row').getByRole('button').filter({ hasText: 'Main' }).click();
   await expect(menu.locator(':scope > button')).toHaveText('Opus · High');
 
   // Docker Agent edits without approvals, so a Docker session starts in Ask although Agent was last.

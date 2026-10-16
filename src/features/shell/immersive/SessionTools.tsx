@@ -10,7 +10,7 @@ import { createConversationTextResource, createReportPreviewResource, createWork
 import { recordImmersiveDiagnostic } from './immersiveDiagnostics';
 import { useTextureResource } from './useTextureResource';
 import { launchChoice, launchModes } from '@/features/shell/devicePreferences';
-import type { LaunchMode } from '@/shared/agentModes';
+import type { SessionLaunchMode } from '@/shared/agentModes';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
 import { CHECKPOINT_SCOPE } from '@/shared/turnCheckpoint';
 import { WORKTREE_BASELINE, worktreeChoice } from '@/features/conversation/worktreeChoice';
@@ -51,7 +51,7 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   const [machineId, setMachineId] = useState(controls.machineId);
   const [projectId, setProjectId] = useState('');
   const [provider, setProvider] = useState<AgentProvider>('claude');
-  const [mode, setMode] = useState<LaunchMode>('ask');
+  const [mode, setMode] = useState<SessionLaunchMode>('ask');
   const [checkoutId, setCheckoutId] = useState('');
   const [sourceCheckoutId, setSourceCheckoutId] = useState('');
   const [checkoutMode, setCheckoutMode] = useState<'current' | 'worktree'>('current');
@@ -76,7 +76,6 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   const project = machine?.projects.find((item) => item.id === projectId);
   const providers = (Object.keys(machine?.providers || {}) as AgentProvider[])
     .filter((id) => machine?.providers[id].available && machine.providers[id].supportedModes.length);
-  // A new session never starts in Auto: it is chosen inside a session, by the user.
   const modes = launchModes(machine?.providers[provider]?.supportedModes);
   // New session opens at this device's last provider and mode when this machine can run them, and in
   // the open session's project, so a session started from a conversation can send without attaching.

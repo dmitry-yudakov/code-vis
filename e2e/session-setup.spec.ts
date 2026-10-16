@@ -18,6 +18,81 @@ async function openSetup(page: Page, target: DurableProject) {
   return dialog;
 }
 
+for (const [mode, label] of [['ask', 'Ask'], ['plan', 'Plan'], ['agent', 'Agent'], ['auto', 'Auto']] as const) {
+  test(`${label} is remembered by Arena and CodeAI setup across reloads`, async ({ page, request }) => {
+    const { project: source } = await project(request);
+    const { project: self, catalog, checkout } = await project(request, `Remembered mode ${Date.now()}`, 'installation');
+    await request.post('/api/sessions', { data: { projectId: source.id, provider: 'claude' } });
+    // Advertised readiness is a fixture; these empty sessions do not execute a provider turn.
+    await page.route('**/api/health', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const providers of [body.providers, body.executions.local.providers]) providers.claude.supportedModes.push('auto');
+      await route.fulfill({ response, json: body });
+    });
+    await page.route('**/api/arena', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const machine of body.machines as Array<{ machine: { kind: string }; providers: { claude: { supportedModes: string[] } } }>) {
+        if (machine.machine.kind === 'local') machine.providers.claude.supportedModes.push('auto');
+      }
+      await route.fulfill({ response, json: body });
+    });
+    const preparedContext = { projectId: self.id, checkoutId: checkout.id, bindingsFingerprint: 'a'.repeat(64) };
+    await page.route('**/api/codeai-session', async (route) => {
+      const body = route.request().method() === 'POST' ? route.request().postDataJSON() : undefined;
+      if (!body) return route.fulfill({ json: { available: true, machineId: catalog.hostId, phase: 'idle', checkoutId: checkout.id } });
+      if (body.action === 'prepare') return route.fulfill({ json: { preparedContext, project: self } });
+      const response = await request.post('/api/sessions', { data: { projectId: self.id, provider: body.provider,
+        creationRequestId: body.creationRequestId, execution: 'local' } });
+      return route.fulfill({ status: response.status(), json: await response.json() });
+    });
+    await page.goto('/'); await chooseProject(page, source);
+    const conversation = page.getByRole('complementary', { name: 'Conversation' });
+    const picker = conversation.getByLabel(/^Mode: /);
+    // Make Ask an explicit change too, rather than merely observing the initial fallback.
+    for (const choice of ['Plan', label]) {
+      await picker.click();
+      await page.getByRole('radio', { name: choice, exact: true }).click();
+      await expect(picker).toHaveText(choice);
+    }
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences') || '{}').mode)).toBe(mode);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('button', { name: 'New session', exact: true }).click();
+    const general = page.getByRole('dialog', { name: 'New session', exact: true });
+    await expect(general.getByLabel('Mode', { exact: true })).toHaveValue(mode);
+    await general.getByLabel('Project', { exact: true }).selectOption(source.id);
+    await general.getByRole('button', { name: 'Create and open', exact: true }).click();
+    await expect(general).not.toBeVisible();
+    await expect(picker).toHaveText(label);
+    await page.reload({ waitUntil: 'networkidle' });
+    await chooseProject(page, source);
+    await expect(picker).toHaveText(label);
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
+    const codeai = page.getByRole('dialog', { name: 'New CodeAI session', exact: true });
+    await expect(codeai.getByLabel('Mode', { exact: true })).toHaveValue(mode);
+    await codeai.getByRole('button', { name: 'Create and open', exact: true }).click();
+    await expect(codeai).not.toBeVisible();
+    await expect(page.locator('.project-search-trigger')).toContainText(self.name);
+    await expect(picker).toHaveText(label);
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(picker).toHaveText(label);
+    if (mode === 'auto') {
+      // A different readiness result must withhold Auto without forgetting the user's choice.
+      await page.unroute('**/api/health');
+      await page.unroute('**/api/arena');
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.getByRole('link', { name: 'Arena', exact: true }).click();
+      await page.getByRole('button', { name: 'New session', exact: true }).click();
+      await expect(general.getByLabel('Mode', { exact: true })).toHaveValue('ask');
+      await expect(general.getByLabel('Mode', { exact: true }).locator('option[value=auto]')).toHaveCount(0);
+      expect(await page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences') || '{}').mode)).toBe('auto');
+    }
+  });
+}
+
 test('same-project Arena card opens a background turn that completed before acceptance returned', async ({ page, request }) => {
   const { project: target } = await project(request);
   const source = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;

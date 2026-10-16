@@ -232,3 +232,44 @@ September 24, 2026, offline, against the fake Claude.
 - Pending before **Shipped**: How to verify steps 2–4 in the running app, including a Codex choice,
   since the e2e server has no Codex.
 
+## October 15, 2026 — New-session mode regression
+
+**Fix status:** Shipped. This extends the same agent maintenance slice from the vision above;
+the original running-app acceptance above remains pending.
+
+The user reports that new sessions no longer use the last Ask/Plan/Agent/Auto choice from either
+entry point. Auto is saved in preferences but deliberately discarded by
+[devicePreferences.ts:63](../src/features/shell/devicePreferences.ts#L63); the shared
+[setup dialog:120](../src/features/session-launch/SessionSetupDialog.tsx#L120) also omits it.
+Both Arena and the managed CodeAI shortcut use
+[useSessionLauncher.ts:75](../src/features/session-launch/useSessionLauncher.ts#L75).
+
+New Local sessions should use the last Ask, Plan, Agent, or Auto choice whenever the selected
+provider advertises it. Unsupported choices fall back as before. Accept edits and Full access
+remain choices within a session; Docker still never inherits Agent or Auto. Existing sessions
+keep their own choices. A retained setup draft keeps its own settings.
+
+- [x] First reproduce the failure with unit and browser tests before changing product code.
+- [x] Remember and restore all four modes through reload, Arena setup, and CodeAI setup; the
+      created conversation uses the displayed mode and retains it after reload.
+- [x] Offer Auto in desktop and immersive setup only when the provider advertises it; retain
+      Docker restrictions and the existing session-only Native modes.
+- [x] Pass focused unit/browser checks and TypeScript, and complete an independent review.
+
+Verify with `npx vitest run test/devicePreferences.test.ts test/agentModes.test.ts`,
+`npm run lint -- --incremental false`, an isolated production build, and the mode-memory cases
+in `e2e/session-setup.spec.ts`, plus the existing mode and preferences browser regressions.
+
+The unit regression first failed with inherited Auto returning Ask. Against the unchanged
+production build, the four setup browser cases passed for Ask/Plan/Agent and failed for Auto
+opening at Ask. After the fix, all 70 focused unit checks and nine production browser cases pass,
+including both shortcuts, stored conversation modes after reload, unsupported Auto fallback,
+header creation, Docker inheritance/continuation, and simulated VR restoration and mode cycling.
+The Docker regression's stale participant selectors were updated to the current Session agents
+controls. TypeScript, the isolated `.next-e2e` production build, and independent review pass.
+All 144 offline test files / 1,540 tests pass on the final run. An initial concurrent run had one
+unrelated Codex forced-shutdown timing failure; it passed both in isolation and in the full rerun.
+
+These checks use fixture provider readiness; real-provider execution and physical Quest checks
+were not rerun. The running application was not rebuilt or restarted.
+

@@ -94,19 +94,29 @@ describe('device preferences', () => {
     expect(inheritedMode(undefined, 'local')).toBe('ask');
   });
 
-  it('remembers Auto as the last mode but never starts another session in it', () => {
+  it('inherits Auto for Local sessions and forms only where the provider offers it', () => {
     expect(parseDevicePreferences(JSON.stringify({ version: 1, mode: 'auto', provider: 'codex' }))).toEqual({ mode: 'auto', provider: 'codex' });
-    for (const execution of ['local', 'docker', undefined] as const) expect(inheritedMode('auto', execution)).toBe('ask');
+    expect(inheritedMode('auto', 'local')).toBe('auto');
+    expect(inheritedMode('auto', undefined)).toBe('auto');
+    expect(inheritedMode('auto', 'docker')).toBe('ask');
 
     const health = (modes: AgentMode[]) => ({ available: true, supportedModes: modes });
     const machine = { claude: health(['ask', 'plan', 'agent']), codex: health(['ask', 'plan', 'agent', 'auto']) };
-    // Ask, not the mode the form happened to show, and not Auto even where the provider offers it.
-    expect(launchChoice({ provider: 'codex', mode: 'auto' }, machine, { provider: 'claude', mode: 'agent' })).toEqual({ provider: 'codex', mode: 'ask' });
-    expect(launchChoice({ mode: 'auto' }, machine, { provider: 'codex', mode: 'plan' })).toEqual({ provider: 'codex', mode: 'ask' });
-    // A machine that lists Auto first still opens the form at a mode a new session may use.
-    expect(launchChoice({ provider: 'codex' }, { codex: health(['auto', 'plan']) }, { provider: 'codex', mode: 'agent' })).toEqual({ provider: 'codex', mode: 'plan' });
-    expect(launchModes(['ask', 'plan', 'agent', 'auto'])).toEqual(['ask', 'plan', 'agent']);
+    expect(launchChoice({ provider: 'codex', mode: 'auto' }, machine, { provider: 'claude', mode: 'agent' })).toEqual({ provider: 'codex', mode: 'auto' });
+    expect(launchChoice({ mode: 'auto' }, machine, { provider: 'codex', mode: 'plan' })).toEqual({ provider: 'codex', mode: 'auto' });
+    expect(launchChoice({ mode: 'auto' }, machine, { provider: 'claude', mode: 'ask' })).toEqual({ provider: 'claude', mode: 'ask' });
+    expect(launchChoice({ provider: 'codex', mode: 'auto' }, { codex: health(['auto', 'plan']) }, { provider: 'codex', mode: 'agent' })).toEqual({ provider: 'codex', mode: 'auto' });
+    expect(launchModes(['ask', 'plan', 'agent', 'auto', 'edits', 'full'])).toEqual(['ask', 'plan', 'agent', 'auto']);
+    expect(launchModes(['ask', 'plan', 'agent', 'auto', 'edits', 'full'], 'docker')).toEqual(['ask', 'plan', 'agent']);
     expect(launchModes(undefined)).toEqual([]);
+  });
+
+  it('keeps Accept edits and Full access as choices for the current session only', () => {
+    for (const mode of ['edits', 'full'] as const) {
+      expect(inheritedMode(mode, 'local')).toBe('ask');
+      expect(launchChoice({ mode }, { claude: { available: true, supportedModes: ['ask', 'plan', 'agent', 'auto', 'edits', 'full'] } },
+        { provider: 'claude', mode: 'agent' })).toEqual({ provider: 'claude', mode: 'ask' });
+    }
   });
 
   it('opens a New session form at the last provider and mode only when the machine can run them', () => {

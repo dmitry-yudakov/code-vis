@@ -849,7 +849,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const initialComposer = `Continue from “${session.title.slice(0, 200)}” (${session.execution === 'docker' ? 'Docker' : 'Local'} session ${session.id}). This is a fresh provider session using the same repositories.\n\nRecent visible conversation (may be incomplete):\n${recap || 'No messages yet.'}${composer.trim() ? `\n\nUnsent draft:\n${composer.slice(0, 1_400)}` : ''}\n\nPlease continue from this context.`.slice(0, 7_600);
     // The agent's stored choice, not the one this execution offers: the other execution may list more.
     const agentSelection = agentModelSelection(view, preferences, activeAgent);
-    // A continuation starts with a launch mode; the extra writing modes stay in their session.
+    // Accept edits and Full access stay in their session; Local continuations can inherit Auto.
     void createSession(activeProvider, { execution, sourceSessionId: session.id, initialComposer, mode: inheritedMode(mode, execution), modelSelection: agentSelection });
   };
 

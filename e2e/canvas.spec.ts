@@ -1691,7 +1691,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await expect(modePicker(conversation)).toHaveText('Agent');
 });
 
-test('offers Auto only where the provider advertises it, keeps it for its session, and starts no session in it', async ({ page, request }) => {
+test('offers Auto only where the provider advertises it and remembers it for new Local sessions', async ({ page, request }) => {
   const projectName = `Auto mode ${Date.now()}`;
   const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: { id: string }[] };
   await request.post('/api/projects', { data: { name: projectName, checkoutIds: [checkouts[0].id] } });
@@ -1734,25 +1734,25 @@ test('offers Auto only where the provider advertises it, keeps it for its sessio
   expect(Object.keys((await requested).postDataJSON()).sort()).toEqual(['diagramAttachments', 'messageId', 'mode', 'participantId', 'reportAttachments', 'sessionId', 'text']);
   await expect(toast(page, 'Claude is not healthy for auto mode in this CodeAI configuration.')).toBeVisible();
 
-  // Auto stays with its session across a reload, and the next session starts in Ask.
+  // Auto stays with its session across a reload, and the next Local session inherits it.
   await page.reload({ waitUntil: 'networkidle' });
   await ensureConversationOpen(page);
   await expect(modePicker(conversation)).toHaveText('Auto');
   await startSession(page);
-  await expect(modePicker(conversation)).toHaveText('Ask');
+  await expect(modePicker(conversation)).toHaveText('Auto');
   await page.locator('.workspace-tab').first().click();
   await ensureConversationOpen(page);
   await expect(modePicker(conversation)).toHaveText('Auto');
 
-  // The Arena's form has no Auto, and opens at Ask although Auto was the last mode chosen here.
+  // The Arena's form offers and restores Auto when this provider advertises it.
   await chooseMode(conversation, 'Auto');
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('button', { name: 'New session' }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
-  await expect(create.getByLabel('Mode', { exact: true }).locator('option')).toHaveCount(3);
-  await expect(create.getByLabel('Mode', { exact: true }).locator('option[value=auto]')).toHaveCount(0);
-  await expect(create.getByLabel('Mode', { exact: true })).toHaveValue('ask');
+  await expect(create.getByLabel('Mode', { exact: true }).locator('option')).toHaveCount(4);
+  await expect(create.getByLabel('Mode', { exact: true }).locator('option[value=auto]')).toHaveCount(1);
+  await expect(create.getByLabel('Mode', { exact: true })).toHaveValue('auto');
 });
 
 test('attaches from the composer, picks a mode from the keyboard, and names the execution under it', async ({ page, request, baseURL }) => {

@@ -1,5 +1,5 @@
 import type { AgentExecution, AgentProvider, GlobalInstructionsChoice, ModelSelection, PublicSession } from '@/shared/types';
-import type { LaunchMode } from '@/shared/agentModes';
+import type { SessionLaunchMode } from '@/shared/agentModes';
 import type { PreparedCodeAiContext } from '@/shared/codeAiSession';
 import type { TextFile } from '@/shared/textFiles';
 import { validateTextFiles } from '@/shared/textFiles';
@@ -15,7 +15,7 @@ export interface LaunchSettings {
   execution: AgentExecution;
   checkoutMode: 'current' | 'worktree';
   provider: AgentProvider;
-  mode: LaunchMode;
+  mode: SessionLaunchMode;
   /** Remember the device choice; filter unsupported choices only at the wire/UI boundary. */
   instructions?: GlobalInstructionsChoice;
   modelSelection: ModelSelection;

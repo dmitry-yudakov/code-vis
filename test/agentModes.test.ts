@@ -9,7 +9,7 @@ import { RunRegistry } from '@/server/runs/runRegistry';
 import { agentMessageRequestSchema, permissionDecisionRequestSchema } from '@/shared/protocol';
 import { hasProposedPlan, PLAN_END_MARKER, PLAN_START_MARKER, stripPlanMarkers } from '@/shared/plan';
 import { buildConversationPrompt } from '@/server/conversation/prompt';
-import { AGENT_MODES, LAUNCH_MODES, changesCheckout, unsupportedModes } from '@/shared/agentModes';
+import { AGENT_MODES, LAUNCH_MODES, SESSION_LAUNCH_MODES, changesCheckout, unsupportedModes } from '@/shared/agentModes';
 import { AGENT_MODE_LABELS, agentModeHint, agentModeTooltip } from '@/features/agents/toolActivity';
 import type { AgentEvent, AgentMode } from '@/shared/types';
 
@@ -89,6 +89,7 @@ describe('agent modes', () => {
     expect(AGENT_MODES).toEqual(['ask', 'plan', 'agent', 'edits', 'auto', 'full']);
     expect(AGENT_MODES.filter(changesCheckout)).toEqual(['agent', 'edits', 'auto', 'full']);
     expect(LAUNCH_MODES).toEqual(['ask', 'plan', 'agent']);
+    expect(SESSION_LAUNCH_MODES).toEqual(['ask', 'plan', 'agent', 'auto']);
     // Claude Auto did not pass Story 79's probes, so Claude is never checked or run for it.
     expect(CLAUDE_MODES).toEqual(['ask', 'plan', 'agent']);
   });

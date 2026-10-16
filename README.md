@@ -712,14 +712,14 @@ agent-to-agent relay, simultaneous turns inside one session, and autopilot are i
 implemented yet.
 
 A new session starts in the last mode chosen on this device, or in **Ask** on a device that has not
-chosen one yet. A Docker session never inherits **Agent**, because Docker Agent edits without
-individual approvals; it starts in Ask unless Agent is chosen for it. The Arena's and VR's **New
-session** forms open at the last mode and provider when that machine can run them, and set the new
-session's mode explicitly. A session keeps its own mode once it has one, so changing the mode in one
+chosen one yet. Local sessions can inherit **Ask**, **Plan**, **Agent**, or **Auto** when supported.
+A Docker session never inherits Agent or Auto; it starts in Ask unless Agent is chosen for it.
+The Arena, CodeAI shortcut, and VR **New session** forms open at the last mode and provider when
+that machine can run them, and set the new session's mode explicitly. A session keeps its own mode
+once it has one, so changing the mode in one
 session does not change another's. A session with no mode on this device, such as one started on
-another device, shows the last mode. **Auto**, **Accept edits**, and **Full access** stay with the session they were chosen in. No
-session inherits them: the next session starts in Ask, and the **New session** forms do not offer
-them.
+another device, shows the last mode. **Accept edits** and **Full access** stay with the session
+they were chosen in: the next session starts in Ask, and new-session forms do not offer them.
 
 Independent sessions can execute at the same time. Each machine runs two eligible turns by default
 and visibly queues additional work; `CODEAI_MAX_CONCURRENT_RUNS` sets a limit from 1–8. Ask and
@@ -869,8 +869,9 @@ escalations remain unsupported.
 
 Codex Agent and Auto retain `CODEAI_CODEX_AGENT=1`; Auto requires a working Codex sandbox.
 Full access is offered without that gate. Claude's extra modes require an installed CLI that lists
-the corresponding permission choice. These modes are chosen inside a session: new sessions and
-continuations turn Accept edits, Auto, and Full access into Ask. Execute plan still sends Agent.
+the corresponding permission choice. Accept edits and Full access are chosen inside a session:
+new sessions and continuations turn them into Ask. Local sessions can inherit Auto when the
+provider advertises it. Execute plan still sends Agent.
 The composer names Native before sending, message tags show Native · Agent or Native · Auto,
 and Arena shows the level read-only.
 
@@ -907,8 +908,8 @@ detect dangerous commands itself: the sandbox contains the turn, and you decide 
   another checkout you open in CodeAI: a turn could change that repository's Git configuration, and
   CodeAI's own `git status` there would then run what it names.
 
-Auto is chosen in the composer's mode picker, or in VR's agents row, where the addressed provider
-offers it. The picker lists it only there. **Execute plan** still runs in Agent.
+Auto is chosen in the composer's mode picker, VR's agents row, or new-session setup where the
+provider offers it. New Local sessions remember that choice. **Execute plan** still runs in Agent.
 
 Providers:
 
@@ -1189,7 +1190,8 @@ environment of whoever starts CodeAI.**
 - A second device record, `code-ai:device:v1:preferences`, keeps the last mode, the last provider
   and Global instructions choice for a new session, and the last model and effort for each provider. Execution is not remembered:
   Docker Agent edits without individual approvals, so Docker stays an explicit choice for each new
-  session, and a Docker session never inherits Agent as its mode.
+  session. New Local sessions inherit Ask, Plan, Agent, or Auto where supported; a Docker session
+  never inherits Agent or Auto as its mode.
 - Later turns resume the addressed participant's host-bound native provider session and receive
   only the bounded canonical transcript delta missed since its last complete turn. The server
   defaults to 40 entries / 24 KB and never accepts a browser-supplied transcript.

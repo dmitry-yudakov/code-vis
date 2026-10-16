@@ -147,8 +147,10 @@ choices are a fixed alias list (Docker Claude included), Codex's come from App S
 `model/list`, and Docker Codex offers its recorded worker's own `model/list` from
 `docker/versions.json`, or else what the machine's local Codex lists. The choice is device state kept per agent in the device
 workspace, like mode. A new session and a new agent start at the device's last mode and its last
-choice for their provider (`code-ai:device:v1:preferences`) and keep them as their own, except that
-a Docker session never inherits Agent. The server still validates whatever the browser sends. Default sends no override, so the provider session keeps whatever model and
+choice for their provider (`code-ai:device:v1:preferences`) and keep them as their own.
+Local sessions can inherit Auto when the provider advertises it, and a Docker session never
+inherits Agent or Auto. Accept edits and Full access stay within their session. The server still
+validates whatever the browser sends. Default sends no override, so the provider session keeps whatever model and
 effort it last used, and `CODEAI_*_MODEL` still applies when it is set. This is why the client never
 sends flags, prompts-with-tools, or paths outside the selected repository: every one of those is
 derived server-side from `src/server/config.ts` plus the resolved policy in

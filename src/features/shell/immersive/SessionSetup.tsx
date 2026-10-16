@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
 import type { ThemeName } from '@/shared/design/tokens';
 import { offeredEfforts } from '@/shared/modelChoices';
+import { unsupportedModes } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { launchInstructions } from '@/features/shell/devicePreferences';
 import { launchText } from '@/features/session-launch/sessionLaunch';
@@ -118,7 +119,7 @@ export function SessionSetup({ launcher, theme, onCapture, onController }: {
   const controls: ImmersiveConversationControls | undefined = draft && settings ? { draft: draft.text,
     target: 'New session', attachments: [...draft.files.map((file) => file.name), ...draft.images.map((_, i) => `Image ${i + 1}`), ...draft.reportIds.map(() => 'Report')],
     canSend: launcher.canSubmit, sendBlocked: launcher.error || launcher.blocker, running: launcher.busy || launcher.frozen, runStatus: launcher.error ?? 'Starting…', busy: launcher.preparing,
-    agents: [], providers: [settings.provider], mode: settings.mode, unsupportedModes: ['auto', 'edits', 'full'],
+    agents: [], providers: [settings.provider], mode: settings.mode, unsupportedModes: unsupportedModes(launcher.modes, settings.execution),
     onDraft: launcher.setText, onSend: () => { void launcher.submit(); }, onCancel: () => undefined,
     onMode: () => undefined, onSelectAgent: () => undefined, onAddAgent: () => undefined, onMakePrimary: () => undefined } : undefined;
   const topRow = centeredControlRow(buttons.slice(0, 4).map((key) => ({ key, width: resources?.[key]?.width ?? .3 })));
