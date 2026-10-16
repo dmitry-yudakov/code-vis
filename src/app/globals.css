@@ -51,8 +51,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .project-search-empty { padding: 24px 12px; color: var(--muted); text-align: center; font-size: 11px; }
 /* One scoped native picker handles closed views and tabs clipped by the title bar. */
 .session-picker { flex: none; display: flex; align-items: center; gap: 4px; }
-.all-sessions-picker { position: relative; width: 28px; height: 28px; flex: none; display: grid; place-items: center; color: var(--muted); font-size: 20px; }
-.all-sessions-picker > span { position: relative; z-index: 1; pointer-events: none; }
+.all-sessions-picker { position: relative; height: 28px; padding: 0 8px; flex: none; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-2); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.all-sessions-label { position: relative; z-index: 1; pointer-events: none; }
 .new-session-menu { position: relative; flex: none; }
 .session-creation-form { display: grid; gap: 10px; text-align: left; }
 .session-creation-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
@@ -101,7 +101,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .workspace-tab.awaiting-approval .workspace-tab-state { background: var(--wait); }
 .workspace-tab .approval-badge, .workspace-tab .unread-badge, .workspace-tab .queue-badge { min-width: 16px; height: 16px; margin-left: 0; flex: none; font-size: 8px; }
 .workspace-tab .queue-badge { display: grid; place-items: center; padding: 0 4px; border-radius: 999px; color: var(--muted); background: var(--control-wash); font-family: var(--mono); }
-.workspace-tab-close { width: 28px; height: 28px; align-self: center; }
+.workspace-session-actions { display: flex; align-items: center; gap: 2px; }
+.workspace-session-archive-menu.MuiMenuItem-root { display: none; }
 
 /* With the canvas hidden the conversation takes the row, and reads in a centred column. */
 .app-shell.canvas-hidden { grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] 0 [dock] minmax(0, 1fr); }
@@ -676,6 +677,9 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
   .app-header { flex-wrap: wrap; row-gap: 6px; padding: 7px 10px; }
   .header-actions { flex: 1 0 100%; margin-left: 0; }
   .project-search-picker, .project-search-trigger { max-width: 90px; }
+  .workspace-session-archive { display: none; }
+  .workspace-session-archive-menu.MuiMenuItem-root { display: flex; }
+  .new-session-label { display: none; }
   .canvas-titleblock { bottom: 58px; }
   .toast-region { top: 182px; }
   /* The spatial room's controls move under the canvas here. */

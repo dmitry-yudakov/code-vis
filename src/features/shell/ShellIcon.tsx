@@ -8,6 +8,7 @@ const SHELL_ICON_PATHS = {
   canvas: 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM7 8h5v3.5H7zM12 12.5h5V16h-5z',
   conversation: 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM15 4v16',
   newChat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM12 7v6M9 10h6',
+  archive: 'M3 3h18v5H3zM5 8v13h14V8M10 12h4',
 };
 
 export type ShellIconName = keyof typeof SHELL_ICON_PATHS;

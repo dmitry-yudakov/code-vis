@@ -2318,9 +2318,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sessionLive = sessionRunning || Boolean(session && immersiveMachine?.runs.active.some((run) => run.sessionId === session.id));
   const canArchiveSession = Boolean(session) && !sessionLive && archivingSessionId !== session?.id
     && immersiveMachine?.machine.state === 'online';
+  const closeSessionDisabledReason = sessionLive ? 'Wait for this turn to finish.'
+    : archivingSessionId === session?.id ? 'Archiving this session…' : undefined;
+  const archiveSessionDisabledReason = closeSessionDisabledReason
+    || (immersiveMachine?.machine.state !== 'online' ? 'This execution machine is offline.' : undefined);
   const archiveOpenSession = async () => {
     const targetMachineId = machineId || localMachineId;
-    if (!session || !targetMachineId) return false;
+    if (!session || !targetMachineId || !canArchiveSession) return false;
     // Nothing refetches an open session that another device changed; the Arena poll carries its newer revision.
     const revision = Math.max(session.revision, immersiveMachine?.sessions.find((item) => item.id === session.id)?.revision ?? 0);
     setArchivingSessionId(session.id);
@@ -2407,6 +2411,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   unreadBySession={unreadBySession}
                   onFocus={workspace.open}
                   onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
+                  canArchive={canArchiveSession}
+                  archiveDisabledReason={archiveSessionDisabledReason}
+                  closeDisabledReason={closeSessionDisabledReason}
+                  onArchive={() => void archiveOpenSession()}
                 />
                 <SessionPicker
                   onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
@@ -2627,8 +2635,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {!arenaOpen && session && <Button type="button" variant="text" color="inherit" onClick={() => exportSession(session)}>Export session</Button>}
             {!arenaOpen && session && (
               <Button
-                type="button" variant="text" color="inherit" disabled={!canArchiveSession} title={sessionLive ? 'Wait for the current turn to finish before archiving.'
-                  : immersiveMachine && immersiveMachine.machine.state !== 'online' ? 'This execution machine is offline.' : undefined} onClick={() => {
+                type="button" variant="text" color="inherit" disabled={!canArchiveSession} title={archiveSessionDisabledReason} onClick={() => {
                   moreMenuRef.current?.close();
                   void archiveOpenSession();
                 }}
@@ -2722,11 +2729,20 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       ) : !session ? (
         <div className="welcome-screen">
-          <div className="welcome-orbit"><span /><span /><span /><div className="brand-mark">C</div></div>
-          <span className="eyebrow">Local exploration, planning, and building</span>
-          <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
-          <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
-          <SessionCreationForm
+          {sessions.length ? (
+            <>
+              <h1>No open sessions</h1>
+              <p>Reopen a conversation from All sessions, or start a new session.</p>
+            </>
+          ) : (
+            <>
+              <div className="welcome-orbit"><span /><span /><span /><div className="brand-mark">C</div></div>
+              <span className="eyebrow">Local exploration, planning, and building</span>
+              <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
+              <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
+            </>
+          )}
+          {!sessions.length && <SessionCreationForm
             onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
             worktrees={health?.worktrees}
             key={projectId || 'loose'}
@@ -2742,7 +2758,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             error={sessionCreateError}
             onNewProvider={chooseNewProvider}
             onNew={createSession}
-          />
+          />}
         </div>
       ) : (
         <>

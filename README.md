@@ -640,11 +640,13 @@ The workspace lives at `/`; the Arena's canonical destinations are `/arena` for 
 refresh, bookmarks, and browser Back/Forward preserve the top-level destination without encoding
 device-local tabs, drafts, or panel state in the URL.
 
-Open session views sit in the title bar beside the project picker. **All sessions** (the chevron)
+Open session views sit in the title bar beside the project picker. **All sessions**
 lists every active session in that project, or the loose-session scope, including closed views and
-tabs that do not fit. Choosing one opens its view. Arrow keys wrap through open tabs; Delete or the
-single close button closes the focused view and focuses its neighbour. A live turn keeps its view
-open. Closing a view preserves its conversation and device draft for reopening.
+tabs that do not fit. Choosing one opens its view. **Archive** archives the selected session
+and offers Undo; on phones, find **Archive session** under **⋯ Session actions**.
+**Session actions → Close tab** or Delete hides the selected tab and focuses its neighbour.
+A live turn keeps its view open. Closing preserves its conversation and device draft for reopening;
+closing the last tab shows **No open sessions**, including after reload. **+ New** starts a session.
 
 **Arena** in the activity bar opens an overview of active sessions, grouped first by execution
 machine and then by project. The security notice can be dismissed; this device remembers the

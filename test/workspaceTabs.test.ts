@@ -13,24 +13,28 @@ function tabs(props: Partial<ComponentProps<typeof WorkspaceTabs>> = {}) {
     sessions: [{ id: SESSION_A, title: 'First session' }, { id: SESSION_B, title: 'Second session' }] as SessionSnapshot[],
     openSessionIds: [SESSION_A, SESSION_B], focusedSessionId: SESSION_A,
     runsBySession: {}, unreadBySession: {}, onFocus: vi.fn(), onClose: vi.fn(),
+    canArchive: true, onArchive: vi.fn(),
     ...props,
   })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }
 
 describe('workspace tabs', () => {
-  it('keeps close controls outside the tablist accessibility tree', () => {
+  it('keeps session actions outside the tablist accessibility tree', () => {
     const markup = tabs();
     const tablist = markup.match(/<div[^>]*role="tablist"[\s\S]*?<\/div>/)?.[0];
     expect(tablist).toBeDefined();
     expect(tablist).toContain('role="tab"');
-    expect(tablist).not.toContain('workspace-tab-close');
-    expect(markup.indexOf('workspace-tab-close')).toBeGreaterThan(markup.indexOf(tablist!));
+    expect(tablist).not.toContain('workspace-session-actions');
+    expect(markup.indexOf('workspace-session-actions')).toBeGreaterThan(markup.indexOf(tablist!));
+    expect(markup).toContain('aria-label="Archive session"');
+    expect(markup).toContain('aria-label="Session actions"');
+    expect(markup).not.toContain('Close focused view');
+    expect(markup).not.toContain('workspace-tab-close');
   });
 
-  it.each(['running', 'queued', 'needs-you'] as const)('protects a %s view from the close button', (state) => {
-    const markup = tabs({ runsBySession: { [SESSION_A]: { state, status: state, pendingApprovals: 1 } } });
-    expect(markup).toMatch(/<button(?=[^>]*class="[^"]*workspace-tab-close)(?=[^>]*disabled="")[^>]*>/);
-    expect(markup).toContain('Cannot close First session while its turn is active');
+  it.each(['running', 'queued', 'needs-you'] as const)('retains %s status and the shell archive guard', (state) => {
+    const markup = tabs({ canArchive: false, runsBySession: { [SESSION_A]: { state, status: state, pendingApprovals: 1 } } });
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Archive session")(?=[^>]*disabled="")[^>]*>/);
     expect(markup).toContain(`First session — ${state}`);
   });
 
@@ -45,7 +49,7 @@ describe('workspace tabs', () => {
     expect(markup).toContain('class="queue-badge">Q2');
     expect(markup).toContain('class="approval-badge">3');
     expect(markup).toContain('class="unread-badge">4');
-    expect(markup.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(markup.match(/<button(?=[^>]*role="tab")(?=[^>]*tabindex="0")[^>]*>/g)).toHaveLength(1);
   });
 });
 
@@ -63,5 +67,7 @@ describe('All sessions picker', () => {
     expect(markup).toContain('Overflow view');
     expect(markup).toMatch(/<button(?=[^>]*aria-label="New session")(?=[^>]*title="New session")[^>]*>/);
     expect(markup).not.toContain('aria-label="Session"');
+    expect(markup).toContain('class="all-sessions-label"');
+    expect(markup).toContain('All sessions <span>⌄</span>');
   });
 });

@@ -303,7 +303,8 @@ export function reconcileWorkspaceScope(
   const current = getWorkspaceScope(workspace, scopeId);
   const available = new Set(availableSessionIds);
   const openSessionIds = current.openSessionIds.filter((id) => available.has(id));
-  if (!openSessionIds.length && availableSessionIds[0]) openSessionIds.push(availableSessionIds[0]);
+  // An existing scope may be empty because its last tab was deliberately closed.
+  if (!workspace.scopes[scopeId] && availableSessionIds[0]) openSessionIds.push(availableSessionIds[0]);
   const focusedSessionId = current.focusedSessionId && openSessionIds.includes(current.focusedSessionId)
     ? current.focusedSessionId
     : openSessionIds[0];

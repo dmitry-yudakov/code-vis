@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import type { APIRequestContext, Locator, Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { CheckoutsResponse, DurableSession, PublicSession } from '../src/shared/types';
+import type { ArenaSnapshot, CheckoutsResponse, DurableSession, PublicSession } from '../src/shared/types';
 
 async function openProject(page: Page, request: APIRequestContext, count = 3) {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
@@ -23,9 +23,8 @@ async function openProject(page: Page, request: APIRequestContext, count = 3) {
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  // The old name allows setup and budget measurement against the pre-story build too.
-  const picker = page.getByRole('combobox', { name: /^(All sessions|Session)$/ });
-  while (await page.locator('.workspace-tab-close').count()) await page.locator('.workspace-tab-close').click();
+  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
+  while (await page.getByRole('tab').count()) await page.getByRole('tab', { selected: true }).press('Delete');
   for (const session of sessions) await picker.selectOption(session.id);
   await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions.at(-1)!.title);
   return { project, sessions };
@@ -48,49 +47,39 @@ async function visibleControls(page: Page) {
   }).length);
 }
 
-async function expectSessionChevronVisible(picker: Locator) {
-  const visible = await picker.screenshot({ animations: 'disabled' });
-  const glyph = picker.locator('span');
-  await glyph.evaluate((element) => { element.style.visibility = 'hidden'; });
-  try {
-    const hidden = await picker.screenshot({ animations: 'disabled' });
-    expect(visible.equals(hidden), 'The All sessions chevron must change the rendered pixels').toBe(false);
-  } finally {
-    await glyph.evaluate((element) => { element.style.removeProperty('visibility'); });
-  }
-}
-
 test('title-bar tabs return the separate row to the canvas in both themes', async ({ page, request }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openProject(page, request, 1);
-  // Record the same fixture on the pre-change build before asserting the new frame.
-  console.log(`Title-bar fixture visible controls: ${await visibleControls(page)}`);
+  await page.getByRole('button', { name: 'Canvas', exact: true }).click();
+  await expect(page.locator('.canvas-workspace')).toBeVisible();
   const header = page.locator('.app-header');
   await expect(header.getByRole('tablist', { name: 'Open session views' })).toBeVisible();
   await expect(header.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveAttribute('title', 'All sessions');
   await expect(header.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0);
   const picker = header.locator('.all-sessions-picker');
   await picker.hover();
-  await expectSessionChevronVisible(picker);
+  await expect(picker).toHaveText(/All sessions/);
+  await expect(header.getByRole('button', { name: 'Archive session', exact: true })).toHaveText('Archive');
+  await expect(header.getByRole('button', { name: 'New session', exact: true })).toHaveText(/New/);
   await page.mouse.move(0, 100);
   await picker.locator('select').focus();
   await picker.locator('select').press('ArrowDown');
-  await expectSessionChevronVisible(picker);
+  await expect(picker.locator('.all-sessions-label')).toBeVisible();
   const canvas = (await page.locator('.canvas-workspace').boundingBox())!;
   expect(canvas.y).toBe(48);
   expect(canvas.height).toBe(852);
   const count = await visibleControls(page);
-  expect(count).toBeLessThanOrEqual(27); // Same one-session fixture measured on the pre-story build.
+  expect(count).toBeLessThanOrEqual(28); // One visible finish action added to the title bar.
   await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await page.locator('.more-menu > button').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await picker.hover();
-  await expectSessionChevronVisible(picker);
+  await expect(picker.locator('.all-sessions-label')).toBeVisible();
   await page.mouse.move(0, 100);
   await picker.locator('select').focus();
   await picker.locator('select').press('ArrowDown');
-  await expectSessionChevronVisible(picker);
+  await expect(picker.locator('.all-sessions-label')).toBeVisible();
   expect(await visibleControls(page)).toBe(count);
   await expectSelectedInView(page);
   await page.screenshot({ path: '/tmp/codeai-story73-dark.png' });
@@ -129,8 +118,9 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   await expectSelectedInView(page);
   await picker.selectOption(sessions[7].id);
 
-  // The close button applies the same neighbour focus as Delete, including overflow.
-  await page.getByRole('button', { name: `Close ${sessions[7].title} view`, exact: true }).click();
+  // Close tab applies the same neighbour focus as Delete, including overflow.
+  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Close tab/ }).click();
   await expect(tabs).toHaveCount(7);
   await expect(tabs.last()).toBeFocused();
   await expectSelectedInView(page);
@@ -162,6 +152,10 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   while (await tabs.count()) await page.getByRole('tab', { selected: true }).press('Delete');
   await expect(picker).toBeFocused();
   await expect(picker).toHaveValue('');
+  await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
+  await expect(tabs).toHaveCount(0);
   await picker.selectOption(sessions[0].id);
   await expect(tabs).toHaveCount(1);
   await expectSelectedInView(page);
@@ -173,7 +167,6 @@ test('title-bar tabs preserve stored layouts and protect approval-blocked views'
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
   await expect(picker).toHaveCount(1);
   await conversation.locator('textarea').fill('Remember this draft');
-  await page.getByRole('button', { name: 'Canvas', exact: true }).click();
   await page.reload();
   await expect(page.locator('.canvas-workspace')).toBeHidden();
   await expect(conversation.locator('textarea')).toHaveValue('Remember this draft');
@@ -182,19 +175,130 @@ test('title-bar tabs preserve stored layouts and protect approval-blocked views'
   await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Request an edit approval');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(conversation.getByRole('article', { name: 'Approval required: Edit' })).toBeVisible();
+  await expect(conversation.getByRole('region', { name: 'Pending approvals' })).toContainText('Claude · Edit');
   const selected = page.getByRole('tab', { selected: true });
   await expect(selected).toHaveClass(/awaiting-approval/);
   await expect(selected.locator('.approval-badge')).toHaveText('1');
   await expectSelectedInView(page);
-  await expect(page.locator('.workspace-tab-close')).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Session actions', exact: true })).toBeFocused();
   await selected.press('Delete');
   await expect(page.getByRole('tab')).toHaveCount(2);
   await picker.selectOption(sessions[0].id);
-  await expect(page.locator('.workspace-tab-close')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
   await picker.selectOption(sessions[1].id);
   await conversation.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.locator('.workspace-tab-close')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
+});
+
+test('header actions close a tab without archiving and archive completed sessions with Undo', async ({ page, request }) => {
+  const { sessions } = await openProject(page, request, 2);
+  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
+  let archiveRequests = 0;
+  page.on('request', (sent) => { if (sent.method() === 'POST' && sent.url().endsWith('/archive')) archiveRequests++; });
+  page.on('dialog', (dialog) => { throw new Error(`Unexpected confirmation: ${dialog.message()}`); });
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await conversation.locator('textarea').fill('Keep my draft when I close this tab');
+  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await expect(page.getByRole('menu')).toContainText('Keep this session in All sessions.');
+  await page.getByRole('menuitem', { name: /^Close tab/ }).click();
+  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tab', { selected: true })).toBeFocused();
+  expect(archiveRequests).toBe(0);
+  await picker.selectOption(sessions[1].id);
+  await expect(conversation.locator('textarea')).toHaveValue('Keep my draft when I close this tab');
+  await expect(page.getByRole('tab')).toHaveCount(2);
+
+  // Hold the archive to verify both header actions guard duplicate/competing requests.
+  let releaseArchive!: () => void;
+  const archiveGate = new Promise<void>((resolve) => { releaseArchive = resolve; });
+  await page.route(`**/api/sessions/${sessions[1].id}/archive`, async (route) => {
+    await archiveGate;
+    await route.continue();
+  });
+  const archive = page.getByRole('button', { name: 'Archive session', exact: true });
+  await archive.click();
+  await expect(archive).toBeDisabled();
+  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  releaseArchive();
+  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(picker.locator(`option[value="${sessions[1].id}"]`)).toHaveCount(0);
+  const toast = page.getByRole('status').filter({ hasText: `Archived “${sessions[1].title}”` });
+  await expect(toast).toBeVisible();
+  expect(archiveRequests).toBe(1);
+  await toast.getByRole('button', { name: 'Undo archive' }).click();
+  await expect(picker.locator(`option[value="${sessions[1].id}"]`)).toHaveCount(1);
+  await picker.selectOption(sessions[1].id);
+  await expect(page.getByRole('tab')).toHaveCount(2);
+});
+
+test('phone session actions offer archive and close the last tab with a clear empty state', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { sessions } = await openProject(page, request, 1);
+  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
+  const actions = page.getByRole('button', { name: 'Session actions', exact: true });
+  await actions.click();
+  await expect(page.getByRole('menuitem', { name: /^Archive session/ })).toBeVisible();
+  await page.getByRole('menuitem', { name: /^Close tab/ }).click();
+  await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
+  await expect(picker).toBeFocused();
+  await picker.selectOption(sessions[0].id);
+  await actions.click();
+  await page.getByRole('menuitem', { name: /^Archive session/ }).click();
+  await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
+  await expect(picker.locator(`option[value="${sessions[0].id}"]`)).toHaveCount(0);
+});
+
+test('header guards use machine-reported turns, offline state and the latest revision', async ({ page, request }) => {
+  const { sessions } = await openProject(page, request, 1);
+  const session = sessions[0];
+  const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
+  const owner = snapshot.machines.find((machine) => machine.sessions.some((item) => item.id === session.id))!;
+  owner.machine.state = 'offline';
+  let observation = 'offline';
+  await page.route('**/api/arena', (route) => route.fulfill({ json: snapshot, headers: { 'x-header-state': observation } }));
+  await page.waitForResponse((response) => response.headers()['x-header-state'] === 'offline');
+  const archive = page.locator('.app-header').getByRole('button', { name: 'Archive session', exact: true });
+  const actions = page.getByRole('button', { name: 'Session actions', exact: true });
+  await expect(archive).toBeDisabled();
+  await actions.click();
+  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(actions).toBeFocused();
+
+  owner.machine.state = 'online';
+  owner.runs.active.push({ runId: 'another-device-run', sessionId: session.id, participantId: session.primaryAgentId,
+    state: 'queued', enqueuedAt: Date.now(), pendingPermissionCount: 0, pendingPermissions: [], status: 'Queued on another device' });
+  observation = 'queued';
+  await page.waitForResponse((response) => response.headers()['x-header-state'] === 'queued');
+  await expect(archive).toBeDisabled();
+  await actions.click();
+  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.getByRole('tab', { selected: true }).press('Delete');
+  await expect(page.getByRole('tab')).toHaveCount(1);
+
+  // Another device saved this revision; the open transcript still holds the original one.
+  const filename = path.resolve('test-results/server-data/session-store-v2/sessions', `${session.id}.json`);
+  const stored = JSON.parse(await readFile(filename, 'utf8')) as DurableSession;
+  stored.revision += 2;
+  await writeFile(filename, JSON.stringify(stored));
+  owner.sessions.find((item) => item.id === session.id)!.revision = stored.revision;
+  owner.runs.active = [];
+  observation = 'ready';
+  await page.waitForResponse((response) => response.headers()['x-header-state'] === 'ready');
+  await expect(archive).toBeEnabled();
+  await page.route(`**/api/sessions/${session.id}/archive`, async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ expectedRevision: stored.revision });
+    await route.continue();
+  });
+  await archive.click();
+  await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
 });
 
 test.afterEach(async ({ request }) => {

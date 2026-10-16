@@ -144,9 +144,9 @@ export function SessionPicker({ sessions, value, onChange, ...creation }: Sessio
   return (
     <div className="session-picker">
       <label className="all-sessions-picker">
-        <span aria-hidden="true">⌄</span>
+        <span className="all-sessions-label" aria-hidden="true">All sessions <span>⌄</span></span>
         <NativeSelect disableUnderline IconComponent={() => null}
-          sx={{ position: 'absolute', inset: 0, width: 28, height: 28, '& select': { color: 'transparent', p: 0, height: '100%', width: '100%' }, '& option': { color: 'text.primary', bgcolor: 'background.paper' } }} id="all-sessions" title="All sessions" value={value || ''} disabled={!sessions.length} onChange={(event) => onChange(event.target.value)} inputProps={{ "aria-label": "All sessions", title: "All sessions" }}>
+          sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', '& select': { color: 'transparent', p: 0, height: '100%', width: '100%' }, '& option': { color: 'text.primary', bgcolor: 'background.paper' } }} id="all-sessions" title="All sessions" value={value || ''} disabled={!sessions.length} onChange={(event) => onChange(event.target.value)} inputProps={{ "aria-label": "All sessions", title: "All sessions" }}>
           {!value && <option value="" disabled>{sessions.length ? 'Choose a session' : 'No sessions yet'}</option>}
           {sessions.map((session) => (
             <option value={session.id} key={session.id}>
@@ -155,7 +155,7 @@ export function SessionPicker({ sessions, value, onChange, ...creation }: Sessio
           ))}
         </NativeSelect>
       </label>
-      <DesktopPopover keepMounted className="new-session-menu" label="New session" summary="＋" icon placement="bottom-end">
+      <DesktopPopover keepMounted className="new-session-menu" label="New session" summary={<><span aria-hidden="true">＋</span><span className="new-session-label">New</span></>} placement="bottom-end">
         {(close) => <div>
           <SessionCreationForm {...creation}
             onOpenMachineSettings={creation.onOpenMachineSettings ? () => { close(); creation.onOpenMachineSettings?.(); } : undefined} key={`${creation.project?.id || 'loose'}:${value || 'empty'}`}

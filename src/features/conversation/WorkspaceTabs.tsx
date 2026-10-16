@@ -3,8 +3,14 @@
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import IconButton from '@mui/material/IconButton';
-import { useEffect, useRef } from 'react';
+import Button from '@mui/material/Button';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemText from '@mui/material/ListItemText';
+import Tooltip from '@mui/material/Tooltip';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { RunState, SessionSnapshot } from '@/shared/types';
+import { ShellIcon } from '@/features/shell/ShellIcon';
 
 export interface WorkspaceRunState {
   state: Exclude<RunState, 'finished'>;
@@ -21,6 +27,10 @@ export function WorkspaceTabs({
   unreadBySession,
   onFocus,
   onClose,
+  canArchive,
+  archiveDisabledReason,
+  closeDisabledReason,
+  onArchive,
 }: {
   sessions: SessionSnapshot[];
   openSessionIds: string[];
@@ -29,9 +39,16 @@ export function WorkspaceTabs({
   unreadBySession: Record<string, number>;
   onFocus(sessionId: string): void;
   onClose(sessionId: string): void;
+  canArchive: boolean;
+  archiveDisabledReason?: string;
+  closeDisabledReason?: string;
+  onArchive(): void;
 }) {
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const tablistRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+  const [menu, setMenu] = useState<{ anchor: HTMLButtonElement; sessionId: string }>();
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
   const openSessions = openSessionIds.flatMap((id) => {
     const session = sessionById.get(id);
@@ -40,7 +57,17 @@ export function WorkspaceTabs({
 
   const focusedSession = openSessions.find((session) => session.id === focusedSessionId);
   const focusedLive = Boolean(focusedSession && runsBySession[focusedSession.id]);
+  const closeReason = closeDisabledReason || (focusedLive ? 'Wait for this turn to finish.' : undefined);
+  const menuOpen = Boolean(menu && menu.sessionId === focusedSession?.id);
 
+  useEffect(() => { setMenu(undefined); }, [focusedSessionId]);
+
+  function dismissMenu() {
+    const trigger = actionsRef.current;
+    setMenu(undefined);
+    // Let MUI release its focus trap before returning to the trigger.
+    requestAnimationFrame(() => trigger?.focus());
+  }
 
   // MUI owns selection scrolling. Its scrollButtons=false mode needs help only when the
   // clipping viewport changes size without changing the selected tab's own geometry.
@@ -64,7 +91,7 @@ export function WorkspaceTabs({
   }, [focusedSessionId]);
 
   function closeView(id: string) {
-    if (runsBySession[id]) return;
+    if (runsBySession[id] || (id === focusedSessionId && closeReason)) return;
     const index = openSessions.findIndex((session) => session.id === id);
     const next = openSessions[index === openSessions.length - 1 ? index - 1 : index + 1];
     onClose(id);
@@ -77,7 +104,7 @@ export function WorkspaceTabs({
   if (!openSessions.length) return null;
 
   return (
-    <div className="workspace-tabs" style={{ maxWidth: openSessions.length * 180 + 34 }}>
+    <div className="workspace-tabs" style={{ maxWidth: openSessions.length * 180 + 120 }}>
       <Tabs className="workspace-tablist" aria-label="Open session views" value={focusedSessionId ?? false}
         variant="scrollable" scrollButtons={false} slotProps={{ scroller: { ref: tablistRef, style: { containerType: 'inline-size' } } }}
         onChange={(_, id: string) => onFocus(id)}>
@@ -105,7 +132,7 @@ export function WorkspaceTabs({
               aria-label={`${session.title}${run ? ` — ${run.status}` : ''}`}
               title={run ? `${session.title} — ${run.status}` : session.title}
               onKeyDown={(event) => {
-                if (event.key === 'Delete' && !run) {
+                if (event.key === 'Delete') {
                   event.preventDefault();
                   closeView(session.id);
                   return;
@@ -130,16 +157,27 @@ export function WorkspaceTabs({
         })}
       </Tabs>
       {focusedSession && (
-        <IconButton
-          type="button"
-          className="workspace-tab-close"
-          disabled={focusedLive}
-          aria-label={focusedLive
-            ? `Cannot close ${focusedSession.title} while its turn is active`
-            : `Close ${focusedSession.title} view`}
-          title={focusedLive ? 'This view stays open until its turn finishes' : 'Close focused view'}
-          onClick={() => closeView(focusedSession.id)}
-        >×</IconButton>
+        <div className="workspace-session-actions">
+          <Tooltip describeChild title={archiveDisabledReason || 'Archive this session. You can undo or restore it later.'}>
+            <span className="workspace-session-archive"><Button
+              type="button" aria-label="Archive session" disabled={!canArchive} startIcon={<ShellIcon name="archive" />}
+              onClick={onArchive}
+            >Archive</Button></span>
+          </Tooltip>
+          <IconButton ref={actionsRef} type="button" aria-label="Session actions" title={`Actions for ${focusedSession.title}`}
+            aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined}
+            onClick={(event) => setMenu({ anchor: event.currentTarget, sessionId: focusedSession.id })}
+          >⋯</IconButton>
+          <Menu id={menuId} anchorEl={menu?.anchor} open={menuOpen} onClose={dismissMenu} disableRestoreFocus>
+            <MenuItem disabled={Boolean(closeReason)} onClick={() => { setMenu(undefined); closeView(focusedSession.id); }}>
+              <ListItemText primary="Close tab" secondary={closeReason || 'Keep this session in All sessions.'} />
+            </MenuItem>
+            <MenuItem className="workspace-session-archive-menu" disabled={!canArchive}
+              onClick={() => { dismissMenu(); onArchive(); }}>
+              <ListItemText primary="Archive session" secondary={archiveDisabledReason || 'Restore later from the Arena archive.'} />
+            </MenuItem>
+          </Menu>
+        </div>
       )}
     </div>
   );

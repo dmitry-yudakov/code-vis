@@ -82,7 +82,8 @@ test('polling archives old conversations, closes their views, and preserves rest
   await page.waitForResponse((response) => response.url().endsWith('/api/arena')
     && response.headers()['x-e2e-archive-projection'] === 'cached');
   await page.getByLabel('More', { exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
+  await expect(page.locator('.app-header').getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
   await expect(openViews.getByRole('tab')).toHaveCount(1);
   await page.getByLabel('More', { exact: true }).click();
   projection = undefined;
@@ -117,7 +118,7 @@ test('polling archives old conversations, closes their views, and preserves rest
       && response.headers()['x-e2e-archive-projection'] === 'cached');
   }
   await page.getByLabel('More', { exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
+  await expect(page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
   await expect(openViews.getByRole('tab')).toHaveCount(1);
   await page.getByLabel('More', { exact: true }).click();
   projection = undefined;

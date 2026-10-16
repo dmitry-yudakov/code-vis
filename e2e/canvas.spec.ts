@@ -611,8 +611,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
 test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.new-session-menu > button')).toBeVisible();
-  const initiallyOpen = page.locator('.workspace-tab-close');
-  while (await initiallyOpen.count()) await initiallyOpen.first().click();
+  while (await page.getByRole('tab').count()) await page.getByRole('tab', { selected: true }).press('Delete');
   await startSession(page);
   const firstConversation = page.getByRole('complementary', { name: 'Conversation' });
   await firstConversation.locator('textarea').fill('first view draft');

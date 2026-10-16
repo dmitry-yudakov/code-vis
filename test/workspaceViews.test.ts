@@ -73,6 +73,23 @@ describe('device workspace views', () => {
     expect(getWorkspaceScope(reconciled, scopeId).views[MISSING]).toBeUndefined();
   });
 
+  it('keeps an explicitly closed last tab closed after persistence and reconciliation', () => {
+    let workspace = openWorkspaceView(EMPTY_DEVICE_WORKSPACE, scopeId, SESSION_A);
+    workspace = updateWorkspaceView(workspace, scopeId, SESSION_A, (view) => ({ ...view, composer: 'saved draft' }));
+    workspace = closeWorkspaceView(workspace, scopeId, SESSION_A);
+    const reloaded = parseDeviceWorkspace(JSON.stringify(workspace));
+    const scope = getWorkspaceScope(reconcileWorkspaceScope(reloaded, scopeId, [SESSION_A, SESSION_B]), scopeId);
+    expect(scope.openSessionIds).toEqual([]);
+    expect(scope.focusedSessionId).toBeUndefined();
+    expect(scope.views[SESSION_A].composer).toBe('saved draft');
+  });
+
+  it('opens the first available session only for a previously unseen scope', () => {
+    const scope = getWorkspaceScope(reconcileWorkspaceScope(EMPTY_DEVICE_WORKSPACE, scopeId, [SESSION_B, SESSION_A]), scopeId);
+    expect(scope.openSessionIds).toEqual([SESSION_B]);
+    expect(scope.focusedSessionId).toBe(SESSION_B);
+  });
+
   it('reports retained views across project scopes for layout reconciliation', () => {
     const otherScope = workspaceScopeKey('22222222-2222-4222-8222-222222222222');
     let workspace = openWorkspaceView(EMPTY_DEVICE_WORKSPACE, scopeId, SESSION_A);
