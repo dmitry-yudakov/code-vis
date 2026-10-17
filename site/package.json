@@ -1,0 +1,11 @@
+{
+  "name": "codeai-local-landing",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "node serve.mjs",
+    "test": "node test/content.test.mjs && node test/workflow.test.mjs && node test/preview.test.mjs",
+    "check": "node --check workflow.js && node --check serve.mjs && node --check test/browser.mjs",
+    "test:browser": "node test/browser.mjs"
+  }
+}
