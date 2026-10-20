@@ -137,6 +137,11 @@ Updated 2026-10-20. When a story ships, change the line that names it; each stor
   welcome screen and roomier Arena rows. TypeScript, isolated build, 41 focused unit tests,
   69 browser checks, light/dark screenshot review and independent review pass. The running app
   has not been restarted.
+- **Shipped:** [Story 111](stories/STORY-20261020-coalesce-live-turn-snapshots.md) — live streams
+  coalesce pending history snapshots before serialization, preserving approvals, exact replay,
+  and final delivery through large activity bursts. Focused regressions, TypeScript, isolated build,
+  production-browser checks and Astra review pass. The full suite has one confirmed pre-existing
+  composer assertion failure. The running app has not been restarted.
 - **Shipped:** [Story 6](stories/STORY-20261003-agent-emitted-software-model.md) — explicit `/model`
   turns emit typed LLM suggestions alongside Mermaid, with stable server-generated ids, atomic
   validation and bounded temporary checkout accumulation. Three independent real-Claude passes

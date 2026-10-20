@@ -9,6 +9,9 @@ import { TurnMode } from '@/server/runs/turnMode';
 import { AgentRunError } from '@/server/agents/agentRunError';
 import type { PermissionBroker } from '@/server/runs/permissionBroker';
 import { createTurn } from '@/shared/turnActivity';
+import { RunRegistry } from '@/server/runs/runRegistry';
+import { agentEventStream } from '@/app/api/agent/eventStream';
+import { readNdjson } from '@/features/conversation/ndjson';
 import type { AgentEvent, AgentProcessRunner } from '@/shared/types';
 
 async function fixture() {
@@ -31,6 +34,50 @@ async function fixture() {
 }
 
 describe('conversation history lifecycle', () => {
+  it('streams a large provider burst through completion and retains the same final answer after reload', async () => {
+    const { input, store, close } = await fixture();
+    const registry = new RunRegistry();
+    registry.start({ runId: input.runId, sessionId: input.session.id, participantId: input.session.primaryAgentId, cancel() {} });
+    let attachmentId = '';
+    const response = agentEventStream({ runId: input.runId,
+      onDetach: () => registry.unsubscribe(input.runId, attachmentId), start(write) {
+        attachmentId = registry.subscribe(input.runId, write)!.attachmentId;
+        return registry.wait(input.runId)!;
+      } });
+    const received: AgentEvent[] = [];
+    const reading = (async () => {
+      for await (const event of readNdjson<AgentEvent>(response)) received.push(event);
+    })();
+    void reading.catch(() => undefined);
+    const runner: AgentProcessRunner = { async run(provider) {
+      for (let block = 0; block < 3; block++) {
+        provider.emit({ type: 'history', activity: { kind: 'assistant', key: `block-${block}`, text: 'x'.repeat(240 * 1024) } });
+      }
+      for (let index = 0; index < 40; index++) {
+        provider.emit({ type: 'history', activity: { kind: 'assistant', key: 'block-2', text: '.', append: true } });
+        provider.emit({ type: 'text-delta', text: '.' });
+      }
+      provider.emit({ type: 'history', activity: { kind: 'assistant', key: 'final', text: 'Burst complete.', phase: 'final', complete: true } });
+      return { finalText: 'Burst complete.', finalBlockId: 'final', sessionId: 'provider', durationMs: 1, outputBytes: 15 };
+    } };
+    try {
+      await runConversation({ ...input, runner, emit: event => registry.record(input.runId, event) });
+      registry.finish(input.runId);
+      await reading;
+      const saved = await store.getSession(input.session.id);
+      expect(saved.messages).toHaveLength(2);
+      expect(saved.messages[0]).toMatchObject({ status: 'sent', turn: { lifecycle: 'completed', history: 'saved' } });
+      expect(saved.messages[1]).toMatchObject({ status: 'complete', rawMarkdown: 'Burst complete.' });
+      expect(received.find(event => event.type === 'assistant-message')).toEqual({
+        type: 'assistant-message', runId: input.runId, message: saved.messages[1],
+      });
+      expect(received.filter(event => event.type === 'turn-activity').at(-1)).toMatchObject({
+        turn: { lifecycle: 'completed', history: 'saved', sequence: saved.messages[0].role === 'user' ? saved.messages[0].turn!.sequence : -1 },
+      });
+      expect(received.at(-1)).toMatchObject({ type: 'done', cancelled: false });
+    } finally { registry.finish(input.runId); await reading.catch(() => undefined); await close(); }
+  });
+
   it('settles unfinished display entries before starting a replacement mode attempt', async () => {
     const { input, events, close } = await fixture();
     const turnMode = new TurnMode('agent');

@@ -69,7 +69,34 @@ const record = (extra) => {
 };
 record();
 
-if (prompt.includes('[chronological-ui]')) {
+if (prompt.includes('[history-burst-ui]')) {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  // The reported turn accumulated tool output. Keep those details collapsed in the browser so
+  // this exercises transport without making giant unbroken paragraphs dominate text layout.
+  for (let index = 0; index < 48; index++) {
+    const id = `burst-read-${index}`;
+    emit({ type: 'assistant', message: { id: `message-${id}`, content: [{
+      type: 'tool_use', id, name: 'Read', input: { file_path: path.join(process.cwd(), `context-${index}.txt`) },
+    }] } });
+    emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'Context line.\n'.repeat(1100) }] } });
+  }
+  const stream = event => emit({ type: 'stream_event', event });
+  stream({ type: 'message_start', message: { id: 'burst-progress' } });
+  stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+  // Small provider events amplify into full 740 KiB history snapshots in one event-loop burst.
+  for (let index = 0; index < 80; index++) {
+    stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '.' } });
+  }
+  stream({ type: 'content_block_stop', index: 0 });
+  emit({ type: 'control_request', request_id: 'burst-approval', request: {
+    subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'true' },
+  } });
+  readJsonLine();
+  const final = 'Large activity burst completed.';
+  emit({ type: 'assistant', message: { id: 'burst-final', stop_reason: 'end_turn', content: [{ type: 'text', text: final }] } });
+  emit({ type: 'result', subtype: 'success', result: final, session_id: sessionId });
+}
+else if (prompt.includes('[chronological-ui]')) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
   const assistant = (id, content, stop_reason = null, parent_tool_use_id) => emit({ type: 'assistant', parent_tool_use_id, message: { id, content, stop_reason } });
   const text = (id, value) => assistant(id, [{ type: 'text', text: value }]);

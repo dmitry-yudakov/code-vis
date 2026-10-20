@@ -6,6 +6,9 @@ const NDJSON_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
 };
 
+const MAX_PENDING_BYTES = 8 * 1024 * 1024;
+type ActivityEvent = Extract<AgentEvent, { type: 'turn-activity' }>;
+
 /**
  * Wraps a run's events in an NDJSON response. `start` receives the writer and returns a promise
  * that resolves when the stream should close; a client that goes away only triggers `onDetach`,
@@ -21,6 +24,14 @@ export function agentEventStream(input: {
   const encoder = new TextEncoder();
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
   let attached = true;
+  let finished = false;
+  let closed = false;
+  let reading = false;
+  // Required events retain order and an 8 MiB pending-byte budget. Keep only one live activity
+  // snapshot (bounded by boundTurn's 1 MiB contract), serializing it when the consumer pulls.
+  const pending: (Uint8Array | ActivityEvent)[] = [];
+  let pendingBytes = 0;
+  let pendingActivity: ActivityEvent | undefined;
 
   const detach = () => {
     if (!attached) return;
@@ -28,36 +39,86 @@ export function agentEventStream(input: {
     input.onDetach();
   };
 
-  const write = (event: AgentEvent) => {
-    if (!attached) return;
+  const clear = () => {
+    pending.length = 0;
+    pendingActivity = undefined;
+    pendingBytes = 0;
+  };
+
+  const fail = (error: unknown) => {
+    if (closed) return;
+    closed = true;
+    clear();
+    controller?.error(error);
+    detach();
+  };
+
+  const overflow = () => fail(new Error('The event reader fell behind. Reconnect to recover current activity.'));
+  const encode = (event: AgentEvent) => encoder.encode(`${JSON.stringify(event)}\n`);
+
+  const flush = () => {
+    if (closed) return;
     try {
-      const chunk = encoder.encode(`${JSON.stringify(event)}\n`);
-      // A slow/disconnected reader can recover from the registry's coalesced snapshot. Never
-      // accumulate an unbounded queue of full history snapshots behind its network socket.
-      if (controller && (controller.desiredSize ?? 0) < chunk.byteLength) {
-        controller.error(new Error('The event reader fell behind. Reconnect to recover current activity.'));
-        detach();
-        return;
+      if (reading && pending.length) {
+        const next = pending.shift()!;
+        const chunk = next instanceof Uint8Array ? next : encode(next);
+        if (next instanceof Uint8Array) pendingBytes -= chunk.byteLength;
+        else pendingActivity = undefined;
+        if (chunk.byteLength > MAX_PENDING_BYTES) { overflow(); return; }
+        reading = false;
+        controller!.enqueue(chunk);
       }
-      controller?.enqueue(chunk);
-    } catch {
-      detach();
-    }
+      if (finished && !pending.length) {
+        closed = true;
+        controller!.close();
+      }
+    } catch (error) { fail(error); }
+  };
+
+  const write = (event: AgentEvent, replay = false) => {
+    if (!attached || closed) return;
+    try {
+      if (event.type === 'turn-activity' && !replay) {
+        // Move newer state after intervening required events. Replay stays verbatim because its
+        // advertised prefix length tells the browser which attention events are historical.
+        if (pendingActivity) pending.splice(pending.indexOf(pendingActivity), 1);
+        pendingActivity = event;
+        pending.push(event);
+      } else {
+        const chunk = encode(event);
+        if (pendingBytes + chunk.byteLength > MAX_PENDING_BYTES) { overflow(); return; }
+        pendingBytes += chunk.byteLength;
+        pending.push(chunk);
+      }
+      flush();
+    } catch (error) { fail(error); }
+  };
+
+  const finish = () => {
+    finished = true;
+    detach();
+    // Provider completion ends the subscription, not delivery of already accepted output.
+    flush();
   };
 
   const stream = new ReadableStream<Uint8Array>({
     start(streamController) {
       controller = streamController;
-      for (const event of input.replay || []) write(event);
-      void input.start(write).finally(() => {
-        detach();
-        try { streamController.close(); } catch { /* client already gone */ }
-      });
+      try {
+        for (const event of input.replay || []) write(event, true);
+        void input.start(write).then(finish, fail);
+      } catch (error) { fail(error); }
+    },
+    pull() {
+      reading = true;
+      flush();
     },
     cancel() {
+      closed = true;
+      clear();
       detach();
     },
-  }, { highWaterMark: 8 * 1024 * 1024, size: chunk => chunk.byteLength });
+  }, { highWaterMark: 0 });
 
   const headers = new Headers(NDJSON_HEADERS);
   if (input.headers) new Headers(input.headers).forEach((value, key) => headers.set(key, value));

@@ -6,6 +6,8 @@ import { POST as POST_PERMISSION } from '@/app/api/agent/permission/route';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { runRegistry } from '@/server/runs/runRegistry';
 import type { AgentEvent, RunDiscovery } from '@/shared/types';
+import { createTurn } from '@/shared/turnActivity';
+import { readNdjson } from '@/features/conversation/ndjson';
 
 function events(body: string): AgentEvent[] {
   return body.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as AgentEvent);
@@ -96,6 +98,38 @@ describe('run discovery and stream routes', () => {
     } finally {
       runRegistry.finish(runId);
     }
+  });
+
+  it('preserves the replay prefix before coalesced live activity and drains finished replay', async () => {
+    const runId = crypto.randomUUID();
+    runRegistry.start({ runId, sessionId: crypto.randomUUID(), participantId: 'agent', cancel() {} });
+    const turn = createTurn(runId, 'message', 'agent', new Date().toISOString());
+    try {
+      runRegistry.record(runId, { type: 'status', runId, phase: 'thinking', label: 'Historical' });
+      runRegistry.record(runId, { type: 'turn-activity', runId, turn });
+      const response = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
+      const replayCount = Number(response.headers.get('X-CodeAI-Replay-Events'));
+      expect(replayCount).toBe(2);
+      for (let sequence = 1; sequence <= 50; sequence++) {
+        runRegistry.record(runId, { type: 'turn-activity', runId, turn: { ...turn, sequence } });
+      }
+      runRegistry.record(runId, { type: 'done', runId, durationMs: 1, cancelled: false });
+      runRegistry.finish(runId);
+      const received: AgentEvent[] = [];
+      for await (const event of readNdjson<AgentEvent>(response)) received.push(event);
+      expect(received.slice(0, replayCount)).toEqual([
+        { type: 'status', runId, phase: 'thinking', label: 'Historical' },
+        { type: 'turn-activity', runId, turn },
+      ]);
+      expect(received.slice(replayCount)).toMatchObject([
+        { type: 'turn-activity', turn: { sequence: 50 } }, { type: 'done' },
+      ]);
+      const finished = await GET_STREAM(new Request(`http://localhost/api/agent/stream?runId=${runId}`));
+      expect(finished.headers.get('X-CodeAI-Run-Finished')).toBe('true');
+      const replayed = events(await finished.text());
+      expect(replayed).toHaveLength(Number(finished.headers.get('X-CodeAI-Replay-Events')));
+      expect(replayed.find(event => event.type === 'turn-activity')).toMatchObject({ turn: { sequence: 50 } });
+    } finally { runRegistry.finish(runId); }
   });
 
   it('shares run-id permission and cancellation operations across route modules', async () => {

@@ -55,6 +55,25 @@ test.afterEach(async ({ request }) => {
   for (const run of runs.active ?? []) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
 });
 
+test('large activity bursts keep one live stream through approval and saved completion', async ({ page, request }) => {
+  let reattachments = 0;
+  page.on('request', event => { if (event.url().includes('/api/agent/stream?')) reattachments++; });
+  const { conversation, session } = await openSession(page, request, 'light', '[history-burst-ui] Keep the turn observable.');
+  const approvals = conversation.getByRole('region', { name: 'Pending approvals' });
+  await expect(approvals.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
+  await approvals.getByRole('button', { name: 'Allow once', exact: true }).click();
+  await expect(conversation).toContainText('Large activity burst completed.');
+  await expect(approvals).toHaveCount(0);
+  expect(reattachments).toBe(0);
+  const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+  const user = saved.messages[0];
+  expect(user).toMatchObject({ status: 'sent', turn: { lifecycle: 'completed', history: 'saved' } });
+  expect(Buffer.byteLength(JSON.stringify(user.role === 'user' ? user.turn : undefined))).toBeGreaterThan(700 * 1024);
+  await page.reload();
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+  await expect(conversation).toContainText('Large activity burst completed.');
+});
+
 test('chat text stays selectable and copyable after interrupted panel resizing', async ({ page, request, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const { conversation, session } = await openSession(page, request, 'light', null);

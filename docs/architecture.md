@@ -443,6 +443,15 @@ queued or executing work; `POST /api/agent/permission` resolves a pending approv
 browser. Reopening the session replays activity, any pending approval, and the answer. A
 finished run stays reattachable for five minutes.
 
+Live delivery in `src/app/api/agent/eventStream.ts` follows consumer demand. Each attachment keeps
+at most one pending live history snapshot, bounded by the 1 MiB turn contract and serialized only
+when read, plus at most 8 MiB of encoded required events. A newer snapshot supersedes pending
+history and moves after intervening required events. The advertised replay prefix remains intact;
+approvals, decisions, final answers, and terminal events retain order. Producer completion detaches
+the subscription but drains accepted output before EOF. Required-event overflow or reader
+cancellation ends only that attachment; execution, permissions, checkout ownership, and registry
+replay remain available. Snapshot bursts alone do not force disconnection.
+
 ## Permissions
 
 In Agent mode every side effect raises a permission card. `src/server/runs/permissionBroker.ts`
