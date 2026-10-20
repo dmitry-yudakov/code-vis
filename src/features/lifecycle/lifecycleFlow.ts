@@ -78,7 +78,10 @@ function observe(flow: LifecycleFlow, snapshot: CodeAiLifecycleSnapshot): Lifecy
   // without one, a server that may have been replaced, or a different release, means reload.
   const outcome = snapshot.lastOperation?.operationId === watch.operationId ? snapshot.lastOperation : undefined;
   const reload = outcome ? outcome.outcome !== 'build-failed' : serverMayBeGone(watch) || snapshot.releaseId !== watch.formerReleaseId;
-  return { ...answered, watch: undefined, reload: flow.reload || reload };
+  const error = outcome?.outcome === 'build-failed'
+    ? [outcome.detail || 'The build failed.', 'The current release is still running.'].join(' ')
+    : undefined;
+  return { ...answered, error, watch: undefined, reload: flow.reload || reload };
 }
 
 export function lifecycleReducer(flow: LifecycleFlow, event: LifecycleEvent): LifecycleFlow {

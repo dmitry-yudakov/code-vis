@@ -24,6 +24,7 @@ export function takeRestartProject(): string | undefined {
 
 export interface CodeAiLifecycleOwner extends LifecycleView {
   confirming: boolean;
+  error?: string;
   refresh(): Promise<void>;
   /** First activation: show the confirmation. */
   ask(): void;
@@ -115,6 +116,7 @@ export function useCodeAiLifecycle(projectId?: string): CodeAiLifecycleOwner {
   return {
     ...lifecycleView(flow, now),
     confirming: flow.confirming,
+    error: flow.error,
     refresh,
     ask: useCallback(() => dispatch({ type: 'ask' }), []),
     dismiss: useCallback(() => dispatch({ type: 'dismiss' }), []),

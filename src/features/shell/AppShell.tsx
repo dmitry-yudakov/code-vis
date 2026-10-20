@@ -61,7 +61,7 @@ import { ReportsPanel } from '@/features/reports/ReportsPanel';
 import { REPORT_ONLY_INSTRUCTION, capturedReportTarget, pendingReportLabel } from '@/features/reports/reportModel';
 import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
 import { useTurnCheckpoint } from '@/features/conversation/useTurnCheckpoint';
-import { CodeAiLifecycleMenu } from '@/features/lifecycle/CodeAiLifecycleMenu';
+import { CodeAiLifecycleDialog, CodeAiLifecycleMenu } from '@/features/lifecycle/CodeAiLifecycleMenu';
 import { lifecycleConfirmation } from '@/features/lifecycle/lifecycleFlow';
 import { takeRestartProject, useCodeAiLifecycle } from '@/features/lifecycle/useCodeAiLifecycle';
 import { immersiveViewKey } from './immersive/workspaceLayout';
@@ -293,6 +293,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const reports = useImmersiveReports(workspaceMachineId ? undefined : projectId);
   // Build & restart operates this home machine's own installation, so it too follows a local project.
   const lifecycle = useCodeAiLifecycle(workspaceMachineId ? undefined : projectId);
+  useEffect(() => {
+    if (lifecycle.error) notify({ key: 'codeai-lifecycle', tone: 'error', message: lifecycle.error });
+  }, [lifecycle.error, notify]);
   const pendingReportIds = view?.pendingReportIds ?? [];
   const setComposer = useCallback((value: SetStateAction<string>) => {
     if (!sessionId) return;
@@ -2593,6 +2596,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
 
       <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />
+      {!loading && !immersiveActive && <CodeAiLifecycleDialog lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
       {!loading && <MachineSettingsDialog
         open={machineSettingsOpen}
         securityLevel={arena.machines.find((entry) => entry.machine.kind === 'local')?.securityLevel || 'guarded'}
@@ -2642,7 +2646,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               >Archive session</Button>
             )}
             {vrUnavailable && <><Divider /><p><strong>VR unavailable</strong>{vrUnavailable}</p></>}
-            {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
+            {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} onRequest={() => {
+              moreMenuRef.current?.close();
+              lifecycle.ask();
+            }} />}
           </>}
         />
       )}

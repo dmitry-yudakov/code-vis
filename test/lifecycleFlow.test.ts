@@ -77,10 +77,14 @@ describe('the build-and-restart sequence', () => {
     const watching = run([seen(idle), { type: 'ask' }, { type: 'confirm' }, { type: 'accepted', snapshot: building }]);
     const failed = run([seen(finished('build-failed', 'release-a', 'The build failed with exit code 1.'))], watching);
     expect(failed).toMatchObject({ reload: false, watch: undefined });
+    expect(failed.error).toContain('The build failed with exit code 1.');
     const view = lifecycleView(failed, 0);
     expect(view).toMatchObject({ busy: false, canRequest: true });
     expect(view.status).toContain('The build failed with exit code 1.');
     expect(lifecyclePollDelay(failed)).toBeUndefined();
+    expect(run([seen(finished('build-failed', 'release-a'))], watching).error).toContain('current release is still running');
+    // An old recorded failure is status, not a new notification when first opening the project.
+    expect(run([seen(finished('build-failed', 'release-a'))]).error).toBeUndefined();
   });
 
   it('follows an operation it did not start, as after reloading this page mid-build', () => {

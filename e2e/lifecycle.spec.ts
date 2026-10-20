@@ -29,7 +29,7 @@ test('an unmanaged server offers no Build & restart, even in CodeAI’s own proj
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
 });
 
-test('a managed server’s control confirms, follows the build and restart, and reloads into the same project', async ({ page, request }) => {
+test('a managed server’s control confirms, follows the build and restart, and reloads into the same project', async ({ page, request }, testInfo) => {
   const stamp = Date.now();
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
   const create = async (name: string, relativePath: string) => {
@@ -52,12 +52,21 @@ test('a managed server’s control confirms, follows the build and restart, and 
       available: true, phase: 'idle', releaseId: 'release-b',
       lastOperation: { operationId, outcome: 'succeeded', finishedAt: new Date().toISOString() },
     },
+    failed: {
+      available: true, phase: 'idle', releaseId: 'release-a',
+      lastOperation: { operationId, outcome: 'build-failed', finishedAt: new Date().toISOString(), detail: 'The build failed with exit code 1.' },
+    },
   };
   let phase: keyof typeof snapshots | 'gone' = 'idle';
+  let rejectNext = false;
   const posted: unknown[] = [];
   await page.route('**/api/codeai-lifecycle**', async (route) => {
     if (route.request().method() === 'POST') {
       posted.push(route.request().postDataJSON());
+      if (rejectNext) {
+        rejectNext = false;
+        return route.fulfill({ status: 409, json: { error: 'Agent turns are queued or running.' } });
+      }
       phase = 'building';
       return route.fulfill({ status: 202, json: { snapshot: snapshots.building } });
     }
@@ -73,16 +82,62 @@ test('a managed server’s control confirms, follows the build and restart, and 
   await page.getByRole('option', { name: new RegExp(self.name) }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(self.name);
   const menu = page.locator('.more-menu');
+  const dialog = page.getByRole('dialog', { name: 'Build and restart CodeAI?' });
+  for (const theme of ['Light', 'Dark']) {
+    for (const viewport of [{ width: 960, height: 548 }, { width: 360, height: 640 }]) {
+      await page.setViewportSize(viewport);
+      await menu.locator(':scope > button').click();
+      await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: theme, exact: true }).click();
+      await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
+      await expect(page.locator('.desktop-picker-paper:visible')).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveAccessibleDescription(/from installation\?.*uncommitted changes included.*runs it on this machine.*VR session ends/);
+      await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      for (const element of [dialog, dialog.locator('#lifecycle-confirmation-description'),
+        dialog.getByRole('button', { name: 'Cancel' }), dialog.getByRole('button', { name: 'Build and restart', exact: true })]) {
+        await expect(element).toBeInViewport({ ratio: 1 });
+      }
+      expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`restart-${theme.toLowerCase()}-${viewport.width}.png`), animations: 'disabled' });
+      if (viewport.width === 960) await dialog.getByRole('button', { name: 'Cancel' }).click();
+      else await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(menu.locator(':scope > button')).toBeFocused();
+      expect(posted).toEqual([]);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  rejectNext = true;
+  await menu.locator(':scope > button').click();
+  await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
+  await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.toast').filter({ hasText: 'Agent turns are queued or running.' })).toHaveAttribute('data-tone', 'error');
+  await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
+  const buildRequest = { action: 'build-and-restart', projectId: self.id };
+  expect(posted).toEqual([buildRequest]);
+  await menu.locator(':scope > button').click();
+  await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
+  await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
+  await expect(page.locator('.lifecycle-pill')).toContainText('Building CodeAI');
+  phase = 'failed';
+  const failure = page.locator('.toast').filter({ hasText: 'The build failed with exit code 1.' });
+  await expect(failure).toHaveAttribute('data-tone', 'error');
+  await expect(failure).toContainText('The current release is still running.');
+  await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
+  phase = 'idle';
   await menu.locator(':scope > button').click();
   await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('Serving release release-a.');
   await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Build & restart CodeAI' }).click();
-  await expect(page.locator('.desktop-picker-paper:visible').getByRole('alert')).toContainText('from installation?');
-  await expect(page.locator('.desktop-picker-paper:visible').getByRole('alert')).toContainText('runs it on this machine');
-  expect(posted).toEqual([]);
-  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Build and restart' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('from installation?');
+  await expect(dialog).toContainText('runs it on this machine');
+  expect(posted).toEqual([buildRequest, buildRequest]);
+  await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
+  await expect(dialog).toBeHidden();
 
   await expect(page.locator('.lifecycle-pill')).toContainText('Building CodeAI');
-  expect(posted).toEqual([{ action: 'build-and-restart', projectId: self.id }]);
+  expect(posted).toEqual([buildRequest, buildRequest, buildRequest]);
   // New turns wait for the restart, and the draft stays.
   const composer = page.getByPlaceholder(/Ask anything about this project/);
   await composer.fill('Kept for after the restart');
@@ -106,5 +161,5 @@ test('a managed server’s control confirms, follows the build and restart, and 
   await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('Serving release release-b.');
   await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('the new release is running');
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
-  expect(posted).toHaveLength(1);
+  expect(posted).toHaveLength(3);
 });

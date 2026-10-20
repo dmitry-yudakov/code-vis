@@ -203,6 +203,12 @@ CodeAI section of Session tools. The first activation opens a confirmation; the 
 confirmation names the selected checkout, says modified code will execute on the home machine, and
 warns that the current WebXR session will end.
 
+On desktop, activation closes the More menu and opens a centered MUI confirmation dialog. The
+checkout warning and both actions remain visible on short and narrow screens. Cancel or Escape
+closes the dialog without starting a build and returns focus to More.
+Request errors, failed builds being followed, and reconnect errors also appear in a toast, so closing
+More does not hide a failure. An old failed build read on initial load does not raise a new toast.
+
 During `building`, CodeAI remains usable for reading but disables new agent turns and another lifecycle
 request so source cannot change underneath the build. The initiating view shows phase and elapsed time.
 At `restarting`, the browser expects connection loss, polls the same exact origin with bounded backoff,
@@ -306,6 +312,9 @@ it, and the parent's terminal output is the only channel.
       lost; a peer home's turn here blocks it.
 - [x] One explicit confirmation is required in both flat and immersive UI and states that modified
       source executes locally and that WebXR will end. Agent/provider text cannot approve the action.
+- [x] Desktop confirmation opens outside the More menu, keeps its warning and actions visible on
+      short and narrow screens in both themes, returns focus to More on Cancel or Escape, and
+      surfaces rejected requests and followed build failures outside the closed menu.
 - [x] While building, the old release stays responsive, new turns/lifecycle operations are rejected,
       status remains bounded, and the build runs Next's own CLI through `process.execPath` with only the
       verified root plus the exact inactive slot.
@@ -494,8 +503,10 @@ All three parts are implemented and verified offline, in the end-to-end suite, a
   [AppShell.tsx](../src/features/shell/AppShell.tsx#L467)). That project's focused session and draft
   then restore through the workspace views.
 - **Flat.** The More menu shows `CodeAiLifecycleMenu` only where the snapshot is available: the
-  button, the warning with **Build and restart** and **Cancel**, and the status
-  ([CodeAiLifecycleMenu.tsx](../src/features/lifecycle/CodeAiLifecycleMenu.tsx#L7)). A header pill
+  button and the status. Activation closes More and opens `CodeAiLifecycleDialog` beside the shell's
+  other dialogs, with the checkout warning, **Cancel**, and **Build and restart**
+  ([CodeAiLifecycleMenu.tsx:24](../src/features/lifecycle/CodeAiLifecycleMenu.tsx#L24)). Cancel and
+  Escape restore focus to More; request/reconnect errors also raise a shell toast. A header pill
   shows the badge while busy ([AppShell.tsx](../src/features/shell/AppShell.tsx#L1883)). `send()`
   refuses with a notice and keeps the draft while busy ([AppShell.tsx](../src/features/shell/AppShell.tsx#L1132)).
 - **Headset.** Session tools' home button **Reports** became **CodeAI**
@@ -564,6 +575,15 @@ All three parts are implemented and verified offline, in the end-to-end suite, a
   `scripts/`; `scripts/managedLifecycle.ts` is checked through its tests.
 
 ## Verification record
+
+October 20, 2026, desktop confirmation follow-up:
+
+- TypeScript, the isolated production build, and all eight lifecycle-flow unit checks pass.
+- Both focused production-browser lifecycle checks pass, including light/dark screenshots at
+  960×548 and 360×640, Cancel/Escape focus return, a rejected request, a failed build, and a
+  successful retry/reconnect with project and draft retained. The lifecycle route is mocked.
+- Screenshot review and independent review pass. The running application was not restarted;
+  physical Quest acceptance remains pending.
 
 September 23, 2026, on Ubuntu 26.04.1 with Node 24.20.0 and Next 16.3.1.
 
