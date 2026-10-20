@@ -55,6 +55,43 @@ test.afterEach(async ({ request }) => {
   for (const run of runs.active ?? []) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
 });
 
+test('chat text stays selectable and copyable after interrupted panel resizing', async ({ page, request, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { conversation, session } = await openSession(page, request, 'light', null);
+  session.messages.push({ id: crypto.randomUUID(), role: 'assistant', authorId: session.primaryAgentId,
+    createdAt: new Date().toISOString(), status: 'complete', rawMarkdown: 'Copy this chat text.',
+    blocks: [{ kind: 'markdown', markdown: 'Copy this chat text.' }] });
+  await page.route('**/api/sessions**', async route => {
+    if (new URL(route.request().url()).pathname === `/api/sessions/${session.id}`) return route.fulfill({ json: { session } });
+    const response = await route.fetch();
+    const data = await response.json();
+    if (Array.isArray(data.sessions)) data.sessions = data.sessions.map((item: PublicSession) => item.id === session.id ? session : item);
+    await route.fulfill({ response, json: data });
+  });
+  await page.reload();
+  const text = conversation.locator('.assistant-blocks p');
+  await expect(text).toHaveText('Copy this chat text.');
+  await page.getByRole('button', { name: 'Canvas', exact: true }).click();
+  const handle = page.getByRole('separator', { name: 'Resize conversation panel' });
+  for (const end of ['pointerup', 'pointercancel', 'blur'] as const) {
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(page.locator('body')).toHaveClass(/panel-resizing/);
+    if (end === 'pointerup') await page.mouse.up();
+    else if (end === 'pointercancel') await page.dispatchEvent('body', 'pointercancel', { pointerId: 1 });
+    else await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await expect(page.locator('body')).not.toHaveClass(/panel-resizing/);
+    // Releasing outside the page must not leave either resizing or selection suppression active.
+    await page.mouse.up();
+    await text.click({ clickCount: 3 });
+    await expect.poll(() => page.evaluate(() => getSelection()?.toString().trim())).toBe('Copy this chat text.');
+    await page.evaluate(() => navigator.clipboard.writeText(''));
+    await page.keyboard.press('ControlOrMeta+c');
+    await expect.poll(async () => (await page.evaluate(() => navigator.clipboard.readText())).trim()).toBe('Copy this chat text.');
+  }
+});
+
 for (const theme of ['light', 'dark'] as const) {
   test(`${theme}: idle conversation controls and normal text contrast`, async ({ page, request }) => {
     const { conversation } = await openSession(page, request, theme, null);

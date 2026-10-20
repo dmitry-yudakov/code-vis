@@ -207,10 +207,14 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     const finish = () => setResize(undefined);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish, { once: true });
+    window.addEventListener('pointercancel', finish, { once: true });
+    window.addEventListener('blur', finish, { once: true });
     document.body.classList.add('panel-resizing');
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      window.removeEventListener('blur', finish);
       document.body.classList.remove('panel-resizing');
     };
   }, [resize, setPanelWidth]);
