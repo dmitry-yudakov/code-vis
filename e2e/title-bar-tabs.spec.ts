@@ -26,7 +26,7 @@ async function openProject(page: Page, request: APIRequestContext, count = 3) {
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
   while (await page.getByRole('tab').count()) await page.getByRole('tab', { selected: true }).press('Delete');
   for (const session of sessions) await picker.selectOption(session.id);
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions.at(-1)!.title);
+  if (sessions.length) await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions.at(-1)!.title);
   return { project, sessions };
 }
 
@@ -46,6 +46,30 @@ async function visibleControls(page: Page) {
       && !element.closest('[hidden], [inert]');
   }).length);
 }
+
+test('empty-project session picker does not paint its placeholder over All sessions', async ({ page, request }) => {
+  await openProject(page, request, 0);
+  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
+  const control = page.locator('.all-sessions-picker');
+  await expect(picker).toBeDisabled();
+  await expect(picker.locator('option:checked')).toHaveText('No sessions yet');
+
+  for (const theme of ['Light', 'Dark']) {
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: theme, exact: true }).click();
+    await page.locator('.more-menu > button').click();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await control.hover();
+      const withPlaceholder = await control.screenshot({ animations: 'disabled' });
+      await picker.locator('option:checked').evaluate((option) => { option.textContent = ''; });
+      const withoutPlaceholder = await control.screenshot({ animations: 'disabled' });
+      await picker.locator('option:checked').evaluate((option) => { option.textContent = 'No sessions yet'; });
+      expect(withPlaceholder.equals(withoutPlaceholder), `${theme} at ${width}px: native placeholder must be invisible`).toBe(true);
+      await page.locator('.app-header').screenshot({ path: `/tmp/codeai-empty-project-${theme.toLowerCase()}-${width}.png` });
+    }
+  }
+});
 
 test('title-bar tabs return the separate row to the canvas in both themes', async ({ page, request }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

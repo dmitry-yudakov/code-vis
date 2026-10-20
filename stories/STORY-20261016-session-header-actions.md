@@ -47,6 +47,7 @@ before implementation; Astra recommended explicit Archive, All sessions, and Clo
 - [x] The no-open-tabs state survives reload; first-time project selection still opens an available session.
 - [x] Both themes, overflow, 390px layout, keyboard navigation and active-turn exclusions pass focused browser checks.
 - [x] TypeScript, focused unit checks, an isolated production build, and an independent Astra review pass.
+- [x] Empty projects show a single All sessions label without the disabled native placeholder painting over it, in both themes and at desktop/phone widths.
 
 ## Out of scope
 
@@ -83,3 +84,12 @@ before implementation; Astra recommended explicit Archive, All sessions, and Clo
   Escape focus assertions passed both before and after that hardening in this Chrome.
 - Browser fixtures use local fake providers. No real-provider execution or physical Quest acceptance
   was needed for this desktop change. The running installation was not restarted or deployed.
+
+## Empty-project header repair — October 20, 2026
+
+- MUI's disabled input text fill made “No sessions yet” paint over the custom All sessions label.
+  The scoped disabled-select override keeps that placeholder transparent.
+- A rendered-pixel regression fails against the previous production build and passes with the fix
+  in light/dark themes at 1440px and 390px. All four header screenshots were inspected.
+- All seven title-bar browser checks, 38 focused unit checks, TypeScript, the isolated production
+  build, and the read-only subagent review pass. The running installation was not restarted.

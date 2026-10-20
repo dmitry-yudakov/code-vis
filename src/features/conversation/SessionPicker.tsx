@@ -146,7 +146,13 @@ export function SessionPicker({ sessions, value, onChange, ...creation }: Sessio
       <label className="all-sessions-picker">
         <span className="all-sessions-label" aria-hidden="true">All sessions <span>⌄</span></span>
         <NativeSelect disableUnderline IconComponent={() => null}
-          sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', '& select': { color: 'transparent', p: 0, height: '100%', width: '100%' }, '& option': { color: 'text.primary', bgcolor: 'background.paper' } }} id="all-sessions" title="All sessions" value={value || ''} disabled={!sessions.length} onChange={(event) => onChange(event.target.value)} inputProps={{ "aria-label": "All sessions", title: "All sessions" }}>
+          sx={{
+            position: 'absolute', inset: 0, width: '100%', height: '100%',
+            '& select': { color: 'transparent', p: 0, height: '100%', width: '100%' },
+            // MUI's disabled text fill otherwise paints the placeholder over our visible label.
+            '& select.Mui-disabled': { WebkitTextFillColor: 'transparent' },
+            '& option': { color: 'text.primary', bgcolor: 'background.paper' },
+          }} id="all-sessions" title="All sessions" value={value || ''} disabled={!sessions.length} onChange={(event) => onChange(event.target.value)} inputProps={{ "aria-label": "All sessions", title: "All sessions" }}>
           {!value && <option value="" disabled>{sessions.length ? 'Choose a session' : 'No sessions yet'}</option>}
           {sessions.map((session) => (
             <option value={session.id} key={session.id}>
