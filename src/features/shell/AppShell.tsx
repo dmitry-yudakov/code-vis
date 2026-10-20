@@ -2729,19 +2729,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       ) : !session ? (
         <div className="welcome-screen">
-          {sessions.length ? (
-            <>
-              <h1>No open sessions</h1>
-              <p>Reopen a conversation from All sessions, or start a new session.</p>
-            </>
-          ) : (
-            <>
-              <div className="welcome-orbit"><span /><span /><span /><div className="brand-mark">C</div></div>
-              <span className="eyebrow">Local exploration, planning, and building</span>
-              <h1>{selectedProject ? selectedProject.name : 'No project'},<br />as a living map.</h1>
-              <p>Start a persistent session with or without a repository. The canvas, participants, and conversation record work immediately; attach a repository when you want an agent turn or working-tree context.</p>
-            </>
-          )}
+          <div className="welcome-intro">
+            <div className="brand-mark" aria-hidden="true">C</div>
+            <span className="eyebrow">Your local workspace</span>
+            <h1>{sessions.length ? 'No open sessions' : 'Good ideas start here.'}</h1>
+            <p>{sessions.length
+              ? 'Reopen a conversation from All sessions, or start something new.'
+              : `Explore, plan, and build${selectedProject ? ` in ${selectedProject.name}` : ' with your agents'}. Choose your setup to get started.`}</p>
+          </div>
           {!sessions.length && <SessionCreationForm
             onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
             worktrees={health?.worktrees}

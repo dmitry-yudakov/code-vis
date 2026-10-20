@@ -157,8 +157,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('radio', { name: 'Agent', exact: true }).click();
     await conversation.getByRole('textbox', { name: 'Instruction' }).fill('Make a bounded change.');
     await conversation.getByRole('button', { name: 'Send', exact: true }).click();
-    const approval = conversation.getByRole('article', { name: 'Approval required: Edit' });
-    await expect(approval.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    const approval = conversation.getByRole('region', { name: 'Pending approvals' });
+    await expect(approval.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
     await expectScreenshot(approval, `approval-${theme}-${width}.png`);
   });
 }
@@ -220,6 +220,7 @@ for (const theme of ['light', 'dark'] as const) {
       ],
     } } }));
     await page.goto('/');
+    if (width === 1440) await page.getByRole('button', { name: 'Canvas', exact: true }).click();
     if (width === 360) await page.getByRole('button', { name: /^Conversation/ }).click();
     await page.getByRole('button', { name: /Changes/ }).click();
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });

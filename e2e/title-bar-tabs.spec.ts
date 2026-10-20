@@ -93,7 +93,7 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   expect(canvas.y).toBe(48);
   expect(canvas.height).toBe(852);
   const count = await visibleControls(page);
-  expect(count).toBeLessThanOrEqual(28); // One visible finish action added to the title bar.
+  expect(count).toBeLessThanOrEqual(31); // Includes the three empty-conversation starter actions.
   await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await page.locator('.more-menu > button').click();

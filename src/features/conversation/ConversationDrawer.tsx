@@ -25,6 +25,12 @@ import { ApprovalArea, type PermissionFeedback } from './ApprovalArea';
 import { TurnActivity, StreamingMarkdown } from './TurnActivity';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 
+const STARTER_PROMPTS = [
+  { label: 'Explore the project', detail: 'Understand the code and how it fits together', icon: 'code', text: 'Explain the architecture of this project and the main parts of the code.' },
+  { label: 'Review changes', detail: 'Take a closer look at the working tree', icon: 'changes', text: 'Review the working changes in this project for bugs and regressions.' },
+  { label: 'Plan a change', detail: 'Work through an idea before building', icon: 'plan', text: 'Help me plan a change to this project. Start by asking what I want to achieve.' },
+] as const;
+
 export function ConversationDrawer({
   open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   turn, liveMessageId, liveState, permissionFeedback, onRefreshPermissions, retryBlocked,
@@ -104,6 +110,7 @@ export function ConversationDrawer({
   const following = useRef(true);
   const observedActivity = useRef(new Map<string, string>());
   const [hasNewActivity, setHasNewActivity] = useState(false);
+  const [starterFocus, setStarterFocus] = useState<string>();
   const [reviewRequest, setReviewRequest] = useState<{ id: string; revision: number; scope: string }>();
   const key = `${session?.machineId || ''}:${session?.id || ''}`;
   const activitySignature = `${session?.messages.map(message => `${message.id}:${message.status}:${message.role === 'user' ? message.turn?.sequence || 0 : ''}`).join('|')}|${turn?.sequence || 0}|${preview.length}|${toolActivity.length}`;
@@ -161,7 +168,7 @@ export function ConversationDrawer({
           onClick={onNewChat}
         ><ShellIcon name="newChat" /></Button>
       </header>
-      <div className="conversation-scroll" ref={scrollRef} onScroll={() => {
+      <div className={`conversation-scroll${!session?.messages.length ? ' is-empty' : ''}`} ref={scrollRef} onScroll={() => {
         const scroll = scrollRef.current;
         if (!scroll) return;
         following.current = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40;
@@ -204,7 +211,25 @@ export function ConversationDrawer({
             <StreamingMarkdown text={preview} />
           </article>
         )}
-        {!session?.messages.length && <div className="drawer-empty">Start a conversation about your project.</div>}
+        {!session?.messages.length && <section className="conversation-welcome" aria-label="Get started">
+          <div className="welcome-symbol" aria-hidden="true"><ShellIcon name="code" /></div>
+          <h1>What would you like to build?</h1>
+          <p>Bring a question, an idea, or a change to work through.</p>
+          <div className="conversation-starters">
+            {STARTER_PROMPTS.map(prompt => <Button key={prompt.label} color="inherit" className="conversation-starter"
+              sx={{ justifyContent: 'flex-start', gap: 1.5, px: 1.75, py: 1.5 }}
+              disabled={Boolean(composer.trim())} aria-label={prompt.label}
+              onClick={() => {
+                if (composer.trim()) return;
+                onComposer(prompt.text);
+                setStarterFocus(`${key}:${prompt.label}`);
+              }}>
+              <ShellIcon name={prompt.icon} />
+              <span className="conversation-starter-copy"><strong>{prompt.label}</strong><small>{prompt.detail}</small></span>
+              <ShellIcon name="arrowUpRight" />
+            </Button>)}
+          </div>
+        </section>}
       </div>
       <div className="drawer-composer">
         {hasNewActivity && <Button className="jump-latest" onClick={jump}>Jump to latest · New activity</Button>}
@@ -234,8 +259,8 @@ export function ConversationDrawer({
           cancelReady={cancelReady}
           sendBlocked={sendBlocked}
           autoFocus
-          focusRequest={focusRequest}
-          onFocusRequestHandled={onFocusRequestHandled}
+          focusRequest={starterFocus || focusRequest}
+          onFocusRequestHandled={() => { setStarterFocus(undefined); onFocusRequestHandled?.(); }}
           attached={attached}
           reports={reports}
           images={images} files={files} onRemoveFile={onRemoveFile}

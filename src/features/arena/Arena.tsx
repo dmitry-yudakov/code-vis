@@ -10,6 +10,7 @@ import Paper from '@mui/material/Paper';
 import Chip from '@mui/material/Chip';
 import ListItemButton from '@mui/material/ListItemButton';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
+import { ShellIcon } from '@/features/shell/ShellIcon';
 import { useMemo, useState } from 'react';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import type {
@@ -129,13 +130,15 @@ export function Arena({
   return (
     <main className="arena" aria-label="Arena">
       <header className="arena-heading">
-        <div>
+        <div className="arena-heading-copy">
+          <span className="eyebrow">Your workspace</span>
           <h1>Arena</h1>
+          <p>All your sessions. One place to keep things moving.</p>
           {showMachines && <span>{machines.length} machines{offlineMachines ? `, ${offlineMachines} offline` : ''}</span>}
         </div>
         <div className="arena-heading-actions">
-          <Button type="button" disabled={refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</Button>
-          <Button type="button" className="arena-primary" variant="contained" disabled={!onlineMachines.length} onClick={onNewSession}>
+          <Button type="button" variant="text" color="inherit" startIcon={<ShellIcon name="refresh" />} disabled={refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</Button>
+          <Button type="button" className="arena-primary" variant="contained" startIcon={<ShellIcon name="newChat" />} disabled={!onlineMachines.length} onClick={onNewSession}>
             New session
           </Button>
         </div>

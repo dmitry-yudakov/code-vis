@@ -10,13 +10,13 @@ import Popper from '@mui/material/Popper';
 /** A desktop picker containing forms or several selections; other controls remain reachable. */
 export interface DesktopPopoverHandle { close(): void; trigger: HTMLButtonElement | null }
 
-export function DesktopPopover({ className, label, summary, disabled = false, color = 'primary', placement = 'top-start', anchorSelector,
+export function DesktopPopover({ className, label, summary, disabled = false, color = 'inherit', placement = 'top-start', anchorSelector,
   control, onOpenChange, triggerClassName, description, icon = false, width = 320, keepMounted = false, group, children }: {
   className: string;
   label: string;
   summary: ReactNode;
   disabled?: boolean;
-  color?: 'primary' | 'warning' | 'error';
+  color?: 'primary' | 'warning' | 'error' | 'inherit';
   placement?: 'top-start' | 'bottom-start' | 'bottom-end' | 'right-end';
   anchorSelector?: string;
   control?: RefObject<DesktopPopoverHandle | null>;
@@ -86,7 +86,7 @@ export function DesktopPopover({ className, label, summary, disabled = false, co
   return <ClickAwayListener mouseEvent="onPointerDown" touchEvent="onTouchStart" onClickAway={() => setAnchor(null)}>
     <div className={className}>
       {icon ? <IconButton {...triggerProps}>{summary}</IconButton>
-        : <Button {...triggerProps} variant={color === 'primary' ? 'outlined' : 'contained'} sx={{ maxWidth: '100%', gap: 0.5 }}>{summary}</Button>}
+        : <Button {...triggerProps} variant={color === 'warning' || color === 'error' ? 'contained' : 'text'} sx={{ maxWidth: '100%', gap: 0.5 }}>{summary}</Button>}
       <Popper keepMounted={keepMounted} open={Boolean(anchor)} anchorEl={anchorSelector ? anchor?.closest(anchorSelector) ?? anchor : anchor} placement={placement}
         container={() => trigger.current?.closest('.MuiDialog-container') ?? document.body}
         popperOptions={{ strategy: 'fixed' }}

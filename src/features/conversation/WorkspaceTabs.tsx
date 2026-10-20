@@ -160,7 +160,7 @@ export function WorkspaceTabs({
         <div className="workspace-session-actions">
           <Tooltip describeChild title={archiveDisabledReason || 'Archive this session. You can undo or restore it later.'}>
             <span className="workspace-session-archive"><Button
-              type="button" aria-label="Archive session" disabled={!canArchive} startIcon={<ShellIcon name="archive" />}
+              type="button" variant="text" color="inherit" aria-label="Archive session" disabled={!canArchive} startIcon={<ShellIcon name="archive" />}
               onClick={onArchive}
             >Archive</Button></span>
           </Tooltip>

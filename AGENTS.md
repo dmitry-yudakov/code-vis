@@ -24,7 +24,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-16. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-20. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -127,6 +127,11 @@ Updated 2026-10-16. When a story ships, change the line that names it; each stor
   shows Archive, All sessions, and + New; Session actions offers Close tab, and closing the last
   tab stays closed after reload. Astra design consultation/review, focused offline and production
   browser checks, TypeScript, and the isolated build pass. The running app has not been restarted.
+- **Shipped:** [Story 110](stories/STORY-20261020-desktop-workspace-design.md) — quieter desktop
+  navigation, readable typography, focused conversation starters, one composer surface, a full-width
+  welcome screen and roomier Arena rows. TypeScript, isolated build, 41 focused unit tests,
+  69 browser checks, light/dark screenshot review and independent review pass. The running app
+  has not been restarted.
 - **Shipped:** [Story 6](stories/STORY-20261003-agent-emitted-software-model.md) — explicit `/model`
   turns emit typed LLM suggestions alongside Mermaid, with stable server-generated ids, atomic
   validation and bounded temporary checkout accumulation. Three independent real-Claude passes

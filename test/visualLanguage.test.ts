@@ -41,13 +41,12 @@ describe('sheet and instrument visual language', () => {
     expect(theme).toContain('&.Mui-focusVisible');
   });
 
-  it('uses Archivo only for the header lockup and display-scale empty headings', async () => {
+  it('reserves Archivo for the header lockup', async () => {
     const css = await readFile(globalsPath, 'utf8');
     const displayRules = css.split('\n').filter((line) => line.includes('var(--display)'));
 
-    expect(displayRules).toHaveLength(2);
-    expect(displayRules.every((line) => /\.brand|\.empty-canvas-content h1/.test(line))).toBe(true);
-    expect(css).toMatch(/\.empty-canvas-content h1[^\n]+clamp\(34px/);
+    expect(displayRules).toHaveLength(1);
+    expect(displayRules[0]).toMatch(/\.brand/);
   });
 
   it('renders an idle hairline and one honest tick per reported tool event', () => {

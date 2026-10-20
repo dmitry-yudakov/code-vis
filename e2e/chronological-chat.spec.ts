@@ -59,12 +59,12 @@ for (const theme of ['light', 'dark'] as const) {
   test(`${theme}: idle conversation controls and normal text contrast`, async ({ page, request }) => {
     const { conversation } = await openSession(page, request, theme, null);
     const controls = await conversation.locator('button:visible, select:visible, textarea:visible').count();
-    const contrast = await textContrast(conversation.locator('header strong, .drawer-empty, .inline-status, .composer-menu > button'));
+    const contrast = await textContrast(conversation.locator('header strong, .conversation-welcome h1, .conversation-welcome p, .conversation-starter-copy, .conversation-starter small, .inline-status, .composer-menu > button'));
     await mkdir('test-results/chronological-chat', { recursive: true });
     await writeFile(`test-results/chronological-chat/${theme}-idle${process.env.CODEAI_METRICS_BASELINE ? '-baseline' : ''}.json`, JSON.stringify({ controls, contrast }, null, 2));
     for (const item of contrast) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
-    // The pre-story production baseline has nine visible controls, including its textarea.
-    expect(controls).toBeLessThanOrEqual(9);
+    // Empty conversations add three starter actions to the existing nine-control budget.
+    expect(controls).toBeLessThanOrEqual(12);
   });
 
   test(`${theme}: ordered durable tools, fixed approvals, review, drafts and scrolling`, async ({ page, request }) => {

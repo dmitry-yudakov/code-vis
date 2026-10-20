@@ -380,7 +380,7 @@ export function InstructionComposer({
   }, [value]);
   return (
     <>
-    <Paper sx={{ p: 1 }} className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
+    <Paper sx={{ p: 1.5, borderRadius: '14px' }} className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
       {attached.length + reports.length + images.length + files.length > 0 && (
         <div className="attachment-chips" aria-label="Attachments">
           {attached.map((canvas) => {
@@ -402,11 +402,11 @@ export function InstructionComposer({
           </AttachmentChip>)}
         </div>
       )}
-      <TextField fullWidth
+      <TextField fullWidth variant="standard"
         multiline inputRef={ref}
         value={value}
         rows={1}
-        slotProps={{ htmlInput: { maxLength: 8_000, 'aria-label': 'Instruction' }, input: { inputComponent: 'textarea' } }}
+        slotProps={{ htmlInput: { maxLength: 8_000, 'aria-label': 'Instruction' }, input: { inputComponent: 'textarea', disableUnderline: true } }}
         placeholder={attached.some((canvas) => canvas.kind === 'sketch')
           ? 'Describe what you drew, or just send the sketch…'
           : reports.length ? 'Explain what the report shows, or just send it…'

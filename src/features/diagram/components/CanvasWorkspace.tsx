@@ -13,6 +13,7 @@ import { DiagramCanvas, type CanvasViewState, type DrawingCanvasTarget } from '.
 import { RunRibbon } from './RunRibbon';
 import type { PendingImage } from '@/features/conversation/imageAttachments';
 import { SpatialBoundary } from '@/features/diagram/spatial/SpatialBoundary';
+import { ShellIcon } from '@/features/shell/ShellIcon';
 import type { CanvasSurface, SpatialViewState } from '@/features/shell/workspaceViews';
 
 export interface CanvasSnapshot {
@@ -168,11 +169,11 @@ export function CanvasWorkspace({
           />
         ) : (
           <div className="empty-canvas-content">
-            <div className="empty-mark">C</div>
-            <p className="eyebrow">Conversational code canvas</p>
-            <h1>Start with a question.<br />Or draw what you mean.</h1>
-            <p>Claude can read and search this repository, explain it in prose, or create a Mermaid diagram when a visual would help. You can also sketch first and send the drawing as the instruction.</p>
-            <Button variant="contained" type="button" className="primary-cta sketch-cta" onClick={onNewSketch}>Start a sketch <span>✎</span></Button>
+            <div className="welcome-symbol" aria-hidden="true"><ShellIcon name="canvas" /></div>
+            <p className="eyebrow">Your canvas</p>
+            <h1>Make the code<br />easier to see.</h1>
+            <p>Turn a conversation into a diagram, or sketch an idea and send it to your agent.</p>
+            <Button variant="contained" type="button" sx={{ mt: 3, px: 2, py: 1 }} startIcon={<ShellIcon name="canvas" />} onClick={onNewSketch}>Start a sketch</Button>
             <div className="quick-prompts">
               {[
                 'Map the architecture of this project',
@@ -180,7 +181,7 @@ export function CanvasWorkspace({
                 'Visualize staged changes',
                 'Visualize the last commit',
               ].map((prompt) => (
-                <Button type="button" key={prompt} onClick={() => { onComposer(prompt); onOpenChat(); }}>{prompt}<span>↗</span></Button>
+                <Button type="button" color="inherit" key={prompt} onClick={() => { onComposer(prompt); onOpenChat(); }}>{prompt}<ShellIcon name="arrowUpRight" /></Button>
               ))}
             </div>
           </div>

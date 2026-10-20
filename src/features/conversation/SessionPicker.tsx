@@ -131,7 +131,7 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
           : 'Open Machine settings on the executing machine for Docker setup.'}</>
         : 'Install and authenticate Claude Code or Codex for Local, or select Docker.'}</p>}
       {failed && <Alert severity="error">{error || 'Could not create the session. Try again.'}</Alert>}
-      <Button type="submit" disabled={creating || !provider || invalidBinding || invalidWorktree}>{creating ? 'Creating…' : failed ? 'Retry' : submitLabel}</Button>
+      <Button type="submit" variant="contained" disabled={creating || !provider || invalidBinding || invalidWorktree}>{creating ? 'Creating…' : failed ? 'Retry' : submitLabel}</Button>
     </form>
   );
 }
