@@ -6,6 +6,37 @@ React Flow client, and VS Code extension are archived and documented separately 
 
 ---
 
+## Development principles
+
+Use these principles when making architectural choices. Concrete workload limits and verification
+belong in the affected story and tests; this document owns the shared reasoning.
+
+1. **Define the user outcome first.** State what must remain usable during normal operation,
+   overload, and recovery. Bounded memory or safe rejection alone does not prove a feature works.
+2. **Trace the complete affected path.** Inspect producers, transformations, queues, persistence,
+   transport, consumers, and recovery as relevant. Check prior fixes and preserve the behavior they
+   protect. A local change must satisfy the contracts on both sides of its boundary.
+3. **Give every limit an explicit contract.** Name its owner, units, scope, and behavior when
+   reached. Distinguish individual messages, retained history, pending memory, cumulative output,
+   and duration. Bound pending work without imposing an accidental lifetime limit on valid work.
+4. **Separate replaceable state from required events.** New snapshots can supersede pending
+   snapshots of the same state; approval and terminal semantics must survive. Keep one authoritative
+   owner for each state and lifecycle. A presentation or transport failure must not release a run's
+   execution ownership or turn a retry into duplicate work.
+5. **Test progress alongside failure containment.** For affected boundaries, prove that supported
+   work reaches its user as well as that failure preserves data and ownership. Include realistic
+   bursts and recovery when relevant, using the actual producer/consumer path at the boundary where
+   the behavior emerges. Do not require delivery to an indefinitely non-consuming client.
+6. **Make incident lessons executable.** Reproduce bugs with regression tests that fail before
+   the fix, retain the reason for earlier fixes, and review the user outcome as well as local code.
+   Report what verification actually covered and any remaining gaps.
+
+These principles apply the repository-first guidance in
+[OpenAI's harness engineering](https://openai.com/index/harness-engineering/) and the incremental,
+end-to-end verification guidance in
+[Anthropic's long-running agent harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
+Keep changes simple and focused; add a check or abstraction when a concrete failure justifies it.
+
 ## Shape
 
 Story 92 adds session-owned Local worktrees in `src/server/repository/managedWorktrees.ts`.

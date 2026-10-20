@@ -4,6 +4,11 @@ A local-first Next.js application for working on a trusted repository through a 
 local-agent conversation and a Mermaid canvas. The repository root **is** the application: one
 private npm package, one Next.js 16 app, one set of commands. Node 20.9+.
 
+Before changing behavior across modules, read the [architecture principles](docs/architecture.md#development-principles).
+Trace the affected path and relevant prior fixes; preserve their behavioral contracts in acceptance
+criteria and regression tests. Scale verification to the change, including successful delivery and
+recovery where affected.
+
 ## UI design principles
 
 Prefer a concise, functional UI that makes the next action clear. Avoid walls of text in routine flows.

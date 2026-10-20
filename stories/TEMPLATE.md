@@ -31,6 +31,14 @@ What it should do instead. Be specific enough that someone else could implement 
 1. …
 2. …
 
+### Affected invariants and failure paths
+
+For behavior crossing module boundaries, use the
+[architecture principles](../docs/architecture.md#development-principles). Name the affected path,
+state/lifecycle owners, and relevant prior fixes. For changed limits, state their units, scope,
+and overload behavior. Describe what the user can still do during failure and recovery.
+Keep this proportional to the change; omit sections that do not apply.
+
 ### Type contract (if types change)
 
 ```ts
@@ -45,6 +53,8 @@ The definition of done. Each is a checkbox — tick `[x]` as it's satisfied. The
 done until every box is checked and **How to verify** passes.
 
 - [ ] …
+- [ ] Supported work reaches the user; affected failure and recovery paths preserve the stated
+      invariants. Include a positive outcome alongside containment checks where relevant.
 - [ ] `server` and/or `web` typecheck against any new/changed types.
 
 ## Out of scope
@@ -57,3 +67,6 @@ What this story deliberately does **not** do (and which story owns it, if any).
 
 The concrete steps to confirm it works — run the app, the lens/view to open, what to look for.
 See [run](.) / the verify flow.
+For bug fixes, record the regression that fails before the fix. State the checks actually run and
+any unverified environments or behavior; passing local checks alone does not establish end-to-end
+acceptance.
