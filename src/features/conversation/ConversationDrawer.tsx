@@ -37,7 +37,7 @@ export function ConversationDrawer({
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onArchive, archiveDisabledReason, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
 }: {
   open: boolean;
   turn?: TurnRecord;
@@ -100,6 +100,8 @@ export function ConversationDrawer({
   onExecutePlan(participantId: string): void;
   onContinue(): void;
   onNewChat(): void;
+  onArchive(): void;
+  archiveDisabledReason?: string;
   onToggleAttachment(id: string): void;
   onOpenHistory(): void;
   onNewSketch(): void;
@@ -147,6 +149,8 @@ export function ConversationDrawer({
   const canonicalIds = new Set(session?.messages.flatMap(message => recordFor(message)?.entries.flatMap(entry => entry.kind === 'assistant' && entry.canonicalMessageId ? [entry.canonicalMessageId] : []) || []));
   const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => <ChatMessage
     message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
+    onArchive={message.id === lastMessage?.id && message.role === 'assistant' && message.status === 'complete' ? onArchive : undefined}
+    archiveDisabledReason={archiveDisabledReason}
     running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
     executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
     onSelectDiagram={onSelectDiagram} onRetry={retryBlocked ? undefined : onRetry} onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined} />;

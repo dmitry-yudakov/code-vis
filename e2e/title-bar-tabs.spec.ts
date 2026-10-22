@@ -30,6 +30,15 @@ async function openProject(page: Page, request: APIRequestContext, count = 3) {
   return { project, sessions };
 }
 
+async function finishReply(page: Page) {
+  const conversation = page.getByRole('complementary', { name: 'Conversation' });
+  await conversation.locator('textarea').fill('Explain the project.');
+  await conversation.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(conversation.locator('.chat-message.assistant.complete')).toBeVisible();
+  await expect(conversation.getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
+  return conversation;
+}
+
 async function expectSelectedInView(page: Page) {
   await expect.poll(async () => {
     const list = (await page.locator('.workspace-tablist .MuiTabs-scroller').boundingBox())!;
@@ -83,7 +92,9 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   const picker = header.locator('.all-sessions-picker');
   await picker.hover();
   await expect(picker).toHaveText(/All sessions/);
-  await expect(header.getByRole('button', { name: 'Archive session', exact: true })).toHaveText('Archive');
+  await expect(header.getByRole('button', { name: 'Archive session', exact: true })).toHaveCount(0);
+  await expect(header.getByRole('button', { name: 'Session actions', exact: true })).toHaveCount(0);
+  await expect(header.getByRole('tab').getByRole('button', { name: /^Close tab:/ })).toBeVisible();
   await expect(header.getByRole('button', { name: 'New session', exact: true })).toHaveText(/New/);
   await page.mouse.move(0, 100);
   await picker.locator('select').focus();
@@ -143,8 +154,7 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   await picker.selectOption(sessions[7].id);
 
   // Close tab applies the same neighbour focus as Delete, including overflow.
-  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: /^Close tab/ }).click();
+  await page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Close tab:/ }).click();
   await expect(tabs).toHaveCount(7);
   await expect(tabs.last()).toBeFocused();
   await expectSelectedInView(page);
@@ -185,6 +195,30 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   await expectSelectedInView(page);
 });
 
+test('closing a background tab keeps the current session, Git status and keyboard focus', async ({ page, request }) => {
+  await page.route('**/api/repository/status?**', route => route.fulfill({ json: { tree: {
+    isRepository: true, branch: 'main', files: [{ path: 'README.md', status: 'modified', staged: false, unstaged: true }],
+  } } }));
+  const { sessions } = await openProject(page, request, 3);
+  const selected = page.getByRole('tab', { selected: true });
+  await expect(selected).toHaveAccessibleName(sessions[2].title);
+  const changes = page.getByRole('button', { name: 'Changes, 1 file', exact: true });
+  await expect(changes).toBeVisible();
+  await page.getByRole('button', { name: `Close tab: ${sessions[0].title}`, exact: true }).click();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(selected).toHaveAccessibleName(sessions[2].title);
+  await expect(selected).toBeFocused();
+  await expect(changes).toBeVisible();
+  // Tab reaches the selected tab's native close button; Enter closes once without selecting another tab.
+  await selected.press('Tab');
+  const close = selected.getByRole('button', { name: /^Close tab:/ });
+  await expect(close).toBeFocused();
+  await close.press('Enter');
+  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(selected).toHaveAccessibleName(sessions[1].title);
+  await expect(selected).toBeFocused();
+});
+
 test('title-bar tabs preserve stored layouts and protect approval-blocked views', async ({ page, request }) => {
   const { sessions } = await openProject(page, request, 2);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
@@ -204,21 +238,21 @@ test('title-bar tabs preserve stored layouts and protect approval-blocked views'
   await expect(selected).toHaveClass(/awaiting-approval/);
   await expect(selected.locator('.approval-badge')).toHaveText('1');
   await expectSelectedInView(page);
-  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeDisabled();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: 'Session actions', exact: true })).toBeFocused();
+  await expect(selected.getByRole('button', { name: /^Close tab:/ })).toBeDisabled();
+  await expect(conversation.getByRole('button', { name: 'Archive session', exact: true })).toHaveCount(0);
   await selected.press('Delete');
   await expect(page.getByRole('tab')).toHaveCount(2);
   await picker.selectOption(sessions[0].id);
-  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
+  await expect(page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Close tab:/ })).toBeEnabled();
+  // The live background tab remains protected too.
+  await expect(page.getByRole('tab', { selected: false }).getByRole('button', { name: /^Close tab:/ })).toBeDisabled();
   await picker.selectOption(sessions[1].id);
   await conversation.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
+  await expect(selected.getByRole('button', { name: /^Close tab:/ })).toBeEnabled();
 });
 
-test('header actions close a tab without archiving and archive completed sessions with Undo', async ({ page, request }) => {
+test('tab closes preserve drafts and reply archive handles failure, pending requests and Undo', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const { sessions } = await openProject(page, request, 2);
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
   let archiveRequests = 0;
@@ -226,9 +260,7 @@ test('header actions close a tab without archiving and archive completed session
   page.on('dialog', (dialog) => { throw new Error(`Unexpected confirmation: ${dialog.message()}`); });
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Keep my draft when I close this tab');
-  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
-  await expect(page.getByRole('menu')).toContainText('Keep this session in All sessions.');
-  await page.getByRole('menuitem', { name: /^Close tab/ }).click();
+  await page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Close tab:/ }).click();
   await expect(page.getByRole('tab')).toHaveCount(1);
   await expect(page.getByRole('tab', { selected: true })).toBeFocused();
   expect(archiveRequests).toBe(0);
@@ -236,50 +268,78 @@ test('header actions close a tab without archiving and archive completed session
   await expect(conversation.locator('textarea')).toHaveValue('Keep my draft when I close this tab');
   await expect(page.getByRole('tab')).toHaveCount(2);
 
-  // Hold the archive to verify both header actions guard duplicate/competing requests.
+  await finishReply(page);
+  const archive = conversation.locator('.chat-message.assistant.complete').getByRole('button', { name: 'Archive session', exact: true });
+  await expect(archive).toHaveCount(1);
+  await page.reload();
+  await expect(archive).toHaveCount(1);
+  for (const theme of ['Light', 'Dark']) {
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: theme, exact: true }).click();
+    await page.locator('.more-menu > button').click();
+    await archive.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `/tmp/codeai-story112-desktop-${theme.toLowerCase()}.png` });
+  }
+  // A failed archive retains the conversation and permits an explicit retry.
+  await page.route(`**/api/sessions/${sessions[1].id}/archive`, route => route.fulfill({ status: 500, json: { error: 'Archive temporarily unavailable.' } }), { times: 1 });
+  await archive.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Archive temporarily unavailable.' })).toBeVisible();
+  await expect(archive).toBeEnabled();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+
+  // Hold the archive to verify both actions guard duplicate/competing requests.
   let releaseArchive!: () => void;
   const archiveGate = new Promise<void>((resolve) => { releaseArchive = resolve; });
   await page.route(`**/api/sessions/${sessions[1].id}/archive`, async (route) => {
     await archiveGate;
     await route.continue();
   });
-  const archive = page.getByRole('button', { name: 'Archive session', exact: true });
   await archive.click();
   await expect(archive).toBeDisabled();
-  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeDisabled();
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Close tab:/ })).toBeDisabled();
   releaseArchive();
   await expect(page.getByRole('tab')).toHaveCount(1);
   await expect(picker.locator(`option[value="${sessions[1].id}"]`)).toHaveCount(0);
-  const toast = page.getByRole('status').filter({ hasText: `Archived “${sessions[1].title}”` });
+  const toast = page.getByRole('status').filter({ hasText: 'Archived “Explain the project.”' });
   await expect(toast).toBeVisible();
-  expect(archiveRequests).toBe(1);
+  expect(archiveRequests).toBe(2);
   await toast.getByRole('button', { name: 'Undo archive' }).click();
   await expect(picker.locator(`option[value="${sessions[1].id}"]`)).toHaveCount(1);
   await picker.selectOption(sessions[1].id);
   await expect(page.getByRole('tab')).toHaveCount(2);
 });
 
-test('phone session actions offer archive and close the last tab with a clear empty state', async ({ page, request }) => {
+test('phone tabs close directly and the final reply offers Archive in both themes', async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { sessions } = await openProject(page, request, 1);
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
-  const actions = page.getByRole('button', { name: 'Session actions', exact: true });
-  await actions.click();
-  await expect(page.getByRole('menuitem', { name: /^Archive session/ })).toBeVisible();
-  await page.getByRole('menuitem', { name: /^Close tab/ }).click();
+  await page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Close tab:/ }).click();
   await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
   await expect(picker).toBeFocused();
+  await page.reload();
+  await expect(page.getByRole('tab')).toHaveCount(0);
   await picker.selectOption(sessions[0].id);
-  await actions.click();
-  await page.getByRole('menuitem', { name: /^Archive session/ }).click();
+  const conversation = await finishReply(page);
+  const archive = conversation.getByRole('button', { name: 'Archive session', exact: true });
+  for (const theme of ['Light', 'Dark']) {
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: theme, exact: true }).click();
+    await page.locator('.more-menu > button').click();
+    await archive.scrollIntoViewIfNeeded();
+    await expectSelectedInView(page);
+    const box = (await archive.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await page.screenshot({ path: `/tmp/codeai-story112-phone-${theme.toLowerCase()}.png` });
+  }
+  await archive.click();
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   await expect(picker.locator(`option[value="${sessions[0].id}"]`)).toHaveCount(0);
 });
 
-test('header guards use machine-reported turns, offline state and the latest revision', async ({ page, request }) => {
+test('tab and reply guards use machine-reported turns, offline state and the latest revision', async ({ page, request }) => {
   const { sessions } = await openProject(page, request, 1);
+  await finishReply(page);
   const session = sessions[0];
   const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
   const owner = snapshot.machines.find((machine) => machine.sessions.some((item) => item.id === session.id))!;
@@ -287,13 +347,10 @@ test('header guards use machine-reported turns, offline state and the latest rev
   let observation = 'offline';
   await page.route('**/api/arena', (route) => route.fulfill({ json: snapshot, headers: { 'x-header-state': observation } }));
   await page.waitForResponse((response) => response.headers()['x-header-state'] === 'offline');
-  const archive = page.locator('.app-header').getByRole('button', { name: 'Archive session', exact: true });
-  const actions = page.getByRole('button', { name: 'Session actions', exact: true });
+  const archive = page.getByRole('complementary', { name: 'Conversation' }).getByRole('button', { name: 'Archive session', exact: true });
+  const close = page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Close tab:/ });
   await expect(archive).toBeDisabled();
-  await actions.click();
-  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeEnabled();
-  await page.keyboard.press('Escape');
-  await expect(actions).toBeFocused();
+  await expect(close).toBeEnabled();
 
   owner.machine.state = 'online';
   owner.runs.active.push({ runId: 'another-device-run', sessionId: session.id, participantId: session.primaryAgentId,
@@ -301,9 +358,7 @@ test('header guards use machine-reported turns, offline state and the latest rev
   observation = 'queued';
   await page.waitForResponse((response) => response.headers()['x-header-state'] === 'queued');
   await expect(archive).toBeDisabled();
-  await actions.click();
-  await expect(page.getByRole('menuitem', { name: /^Close tab/ })).toBeDisabled();
-  await page.keyboard.press('Escape');
+  await expect(close).toBeDisabled();
   await page.getByRole('tab', { selected: true }).press('Delete');
   await expect(page.getByRole('tab')).toHaveCount(1);
 

@@ -3,6 +3,7 @@
 import { Disclosure } from '@/features/shell/Disclosure';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import { ShellIcon } from '@/features/shell/ShellIcon';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -29,7 +30,7 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onArchive, archiveDisabledReason }: {
   message: ChatMessageType;
   theme: ThemeName;
   participants: Participant[];
@@ -40,6 +41,8 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   onSelectDiagram(id: string): void;
   onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
   onExecutePlan?(participantId: string): void;
+  onArchive?(): void;
+  archiveDisabledReason?: string;
 }) {
   const author = participants.find((participant) => participant.id === message.authorId);
   if (message.role === 'user') {
@@ -110,6 +113,11 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
           <Button type="button" disabled={running || Boolean(executePlanBlocked)} title={executePlanBlocked} onClick={() => onExecutePlan(message.authorId)}>Execute plan</Button>
         </div>
       )}
+      {onArchive && <Button type="button" variant="text" color="inherit" size="small"
+        aria-label="Archive session" title={archiveDisabledReason || 'Archive this session. You can undo or restore it later.'}
+        disabled={running || Boolean(archiveDisabledReason)} startIcon={<ShellIcon name="archive" />} onClick={onArchive}
+        sx={{ mt: 1, color: 'text.secondary' }}
+      >Archive</Button>}
     </article>
   );
 }

@@ -18,7 +18,7 @@ function header(overrides: Partial<Props> = {}) {
     onModelSelectionChange: vi.fn(), onSelectAgent: vi.fn(), onMakePrimary: vi.fn(), onAddAgent: vi.fn(),
     onHandoff: vi.fn(), onSend: vi.fn(), onCancel: vi.fn(), onRemoveAttachment: vi.fn(),
     onRemoveReport: vi.fn(), onAddImages: vi.fn(), onRemoveImage: vi.fn(), onOpenImage: vi.fn(),
-    onDecidePermission: vi.fn(), onExecutePlan: vi.fn(), onContinue: vi.fn(), onNewChat: vi.fn(),
+    onDecidePermission: vi.fn(), onExecutePlan: vi.fn(), onContinue: vi.fn(), onNewChat: vi.fn(), onArchive: vi.fn(),
     onToggleAttachment: vi.fn(), onOpenHistory: vi.fn(), onNewSketch: vi.fn(),
   };
   const props: Props = {

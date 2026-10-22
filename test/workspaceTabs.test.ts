@@ -13,29 +13,32 @@ function tabs(props: Partial<ComponentProps<typeof WorkspaceTabs>> = {}) {
     sessions: [{ id: SESSION_A, title: 'First session' }, { id: SESSION_B, title: 'Second session' }] as SessionSnapshot[],
     openSessionIds: [SESSION_A, SESSION_B], focusedSessionId: SESSION_A,
     runsBySession: {}, unreadBySession: {}, onFocus: vi.fn(), onClose: vi.fn(),
-    canArchive: true, onArchive: vi.fn(),
     ...props,
   })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }
 
 describe('workspace tabs', () => {
-  it('keeps session actions outside the tablist accessibility tree', () => {
+  it('puts a named close button on every tab without nested native buttons or detached actions', () => {
     const markup = tabs();
-    const tablist = markup.match(/<div[^>]*role="tablist"[\s\S]*?<\/div>/)?.[0];
-    expect(tablist).toBeDefined();
-    expect(tablist).toContain('role="tab"');
-    expect(tablist).not.toContain('workspace-session-actions');
-    expect(markup.indexOf('workspace-session-actions')).toBeGreaterThan(markup.indexOf(tablist!));
-    expect(markup).toContain('aria-label="Archive session"');
-    expect(markup).toContain('aria-label="Session actions"');
-    expect(markup).not.toContain('Close focused view');
-    expect(markup).not.toContain('workspace-tab-close');
+    expect(markup).toContain('aria-label="Close tab: First session"');
+    expect(markup).toContain('aria-label="Close tab: Second session"');
+    expect(markup).not.toContain('aria-label="Archive session"');
+    expect(markup).not.toContain('aria-label="Session actions"');
+    expect(markup).not.toMatch(/<button[^>]*role="tab"/);
+    expect(markup.match(/class="[^"]*workspace-tab-close/g)).toHaveLength(2);
   });
 
-  it.each(['running', 'queued', 'needs-you'] as const)('retains %s status and the shell archive guard', (state) => {
-    const markup = tabs({ canArchive: false, runsBySession: { [SESSION_A]: { state, status: state, pendingApprovals: 1 } } });
-    expect(markup).toMatch(/<button(?=[^>]*aria-label="Archive session")(?=[^>]*disabled="")[^>]*>/);
+  it.each(['running', 'queued', 'needs-you'] as const)('protects only the %s tab while retaining its status', (state) => {
+    const markup = tabs({ runsBySession: { [SESSION_A]: { state, status: state, pendingApprovals: 1 } } });
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Close tab: First session")(?=[^>]*disabled="")[^>]*>/);
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Close tab: Second session")(?![^>]*disabled="")[^>]*>/);
     expect(markup).toContain(`First session — ${state}`);
+  });
+
+  it('protects a background tab during preparation or an archive request', () => {
+    const markup = tabs({ closeDisabledReasons: { [SESSION_B]: 'Archiving this session…' } });
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Close tab: Second session")(?=[^>]*disabled="")[^>]*>/);
+    expect(markup).toContain('Archiving this session…');
   });
 
   it('retains queue, approval and unread indicators after presentation changes', () => {
@@ -49,7 +52,7 @@ describe('workspace tabs', () => {
     expect(markup).toContain('class="queue-badge">Q2');
     expect(markup).toContain('class="approval-badge">3');
     expect(markup).toContain('class="unread-badge">4');
-    expect(markup.match(/<button(?=[^>]*role="tab")(?=[^>]*tabindex="0")[^>]*>/g)).toHaveLength(1);
+    expect(markup.match(/<div(?=[^>]*role="tab")(?=[^>]*tabindex="0")[^>]*>/g)).toHaveLength(1);
   });
 });
 

@@ -2318,11 +2318,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const immersiveMachine = arena.machines.find((entry) => entry.machine.id === machineId);
   // A turn another device started reaches this one only through the Arena poll. The server refuses
   // an archive during any live turn; this keeps the control from offering one.
-  const sessionLive = sessionRunning || Boolean(session && immersiveMachine?.runs.active.some((run) => run.sessionId === session.id));
-  const canArchiveSession = Boolean(session) && !sessionLive && archivingSessionId !== session?.id
-    && immersiveMachine?.machine.state === 'online';
-  const closeSessionDisabledReason = sessionLive ? 'Wait for this turn to finish.'
-    : archivingSessionId === session?.id ? 'Archiving this session…' : undefined;
+  const closeSessionDisabledReasons = Object.fromEntries(sessions.flatMap(item => {
+    const live = Boolean(runsBySession[item.id]) || preparingSends.includes(item.id) || reconnectingSends.includes(item.id)
+      || immersiveMachine?.runs.active.some(run => run.sessionId === item.id);
+    const reason = live ? 'Wait for this turn to finish.'
+      : archivingSessionId === item.id ? 'Archiving this session…' : undefined;
+    return reason ? [[item.id, reason]] : [];
+  }));
+  const closeSessionDisabledReason = sessionId ? closeSessionDisabledReasons[sessionId] : undefined;
+  const canArchiveSession = Boolean(session) && !closeSessionDisabledReason && immersiveMachine?.machine.state === 'online';
   const archiveSessionDisabledReason = closeSessionDisabledReason
     || (immersiveMachine?.machine.state !== 'online' ? 'This execution machine is offline.' : undefined);
   const archiveOpenSession = async () => {
@@ -2413,11 +2417,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                   runsBySession={runTabsBySession}
                   unreadBySession={unreadBySession}
                   onFocus={workspace.open}
-                  onClose={(id) => { workspace.close(id); setRepositoryTree(undefined); }}
-                  canArchive={canArchiveSession}
-                  archiveDisabledReason={archiveSessionDisabledReason}
-                  closeDisabledReason={closeSessionDisabledReason}
-                  onArchive={() => void archiveOpenSession()}
+                  onClose={(id) => { workspace.close(id); if (id === sessionId) setRepositoryTree(undefined); }}
+                  closeDisabledReasons={closeSessionDisabledReasons}
                 />
                 <SessionPicker
                   onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
@@ -2824,6 +2825,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               instructions={instructionsChoice}
               onContinue={() => continueSession(continuationExecution)}
               onNewChat={() => void newChat()}
+              onArchive={() => void archiveOpenSession()}
+              archiveDisabledReason={archiveSessionDisabledReason}
               sendBlocked={composerBlocked}
               securityLevel={securityLevel}
               recovery={recovery}

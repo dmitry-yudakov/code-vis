@@ -128,10 +128,14 @@ Updated 2026-10-20. When a story ships, change the line that names it; each stor
   additional spatial/VR browser checks remain unverified because Chrome could not create WebGL contexts.
 - **Next shell story:** Story 74, status-bar — planned in the workbench shell epic. The development
   queue's next implementation item is Q5, Story 7's persistent repository model.
-- **Shipped:** [Story 109](stories/STORY-20261016-session-header-actions.md) — the project header
-  shows Archive, All sessions, and + New; Session actions offers Close tab, and closing the last
-  tab stays closed after reload. Astra design consultation/review, focused offline and production
-  browser checks, TypeScript, and the isolated build pass. The running app has not been restarted.
+- **Shipped:** [Story 109](stories/STORY-20261016-session-header-actions.md) — clarified session
+  actions and made last-tab close survive reload. Story 112 refines the controls; its original
+  Astra consultation/review and focused offline/browser checks passed.
+- **Shipped:** [Story 112](stories/STORY-20261020-tab-close-and-reply-archive.md) — each session
+  tab has an × to close it, and Archive sits below the final completed assistant reply. Closing
+  preserves drafts, history, focus and current Git status; archive retains its guards and Undo.
+  All 57 focused unit tests, 18 production-browser checks, TypeScript, isolated build, light/dark
+  desktop/phone screenshot inspection and independent review pass. The running app has not been restarted.
 - **Shipped:** [Story 110](stories/STORY-20261020-desktop-workspace-design.md) — quieter desktop
   navigation, readable typography, focused conversation starters, one composer surface, a full-width
   welcome screen and roomier Arena rows. TypeScript, isolated build, 41 focused unit tests,
