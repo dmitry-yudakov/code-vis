@@ -154,7 +154,10 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   await conversation.locator('textarea').fill('Answer on the laptop');
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(conversation.getByText('Remote answer arrived.')).toBeVisible();
-  if (securityLevel === 'native') await expect(conversation.locator('.chat-message.assistant .mode-tag')).toHaveText('Native · Agent');
+  if (securityLevel === 'native') {
+    await expect(conversation.locator('.execution-line')).toContainText('Native');
+    await expect(conversation.locator('.chat-message .mode-tag')).toHaveCount(0);
+  }
   expect(remoteMessagePath).toBe(`/api/machines/${MACHINE_ID}/agent/message`);
 
   // Home settings remain reachable here without admitting Docker on this executor.

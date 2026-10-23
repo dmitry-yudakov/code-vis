@@ -127,7 +127,7 @@ test('shows the isolation reason and permits an earlier Ask retry independently 
   await expect.poll(() => sent).toEqual(['ask']);
 });
 
-test('runs Native modes, records their tags, isolates Claude, and keeps new sessions at Ask', async ({ page }) => {
+test('runs Native modes without repeated message badges, isolates Claude, and keeps new sessions at Ask', async ({ page }) => {
   expect((await (await page.request.get(`${origin}/api/health`)).json()).securityLevel).toBe('native');
   const snapshot = await (await page.request.get(`${origin}/api/arena`)).json();
   expect(snapshot.machines[0].securityLevel).toBe('native');
@@ -149,9 +149,8 @@ test('runs Native modes, records their tags, isolates Claude, and keeps new sess
     // A request the real CLI still sends must continue to reach the ordinary permission card.
     await conversation.getByRole('button', { name: 'Deny', exact: true }).click();
     await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Edit denied');
-    const label = mode === 'Agent' || mode === 'Auto' ? `Native · ${mode}` : mode;
-    await expect(conversation.locator('.chat-message.user .mode-tag').last()).toHaveText(label);
-    await expect(conversation.locator('.chat-message.assistant .mode-tag').last()).toHaveText(label);
+    await expect(conversation.locator('.mode-menu > button')).toHaveText(mode);
+    await expect(conversation.locator('.chat-message .mode-tag')).toHaveCount(0);
   }
   await page.reload();
   await expect(conversation.locator('.mode-menu > button')).toHaveText('Full access');

@@ -1,6 +1,7 @@
 import { expect, test, type Page, type APIRequestContext, type Locator } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
+import { createTurn, updateActivity, type ToolStatus } from '../src/shared/turnActivity';
 
 async function openSession(page: Page, request: APIRequestContext, theme: 'light' | 'dark', instruction: string | null = '[chronological-ui] Inspect chat activity.') {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
@@ -112,6 +113,82 @@ test('chat text stays selectable and copyable after interrupted panel resizing',
 });
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`${theme}: quiet message headers and compact tool results reveal full details`, async ({ page, request }) => {
+    const { conversation, session } = await openSession(page, request, theme, null);
+    const messageId = crypto.randomUUID();
+    let turn = createTurn('quiet-tools', messageId, session.primaryAgentId, session.createdAt);
+    const results: Array<[ToolStatus, string, string]> = [
+      ['succeeded', 'Succeeded', '--live'], ['failed', 'Failed', '--stop'], ['denied', 'Denied', '--stop'],
+      ['running', 'Running', '--wait'], ['cancelled', 'Cancelled', '--muted'], ['unknown', 'Outcome unknown', '--muted'],
+    ];
+    for (const [status] of results) turn = updateActivity(turn, 1, { kind: 'tool', key: status, tool: 'Shell',
+      summary: `${status}: npm test ${'long-command-'.repeat(30)}`, status,
+      input: 'Full arguments', output: 'Full tool output', diff: '+ changed line',
+      ...(status === 'failed' ? { error: `${'Failure detail. '.repeat(30)}LAST ERROR LINE`, exitCode: 1, durationMs: 125, omittedBytes: 50 } : {}),
+    });
+    session.messages.push({ id: messageId, role: 'user', authorId: `${session.id}:human`,
+      addressedParticipantId: session.primaryAgentId, createdAt: session.createdAt, status: 'sent',
+      text: 'Make the tool results easier to scan.', diagramAttachments: [], mode: 'auto', level: 'native',
+      turn: { ...turn, lifecycle: 'completed', history: 'saved' } },
+    { id: crypto.randomUUID(), role: 'assistant', authorId: session.primaryAgentId, createdAt: session.createdAt,
+      status: 'complete', mode: 'auto', level: 'native', rawMarkdown: 'The results are ready.',
+      blocks: [{ kind: 'markdown', markdown: 'The results are ready.' }] });
+    await page.route('**/api/sessions**', async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      if (new URL(route.request().url()).pathname === `/api/sessions/${session.id}`) data.session = session;
+      if (Array.isArray(data.sessions)) data.sessions = data.sessions.map((item: PublicSession) => item.id === session.id ? session : item);
+      await route.fulfill({ response, json: data });
+    });
+    await page.reload();
+    await expect(conversation.locator('.chat-message .mode-tag')).toHaveCount(0);
+    await expect(conversation.locator('.mode-menu > button')).toHaveText('Agent');
+    const tools = conversation.locator('.activity-tool');
+    await expect(tools).toHaveCount(6);
+    for (const [status, label, token] of results) {
+      const row = tools.locator(`:scope.${status}`);
+      const dot = row.getByRole('img', { name: label, exact: true });
+      await expect(dot).toHaveAttribute('title', label);
+      await expect(row.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+      await expect(row.locator('.MuiAccordionDetails-root')).toBeHidden();
+      if (status !== 'cancelled') {
+        const color = await dot.evaluate((element, token) => {
+          const sample = document.createElement('span'); sample.style.color = `var(${token})`; element.append(sample);
+          const expected = getComputedStyle(sample).color; sample.remove();
+          return { actual: getComputedStyle(element).backgroundColor, expected };
+        }, token);
+        expect(color.actual).toBe(color.expected);
+      }
+    }
+    const failed = tools.locator(':scope.failed');
+    const toggle = failed.getByRole('button');
+    await toggle.focus(); await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    for (const text of ['Full arguments', 'Full tool output', '+ changed line', 'LAST ERROR LINE', 'Exit 1', '125 ms', '50 bytes omitted']) {
+      await expect(failed.getByText(text, { exact: false }).last()).toBeVisible();
+    }
+    await page.keyboard.press('Space');
+    await expect(failed.locator('.tool-error')).toBeHidden();
+    await tools.first().getByRole('button').click();
+    await expect(tools.first().getByText('Full tool output')).toBeVisible();
+    await tools.first().getByRole('button').click();
+    await mkdir('test-results/quiet-message-activity', { recursive: true });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await conversation.locator('.conversation-scroll').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await page.screenshot({ animations: 'disabled', path: `test-results/quiet-message-activity/${theme}-${width}-collapsed.png` });
+      await toggle.click();
+      expect(await failed.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await page.screenshot({ animations: 'disabled', path: `test-results/quiet-message-activity/${theme}-${width}-expanded.png` });
+      await toggle.click();
+    }
+    await page.reload();
+    await expect(failed.getByRole('img', { name: 'Failed', exact: true })).toBeVisible();
+    await expect(failed.locator('.tool-error')).toBeHidden();
+    await expect(conversation).toContainText('The results are ready.');
+    await page.unrouteAll({ behavior: 'wait' });
+  });
+
   test(`${theme}: idle conversation controls and normal text contrast`, async ({ page, request }) => {
     const { conversation } = await openSession(page, request, theme, null);
     const controls = await conversation.locator('button:visible, select:visible, textarea:visible').count();
@@ -174,7 +251,15 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(approvals).toHaveCount(0);
     await expect(conversation).toContainText('Updated conversation.');
     await expect(conversation.locator('.activity-approval')).toContainText(['Denied', 'Allowed']);
-    await expect(conversation.locator('.tool-error')).toContainText(['The action was denied.', 'Allowed action failed with exit 1.']);
+    const errors = conversation.locator('.tool-error');
+    await expect(errors).toContainText(['The action was denied.', 'Allowed action failed with exit 1.']);
+    await expect(errors.first()).toBeHidden();
+    // This provider reports both denied actions and failed commands as failed tool results.
+    for (const tool of await conversation.locator('.activity-tool').filter({ has: page.locator('.tool-error') }).all()) {
+      await tool.getByRole('button').click();
+      await expect(tool.locator('.tool-error')).toBeVisible();
+      await tool.getByRole('button').click();
+    }
     await expect(field).toHaveValue('My next draft');
     await conversation.getByRole('button', { name: /Jump to latest/ }).click();
     await expect(conversation.locator('.diagram-card')).toHaveCount(1);

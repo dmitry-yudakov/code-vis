@@ -135,7 +135,7 @@ describe('composer mode picker', () => {
     expect(render({ unsupportedModes: [], mode: 'auto' })).toContain('Edits in a sandbox · asks beyond it');
   });
 
-  it('tags a message sent in Auto, and its answer, with the mode', () => {
+  it('keeps repeated mode badges out of user messages and answers', () => {
     const participants: Participant[] = [
       { id: 'human', kind: 'human', displayName: 'You' },
       { id: 'agent-1', kind: 'agent', displayName: 'Codex', provider: 'codex', role: 'coder', defaultMode: 'plan' },
@@ -144,10 +144,12 @@ describe('composer mode picker', () => {
       message, theme: 'light', participants, onSelectDiagram: vi.fn(),
     }));
     const base = { id: 'm1', createdAt: '2026-09-30T10:00:00.000Z' };
-    expect(chat({ ...base, role: 'user', authorId: 'human', addressedParticipantId: 'agent-1', text: 'Add the test.', status: 'sent', diagramAttachments: [], mode: 'auto' }))
-      .toMatch(/<em[^>]*class="[^"]*MuiChip-root[^>]*>[\s\S]*?Auto[\s\S]*?<\/em>/);
-    expect(chat({ ...base, role: 'assistant', authorId: 'agent-1', status: 'complete', rawMarkdown: 'Done.', blocks: [{ kind: 'markdown', markdown: 'Done.' }], mode: 'auto' }))
-      .toMatch(/<em[^>]*class="[^"]*MuiChip-root[^>]*>[\s\S]*?Auto[\s\S]*?<\/em>/);
+    for (const mode of ['plan', 'agent', 'auto', 'edits', 'full'] as const) {
+      expect(chat({ ...base, role: 'user', authorId: 'human', addressedParticipantId: 'agent-1', text: 'Add the test.', status: 'sent', diagramAttachments: [], mode, level: 'native' }))
+        .not.toContain('mode-tag');
+      expect(chat({ ...base, role: 'assistant', authorId: 'agent-1', status: 'complete', rawMarkdown: 'Done.', blocks: [{ kind: 'markdown', markdown: 'Done.' }], mode, level: 'native' }))
+        .not.toContain('mode-tag');
+    }
   });
 
   it('uses the Docker hints and explanations in a Docker session', () => {

@@ -2,7 +2,6 @@
 
 import { Disclosure } from '@/features/shell/Disclosure';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 
 import ReactMarkdown from 'react-markdown';
@@ -10,7 +9,6 @@ import remarkGfm from 'remark-gfm';
 import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord, Participant } from '@/shared/types';
-import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
 import { DiagramCard } from '@/features/diagram/components/DiagramCard';
 import { reportAttachmentSummary } from '@/features/reports/reportModel';
 import { imageAttachmentSummary } from './imageAttachments';
@@ -50,7 +48,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
     return (
       <article className={`chat-message user ${message.status}`}>
         <div className="message-meta">
-          <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}{message.mode && message.mode !== 'ask' ? <Chip className="mode-tag" component="em" variant="outlined" color={message.mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(message.mode) ? 'warning' : 'default'} label={`${message.level === 'native' ? 'Native · ' : ''}${AGENT_MODE_LABELS[message.mode]}`} /> : null}</span>
+          <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}</span>
           <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
         </div>
         <p>{message.text}</p>
@@ -73,7 +71,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   return (
     <article className={`chat-message assistant ${message.status}`}>
       <div className="message-meta">
-        <span>{author?.displayName || 'Agent'}{message.mode && message.mode !== 'ask' ? <Chip className="mode-tag" component="em" variant="outlined" color={message.mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(message.mode) ? 'warning' : 'default'} label={`${message.level === 'native' ? 'Native · ' : ''}${AGENT_MODE_LABELS[message.mode]}`} /> : null}</span>
+        <span>{author?.displayName || 'Agent'}</span>
         <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       </div>
       <div className="assistant-blocks">

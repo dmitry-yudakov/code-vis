@@ -781,11 +781,20 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .conversation-scroll .chat-message { border: 0; border-radius: 6px; padding: 10px 8px; }
 .conversation-scroll .chat-message.assistant { margin-right: 0; background: transparent; }
 .conversation-scroll .chat-message.user { margin-left: 0; }
-.activity-tool { min-width: 0; margin: 4px 0; }
-.activity-tool .MuiAccordion-root { background: transparent; }
-.tool-summary { display: flex; min-width: 0; width: 100%; align-items: baseline; gap: 10px; }
-.tool-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.5 var(--mono); }
-.tool-summary small { flex-shrink: 0; margin-left: auto; font-size: 11px; }
+.activity-tool { min-width: 0; margin: 2px 0; }
+.activity-tool .MuiAccordion-root { background: transparent; border: 0; box-shadow: none; }
+.activity-tool .MuiAccordion-root::before { display: none; }
+.activity-tool .MuiAccordionSummary-root { min-width: 0; width: 100%; min-height: 32px; padding: 4px 8px; border-radius: 6px; }
+.activity-tool .MuiAccordionSummary-root:hover { background: var(--shell); }
+.activity-tool .MuiAccordionSummary-content { min-width: 0; margin: 0; }
+.activity-tool .MuiAccordionDetails-root { padding: 4px 8px 12px 24px; }
+.tool-summary { display: flex; flex: 1; min-width: 0; width: 100%; overflow: hidden; align-items: center; gap: 8px; }
+.tool-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.5 var(--mono); }
+.tool-result-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.activity-tool.succeeded .tool-result-dot { background: var(--live); }
+.activity-tool.failed .tool-result-dot, .activity-tool.denied .tool-result-dot { background: var(--stop); }
+.activity-tool.running .tool-result-dot { background: var(--wait); }
+.activity-tool.cancelled .tool-result-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .activity-tool pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); }
 .activity-tool p { margin: 4px 0; font-size: 12px; }
 .activity-tool small, .history-state, .activity-gap { color: var(--muted); font-size: 11px; }
@@ -796,7 +805,4 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .participant-menu { display: grid; gap: 8px; }
 .participant-menu .participant-row { display: grid; }
 .jump-latest { justify-self: center; }
-.activity-tool .MuiAccordionSummary-content { min-width: 0; }
-.activity-tool .MuiAccordionSummary-root { min-width: 0; width: 100%; }
-.tool-summary { flex: 1; overflow: hidden; }
 .turn-checkpoint { border: 0; background: transparent; }

@@ -6,6 +6,17 @@ import { TurnActivity } from '@/features/conversation/TurnActivity';
 import { createTurn, updateActivity, finishTurn } from '@/shared/turnActivity';
 
 describe('chronological conversation presentation', () => {
+  it.each([
+    ['running', 'Running'], ['succeeded', 'Succeeded'], ['failed', 'Failed'],
+    ['denied', 'Denied'], ['cancelled', 'Cancelled'], ['unknown', 'Outcome unknown'],
+  ] as const)('names the %s tool result without relying on color', (status, label) => {
+    const turn = updateActivity(createTurn('run', 'message', 'a', ''), 1,
+      { kind: 'tool', key: 't', tool: 'Shell', summary: 'npm test', status });
+    const html = renderToStaticMarkup(createElement(TurnActivity, { turn, agentName: 'Codex', permissions: [], onReview: () => {}, renderFinal: () => null }));
+    expect(html).toContain(`role="img" aria-label="${label}" title="${label}"`);
+    expect(html).toContain('aria-expanded="false"');
+  });
+
   it('keeps unknown review unallowable without removing Deny or Review', () => {
     const html = renderToStaticMarkup(createElement(ApprovalArea, { requests: [{ requestId: 'p', participantId: 'a', tool: 'Run', detail: 'shortened' }], agents: [], onDecide: () => {}, onStop: () => {} }));
     expect(html).toContain('Full review unavailable');

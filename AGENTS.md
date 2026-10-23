@@ -136,6 +136,11 @@ Updated 2026-10-20. When a story ships, change the line that names it; each stor
   preserves drafts, history, focus and current Git status; archive retains its guards and Undo.
   All 57 focused unit tests, 18 production-browser checks, TypeScript, isolated build, light/dark
   desktop/phone screenshot inspection and independent review pass. The running app has not been restarted.
+- **Shipped:** [Story 113](stories/STORY-20261023-quiet-message-activity.md) — desktop message
+  headers omit repeated mode badges, and compact tool rows show accessible result dots with full
+  details on expansion. TypeScript, production build, 74 focused unit checks, 14 browser checks,
+  both-theme desktop/phone screenshot inspection and independent review pass; two unrelated stale
+  test assertions are recorded in the story. The running app has not been restarted.
 - **Shipped:** [Story 110](stories/STORY-20261020-desktop-workspace-design.md) — quieter desktop
   navigation, readable typography, focused conversation starters, one composer surface, a full-width
   welcome screen and roomier Arena rows. TypeScript, isolated build, 41 focused unit tests,

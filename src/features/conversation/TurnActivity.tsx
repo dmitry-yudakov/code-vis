@@ -46,14 +46,16 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
         </div>;
       }
       return <article key={entry.id} data-activity-id={entry.id} className={`activity-tool ${entry.status}`}>
-        <Disclosure title={<span className="tool-summary"><span>{entry.tool} · {entry.summary || 'Details'}</span><small>{statusLabels[entry.status]}</small></span>}>
-          <p>{name}{entry.actor?.parentToolId ? ` · delegated by ${entry.actor.parentToolId}` : ''}</p>
-          {(['input', 'output', 'diff', 'error'] as const).map(field => entry[field] !== undefined && <div key={field}><strong>{field === 'input' ? 'Arguments' : field === 'diff' ? 'Diff' : field === 'error' ? 'Error' : 'Output'}</strong><pre>{entry[field]}</pre></div>)}
-          {entry.input === undefined && entry.output === undefined && entry.diff === undefined && <p>Details were not supplied by the provider.</p>}
+        <Disclosure title={<span className="tool-summary">
+          <span className="tool-result-dot" role="img" aria-label={statusLabels[entry.status]} title={statusLabels[entry.status]} />
+          <span className="tool-summary-text" title={`${entry.tool} · ${entry.summary || 'Details'}`}>{entry.tool} · {entry.summary || 'Details'}</span>
+        </span>}>
+          <p>{name} · {statusLabels[entry.status]}{entry.actor?.parentToolId ? ` · delegated by ${entry.actor.parentToolId}` : ''}</p>
+          {(['input', 'output', 'diff', 'error'] as const).map(field => entry[field] !== undefined && <div key={field} className={field === 'error' ? 'tool-error' : undefined}><strong>{field === 'input' ? 'Arguments' : field === 'diff' ? 'Diff' : field === 'error' ? 'Error' : 'Output'}</strong><pre>{entry[field]}</pre></div>)}
+          {entry.input === undefined && entry.output === undefined && entry.diff === undefined && entry.error === undefined && <p>Details were not supplied by the provider.</p>}
           {entry.exitCode !== undefined && <span>Exit {entry.exitCode} </span>}{entry.durationMs !== undefined && <span>{entry.durationMs} ms</span>}
+          {entry.omittedBytes ? <p><small>{entry.omittedBytes} bytes omitted</small></p> : null}
         </Disclosure>
-        {entry.error && <p className="tool-error">{entry.error.slice(0, 240)}</p>}
-        {entry.omittedBytes ? <small>{entry.omittedBytes} bytes omitted</small> : null}
       </article>;
     })}
     {(turn.incomplete || turn.history === 'unsaved') && <small className="history-state" role="status">{turn.history === 'unsaved' ? 'Saving activity… history may be incomplete' : 'Some activity was not retained'}</small>}
