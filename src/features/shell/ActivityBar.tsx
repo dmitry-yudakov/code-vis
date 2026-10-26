@@ -12,8 +12,8 @@ const VIEW_LABELS: Record<SideTab, string> = { changes: 'Changes', history: 'His
 
 /**
  * The column of views beside the side panel. The session's views toggle the side panel; the Arena
- * and the Inbox are pages of their own until they become side-panel views (Story 75). More sits at
- * the bottom, as a gear.
+ * and the Inbox are pages of their own until they become side-panel views (Story 75). Global
+ * navigation stays together at the bottom, ending with More as a gear.
  */
 export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, unread, updateCount = 0, more, moreRef, onMoreToggle, onToggleView }: {
   /** Empty where no session is shown: the Arena page and the welcome screen. */
@@ -51,7 +51,7 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
           </IconButton>
         );
       })}
-      {views.length > 0 && <span className="activity-divider" aria-hidden="true" />}
+      <span className="activity-divider" aria-hidden="true" />
       <IconButton component={Link}
         href={ARENA_SECTION_PATHS.sessions}
         scroll={false}

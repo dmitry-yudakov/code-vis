@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-20. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-26. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -136,6 +136,11 @@ Updated 2026-10-20. When a story ships, change the line that names it; each stor
   preserves drafts, history, focus and current Git status; archive retains its guards and Undo.
   All 57 focused unit tests, 18 production-browser checks, TypeScript, isolated build, light/dark
   desktop/phone screenshot inspection and independent review pass. The running app has not been restarted.
+- **Shipped:** [Story 114](stories/STORY-20261026-activity-bar.md) — inset activity buttons have
+  a short selection marker, and Arena, Inbox, and More stay together at the bottom across session,
+  Arena, Inbox, and welcome screens. TypeScript, production build, 20 focused unit tests, five
+  browser checks, both-theme desktop/phone screenshot inspection and independent review pass.
+  The running app has not been restarted.
 - **Shipped:** [Story 113](stories/STORY-20261023-quiet-message-activity.md) — desktop message
   headers omit repeated mode badges, and compact tool rows show accessible result dots with full
   details on expansion. TypeScript, production build, 74 focused unit checks, 14 browser checks,

@@ -83,7 +83,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .layout-toggles { flex: none; display: flex; align-items: center; gap: 2px; }
 .header-actions .layout-toggle { position: relative; width: 30px; height: 28px; display: grid; place-items: center; padding: 0; }
 .header-actions .layout-toggle:hover { color: var(--ink); background: var(--control-wash); }
-/* As in the activity bar, a shown pane is marked by ink and by an edge, never by colour alone. */
+/* As in the activity bar, a shown pane has a shape cue as well as colour. */
 .header-actions .layout-toggle[aria-pressed="true"] { color: var(--ink); background: var(--shell-sunk); box-shadow: inset 0 -2px 0 var(--ink); }
 .layout-toggle .shell-icon { width: 16px; height: 16px; stroke-width: 1.6; }
 .layout-badge { position: absolute; right: -3px; top: -4px; min-width: 15px; height: 15px; padding: 0 4px; display: grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--plot); font: 700 9px/1 var(--mono); }
@@ -112,14 +112,15 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .canvas-hidden .drawer-composer { padding-inline: max(10px, calc((100% - 760px) / 2)); }
 .arena-breadcrumb { color: var(--ink-2); font: 600 12px/1 var(--mono); }
 
-/* The activity bar: the session's side-panel views, then the Arena and the Inbox, then More. */
+/* Session views stay at the top; the divider anchors Arena, Inbox, and More at the bottom. */
 /* No z-index: More's menu has to rise above the panel overlays, so the bar opens no stacking context. */
 .activity-bar { grid-area: activity; min-height: 0; display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px; border-right: 1px solid var(--line); background: var(--raised); }
-.activity-item, .more-menu > button { position: relative; width: 48px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; }
-/* The shown view is marked twice, by ink and by an edge, so it never relies on colour alone. */
-.activity-item:is([aria-pressed="true"], [aria-current="page"]) { color: var(--plot); background: var(--plot-wash); box-shadow: inset 2px 0 0 var(--plot); }
-.activity-divider { width: 24px; height: 1px; flex: none; margin: 6px 0; background: var(--line-strong); }
-.more-menu { margin-top: auto; }
+.activity-bar .activity-item, .activity-bar .more-menu > button { position: relative; width: 40px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; color: var(--muted); }
+.activity-bar .activity-item:hover, .activity-bar .more-menu > button:hover { color: var(--ink); background: var(--control-wash); }
+/* The rounded surface is inset from the rail; a short marker also identifies the shown view. */
+.activity-bar .activity-item:is([aria-pressed="true"], [aria-current="page"]) { color: var(--plot); background: var(--plot-wash); }
+.activity-bar .activity-item:is([aria-pressed="true"], [aria-current="page"])::before { content: ''; position: absolute; left: -3px; top: 50%; width: 3px; height: 18px; border-radius: 2px; background: var(--plot); transform: translateY(-50%); }
+.activity-divider { width: 24px; height: 1px; flex: none; margin: auto 0 6px; background: var(--line); }
 .shell-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 /* A change count is a fact about the repository, not a run state: it stays achromatic and leaves
    `wait` to what needs the user. */
