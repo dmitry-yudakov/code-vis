@@ -5,7 +5,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { atomicWrite } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
-import { checkpointSummarySchema, type CheckpointSummary } from '@/shared/turnCheckpoint';
+import { CHECKPOINT_RESTORE_INTERRUPTED, checkpointSummarySchema, type CheckpointSummary } from '@/shared/turnCheckpoint';
 import { isNotRepositoryOutput, runGitRead } from './gitRead';
 
 const MAX_FILES = 10_000;
@@ -316,7 +316,7 @@ export class TurnCheckpoints {
       state: expired || interrupted ? 'unavailable' : record.state as CheckpointSummary['state'],
       reason: expired ? 'This checkpoint expired after seven days.' : record.state === 'capturing'
         ? 'Undo is unavailable until the turn ends and its recovery fingerprint is saved. A process restart cannot infer which later changes belong to it.'
-        : record.state === 'restoring' ? 'Undo was interrupted. Files may be partly restored; the original checkpoint is retained for manual recovery.' : record.reason,
+        : record.state === 'restoring' ? CHECKPOINT_RESTORE_INTERRUPTED : record.reason,
       changedFiles: record.after ? changedFiles(record).length : 0,
     };
   }

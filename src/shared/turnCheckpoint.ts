@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 export const CHECKPOINT_SCOPE = 'Restore eligible checkout files to before this turn. Ignored and private files, Git history and index, external actions, and writes elsewhere in Full access are excluded. The conversation stays. Do not edit files during Undo.';
+// Persisted verbatim in existing summaries; copy changes must preserve recognition of older warnings.
+export const CHECKPOINT_RESTORE_INTERRUPTED = 'Undo was interrupted. Files may be partly restored; the original checkpoint is retained for manual recovery.';
 
 export const checkpointSummarySchema = z.object({
   id: z.string().uuid(),

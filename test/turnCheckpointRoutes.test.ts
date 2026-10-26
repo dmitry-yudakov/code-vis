@@ -38,7 +38,7 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getConfig } from '@/server/config';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { TurnCheckpoint } from '@/features/conversation/TurnCheckpoint';
-import { CHECKPOINT_SCOPE, type CheckpointSummary } from '@/shared/turnCheckpoint';
+import { CHECKPOINT_RESTORE_INTERRUPTED, CHECKPOINT_SCOPE, type CheckpointSummary } from '@/shared/turnCheckpoint';
 import { machineOperationAllowed } from '@/server/machines/machineRoutePolicy';
 import type { DurableSession } from '@/shared/types';
 
@@ -187,15 +187,45 @@ describe('writing turn recovery routes', () => {
 });
 
 describe('desktop recovery presentation', () => {
-  it('shows confirmation scope, expiry, disabled controls and the successful outcome', () => {
-    const summary: CheckpointSummary = { id: crypto.randomUUID(), messageId: crypto.randomUUID(), createdAt: new Date().toISOString(),
-      expiresAt: '2026-10-08T12:00:00.000Z', state: 'ready', changedFiles: 3 };
-    const controls = { checkpoint: summary, busy: false, confirming: false, onAsk: vi.fn(), onDismiss: vi.fn(), onConfirm: vi.fn() };
-    expect(renderToStaticMarkup(createElement(TurnCheckpoint, { controls }))).toContain('Undo this turn');
+  const summary: CheckpointSummary = { id: crypto.randomUUID(), messageId: crypto.randomUUID(), createdAt: new Date().toISOString(),
+    expiresAt: '2026-10-08T12:00:00.000Z', state: 'ready', changedFiles: 3 };
+  const controls = { checkpoint: summary, busy: false, confirming: false, onAsk: vi.fn(), onDismiss: vi.fn(), onConfirm: vi.fn() };
+
+  it('shows a clearly named restore action, confirmation scope, disabled controls and success', () => {
+    const ready = renderToStaticMarkup(createElement(TurnCheckpoint, { controls }));
+    expect(ready).toContain('Restore files'); expect(ready).toContain(CHECKPOINT_SCOPE);
     expect(renderToStaticMarkup(createElement(TurnCheckpoint, { controls: { ...controls, busy: true } }))).toContain('disabled');
     const confirmation = renderToStaticMarkup(createElement(TurnCheckpoint, { controls: { ...controls, confirming: true } }));
-    expect(confirmation).toContain(CHECKPOINT_SCOPE); expect(confirmation).toContain('Confirm Undo');
+    expect(confirmation).toContain(CHECKPOINT_SCOPE); expect(confirmation).toContain('Confirm restore');
     expect(renderToStaticMarkup(createElement(TurnCheckpoint, { controls: { ...controls, checkpoint: { ...summary, state: 'undone', reason: 'Checkout files restored.' } } })))
       .toContain('Checkout files restored.');
+  });
+
+  it('renders nothing without a checkpoint', () => {
+    expect(renderToStaticMarkup(createElement(TurnCheckpoint, { controls: { ...controls, checkpoint: undefined } }))).toBe('');
+  });
+
+  it.each(['This turn made no eligible file changes.', 'This checkpoint expired after seven days.', 'Git HEAD or index changed.'])
+    ('hides passive unavailable recovery: %s', reason => {
+      expect(renderToStaticMarkup(createElement(TurnCheckpoint, { controls: { ...controls,
+        checkpoint: { ...summary, state: 'unavailable', reason },
+      } }))).toBe('');
+    });
+
+  it.each([undefined, 'unavailable', 'ready'] as const)('keeps restore errors visible with checkpoint state %s', state => {
+    const error = 'Undo was interrupted. Files may be partly restored.';
+    const html = renderToStaticMarkup(createElement(TurnCheckpoint, { controls: { ...controls, error,
+      checkpoint: state ? { ...summary, state } : undefined,
+    } }));
+    expect(html).toContain(`role="alert">${error}`);
+    expect(html).not.toContain('Undo unavailable');
+  });
+
+  it('keeps a durable partial-restore warning visible without a transient request error', () => {
+    const html = renderToStaticMarkup(createElement(TurnCheckpoint, { controls: { ...controls,
+      checkpoint: { ...summary, state: 'unavailable', reason: CHECKPOINT_RESTORE_INTERRUPTED },
+    } }));
+    expect(html).toContain(`role="alert">${CHECKPOINT_RESTORE_INTERRUPTED}`);
+    expect(html).not.toContain('Restore files'); expect(html).not.toContain('Undo unavailable');
   });
 });

@@ -177,7 +177,7 @@ for (const theme of ['light', 'dark']) test(`creates and retains a managed workt
   await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Checkpoint fixture finished.');
   expect(await readFile(path.join(destination, 'a.txt'), 'utf8')).toBe('provider edit');
   expect(await readFile(path.join(source, 'a.txt'), 'utf8')).toBe('source human work');
-  await conversation.getByRole('button', { name: 'Undo this turn' }).click(); await conversation.getByRole('button', { name: 'Confirm Undo' }).click();
+  await conversation.getByRole('button', { name: 'Restore files', exact: true }).click(); await conversation.getByRole('button', { name: 'Confirm restore' }).click();
   await expect(conversation.getByLabel('Turn recovery')).toContainText('Checkout files restored');
   expect(await readFile(path.join(destination, 'a.txt'), 'utf8')).toBe('baseline');
   await page.screenshot({ path: test.info().outputPath(`worktree-${theme}.png`) });

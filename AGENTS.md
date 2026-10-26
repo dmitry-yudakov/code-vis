@@ -162,7 +162,8 @@ Updated 2026-10-20. When a story ships, change the line that names it; each stor
   Ask/Plan use tightened noninteractive permissions and user-only settings, and Native messages use
   session format 9. The first story of the [security levels epic](stories/EPIC-20261001-security-levels.md).
 - **Shipped:** [Story 83](stories/STORY-20261001-turn-checkpoints.md) — writing turns save a private
-  eligible-file checkpoint on the executing machine, and desktop/VR share explicit checkout Undo;
+  eligible-file checkpoint on the executing machine; desktop shows Restore files when available,
+  preserves recovery failure feedback, and shares explicit checkout recovery with VR;
   failure/concurrency tests, production-browser checks and review passed. Recovery currently
   requires Linux; Git history/index, ignored/private files and external effects are excluded.
 - **Shipped:** [Story 85](stories/STORY-20261002-auto-archive-inactive-conversations.md) —

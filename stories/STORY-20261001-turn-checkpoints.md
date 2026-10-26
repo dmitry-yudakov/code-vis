@@ -96,8 +96,9 @@ queue Q1 and supports the vision's local repository change loop.
     Expired bytes are pruned on the next capture. Each durable record is bounded to 48 MiB; its
     atomic replacement temporarily needs one additional record's space. Crash temporaries are
     removed before the next capture.
-11. Desktop conversation and VR Session tools show the latest writing turn's recovery state,
-    including availability, unavailable reason, expiration and successful Undo. Associate it with
+11. Desktop conversation shows the latest writing turn's recovery control only when available,
+    along with restore errors and success; VR Session tools retain the full recovery state,
+    including unavailable reason and expiration. Associate it with
     its user message and keep the transcript after Undo. Explain the exclusions and that recovery
     cannot undo external actions or writes elsewhere in Full access. Confirm the concrete restore
     scope before the user's Undo action; this is a product control, not an agent approval.
@@ -161,3 +162,33 @@ The original capture contract's refusal of eligible symbolic links is superseded
   two quota tests), then reported no remaining findings. Its findings about ignored paths,
   intent-to-add flags, stale summaries, credential exclusions, permissions and original tracked
   deletions were fixed and have regression coverage.
+
+## Desktop presentation follow-up — October 26, 2026
+
+The desktop chat shows an “Undo unavailable” panel even for turns that changed no eligible files.
+Hide that passive unavailable state. Name the available action **Restore files**, with the
+before-turn scope in its tooltip and existing confirmation. This refines the conversation in the
+[workbench shell epic](EPIC-20260925-workbench-shell.md).
+
+Where the code is: [TurnCheckpoint.tsx:7](../src/features/conversation/TurnCheckpoint.tsx#L7)
+owns the desktop presentation; [useTurnCheckpoint.ts:15](../src/features/conversation/useTurnCheckpoint.ts#L15)
+keeps session-bound requests, confirmation, busy state and error handling. Capture, retention,
+restore refusal, checkout ownership, routing and VR controls keep their existing contracts.
+
+- [x] Missing or routinely unavailable checkpoints render no desktop panel.
+- [x] A ready checkpoint offers Restore files, confirms the before-turn scope, and respects busy state.
+- [x] Restore errors and durable partial-restore warnings remain visible even if recovery is unavailable;
+      the latter survives refresh/reload. Success remains visible.
+- [x] Focused regression checks, TypeScript, production-browser recovery and review pass.
+
+Verify with `npm test -- test/turnCheckpointRoutes.test.ts test/turnCheckpoints.test.ts test/turnCheckpointVr.test.ts`,
+`npm run lint`, an isolated production build and `e2e/checkpoints.spec.ts`.
+
+Verification: all **80 focused tests**, TypeScript and the isolated production build pass. The
+new unavailable-state/label assertions failed before the change; the persisted warning assertion
+also failed before its fix. The production-browser journey passes with a fake provider and real
+Git files: reload, confirmation, restoring uncommitted work, preserving staging/private files,
+refusing later edits, and hiding the no-change panel. The interrupted-warning reload uses an
+intercepted status response; actual interrupted restores remain covered by the real-filesystem
+unit checks. Four light/dark screenshots were inspected. Independent review reports no remaining
+findings. No real-provider or headset run was needed; the running application was not restarted.

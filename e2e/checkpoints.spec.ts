@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { CHECKPOINT_RESTORE_INTERRUPTED } from '../src/shared/turnCheckpoint';
 
 const execFile = promisify(callbackExecFile);
 let server: ChildProcess;
@@ -49,7 +50,7 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-test('offers durable Undo, confirms its scope, restores real uncommitted work, and refuses later edits', async ({ page }) => {
+test('offers file restoration only for a recovery point, confirms its scope, and refuses later edits', async ({ page }) => {
   const { checkouts } = await (await page.request.get(`${origin}/api/checkouts`)).json();
   const { project } = await (await page.request.post(`${origin}/api/projects`, { data: { name: 'Checkpoint journey', checkoutIds: [checkouts[0].id] } })).json();
   const { session } = await (await page.request.post(`${origin}/api/sessions`, { data: { projectId: project.id, provider: 'claude' } })).json();
@@ -65,20 +66,20 @@ test('offers durable Undo, confirms its scope, restores real uncommitted work, a
     await conversation.locator('textarea').fill('Checkpoint change'); await conversation.getByRole('button', { name: 'Send' }).click();
     await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
     await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Checkpoint fixture finished.');
-    await expect(conversation.getByRole('button', { name: 'Undo this turn' })).toBeEnabled();
+    await expect(conversation.getByRole('button', { name: 'Restore files', exact: true })).toBeEnabled();
   };
   await change(); await page.screenshot({ path: test.info().outputPath('recovery-dark.png') }); await page.reload();
-  await expect(conversation.getByRole('button', { name: 'Undo this turn' })).toBeEnabled();
+  await expect(conversation.getByRole('button', { name: 'Restore files', exact: true })).toBeEnabled();
   await page.evaluate(() => localStorage.setItem('code-ai:theme', 'light')); await page.reload();
   await expect(page.locator('[data-theme="light"]').first()).toBeVisible();
-  await conversation.getByRole('button', { name: 'Undo this turn' }).click();
+  await conversation.getByRole('button', { name: 'Restore files', exact: true }).click();
   await expect(conversation.getByLabel('Turn recovery')).toContainText('external actions');
   await expect(conversation.getByLabel('Turn recovery')).toContainText('Git history and index');
   await page.screenshot({ path: test.info().outputPath('recovery-confirm-light.png') });
   await conversation.getByRole('button', { name: 'Keep changes' }).click();
   expect(await readFile(path.join(checkout, 'a.txt'), 'utf8')).toBe('provider edit');
-  await conversation.getByRole('button', { name: 'Undo this turn' }).click();
-  await conversation.getByRole('button', { name: 'Confirm Undo' }).click();
+  await conversation.getByRole('button', { name: 'Restore files', exact: true }).click();
+  await conversation.getByRole('button', { name: 'Confirm restore' }).click();
   await expect(conversation.getByLabel('Turn recovery')).toContainText('Checkout files restored');
   expect(await readFile(path.join(checkout, 'a.txt'), 'utf8')).toBe('human work');
   expect(await readFile(path.join(checkout, 'local.txt'), 'utf8')).toBe('human untracked');
@@ -87,8 +88,32 @@ test('offers durable Undo, confirms its scope, restores real uncommitted work, a
   expect(await readFile(path.join(checkout, '.git/index'))).toEqual(index);
   expect(await git('status', '--porcelain')).toBe(originalStatus);
   await change(); await writeFile(path.join(checkout, 'a.txt'), 'later human edit');
-  await conversation.getByRole('button', { name: 'Undo this turn' }).click(); await conversation.getByRole('button', { name: 'Confirm Undo' }).click();
+  await conversation.getByRole('button', { name: 'Restore files', exact: true }).click(); await conversation.getByRole('button', { name: 'Confirm restore' }).click();
   await expect(conversation.getByLabel('Turn recovery')).toContainText('newer changes');
   expect(await readFile(path.join(checkout, 'a.txt'), 'utf8')).toBe('later human edit');
   await page.reload(); await expect(conversation.locator('.chat-message.assistant')).toHaveCount(2);
+  // A denied writing turn changes no eligible files: keep the transcript without an empty recovery panel.
+  await conversation.locator('textarea').fill('Inspect without changes');
+  await conversation.getByRole('button', { name: 'Send', exact: true }).click();
+  await conversation.getByRole('button', { name: 'Deny', exact: true }).click();
+  await expect(conversation.locator('.chat-message.assistant')).toHaveCount(3);
+  await expect(conversation.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
+  await expect.poll(async () => (await (await page.request.get(`${origin}/api/agent/checkpoint?sessionId=${session.id}`)).json()).checkpoint)
+    .toMatchObject({ state: 'unavailable', changedFiles: 0 });
+  await expect(conversation.getByLabel('Turn recovery')).toHaveCount(0);
+  await expect(conversation.getByText('Undo unavailable', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(conversation.locator('.chat-message.assistant')).toHaveCount(3);
+  await expect(conversation.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
+  await expect(conversation.getByLabel('Turn recovery')).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('recovery-unavailable-light.png') });
+  // An interrupted restore is essential feedback even after reload, without a transient request error.
+  const { checkpoint } = await (await page.request.get(`${origin}/api/agent/checkpoint?sessionId=${session.id}`)).json();
+  await page.route('**/api/agent/checkpoint?*', route => route.fulfill({ json: {
+    checkpoint: { ...checkpoint, reason: CHECKPOINT_RESTORE_INTERRUPTED },
+  } }));
+  await page.reload();
+  await expect(conversation.getByRole('alert')).toHaveText(CHECKPOINT_RESTORE_INTERRUPTED);
+  await expect(conversation.getByRole('button', { name: 'Restore files', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('recovery-interrupted-light.png') });
 });
