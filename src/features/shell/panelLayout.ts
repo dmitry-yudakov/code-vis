@@ -1,9 +1,7 @@
 export const PANEL_WIDTHS_STORAGE_KEY = 'code-ai:panel-widths';
 export const VIEW_PANEL_LAYOUTS_STORAGE_KEY = 'code-ai:device:v1:view-panel-layouts';
 export const REPOSITORY_MIN_WIDTH = 268;
-export const REPOSITORY_MAX_WIDTH = 480;
 export const CONVERSATION_MIN_WIDTH = 320;
-export const CONVERSATION_MAX_WIDTH = 560;
 export const CANVAS_MIN_WIDTH = 360;
 export const PANEL_HANDLE_ALLOWANCE = 12;
 /** The activity bar's column. The docks and the canvas share what is left of the shell. */
@@ -58,17 +56,23 @@ export function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-export function clampPanelWidths(value: Partial<PanelWidths> | undefined): PanelWidths {
+/** A panel can use 80% of the window; shellWidth excludes the activity bar. */
+export function panelMaximumForWidth(shellWidth: number): number {
+  return Math.floor((shellWidth + ACTIVITY_BAR_WIDTH) * 0.8);
+}
+
+// Persist the preference without a screen-dependent cap; resolve it against the live window.
+export function clampPanelWidths(value: Partial<PanelWidths> | undefined, maximum = Number.MAX_SAFE_INTEGER): PanelWidths {
   return {
     repositoryWidth: clamp(
       Number.isFinite(value?.repositoryWidth) ? value!.repositoryWidth! : DEFAULT_PANEL_WIDTHS.repositoryWidth,
       REPOSITORY_MIN_WIDTH,
-      REPOSITORY_MAX_WIDTH,
+      Math.max(REPOSITORY_MIN_WIDTH, maximum),
     ),
     conversationWidth: clamp(
       Number.isFinite(value?.conversationWidth) ? value!.conversationWidth! : DEFAULT_PANEL_WIDTHS.conversationWidth,
       CONVERSATION_MIN_WIDTH,
-      CONVERSATION_MAX_WIDTH,
+      Math.max(CONVERSATION_MIN_WIDTH, maximum),
     ),
   };
 }
@@ -198,14 +202,16 @@ export function resolveDockWidths({
   lastOpened: LastOpenedPanel;
   widths: PanelWidths;
 }): ResolvedDockWidths {
-  let repositoryWidth = clampPanelWidths(widths).repositoryWidth;
-  let conversationWidth = clampPanelWidths(widths).conversationWidth;
+  const maximum = panelMaximumForWidth(shellWidth);
+  let { repositoryWidth, conversationWidth } = clampPanelWidths(widths, maximum);
+  if (inspectorOpen && capacity === 2) repositoryWidth = Math.min(repositoryWidth, Math.floor(maximum / 2));
   if (capacity === 0) {
     return { repositoryWidth, conversationWidth, repositoryColumnWidth: 0, conversationColumnWidth: 0 };
   }
   if (!canvasShown) {
     // The conversation takes whatever the side panel leaves, and keeps at least its minimum.
     const room = Math.max(0, shellWidth - CONVERSATION_MIN_WIDTH);
+    if (inspectorOpen && capacity === 2) repositoryWidth = Math.min(repositoryWidth, Math.floor(room / 2));
     const wanted = inspectorOpen && capacity === 2 ? repositoryWidth * 2 : repositoryWidth;
     return {
       repositoryWidth: Math.min(repositoryWidth, room),
@@ -247,6 +253,9 @@ export function resolveDockWidths({
 
   const conversationColumnWidth = dockVisible ? conversationWidth : 0;
   const repositoryRoom = Math.max(0, available - conversationColumnWidth);
+  if (inspectorOpen && capacity === 2) {
+    repositoryWidth = Math.min(repositoryWidth, Math.max(REPOSITORY_MIN_WIDTH, Math.floor(repositoryRoom / 2)));
+  }
   const repositoryColumnWidth = repositoryVisible
     ? inspectorOpen && capacity === 2
       ? Math.min(repositoryWidth * 2, repositoryRoom)

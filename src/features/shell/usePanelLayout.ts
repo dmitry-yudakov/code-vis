@@ -4,17 +4,16 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Poi
 import {
   ACTIVITY_BAR_WIDTH,
   CANVAS_MIN_WIDTH,
-  CONVERSATION_MAX_WIDTH,
   CONVERSATION_MIN_WIDTH,
   DEFAULT_PANEL_LAYOUT,
   PANEL_WIDTHS_STORAGE_KEY,
   VIEW_PANEL_LAYOUTS_STORAGE_KEY,
-  REPOSITORY_MAX_WIDTH,
   REPOSITORY_MIN_WIDTH,
   clamp,
   dockCapacityForWidth,
   isCanvasHidden,
   initialSessionLayout,
+  panelMaximumForWidth,
   parsePanelWidths,
   parseViewPanelLayouts,
   reconcilePanelLayouts,
@@ -178,15 +177,28 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   }, [setLayout]);
   const toggleFocusMode = useCallback(() => setLayout((current) => ({ ...current, focusMode: !current.focusMode })), [setLayout]);
 
+  const resolved = useMemo(() => resolveDockWidths({
+    shellWidth,
+    capacity: dockCapacity,
+    repositoryOpen: repositoryAvailable && layout.repositoryOpen && !layout.focusMode,
+    dockOpen: dockOpen && !layout.focusMode,
+    canvasShown: !canvasHidden,
+    inspectorOpen,
+    lastOpened,
+    widths: layout,
+  }), [canvasHidden, dockCapacity, dockOpen, inspectorOpen, lastOpened, layout, repositoryAvailable, shellWidth]);
+
   const panelMaximum = useCallback((panel: ResizePanel) => {
-    if (dockCapacity === 0 || !shellWidth) return panel === 'repository' ? REPOSITORY_MAX_WIDTH : CONVERSATION_MAX_WIDTH;
+    const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
+    const maximum = Math.max(minimum, panelMaximumForWidth(shellWidth));
+    if (dockCapacity === 0 || !shellWidth) return maximum;
     if (panel === 'repository') {
       const dockMinimum = dockOpen ? CONVERSATION_MIN_WIDTH : 0;
       const room = shellWidth - (canvasHidden ? 0 : CANVAS_MIN_WIDTH) - dockMinimum;
-      return Math.max(REPOSITORY_MIN_WIDTH, Math.min(REPOSITORY_MAX_WIDTH, inspectorOpen && dockCapacity === 2 ? Math.floor(room / 2) : room));
+      return Math.max(minimum, Math.floor(Math.min(maximum, room) / (inspectorOpen && dockCapacity === 2 ? 2 : 1)));
     }
     const repositoryMinimum = repositoryAvailable && layout.repositoryOpen ? REPOSITORY_MIN_WIDTH : 0;
-    return Math.max(CONVERSATION_MIN_WIDTH, Math.min(CONVERSATION_MAX_WIDTH, shellWidth - CANVAS_MIN_WIDTH - repositoryMinimum));
+    return Math.max(minimum, Math.min(maximum, shellWidth - CANVAS_MIN_WIDTH - repositoryMinimum));
   }, [canvasHidden, dockCapacity, dockOpen, inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
 
   const setPanelWidth = useCallback((panel: ResizePanel, width: number) => {
@@ -225,14 +237,14 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     setResize({
       panel,
       startX: event.clientX,
-      startWidth: panel === 'repository' ? layout.repositoryWidth : layout.conversationWidth,
+      startWidth: panel === 'repository' ? resolved.repositoryWidth : resolved.conversationWidth,
     });
-  }, [layout.conversationWidth, layout.repositoryWidth]);
+  }, [resolved.conversationWidth, resolved.repositoryWidth]);
 
   const resizeByKeyboard = useCallback((panel: ResizePanel, event: React.KeyboardEvent<HTMLElement>) => {
     const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
     const maximum = panelMaximum(panel);
-    const current = panel === 'repository' ? layout.repositoryWidth : layout.conversationWidth;
+    const current = panel === 'repository' ? resolved.repositoryWidth : resolved.conversationWidth;
     const step = event.shiftKey ? 24 : 8;
     let next: number | undefined;
     if (event.key === 'Home') next = minimum;
@@ -242,22 +254,11 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (next === undefined) return;
     event.preventDefault();
     setPanelWidth(panel, next);
-  }, [layout.conversationWidth, layout.repositoryWidth, panelMaximum, setPanelWidth]);
-
-  const resolved = useMemo(() => resolveDockWidths({
-    shellWidth,
-    capacity: dockCapacity,
-    repositoryOpen: repositoryAvailable && layout.repositoryOpen && !layout.focusMode,
-    dockOpen: dockOpen && !layout.focusMode,
-    canvasShown: !canvasHidden,
-    inspectorOpen,
-    lastOpened,
-    widths: layout,
-  }), [canvasHidden, dockCapacity, dockOpen, inspectorOpen, lastOpened, layout, repositoryAvailable, shellWidth]);
+  }, [resolved.conversationWidth, resolved.repositoryWidth, panelMaximum, setPanelWidth]);
 
   const shellStyle = {
-    '--repository-width': `${layout.repositoryWidth}px`,
-    '--conversation-width': `${layout.conversationWidth}px`,
+    '--repository-width': `${resolved.repositoryWidth}px`,
+    '--conversation-width': `${resolved.conversationWidth}px`,
     '--repository-panel-width': `${resolved.repositoryWidth}px`,
     '--conversation-panel-width': `${resolved.conversationWidth}px`,
     '--repository-column-width': `${resolved.repositoryColumnWidth}px`,

@@ -46,7 +46,7 @@ describe('panel layout geometry', () => {
   it('clamps stored widths and safely falls back for invalid storage', () => {
     expect(parsePanelWidths('{"repositoryWidth":20,"conversationWidth":900}')).toEqual({
       repositoryWidth: 268,
-      conversationWidth: 560,
+      conversationWidth: 900,
     });
     expect(parsePanelWidths('not json')).toEqual(DEFAULT_PANEL_WIDTHS);
   });
@@ -80,7 +80,7 @@ describe('panel layout geometry', () => {
         // Written before Story 72, when the canvas could not be hidden.
         canvasOpen: true,
         repositoryWidth: 268,
-        conversationWidth: 560,
+        conversationWidth: 900,
       },
     });
   });
@@ -150,6 +150,44 @@ describe('panel layout geometry', () => {
     expect(resolved.repositoryColumnWidth + resolved.conversationColumnWidth).toBeLessThanOrEqual(960 - CANVAS_MIN_WIDTH);
     expect(resolved.conversationWidth).toBeGreaterThanOrEqual(320);
     expect(resolved.repositoryWidth).toBeGreaterThanOrEqual(268);
+  });
+
+  it('retains wide preferences and caps either dock at 80% of the window', () => {
+    const widths = { repositoryWidth: 2200, conversationWidth: 2200 };
+    expect(parsePanelWidths(JSON.stringify(widths))).toEqual(widths);
+    const resolve = (repositoryOpen: boolean, shellWidth = 2352) => resolveDockWidths({
+      shellWidth, capacity: 2, repositoryOpen, dockOpen: !repositoryOpen,
+      inspectorOpen: false, lastOpened: repositoryOpen ? 'repository' : 'dock', widths,
+    });
+    expect(resolve(true).repositoryColumnWidth).toBe(1920);
+    expect(resolve(false).conversationColumnWidth).toBe(1920);
+    expect(resolve(true, 1392).repositoryColumnWidth).toBe(1392 - CANVAS_MIN_WIDTH);
+    expect(resolve(false, 1392).conversationColumnWidth).toBe(1392 - CANVAS_MIN_WIDTH);
+    expect(resolve(true).repositoryColumnWidth).toBe(1920);
+  });
+
+  it('caps the combined changes and diff inspector at 80% with or without the canvas', () => {
+    for (const canvasShown of [true, false]) {
+      const resolved = resolveDockWidths({
+        shellWidth: 2352, capacity: 2, repositoryOpen: true, dockOpen: !canvasShown,
+        canvasShown, inspectorOpen: true, lastOpened: 'repository',
+        widths: { repositoryWidth: 2200, conversationWidth: 460 },
+      });
+      expect(resolved.repositoryColumnWidth).toBe(1920);
+      expect(resolved.repositoryWidth).toBe(960);
+    }
+  });
+
+  it('keeps the inspector resize value within its available half of the dock', () => {
+    for (const canvasShown of [true, false]) {
+      const resolved = resolveDockWidths({
+        shellWidth: 1392, capacity: 2, repositoryOpen: true, dockOpen: !canvasShown,
+        canvasShown, inspectorOpen: true, lastOpened: 'repository',
+        widths: { repositoryWidth: 1920, conversationWidth: 460 },
+      });
+      expect(resolved.repositoryWidth).toBe((1392 - (canvasShown ? CANVAS_MIN_WIDTH : CONVERSATION_MIN_WIDTH)) / 2);
+      expect(resolved.repositoryColumnWidth).toBe(resolved.repositoryWidth * 2);
+    }
   });
 
   it('reduces the inspector pane after preserving the canvas minimum', () => {

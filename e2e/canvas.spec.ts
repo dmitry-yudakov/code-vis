@@ -2104,6 +2104,54 @@ test('opens and hides the canvas for a wide conversation, and never hides it wit
   await expect(page.locator('.run-ribbon')).toHaveClass(/idle/);
 });
 
+for (const panel of ['conversation', 'repository'] as const) {
+  test(`resizes the ${panel} panel up to 80% and restores its wide preference`, async ({ page, request }) => {
+    await page.setViewportSize({ width: 2400, height: 900 });
+    await openAlphaProject(page, request, `Wide ${panel}`);
+    await showCanvas(page);
+    if (panel === 'repository') {
+      await closeConversation(page);
+      await openRepositoryPanel(page);
+    }
+    const separator = page.getByRole('separator', { name: `Resize ${panel} panel` });
+    const surface = page.getByRole('complementary', { name: panel === 'repository' ? 'Repository' : 'Conversation' });
+    await expect(separator).toHaveAttribute('aria-valuemax', '1920');
+    // Drag beyond the maximum in each direction of growth, then check keyboard resizing too.
+    const box = (await separator.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(panel === 'repository' ? 2399 : 1, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(separator).toHaveAttribute('aria-valuenow', '1920');
+    await expect(surface).toHaveCSS('width', '1920px');
+    await separator.press('Home');
+    await separator.press('End');
+    await expect(separator).toHaveAttribute('aria-valuenow', '1920');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('code-ai:panel-widths'))).toContain(`"${panel}Width":1920`);
+    await page.reload();
+    await expect(surface).toHaveCSS('width', '1920px');
+    // A narrow window preserves the canvas minimum without overwriting the preferred width.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(surface).toHaveCSS('width', '1032px');
+    await expect(page.locator('.canvas-workspace')).toHaveCSS('width', '360px');
+    await page.setViewportSize({ width: 2400, height: 900 });
+    await expect(surface).toHaveCSS('width', '1920px');
+    // Resizing starts at the visible width, even when the stored preference is much larger.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(surface).toHaveCSS('width', '1032px');
+    await separator.press(panel === 'repository' ? 'ArrowLeft' : 'ArrowRight');
+    await expect(surface).toHaveCSS('width', '1024px');
+    const narrowBox = (await separator.boundingBox())!;
+    const x = narrowBox.x + narrowBox.width / 2;
+    const y = narrowBox.y + narrowBox.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + (panel === 'repository' ? -16 : 16), y, { steps: 2 });
+    await page.mouse.up();
+    await expect(surface).toHaveCSS('width', '1008px');
+  });
+}
+
 test('docks only the panels that fit the live shell width', async ({ page, request }) => {
   // The bands are the column minimums plus the 48px activity bar: one dock from 688, two from 1008.
   await page.setViewportSize({ width: 1008, height: 720 });
