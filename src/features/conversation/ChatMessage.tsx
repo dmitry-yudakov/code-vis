@@ -1,7 +1,11 @@
 'use client';
 
 import { Disclosure } from '@/features/shell/Disclosure';
+import { useEffect, useState } from 'react';
 import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 
 import ReactMarkdown from 'react-markdown';
@@ -42,6 +46,12 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   onArchive?(): void;
   archiveDisabledReason?: string;
 }) {
+  const [copyState, setCopyState] = useState<'copied' | 'failed'>();
+  useEffect(() => {
+    if (copyState !== 'copied') return;
+    const timer = setTimeout(() => setCopyState(undefined), 2000);
+    return () => clearTimeout(timer);
+  }, [copyState]);
   const author = participants.find((participant) => participant.id === message.authorId);
   if (message.role === 'user') {
     const addressee = participants.find((participant) => participant.id === message.addressedParticipantId);
@@ -72,7 +82,6 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
     <article className={`chat-message assistant ${message.status}`}>
       <div className="message-meta">
         <span>{author?.displayName || 'Agent'}</span>
-        <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       </div>
       <div className="assistant-blocks">
         {message.blocks.map((block, index) => {
@@ -111,11 +120,22 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
           <Button type="button" disabled={running || Boolean(executePlanBlocked)} title={executePlanBlocked} onClick={() => onExecutePlan(message.authorId)}>Execute plan</Button>
         </div>
       )}
-      {onArchive && <Button type="button" variant="text" color="inherit" size="small"
-        aria-label="Archive session" title={archiveDisabledReason || 'Archive this session. You can undo or restore it later.'}
-        disabled={running || Boolean(archiveDisabledReason)} startIcon={<ShellIcon name="archive" />} onClick={onArchive}
-        sx={{ mt: 1, color: 'text.secondary' }}
-      >Archive</Button>}
+      <Box component="footer" className="message-actions" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5, mt: 0.5, color: 'text.secondary', fontSize: 11,
+        '& .shell-icon': { width: 16, height: 16 } }}>
+        <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+        {onArchive && <Tooltip title={archiveDisabledReason || (running ? 'Wait for this turn to finish.' : 'Archive session. You can undo or restore it later.')}>
+          <span><IconButton type="button" size="small" color="inherit" aria-label="Archive session"
+            disabled={running || Boolean(archiveDisabledReason)} onClick={onArchive}
+          ><ShellIcon name="archive" /></IconButton></span>
+        </Tooltip>}
+        <Tooltip title="Copy reply">
+          <IconButton type="button" size="small" color="inherit" aria-label="Copy reply" onClick={async () => {
+            try { await navigator.clipboard.writeText(message.rawMarkdown); setCopyState('copied'); }
+            catch { setCopyState('failed'); }
+          }}><ShellIcon name="copy" /></IconButton>
+        </Tooltip>
+        {copyState && <span role="status">{copyState === 'copied' ? 'Copied' : 'Could not copy. Try again.'}</span>}
+      </Box>
     </article>
   );
 }

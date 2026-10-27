@@ -2,6 +2,9 @@
 
 **Status:** Shipped · **Type:** Frontend-only · **Depends on:** [Story 107](STORY-20261013-chronological-chat.md)
 
+[Story 115](STORY-20261026-compact-reply-actions.md) refines running dots into spinners and moves
+reply actions and timestamps into a compact footer, retaining specific omission details with the activity.
+
 ## Motivation
 
 The desktop transcript repeats an obtrusive “Native · Auto” badge on messages and gives every

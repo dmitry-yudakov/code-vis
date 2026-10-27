@@ -61,15 +61,25 @@ test('offers file restoration only for a recovery point, confirms its scope, and
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const originalStatus = await git('status', '--porcelain');
   const index = await readFile(path.join(checkout, '.git/index'));
+  const expectRecoveryBeforeMessage = async () => {
+    const recovery = conversation.getByLabel('Turn recovery');
+    await expect(recovery).toHaveCount(1);
+    expect(await recovery.evaluate(element => {
+      const message = element.closest('[data-message-id]')?.querySelector('.chat-message.user');
+      return Boolean(message && (element.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING));
+    })).toBe(true);
+  };
   const change = async () => {
     await conversation.locator('.mode-menu > button').click(); await page.getByRole('radio', { name: 'Agent', exact: true }).click();
     await conversation.locator('textarea').fill('Checkpoint change'); await conversation.getByRole('button', { name: 'Send' }).click();
     await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
     await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Checkpoint fixture finished.');
     await expect(conversation.getByRole('button', { name: 'Restore files', exact: true })).toBeEnabled();
+    await expectRecoveryBeforeMessage();
   };
   await change(); await page.screenshot({ path: test.info().outputPath('recovery-dark.png') }); await page.reload();
   await expect(conversation.getByRole('button', { name: 'Restore files', exact: true })).toBeEnabled();
+  await expectRecoveryBeforeMessage();
   await page.evaluate(() => localStorage.setItem('code-ai:theme', 'light')); await page.reload();
   await expect(page.locator('[data-theme="light"]').first()).toBeVisible();
   await conversation.getByRole('button', { name: 'Restore files', exact: true }).click();
@@ -90,6 +100,7 @@ test('offers file restoration only for a recovery point, confirms its scope, and
   await change(); await writeFile(path.join(checkout, 'a.txt'), 'later human edit');
   await conversation.getByRole('button', { name: 'Restore files', exact: true }).click(); await conversation.getByRole('button', { name: 'Confirm restore' }).click();
   await expect(conversation.getByLabel('Turn recovery')).toContainText('newer changes');
+  await expectRecoveryBeforeMessage();
   expect(await readFile(path.join(checkout, 'a.txt'), 'utf8')).toBe('later human edit');
   await page.reload(); await expect(conversation.locator('.chat-message.assistant')).toHaveCount(2);
   // A denied writing turn changes no eligible files: keep the transcript without an empty recovery panel.

@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-26. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-27. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -140,6 +140,12 @@ Updated 2026-10-26. When a story ships, change the line that names it; each stor
   a short selection marker, and Arena, Inbox, and More stay together at the bottom across session,
   Arena, Inbox, and welcome screens. TypeScript, production build, 20 focused unit tests, five
   browser checks, both-theme desktop/phone screenshot inspection and independent review pass.
+  The running app has not been restarted.
+- **Shipped:** [Story 115](stories/STORY-20261026-compact-reply-actions.md) — reply footers group
+  timestamp, icon-only Archive and Copy; running tools show spinners and routine composer status is
+  removed. Restore controls precede the triggering user message, and only specific history omissions
+  are shown. The October 27 follow-up passes 141 focused unit checks, 21 browser checks, TypeScript,
+  production build, both-theme desktop/phone inspection and independent review.
   The running app has not been restarted.
 - **Shipped:** [Story 113](stories/STORY-20261023-quiet-message-activity.md) — desktop message
   headers omit repeated mode badges, and compact tool rows show accessible result dots with full

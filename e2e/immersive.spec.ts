@@ -1371,7 +1371,7 @@ for (const surface of ['session', 'conversation'] as const) test(`disconnected t
   await expect.poll(() => enabled('session:cancel')).toBe(true);
   disconnect();
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
-  await expect(page.locator('.conversation-drawer .inline-status')).toContainText('Reconnecting to the accepted turn');
+  await expect(page.locator('.conversation-drawer .turn-progress [role="progressbar"]')).toHaveAttribute('aria-label', 'Reconnecting to the accepted turn');
   await expect.poll(() => enabled('session:cancel')).toBe(true);
   if (surface === 'conversation') {
     await sessionAction(page, 'tools');
@@ -1386,7 +1386,7 @@ for (const surface of ['session', 'conversation'] as const) test(`disconnected t
   await sessionAction(page, 'refresh');
   await expect.poll(() => discoveryReads).toBeGreaterThan(readsBeforeRefresh);
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
-  await expect(page.locator('.conversation-drawer .inline-status')).toContainText('Reconnecting to the accepted turn');
+  await expect(page.locator('.conversation-drawer .turn-progress [role="progressbar"]')).toHaveAttribute('aria-label', 'Reconnecting to the accepted turn');
   await expect.poll(() => enabled('session:cancel')).toBe(true);
   live = false;
   await sessionAction(page, 'refresh');

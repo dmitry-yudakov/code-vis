@@ -1,7 +1,7 @@
 import { expect, test, type Page, type APIRequestContext, type Locator } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
-import { createTurn, updateActivity, type ToolStatus } from '../src/shared/turnActivity';
+import { createTurn, updateActivity, finishTurn, type ToolStatus } from '../src/shared/turnActivity';
 
 async function openSession(page: Page, request: APIRequestContext, theme: 'light' | 'dark', instruction: string | null = '[chronological-ui] Inspect chat activity.') {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
@@ -113,6 +113,81 @@ test('chat text stays selectable and copyable after interrupted panel resizing',
 });
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`${theme}: ordered reply footer copies Markdown and recovery precedes its user message`, async ({ page, request, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const { conversation, session } = await openSession(page, request, theme, null);
+    const markdown = 'Finished the change.\n\n```ts\nconst value = 42;\n```';
+    const replyId = crypto.randomUUID(), userId = crypto.randomUUID();
+    const turn = finishTurn(updateActivity(createTurn('reply-actions', userId, session.primaryAgentId, session.createdAt), 1,
+      { kind: 'assistant', key: 'final', text: markdown }), 'completed', { attempt: 1, messageId: replyId, key: 'final' });
+    session.messages.push({ id: userId, role: 'user', authorId: `${session.id}:human`,
+      addressedParticipantId: session.primaryAgentId, createdAt: session.createdAt, status: 'sent',
+      text: 'Simplify the reply actions.', diagramAttachments: [], turn: { ...turn, history: 'saved', incomplete: true } },
+    { id: replyId, role: 'assistant', authorId: session.primaryAgentId, createdAt: session.createdAt,
+      status: 'complete', rawMarkdown: markdown, blocks: [{ kind: 'markdown', markdown: 'Finished the change.' }, { kind: 'code', source: 'const value = 42;', language: 'ts' }] });
+    await page.route('**/api/sessions**', async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      if (new URL(route.request().url()).pathname === `/api/sessions/${session.id}`) data.session = session;
+      if (Array.isArray(data.sessions)) data.sessions = data.sessions.map((item: PublicSession) => item.id === session.id ? session : item);
+      await route.fulfill({ response, json: data });
+    });
+    await page.route('**/api/agent/checkpoint?*', route => route.fulfill({ json: { checkpoint: {
+      id: crypto.randomUUID(), messageId: userId, createdAt: session.createdAt,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(), state: 'ready', changedFiles: 2,
+    } } }));
+    await page.reload();
+    const reply = conversation.locator('.chat-message.assistant.complete');
+    const footer = reply.locator('.message-actions');
+    const copy = footer.getByRole('button', { name: 'Copy reply', exact: true });
+    const archive = footer.getByRole('button', { name: 'Archive session', exact: true });
+    await expect(reply).toHaveCount(1);
+    await expect(reply.locator('.message-meta time')).toHaveCount(0);
+    await expect(footer.locator('time')).toHaveAttribute('datetime', session.createdAt);
+    expect(await footer.locator('time, button').evaluateAll(elements => elements.map(element => element.tagName === 'TIME' ? 'timestamp' : element.getAttribute('aria-label'))))
+      .toEqual(['timestamp', 'Archive session', 'Copy reply']);
+    const recovery = conversation.getByLabel('Turn recovery');
+    await expect(recovery.getByRole('button', { name: 'Restore files', exact: true })).toBeEnabled();
+    expect(await recovery.evaluate(element => {
+      const message = element.closest('[data-message-id]')?.querySelector('.chat-message.user');
+      return Boolean(message && (element.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING));
+    })).toBe(true);
+    await expect(archive).toHaveText('');
+    await expect(archive).toBeEnabled();
+    await archive.hover();
+    await expect(page.getByRole('tooltip')).toContainText('Archive session');
+    await copy.click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(markdown);
+    await expect(footer.getByRole('status')).toHaveText('Copied');
+    await page.evaluate(() => {
+      const original = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = async text => {
+        navigator.clipboard.writeText = original;
+        throw new DOMException(`Clipboard denied (${text.length} characters)`, 'NotAllowedError');
+      };
+    });
+    await copy.click();
+    await expect(footer.getByRole('status')).toHaveText('Could not copy. Try again.');
+    await expect(reply.locator('.assistant-blocks')).toContainText('const value = 42;');
+    await copy.click();
+    await expect(footer.getByRole('status')).toHaveText('Copied');
+    await expect(conversation).not.toContainText('Some activity was not retained');
+    await expect(conversation).not.toContainText('Ready for an instruction');
+    await expect(conversation.locator('.inline-status')).toHaveCount(0);
+    await expect(conversation.getByRole('img', { name: 'Activity history details', exact: true })).toHaveCount(0);
+    await expect(conversation).not.toContainText('Some activity details were shortened');
+    await copy.focus();
+    await mkdir('test-results/compact-reply-actions-followup', { recursive: true });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(archive).toBeInViewport();
+      expect(await conversation.locator('.conversation-scroll').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await expect(recovery).toBeInViewport();
+      await page.screenshot({ animations: 'disabled', path: `test-results/compact-reply-actions-followup/${theme}-${width}.png` });
+    }
+    await page.unrouteAll({ behavior: 'wait' });
+  });
+
   test(`${theme}: quiet message headers and compact tool results reveal full details`, async ({ page, request }) => {
     const { conversation, session } = await openSession(page, request, theme, null);
     const messageId = crypto.randomUUID();
@@ -147,11 +222,11 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(tools).toHaveCount(6);
     for (const [status, label, token] of results) {
       const row = tools.locator(`:scope.${status}`);
-      const dot = row.getByRole('img', { name: label, exact: true });
-      await expect(dot).toHaveAttribute('title', label);
+      const dot = row.getByRole(status === 'running' ? 'progressbar' : 'img', { name: label, exact: true });
+      if (status !== 'running') await expect(dot).toHaveAttribute('title', label);
       await expect(row.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
       await expect(row.locator('.MuiAccordionDetails-root')).toBeHidden();
-      if (status !== 'cancelled') {
+      if (status !== 'cancelled' && status !== 'running') {
         const color = await dot.evaluate((element, token) => {
           const sample = document.createElement('span'); sample.style.color = `var(${token})`; element.append(sample);
           const expected = getComputedStyle(sample).color; sample.remove();
@@ -192,7 +267,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`${theme}: idle conversation controls and normal text contrast`, async ({ page, request }) => {
     const { conversation } = await openSession(page, request, theme, null);
     const controls = await conversation.locator('button:visible, select:visible, textarea:visible').count();
-    const contrast = await textContrast(conversation.locator('header strong, .conversation-welcome h1, .conversation-welcome p, .conversation-starter-copy, .conversation-starter small, .inline-status, .composer-menu > button'));
+    const contrast = await textContrast(conversation.locator('header strong, .conversation-welcome h1, .conversation-welcome p, .conversation-starter-copy, .conversation-starter small, .composer-menu > button'));
     await mkdir('test-results/chronological-chat', { recursive: true });
     await writeFile(`test-results/chronological-chat/${theme}-idle${process.env.CODEAI_METRICS_BASELINE ? '-baseline' : ''}.json`, JSON.stringify({ controls, contrast }, null, 2));
     for (const item of contrast) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
@@ -208,6 +283,7 @@ for (const theme of ['light', 'dark'] as const) {
     await field.fill('My next draft');
     const approvals = conversation.getByRole('region', { name: 'Pending approvals' });
     await expect(approvals).toContainText('1 of 2');
+    await expect(conversation.locator('.activity-tool').getByRole('progressbar', { name: 'Running', exact: true })).toHaveCount(2);
     const contrast = await textContrast(conversation.locator('.message-meta, .tool-summary, .tool-summary small, .activity-approval, .assistant-blocks p'));
     for (const item of contrast) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
     await mkdir('test-results/chronological-chat', { recursive: true });
@@ -250,6 +326,7 @@ for (const theme of ['light', 'dark'] as const) {
     await approvals.getByRole('button', { name: 'Allow once', exact: true }).click();
     await expect(approvals).toHaveCount(0);
     await expect(conversation).toContainText('Updated conversation.');
+    await expect(conversation.locator('.activity-tool').getByRole('progressbar')).toHaveCount(0);
     await expect(conversation.locator('.activity-approval')).toContainText(['Denied', 'Allowed']);
     const errors = conversation.locator('.tool-error');
     await expect(errors).toContainText(['The action was denied.', 'Allowed action failed with exit 1.']);

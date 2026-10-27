@@ -2,6 +2,9 @@
 
 **Status:** Shipped · **Type:** Frontend-only · **Depends on:** [Story 109](STORY-20261016-session-header-actions.md), [Story 107](STORY-20261013-chronological-chat.md)
 
+[Story 115](STORY-20261026-compact-reply-actions.md) refines Archive into an icon beside Copy and
+the reply timestamp, preserving the guards and Undo below.
+
 ## Motivation
 
 The user finds the prominent Archive action beside the session tabs confusing. They want a

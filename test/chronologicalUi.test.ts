@@ -13,8 +13,33 @@ describe('chronological conversation presentation', () => {
     const turn = updateActivity(createTurn('run', 'message', 'a', ''), 1,
       { kind: 'tool', key: 't', tool: 'Shell', summary: 'npm test', status });
     const html = renderToStaticMarkup(createElement(TurnActivity, { turn, agentName: 'Codex', permissions: [], onReview: () => {}, renderFinal: () => null }));
-    expect(html).toContain(`role="img" aria-label="${label}" title="${label}"`);
+    if (status === 'running') {
+      expect(html).toContain('role="progressbar"');
+      expect(html).toContain('aria-label="Running"');
+      expect(html).not.toContain('tool-result-dot');
+    } else expect(html).toContain(`role="img" aria-label="${label}" title="${label}"`);
     expect(html).toContain('aria-expanded="false"');
+  });
+
+  it('omits vague retention warnings and keeps unsaved feedback visible', () => {
+    const props = { agentName: 'Codex', permissions: [], onReview: () => {}, renderFinal: () => null };
+    const turn = { ...createTurn('run', 'message', 'a', ''), incomplete: true };
+    const saved = renderToStaticMarkup(createElement(TurnActivity, { ...props, turn }));
+    expect(saved).not.toContain('Some activity was not retained');
+    expect(saved).not.toContain('Activity history details');
+    expect(saved).not.toContain('Some activity details were shortened');
+    expect(saved).not.toContain('history-info');
+    const unsaved = renderToStaticMarkup(createElement(TurnActivity, { ...props, turn: { ...turn, history: 'unsaved' } }));
+    expect(unsaved).toContain('Saving activity… history may be incomplete');
+  });
+
+  it('retains specific omission reasons without a general warning', () => {
+    const turn = updateActivity(createTurn('run', 'message', 'a', ''), 1,
+      { kind: 'gap', key: 'gap', reason: 'Older completed activity was omitted.' });
+    const html = renderToStaticMarkup(createElement(TurnActivity, { turn: { ...turn, history: 'saved' },
+      agentName: 'Codex', permissions: [], onReview: () => {}, renderFinal: () => null }));
+    expect(html).toContain('Older completed activity was omitted. (1)');
+    expect(html).not.toContain('Activity history details');
   });
 
   it('keeps unknown review unallowable without removing Deny or Review', () => {

@@ -248,9 +248,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .canvas-titleblock { position: absolute; z-index: 7; left: 12px; bottom: 12px; display: flex; align-items: baseline; gap: 9px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--floating-backdrop); box-shadow: var(--shadow); }
 .canvas-titleblock strong { font: 650 12.5px/1.2 var(--sans); letter-spacing: -.01em; }
 .canvas-titleblock span { color: var(--muted); font: 10px/1.2 var(--mono); }
-.inline-status { display: flex; align-items: center; gap: 7px; padding-left: 4px; color: var(--ink-2); font-size: 10px; }
-.inline-status > span { width: 6px; height: 6px; border-radius: 50%; background: var(--live); }
-.inline-status.working > span { background: var(--live); }
+.composer-blocked { color: var(--ink-2); font-size: 11px; }
 
 .attachment-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
 /* Both chips say the same thing — a canvas is riding along with this instruction — so both are
@@ -794,7 +792,6 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .tool-result-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .activity-tool.succeeded .tool-result-dot { background: var(--live); }
 .activity-tool.failed .tool-result-dot, .activity-tool.denied .tool-result-dot { background: var(--stop); }
-.activity-tool.running .tool-result-dot { background: var(--wait); }
 .activity-tool.cancelled .tool-result-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .activity-tool pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); }
 .activity-tool p { margin: 4px 0; font-size: 12px; }
@@ -802,6 +799,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .activity-approval { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .tool-error { color: var(--stop-ink, var(--ink)); overflow-wrap: anywhere; }
 .turn-activity { margin-bottom: 10px; }
+.turn-progress { display: flex; align-items: center; gap: 8px; padding: 8px; color: var(--ink-2); font-size: 11px; }
 .turn-checkpoint { margin-bottom: 12px; padding: 4px 8px !important; }
 .participant-menu { display: grid; gap: 8px; }
 .participant-menu .participant-row { display: grid; }

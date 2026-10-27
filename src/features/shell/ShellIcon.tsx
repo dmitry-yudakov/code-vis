@@ -9,6 +9,7 @@ const SHELL_ICON_PATHS = {
   conversation: 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM15 4v16',
   newChat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM12 7v6M9 10h6',
   archive: 'M3 3h18v5H3zM5 8v13h14V8M10 12h4',
+  copy: 'M9 9h12v12H9zM15 9V3H3v12h6',
   code: 'm8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 14',
   plan: 'M9 5h11M9 12h11M9 19h11M3 5h.01M3 12h.01M3 19h.01',
   arrowUpRight: 'M7 17 17 7M7 7h10v10',

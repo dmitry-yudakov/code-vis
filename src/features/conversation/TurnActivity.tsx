@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Disclosure } from '@/features/shell/Disclosure';
@@ -47,7 +48,9 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
       }
       return <article key={entry.id} data-activity-id={entry.id} className={`activity-tool ${entry.status}`}>
         <Disclosure title={<span className="tool-summary">
-          <span className="tool-result-dot" role="img" aria-label={statusLabels[entry.status]} title={statusLabels[entry.status]} />
+          {entry.status === 'running'
+            ? <CircularProgress size={10} thickness={5} color="inherit" aria-label="Running" sx={{ flexShrink: 0, color: 'warning.main' }} />
+            : <span className="tool-result-dot" role="img" aria-label={statusLabels[entry.status]} title={statusLabels[entry.status]} />}
           <span className="tool-summary-text" title={`${entry.tool} · ${entry.summary || 'Details'}`}>{entry.tool} · {entry.summary || 'Details'}</span>
         </span>}>
           <p>{name} · {statusLabels[entry.status]}{entry.actor?.parentToolId ? ` · delegated by ${entry.actor.parentToolId}` : ''}</p>
@@ -58,6 +61,6 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
         </Disclosure>
       </article>;
     })}
-    {(turn.incomplete || turn.history === 'unsaved') && <small className="history-state" role="status">{turn.history === 'unsaved' ? 'Saving activity… history may be incomplete' : 'Some activity was not retained'}</small>}
+    {turn.history === 'unsaved' && <small className="history-state" role="status">Saving activity… history may be incomplete</small>}
   </div>;
 }

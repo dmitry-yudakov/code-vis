@@ -72,7 +72,7 @@ test('never falls back to Full access when it is the only supported mode', async
   await expect(conversation.locator('.mode-menu > button')).toHaveText('Ask');
   await conversation.locator('textarea').fill('Do it');
   await expect(conversation.getByRole('button', { name: 'Send' })).toBeDisabled();
-  await expect(conversation.locator('.inline-status')).toContainText('Ask and Plan unavailable');
+  await expect(conversation.locator('.composer-blocked')).toContainText('Ask and Plan unavailable');
   await conversation.locator('.mode-menu > button').click();
   await page.getByRole('radio', { name: 'Full access', exact: true }).click();
   await expect(conversation.locator('.mode-menu > button')).toHaveText('Full access');
@@ -108,7 +108,7 @@ test('shows the isolation reason and permits an earlier Ask retry independently 
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const reason = 'This session runs without your global instructions, and Claude loads them itself in Native writing modes.';
   await expect(conversation.locator('.mode-menu > button')).toHaveText('Agent');
-  await expect(conversation.locator('.inline-status')).toHaveText(reason);
+  await expect(conversation.locator('.composer-blocked')).toHaveText(reason);
   await conversation.locator('textarea').fill('Do it');
   await expect(conversation.getByRole('button', { name: 'Send' })).toBeDisabled();
   await expect(conversation.getByRole('button', { name: 'Execute plan' })).toBeDisabled();

@@ -2,6 +2,8 @@
 
 import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import Tooltip from '@mui/material/Tooltip';
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TextFile } from '@/shared/textFiles';
@@ -142,6 +144,12 @@ export function ConversationDrawer({
   }, [open, key, activitySignature]);
   if (!open) return null;
   const lastMessage = session?.messages[session.messages.length - 1];
+  const hasAssistantActivity = turn?.entries.some(entry => entry.kind === 'assistant');
+  const streamingText = hasAssistantActivity
+    ? turn?.entries.some(entry => entry.kind === 'assistant' && !entry.complete && entry.text)
+    : Boolean(preview);
+  const waitingForActivity = running && !permissions.length && !streamingText
+    && !turn?.entries.some(entry => entry.kind === 'tool' && entry.status === 'running');
   const recordFor = (message: NonNullable<typeof session>['messages'][number]) => {
     if (message.role !== 'user') return undefined;
     return displayedTurn(message.turn, turn?.userMessageId === message.id ? turn : undefined);
@@ -188,11 +196,11 @@ export function ConversationDrawer({
           if (message.role === 'assistant' && canonicalIds.has(message.id)) return null;
           const record = recordFor(message);
           return <div key={message.id} data-message-id={message.id}>
+            {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
             {renderMessage(message)}
             {record && <TurnActivity turn={record} agentName={agents.find(agent => agent.id === record.participantId)?.displayName || 'Agent'}
               permissions={record.runId === turn?.runId ? permissions : []} onReview={id => setReviewRequest({ id, revision: Date.now(), scope: `${key}:${turn?.runId || ""}` })}
               renderFinal={id => { const final = session.messages.find(item => item.id === id); return final ? renderMessage(final) : null; }} />}
-            {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
           </div>;
         })}
         {recovery?.error && !recovery.checkpoint && <TurnCheckpoint controls={recovery} />}
@@ -209,12 +217,16 @@ export function ConversationDrawer({
             </ol>
           </div>
         )}
-        {preview && !turn?.entries.some(entry => entry.kind === 'assistant') && (
+        {preview && !hasAssistantActivity && (
           <article className="chat-message assistant streaming">
             <div className="message-meta"><span>{activeAgent?.displayName || 'Agent'}</span><span>streaming</span></div>
             <StreamingMarkdown text={preview} />
           </article>
         )}
+        {waitingForActivity && <div className="turn-progress">
+          <Tooltip title={status || 'Working'}><CircularProgress size={12} color="inherit" aria-label={status || 'Working'} /></Tooltip>
+          {liveState === 'queued' && <span>{status}</span>}
+        </div>}
         {!session?.messages.length && <section className="conversation-welcome" aria-label="Get started">
           <div className="welcome-symbol" aria-hidden="true"><ShellIcon name="code" /></div>
           <h1>What would you like to build?</h1>
@@ -251,7 +263,7 @@ export function ConversationDrawer({
           onAdd={onAddAgent}
           onHandoff={onHandoff}
         />
-        <div className={`inline-status ${running ? 'working' : ''}`} aria-live="polite"><span />{!running && sendBlocked || status || 'Ready for an instruction'}</div>
+        {!running && sendBlocked && <small className="composer-blocked" role="status">{sendBlocked}</small>}
         <InstructionComposer
           execution={session?.execution}
           securityLevel={securityLevel}

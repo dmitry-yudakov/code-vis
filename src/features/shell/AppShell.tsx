@@ -2830,7 +2830,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               sendBlocked={composerBlocked}
               securityLevel={securityLevel}
               recovery={recovery}
-              status={sessionRunning ? status : 'Ready for an instruction'}
+              status={sessionRunning ? status : ''}
               composer={composer}
               mode={mode}
               unsupportedModes={unsupportedModes}
