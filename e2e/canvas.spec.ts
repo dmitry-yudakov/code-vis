@@ -812,13 +812,22 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   const permissionItem = arena.locator('.arena-inbox-item:has(.arena-attention-kind.permission)').filter({ hasText: 'Arena permission from Alpha' });
   await expect(permissionItem).toContainText(alphaProject);
   await expect(permissionItem).toContainText('Edit: README.md');
+  await expect(permissionItem.getByRole('button', { name: 'Open Arena permission from Alpha', exact: true })).toHaveAccessibleDescription(/Needs you.*Arena permission from Alpha.*Edit: README\.md/);
+  await permissionItem.locator('strong').click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator('.project-search-trigger')).toContainText(alphaProject);
+  await expect(alphaConversation.getByRole('region', { name: 'Pending approvals', exact: true })).toBeVisible();
+  await inbox.click();
+  await expect(permissionItem).not.toHaveClass(/read/);
   await permissionItem.getByRole('button', { name: 'Allow' }).click();
   await expect(permissionItem).toHaveCount(0);
+  await expect(page).toHaveURL(/\/arena\/inbox$/);
 
   const finishedItem = arena.locator('.arena-inbox-item').filter({ hasText: 'Arena permission from Alpha' }).filter({ hasText: 'Finished' });
   await expect(finishedItem).toBeVisible();
   await finishedItem.getByRole('button', { name: 'Mark read' }).click();
   await expect(finishedItem).toHaveClass(/read/);
+  await expect(page).toHaveURL(/\/arena\/inbox$/);
 
   await finishedItem.getByRole('button', { name: 'Archive', exact: true }).click();
   await expect(finishedItem).toHaveCount(0);
@@ -826,6 +835,14 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   expect(dialogs).toEqual([]);
   await page.getByRole('button', { name: 'Undo archive' }).click();
   await expect(finishedItem).toBeVisible();
+
+  const openFinished = finishedItem.getByRole('button', { name: 'Open Arena permission from Alpha', exact: true });
+  await openFinished.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator('.project-search-trigger')).toContainText(alphaProject);
+  await inbox.click();
+  await expect(finishedItem).toHaveClass(/read/);
 
   await arena.getByRole('tab', { name: /Active/ }).click();
   await expect(page).toHaveURL(/\/arena$/);

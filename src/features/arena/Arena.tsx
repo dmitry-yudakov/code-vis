@@ -53,9 +53,9 @@ function SessionFacts({ session, checkouts }: { session: ArenaSessionSummary; ch
   );
 }
 
-function AttentionKind({ item }: { item: ArenaAttentionItem }) {
+function AttentionKind({ item, id }: { item: ArenaAttentionItem; id: string }) {
   return (
-    <Chip component="span" className={`arena-attention-kind ${item.kind}`} variant="outlined"
+    <Chip component="span" id={id} className={`arena-attention-kind ${item.kind}`} variant="outlined"
       color={item.kind === 'permission' || item.kind === 'unavailable' ? 'warning' : item.kind === 'failed' ? 'error' : 'success'}
       label={item.kind === 'permission' || item.kind === 'unavailable' ? 'Needs you' : item.kind === 'failed' ? 'Failed' : 'Finished'} />
   );
@@ -214,10 +214,19 @@ export function Arena({
               const target = machine?.sessions.find((session) => session.id === item.sessionId);
               const active = machine?.runs.active.find((run) => run.sessionId === item.sessionId);
               const key = `${item.machineId}:${item.id}`;
+              const descriptionId = `arena-inbox-${key}`;
+              const canOpen = Boolean(item.machineOnline && machine && target);
+              const openSession = () => {
+                if (!item.machineOnline || !machine || !target) return;
+                if (item.kind !== 'permission' && !item.read) onAcknowledge([item.id]);
+                onOpenSession(machine, target);
+              };
               return (
                 <Paper component="article" className={`arena-inbox-item ${item.read ? 'read' : ''}`} key={key}>
-                  <AttentionKind item={item} />
-                  <div><strong>{item.sessionTitle}</strong><small>{item.projectName} · {item.machineLabel} · {new Date(item.createdAt).toLocaleString()}</small><p>{item.reason}</p></div>
+                  <ListItemButton component="button" type="button" className="arena-inbox-open" sx={{ display: 'grid' }} disabled={!canOpen} onClick={openSession} aria-label={`Open ${item.sessionTitle}`} aria-describedby={`${descriptionId}-kind ${descriptionId}-copy`}>
+                    <AttentionKind item={item} id={`${descriptionId}-kind`} />
+                    <span className="arena-inbox-copy" id={`${descriptionId}-copy`}><strong>{item.sessionTitle}</strong><small>{item.projectName} · {item.machineLabel} · {new Date(item.createdAt).toLocaleString()}</small><span>{item.reason}</span></span>
+                  </ListItemButton>
                   <div className="arena-inbox-actions">
                     {item.kind === 'permission' && item.runId && item.requestId && item.machineId ? (
                       <>
@@ -226,7 +235,7 @@ export function Arena({
                       </>
                     ) : !item.read ? <Button type="button" onClick={() => onAcknowledge([item.id])}>Mark read</Button> : null}
                     {item.kind !== 'permission' && target && machine && <Button type="button" disabled={!item.machineOnline || Boolean(active) || archiving === actionKey(machine.machine.id, item.sessionId)} onClick={() => archive(machine.machine.id, target)}>Archive</Button>}
-                    <Button type="button" disabled={!item.machineOnline || !machine || !target} onClick={() => { if (item.kind !== 'permission' && !item.read) onAcknowledge([item.id]); if (machine && target) onOpenSession(machine, target); }}>Open session</Button>
+                    <Button type="button" disabled={!canOpen} onClick={openSession}>Open session</Button>
                   </div>
                 </Paper>
               );
