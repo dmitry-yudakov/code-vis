@@ -9,7 +9,7 @@ import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
 import type { AgentMode, AgentProcessEvent } from '@/shared/types';
-import { createTurn, updateActivity } from '@/shared/turnActivity';
+import { createTurn, updateActivity, finishTurn } from '@/shared/turnActivity';
 
 const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
@@ -88,6 +88,24 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(result.finalBlockIds).toHaveLength(2);
     expect(result.finalBlockIds).not.toContain(history[0].key);
     expect(JSON.stringify(history)).not.toContain('PRIVATE-BINARY');
+  });
+
+  it.each(['chronological-block-snapshots', 'chronological-block-snapshots-null-stop', 'chronological-block-snapshots-after-stop', 'chronological-block-snapshots-replayed', 'chronological-block-snapshots-mixed'])('keeps per-block %s on their original stream identities', async mode => {
+    process.env.CODEAI_FAKE_MODE = mode;
+    const { events, result } = await run();
+    const history = events.flatMap(event => event.type === 'history' && event.activity ? [event.activity] : []);
+    const turn = history.reduce((record, activity) => updateActivity(record, 1, activity), createTurn('run', 'message', 'claude', new Date().toISOString()));
+    const text = turn.entries.filter(entry => entry.kind === 'assistant');
+    expect(text.map(entry => entry.text)).toEqual(['Same answer.', 'Child reply.', 'Same answer.', 'Second final.']);
+    expect(text.every(entry => !entry.id.includes('anonymous-'))).toBe(true);
+    expect(text[1].actor?.parentToolId).toBe('delegation');
+    const completed = finishTurn(turn, 'completed', { attempt: 1, keys: result.finalBlockIds, messageId: 'answer' });
+    expect(completed.entries.filter(entry => entry.kind === 'assistant' && entry.canonicalMessageId)).toHaveLength(2);
+    expect(completed.entries.filter(entry => entry.kind === 'assistant').slice(0, 2).every(entry => !entry.canonicalMessageId)).toBe(true);
+    expect(result.finalText).toBe('Same answer.Second final.');
+    expect(turn.entries.filter(entry => entry.kind === 'tool')).toMatchObject([{ tool: 'Read', status: 'succeeded', output: 'Read complete.' }]);
+    expect(events.filter(event => event.type === 'turn-started')).toHaveLength(2);
+    expect(JSON.stringify(history)).not.toContain('PRIVATE-THINKING');
   });
 
   it.each(['result-without-final-identity', 'result-without-final-identity-after-stream'])('does not relabel commentary as a canonical result for %s', async mode => {

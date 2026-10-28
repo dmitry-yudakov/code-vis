@@ -1,5 +1,6 @@
 import { expect, test, type Page, type APIRequestContext, type Locator } from '@playwright/test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 import { createTurn, updateActivity, finishTurn, type ToolStatus } from '../src/shared/turnActivity';
 
@@ -54,6 +55,53 @@ async function inViewport(target: Locator, page: Page) {
 test.afterEach(async ({ request }) => {
   const runs = await (await request.get('/api/agent/runs')).json();
   for (const run of runs.active ?? []) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
+});
+
+test('Claude per-block snapshots deliver one final reply and keep intentional repeated commentary after reload', async ({ page, request }) => {
+  const { conversation, session } = await openSession(page, request, 'light', '[block-snapshots-ui] Inspect the block snapshots.');
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+  await expect(conversation.locator('.activity-commentary')).toHaveCount(2);
+  await expect(conversation.locator('.activity-commentary').first().locator('.assistant-blocks')).toHaveText('Same answer.');
+  await expect(conversation.locator('.chat-message.assistant.complete')).toContainText('Same answer.Second final.');
+  const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+  expect(saved.messages).toHaveLength(2);
+  const user = saved.messages[0];
+  expect(user.role === 'user' && user.turn?.entries.filter(entry => entry.kind === 'assistant' && entry.canonicalMessageId)).toHaveLength(2);
+  await page.reload();
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+  await expect(conversation.locator('.activity-commentary')).toHaveCount(2);
+  await expect(conversation).not.toContainText('PRIVATE-THINKING');
+});
+
+test('saved Claude duplicate history displays once while raw evidence and intentional repetition survive', async ({ page, request }) => {
+  const { conversation, session } = await openSession(page, request, 'light', null);
+  const filename = path.resolve('test-results/server-data/session-store-v2/sessions', `${session.id}.json`);
+  const raw = JSON.parse(await readFile(filename, 'utf8'));
+  const userId = crypto.randomUUID(), replyId = crypto.randomUUID();
+  let turn = createTurn('historical-claude-duplicates', userId, session.primaryAgentId, session.createdAt);
+  const text = (message: string, index: number, value: string) => {
+    const key = JSON.stringify(['text', '', message, index]);
+    turn = updateActivity(turn, 1, { kind: 'assistant', key, text: value, complete: true, actor: { provider: 'claude' } });
+    return key;
+  };
+  text(JSON.stringify(['msg_intentional']), 0, 'Final answer.');
+  text('anonymous-18', 1, 'Final answer.');
+  const finalKey = text(JSON.stringify(['msg_final']), 0, 'Final answer.');
+  turn = finishTurn(turn, 'completed', { attempt: 1, key: finalKey, messageId: replyId });
+  raw.version = 13;
+  raw.messages = [{ id: userId, role: 'user', authorId: `${session.id}:human`, addressedParticipantId: session.primaryAgentId,
+    createdAt: session.createdAt, status: 'sent', text: 'Inspect the saved reply.', diagramAttachments: [], turn: { ...turn, history: 'saved' } },
+  { id: replyId, role: 'assistant', authorId: session.primaryAgentId, createdAt: session.createdAt,
+    status: 'complete', rawMarkdown: 'Final answer.', blocks: [{ kind: 'markdown', markdown: 'Final answer.' }] }];
+  const before = JSON.stringify(raw);
+  await writeFile(filename, before);
+  await page.reload();
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+  await expect(conversation.locator('.activity-commentary')).toHaveCount(1);
+  await expect(conversation.locator('.activity-commentary')).toContainText('Final answer.');
+  const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+  expect(saved.messages[0].role === 'user' && saved.messages[0].turn?.entries).toHaveLength(2);
+  expect(await readFile(filename, 'utf8')).toBe(before);
 });
 
 test('large activity bursts keep one live stream through approval and saved completion', async ({ page, request }) => {

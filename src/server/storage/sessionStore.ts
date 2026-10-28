@@ -20,6 +20,7 @@ import {
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
 import { boundSessionActivity, finishTurn, type TurnRecord } from '@/shared/turnActivity';
+import { repairClaudeActivity } from './claudeActivityRepair';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
@@ -228,6 +229,9 @@ export function publicSession(session: DurableSession): PublicSession {
     participants: publicParticipants(session),
   };
   delete snapshot.creationReceipt;
+  for (const message of snapshot.messages) {
+    if (message.role === 'user' && message.turn) message.turn = repairClaudeActivity(message.turn);
+  }
   return publicSessionSchema.parse(snapshot) as PublicSession;
 }
 

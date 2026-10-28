@@ -172,7 +172,12 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let finalBlockIds: string[] | undefined;
       let rootFinalPhase = false;
       let anonymousMessage = 0;
-      const messageScopes = new Map<string, { id: string; block: number; blockType?: string; streaming?: boolean }>();
+      const seenAssistantFrames = new Set<string>();
+      const messageScopes = new Map<string, { id: string; block: number; blockType?: string; streaming?: boolean; pendingTextBlocks: number[] }>();
+      const rememberRootText = (key: string) => {
+        rootTextCandidate = key;
+        if (!rootTextCandidates.includes(key)) rootTextCandidates = [...rootTextCandidates.slice(-999), key];
+      };
       const toolNames = new Map<string, string>();
       const rememberTool = (key: string, name: string) => {
         if (toolNames.size >= 1000 && !toolNames.has(key)) toolNames.delete(toolNames.keys().next().value!);
@@ -185,7 +190,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         const scopeKey = displayIdentity([parent]);
         let scope = messageScopes.get(scopeKey);
         if (!scope) {
-          scope = { id: `anonymous-${++anonymousMessage}`, block: 0 };
+          scope = { id: `anonymous-${++anonymousMessage}`, block: 0, pendingTextBlocks: [] };
           // Display-only scopes must not grow with an unbounded number of delegated messages.
           if (messageScopes.size >= 1000) messageScopes.delete(messageScopes.keys().next().value!);
           messageScopes.set(scopeKey, scope);
@@ -370,10 +375,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             textDeltaBytes += Buffer.byteLength(delta.text);
             input.emit({ type: 'text-delta', text: delta.text });
             input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: delta.text, append: true } });
-            if (!parent) {
-              rootTextCandidate = key;
-              if (!rootTextCandidates.includes(key)) rootTextCandidates = [...rootTextCandidates.slice(-999), key];
-            }
+            if (!parent) rememberRootText(key);
           }
           const block = stream?.content_block as Record<string, unknown> | undefined;
           if (stream?.type === 'content_block_start' && typeof block?.type === 'string') {
@@ -384,12 +386,10 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             input.emit({ type: 'phase', phase: 'thinking' });
           }
           if (stream?.type === 'content_block_start' && block?.type === 'text') {
+            if (!scope.pendingTextBlocks.includes(scope.block)) scope.pendingTextBlocks = [...scope.pendingTextBlocks.slice(-999), scope.block];
             input.emit({ type: 'phase', phase: 'responding' });
             input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: typeof block.text === 'string' ? block.text : '' } });
-            if (!parent) {
-              rootTextCandidate = key;
-              if (!rootTextCandidates.includes(key)) rootTextCandidates = [...rootTextCandidates.slice(-999), key];
-            }
+            if (!parent) rememberRootText(key);
           }
           if (stream?.type === 'content_block_start' && block?.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
             rememberTool(toolKey(block.id, parent), block.name);
@@ -409,21 +409,39 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         if (event.type === 'assistant') {
           const message = event.message as Record<string, unknown> | undefined;
           const parent = typeof event.parent_tool_use_id === 'string' ? event.parent_tool_use_id : '';
+          // An immutable block snapshot may be replayed after later blocks or messages. Ignore
+          // its event identity before it can consume another block's pending stream index.
+          if (typeof event.uuid === 'string' && event.uuid) {
+            const frameId = displayIdentity([parent, event.uuid]);
+            if (seenAssistantFrames.has(frameId)) return;
+            if (seenAssistantFrames.size >= 1000) seenAssistantFrames.delete(seenAssistantFrames.values().next().value!);
+            seenAssistantFrames.add(frameId);
+          }
           const scope = scopeFor(parent);
           const messageId = typeof message?.id === 'string' ? displayIdentity([message.id]) : scope.streaming ? scope.id : `assistant-${++anonymousMessage}`;
+          const sameMessage = scope.id === messageId;
+          if (!sameMessage) {
+            scope.id = messageId; scope.block = 0; scope.blockType = undefined;
+            scope.streaming = false; scope.pendingTextBlocks = [];
+          }
           if (!event.parent_tool_use_id) countTurn(typeof message?.id === 'string' ? message.id : `unidentified:${emittedTurnIds.size}`);
           const content = Array.isArray(message?.content) ? message.content : [];
           const parts = content.filter((part): part is Record<string, unknown> => Boolean(part) && typeof part === 'object');
           if (!parent) {
-            rootTextCandidate = undefined; rootTextCandidates = [];
+            if (!sameMessage) { rootTextCandidate = undefined; rootTextCandidates = []; }
             rootFinalPhase = typeof message?.stop_reason === 'string' ? message.stop_reason === 'end_turn'
               : scope.streaming === true && scope.id === messageId && rootFinalPhase;
           }
           for (const [index, part] of parts.entries()) {
             if (part.type === 'text' && typeof part.text === 'string') {
-              const key = blockKey(messageId, index, parent);
+              // Claude also emits one assistant frame per completed block. Its local index is
+              // zero even when thinking or earlier text occupied preceding stream indexes.
+              const blockIndex = scope.streaming && parts.length === 1
+                ? scope.pendingTextBlocks.shift() ?? scope.block : index;
+              scope.pendingTextBlocks = scope.pendingTextBlocks.filter(pending => pending !== blockIndex);
+              const key = blockKey(messageId, blockIndex, parent);
               input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: part.text, complete: true } });
-              if (!parent) { rootTextCandidate = key; rootTextCandidates = [...rootTextCandidates.slice(-999), key]; }
+              if (!parent) rememberRootText(key);
             }
             if (part.type !== 'tool_use' || typeof part.name !== 'string') continue;
             const toolUseId = typeof part.id === 'string' ? part.id : `unidentified-tool-${++anonymousMessage}`;
@@ -444,8 +462,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             .filter((part) => part.type === 'text' && typeof part.text === 'string')
             .map((part) => part.text as string)
             .join('');
-          scope.streaming = false;
-          messageScopes.delete(displayIdentity([parent]));
+          // Keep the scope until the next message: thinking/tool snapshots can arrive between
+          // stream blocks, and text snapshots can arrive after message_stop.
           return;
         }
         if (event.type === 'user') {

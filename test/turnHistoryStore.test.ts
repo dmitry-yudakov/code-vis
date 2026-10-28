@@ -31,6 +31,47 @@ function sizedTurn(session: DurableSession, bytes: number): TurnRecord {
 }
 
 describe('durable chronological activity', () => {
+  it('repairs historical Claude block duplicates in public snapshots without rewriting saved activity', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'codeai-claude-duplicate-'));
+    let store = new SessionStore(dir);
+    try {
+      let session = await store.createSession({ provider: 'claude' });
+      let turn = createTurn(crypto.randomUUID(), crypto.randomUUID(), session.primaryAgentId, new Date().toISOString());
+      const text = (message: string, index: number, value: string) => {
+        const key = JSON.stringify(['text', '', message, index]);
+        turn = updateActivity(turn, 1, { kind: 'assistant', key, text: value, complete: true, actor: { provider: 'claude' } });
+        return key;
+      };
+      text('anonymous-17', 1, 'Checking.');
+      text(JSON.stringify(['msg_commentary']), 0, 'Checking.');
+      turn = updateActivity(turn, 1, { kind: 'tool', key: 'read', tool: 'Read', status: 'succeeded', output: 'Evidence' });
+      text(JSON.stringify(['msg_intentional']), 0, 'Answer');
+      text('anonymous-65', 1, 'Answer');
+      const finalKey = text(JSON.stringify(['msg_final']), 0, 'Answer');
+      await store.appendUserMessage(session.id, userMessage(session, turn));
+      const answer = assistantMessage(session);
+      turn = finishTurn(turn, 'completed', { attempt: 1, key: finalKey, messageId: answer.id });
+      session = await store.completeAssistantMessage(session.id, session.primaryAgentId, turn.userMessageId, answer, turn);
+      const file = path.join(dir, 'session-store-v2', 'sessions', `${session.id}.json`);
+      const before = await readFile(file, 'utf8');
+      const projected = publicSession(session);
+      expect(projected.messages[0]).toMatchObject({ turn: { entries: [
+        { kind: 'assistant', text: 'Checking.' }, { kind: 'tool', output: 'Evidence' },
+        { kind: 'assistant', text: 'Answer' }, { kind: 'assistant', text: 'Answer', canonicalMessageId: answer.id },
+      ] } });
+      expect(projected.messages[1]).toEqual(answer);
+      expect(projected.revision).toBe(session.revision);
+      expect(canonicalTranscript(projected.messages)).toEqual(canonicalTranscript(session.messages));
+      expect(await readFile(file, 'utf8')).toBe(before);
+      expect(session.messages[0]).toMatchObject({ turn: { entries: { length: 6 } } });
+      session = await store.archiveSession(session.id, session.revision);
+      session = await store.restoreSession(session.id, session.revision);
+      await store.close();
+      store = new SessionStore(dir);
+      expect(publicSession(await store.getSession(session.id)).messages).toEqual(projected.messages);
+    } finally { await store.close(); await rm(dir, { recursive: true, force: true }); }
+  });
+
   it('retains exact completed history through replay expiry, archive/restore and restart', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'codeai-history-retention-'));
     let store = new SessionStore(dir);

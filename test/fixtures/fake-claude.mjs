@@ -146,6 +146,58 @@ else if (['result-without-final-identity', 'result-without-final-identity-after-
   emit({ type: 'assistant', message: { id: 'commentary-only', content: [{ type: 'text', text: 'Repeated final text.' }] } });
   emit({ type: 'result', subtype: 'success', result: 'Repeated final text.', session_id: sessionId });
 }
+else if (mode.startsWith('chronological-block-snapshots') || prompt.includes('[block-snapshots-ui]')) {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  let snapshotNumber = 0, commentarySnapshot;
+  const blockMessage = (id, texts, parent = '', tool = false) => {
+    const stream = event => emit({ type: 'stream_event', parent_tool_use_id: parent || null, event });
+    const snapshots = [];
+    let previousTextSnapshot;
+    const snapshot = content => {
+      const event = { type: 'assistant', uuid: `snapshot-${++snapshotNumber}`, parent_tool_use_id: parent || null, message: { id, content,
+        stop_reason: mode.endsWith('null-stop') ? null : tool ? 'tool_use' : 'end_turn' } };
+      if (mode.endsWith('after-stop') && content[0].type !== 'thinking') snapshots.push(event);
+      else emit(event);
+      if (content[0].type === 'text') {
+        previousTextSnapshot = event;
+        if (id === 'commentary-blocks') commentarySnapshot = event;
+      }
+    };
+    stream({ type: 'message_start', message: { id } });
+    stream({ type: 'content_block_start', index: 0, content_block: { type: 'thinking' } });
+    stream({ type: 'content_block_stop', index: 0 });
+    // Real Claude emits each completed block as its own assistant frame, before the message ends.
+    snapshot([{ type: 'thinking', thinking: 'PRIVATE-THINKING' }]);
+    if (id === 'final-blocks' && !parent) blockMessage(id, ['Child reply.'], 'delegation');
+    texts.forEach((text, offset) => {
+      const index = offset + 1;
+      stream({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } });
+      if (mode.endsWith('replayed') && previousTextSnapshot) emit(previousTextSnapshot);
+      stream({ type: 'content_block_delta', index, delta: { type: 'text_delta', text } });
+      stream({ type: 'content_block_stop', index });
+      snapshot([{ type: 'text', text }]);
+    });
+    if (tool) {
+      const block = { type: 'tool_use', id: 'block-read', name: 'Read', input: { file_path: path.join(process.cwd(), 'README.md') } };
+      stream({ type: 'content_block_start', index: texts.length + 1, content_block: block });
+      if (mode.endsWith('replayed') && previousTextSnapshot) emit(previousTextSnapshot);
+      stream({ type: 'content_block_stop', index: texts.length + 1 });
+      snapshot([block]);
+    }
+    stream({ type: 'message_delta', delta: { stop_reason: tool ? 'tool_use' : 'end_turn' } });
+    stream({ type: 'message_stop' });
+    snapshots.forEach(emit);
+    if (mode.endsWith('mixed') && id === 'final-blocks' && !parent) {
+      emit({ type: 'assistant', uuid: `snapshot-${++snapshotNumber}`, message: { id, stop_reason: 'end_turn',
+        content: [{ type: 'thinking', thinking: 'PRIVATE-THINKING' }, ...texts.map(text => ({ type: 'text', text }))] } });
+    }
+  };
+  blockMessage('commentary-blocks', ['Same answer.'], '', true);
+  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'block-read', content: 'Read complete.' }] } });
+  blockMessage('final-blocks', ['Same answer.', 'Second final.']);
+  if (mode.endsWith('replayed')) emit(commentarySnapshot);
+  emit({ type: 'result', subtype: 'success', result: 'Same answer.Second final.', session_id: sessionId });
+}
 else if (['chronological-stream', 'chronological-stream-null-snapshot'].includes(mode)) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
   const stream = event => emit({ type: 'stream_event', event });

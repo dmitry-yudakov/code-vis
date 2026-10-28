@@ -141,6 +141,11 @@ Updated 2026-10-28. When a story ships, change the line that names it; each stor
   Arena, Inbox, and welcome screens. TypeScript, production build, 20 focused unit tests, five
   browser checks, both-theme desktop/phone screenshot inspection and independent review pass.
   The running app has not been restarted.
+- **Shipped:** [Story 117](stories/STORY-20261028-claude-duplicate-replies.md) — Claude block
+  snapshots retain message and stream-block identity, replayed snapshots are ignored, and saved
+  duplicate replies display once while preserving original history. All 114 focused unit checks,
+  three production-browser checks, TypeScript, the isolated build and independent review pass.
+  The running app has not been restarted.
 - **Shipped:** [Story 116](stories/STORY-20261028-message-navigation.md) — compact arrows in user
   headers and response footers jump between prompts and stopped replies. All 91 selected unit checks,
   16 browser checks, TypeScript, production build, both-theme desktop/phone inspection and independent
