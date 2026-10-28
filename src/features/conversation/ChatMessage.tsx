@@ -1,7 +1,7 @@
 'use client';
 
 import { Disclosure } from '@/features/shell/Disclosure';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
@@ -32,7 +32,7 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onArchive, archiveDisabledReason }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onArchive, archiveDisabledReason, navigation }: {
   message: ChatMessageType;
   theme: ThemeName;
   participants: Participant[];
@@ -45,6 +45,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   onExecutePlan?(participantId: string): void;
   onArchive?(): void;
   archiveDisabledReason?: string;
+  navigation?: ReactNode;
 }) {
   const [copyState, setCopyState] = useState<'copied' | 'failed'>();
   useEffect(() => {
@@ -56,10 +57,13 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   if (message.role === 'user') {
     const addressee = participants.find((participant) => participant.id === message.addressedParticipantId);
     return (
-      <article className={`chat-message user ${message.status}`}>
+      <article className={`chat-message user ${message.status}`} data-navigation-id={`message:${message.id}`} tabIndex={-1}>
         <div className="message-meta">
           <span>{author?.displayName || 'You'}{addressee ? ` → @${addressee.displayName}` : ''}</span>
-          <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+            <time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+            {navigation}
+          </Box>
         </div>
         <p>{message.text}</p>
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
@@ -79,7 +83,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   }
 
   return (
-    <article className={`chat-message assistant ${message.status}`}>
+    <article className={`chat-message assistant ${message.status}`} data-navigation-id={`message:${message.id}`} tabIndex={-1}>
       <div className="message-meta">
         <span>{author?.displayName || 'Agent'}</span>
       </div>
@@ -135,6 +139,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
           }}><ShellIcon name="copy" /></IconButton>
         </Tooltip>
         {copyState && <span role="status">{copyState === 'copied' ? 'Copied' : 'Could not copy. Try again.'}</span>}
+        {navigation}
       </Box>
     </article>
   );

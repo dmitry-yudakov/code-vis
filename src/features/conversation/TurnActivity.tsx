@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { Disclosure } from '@/features/shell/Disclosure';
 import type { PendingPermission } from '@/features/agents/toolActivity';
 import type { TurnRecord, ToolStatus } from '@/shared/turnActivity';
+import { activityNavigationId } from './messageNavigation';
 
 const statusLabels: Record<ToolStatus, string> = { running: 'Running', succeeded: 'Succeeded', failed: 'Failed', denied: 'Denied', cancelled: 'Cancelled', unknown: 'Outcome unknown' };
 export function StreamingMarkdown({ text }: { text: string }) {
@@ -16,9 +17,10 @@ export function StreamingMarkdown({ text }: { text: string }) {
     img: ({ alt }) => <span>{alt ? `[Image: ${alt}]` : '[Image omitted]'}</span>,
   }}>{text}</ReactMarkdown></div>;
 }
-export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal }: {
+export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal, renderNavigation }: {
   turn: TurnRecord; agentName: string; permissions: PendingPermission[];
   onReview(id: string): void; renderFinal(id: string): ReactNode;
+  renderNavigation?(id: string): ReactNode;
 }) {
   const renderedFinal = new Set<string>();
   return <div className="turn-activity" aria-label="Turn activity">
@@ -33,9 +35,11 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
             return <div key={entry.id} data-activity-id={entry.id}>{final}</div>;
           }
         }
-        return <article key={entry.id} data-activity-id={entry.id} className="chat-message assistant activity-commentary">
+        return <article key={entry.id} data-activity-id={entry.id} className="chat-message assistant activity-commentary"
+          data-navigation-id={activityNavigationId(turn.runId, entry.id)} tabIndex={-1}>
           <div className="message-meta"><span>{name}</span></div><StreamingMarkdown text={entry.text} />
           {entry.omittedBytes ? <small>{entry.omittedBytes} bytes omitted</small> : null}
+          {renderNavigation?.(activityNavigationId(turn.runId, entry.id))}
         </article>;
       }
       if (entry.kind === 'gap') return <p key={entry.id} data-activity-id={entry.id} className="activity-gap">{entry.reason} ({entry.count})</p>;

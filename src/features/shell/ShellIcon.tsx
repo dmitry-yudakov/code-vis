@@ -13,6 +13,8 @@ const SHELL_ICON_PATHS = {
   code: 'm8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 14',
   plan: 'M9 5h11M9 12h11M9 19h11M3 5h.01M3 12h.01M3 19h.01',
   arrowUpRight: 'M7 17 17 7M7 7h10v10',
+  arrowUp: 'M12 19V5m-6 6 6-6 6 6',
+  arrowDown: 'M12 5v14m-6-6 6 6 6-6',
   refresh: 'M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M5 15a8 8 0 0 0 13 3',
 };
 

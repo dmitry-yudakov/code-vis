@@ -5,7 +5,7 @@ import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
 import type {
@@ -26,6 +26,8 @@ import type { TurnRecord } from '@/shared/turnActivity';
 import { ApprovalArea, type PermissionFeedback } from './ApprovalArea';
 import { TurnActivity, StreamingMarkdown } from './TurnActivity';
 import { ShellIcon } from '@/features/shell/ShellIcon';
+import { conversationNavigation } from './messageNavigation';
+import { MessageNavigation } from './MessageNavigation';
 
 const STARTER_PROMPTS = [
   { label: 'Explore the project', detail: 'Understand the code and how it fits together', icon: 'code', text: 'Explain the architecture of this project and the main parts of the code.' },
@@ -112,6 +114,7 @@ export function ConversationDrawer({
   const scrollRef = useRef<HTMLDivElement>(null);
   const positions = useRef(new Map<string, { top: number; follow: boolean }>());
   const following = useRef(true);
+  const navigationScrollTop = useRef<number | undefined>(undefined);
   const observedActivity = useRef(new Map<string, string>());
   const [hasNewActivity, setHasNewActivity] = useState(false);
   const [starterFocus, setStarterFocus] = useState<string>();
@@ -119,6 +122,7 @@ export function ConversationDrawer({
   const key = `${session?.machineId || ''}:${session?.id || ''}`;
   const activitySignature = `${session?.messages.map(message => `${message.id}:${message.status}:${message.role === 'user' ? message.turn?.sequence || 0 : ''}`).join('|')}|${turn?.sequence || 0}|${preview.length}|${toolActivity.length}`;
   const jump = () => {
+    navigationScrollTop.current = undefined;
     following.current = true;
     setHasNewActivity(false);
     const scroll = scrollRef.current;
@@ -130,7 +134,9 @@ export function ConversationDrawer({
     if (!scroll || !open) return;
     const saved = positions.current.get(key);
     following.current = saved?.follow ?? true;
+    const before = scroll.scrollTop;
     scroll.scrollTop = following.current ? scroll.scrollHeight : saved!.top;
+    navigationScrollTop.current = scroll.scrollTop === before ? undefined : scroll.scrollTop;
     setHasNewActivity(false);
   }, [key, open]);
   // Streaming re-renders the drawer many times a second; the canvases change only with the session.
@@ -155,8 +161,25 @@ export function ConversationDrawer({
     return displayedTurn(message.turn, turn?.userMessageId === message.id ? turn : undefined);
   };
   const canonicalIds = new Set(session?.messages.flatMap(message => recordFor(message)?.entries.flatMap(entry => entry.kind === 'assistant' && entry.canonicalMessageId ? [entry.canonicalMessageId] : []) || []));
+  const navigate = (id: string) => {
+    const scroll = scrollRef.current;
+    const target = scroll && Array.from(scroll.querySelectorAll<HTMLElement>('[data-navigation-id]')).find(element => element.dataset.navigationId === id);
+    if (!scroll || !target) return;
+    following.current = false;
+    target.focus({ preventScroll: true });
+    const before = scroll.scrollTop;
+    scroll.scrollTop += target.getBoundingClientRect().top - scroll.getBoundingClientRect().top - scroll.clientTop - 8;
+    navigationScrollTop.current = scroll.scrollTop === before ? undefined : scroll.scrollTop;
+    positions.current.set(key, { top: scroll.scrollTop, follow: false });
+  };
+  const stops = conversationNavigation(session?.messages || [], turn);
+  const navigation = new Map<string, ReactNode>();
+  for (const [kind, ids] of [['user message', stops.users], ['response', stops.responses]] as const) {
+    ids.forEach((id, index) => navigation.set(id, <MessageNavigation kind={kind} previous={ids[index - 1]} next={ids[index + 1]} onNavigate={navigate} />));
+  }
   const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => <ChatMessage
     message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
+    navigation={navigation.get(`message:${message.id}`)}
     onArchive={message.id === lastMessage?.id && message.role === 'assistant' && message.status === 'complete' ? onArchive : undefined}
     archiveDisabledReason={archiveDisabledReason}
     running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
@@ -183,7 +206,9 @@ export function ConversationDrawer({
       <div className={`conversation-scroll${!session?.messages.length ? ' is-empty' : ''}`} ref={scrollRef} onScroll={() => {
         const scroll = scrollRef.current;
         if (!scroll) return;
-        following.current = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40;
+        // Preserve follow mode through programmatic message jumps and session restoration.
+        if (scroll.scrollTop !== navigationScrollTop.current) following.current = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40;
+        navigationScrollTop.current = undefined;
         positions.current.set(key, { top: scroll.scrollTop, follow: following.current });
         if (following.current) setHasNewActivity(false);
       }} onClickCapture={event => {
@@ -199,6 +224,7 @@ export function ConversationDrawer({
             {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
             {renderMessage(message)}
             {record && <TurnActivity turn={record} agentName={agents.find(agent => agent.id === record.participantId)?.displayName || 'Agent'}
+              renderNavigation={id => navigation.get(id)}
               permissions={record.runId === turn?.runId ? permissions : []} onReview={id => setReviewRequest({ id, revision: Date.now(), scope: `${key}:${turn?.runId || ""}` })}
               renderFinal={id => { const final = session.messages.find(item => item.id === id); return final ? renderMessage(final) : null; }} />}
           </div>;

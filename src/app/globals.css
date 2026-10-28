@@ -409,6 +409,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .chat-message.assistant { margin-right: 18px; }
 .chat-message.cancelled, .chat-message.failed { border-style: dashed; }
 .message-meta { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; color: var(--muted); font: 500 11px/1.3 var(--sans); }
+.chat-message.user > .message-meta { align-items: center; }
 .chat-message.user > p { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.5; }
 .message-attachments { margin-top: 8px; color: var(--live-ink-muted); font-size: 10px; }
 .message-state { margin-top: 9px; display: flex; justify-content: space-between; align-items: center; color: var(--plot); font-size: 10px; }

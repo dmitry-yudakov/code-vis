@@ -133,3 +133,37 @@ describe('turn recovery placement', () => {
       .toContain('Could not read recovery status.');
   });
 });
+
+describe('message navigation controls', () => {
+  it('omits controls for empty conversations and singleton targets', () => {
+    for (const messages of [[], [user], [user, reply]]) {
+      const html = drawer(messages);
+      expect(html).not.toContain('aria-label="Previous user message"');
+      expect(html).not.toContain('aria-label="Next response"');
+    }
+  });
+
+  it('places named controls in user headers and response footers with disabled endpoints', () => {
+    const html = drawer([user, reply, { ...user, id: 'user-2' }, { ...reply, id: 'reply-2' }]);
+    expect(html.match(/aria-label="Previous user message"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Next user message"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Previous response"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Next response"/g)).toHaveLength(2);
+    expect(html).toMatch(/<button(?=[^>]*disabled="")(?=[^>]*aria-label="Previous user message")[^>]*>/);
+    expect(html).toMatch(/<button(?=[^>]*disabled="")(?=[^>]*aria-label="Next response")[^>]*>/);
+    expect(html).toContain('data-navigation-id="message:reply" tabindex="-1"');
+    expect(html.indexOf('aria-label="Next user message"')).toBeLessThan(html.indexOf('Please help.'));
+    const firstFooter = html.slice(html.indexOf('<footer'), html.indexOf('</footer>'));
+    expect(firstFooter.indexOf('aria-label="Previous response"')).toBeGreaterThan(firstFooter.indexOf('aria-label="Copy reply"'));
+  });
+
+  it('adds response controls only to the last stopped activity and preserves canonical deduplication', () => {
+    let turn = updateActivity(createTurn('stopped', user.id, 'agent', user.createdAt), 1,
+      { kind: 'assistant', key: 'first', text: 'Intermediate commentary', complete: true });
+    turn = finishTurn(updateActivity(turn, 1, { kind: 'assistant', key: 'last', text: 'Stopped response' }), 'cancelled');
+    const html = drawer([{ ...user, turn }, { ...user, id: 'user-2' }, reply]);
+    expect(html.match(/aria-label="Previous response"/g)).toHaveLength(2);
+    expect(html.indexOf('aria-label="Previous response"')).toBeGreaterThan(html.indexOf('Stopped response'));
+    expect(html).toContain('data-navigation-id="activity:stopped:1:last"');
+  });
+});

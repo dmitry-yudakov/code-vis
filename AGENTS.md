@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-27. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-28. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -141,6 +141,10 @@ Updated 2026-10-27. When a story ships, change the line that names it; each stor
   Arena, Inbox, and welcome screens. TypeScript, production build, 20 focused unit tests, five
   browser checks, both-theme desktop/phone screenshot inspection and independent review pass.
   The running app has not been restarted.
+- **Shipped:** [Story 116](stories/STORY-20261028-message-navigation.md) — compact arrows in user
+  headers and response footers jump between prompts and stopped replies. All 91 selected unit checks,
+  16 browser checks, TypeScript, production build, both-theme desktop/phone inspection and independent
+  review pass; one previously recorded stale composer assertion is excluded. The running app has not been restarted.
 - **Shipped:** [Story 115](stories/STORY-20261026-compact-reply-actions.md) — reply footers group
   timestamp, icon-only Archive and Copy; running tools show spinners and routine composer status is
   removed. Restore controls precede the triggering user message, and only specific history omissions
