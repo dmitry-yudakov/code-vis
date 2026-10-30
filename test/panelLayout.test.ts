@@ -37,8 +37,10 @@ describe('panel layout geometry', () => {
     expect(initialSessionLayout(empty, DEFAULT_PANEL_LAYOUT, true)).toBe(empty);
   });
   it('derives both docking thresholds from the column minimums and the activity bar', () => {
-    expect(dockCapacityForWidth(687)).toBe(0);
-    expect(dockCapacityForWidth(688)).toBe(1);
+    expect(dockCapacityForWidth(728)).toBe(0);
+    expect(dockCapacityForWidth(736)).toBe(0);
+    expect(dockCapacityForWidth(739)).toBe(0);
+    expect(dockCapacityForWidth(740)).toBe(1);
     expect(dockCapacityForWidth(1007)).toBe(1);
     expect(dockCapacityForWidth(1008)).toBe(2);
   });
@@ -152,6 +154,31 @@ describe('panel layout geometry', () => {
     expect(resolved.repositoryWidth).toBeGreaterThanOrEqual(268);
   });
 
+  it('fits three framed panes and their gutters at the two-dock threshold', () => {
+    const resolved = resolveDockWidths({
+      shellWidth: 960, capacity: 2, repositoryOpen: true, dockOpen: true,
+      inspectorOpen: false, lastOpened: 'dock', widths: DEFAULT_PANEL_WIDTHS,
+    });
+    expect(resolved.repositoryWidth).toBe(268);
+    expect(resolved.conversationWidth).toBe(320);
+    expect(resolved.repositoryColumnWidth).toBe(272);
+    expect(resolved.conversationColumnWidth).toBe(324);
+    // The canvas's right inset is separate from its 360px content frame.
+    expect(960 - resolved.repositoryColumnWidth - resolved.conversationColumnWidth - 4).toBe(360);
+  });
+
+  it('fits either dock at its minimum beside the canvas at the one-dock threshold', () => {
+    for (const repositoryOpen of [true, false]) {
+      const resolved = resolveDockWidths({
+        shellWidth: 692, capacity: 1, repositoryOpen, dockOpen: !repositoryOpen,
+        inspectorOpen: false, lastOpened: repositoryOpen ? 'repository' : 'dock',
+        widths: DEFAULT_PANEL_WIDTHS,
+      });
+      expect(repositoryOpen ? resolved.repositoryWidth : resolved.conversationWidth).toBeGreaterThanOrEqual(repositoryOpen ? 268 : 320);
+      expect(692 - resolved.repositoryColumnWidth - resolved.conversationColumnWidth - 4).toBeGreaterThanOrEqual(360);
+    }
+  });
+
   it('retains wide preferences and caps either dock at 80% of the window', () => {
     const widths = { repositoryWidth: 2200, conversationWidth: 2200 };
     expect(parsePanelWidths(JSON.stringify(widths))).toEqual(widths);
@@ -159,11 +186,13 @@ describe('panel layout geometry', () => {
       shellWidth, capacity: 2, repositoryOpen, dockOpen: !repositoryOpen,
       inspectorOpen: false, lastOpened: repositoryOpen ? 'repository' : 'dock', widths,
     });
-    expect(resolve(true).repositoryColumnWidth).toBe(1920);
-    expect(resolve(false).conversationColumnWidth).toBe(1920);
-    expect(resolve(true, 1392).repositoryColumnWidth).toBe(1392 - CANVAS_MIN_WIDTH);
-    expect(resolve(false, 1392).conversationColumnWidth).toBe(1392 - CANVAS_MIN_WIDTH);
-    expect(resolve(true).repositoryColumnWidth).toBe(1920);
+    expect(resolve(true).repositoryWidth).toBe(1920);
+    expect(resolve(false).conversationWidth).toBe(1920);
+    expect(resolve(true).repositoryColumnWidth).toBe(1924);
+    expect(resolve(false).conversationColumnWidth).toBe(1924);
+    expect(resolve(true, 1392).repositoryColumnWidth).toBe(1392 - CANVAS_MIN_WIDTH - 4);
+    expect(resolve(false, 1392).conversationColumnWidth).toBe(1392 - CANVAS_MIN_WIDTH - 4);
+    expect(resolve(true).repositoryWidth).toBe(1920);
   });
 
   it('caps the combined changes and diff inspector at 80% with or without the canvas', () => {
@@ -173,7 +202,7 @@ describe('panel layout geometry', () => {
         canvasShown, inspectorOpen: true, lastOpened: 'repository',
         widths: { repositoryWidth: 2200, conversationWidth: 460 },
       });
-      expect(resolved.repositoryColumnWidth).toBe(1920);
+      expect(resolved.repositoryColumnWidth).toBe(1924);
       expect(resolved.repositoryWidth).toBe(960);
     }
   });
@@ -185,8 +214,8 @@ describe('panel layout geometry', () => {
         canvasShown, inspectorOpen: true, lastOpened: 'repository',
         widths: { repositoryWidth: 1920, conversationWidth: 460 },
       });
-      expect(resolved.repositoryWidth).toBe((1392 - (canvasShown ? CANVAS_MIN_WIDTH : CONVERSATION_MIN_WIDTH)) / 2);
-      expect(resolved.repositoryColumnWidth).toBe(resolved.repositoryWidth * 2);
+      expect(resolved.repositoryWidth).toBe((1392 - 8 - (canvasShown ? CANVAS_MIN_WIDTH : CONVERSATION_MIN_WIDTH)) / 2);
+      expect(resolved.repositoryColumnWidth).toBe(resolved.repositoryWidth * 2 + 4);
     }
   });
 
@@ -200,8 +229,8 @@ describe('panel layout geometry', () => {
       lastOpened: 'repository',
       widths: DEFAULT_PANEL_WIDTHS,
     });
-    expect(resolved.repositoryColumnWidth).toBe(600);
-    expect(960 - resolved.repositoryColumnWidth).toBe(CANVAS_MIN_WIDTH);
+    expect(resolved.repositoryColumnWidth).toBe(596);
+    expect(960 - resolved.repositoryColumnWidth - 4).toBe(CANVAS_MIN_WIDTH);
   });
 });
 
@@ -267,7 +296,8 @@ describe('hiding the canvas', () => {
       lastOpened: 'dock',
       widths: { repositoryWidth: 480, conversationWidth: 460 },
     });
-    expect(resolved.repositoryColumnWidth).toBe(480);
+    expect(resolved.repositoryWidth).toBe(480);
+    expect(resolved.repositoryColumnWidth).toBe(484);
     // The conversation takes the rest of the row, so its column is not fixed.
     expect(resolved.conversationColumnWidth).toBe(0);
     const narrow = resolveDockWidths({
@@ -280,6 +310,6 @@ describe('hiding the canvas', () => {
       lastOpened: 'dock',
       widths: { repositoryWidth: 480, conversationWidth: 460 },
     });
-    expect(narrow.repositoryColumnWidth).toBe(640 - CONVERSATION_MIN_WIDTH);
+    expect(narrow.repositoryColumnWidth).toBe(640 - CONVERSATION_MIN_WIDTH - 4);
   });
 });

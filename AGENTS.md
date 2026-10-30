@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-28. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-30. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -140,6 +140,14 @@ Updated 2026-10-28. When a story ships, change the line that names it; each stor
   a short selection marker, and Arena, Inbox, and More stay together at the bottom across session,
   Arena, Inbox, and welcome screens. TypeScript, production build, 20 focused unit tests, five
   browser checks, both-theme desktop/phone screenshot inspection and independent review pass.
+  The running app has not been restarted.
+- **Shipped:** [Story 118](stories/STORY-20261030-inset-desktop-panes.md) — Changes, Canvas,
+  Conversation and the navigation rail use aligned inset frames with quiet outlines and rounded
+  corners. Pane headers share minimum heights; navigation gaps match, and large badges stay compact.
+  Gutters preserve pane minimums and resize controls; the single-dock threshold is 740px so either
+  dock fits. TypeScript, isolated build, 30 focused unit checks, 27 production-browser checks,
+  both-theme desktop/phone screenshot inspection and independent review pass.
+  The navigation follow-up also passes 21 focused unit checks and eight production-browser checks.
   The running app has not been restarted.
 - **Shipped:** [Story 117](stories/STORY-20261028-claude-duplicate-replies.md) — Claude block
   snapshots retain message and stream-block identity, replayed snapshots are ignored, and saved

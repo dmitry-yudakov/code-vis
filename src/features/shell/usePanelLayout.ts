@@ -7,6 +7,7 @@ import {
   CONVERSATION_MIN_WIDTH,
   DEFAULT_PANEL_LAYOUT,
   PANEL_WIDTHS_STORAGE_KEY,
+  PANE_GUTTER,
   VIEW_PANEL_LAYOUTS_STORAGE_KEY,
   REPOSITORY_MIN_WIDTH,
   clamp,
@@ -14,6 +15,7 @@ import {
   isCanvasHidden,
   initialSessionLayout,
   panelMaximumForWidth,
+  paneContentWidth,
   parsePanelWidths,
   parseViewPanelLayouts,
   reconcilePanelLayouts,
@@ -72,6 +74,9 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   const canvasHidden = isCanvasHidden(layout, dockCapacity);
   // The diff inspector belongs to the changes; history never widens the panel.
   const inspectorOpen = layout.inspectorOpen && layout.sideTab === 'changes';
+  const contentWidth = paneContentWidth(shellWidth,
+    repositoryAvailable && layout.repositoryOpen && !layout.focusMode,
+    !canvasHidden && dockOpen && !layout.focusMode);
 
   useEffect(() => {
     try {
@@ -115,10 +120,10 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   useEffect(() => {
     if (!inspectorOpen || dockCapacity !== 2 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
     const needed = layout.repositoryWidth * 2 + layout.conversationWidth + CANVAS_MIN_WIDTH;
-    if (needed > shellWidth) {
+    if (needed > contentWidth) {
       setLayout(withoutConversation);
     }
-  }, [canvasHidden, dockCapacity, dockOpen, layout.conversationWidth, inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout, shellWidth]);
+  }, [canvasHidden, contentWidth, dockCapacity, dockOpen, layout.conversationWidth, inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout]);
 
   // Opening a panel leaves focus mode, which would keep it hidden.
   const openSide = useCallback((sideTab: SideTab) => {
@@ -165,7 +170,8 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   }, [closeConversation, conversationShown, openConversation]);
   // Beside a shown canvas at two docks, a diff inspector takes the conversation's room (see the
   // inspector effect above); showing the canvas closes the side panel instead of the conversation.
-  const inspectorCrowdsCanvas = inspectorOpen && layout.repositoryWidth * 2 + layout.conversationWidth + CANVAS_MIN_WIDTH > shellWidth;
+  const inspectorCrowdsCanvas = inspectorOpen && layout.repositoryWidth * 2 + layout.conversationWidth + CANVAS_MIN_WIDTH
+    > paneContentWidth(shellWidth, repositoryAvailable && layout.repositoryOpen, true);
   const sideFitsBesideCanvas = dockCapacity === 2 && !(repositoryAvailable && inspectorCrowdsCanvas);
   const toggleCanvas = useCallback(() => setLayout((current) => toggledCanvas(current, dockCapacity, sideFitsBesideCanvas)), [dockCapacity, setLayout, sideFitsBesideCanvas]);
   // A flat action aimed at the canvas, such as opening a diagram or starting a sketch, shows it.
@@ -194,12 +200,12 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (dockCapacity === 0 || !shellWidth) return maximum;
     if (panel === 'repository') {
       const dockMinimum = dockOpen ? CONVERSATION_MIN_WIDTH : 0;
-      const room = shellWidth - (canvasHidden ? 0 : CANVAS_MIN_WIDTH) - dockMinimum;
+      const room = contentWidth - (canvasHidden ? 0 : CANVAS_MIN_WIDTH) - dockMinimum;
       return Math.max(minimum, Math.floor(Math.min(maximum, room) / (inspectorOpen && dockCapacity === 2 ? 2 : 1)));
     }
     const repositoryMinimum = repositoryAvailable && layout.repositoryOpen ? REPOSITORY_MIN_WIDTH : 0;
-    return Math.max(minimum, Math.min(maximum, shellWidth - CANVAS_MIN_WIDTH - repositoryMinimum));
-  }, [canvasHidden, dockCapacity, dockOpen, inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
+    return Math.max(minimum, Math.min(maximum, contentWidth - (canvasHidden ? 0 : CANVAS_MIN_WIDTH) - repositoryMinimum));
+  }, [canvasHidden, contentWidth, dockCapacity, dockOpen, inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
 
   const setPanelWidth = useCallback((panel: ResizePanel, width: number) => {
     const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
@@ -257,6 +263,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   }, [resolved.conversationWidth, resolved.repositoryWidth, panelMaximum, setPanelWidth]);
 
   const shellStyle = {
+    '--pane-gutter': `${dockCapacity > 0 ? PANE_GUTTER : 0}px`,
     '--repository-width': `${resolved.repositoryWidth}px`,
     '--conversation-width': `${resolved.conversationWidth}px`,
     '--repository-panel-width': `${resolved.repositoryWidth}px`,

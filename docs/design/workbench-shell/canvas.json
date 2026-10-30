@@ -106,6 +106,12 @@
       "w": 460,
       "text": "Not drawn yet\n\n• No repository: Story 62 opens the side panel on Changes, where one is attached\n• Several repositories: which branch the status bar names\n• Provider not ready: a status bar item, shown only then\n• A second or offline machine: machine headings in the Arena view\n• Widths below 688, where the panels overlay the canvas\n• Focus mode, loading, an empty canvas, the diff inspector (stays in the side panel)\n• Enter VR on WebXR devices: title bar, left of the layout icons"
     },
+    "insetPanes": {
+      "x": 3640,
+      "y": 3060,
+      "w": 460,
+      "text": "Inset desktop panes — Story 118 (October 30, 2026)\n\nThe user's latest VS Code reference refines the boards' pane geometry: Changes, Canvas and Conversation use 4px gutters, 4px top/bottom/right insets, 8px corners, subtle existing-theme outlines and no large pane shadows. Headers share a 42px minimum and grow for contextual content. Resize handles sit in the gutters. The desktop activity rail also has 4px margins and an 8px frame inside its existing 48px column, aligning with the panes and leaving the same 4px gap to its neighbour. Its 32px-wide controls keep selection and focus inset; phone overlay geometry stays as before. MUI continues to own ordinary controls.\n\nStored widths describe the surface, excluding its gutter. Reserve gutters before fitting panes and inspectors. Two docks still start at 1008px. One dock now starts at 740px so the wider conversation minimum fits beside the canvas; smaller windows use existing overlays. The old boards' 688px dock threshold is historical.\n\nStatus bar and the remaining Story 76 toolbar changes stay separate. Story 118 and its production-browser fixtures own this refinement."
+    },
     "components": {
       "x": 3100,
       "y": 3060,

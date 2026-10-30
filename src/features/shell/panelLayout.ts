@@ -4,6 +4,7 @@ export const REPOSITORY_MIN_WIDTH = 268;
 export const CONVERSATION_MIN_WIDTH = 320;
 export const CANVAS_MIN_WIDTH = 360;
 export const PANEL_HANDLE_ALLOWANCE = 12;
+export const PANE_GUTTER = 4;
 /** The activity bar's column. The docks and the canvas share what is left of the shell. */
 export const ACTIVITY_BAR_WIDTH = 48;
 export const MAX_VIEW_PANEL_LAYOUTS = 200;
@@ -59,6 +60,11 @@ export function clamp(value: number, minimum: number, maximum: number): number {
 /** A panel can use 80% of the window; shellWidth excludes the activity bar. */
 export function panelMaximumForWidth(shellWidth: number): number {
   return Math.floor((shellWidth + ACTIVITY_BAR_WIDTH) * 0.8);
+}
+
+/** Each docked surface has a right gutter, including the final surface's outer inset. */
+export function paneContentWidth(shellWidth: number, repositoryOpen: boolean, conversationBesideCanvas: boolean): number {
+  return Math.max(0, shellWidth - PANE_GUTTER * (1 + Number(repositoryOpen) + Number(conversationBesideCanvas)));
 }
 
 // Persist the preference without a screen-dependent cap; resolve it against the live window.
@@ -145,7 +151,8 @@ export function reconcilePanelLayouts(
 export function dockCapacityForWidth(shellWidth: number): DockCapacity {
   const width = shellWidth - ACTIVITY_BAR_WIDTH;
   if (width >= REPOSITORY_MIN_WIDTH + CONVERSATION_MIN_WIDTH + CANVAS_MIN_WIDTH + PANEL_HANDLE_ALLOWANCE) return 2;
-  if (width >= REPOSITORY_MIN_WIDTH + CANVAS_MIN_WIDTH + PANEL_HANDLE_ALLOWANCE) return 1;
+  // Either dock must fit: the conversation's minimum is wider than the repository's.
+  if (width >= Math.max(REPOSITORY_MIN_WIDTH, CONVERSATION_MIN_WIDTH) + CANVAS_MIN_WIDTH + PANEL_HANDLE_ALLOWANCE) return 1;
   return 0;
 }
 
@@ -208,22 +215,23 @@ export function resolveDockWidths({
   if (capacity === 0) {
     return { repositoryWidth, conversationWidth, repositoryColumnWidth: 0, conversationColumnWidth: 0 };
   }
+  const contentWidth = paneContentWidth(shellWidth, repositoryOpen, canvasShown && dockOpen);
   if (!canvasShown) {
     // The conversation takes whatever the side panel leaves, and keeps at least its minimum.
-    const room = Math.max(0, shellWidth - CONVERSATION_MIN_WIDTH);
+    const room = Math.max(0, contentWidth - CONVERSATION_MIN_WIDTH);
     if (inspectorOpen && capacity === 2) repositoryWidth = Math.min(repositoryWidth, Math.floor(room / 2));
     const wanted = inspectorOpen && capacity === 2 ? repositoryWidth * 2 : repositoryWidth;
     return {
       repositoryWidth: Math.min(repositoryWidth, room),
       conversationWidth,
-      repositoryColumnWidth: repositoryOpen ? Math.min(wanted, room) : 0,
+      repositoryColumnWidth: repositoryOpen ? Math.min(wanted, room) + PANE_GUTTER : 0,
       conversationColumnWidth: 0,
     };
   }
 
   const repositoryVisible = repositoryOpen;
   const dockVisible = dockOpen;
-  const available = Math.max(0, shellWidth - CANVAS_MIN_WIDTH);
+  const available = Math.max(0, contentWidth - CANVAS_MIN_WIDTH);
 
   if (repositoryVisible && dockVisible) {
     let overflow = Math.max(0, repositoryWidth + conversationWidth - available);
@@ -262,5 +270,9 @@ export function resolveDockWidths({
       : Math.min(repositoryWidth, repositoryRoom)
     : 0;
 
-  return { repositoryWidth, conversationWidth, repositoryColumnWidth, conversationColumnWidth };
+  return {
+    repositoryWidth, conversationWidth,
+    repositoryColumnWidth: repositoryVisible ? repositoryColumnWidth + PANE_GUTTER : 0,
+    conversationColumnWidth: dockVisible ? conversationColumnWidth + PANE_GUTTER : 0,
+  };
 }

@@ -1930,7 +1930,7 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   await expect(activityView(page, 'Changes').locator('.activity-badge')).toHaveText('2');
   await showCanvas(page);
   const [barBox, canvasBox] = await Promise.all([bar.boundingBox(), page.locator('.canvas-workspace').boundingBox()]);
-  expect(barBox!.width).toBe(48);
+  expect(barBox!.width).toBe(40);
   expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(canvasBox!.x + 1);
   await expect(page.locator('.canvas-top-actions').getByRole('button', { name: /History/ })).toHaveCount(0);
 
@@ -2026,7 +2026,7 @@ test('opens and hides the canvas for a wide conversation, and never hides it wit
   await expect(page.getByRole('separator', { name: 'Resize conversation panel' })).toHaveCount(0);
   const [pane, composer] = await Promise.all([conversation.boundingBox(), conversation.locator('.instruction-composer').boundingBox()]);
   expect(pane!.x).toBe(48);
-  expect(pane!.width).toBe(1440 - 48);
+  expect(pane!.width).toBe(1440 - 48 - 4);
   expect(composer!.width).toBeLessThanOrEqual(760);
   expect(Math.abs(composer!.x + composer!.width / 2 - (pane!.x + pane!.width / 2))).toBeLessThan(2);
   await canvasToggle.press('r');
@@ -2149,15 +2149,15 @@ for (const panel of ['conversation', 'repository'] as const) {
     await expect(surface).toHaveCSS('width', '1920px');
     // A narrow window preserves the canvas minimum without overwriting the preferred width.
     await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(surface).toHaveCSS('width', '1032px');
+    await expect(surface).toHaveCSS('width', '1024px');
     await expect(page.locator('.canvas-workspace')).toHaveCSS('width', '360px');
     await page.setViewportSize({ width: 2400, height: 900 });
     await expect(surface).toHaveCSS('width', '1920px');
     // Resizing starts at the visible width, even when the stored preference is much larger.
     await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(surface).toHaveCSS('width', '1032px');
-    await separator.press(panel === 'repository' ? 'ArrowLeft' : 'ArrowRight');
     await expect(surface).toHaveCSS('width', '1024px');
+    await separator.press(panel === 'repository' ? 'ArrowLeft' : 'ArrowRight');
+    await expect(surface).toHaveCSS('width', '1016px');
     const narrowBox = (await separator.boundingBox())!;
     const x = narrowBox.x + narrowBox.width / 2;
     const y = narrowBox.y + narrowBox.height / 2;
@@ -2165,12 +2165,12 @@ for (const panel of ['conversation', 'repository'] as const) {
     await page.mouse.down();
     await page.mouse.move(x + (panel === 'repository' ? -16 : 16), y, { steps: 2 });
     await page.mouse.up();
-    await expect(surface).toHaveCSS('width', '1008px');
+    await expect(surface).toHaveCSS('width', '1000px');
   });
 }
 
 test('docks only the panels that fit the live shell width', async ({ page, request }) => {
-  // The bands are the column minimums plus the 48px activity bar: one dock from 688, two from 1008.
+  // Either dock must fit beside the canvas and gutters: one dock from 740, two from 1008.
   await page.setViewportSize({ width: 1008, height: 720 });
   await openAlphaProject(page, request, 'Dock widths');
   await openRepositoryPanel(page);
@@ -2183,7 +2183,7 @@ test('docks only the panels that fit the live shell width', async ({ page, reque
   await expect(shell).toHaveClass(/dock-capacity-2/);
   await page.setViewportSize({ width: 1007, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-1/);
-  await page.setViewportSize({ width: 688, height: 720 });
+  await page.setViewportSize({ width: 740, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-1/);
   await expect(conversation).toBeVisible();
   await expect(repository).toBeHidden();
@@ -2194,7 +2194,7 @@ test('docks only the panels that fit the live shell width', async ({ page, reque
   await expect(conversation).toBeHidden();
 
   // Below the one-panel minimum both surfaces become overlays and can remain open together.
-  await page.setViewportSize({ width: 687, height: 720 });
+  await page.setViewportSize({ width: 739, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-0/);
   await page.setViewportSize({ width: 600, height: 720 });
   await openConversation(page);

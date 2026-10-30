@@ -20,6 +20,119 @@ async function openWorkspace(page: Page, request: APIRequestContext, withSession
 }
 
 for (const appearance of ['light', 'dark']) {
+  test(`inset panes keep aligned frames, minimum widths and reachable gutters: ${appearance}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), appearance);
+    await openWorkspace(page, request);
+    const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+    await input.fill('Keep my draft through pane layout changes');
+    const canvasToggle = page.getByRole('button', { name: 'Canvas', exact: true });
+    await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
+    await canvasToggle.click();
+    const changes = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Changes/ });
+    await changes.click();
+    const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
+    const canvas = page.locator('.canvas-workspace');
+    const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
+    for (const width of [1440, 1008]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-2/);
+      if (width === 1008) {
+        await expect(repository).toHaveCSS('width', '268px');
+        await expect(conversation).toHaveCSS('width', '320px');
+        await expect(canvas).toHaveCSS('width', '360px');
+      }
+      const frames = await Promise.all([repository.boundingBox(), canvas.boundingBox(), conversation.boundingBox()]);
+      const navigation = page.getByRole('navigation', { name: 'Views', exact: true });
+      await expect(navigation).toHaveCSS('border-radius', '8px');
+      const rail = (await navigation.boundingBox())!;
+      expect(rail.x).toBe(4);
+      expect(frames[0]!.x - rail.x - rail.width).toBe(4);
+      expect(rail.y).toBe(frames[0]!.y);
+      expect(rail.y + rail.height).toBe(frames[0]!.y + frames[0]!.height);
+      for (const [index, pane] of [repository, canvas, conversation].entries()) {
+        await expect(pane).toHaveCSS('border-radius', '8px');
+        await expect(pane).toHaveCSS('box-shadow', 'none');
+        expect(frames[index]!.y).toBe(52);
+        expect(frames[index]!.y + frames[index]!.height).toBe(896);
+        expect(await pane.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      }
+      expect(frames[1]!.x - frames[0]!.x - frames[0]!.width).toBe(4);
+      expect(frames[2]!.x - frames[1]!.x - frames[1]!.width).toBe(4);
+      expect(frames[2]!.x + frames[2]!.width).toBe(width - 4);
+      for (const panel of ['repository', 'conversation']) {
+        const handle = page.getByRole('separator', { name: `Resize ${panel} panel` });
+        const box = (await handle.boundingBox())!;
+        const edge = panel === 'repository' ? frames[0]!.x + frames[0]!.width : frames[1]!.x + frames[1]!.width;
+        expect(box.x + box.width / 2).toBe(edge + 2);
+        expect(await handle.evaluate(node => {
+          const rect = node.getBoundingClientRect();
+          return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === node;
+        })).toBe(true);
+      }
+      await page.screenshot({ path: testInfo.outputPath(`three-panes-${width}.png`), animations: 'disabled' });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await canvasToggle.click();
+    await expect(canvas).toBeHidden();
+    await expect(repository).toBeVisible();
+    await changes.click();
+    await expect(conversation).toHaveCSS('width', '1388px');
+    await expect(input).toHaveValue('Keep my draft through pane layout changes');
+    await page.screenshot({ path: testInfo.outputPath('expanded-conversation.png'), animations: 'disabled' });
+    await page.reload();
+    await expect(canvas).toBeHidden();
+    await expect(conversation).toHaveCSS('width', '1388px');
+    await canvasToggle.click();
+    await page.setViewportSize({ width: 740, height: 900 });
+    await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-1/);
+    await expect(conversation).toHaveCSS('width', '324px');
+    await expect(canvas).toHaveCSS('width', '360px');
+    for (const width of [739, 736, 728]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-0/);
+      await expect(page.locator('.conversation-region')).toHaveCSS('position', 'fixed');
+      await expect(conversation).toHaveCSS('width', '460px');
+    }
+    await page.screenshot({ path: testInfo.outputPath('conversation-overlay.png'), animations: 'disabled' });
+  });
+
+  test(`diff inspector reserves gutters before admitting three panes: ${appearance}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width: 1560, height: 900 });
+    await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), appearance);
+    await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: {
+      isRepository: true, branch: 'feature/inset-panes',
+      files: [{ path: 'example.ts', status: 'modified', staged: false, unstaged: true }],
+    } } }));
+    await page.route('**/api/repository/diff?*', route => route.fulfill({ json: {
+      diff: { path: 'example.ts', unstaged: '@@ -1 +1 @@\n-old value\n+new value' },
+    } }));
+    await openWorkspace(page, request);
+    const canvasToggle = page.getByRole('button', { name: 'Canvas', exact: true });
+    await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
+    await canvasToggle.click();
+    await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Changes/ }).click();
+    const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
+    const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
+    await repository.locator('.repository-file').click();
+    await expect(repository).toHaveClass(/has-inspector/);
+    await expect(page.getByLabel('Unified diff')).toContainText('+new value');
+    await expect(repository).toHaveCSS('width', '680px');
+    await expect(conversation).toBeVisible();
+    await expect(page.locator('.canvas-workspace')).toHaveCSS('width', '360px');
+    await page.screenshot({ path: testInfo.outputPath('diff-inspector.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 1559, height: 900 });
+    await expect(conversation).toBeHidden();
+    await expect(repository).toBeVisible();
+    await canvasToggle.click();
+    await expect(conversation).toBeVisible();
+    await expect(repository).toBeVisible();
+    await canvasToggle.click();
+    await expect(repository).toBeHidden();
+    await expect(conversation).toBeVisible();
+    await expect(page.locator('.canvas-workspace')).toBeVisible();
+  });
+
   for (const width of [1440, 360]) {
     test(`activity bar keeps global navigation anchored with clear selection: ${appearance} ${width}`, async ({ page, request }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
@@ -159,8 +272,10 @@ for (const appearance of ['light', 'dark']) {
     for (const width of [1440, 1000, 900, 360]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(welcome.getByRole('heading', { name: 'Good ideas start here.' })).toBeVisible();
-      const box = (await welcome.boundingBox())!;
-      expect(box.x + box.width).toBe(width);
+      await expect.poll(async () => {
+        const box = (await welcome.boundingBox())!;
+        return box.x + box.width;
+      }).toBe(width);
       expect(await welcome.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       const create = welcome.getByRole('button', { name: 'Create and open', exact: true });
       await create.scrollIntoViewIfNeeded();

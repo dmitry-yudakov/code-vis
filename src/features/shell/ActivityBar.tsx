@@ -47,7 +47,7 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
             onClick={() => onToggleView(view)}
           >
             <ShellIcon name={view} />
-            {count > 0 && <span className="activity-badge" aria-hidden="true">{count}</span>}
+            {count > 0 && <span className="activity-badge" aria-hidden="true">{count > 99 ? '99+' : count}</span>}
           </IconButton>
         );
       })}
@@ -69,11 +69,11 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
         title="Inbox"
       >
         <ShellIcon name="inbox" />
-        {unread > 0 && <span className="activity-badge attention" aria-hidden="true">{unread}</span>}
+        {unread > 0 && <span className="activity-badge attention" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
       </IconButton>
       <DesktopPopover control={moreRef} className="more-menu" label="More" description={updateDescription}
         icon width={240} placement="right-end" onOpenChange={onMoreToggle}
-        summary={<><ShellIcon name="more" />{updateDescription && <span className="activity-badge updates" aria-label={updateDescription}>{updateCount}</span>}</>}>
+        summary={<><ShellIcon name="more" />{updateDescription && <span className="activity-badge updates" aria-label={updateDescription}>{updateCount > 99 ? '99+' : updateCount}</span>}</>}>
         {() => <div className="desktop-more-content">{more}</div>}
       </DesktopPopover>
     </nav>

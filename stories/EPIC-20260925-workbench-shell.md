@@ -51,6 +51,15 @@ design notes. The editable original is a private Claude Design canvas:
 https://claude.ai/artifact/WKfhHJmFZuTRsnphe41FVE. If an implementation deliberately diverges, update
 the repository copy in the same change.
 
+[Story 118](STORY-20261030-inset-desktop-panes.md) refines the desktop pane geometry from the user's
+October 30 VS Code reference: 4px gutters and outer insets, 8px corners, quiet surface outlines,
+and 42px header minimums. The activity rail shares the insets, corners and aligned top/bottom
+edges within its existing 48px column, leaving the same 4px gap to the neighbouring pane.
+These frames replace the boards' edge-to-edge treatment. Gutters are
+reserved before sizing content; two docks still start at 1008px, while one dock starts at 740px
+so either dock fits beside the canvas. Smaller windows retain the existing overlays. Story 74's
+status bar and Story 76's remaining toolbar work stay separate.
+
 | Board | Shows |
 |---|---|
 | `Main` | 1440, Story 62's default (conversation open, side panel closed), a running turn. Interactive: the activity bar, the two layout toggles, and the composer menus work. |

@@ -58,6 +58,14 @@ describe('activity bar', () => {
     expect(activityBar({ changeCount: 0 })).not.toContain('activity-badge');
   });
 
+  it('keeps large badges compact while naming their exact counts', () => {
+    const markup = activityBar({ changeCount: 10000, unread: 999, updateCount: 123 });
+    expect(controlNames(markup)).toEqual(['Changes, 10000 files', 'History', 'Arena', 'Inbox, 999 unread', 'More']);
+    expect(markup).toMatch(/<span class="activity-badge"[^>]*>99\+<\/span>/);
+    expect(markup).toMatch(/<span class="activity-badge attention"[^>]*>99\+<\/span>/);
+    expect(markup).toMatch(/<span class="activity-badge updates" aria-label="123 Docker agent updates available">99\+<\/span>/);
+  });
+
   it('marks the Arena section that is open', () => {
     expect(activityBar({ views: [], arenaSection: 'inbox' })).toMatch(/aria-current="page"[^>]*aria-label="Inbox"|aria-label="Inbox"[^>]*aria-current="page"/);
     expect(activityBar({ views: [], arenaSection: 'sessions' })).toMatch(/aria-current="page"[^>]*aria-label="Arena"|aria-label="Arena"[^>]*aria-current="page"/);
