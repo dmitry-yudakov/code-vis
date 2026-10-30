@@ -29,6 +29,8 @@ vi.mock('@/server/agents/providerRegistry', () => ({ getProviderAdapters: () => 
 import { POST as sendMessage } from '@/app/api/agent/message/route';
 import { POST as changeMode } from '@/app/api/agent/mode/route';
 import { AgentRunError } from '@/server/agents/agentRunError';
+import { CodexProcessRunner } from '@/server/agents/codexProcessRunner';
+import { runOutcomeFromError } from '@/features/conversation/runPresentation';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { getSessionStore } from '@/server/storage/sessionStore';
 import { getTurnCheckpoints } from '@/server/repository/turnCheckpoints';
@@ -101,6 +103,40 @@ afterEach(async () => {
 });
 
 describe.sequential('changing the current turn mode', () => {
+  it.each(['turn-error', 'completed-error'])('delivers %s provider details through the route and permits another turn', async fakeMode => {
+    const message = 'Selected model is at capacity. Please try a different model.';
+    vi.stubEnv('CODEAI_FAKE_CODEX_MODE', fakeMode);
+    vi.stubEnv('CODEAI_FAKE_CODEX_TURN_ERROR', JSON.stringify({ message, codexErrorInfo: 'serverOverloaded' }));
+    const runner = new CodexProcessRunner({ binary: path.resolve('test/fixtures/fake-codex.mjs'), maxOutputBytes: 100_000, killGraceMs: 50 });
+    fixture.run = input => runner.run(input);
+    const finish = vi.spyOn(checkpoints, 'finish');
+    const turn = await start();
+    const streamed = await events(turn.response);
+    await runRegistry.wait(turn.runId);
+    const error = streamed.find(event => event.type === 'error');
+    expect(error).toMatchObject({ code: 'process-failed', message: `Codex: ${message}`, delivery: 'possibly-sent', retryable: true });
+    expect(runOutcomeFromError(error!, 'agent')).toMatchObject({ message: `Codex: ${message}`, missingProviderSession: false });
+    expect(streamed.filter(event => event.type === 'done')).toHaveLength(1);
+    expect((await store.getSession(turn.session.id)).messages[0]).toMatchObject({ status: 'failed', delivery: 'possibly-sent' });
+    expect(finish).toHaveBeenCalledOnce();
+    expect(runRegistry.acquireMaintenance()).toBe('acquired');
+    runRegistry.releaseMaintenance();
+
+    vi.stubEnv('CODEAI_FAKE_CODEX_MODE', 'normal');
+    const response = await sendMessage(bodyRequest('message', {
+      sessionId: turn.session.id, participantId: turn.session.primaryAgentId, messageId: crypto.randomUUID(),
+      text: 'Try again', diagramAttachments: [], mode: 'agent',
+    }));
+    expect(response.status).toBe(200);
+    const retried = await events(response);
+    await runRegistry.wait(fixture.attempts.at(-1)!.runId);
+    expect(retried.some(event => event.type === 'error')).toBe(false);
+    expect(retried).toContainEqual(expect.objectContaining({ type: 'assistant-message' }));
+    expect(fixture.attempts).toHaveLength(2);
+    expect(fixture.attempts[1].session).toMatchObject({ action: 'resume', id: 'codex-thread-new' });
+    expect((await store.getSession(turn.session.id)).messages.map(item => item.status)).toEqual(['failed', 'sent', 'complete']);
+  });
+
   it('starts and resumes unlimited Ask/Plan without turning elapsed time into a negative budget', async () => {
     vi.stubEnv('CODEAI_AGENT_TIMEOUT_MS', '0');
     const turn = await start('ask');

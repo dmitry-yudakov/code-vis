@@ -452,6 +452,14 @@ while (true) {
       completeTurn('Native integrations complete.');
     }
     else if (mode === 'malformed') writeSync(1, '{not-json}\n');
+    else if (['turn-error', 'completed-error', 'retry-error'].includes(mode)) {
+      const error = JSON.parse(process.env.CODEAI_FAKE_CODEX_TURN_ERROR || '{}');
+      if (mode === 'completed-error') emit({ method: 'turn/completed', params: {
+        threadId, turn: { id: turnId, items: [], status: 'failed', error },
+      } });
+      else emit({ method: 'error', params: { threadId, turnId, error, willRetry: mode === 'retry-error' } });
+      if (mode === 'retry-error') completeTurn('Recovered after retry.');
+    }
     else if (mode === 'crash') process.exit(2);
     else if (mode === 'signal-crash') process.kill(process.pid, 'SIGKILL');
     else if (mode.startsWith('shutdown-')) {

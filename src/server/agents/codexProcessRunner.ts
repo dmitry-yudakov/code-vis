@@ -690,6 +690,19 @@ export class CodexProcessRunner implements AgentProcessRunner {
         else void subagents!.verify(thread).then(publish).catch(() => publish());
       };
 
+      const failTurn = (value: unknown) => {
+        const error = record(value);
+        const kind = codexErrorKind(error?.codexErrorInfo);
+        const detail = typeof error?.message === 'string'
+          ? sanitizeRunDetail(error.message, input.checkout.realPath, input.attachmentDirectory) : '';
+        log?.(`turn error ${kind}: ${detail || 'No error message'}`);
+        stopWith(new AgentRunError(
+          kind === 'unauthorized' ? 'unauthenticated' : 'process-failed',
+          kind === 'unauthorized' ? 'Codex is not authenticated. Run `codex login` locally and sign in.'
+            : detail ? `Codex: ${detail}` : 'Codex turn failed.',
+        ));
+      };
+
       const handleNotification = (message: JsonRecord) => {
         const method = String(message.method);
         const params = record(message.params);
@@ -837,18 +850,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           return;
         }
         if (method === 'error' && params?.willRetry !== true) {
-          const error = record(params?.error);
-          const errorKind = codexErrorKind(error?.codexErrorInfo);
-          const errorMessage = typeof error?.message === 'string'
-            ? sanitizeRunDetail(error.message, input.checkout.realPath, input.attachmentDirectory)
-            : 'No error message';
-          log?.(`turn error ${errorKind}: ${errorMessage}`);
-          stopWith(new AgentRunError(
-            errorKind === 'unauthorized' ? 'unauthenticated' : 'process-failed',
-            errorKind === 'unauthorized'
-              ? 'Codex is not authenticated. Run `codex login` locally and sign in.'
-              : 'Codex reported an unrecoverable turn error.',
-          ));
+          failTurn(params?.error);
           return;
         }
         if (method === 'turn/completed') {
@@ -867,13 +869,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
           const status = typeof turn?.status === 'string' ? turn.status : '';
           turnSucceeded = status === 'completed';
           if (status === 'failed') {
-            const turnError = record(turn?.error);
-            log?.(`turn completed failed ${codexErrorKind(turnError?.codexErrorInfo)}: ${sanitizeRunDetail(
-              typeof turnError?.message === 'string' ? turnError.message : 'No error message',
-              input.checkout.realPath,
-              input.attachmentDirectory,
-            )}`);
-            stopWith(new Error(typeof turnError?.message === 'string' ? turnError.message : 'Codex turn failed'));
+            failTurn(turn?.error);
             return;
           }
           closeInput();

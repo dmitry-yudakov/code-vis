@@ -32,6 +32,7 @@ interface RunOptions {
   level?: 'guarded' | 'native';
   execution?: 'local' | 'docker';
   debug?: boolean;
+  turnError?: Record<string, unknown>;
 }
 
 type RecordedRequest = { method: string; params: Record<string, unknown> };
@@ -41,6 +42,7 @@ describe.sequential('CodexProcessRunner', () => {
   afterEach(() => {
     delete process.env.CODEAI_FAKE_CODEX_MODE;
     delete process.env.CODEAI_FAKE_CODEX_RECORD;
+    delete process.env.CODEAI_FAKE_CODEX_TURN_ERROR;
   });
 
   async function run(options: RunOptions = {}) {
@@ -50,6 +52,7 @@ describe.sequential('CodexProcessRunner', () => {
     await writeFile(path.join(directory, 'report-1.jpg'), Buffer.from('ffd8ffe0ffd9', 'hex'));
     await writeFile(path.join(directory, 'report-1.json'), '{}');
     process.env.CODEAI_FAKE_CODEX_RECORD = recordPath;
+    if (options.turnError) process.env.CODEAI_FAKE_CODEX_TURN_ERROR = JSON.stringify(options.turnError);
     const events: AgentProcessEvent[] = [];
     const mode = options.mode || 'ask';
     const runner = new CodexProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50, debug: options.debug,
@@ -813,6 +816,43 @@ describe.sequential('CodexProcessRunner', () => {
       expect(invocation.requests.some((request: RecordedRequest) => request.method === 'turn/interrupt')).toBe(false);
       expect(diagnostics.mock.calls.flat().join('\n')).toContain('exit code=null signal=SIGKILL after forced shutdown');
     } finally { diagnostics.mockRestore(); }
+  });
+
+  describe.each(['turn-error', 'completed-error'])('%s details', fakeMode => {
+    const capacityMessage = 'Selected model is at capacity. Please try a different model.';
+
+    it.each([
+      ['guarded', 'local'], ['native', 'local'], ['guarded', 'docker'],
+    ] as const)('preserves capacity errors in %s %s turns', async (level, execution) => {
+      process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+      await expect(run({ level, execution, turnError: { message: capacityMessage, codexErrorInfo: 'serverOverloaded' } }))
+        .rejects.toMatchObject({ code: 'process-failed', message: `Codex: ${capacityMessage}`, delivery: 'possibly-sent', retryable: true });
+    });
+
+    it.each([{}, { message: null }, { message: '' }, { message: '\n\t\u0000' }])('falls back for invalid or blank details: %j', async turnError => {
+      process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+      await expect(run({ turnError })).rejects.toMatchObject({ code: 'process-failed', message: 'Codex turn failed.' });
+    });
+
+    it('normalizes controls, redacts checkout paths and bounds provider details', async () => {
+      process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+      const raw = `Failed\n\t\u0000 at ${process.cwd()}/file.ts: ${'x'.repeat(200)}`;
+      const clean = `Failed at ./file.ts: ${'x'.repeat(200)}`;
+      await expect(run({ turnError: { message: raw } })).rejects.toMatchObject({ message: `Codex: ${clean.slice(0, 159)}…` });
+    });
+
+    it.each(['unauthorized', { unauthorized: {} }])('preserves authentication guidance for %j', async codexErrorInfo => {
+      process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
+      await expect(run({ turnError: { message: capacityMessage, codexErrorInfo } })).rejects.toMatchObject({
+        code: 'unauthenticated', message: 'Codex is not authenticated. Run `codex login` locally and sign in.',
+      });
+    });
+  });
+
+  it('allows a transient provider error to recover and deliver the answer', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'retry-error';
+    await expect(run({ turnError: { message: 'Server temporarily overloaded.', codexErrorInfo: 'serverOverloaded' } }))
+      .resolves.toMatchObject({ result: { finalText: 'Recovered after retry.' } });
   });
 
   it.each(['shutdown-failed', 'shutdown-interrupted', 'shutdown-cleanup-failure', 'shutdown-crash', 'shutdown-external-signal', 'signal-crash'])('keeps %s a failure despite any final text', async fakeMode => {
