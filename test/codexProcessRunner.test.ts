@@ -773,14 +773,30 @@ describe.sequential('CodexProcessRunner', () => {
   });
 
   it('bounds each App Server event, not the whole stream, so a long command-heavy turn completes', async () => {
-    // The fake streams 4.5 MB of command output against a 100 KB answer limit.
+    // The fake streams 9 MB of command output, exceeding both the event and answer limits in total.
     process.env.CODEAI_FAKE_CODEX_MODE = 'long-run';
     await expect(run()).resolves.toMatchObject({ result: { finalText: 'Long run complete.' } });
+  });
+
+  it('delivers the answer after a command completion event larger than 1 MiB', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'large-command';
+    const { result, events } = await run();
+    expect(result.finalText).toBe('Large command complete.');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'history', activity: expect.objectContaining({
+      kind: 'tool', tool: 'Shell', status: 'succeeded', omittedBytes: expect.any(Number),
+    }) }));
+    const command = events.find(event => event.type === 'history' && event.activity?.kind === 'tool' && event.activity.tool === 'Shell');
+    expect(command?.activity?.omittedBytes).toBeGreaterThan(0);
+  });
+
+  it.each(['oversized-command', 'unterminated'])('rejects %s events above 8 MiB after sending input', async (fakeMode) => {
     // An unfinished event stops the run while it streams, not later at the time limit.
-    process.env.CODEAI_FAKE_CODEX_MODE = 'unterminated';
+    process.env.CODEAI_FAKE_CODEX_MODE = fakeMode;
     const started = Date.now();
-    await expect(run({ timeoutMs: 3_000 })).rejects.toMatchObject({ code: 'oversized-output', message: 'Codex emitted an oversized App Server event.' });
-    expect(Date.now() - started).toBeLessThan(1_000);
+    await expect(run({ timeoutMs: 5_000 })).rejects.toMatchObject({
+      code: 'oversized-output', message: 'Codex emitted an oversized App Server event.', delivery: 'possibly-sent',
+    });
+    expect(Date.now() - started).toBeLessThan(2_500);
   });
 
   it.each(['local', 'docker'] as const)('preserves a completed answer after forced %s shutdown', async execution => {

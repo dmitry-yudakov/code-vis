@@ -37,9 +37,10 @@ type JsonRecord = Record<string, unknown>;
 /**
  * Bounds one App Server line, finished or not. The stream as a whole is not capped: command output
  * and reasoning make a long turn's stream far larger than its answer, and only the unfinished line
- * is held in memory. The answer has its own cap (`maxOutputBytes`).
+ * is held in memory. Allow up to 8 MiB for large native tool results while retaining a finite
+ * bound for runaway events. The answer has its own cap (`maxOutputBytes`).
  */
-const MAX_EVENT_BYTES = 1_048_576;
+const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const oversizedEvent = (sent: boolean, resuming: boolean) => new AgentRunError('oversized-output',
   !sent && resuming ? 'Codex emitted an oversized App Server event before starting the resumed turn. Update the executing machine\'s Codex CLI and retry.'
     : 'Codex emitted an oversized App Server event.', sent ? 'possibly-sent' : 'not-sent');
