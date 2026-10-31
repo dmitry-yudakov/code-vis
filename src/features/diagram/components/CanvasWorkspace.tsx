@@ -4,7 +4,7 @@ import Button from '@mui/material/Button';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import type { ToolActivityEntry } from '@/features/agents/toolActivity';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { SessionSnapshot, DrawingMark } from '@/shared/types';
@@ -33,14 +33,13 @@ export function CanvasWorkspace({
   running,
   runFailed,
   toolActivity,
-  focusMode,
+  paneControl,
   immersiveActive,
   canvasView,
   surface,
   spatial,
   onComposer,
   onOpenChat,
-  onToggleFocus,
   onSelectDiagram,
   onNewSketch,
   onMarksChange,
@@ -63,14 +62,13 @@ export function CanvasWorkspace({
   running: boolean;
   runFailed: boolean;
   toolActivity: ToolActivityEntry[];
-  focusMode: boolean;
+  paneControl: ReactNode;
   immersiveActive: boolean;
   canvasView?: CanvasViewState;
   surface: CanvasSurface;
   spatial?: SpatialViewState;
   onComposer(value: string): void;
   onOpenChat(): void;
-  onToggleFocus(): void;
   onSelectDiagram(id: string): void;
   onNewSketch(): void;
   onMarksChange(diagramId: string, marks: DrawingMark[]): void;
@@ -118,7 +116,7 @@ export function CanvasWorkspace({
   if (hidden) return <main id="active-session-view" role="tabpanel" className="canvas-workspace" hidden />;
 
   return (
-    <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${focusMode ? 'focus-mode' : ''} ${target ? 'has-diagram' : 'empty-canvas'}`}>
+    <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${target ? 'has-diagram' : 'empty-canvas'}`}>
       <div className="canvas-topbar">
         {target && !image && (
           <ToggleButtonGroup className="canvas-surface-control" value={surface} exclusive size="small" aria-label="Canvas surface">
@@ -131,8 +129,7 @@ export function CanvasWorkspace({
           {session.previousDiagramId && target && !image && (
             <Button type="button" onClick={() => onSelectDiagram(session.previousDiagramId!)}>← Previous version</Button>
           )}
-          {target && <Button type="button" onClick={onNewSketch}>New sketch</Button>}
-          <Button type="button" onClick={onToggleFocus}>{focusMode ? 'Exit focus' : 'Focus'}</Button>
+          {paneControl}
         </div>
       </div>
 

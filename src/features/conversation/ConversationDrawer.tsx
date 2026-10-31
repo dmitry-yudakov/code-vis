@@ -36,14 +36,16 @@ const STARTER_PROMPTS = [
 ] as const;
 
 export function ConversationDrawer({
-  open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
+  open, visible = open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   turn, liveMessageId, liveState, permissionFeedback, onRefreshPermissions, retryBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan,
-  continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onArchive, archiveDisabledReason, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
+  continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onArchive, archiveDisabledReason, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports, paneControl,
 }: {
   open: boolean;
+  visible?: boolean;
+  paneControl?: ReactNode;
   turn?: TurnRecord;
   liveMessageId?: string;
   retryBlocked?: boolean;
@@ -131,23 +133,23 @@ export function ConversationDrawer({
   };
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
-    if (!scroll || !open) return;
+    if (!scroll || !visible) return;
     const saved = positions.current.get(key);
     following.current = saved?.follow ?? true;
     const before = scroll.scrollTop;
     scroll.scrollTop = following.current ? scroll.scrollHeight : saved!.top;
     navigationScrollTop.current = scroll.scrollTop === before ? undefined : scroll.scrollTop;
     setHasNewActivity(false);
-  }, [key, open]);
+  }, [key, open, visible]);
   // Streaming re-renders the drawer many times a second; the canvases change only with the session.
   const canvases = useMemo(() => session ? recentCanvases(session, Date.now()) : [], [session]);
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!visible) return;
     const previous = observedActivity.current.get(key);
     observedActivity.current.set(key, activitySignature);
     if (following.current) { const scroll = scrollRef.current; if (scroll) scroll.scrollTop = scroll.scrollHeight; }
     else if (previous !== undefined && previous !== activitySignature) setHasNewActivity(true);
-  }, [open, key, activitySignature]);
+  }, [visible, key, activitySignature]);
   if (!open) return null;
   const lastMessage = session?.messages[session.messages.length - 1];
   const hasAssistantActivity = turn?.entries.some(entry => entry.kind === 'assistant');
@@ -192,16 +194,19 @@ export function ConversationDrawer({
           <strong>{session?.title || 'New session'}</strong>
           {repositoryContext && <p className="conversation-repository-context">{repositoryContext}</p>}
         </div>
-        <Button
-          type="button"
-          className="drawer-new-chat"
-          aria-label="New chat"
-          title={running ? 'Wait for this turn to finish.' : continuing ? 'Creating a session…'
-            : participantBusy ? 'Wait for agent changes to finish.' : recovery?.busy ? 'Wait for Undo to finish.'
-            : 'New chat with the same project and settings'}
-          disabled={!session || !activeAgent || running || continuing || participantBusy || recovery?.busy}
-          onClick={onNewChat}
-        ><ShellIcon name="newChat" /></Button>
+        <div className="pane-header-actions">
+          <Button
+            type="button"
+            className="drawer-new-chat"
+            aria-label="New chat"
+            title={running ? 'Wait for this turn to finish.' : continuing ? 'Creating a session…'
+              : participantBusy ? 'Wait for agent changes to finish.' : recovery?.busy ? 'Wait for Undo to finish.'
+              : 'New chat with the same project and settings'}
+            disabled={!session || !activeAgent || running || continuing || participantBusy || recovery?.busy}
+            onClick={onNewChat}
+          ><ShellIcon name="newChat" /></Button>
+          {paneControl}
+        </div>
       </header>
       <div className={`conversation-scroll${!session?.messages.length ? ' is-empty' : ''}`} ref={scrollRef} onScroll={() => {
         const scroll = scrollRef.current;
@@ -277,20 +282,20 @@ export function ConversationDrawer({
         {hasNewActivity && <Button className="jump-latest" onClick={jump}>Jump to latest · New activity</Button>}
         <ApprovalArea key={`${key}:${turn?.runId || ""}`} requests={permissions} agents={agents} deciding={decidingPermission} feedback={permissionFeedback}
           reviewRequest={reviewRequest?.scope === `${key}:${turn?.runId || ""}` ? reviewRequest : undefined} onDecide={onDecidePermission} onStop={onCancel} onRefresh={onRefreshPermissions} />
-        <ParticipantControls
-          agents={agents}
-          activeAgentId={activeAgent?.id}
-          primaryAgentId={session?.primaryAgentId}
-          providers={healthyProviders}
-          disabled={running}
-          busy={participantBusy}
-          onSelect={onSelectAgent}
-          onMakePrimary={onMakePrimary}
-          onAdd={onAddAgent}
-          onHandoff={onHandoff}
-        />
         {!running && sendBlocked && <small className="composer-blocked" role="status">{sendBlocked}</small>}
         <InstructionComposer
+          agentControl={<ParticipantControls
+            agents={agents}
+            activeAgentId={activeAgent?.id}
+            primaryAgentId={session?.primaryAgentId}
+            providers={healthyProviders}
+            disabled={running}
+            busy={participantBusy}
+            onSelect={onSelectAgent}
+            onMakePrimary={onMakePrimary}
+            onAdd={onAddAgent}
+            onHandoff={onHandoff}
+          />}
           execution={session?.execution}
           securityLevel={securityLevel}
           provider={activeAgent?.provider}

@@ -33,7 +33,7 @@ function toast(page: Page, text: string | RegExp) {
 
 /** The header's Conversation layout icon; while it is closed its name adds approvals or unread. */
 function conversationToggle(page: Page) {
-  return page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^Conversation/ });
+  return page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^(Conversation|Chat)/ });
 }
 
 async function ensureConversationOpen(page: Page) {
@@ -163,7 +163,7 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
     if (host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com') externalFontRequests.push(request.url());
   });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: /No project/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Good ideas start here.', exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.fonts.status)).toBe('loaded');
   const fontVariables = await page.evaluate(() => {
     const styles = getComputedStyle(document.documentElement);
@@ -268,10 +268,10 @@ test('creates, annotates, revises, restores, and exports a canvas session', asyn
   await expect(page.locator('.attachment-chip')).toContainText('1 mark');
   await closeConversation(page);
 
-  await page.getByRole('button', { name: 'Focus' }).click();
-  await expect(page.locator('.canvas-workspace')).toHaveClass(/focus-mode/);
+  await page.getByRole('button', { name: 'Maximize Canvas' }).click();
+  await expect(page.locator('.app-shell')).toHaveClass(/maximized-canvas/);
   await expect(repository).toBeHidden();
-  await page.getByRole('button', { name: 'Exit focus' }).click();
+  await page.getByRole('button', { name: 'Restore layout' }).click();
   await openConversation(page);
   const revisionComposer = page.getByPlaceholder(/Ask about or revise/);
   await revisionComposer.fill('Revise it with a context step');
@@ -374,7 +374,9 @@ test('loads the bounded spatial room on demand and restores its device-only layo
   await closeConversation(page);
 
   for (let ordinal = 1; ordinal <= 5; ordinal += 1) {
-    await page.getByRole('button', { name: 'New sketch' }).click();
+    await ensureConversationOpen(page);
+    await page.getByRole('button', { name: 'Attach', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'New sketch', exact: true }).click();
     await expect(page.locator('.canvas-titleblock strong')).toHaveText(`Sketch ${ordinal}`);
   }
   await activityView(page, 'History').click();
@@ -440,9 +442,9 @@ test('loads the bounded spatial room on demand and restores its device-only layo
   expect(layoutAfterTheme).toBe(layoutBeforeTheme);
   await page.evaluate(() => { window.__CODEAI_SPATIAL_TEST__ = {}; });
 
-  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await page.getByRole('button', { name: 'Maximize Canvas', exact: true }).click();
   await expect(page.getByRole('complementary', { name: 'Repository' })).toBeHidden();
-  await page.getByRole('button', { name: 'Exit focus' }).click();
+  await page.getByRole('button', { name: 'Restore layout' }).click();
   await page.getByRole('button', { name: 'Open in Flat' }).click();
   await expect(page.locator('.sketch-sheet')).toBeVisible();
   await page.getByRole('button', { name: 'Spatial', exact: true }).click();
@@ -1157,7 +1159,9 @@ test('keeps a toast on screen beside the Spatial room, at every width', async ({
   await page.getByRole('button', { name: 'Spatial', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Spatial canvas projection' })).toBeVisible();
   await page.route('**/api/sessions/*/sketches', (route) => route.fulfill({ status: 503, json: { error: 'Simulated sketch failure.' } }));
-  await page.getByRole('button', { name: 'New sketch' }).click();
+  await ensureConversationOpen(page);
+  await page.getByRole('button', { name: 'Attach', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New sketch', exact: true }).click();
   const failure = toast(page, 'Simulated sketch failure.');
   await expect(failure).toBeVisible();
 
@@ -1165,7 +1169,7 @@ test('keeps a toast on screen beside the Spatial room, at every width', async ({
     await page.setViewportSize({ width, height: 844 });
     await failure.evaluate((element) => Promise.all(element.closest('.toast-slot')!.getAnimations().map((running) => running.finished)));
     const placed = (await failure.boundingBox())!;
-    expect(placed.x, `left edge at ${width}px`).toBeGreaterThanOrEqual(48);
+    expect(placed.x, `left edge at ${width}px`).toBeGreaterThanOrEqual(width < 740 ? 0 : 48);
     expect(placed.x + placed.width, `right edge at ${width}px`).toBeLessThanOrEqual(width);
   }
 });
@@ -1541,8 +1545,10 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
 
   // At phone width nothing in the composer row overlaps, and the open menu stays on screen.
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-0/);
   await ensureConversationOpen(page);
   const row = page.getByRole('complementary', { name: 'Conversation' }).locator('.composer-actions');
+  await expect(row).toBeVisible();
   const boxes = (await Promise.all((await row.locator(':scope > *').all()).map((item) => item.boundingBox())))
     .filter((box): box is NonNullable<typeof box> => Boolean(box && box.width > 0));
   // Attach, the mode picker, the model menu, and Send.
@@ -1883,19 +1889,21 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await ensureConversationOpen(page);
   await expect(picker).toHaveText('Agent');
 
-  // A phone keeps the activity bar beside the open conversation overlay.
+  // A phone uses a bottom bar beneath the full-width conversation.
   await page.setViewportSize({ width: 390, height: 844 });
   await ensureConversationOpen(page);
   const phoneBar = (await activityBar(page).boundingBox())!;
   const phoneConversation = (await conversation.boundingBox())!;
-  expect(phoneBar.x + phoneBar.width).toBeLessThanOrEqual(phoneConversation.x);
+  expect(phoneConversation.width).toBe(390);
+  expect(phoneBar.y).toBeGreaterThanOrEqual(phoneConversation.y + phoneConversation.height);
   await page.locator('.more-menu > button').click();
   await expect(page.locator('.desktop-picker-paper:visible').getByRole('group', { name: 'Theme' })).toBeVisible();
   await page.locator('.more-menu > button').click();
   await page.setViewportSize({ width: 1280, height: 720 });
 
-  // On a phone the side panel is an overlay, so the composer's way to History closes the conversation.
-  await activityView(page, 'History').click();
+  // Phone navigation selects History instead of the conversation.
+  await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-2/);
+  if (await activityView(page, 'History').getAttribute('aria-pressed') === 'true') await activityView(page, 'History').click();
   await expect(page.getByRole('complementary', { name: 'Canvas history' })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await ensureConversationOpen(page);
@@ -1946,12 +1954,12 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   await expect(activityView(page, 'History')).toHaveAttribute('aria-pressed', 'true');
 
   // Focus mode hides the panel; pressing its view shows it again instead of closing it unseen.
-  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await page.getByRole('button', { name: 'Maximize Canvas', exact: true }).click();
   await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeHidden();
   await expect(activityView(page, 'History')).toHaveAttribute('aria-pressed', 'false');
   await activityView(page, 'History').click();
   await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeVisible();
-  await expect(page.locator('.canvas-workspace')).not.toHaveClass(/focus-mode/);
+  await expect(page.locator('.app-shell')).not.toHaveClass(/maximized-canvas/);
   await activityView(page, 'History').click();
   await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeHidden();
 
@@ -2080,7 +2088,7 @@ test('opens and hides the canvas for a wide conversation, and never hides it wit
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Diagram 1');
 
   // Focus mode gives way to a hidden canvas instead of blanking the shell.
-  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await page.getByRole('button', { name: 'Maximize Canvas', exact: true }).click();
   await canvasToggle.click();
   await expect(conversation).toBeVisible();
   await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
@@ -2096,12 +2104,12 @@ test('opens and hides the canvas for a wide conversation, and never hides it wit
   await expect(conversation).toBeVisible();
   await expect(page.locator('.mermaid-layer svg')).toBeVisible();
 
-  // Below the one-dock band the panels overlay a canvas that always shows.
+  // Below the one-dock band only the selected full-width module shows.
   await canvasToggle.click();
   await page.setViewportSize({ width: 600, height: 900 });
   await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-0/);
-  await expect(canvasToggle).toHaveCount(0);
-  await expect(page.locator('.mermaid-layer svg')).toBeVisible();
+  await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.mermaid-layer svg')).toHaveCount(0);
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
   await canvasToggle.click();
@@ -2193,37 +2201,30 @@ test('docks only the panels that fit the live shell width', async ({ page, reque
   await expect(repository).toBeVisible();
   await expect(conversation).toBeHidden();
 
-  // Below the one-panel minimum both surfaces become overlays and can remain open together.
+  // Below one-dock capacity navigation selects one full-width surface.
   await page.setViewportSize({ width: 739, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-0/);
   await page.setViewportSize({ width: 600, height: 720 });
   await openConversation(page);
-  await expect(repository).toBeVisible();
+  await expect(repository).toBeHidden();
   await expect(conversation).toBeVisible();
-  await expect(repository).toHaveCSS('position', 'absolute');
-  await expect(page.locator('.repository-region')).toHaveCSS('position', 'fixed');
-  await expect(page.locator('.conversation-region')).toHaveCSS('position', 'fixed');
-  // The side panel overlay starts beside the activity bar, which stays usable over the canvas.
-  const [barBox, overlayBox] = await Promise.all([activityBar(page).boundingBox(), repository.boundingBox()]);
-  expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(overlayBox!.x + 1);
-  await expect(activityView(page, 'Changes')).toHaveAttribute('aria-pressed', 'true');
-  // More opens over the side panel overlay rather than under it.
+  await expect(conversation).toHaveCSS('width', '600px');
+  await expect(page.getByRole('separator', { name: 'Resize conversation panel' })).toHaveCount(0);
+  await activityView(page, 'Changes').click();
+  await expect(repository).toBeVisible();
+  await expect(conversation).toBeHidden();
+  await expect(repository).toHaveCSS('width', '600px');
   const more = page.locator('.more-menu');
   await more.locator(':scope > button').click();
   const menuBox = (await page.locator('.desktop-picker-paper:visible').boundingBox())!;
-  expect(menuBox.x).toBeLessThan(overlayBox!.x + overlayBox!.width);
   expect(await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.desktop-picker-paper')),
     [menuBox.x + menuBox.width / 2, menuBox.y + menuBox.height / 2])).toBe(true);
   await more.locator(':scope > button').click();
 
-  const conversationSeparator = page.getByRole('separator', { name: 'Resize conversation panel' });
-  const conversationWidth = Number(await conversationSeparator.getAttribute('aria-valuenow'));
-  await conversationSeparator.press('ArrowLeft');
-  await expect(conversationSeparator).toHaveAttribute('aria-valuenow', String(conversationWidth + 8));
-
   // Widening restores both as columns while retaining at least 360px for the canvas.
   await page.setViewportSize({ width: 1100, height: 720 });
   await expect(shell).toHaveClass(/dock-capacity-2/);
+  await openConversation(page);
   const [repositoryBox, canvasBox, conversationBox] = await Promise.all([
     repository.boundingBox(),
     page.locator('.canvas-workspace').boundingBox(),

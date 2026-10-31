@@ -198,6 +198,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('group', { name: 'Theme' })).toBeVisible();
     await expectScreenshot(page.locator('.desktop-picker-paper:visible'), `more-${theme}-${width}.png`);
     await page.keyboard.press('Escape');
+    if (width === 360) await page.getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     const arena = page.getByRole('main', { name: 'Arena' });
     await expect(arena.getByRole('button', { name: 'Open Review the parser and its long session title', exact: true })).toBeVisible();
@@ -221,8 +222,8 @@ for (const theme of ['light', 'dark'] as const) {
     } } }));
     await page.goto('/');
     if (width === 1440) await page.getByRole('button', { name: 'Canvas', exact: true }).click();
-    if (width === 360) await page.getByRole('button', { name: /^Conversation/ }).click();
-    await page.getByRole('button', { name: /Changes/ }).click();
+    if (width === 360) await page.getByRole('button', { name: /^(Conversation|Chat)/ }).click();
+    await page.getByRole('button', { name: /^Changes/ }).click();
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
     await expect(repository.locator('.repository-file')).toHaveCount(2);
     if (width === 1440) {
@@ -233,8 +234,8 @@ for (const theme of ['light', 'dark'] as const) {
     }
     expect(await repository.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expectScreenshot(repository, `repository-${theme}-${width}.png`);
-    await page.getByRole('button', { name: /Changes/ }).click();
-    if (await page.getByRole('button', { name: /^Conversation/ }).getAttribute('aria-pressed') === 'true') await page.getByRole('button', { name: /^Conversation/ }).click();
+    await page.getByRole('button', { name: /^Changes/ }).click();
+    if (await page.getByRole('button', { name: /^(Conversation|Chat)/ }).getAttribute('aria-pressed') === 'true') await page.getByRole('button', { name: /^(Conversation|Chat)/ }).click();
     await page.route('**/api/sessions/*/sketches', (route) => route.fulfill({ status: 500, json: { error: 'The sketch could not be saved. Try again.' } }), { times: 1 });
     await page.getByRole('button', { name: /Start a sketch/ }).click();
     const toast = page.locator('.toast');

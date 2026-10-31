@@ -8,9 +8,10 @@ import { ShellIcon } from './ShellIcon';
  * and the conversation. A closed conversation carries what it holds: approvals first, else unread
  * replies.
  */
-export function LayoutToggles({ canvasShown, canvasToggleable, conversationShown, approvals, unread, onToggleCanvas, onToggleConversation }: {
+export function LayoutToggles({ canvasShown, canvasToggleable, conversationShown, approvals, unread, onToggleCanvas, onToggleConversation, compact = false }: {
+  compact?: boolean;
   canvasShown: boolean;
-  /** False below the overlay band, where the panels float over a canvas that always shows. */
+  /** Desktop hides this control when another navigation surface owns canvas selection. */
   canvasToggleable: boolean;
   conversationShown: boolean;
   approvals: number;
@@ -19,32 +20,36 @@ export function LayoutToggles({ canvasShown, canvasToggleable, conversationShown
   onToggleConversation(): void;
 }) {
   const badge = conversationShown ? 0 : approvals || unread;
-  const conversationLabel = conversationShown || !badge ? 'Conversation'
-    : approvals ? `Conversation, ${approvals} action${approvals === 1 ? '' : 's'} waiting for your approval`
-    : `Conversation, ${unread} unread`;
+  const name = compact ? 'Chat' : 'Conversation';
+  const conversationLabel = conversationShown || !badge ? name
+    : approvals ? `${name}, ${approvals} action${approvals === 1 ? '' : 's'} waiting for your approval`
+    : `${name}, ${unread} unread`;
+  const canvas = canvasToggleable && (
+    <IconButton
+      type="button"
+      className="layout-toggle"
+      aria-label="Canvas"
+      aria-pressed={canvasShown}
+      title={compact ? 'Show the canvas' : canvasShown ? 'Hide the canvas' : 'Show the canvas'}
+      onClick={onToggleCanvas}
+    ><ShellIcon name="canvas" />{compact && <span className="activity-label">Canvas</span>}</IconButton>
+  );
   return (
     <div className="layout-toggles" role="group" aria-label="Layout">
-      {canvasToggleable && (
-        <IconButton
-          type="button"
-          className="layout-toggle"
-          aria-label="Canvas"
-          aria-pressed={canvasShown}
-          title={canvasShown ? 'Hide the canvas' : 'Show the canvas'}
-          onClick={onToggleCanvas}
-        ><ShellIcon name="canvas" /></IconButton>
-      )}
+      {!compact && canvas}
       <IconButton
         type="button"
         className="layout-toggle"
         aria-label={conversationLabel}
         aria-pressed={conversationShown}
-        title={conversationShown ? 'Close the conversation' : 'Open the conversation'}
+        title={compact ? 'Show chat' : conversationShown ? 'Close the conversation' : 'Open the conversation'}
         onClick={onToggleConversation}
       >
         <ShellIcon name="conversation" />
+        {compact && <span className="activity-label">Chat</span>}
         {badge > 0 && <span className={`layout-badge ${approvals ? 'attention' : ''}`.trim()} aria-hidden="true">{badge}</span>}
       </IconButton>
+      {compact && canvas}
     </div>
   );
 }

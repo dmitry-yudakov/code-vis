@@ -81,7 +81,7 @@ for (const choice of [
 
     await page.setViewportSize({ width: 760, height: 800 });
     await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-1/);
-    if (!await conversation.isVisible()) await page.getByRole('button', { name: 'Conversation', exact: true }).click();
+    if (!await conversation.isVisible()) await page.getByRole('button', { name: /^(Conversation|Chat)$/ }).click();
     await expect(newChat).toBeVisible();
     const button = (await newChat.boundingBox())!;
     const header = (await conversation.locator(':scope > header').boundingBox())!;

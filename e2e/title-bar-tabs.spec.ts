@@ -101,8 +101,8 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   await picker.locator('select').press('ArrowDown');
   await expect(picker.locator('.all-sessions-label')).toBeVisible();
   const canvas = (await page.locator('.canvas-workspace').boundingBox())!;
-  expect(canvas.y).toBe(48);
-  expect(canvas.height).toBe(852);
+  expect(canvas.y).toBe(52);
+  expect(canvas.height).toBe(844);
   const count = await visibleControls(page);
   expect(count).toBeLessThanOrEqual(31); // Includes the three empty-conversation starter actions.
   await page.locator('.more-menu > button').click();
@@ -164,7 +164,7 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   await expectSelectedInView(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await expectSelectedInView(page);
-  for (const control of [picker, page.locator('.project-search-trigger'), page.getByRole('group', { name: 'Layout' })]) {
+  for (const control of [picker, page.locator('.project-search-trigger'), ...await page.getByRole('group', { name: 'Layout' }).getByRole('button').all()]) {
     const box = (await control.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);

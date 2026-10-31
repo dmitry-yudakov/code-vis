@@ -188,7 +188,17 @@ test('keeps the line under the composer inside a narrow conversation panel', asy
 
   for (const width of [1280, 360, 320]) {
     await page.setViewportSize({ width, height: 800 });
-    if (!await conversation.count()) await page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^Conversation/ }).click();
+    await expect(page.locator('.app-shell')).toHaveClass(width < 740 ? /dock-capacity-0/ : /dock-capacity-2/);
+    if (!await conversation.count()) await page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^(Conversation|Chat)/ }).click();
+    if (width < 740) {
+      await expect(label).toBeHidden();
+      await expect(hint).toBeHidden();
+      await line.getByRole('button', { name: 'Execution: Local', exact: true }).click();
+      await expect(page.locator('.desktop-picker-paper:visible')).toContainText('global instructions unavailable');
+      await expect(page.locator('.desktop-picker-paper:visible')).toContainText('Read-only');
+      await page.keyboard.press('Escape');
+      continue;
+    }
     await expect(label).toBeVisible();
     const [panel, labelBox, hintBox] = await Promise.all([conversation.boundingBox(), label.boundingBox(), hint.boundingBox()]);
     // Nothing reaches past the panel, the label is whole, and the mode's hint keeps room to be read.

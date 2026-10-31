@@ -91,10 +91,10 @@ for (const appearance of ['light', 'dark']) {
     for (const width of [739, 736, 728]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-0/);
-      await expect(page.locator('.conversation-region')).toHaveCSS('position', 'fixed');
-      await expect(conversation).toHaveCSS('width', '460px');
+      await expect(page.locator('.conversation-region')).toHaveCSS('position', 'relative');
+      await expect(conversation).toHaveCSS('width', `${width}px`);
     }
-    await page.screenshot({ path: testInfo.outputPath('conversation-overlay.png'), animations: 'disabled' });
+    await page.screenshot({ path: testInfo.outputPath('narrow-conversation.png'), animations: 'disabled' });
   });
 
   test(`diff inspector reserves gutters before admitting three panes: ${appearance}`, async ({ page, request }, testInfo) => {
@@ -133,7 +133,7 @@ for (const appearance of ['light', 'dark']) {
     await expect(page.locator('.canvas-workspace')).toBeVisible();
   });
 
-  for (const width of [1440, 360]) {
+  for (const width of [1440]) {
     test(`activity bar keeps global navigation anchored with clear selection: ${appearance} ${width}`, async ({ page, request }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), appearance);

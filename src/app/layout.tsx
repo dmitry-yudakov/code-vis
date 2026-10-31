@@ -42,6 +42,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'light dark',
+  interactiveWidget: 'resizes-content',
 };
 
 const themeScript = `(function(){var r=document.documentElement;var t="system";try{t=localStorage.getItem("code-ai:theme")}catch(e){}if(t==="light"||t==="dark")r.setAttribute("data-theme",t);else{t="system";r.removeAttribute("data-theme")}r.setAttribute("data-appearance",t==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):t)})()`;

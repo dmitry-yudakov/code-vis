@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ActivityBar } from '@/features/shell/ActivityBar';
 import { LayoutToggles } from '@/features/shell/LayoutToggles';
 import { RepositorySidebar } from '@/features/repository/RepositorySidebar';
+import { PaneMaximizeButton } from '@/features/shell/PaneMaximizeButton';
 
 function activityBar(props: Partial<ComponentProps<typeof ActivityBar>> = {}) {
   return renderToStaticMarkup(createElement(ActivityBar, {
@@ -77,6 +78,34 @@ describe('activity bar', () => {
     expect(activityBar()).toMatch(/aria-label="More"[^>]*aria-expanded="false"/);
     expect(activityBar()).not.toContain('Export session');
   });
+
+  it('uses the narrow workspace controls and moves global navigation into More', () => {
+    const markup = activityBar({ compact: true, workspace: createElement('button', null, 'Chat') });
+    expect(markup).toContain('Chat');
+    expect(markup).not.toContain('href="/arena"');
+    expect(markup).not.toContain('href="/arena/inbox"');
+    expect(controlNames(markup)).toEqual(['Changes', 'History', 'More']);
+  });
+
+  it('prioritizes Inbox attention on compact More without overlapping an update badge', () => {
+    const markup = activityBar({ compact: true, workspace: createElement('button', null, 'Chat'), unread: 3, updateCount: 2 });
+    expect(markup).toContain('2 Docker agent updates available. Inbox, 3 unread');
+    expect(markup).not.toContain('activity-badge updates');
+    expect(markup).toContain('activity-badge attention');
+  });
+});
+
+describe('pane maximize control', () => {
+  it('names maximize and restore, prioritizes approvals, and keeps a direct review action', () => {
+    const render = (maximized: boolean, approvals = 0, unread = 0) => renderToStaticMarkup(createElement(PaneMaximizeButton, {
+      label: 'Canvas', maximized, approvals, unread, onToggle: vi.fn(), onOpenConversation: vi.fn(),
+    }));
+    expect(controlNames(render(false))).toEqual(['Maximize Canvas']);
+    expect(controlNames(render(true))).toEqual(['Restore layout']);
+    expect(controlNames(render(true, 2, 4))).toEqual(['Review 2 actions waiting for your approval', 'Restore layout']);
+    expect(render(true, 2, 4)).toContain('aria-description="2 actions waiting for your approval"');
+    expect(render(true, 0, 4)).toContain('aria-description="4 unread replies"');
+  });
 });
 
 describe('side panel', () => {
@@ -130,6 +159,12 @@ describe('layout icons', () => {
 
   it('does not offer Canvas where the panels overlay it', () => {
     expect(controlNames(toggles({ canvasToggleable: false }))).toEqual(['Conversation']);
+  });
+
+  it('keeps compact labels and keyboard order aligned with the bottom bar', () => {
+    expect(controlNames(toggles({ compact: true }))).toEqual(['Chat', 'Canvas']);
+    expect(controlNames(toggles({ compact: true, conversationShown: false, approvals: 1 })))
+      .toEqual(['Chat, 1 action waiting for your approval', 'Canvas']);
   });
 
   it('badges a closed conversation with its approvals, else its unread replies', () => {

@@ -370,7 +370,7 @@ test('takes a real file drag on the composer and refuses one anywhere else, with
   await page.goto('/');
   await selectProject(page, project.name);
   const chips = page.locator('.attachment-chip.image');
-  const conversationToggle = page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^Conversation/ });
+  const conversationToggle = page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^(Conversation|Chat)/ });
   const file = await pngFile(page, testInfo.outputPath('screenshot.png'), 120, 80);
   await watchDrags(page);
 
@@ -573,7 +573,7 @@ test('keeps screenshot ink before acceptance and preserves new image ink after c
 });
 
 
-test('opens screenshot drawing above the conversation overlay on a narrow screen', async ({ page, request }) => {
+test('opens screenshot drawing as the selected full-width module on a narrow screen', async ({ page, request }) => {
   const { project } = await projectWith(request, `Narrow image canvas ${Date.now()}`, 'alpha');
   await page.setViewportSize({ width: 600, height: 800 });
   await page.goto('/');
@@ -584,7 +584,7 @@ test('opens screenshot drawing above the conversation overlay on a narrow screen
   await expect(page.getByRole('complementary', { name: 'Conversation' })).toHaveCount(0);
   await expect(page.locator('.canvas-titleblock strong')).toHaveText('Image 1');
   await drawOnImage(page);
-  await page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^Conversation/ }).click();
+  await page.getByRole('group', { name: 'Layout' }).getByRole('button', { name: /^(Conversation|Chat)/ }).click();
   await expect(page.locator('.attachment-chip.image')).toContainText('1 mark');
 });
 

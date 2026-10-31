@@ -23,6 +23,9 @@ import {
   storePanelLayout,
   toggledCanvas,
   withoutConversation,
+  visiblePanes,
+  toggledMaximized,
+  type Pane,
   type DockCapacity,
   type PanelLayout,
   type SideTab,
@@ -70,13 +73,16 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       return next === prior ? current : storePanelLayout(current, viewId, next);
     });
   }, [defaultLayout, viewId]);
+  const shown = visiblePanes(layout, dockCapacity);
+  const sideShown = repositoryAvailable && shown.side;
+  const conversationShown = shown.conversation;
   const dockOpen = layout.conversationOpen;
   const canvasHidden = isCanvasHidden(layout, dockCapacity);
   // The diff inspector belongs to the changes; history never widens the panel.
   const inspectorOpen = layout.inspectorOpen && layout.sideTab === 'changes';
   const contentWidth = paneContentWidth(shellWidth,
-    repositoryAvailable && layout.repositoryOpen && !layout.focusMode,
-    !canvasHidden && dockOpen && !layout.focusMode);
+    sideShown,
+    !canvasHidden && conversationShown);
 
   useEffect(() => {
     try {
@@ -111,29 +117,28 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
 
   // Without the canvas both panels fit in one dock's band, so neither has to give way.
   useEffect(() => {
-    if (dockCapacity !== 1 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
+    if (layout.maximized || dockCapacity !== 1 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
     setLayout((current) => current.lastOpened === 'dock'
       ? { ...current, repositoryOpen: false }
       : withoutConversation(current));
-  }, [canvasHidden, dockCapacity, dockOpen, layout.repositoryOpen, repositoryAvailable, setLayout]);
+  }, [layout.maximized, canvasHidden, dockCapacity, dockOpen, layout.repositoryOpen, repositoryAvailable, setLayout]);
 
   useEffect(() => {
-    if (!inspectorOpen || dockCapacity !== 2 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
+    if (layout.maximized || !inspectorOpen || dockCapacity !== 2 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
     const needed = layout.repositoryWidth * 2 + layout.conversationWidth + CANVAS_MIN_WIDTH;
     if (needed > contentWidth) {
       setLayout(withoutConversation);
     }
-  }, [canvasHidden, contentWidth, dockCapacity, dockOpen, layout.conversationWidth, inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout]);
+  }, [layout.maximized, canvasHidden, contentWidth, dockCapacity, dockOpen, layout.conversationWidth, inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout]);
 
-  // Opening a panel leaves focus mode, which would keep it hidden.
+  // Explicit navigation leaves maximize and reveals its destination.
   const openSide = useCallback((sideTab: SideTab) => {
     setLayout((current) => {
-      const next: PanelLayout = { ...current, lastOpened: 'repository', repositoryOpen: true, sideTab, focusMode: false };
-      return dockCapacity === 1 && !isCanvasHidden(next, dockCapacity) ? withoutConversation(next) : next;
+      const next: PanelLayout = { ...current, lastOpened: 'repository', repositoryOpen: true, sideTab, maximized: null };
+      return dockCapacity === 0 || dockCapacity === 1 && !isCanvasHidden(next, dockCapacity) ? withoutConversation(next) : next;
     });
   }, [dockCapacity, setLayout]);
-  const closeRepository = useCallback(() => setLayout((current) => ({ ...current, repositoryOpen: false })), [setLayout]);
-  const sideShown = layout.repositoryOpen && !layout.focusMode;
+  const closeRepository = useCallback(() => setLayout((current) => ({ ...current, repositoryOpen: false, maximized: null })), [setLayout]);
   // Each view toggles itself: a second press closes the panel, a press on another view switches.
   // `shownTab` is the view on screen, which differs from the stored one where Reports is unavailable.
   const toggleSide = useCallback((sideTab: SideTab, shownTab: SideTab = layout.sideTab) => {
@@ -144,8 +149,8 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
 
   const openConversation = useCallback(() => {
     setLayout((current) => {
-      const next: PanelLayout = { ...current, lastOpened: 'dock', conversationOpen: true, focusMode: false };
-      return dockCapacity === 1 && !isCanvasHidden(next, dockCapacity) ? { ...next, repositoryOpen: false } : next;
+      const next: PanelLayout = { ...current, lastOpened: 'dock', conversationOpen: true, maximized: null };
+      return dockCapacity === 0 || dockCapacity === 1 && !isCanvasHidden(next, dockCapacity) ? { ...next, repositoryOpen: false } : next;
     });
   }, [dockCapacity, setLayout]);
   const openConversationFor = useCallback((targetViewId: string, hasCanvasContent = false) => {
@@ -154,7 +159,8 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       return storePanelLayout(current, targetViewId, {
         ...prior,
         lastOpened: 'dock',
-        repositoryOpen: dockCapacity === 1 ? false : prior.repositoryOpen,
+        repositoryOpen: dockCapacity <= 1 ? false : prior.repositoryOpen,
+        maximized: null,
         conversationOpen: true,
       });
     });
@@ -163,7 +169,6 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     setLayouts((current) => reconcilePanelLayouts(current, sessionIds));
   }, []);
   const closeConversation = useCallback(() => setLayout(withoutConversation), [setLayout]);
-  const conversationShown = layout.conversationOpen && !layout.focusMode;
   const toggleConversation = useCallback(() => {
     if (conversationShown) closeConversation();
     else openConversation();
@@ -175,24 +180,36 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   const sideFitsBesideCanvas = dockCapacity === 2 && !(repositoryAvailable && inspectorCrowdsCanvas);
   const toggleCanvas = useCallback(() => setLayout((current) => toggledCanvas(current, dockCapacity, sideFitsBesideCanvas)), [dockCapacity, setLayout, sideFitsBesideCanvas]);
   // A flat action aimed at the canvas, such as opening a diagram or starting a sketch, shows it.
-  const showCanvas = useCallback(() => setLayout((current) => isCanvasHidden(current, dockCapacity)
-    ? toggledCanvas(current, dockCapacity, sideFitsBesideCanvas)
-    : current), [dockCapacity, setLayout, sideFitsBesideCanvas]);
+  const showCanvas = useCallback(() => setLayout((current) => {
+    const next = { ...current, maximized: null };
+    return isCanvasHidden(next, dockCapacity) ? toggledCanvas(next, dockCapacity, sideFitsBesideCanvas) : next;
+  }), [dockCapacity, setLayout, sideFitsBesideCanvas]);
   const setInspectorOpen = useCallback((inspectorOpen: boolean) => {
     setLayout((current) => current.inspectorOpen === inspectorOpen ? current : { ...current, inspectorOpen });
   }, [setLayout]);
-  const toggleFocusMode = useCallback(() => setLayout((current) => ({ ...current, focusMode: !current.focusMode })), [setLayout]);
+  const toggleMaximized = useCallback((pane: Pane) => setLayout((current) => toggledMaximized(current, pane)), [setLayout]);
+  useEffect(() => {
+    if (!layout.maximized) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented
+        || [...document.querySelectorAll('[role="dialog"]')].some(element => element.getClientRects().length > 0
+          && getComputedStyle(element).visibility !== 'hidden')) return;
+      setLayout((current) => ({ ...current, maximized: null }));
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [layout.maximized, setLayout]);
 
   const resolved = useMemo(() => resolveDockWidths({
     shellWidth,
     capacity: dockCapacity,
-    repositoryOpen: repositoryAvailable && layout.repositoryOpen && !layout.focusMode,
-    dockOpen: dockOpen && !layout.focusMode,
+    repositoryOpen: sideShown,
+    dockOpen: conversationShown,
     canvasShown: !canvasHidden,
     inspectorOpen,
     lastOpened,
     widths: layout,
-  }), [canvasHidden, dockCapacity, dockOpen, inspectorOpen, lastOpened, layout, repositoryAvailable, shellWidth]);
+  }), [canvasHidden, dockCapacity, conversationShown, inspectorOpen, lastOpened, layout, sideShown, shellWidth]);
 
   const panelMaximum = useCallback((panel: ResizePanel) => {
     const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
@@ -205,7 +222,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     }
     const repositoryMinimum = repositoryAvailable && layout.repositoryOpen ? REPOSITORY_MIN_WIDTH : 0;
     return Math.max(minimum, Math.min(maximum, contentWidth - (canvasHidden ? 0 : CANVAS_MIN_WIDTH) - repositoryMinimum));
-  }, [canvasHidden, contentWidth, dockCapacity, dockOpen, inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
+  }, [layout.maximized, canvasHidden, contentWidth, dockCapacity, dockOpen, inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
 
   const setPanelWidth = useCallback((panel: ResizePanel, width: number) => {
     const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
@@ -295,7 +312,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     showCanvas,
     selectSideTab: openSide,
     setInspectorOpen,
-    toggleFocusMode,
+    toggleMaximized,
     beginResize,
     resizeByKeyboard,
   };

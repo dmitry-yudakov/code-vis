@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
@@ -93,7 +95,8 @@ import { runOutcomeTone, standingToast, type Toast } from './toasts';
 import { useToasts } from './useToasts';
 import type { ImmersiveSessionChoice } from '@/features/diagram/spatial/immersiveTypes';
 import type { ImmersiveReportPlacement, SessionCreation } from './immersive/sessionControls';
-import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH, type SideTab } from './panelLayout';
+import { PaneMaximizeButton } from './PaneMaximizeButton';
+import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH, type Pane, type SideTab } from './panelLayout';
 
 interface Health {
   worktrees?: import('@/shared/types').WorktreeCapability;
@@ -990,10 +993,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [apiPath, enqueueSessionMutation, mutateSession, sessionId, sessionRunning]);
 
   const removeAttachment = useCallback((id: string) => setPendingAttachmentIds((current) => current.filter((item) => item !== id)), [setPendingAttachmentIds]);
-  /** From the composer: as a phone overlay, the side panel would open underneath the conversation. */
+  /** Explicit composer navigation reveals the requested module on narrow screens too. */
   const openSideFromComposer = (tab: SideTab) => {
     panelLayout.selectSideTab(tab);
-    if (panelLayout.dockCapacity === 0) panelLayout.closeConversation();
   };
   const toggleAttachment = useCallback((id: string) => setPendingAttachmentIds((current) => current.includes(id)
     ? current.filter((item) => item !== id)
@@ -1032,8 +1034,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!sessionId || !pendingImagesRef.current[sessionId]?.some((image) => image.id === id)) return;
     setActiveImageIdsBySession((current) => ({ ...current, [sessionId]: id }));
     panelLayout.showCanvas();
-    if (panelLayout.dockCapacity === 0) panelLayout.closeConversation();
-  }, [panelLayout.closeConversation, panelLayout.dockCapacity, panelLayout.showCanvas, sessionId]);
+  }, [panelLayout.showCanvas, sessionId]);
   const handleImageMarksChange = useCallback((id: string, marks: DrawingMark[]) => {
     if (!sessionId) return;
     updatePendingImages(sessionId, (current) => {
@@ -2352,6 +2353,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Oldest first, so on screen the raised toasts sit above the focused session's outcome, and that
   // above the explanation for hidden sessions.
   const blockingRun = focusedRunOutcome?.blockingRun;
+  const compact = panelLayout.dockCapacity === 0;
+  const maximized = !arenaOpen && session ? panelLayout.maximized : null;
+  const paneControl = (pane: Pane, label: string) => <PaneMaximizeButton
+    label={label} maximized={maximized === pane}
+    approvals={pane === 'conversation' ? 0 : permissions.length}
+    unread={pane === 'conversation' ? 0 : unread}
+    onToggle={() => panelLayout.toggleMaximized(pane)}
+    onOpenConversation={panelLayout.openConversation}
+  />;
   const shownToasts: Toast[] = [
     ...(newerFormatNotice ? [standingToast('newer-format', {
       tone: 'info', message: newerFormatNotice, onDismiss: () => setNewerFormatNoticeDismissed(true),
@@ -2391,7 +2401,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div
       ref={shellRef}
-      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${panelLayout.focusMode ? 'focus-mode' : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
+      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${maximized ? `pane-maximized maximized-${maximized}` : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
       style={panelLayout.shellStyle}
     >
       <header className="app-header">
@@ -2580,8 +2590,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             {lifecycle.badge && (
               <Chip className="health-pill lifecycle-pill" role="status" color="warning" variant="outlined" title={lifecycle.status} label={lifecycle.badge} />
             )}
-            <DeviceMenu />
-            {!arenaOpen && session && (
+            {!compact && <DeviceMenu />}
+            {!compact && !arenaOpen && session && (
               <LayoutToggles
                 canvasShown={!panelLayout.canvasHidden}
                 canvasToggleable={panelLayout.dockCapacity > 0}
@@ -2609,7 +2619,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       />}
       {!loading && (
         <ActivityBar
-          views={!arenaOpen && session ? ['changes', 'history', ...(reportsOffered ? ['reports' as const] : [])] : []}
+          compact={compact}
+          workspace={compact && !arenaOpen && session ? <LayoutToggles compact
+            canvasShown={!panelLayout.canvasHidden} canvasToggleable
+            conversationShown={panelLayout.conversationShown}
+            approvals={permissions.length} unread={unread}
+            onToggleCanvas={panelLayout.showCanvas} onToggleConversation={panelLayout.openConversation}
+          /> : undefined}
+          views={!arenaOpen && session ? ['changes', 'history', ...(!compact && reportsOffered ? ['reports' as const] : [])] : []}
           shownView={panelLayout.sideShown ? sideView : undefined}
           changeCount={repositoryTree?.files.length}
           arenaSection={arenaSection}
@@ -2619,6 +2636,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           onMoreToggle={(open) => { if (open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
           onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
           more={<>
+            {compact && <>
+              {!arenaOpen && session && <>
+                <Button component={Link} href="/arena" onClick={() => moreMenuRef.current?.close()}>Arena</Button>
+                <Button component={Link} href="/arena/inbox" onClick={() => moreMenuRef.current?.close()}>Inbox{arenaUnread.length ? ` · ${arenaUnread.length} unread` : ''}</Button>
+                {reportsOffered && <Button onClick={() => { moreMenuRef.current?.close(); panelLayout.selectSideTab('reports'); }}>Reports</Button>}
+              </>}
+              <DeviceMenu />
+              {providerHealth && (!providerHealth.available || providerHealth.message) && <p>{providerHealth.message || 'Provider setup needed'}</p>}
+              {lifecycle.badge && <p>{lifecycle.status || lifecycle.badge}</p>}
+            </>}
             <Button type="button" variant="text" color="inherit" onClick={openMachineSettings} aria-description={availableProviderUpdateCount > 0 ? 'Docker agent updates available' : undefined}>
               Machine settings
               {availableProviderUpdateCount > 0 && <span className="settings-update-dot" aria-hidden="true" />}
@@ -2656,7 +2683,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
 
       {!loading && !arenaOpen && session && (
-        <div className="repository-region">
+        <div className="repository-region" hidden={!panelLayout.sideShown}>
           <RepositoryPanel
             checkoutId={selectedCheckout?.id}
             repositoryName={selectedCheckout?.name || 'No repository'}
@@ -2696,11 +2723,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onToggleAttachment={toggleReport}
               />
             ) : undefined}
-            open={panelLayout.repositoryOpen}
+            open={panelLayout.repositoryOpen || maximized === 'side'}
+            paneControl={paneControl('side', sideView[0].toUpperCase() + sideView.slice(1))}
             tab={panelLayout.sideTab}
             onInspectorOpenChange={panelLayout.setInspectorOpen}
           />
-          {panelLayout.repositoryOpen && (
+          {panelLayout.sideShown && !maximized && !compact && (
             <div
               className="panel-resize-handle repository-resize-handle"
               role="separator"
@@ -2778,13 +2806,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             runFailed={sessionRunning && runFailed}
             immersiveActive={immersiveActive}
             toolActivity={sessionRunning ? toolActivity : []}
-            focusMode={panelLayout.focusMode}
+            paneControl={paneControl('canvas', 'Canvas')}
             canvasView={session.activeDiagramId ? view?.canvasViews[session.activeDiagramId] : undefined}
             surface={view?.surface || 'flat'}
             spatial={view?.spatial}
             onComposer={setComposer}
             onOpenChat={() => { panelLayout.openConversation(); setUnread(0); }}
-            onToggleFocus={panelLayout.toggleFocusMode}
             onSelectDiagram={selectDiagram}
             onNewSketch={createSketch}
             onMarksChange={handleMarksChange}
@@ -2795,12 +2822,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             onSnapshot={handleSnapshot}
             onArtifactError={handleArtifactError}
           />
-          <div className="conversation-region">
+          <div className="conversation-region" hidden={!panelLayout.conversationShown}>
             <ConversationDrawer
               repositoryContext={repositoryContext}
               focusRequest={launchFocus?.sessionId === session?.id ? launchFocus.request : undefined}
               onFocusRequestHandled={() => setLaunchFocus(undefined)}
-              open={panelLayout.conversationOpen}
+              open={panelLayout.conversationOpen || maximized === 'conversation'}
+              visible={panelLayout.conversationShown}
+              paneControl={paneControl('conversation', 'Conversation')}
               session={session}
               theme={theme}
               agents={agents}
@@ -2864,7 +2893,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onNewSketch={createShownSketch}
               onOpenReports={reports.available && reports.projectId ? () => openSideFromComposer('reports') : undefined}
             />
-            {panelLayout.conversationOpen && !canvasHidden && (
+            {panelLayout.conversationShown && !canvasHidden && !maximized && !compact && (
               <div
                 className="panel-resize-handle conversation-resize-handle"
                 role="separator"

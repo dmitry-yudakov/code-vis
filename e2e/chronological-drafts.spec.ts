@@ -313,12 +313,36 @@ test('Retry explicitly replaces newer evidence and warns that the original image
   await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('original image is not stored');
 });
 
-test('an empty session initializes the docked full-width conversation while the overlay band keeps the canvas visible', async ({ page, request }) => {
+test('following chat catches up after background streaming while Canvas is maximized', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const field = await openDraftFixture(page, request, 'stream', true);
+  await field.fill('Continue in the background');
+  await field.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.draftFixture.requests.length)).toBe(1);
+  await page.evaluate(() => window.draftFixture.accept());
+  await expect(field).toHaveValue('');
+  await page.getByRole('button', { name: 'Canvas', exact: true }).click();
+  await page.getByRole('button', { name: 'Maximize Canvas', exact: true }).click();
+  await page.evaluate(() => window.draftFixture.activity(Array.from({ length: 80 }, (_, index) => `Background paragraph ${index + 1}.`).join('\n\n')));
+  await page.getByRole('button', { name: 'Restore layout', exact: true }).click();
+  const scroll = page.locator('.conversation-scroll');
+  await expect(scroll).toContainText('Background paragraph 80.');
+  await expect.poll(() => scroll.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2);
+  // Reading an older reply stays anchored across another maximize/restore.
+  await scroll.evaluate(node => { node.scrollTop = 100; node.dispatchEvent(new Event('scroll')); });
+  await page.getByRole('button', { name: 'Maximize Canvas', exact: true }).click();
+  await page.evaluate(() => window.draftFixture.activity('Another background response.'));
+  await page.getByRole('button', { name: 'Restore layout', exact: true }).click();
+  await expect.poll(() => scroll.evaluate(node => node.scrollTop)).toBe(100);
+  await page.evaluate(() => window.draftFixture.finish());
+});
+
+test('an empty session initializes the docked full-width conversation and keeps it full-width on phones', async ({ page, request }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openDraftFixture(page, request);
   await expect(page.locator('.app-shell')).toHaveClass(/canvas-hidden/);
   await page.setViewportSize({ width: 360, height: 800 });
-  await expect(page.locator('.app-shell')).not.toHaveClass(/canvas-hidden/);
+  await expect(page.locator('.app-shell')).toHaveClass(/canvas-hidden/);
   await page.setViewportSize({ width: 1000, height: 800 });
   await expect(page.locator('.app-shell')).toHaveClass(/canvas-hidden/);
 });

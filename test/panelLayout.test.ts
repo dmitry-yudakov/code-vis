@@ -15,6 +15,8 @@ import {
   storePanelLayout,
   toggledCanvas,
   withoutConversation,
+  visiblePanes,
+  toggledMaximized,
   type DockCapacity,
   type PanelLayout,
 } from '@/features/shell/panelLayout';
@@ -29,8 +31,8 @@ describe('panel layout geometry', () => {
     expect(empty).toMatchObject({ conversationOpen: true, canvasOpen: false });
     expect(isCanvasHidden(empty, 2)).toBe(true);
     expect(isCanvasHidden(empty, 1)).toBe(true);
-    expect(isCanvasHidden(empty, 0)).toBe(false);
-    expect(isCanvasHidden({ ...empty, focusMode: true }, 2)).toBe(false);
+    expect(isCanvasHidden(empty, 0)).toBe(true);
+    expect(isCanvasHidden({ ...empty, maximized: 'canvas' }, 2)).toBe(false);
     expect(initialSessionLayout(DEFAULT_PANEL_LAYOUT, DEFAULT_PANEL_LAYOUT, false)).toBe(DEFAULT_PANEL_LAYOUT);
     expect(initialSessionLayout(undefined, DEFAULT_PANEL_LAYOUT, true)).toMatchObject({ canvasOpen: true });
     // Receiving the first diagram cannot overwrite an initialized session preference.
@@ -77,7 +79,7 @@ describe('panel layout geometry', () => {
         conversationOpen: true,
         sideTab: 'changes',
         inspectorOpen: true,
-        focusMode: true,
+        maximized: 'canvas',
         lastOpened: 'dock',
         // Written before Story 72, when the canvas could not be hidden.
         canvasOpen: true,
@@ -129,10 +131,10 @@ describe('panel layout geometry', () => {
     for (let index = 0; index < MAX_VIEW_PANEL_LAYOUTS; index += 1) {
       layouts = storePanelLayout(layouts, viewId(index), DEFAULT_PANEL_LAYOUT);
     }
-    layouts = storePanelLayout(layouts, viewId(0), { ...DEFAULT_PANEL_LAYOUT, focusMode: true });
+    layouts = storePanelLayout(layouts, viewId(0), { ...DEFAULT_PANEL_LAYOUT, maximized: 'canvas' });
     layouts = storePanelLayout(layouts, viewId(MAX_VIEW_PANEL_LAYOUTS), DEFAULT_PANEL_LAYOUT);
     expect(Object.keys(layouts)).toHaveLength(MAX_VIEW_PANEL_LAYOUTS);
-    expect(layouts[viewId(0)].focusMode).toBe(true);
+    expect(layouts[viewId(0)].maximized).toBe('canvas');
     expect(layouts[viewId(1)]).toBeUndefined();
 
     const reconciled = reconcilePanelLayouts(layouts, [viewId(0), viewId(50)]);
@@ -238,12 +240,12 @@ describe('hiding the canvas', () => {
   const layout = (overrides: Partial<PanelLayout> = {}): PanelLayout => ({ ...DEFAULT_PANEL_LAYOUT, ...overrides });
   const capacities: DockCapacity[] = [0, 1, 2];
 
-  it('hides the canvas only beside an open conversation, outside focus mode, above the overlay band', () => {
+  it('hides the canvas beside conversation and honors maximized canvas', () => {
     const hidden = layout({ canvasOpen: false, conversationOpen: true });
     expect(isCanvasHidden(hidden, 2)).toBe(true);
     expect(isCanvasHidden(hidden, 1)).toBe(true);
-    expect(isCanvasHidden(hidden, 0)).toBe(false);
-    expect(isCanvasHidden({ ...hidden, focusMode: true }, 2)).toBe(false);
+    expect(isCanvasHidden(hidden, 0)).toBe(true);
+    expect(isCanvasHidden({ ...hidden, maximized: 'canvas' }, 2)).toBe(false);
     // A stored layout that closed both shows the canvas: the two are never hidden together.
     expect(isCanvasHidden({ ...hidden, conversationOpen: false }, 2)).toBe(false);
     expect(isCanvasHidden(layout(), 2)).toBe(false);
@@ -251,8 +253,8 @@ describe('hiding the canvas', () => {
 
   it('hides the canvas by opening the conversation, and leaves focus mode', () => {
     for (const capacity of [1, 2] as const) {
-      const next = toggledCanvas(layout({ conversationOpen: false, focusMode: true, repositoryOpen: true }), capacity);
-      expect(next).toMatchObject({ canvasOpen: false, conversationOpen: true, focusMode: false, repositoryOpen: true });
+      const next = toggledCanvas(layout({ conversationOpen: false, maximized: 'canvas', repositoryOpen: true }), capacity);
+      expect(next).toMatchObject({ canvasOpen: false, conversationOpen: true, maximized: null, repositoryOpen: true });
       expect(isCanvasHidden(next, capacity)).toBe(true);
     }
   });
@@ -276,8 +278,8 @@ describe('hiding the canvas', () => {
     for (const capacity of capacities) {
       for (const canvasOpen of [true, false]) {
         for (const conversationOpen of [true, false]) {
-          for (const focusMode of [true, false]) {
-            const next = toggledCanvas(layout({ canvasOpen, conversationOpen, focusMode }), capacity);
+          for (const maximized of ['canvas', null] as const) {
+            const next = toggledCanvas(layout({ canvasOpen, conversationOpen, maximized }), capacity);
             expect(next.canvasOpen || next.conversationOpen).toBe(true);
           }
         }
@@ -311,5 +313,35 @@ describe('hiding the canvas', () => {
       widths: { repositoryWidth: 480, conversationWidth: 460 },
     });
     expect(narrow.repositoryColumnWidth).toBe(640 - CONVERSATION_MIN_WIDTH - 4);
+  });
+});
+
+describe('maximized and narrow panes', () => {
+  it('shows exactly one narrow module without rewriting the desktop flags', () => {
+    for (const lastOpened of ['repository', 'dock'] as const) {
+      const layout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, lastOpened };
+      expect(visiblePanes(layout, 0)).toEqual({ side: lastOpened === 'repository', conversation: lastOpened === 'dock', canvas: false });
+      expect(visiblePanes(layout, 2)).toEqual({ side: true, conversation: true, canvas: true });
+    }
+    expect(visiblePanes({ ...DEFAULT_PANEL_LAYOUT, conversationOpen: false }, 0)).toEqual({ side: false, conversation: false, canvas: true });
+  });
+
+  it('maximizes each pane temporarily, preserving open flags, widths and inspector for restore', () => {
+    const original: PanelLayout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, inspectorOpen: true, sideTab: 'history', repositoryWidth: 300 };
+    for (const capacity of [0, 1, 2] as const) {
+      for (const pane of ['side', 'canvas', 'conversation'] as const) {
+        const maximized = toggledMaximized(original, pane);
+        expect(visiblePanes(maximized, capacity)).toEqual({ side: pane === 'side', canvas: pane === 'canvas', conversation: pane === 'conversation' });
+        expect(toggledMaximized(maximized, pane)).toEqual(original);
+      }
+    }
+  });
+
+  it('roundtrips every maximized pane and rejects invalid values with explicit null overriding legacy focus', () => {
+    const id = viewId(0);
+    for (const maximized of ['side', 'canvas', 'conversation', null, 'invalid', true]) {
+      const parsed = parseViewPanelLayouts(JSON.stringify({ version: 1, layouts: { [id]: { ...DEFAULT_PANEL_LAYOUT, maximized, focusMode: true } } }))[id];
+      expect(parsed.maximized).toBe(['side', 'canvas', 'conversation'].includes(maximized as string) ? maximized : null);
+    }
   });
 });

@@ -259,7 +259,7 @@ describe('composer execution line', () => {
   it('says a continuation is being created, where the hint was', () => {
     const markup = render({ busy: true });
     expect(menu(markup, 'execution-menu')!.items[0].disabled).toBe(true);
-    expect(markup).toMatch(/<span class="execution-hint">Creating a Docker session…<\/span>/);
+    expect(markup).toMatch(/<span class="execution-hint is-busy">Creating a Docker session…<\/span>/);
   });
 
   it('stays open to a running turn, whose reason the continuation carries', () => {
@@ -268,9 +268,10 @@ describe('composer execution line', () => {
 });
 
 describe('MUI conversation controls', () => {
-  it('uses an outlined MUI instruction field and library buttons', () => {
+  it('uses a MUI instruction field inside the shared composer surface and library buttons', () => {
     const markup = render();
-    expect(markup).toContain('MuiOutlinedInput-root');
+    expect(markup).toContain('MuiInput-root');
+    expect(markup).toContain('instruction-composer');
     expect(markup).toContain('MuiButton-root');
   });
 });

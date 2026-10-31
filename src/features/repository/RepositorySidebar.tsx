@@ -13,11 +13,12 @@ const SIDE_PANEL_TITLES: Record<SideTab, string> = { changes: 'Changes', history
  * panel. The repository's changes, the session's canvas history, and — in CodeAI's own project —
  * its reports share it, so none competes with the conversation for the other dock.
  */
-export function RepositorySidebar({ repositoryName, open, tab, actions, manager, inspector, history, reports, children }: {
+export function RepositorySidebar({ repositoryName, open, tab, actions, manager, inspector, history, reports, children, paneControl }: {
   repositoryName: string;
   open: boolean;
   tab: SideTab;
   actions?: ReactNode;
+  paneControl?: ReactNode;
   manager?: ReactNode;
   inspector?: ReactNode;
   history: ReactNode;
@@ -35,7 +36,7 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
       <section className="repository-summary-panel">
         <header className="repository-panel-header">
           <h2 className="side-panel-title">{SIDE_PANEL_TITLES[shown]}</h2>
-          {changes && actions && <div className="repository-header-actions">{actions}</div>}
+          <div className="repository-header-actions">{changes && actions}{paneControl}</div>
         </header>
         {changes ? (
           <div className="repository-panel-body">

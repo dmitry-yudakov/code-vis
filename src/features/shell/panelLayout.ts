@@ -24,6 +24,7 @@ export type LastOpenedPanel = 'repository' | 'dock';
 /** What the side panel shows. Its open state keeps the stored name `repositoryOpen`. */
 export type SideTab = 'changes' | 'history' | 'reports';
 const SIDE_TABS: readonly SideTab[] = ['changes', 'history', 'reports'];
+export type Pane = 'conversation' | 'canvas' | 'side';
 
 export interface PanelLayout extends PanelWidths {
   repositoryOpen: boolean;
@@ -32,7 +33,7 @@ export interface PanelLayout extends PanelWidths {
   canvasOpen: boolean;
   sideTab: SideTab;
   inspectorOpen: boolean;
-  focusMode: boolean;
+  maximized: Pane | null;
   lastOpened: LastOpenedPanel;
 }
 
@@ -43,7 +44,7 @@ export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
   canvasOpen: true,
   sideTab: 'changes',
   inspectorOpen: false,
-  focusMode: false,
+  maximized: null,
   lastOpened: 'dock',
   ...DEFAULT_PANEL_WIDTHS,
 };
@@ -101,7 +102,7 @@ export function parseViewPanelLayouts(value: string | null): Record<string, Pane
     const result: Record<string, PanelLayout> = {};
     for (const [viewId, raw] of Object.entries(parsed.layouts).slice(-MAX_VIEW_PANEL_LAYOUTS)) {
       if (!/^[0-9a-f-]{36}$/i.test(viewId) || !raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-      const candidate = raw as Partial<PanelLayout>;
+      const candidate = raw as Partial<PanelLayout> & { focusMode?: boolean };
       result[viewId] = {
         repositoryOpen: candidate.repositoryOpen !== false,
         conversationOpen: candidate.conversationOpen === true,
@@ -109,7 +110,8 @@ export function parseViewPanelLayouts(value: string | null): Record<string, Pane
         canvasOpen: candidate.canvasOpen !== false || candidate.conversationOpen !== true,
         sideTab: SIDE_TABS.includes(candidate.sideTab as SideTab) ? candidate.sideTab as SideTab : 'changes',
         inspectorOpen: candidate.inspectorOpen === true,
-        focusMode: candidate.focusMode === true,
+        maximized: candidate.maximized === 'canvas' || candidate.maximized === 'conversation' || candidate.maximized === 'side'
+          ? candidate.maximized : candidate.maximized === undefined && candidate.focusMode === true ? 'canvas' : null,
         lastOpened: candidate.lastOpened === 'dock' ? 'dock' : 'repository',
         ...clampPanelWidths(candidate),
       };
@@ -156,17 +158,30 @@ export function dockCapacityForWidth(shellWidth: number): DockCapacity {
   return 0;
 }
 
-/**
- * The canvas hides only beside an open conversation, so the two are never hidden together. Focus
- * mode and the overlay band, where the panels float over the canvas, always show it.
- */
+/** Resolve temporary maximize and the narrow module without changing the saved desktop layout. */
+export function visiblePanes(layout: PanelLayout, capacity: DockCapacity) {
+  if (layout.maximized) return {
+    side: layout.maximized === 'side', conversation: layout.maximized === 'conversation', canvas: layout.maximized === 'canvas',
+  };
+  if (capacity === 0) {
+    const side = layout.repositoryOpen && (layout.lastOpened === 'repository' || !layout.conversationOpen);
+    const conversation = layout.conversationOpen && !side;
+    return { side, conversation, canvas: !side && !conversation };
+  }
+  return { side: layout.repositoryOpen, conversation: layout.conversationOpen, canvas: layout.canvasOpen || !layout.conversationOpen };
+}
+
+export function toggledMaximized(layout: PanelLayout, pane: Pane): PanelLayout {
+  return { ...layout, maximized: layout.maximized === pane ? null : pane };
+}
+
 export function isCanvasHidden(layout: PanelLayout, capacity: DockCapacity): boolean {
-  return !layout.canvasOpen && layout.conversationOpen && !layout.focusMode && capacity > 0;
+  return !visiblePanes(layout, capacity).canvas;
 }
 
 /** Closing the conversation shows the canvas, and keeps it shown when the conversation returns. */
 export function withoutConversation(layout: PanelLayout): PanelLayout {
-  return { ...layout, conversationOpen: false, canvasOpen: true };
+  return { ...layout, conversationOpen: false, canvasOpen: true, maximized: null };
 }
 
 /**
@@ -175,10 +190,11 @@ export function withoutConversation(layout: PanelLayout): PanelLayout {
  * only one dock fits, or where a diff inspector would need the conversation's room (`sideFits`).
  */
 export function toggledCanvas(layout: PanelLayout, capacity: DockCapacity, sideFits = capacity === 2): PanelLayout {
+  if (capacity === 0) return { ...layout, maximized: null, canvasOpen: true, conversationOpen: false, repositoryOpen: false };
   if (isCanvasHidden(layout, capacity)) {
-    return { ...layout, canvasOpen: true, ...(capacity === 1 || !sideFits ? { repositoryOpen: false } : {}) };
+    return { ...layout, maximized: null, canvasOpen: true, ...(capacity === 1 || !sideFits ? { repositoryOpen: false } : {}) };
   }
-  return { ...layout, canvasOpen: false, conversationOpen: true, focusMode: false, lastOpened: 'dock' };
+  return { ...layout, canvasOpen: false, conversationOpen: true, maximized: null, lastOpened: 'dock' };
 }
 
 export interface ResolvedDockWidths extends PanelWidths {

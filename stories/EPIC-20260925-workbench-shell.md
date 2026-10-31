@@ -60,6 +60,12 @@ reserved before sizing content; two docks still start at 1008px, while one dock 
 so either dock fits beside the canvas. Smaller windows retain the existing overlays. Story 74's
 status bar and Story 76's remaining toolbar work stay separate.
 
+[Story 120](STORY-20261031-mobile-pane-maximize.md) replaces smaller-window overlays with one
+full-width module and a bottom bar below 740px, compacts the phone header/composer, and adds
+temporary maximize/restore to every pane. Desktop retains its title bar and activity rail; narrow
+maximize hides both. Legacy canvas Focus migrates to maximized Canvas. Reports, Arena, Inbox and
+Devices remain available from More on phones; hardware-based VR entry remains available.
+
 | Board | Shows |
 |---|---|
 | `Main` | 1440, Story 62's default (conversation open, side panel closed), a running turn. Interactive: the activity bar, the two layout toggles, and the composer menus work. |
@@ -100,10 +106,11 @@ removed every element the browser cannot back without new server work (see *Need
    none raises the count. The epic's target is 35, against 43 after Story 62. (It was 36 until
    Story 72 left out the design's side panel icon, which the count could not pay for.)
 5. **Nothing covers the canvas** at docking widths. Floating canvas bars publish their inset. Hiding
-   the canvas is the user's choice, and the canvas and the conversation are never both hidden. The
-   one exception is toasts ([Story 78](STORY-20260928-toast-notifications.md)): small, transient,
-   and in the canvas's top-right corner. On September 28, 2026 the user chose them over the notice
-   row this epic first planned.
+   the canvas is the user's choice, and the canvas and the conversation are never both hidden.
+   Exceptions include toasts ([Story 78](STORY-20260928-toast-notifications.md)): small, transient,
+   and in the canvas's top-right corner. Story 120 adds two presentation exceptions: temporary
+   maximized side panels, and narrow navigation showing one selected module. On September 28, 2026
+   the user chose toasts over the notice row this epic first planned.
 6. **Every story ships alone.** Stored layouts written before a story still parse. Keyboard flows
    such as Delete closing a tab and focusing its neighbour survive a move.
 
@@ -117,7 +124,7 @@ removed every element the browser cannot back without new server work (see *Need
 | 74 | status-bar | Status bar: branch, needs-you with its reason, run state while the conversation is closed, provider not ready. Notices moved to Story 78 | Planned | — |
 | 75 | arena-in-the-side-panel | Arena and Inbox as side-panel views sharing `arenaModel` ordering, with Open the full Arena | Planned | 72 |
 | 76 | flat-panes | Pane and section headers, borderless icon buttons, the floating canvas bar, and the remaining eyebrow labels; conversation rows belong to Story 107 | Planned | 72–75 |
-| 77 | phone-bottom-bar | Below 688px a bottom bar replaces the activity bar; Inbox lives inside Arena, Reports in More | Planned | 72 |
+| 77 | phone-bottom-bar | Delivered by Story 120 below the live 740px docking threshold; Inbox and Reports remain reachable in More | Delivered by 120 | 72 |
 | 78 | [toast-notifications](STORY-20260928-toast-notifications.md) | Notices become a stack of toasts in the canvas's top-right corner, with a tone, actions, and a lifetime | **In progress** | — |
 
 Story 71 comes first because the user asked for it directly, it is self-contained, and it pays for

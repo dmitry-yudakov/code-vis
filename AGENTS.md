@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-30. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-10-31. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -149,6 +149,13 @@ Updated 2026-10-30. When a story ships, change the line that names it; each stor
   both-theme desktop/phone screenshot inspection and independent review pass.
   The navigation follow-up also passes 21 focused unit checks and eight production-browser checks.
   The running app has not been restarted.
+- **Shipped:** [Story 120](stories/STORY-20261031-mobile-pane-maximize.md) — phone modules
+  fill the width above a bottom bar, with a compact header/composer; Conversation, Canvas and the
+  side panel maximize and restore their saved arrangement on desktop and phones. Long file lists
+  and diffs scroll with Back and Restore in reach. TypeScript, isolated build, 112 focused unit
+  checks, 100 distinct production-browser checks, both-theme screenshot inspection and independent
+  review pass. Physical phone keyboard and Quest checks remain unverified. The running app has not
+  been restarted.
 - **Shipped:** [Story 117](stories/STORY-20261028-claude-duplicate-replies.md) — Claude block
   snapshots retain message and stream-block identity, replayed snapshots are ignored, and saved
   duplicate replies display once while preserving original history. All 114 focused unit checks,

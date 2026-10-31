@@ -232,7 +232,6 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-empty p { margin: 7px 0 0; font-size: 11px; }
 
 .canvas-workspace { grid-area: canvas; min-width: 0; min-height: 0; position: relative; display: grid; grid-template-rows: 42px minmax(0, 1fr); margin: var(--pane-gutter, 0px) var(--pane-gutter, 0px) var(--pane-gutter, 0px) 0; background: var(--sheet); overflow: hidden; }
-.canvas-workspace.focus-mode .canvas-topbar { background: var(--sheet-backdrop); }
 .canvas-topbar { display: flex; align-items: center; justify-content: flex-end; gap: 20px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--raised); z-index: 8; }
 .canvas-surface-control { margin-right: auto; }
 .canvas-surface-control { display: inline-flex; gap: 2px; padding: 2px; }
@@ -557,6 +556,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, var(--repository-panel-width)); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: var(--sidebar-shadow); }
 .repository-sidebar.has-inspector { grid-template-columns: minmax(0, var(--repository-panel-width)) minmax(0, 1fr); box-shadow: var(--sidebar-inspector-shadow); }
 .repository-panel-body { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.repository-summary-panel, .repository-inspector { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.repository-summary-scroll, .diff-inspector-scroll { min-width: 0; min-height: 0; overflow: auto; }
 .panel-resize-handle { position: absolute; z-index: 5; top: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; }
 .panel-resize-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; }
 .panel-resize-handle:hover::after, .panel-resize-handle:focus-visible::after { background: var(--plot-bright); }
@@ -566,17 +567,15 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
    An inset outline gives every surface a quiet edge without reducing its content width. */
 .app-shell:not(.dock-capacity-0) :is(.activity-bar, .canvas-workspace, .repository-sidebar, .conversation-drawer) { border: 0; border-radius: 8px; outline: 1px solid var(--line); outline-offset: -1px; background-color: var(--sheet); box-shadow: none; }
 .panel-resizing, .panel-resizing * { cursor: col-resize !important; user-select: none !important; }
-.app-shell.focus-mode .repository-region, .app-shell.focus-mode .conversation-region { visibility: hidden; pointer-events: none; }
 
 /* At one-column capacity an inspector replaces the file list. Only a two-panel-capacity shell
    has enough room to show the repository summary and inspector side by side. */
 .dock-capacity-0 .repository-sidebar.has-inspector,
 .dock-capacity-1 .repository-sidebar.has-inspector { grid-template-columns: minmax(0, 1fr); }
+:is(.dock-capacity-0, .dock-capacity-1) .repository-sidebar.has-inspector { grid-template-rows: auto minmax(0, 1fr); }
+:is(.dock-capacity-0, .dock-capacity-1) .has-inspector .repository-summary-panel { display: contents; }
+:is(.dock-capacity-0, .dock-capacity-1) .has-inspector .repository-panel-body { display: none; }
 
-/* Below the live 740px minimum, side regions return to recoverable overlays beside the activity bar. */
-.dock-capacity-0 .repository-region { position: fixed; z-index: 60; left: 48px; top: 48px; bottom: 0; width: min(var(--repository-width), calc(100vw - 48px)); }
-.dock-capacity-0 .conversation-region { position: fixed; z-index: 60; top: 58px; right: 10px; bottom: 10px; width: min(var(--conversation-width), calc(100vw - 68px)); }
-.dock-capacity-0 .conversation-drawer { border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--drawer-shadow); }
 .repository-panel-header, .diff-inspector-header { min-width: 0; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--sheet); }
 .diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
 .diff-inspector-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
@@ -686,15 +685,6 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 @media (max-width: 620px) {
   .conversation-welcome .welcome-symbol, .conversation-starter small { display: none; }
   .conversation-welcome { padding-block: 16px; }
-  /* A phone cannot hold the pickers and the actions on one row: the actions take a second. */
-  .app-shell { grid-template-rows: 78px minmax(0, 1fr); }
-  /* The Arena's header holds one menu: it keeps a single row. */
-  .app-shell.arena-mode { grid-template-rows: 48px minmax(0, 1fr); }
-  .arena-mode .header-actions { flex: none; margin-left: auto; }
-  .dock-capacity-0 .repository-region { top: 78px; }
-  .dock-capacity-0 .conversation-region { top: 88px; }
-  .app-header { flex-wrap: wrap; row-gap: 6px; padding: 7px 10px; }
-  .header-actions { flex: 1 0 100%; margin-left: 0; }
   .project-search-picker, .project-search-trigger { max-width: 90px; }
   .new-session-label { display: none; }
   .canvas-titleblock { bottom: 58px; }
@@ -814,3 +804,74 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .participant-menu .participant-row { display: grid; }
 .jump-latest { justify-self: center; }
 .turn-checkpoint { border: 0; background: transparent; }
+
+/* Shared pane actions. Maximize is a temporary view over the saved arrangement. */
+.conversation-drawer header > .pane-header-actions { display: flex; flex: none; align-items: center; gap: 2px; }
+.pane-maximize { position: relative; width: 32px; height: 32px; flex: none; }
+.pane-maximize .shell-icon { width: 16px; height: 16px; }
+.repository-region[hidden], .conversation-region[hidden] { display: none; }
+.app-shell.pane-maximized { grid-template-columns: [activity] 48px [rail] 0 [canvas] minmax(0, 1fr) [dock] 0; }
+.pane-maximized :is(.canvas-workspace, .repository-region, .conversation-region) { grid-column: rail / -1; }
+.pane-maximized .repository-sidebar { grid-template-columns: minmax(0, 1fr); }
+.pane-maximized.dock-capacity-2 .repository-sidebar.has-inspector { grid-template-columns: minmax(268px, 1fr) minmax(0, 2fr); }
+.maximized-conversation .conversation-drawer > header { padding-inline: max(12px, calc((100% - 760px) / 2)); }
+.maximized-conversation .conversation-scroll { padding-inline: max(14px, calc((100% - 760px) / 2)); }
+.maximized-conversation .drawer-composer { padding-inline: max(10px, calc((100% - 760px) / 2)); }
+.composer-layout, .composer-agent { display: contents; }
+
+/* The existing zero-dock band selects one full-width module above a bottom navigation bar. */
+.app-shell.dock-capacity-0 { grid-template-columns: [activity rail canvas dock] minmax(0, 1fr); grid-template-rows: 44px minmax(0, 1fr) auto; grid-template-areas: "header" "canvas" "activity"; }
+.dock-capacity-0 :is(.canvas-workspace, .repository-region, .conversation-region) { grid-column: 1; grid-row: 2; position: relative; inset: auto; width: auto; margin: 0; min-width: 0; }
+.dock-capacity-0 :is(.repository-sidebar, .conversation-drawer) { border: 0; border-radius: 0; box-shadow: none; }
+.dock-capacity-0 .repository-sidebar { grid-template-columns: minmax(0, 1fr); }
+.dock-capacity-0 .app-header { flex-wrap: nowrap; gap: 4px; padding: 0 6px; }
+.dock-capacity-0 .brand, .dock-capacity-0 .breadcrumb-separator { display: none; }
+.dock-capacity-0 .header-breadcrumbs { gap: 3px; }
+.dock-capacity-0 .project-search-picker { max-width: 90px; flex-shrink: 1; }
+.dock-capacity-0 .project-search-trigger { max-width: 90px; padding-inline: 6px; min-height: 40px; }
+.dock-capacity-0 .workspace-tabs { flex-basis: 80px; }
+.dock-capacity-0 .workspace-tab { min-height: 40px; }
+.dock-capacity-0 .session-picker { gap: 0; }
+.dock-capacity-0 .all-sessions-picker { height: 40px; padding-inline: 6px; }
+.dock-capacity-0 .new-session-label { display: none; }
+.dock-capacity-0 .new-session-menu > button { min-width: 40px; min-height: 40px; padding-inline: 6px; }
+/* Keep the capability-based VR entry. Routine health/device details live in More. */
+.dock-capacity-0 .header-actions { flex: none; gap: 0; }
+.dock-capacity-0 .header-actions .health-pill { display: none; }
+.dock-capacity-0 .activity-bar { flex-direction: row; justify-content: space-around; padding: 0 4px env(safe-area-inset-bottom, 0px); gap: 0; border-right: 0; border-top: 1px solid var(--line); }
+.dock-capacity-0 .activity-bar .activity-item, .dock-capacity-0 .activity-bar .more-menu > button, .dock-capacity-0 .activity-bar .layout-toggle { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 56px; height: 48px; padding: 0; border-radius: 6px; font-size: 10px; color: var(--muted); }
+.dock-capacity-0 .activity-divider { display: none; }
+.dock-capacity-0 .activity-bar .layout-toggles { display: contents; }
+.dock-capacity-0 .activity-bar :is(.activity-item, .layout-toggle)[aria-pressed="true"] { color: var(--plot); background: var(--plot-wash); }
+.dock-capacity-0 .activity-bar .activity-item:is([aria-pressed="true"], [aria-current="page"])::before { left: 50%; top: 0; width: 18px; height: 3px; transform: translateX(-50%); }
+.dock-capacity-0 .activity-bar .layout-toggle[aria-pressed="true"]::before { content: ''; position: absolute; left: 50%; top: 0; width: 18px; height: 3px; border-radius: 2px; background: var(--plot); transform: translateX(-50%); }
+.dock-capacity-0 .layout-badge { top: 1px; right: 2px; }
+.dock-capacity-0 .activity-badge { top: 1px; right: 2px; bottom: auto; }
+.dock-capacity-0 :is(.arena, .welcome-screen, .app-loading, .fatal-empty) { grid-column: 1; grid-row: 2; }
+.dock-capacity-0 .toast-region { top: 92px; right: 12px; width: min(360px, calc(100vw - 24px)); }
+.dock-capacity-0 :is(.conversation-drawer > header, .repository-panel-header) { min-height: 42px; padding: 0 8px; gap: 6px; }
+.dock-capacity-0 :is(.pane-maximize, .drawer-new-chat) { width: 40px; height: 40px; }
+.dock-capacity-0 .pane-review { min-height: 40px; }
+.dock-capacity-0 .conversation-scroll { padding: 10px; }
+.dock-capacity-0 .chat-message.assistant { margin-right: 0; padding: 8px 0; border: 0; border-radius: 0; background: transparent; }
+.dock-capacity-0 .chat-message.user { margin-left: 16px; padding: 10px; }
+.dock-capacity-0 .assistant-blocks { line-height: 1.55; }
+.dock-capacity-0 .drawer-composer { padding: 6px 8px 8px; gap: 6px; }
+.dock-capacity-0 .composer-layout { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "input input" "agent execution"; align-items: center; gap: 2px 6px; }
+.dock-capacity-0 .composer-agent { display: block; grid-area: agent; max-width: 120px; }
+.dock-capacity-0 .agent-menu > button { min-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-inline: 4px; }
+.dock-capacity-0 .instruction-composer { grid-area: input; gap: 4px; padding: 8px; }
+.dock-capacity-0 .instruction-composer textarea { min-height: 26px; max-height: min(260px, 25dvh); font-size: 16px; line-height: 1.5; }
+.dock-capacity-0 .composer-actions { flex-wrap: nowrap; }
+.dock-capacity-0 .composer-actions :is(button, .send-button, .cancel-button) { min-width: 40px; min-height: 40px; }
+.dock-capacity-0 .composer-actions .model-menu { min-width: 0; }
+.dock-capacity-0 .composer-actions .model-menu > button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-capacity-0 .execution-line { grid-area: execution; flex-wrap: nowrap; gap: 0; justify-content: flex-end; }
+.dock-capacity-0 .execution-part { gap: 3px; }
+.dock-capacity-0 .execution-menu > button { min-height: 40px; padding-inline: 4px; }
+.dock-capacity-0 .execution-hint:not(.is-busy), .dock-capacity-0 .execution-hint-separator, .dock-capacity-0 .instructions-part { display: none; }
+/* A maximized phone module owns the viewport; its own restore control remains in reach. */
+.app-shell.dock-capacity-0.pane-maximized { grid-template-rows: minmax(0, 1fr); grid-template-areas: "canvas"; }
+.dock-capacity-0.pane-maximized > :is(.app-header, .activity-bar) { display: none; }
+.dock-capacity-0.pane-maximized :is(.canvas-workspace, .repository-region, .conversation-region) { grid-row: 1; }
+.dock-capacity-0.pane-maximized .toast-region { top: 50px; }

@@ -16,6 +16,8 @@ const SHELL_ICON_PATHS = {
   arrowUp: 'M12 19V5m-6 6 6-6 6 6',
   arrowDown: 'M12 5v14m-6-6 6 6 6-6',
   refresh: 'M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M5 15a8 8 0 0 0 13 3',
+  maximize: 'M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5',
+  restore: 'M9 3v6H3M15 3v6h6M21 15h-6v6M9 21v-6H3',
 };
 
 export type ShellIconName = keyof typeof SHELL_ICON_PATHS;

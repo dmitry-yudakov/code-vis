@@ -216,6 +216,8 @@ function ExecutionLine({ execution, mode, continuation, instructions, level, pro
         summary={<><Icon name={execution === 'docker' ? 'docker' : 'local'} />{name}<Icon name="chevronUp" /></>}>
         {(close) => (<>
           <span className="composer-menu-heading">{name} session</span>
+          <p>{executionModeHint(mode, execution, level, provider)}</p>
+          {instructions && <p title={INSTRUCTIONS_LINE[instructions].title}>{INSTRUCTIONS_LINE[instructions].label}</p>}
           <div role="menu" aria-label="Execution">
             <MenuItem role="menuitem" label={`Continue in ${other}…`} disabled={continuation.busy || Boolean(continuation.unavailable)}
               detail={continuation.unavailable || 'Opens a new session with an editable recap.'}
@@ -224,13 +226,13 @@ function ExecutionLine({ execution, mode, continuation, instructions, level, pro
         </>)}
       </ComposerMenu>
       {execution === 'local' && level === 'native' && <span className="execution-instructions" title={NATIVE_SETTING}>Native</span>}
-      <span aria-hidden="true">·</span>
-      <span className="execution-hint">
+      <span className="execution-hint-separator" aria-hidden="true">·</span>
+      <span className={`execution-hint${continuation.busy ? ' is-busy' : ''}`}>
         {continuation.busy ? `Creating a ${other} session…` : executionModeHint(mode, execution, level, provider)}
       </span>
       </div>
       {instructions && (
-        <div className="execution-part">
+        <div className="execution-part instructions-part">
           <span aria-hidden="true">·</span>
           <span className="execution-instructions" title={INSTRUCTIONS_LINE[instructions].title}>{INSTRUCTIONS_LINE[instructions].label}</span>
         </div>
@@ -286,11 +288,12 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  value, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
+  agentControl, value, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
 }: {
+  agentControl?: ReactNode;
   value: string;
   execution?: AgentExecution;
   securityLevel?: SecurityLevel;
@@ -375,11 +378,24 @@ export function InstructionComposer({
   useEffect(() => {
     const field = ref.current;
     if (!field) return;
-    field.style.height = 'auto';
-    field.style.height = `${Math.min(field.scrollHeight, 260)}px`;
+    const fit = () => {
+      field.style.height = 'auto';
+      field.style.height = `${Math.min(field.scrollHeight, 260)}px`;
+    };
+    fit();
+    let width = field.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = field.getBoundingClientRect().width;
+      if (nextWidth === width) return;
+      width = nextWidth;
+      fit();
+    });
+    observer.observe(field);
+    return () => observer.disconnect();
   }, [value]);
   return (
-    <>
+    <div className="composer-layout">
+    {agentControl && <div className="composer-agent">{agentControl}</div>}
     <Paper sx={{ p: 1.5, borderRadius: '14px' }} className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
       {attached.length + reports.length + images.length + files.length > 0 && (
         <div className="attachment-chips" aria-label="Attachments">
@@ -449,6 +465,6 @@ export function InstructionComposer({
       </div>
     </Paper>
     <ExecutionLine execution={execution} mode={mode} continuation={continuation} instructions={instructions} level={securityLevel} provider={provider} />
-    </>
+    </div>
   );
 }
