@@ -1,0 +1,22 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+test('native button activation selects one stage and exposes enhancement only after initialization', async () => {
+  const controls = { hidden: true };
+  const buttons = ['discuss', 'explore', 'review'].map(stage => ({ dataset: { stage }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(type, fn) { assert.equal(type, 'click'); this.activate = fn; } }));
+  const articles = buttons.map(button => ({ dataset: { content: button.dataset.stage }, hidden: false }));
+  const document = { getElementById: () => controls, querySelectorAll: selector => selector === '[data-stage]' ? buttons : articles };
+  runInNewContext(await readFile(new URL('../workflow.js', import.meta.url), 'utf8'), { document });
+  assert.equal(controls.hidden, false);
+  assert.deepEqual(articles.map(a => a.hidden), [false, true, true]);
+  buttons[1].activate();
+  assert.deepEqual(buttons.map(b => b.attrs['aria-pressed']), ['false', 'true', 'false']);
+  assert.deepEqual(articles.map(a => a.hidden), [true, false, true]);
+  buttons[2].activate();
+  assert.deepEqual(articles.map(a => a.hidden), [true, true, false]);
+  const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /@media\s*\(max-width: 700px\)/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
+  assert.match(css, /:focus-visible/);
+});
