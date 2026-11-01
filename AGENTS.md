@@ -151,7 +151,8 @@ Updated 2026-10-31. When a story ships, change the line that names it; each stor
   The running app has not been restarted.
 - **Shipped:** [Story 120](stories/STORY-20261031-mobile-pane-maximize.md) — phone modules
   fill the width above a bottom bar, with a compact header/composer; Conversation, Canvas and the
-  side panel maximize and restore their saved arrangement on desktop and phones. Long file lists
+  side panel maximize and restore their saved arrangement on desktop and phones; docked, Maximize
+  shows only beside another pane. Long file lists
   and diffs scroll with Back and Restore in reach. TypeScript, isolated build, 112 focused unit
   checks, 100 distinct production-browser checks, both-theme screenshot inspection and independent
   review pass. Physical phone keyboard and Quest checks remain unverified. The running app has not

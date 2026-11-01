@@ -232,6 +232,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-empty p { margin: 7px 0 0; font-size: 11px; }
 
 .canvas-workspace { grid-area: canvas; min-width: 0; min-height: 0; position: relative; display: grid; grid-template-rows: 42px minmax(0, 1fr); margin: var(--pane-gutter, 0px) var(--pane-gutter, 0px) var(--pane-gutter, 0px) 0; background: var(--sheet); overflow: hidden; }
+/* An empty canvas alone has nothing for the bar to hold, so the stage takes its row. */
+.canvas-stage:first-child { grid-row: 1 / -1; }
 .canvas-topbar { display: flex; align-items: center; justify-content: flex-end; gap: 20px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--raised); z-index: 8; }
 .canvas-surface-control { margin-right: auto; }
 .canvas-surface-control { display: inline-flex; gap: 2px; padding: 2px; }

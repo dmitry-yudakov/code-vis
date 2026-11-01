@@ -41,6 +41,9 @@ shell epic and the repository conversation slice of the vision.
 6. Changes and its diff have bounded, independently scrollable bodies. At narrow widths the
    selected diff replaces the file list, keeping the pane's Restore and the diff's Back in reach
    even with many files or a long patch.
+7. Docked, a pane offers Maximize only while another pane is shown: alone it already has the room.
+   Below the docking threshold every module keeps it, because it also hides the header and bottom
+   bar. A maximized pane always keeps Restore.
 
 The epic permits temporary side-panel maximize as a named exception to its canvas/conversation
 visibility rule. Replace Canvas Focus and remove its duplicate New sketch toolbar action to pay
@@ -60,6 +63,8 @@ for the Conversation maximize control in the default control budget. New sketch 
       while Restore and Back remain visible.
 - [x] Focused unit/browser regressions, TypeScript, production build, visual inspection and an
       independent review pass. Record physical-device limitations explicitly.
+- [x] Docked, a pane alone shows no Maximize; it appears as soon as another pane opens. Phones keep
+      it, and a maximized pane keeps Restore.
 
 ## How to verify
 
@@ -93,6 +98,21 @@ Verification on October 31, 2026:
   patch with Back and Restore in reach. Independent review confirms no remaining material issues.
 - Physical iOS/Android virtual keyboards, safe-area hardware and Quest behavior were not tested.
   The running application was not restarted, deployed, or committed.
+
+Follow-up on October 31, 2026: `canMaximize` ([panelLayout.ts](../src/features/shell/panelLayout.ts))
+hides Maximize from a docked pane that is alone. An empty canvas alone then has nothing for its
+toolbar to hold, so it drops the bar and the stage takes the row.
+
+- The new unit test first failed without `canMaximize`. Removing the narrow exception, counting one
+  pane as enough, and removing the Restore guard each made a test fail; all three were restored.
+- 43 focused unit tests and `npm run lint` pass. The final production build passed all 84 browser
+  checks that ran across the mobile-panes, canvas, chronological-drafts and MUI suites, with one
+  skipped, on its second full run. On the first, `canvas.spec.ts:1780` failed once; it then passed
+  three times alone and in the second full run. Its error was overwritten by the rerun, so the cause
+  is unknown.
+- `npm test` has 39 failures in eight server-side files outside this change. All 39 also fail on a
+  clean copy of the previous commit, which has one more failure in `dockerCustomizations.test.ts`.
+- No independent review ran for this follow-up. The running application was not restarted.
 
 ## Out of scope
 

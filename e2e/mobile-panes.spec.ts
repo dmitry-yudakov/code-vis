@@ -126,6 +126,47 @@ for (const theme of ['light', 'dark']) {
   });
 }
 
+test('desktop offers maximize only beside another pane; a phone always does', async ({ page, request }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openWorkspace(page, request);
+  const maximizeChat = conversation(page).getByRole('button', { name: 'Maximize Conversation', exact: true });
+  const maximizeCanvas = canvas(page).getByRole('button', { name: 'Maximize Canvas', exact: true });
+  const canvasToggle = page.locator('.app-header').getByRole('button', { name: 'Canvas', exact: true });
+
+  // A new session shows the conversation alone: it already has the room.
+  await expect(canvas(page)).toBeHidden();
+  await expect(conversation(page)).toBeVisible();
+  await expect(maximizeChat).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('desktop-chat-alone.png') });
+  await canvasToggle.click();
+  await expect(maximizeChat).toBeVisible();
+  await expect(maximizeCanvas).toBeVisible();
+  await canvasToggle.click();
+  await expect(maximizeChat).toHaveCount(0);
+  await views(page).getByRole('button', { name: /^Changes/ }).click();
+  await expect(maximizeChat).toBeVisible();
+  await views(page).getByRole('button', { name: /^Changes/ }).click();
+
+  // The canvas alone has nothing to take room from either.
+  await page.locator('.app-header').getByRole('button', { name: 'Conversation', exact: true }).click();
+  await expect(canvas(page)).toBeVisible();
+  await expect(maximizeCanvas).toHaveCount(0);
+  await expect(page.locator('.canvas-topbar')).toHaveCount(0);
+  expect((await page.locator('.canvas-stage').boundingBox())!.height).toBe((await canvas(page).boundingBox())!.height);
+  await page.screenshot({ path: testInfo.outputPath('desktop-canvas-alone.png') });
+  await page.locator('.app-header').getByRole('button', { name: 'Conversation', exact: true }).click();
+
+  // Maximized, there is one pane on screen and Restore must stay. The canvas came back with the chat.
+  await maximizeChat.click();
+  await expect(conversation(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
+  await conversation(page).getByRole('button', { name: 'Restore layout', exact: true }).click();
+  await canvasToggle.click();
+  await expect(maximizeChat).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(maximizeChat).toBeVisible();
+});
+
 test('phone approvals stay reachable while another pane is maximized', async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openWorkspace(page, request);

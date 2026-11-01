@@ -117,7 +117,7 @@ export function CanvasWorkspace({
 
   return (
     <main id="active-session-view" role="tabpanel" className={`canvas-workspace ${target ? 'has-diagram' : 'empty-canvas'}`}>
-      <div className="canvas-topbar">
+      {(target || image || paneControl) && <div className="canvas-topbar">
         {target && !image && (
           <ToggleButtonGroup className="canvas-surface-control" value={surface} exclusive size="small" aria-label="Canvas surface">
             <ToggleButton value="flat" type="button" aria-pressed={surface === 'flat'} onClick={() => onSurfaceChange('flat')}>Flat</ToggleButton>
@@ -131,7 +131,7 @@ export function CanvasWorkspace({
           )}
           {paneControl}
         </div>
-      </div>
+      </div>}
 
       <div className="canvas-stage">
         <RunRibbon

@@ -25,6 +25,7 @@ import {
   withoutConversation,
   visiblePanes,
   toggledMaximized,
+  canMaximize,
   type Pane,
   type DockCapacity,
   type PanelLayout,
@@ -313,6 +314,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     selectSideTab: openSide,
     setInspectorOpen,
     toggleMaximized,
+    canMaximize: canMaximize(layout, dockCapacity),
     beginResize,
     resizeByKeyboard,
   };

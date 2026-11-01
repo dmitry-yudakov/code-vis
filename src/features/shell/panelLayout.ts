@@ -175,6 +175,11 @@ export function toggledMaximized(layout: PanelLayout, pane: Pane): PanelLayout {
   return { ...layout, maximized: layout.maximized === pane ? null : pane };
 }
 
+/** A docked pane alone already has the room. A narrow module can still hide the shell's navigation. */
+export function canMaximize(layout: PanelLayout, capacity: DockCapacity): boolean {
+  return capacity === 0 || Object.values(visiblePanes(layout, capacity)).filter(Boolean).length > 1;
+}
+
 export function isCanvasHidden(layout: PanelLayout, capacity: DockCapacity): boolean {
   return !visiblePanes(layout, capacity).canvas;
 }

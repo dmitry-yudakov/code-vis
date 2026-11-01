@@ -17,6 +17,7 @@ import {
   withoutConversation,
   visiblePanes,
   toggledMaximized,
+  canMaximize,
   type DockCapacity,
   type PanelLayout,
 } from '@/features/shell/panelLayout';
@@ -335,6 +336,21 @@ describe('maximized and narrow panes', () => {
         expect(toggledMaximized(maximized, pane)).toEqual(original);
       }
     }
+  });
+
+  it('offers maximize beside another docked pane, and always on a narrow screen', () => {
+    const chatOnly: PanelLayout = { ...DEFAULT_PANEL_LAYOUT, canvasOpen: false };
+    const canvasOnly: PanelLayout = { ...DEFAULT_PANEL_LAYOUT, conversationOpen: false };
+    for (const capacity of [1, 2] as const) {
+      expect(canMaximize(chatOnly, capacity)).toBe(false);
+      expect(canMaximize(canvasOnly, capacity)).toBe(false);
+      expect(canMaximize(DEFAULT_PANEL_LAYOUT, capacity)).toBe(true);
+      expect(canMaximize({ ...chatOnly, repositoryOpen: true }, capacity)).toBe(true);
+      expect(canMaximize({ ...canvasOnly, repositoryOpen: true }, capacity)).toBe(true);
+    }
+    // Maximizing a narrow module also hides the header and the bottom bar.
+    expect(canMaximize(chatOnly, 0)).toBe(true);
+    expect(canMaximize(canvasOnly, 0)).toBe(true);
   });
 
   it('roundtrips every maximized pane and rejects invalid values with explicit null overriding legacy focus', () => {

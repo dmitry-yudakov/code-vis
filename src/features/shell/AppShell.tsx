@@ -2355,13 +2355,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const blockingRun = focusedRunOutcome?.blockingRun;
   const compact = panelLayout.dockCapacity === 0;
   const maximized = !arenaOpen && session ? panelLayout.maximized : null;
-  const paneControl = (pane: Pane, label: string) => <PaneMaximizeButton
+  const paneControl = (pane: Pane, label: string) => maximized === pane || panelLayout.canMaximize ? <PaneMaximizeButton
     label={label} maximized={maximized === pane}
     approvals={pane === 'conversation' ? 0 : permissions.length}
     unread={pane === 'conversation' ? 0 : unread}
     onToggle={() => panelLayout.toggleMaximized(pane)}
     onOpenConversation={panelLayout.openConversation}
-  />;
+  /> : null;
   const shownToasts: Toast[] = [
     ...(newerFormatNotice ? [standingToast('newer-format', {
       tone: 'info', message: newerFormatNotice, onDismiss: () => setNewerFormatNoticeDismissed(true),
