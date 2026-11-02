@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-10-31. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-01. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -149,6 +149,9 @@ Updated 2026-10-31. When a story ships, change the line that names it; each stor
   both-theme desktop/phone screenshot inspection and independent review pass.
   The navigation follow-up also passes 21 focused unit checks and eight production-browser checks.
   The running app has not been restarted.
+- **Shipped:** [Story 121](stories/STORY-20261101-push-from-changes.md) — Push and Publish in Changes
+  send the current branch with the user's credentials, guarded against a `.git/config` a worker could
+  have written. Details and the checks that passed are in the story. The running app has not been restarted.
 - **Shipped:** [Story 120](stories/STORY-20261031-mobile-pane-maximize.md) — phone modules
   fill the width above a bottom bar, with a compact header/composer; Conversation, Canvas and the
   side panel maximize and restore their saved arrangement on desktop and phones; docked, Maximize
@@ -380,7 +383,7 @@ paths explicitly when investigating runtime problems; `rg --files` may skip igno
 | `src/features/repository/` | Repository tree, status, and diff UI and client state |
 | `src/server/agents/` | Provider policies, adapters, preflight, process runners, and the user's global instructions: file resolution, the machine's switches in `<dataDir>/instructions/`, and the framed text |
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
-| `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, and bounded context |
+| `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, the guarded push, and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
 | `src/server/storage/` | Project/session store, durable server records, promoted report evidence under `<dataDir>/attachments/`, per-run attachment directories under `<dataDir>/run-attachments/` |
 | `src/server/config.ts` | Environment resolution and limits |
@@ -473,6 +476,11 @@ importing file's own directory; keep `./…` for same-directory siblings.
   unauthenticated by design and for a network where every device is trusted. Do not extend it.
 - Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is
   ignored and must stay untracked.
+- **Push** (Story 121, `src/server/repository/gitPush.ts`) is the only CodeAI Git command that runs on the
+  host with the user's credentials, after provisioning included, under a `.git/config` a worker may have
+  written. Do not add a key to `ALLOWED_LOCAL_KEY` that can run a command or redirect traffic, add a
+  transport to `PUSH_PROTOCOLS`, pass more environment, run hooks, or let an attached machine reach it,
+  without a recorded review.
 
 ## Key conventions
 

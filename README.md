@@ -1145,6 +1145,28 @@ repository and outside the system temp directory, which an Auto sandbox leaves w
 always removed after the turn, and what a crashed server left there is removed before the next
 server's first turn.
 
+**Push** in Changes is the one Git command CodeAI runs with your credentials. It appears when the
+current branch has outgoing commits, and **Publish** when a committed branch needs an upstream.
+It honors the branch's push remote and `remote.pushDefault`, otherwise choosing its upstream's
+remote, `origin`, or the only remote. It always sends the current branch to its own name: a feature
+tracking `origin/main` publishes to `origin/feature`. It never forces or pulls, and runs on the host
+with your global Git configuration, SSH agent, proxies, and PATH filtered to exclude repository
+and temporary executables, with no terminal to prompt on: a key needing a passphrase must be in
+your agent. Because a worker can write
+`.git/config`, it refuses, with the reason, and you push from a terminal in these cases:
+
+- the local configuration sets a key outside a small allowlist, such as `core.sshCommand`,
+  `credential.helper`, or `url.*.insteadOf`;
+- the remote is not HTTPS or SSH;
+- the repository has an executable `pre-push` hook, which CodeAI does not run, Git LFS's included;
+- Git metadata links outside the checkout or exceeds the bounded inspection limit;
+- a turn or another Git operation is using the checkout or a managed worktree sharing its metadata.
+
+A worker that rewrites `remote.origin.url` to another HTTPS or SSH host can still receive the branch.
+Pushing on an attached machine is not offered. Push preferences in Git-directory or branch-based
+global conditional includes can cause a safe refusal because status reads global settings without
+opening the checkout's configuration on the host; use a terminal in that case.
+
 At **Native**, writing turns use the provider's own setup. Claude's isolation flags and appended
 global text are omitted. Codex leaves integrations and the approval reviewer to your configuration;
 only `request_permissions_tool` and `exec_permission_approvals` stay disabled, because CodeAI

@@ -92,7 +92,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
       return;
     }
     if (route.request().method() === 'GET' && pathname === '/repository/status') {
-      await route.fulfill({ json: { tree: { isRepository: true, branch: 'main', files: [] } } });
+      await route.fulfill({ json: { tree: { isRepository: true, branch: 'main', upstream: 'origin/main', pushTarget: 'origin/main', ahead: 1, files: [] } } });
       return;
     }
     if (route.request().method() === 'POST' && pathname === '/agent/message') {
@@ -159,6 +159,11 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
     await expect(conversation.locator('.chat-message .mode-tag')).toHaveCount(0);
   }
   expect(remoteMessagePath).toBe(`/api/machines/${MACHINE_ID}/agent/message`);
+
+  // An executor's Git credentials are not offered to its home machine.
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Changes/ }).click();
+  await expect(page.locator('.git-branch-summary')).toContainText('↑1');
+  await expect(page.locator('.git-branch-summary').getByRole('button')).toHaveCount(0);
 
   // Home settings remain reachable here without admitting Docker on this executor.
   const ready = { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };

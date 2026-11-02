@@ -1,5 +1,6 @@
 import { getConfig } from '@/server/config';
 import { readWorkingTree } from '@/server/repository/gitRepository';
+import { withPushOffer } from '@/server/repository/gitPush';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
@@ -17,7 +18,7 @@ export async function GET(request: Request): Promise<Response> {
     }
     const config = getConfig();
     const checkout = await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).resolve(checkoutId);
-    return safeJsonResponse({ tree: await readWorkingTree(checkout.realPath) });
+    return safeJsonResponse({ tree: await withPushOffer(checkout.realPath, await readWorkingTree(checkout.realPath)) });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 400 });
   }

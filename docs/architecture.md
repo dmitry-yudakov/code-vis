@@ -127,7 +127,7 @@ device authorization at every route handler (src/server/devices)
    ▼
 route domain operations (src/app/api/**)
    │
-   ├── src/server/repository   checkout discovery, fixed read-only git reads, bounded context files
+   ├── src/server/repository   checkout discovery, fixed read-only git reads, guarded push, bounded context files
    ├── src/server/storage      durable projects/sessions, writer lock, per-run attachment directories
    ├── src/server/runs         bounded scheduler, checkout locks, run registry, permission brokers
    ├── src/server/agents       provider policy → claude / codex app-server child
@@ -506,6 +506,15 @@ shell, in the selected repository checkout, with bounded output
 (`CODEAI_MAX_GIT_CONTEXT_BYTES`). It backs the repository sidebar (status, changed files, diffs)
 and the per-run context snapshots. Agent mode's writes go through the provider's own tools under
 approval, not through this module.
+
+`src/server/repository/gitPush.ts` is the one exception to read-only: a user's click in Changes
+sends the current branch to its own name on the selected remote, on the host, with the user's
+credentials. Its contract is in the [Story 121](../stories/STORY-20261101-push-from-changes.md)
+invariants: the local configuration
+passes an allowlist through the ordinary read path, with contained metadata and leases that keep
+source and managed sibling writers out until Git exits; transports are limited to HTTPS and SSH;
+and hooks never run. Advisory global/system configuration reads disable repository discovery so
+host Git does not open local configuration while status permits writers.
 
 ## Diagrams
 

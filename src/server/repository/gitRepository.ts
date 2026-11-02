@@ -2,6 +2,7 @@ import { isNotRepositoryOutput, runGitRead } from './gitRead';
 import type { GitChangedFile, GitFileDiff, GitFileStatus, GitWorkingTree } from '@/shared/types';
 
 const DIFF_BUFFER_BYTES = 2 * 1024 * 1024;
+export const DETACHED_HEAD = 'Detached HEAD';
 
 interface GitFailure extends Error {
   code?: number | string;
@@ -18,14 +19,17 @@ function fileStatus(code: string): GitFileStatus {
   return 'modified';
 }
 
-function branchMetadata(header: string): Pick<GitWorkingTree, 'branch' | 'ahead' | 'behind'> {
+function branchMetadata(header: string): Pick<GitWorkingTree, 'branch' | 'upstream' | 'unborn' | 'ahead' | 'behind'> {
   let description = header.startsWith('## ') ? header.slice(3) : header;
+  const unborn = /^(?:No commits yet|Initial commit) on /.test(description);
   description = description.replace(/^No commits yet on /, '').replace(/^Initial commit on /, '');
   const ahead = description.match(/\bahead (\d+)\b/)?.[1];
   const behind = description.match(/\bbehind (\d+)\b/)?.[1];
-  const branchPart = description.split('...')[0].replace(/ \[.*$/, '');
+  const [branchPart, upstream] = description.split('...').map((part) => part.replace(/ \[.*$/, ''));
   return {
-    branch: branchPart === 'HEAD (no branch)' ? 'Detached HEAD' : branchPart,
+    branch: branchPart === 'HEAD (no branch)' ? DETACHED_HEAD : branchPart,
+    ...(upstream ? { upstream } : {}),
+    ...(unborn ? { unborn } : {}),
     ...(ahead ? { ahead: Number(ahead) } : {}),
     ...(behind ? { behind: Number(behind) } : {}),
   };

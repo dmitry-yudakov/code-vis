@@ -51,14 +51,24 @@ function FileRow({ file, selected, onSelect }: {
   );
 }
 
-export function RepositoryChangesView({ tree, loading, error, selectedPath, onSelect, onRetry }: {
+/** The button's words for what the server said it would do. */
+function pushOffer({ pushTarget, publishes, ahead, upstream }: GitWorkingTree): { label: string; description: string } | undefined {
+  if (!pushTarget) return undefined;
+  if (publishes) return { label: 'Publish', description: `Publish this branch to ${pushTarget}` };
+  return { label: 'Push', description: ahead && upstream === pushTarget ? `Push ${ahead} ${ahead === 1 ? 'commit' : 'commits'} to ${pushTarget}` : `Push to ${pushTarget}` };
+}
+
+export function RepositoryChangesView({ tree, loading, error, selectedPath, onSelect, onRetry, pushing, onPush }: {
   tree?: GitWorkingTree;
   loading: boolean;
   error?: string;
   selectedPath?: string;
   onSelect(path: string): void;
   onRetry(): void;
+  pushing?: boolean;
+  onPush?(): void;
 }) {
+  const offer = tree && onPush ? pushOffer(tree) : undefined;
   const staged = tree?.files.filter((file) => file.staged).length || 0;
   const working = tree?.files.filter((file) => file.unstaged && file.status !== 'untracked').length || 0;
   const untracked = tree?.files.filter((file) => file.status === 'untracked').length || 0;
@@ -76,6 +86,7 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
             <span aria-hidden="true">⑂</span>
             <div><small>Current branch</small><strong>{tree.branch || 'Unknown branch'}</strong></div>
             {(tree.ahead || tree.behind) ? <em>{tree.ahead ? `↑${tree.ahead}` : ''}{tree.ahead && tree.behind ? ' ' : ''}{tree.behind ? `↓${tree.behind}` : ''}</em> : null}
+            {offer && <Button type="button" variant="outlined" title={offer.description} aria-label={offer.description} disabled={pushing || loading} onClick={onPush}>{pushing ? `${offer.label}ing…` : offer.label}</Button>}
           </Paper>
           <div className="git-change-heading">
             <div><span className="eyebrow">Working tree</span><strong>{tree.files.length ? `${tree.files.length} changed ${tree.files.length === 1 ? 'file' : 'files'}` : 'Clean'}</strong></div>

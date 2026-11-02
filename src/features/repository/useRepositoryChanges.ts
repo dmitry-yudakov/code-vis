@@ -12,6 +12,7 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
+  const [pushingIdentity, setPushingIdentity] = useState<string>();
 
   useEffect(() => {
     setTree(undefined);
@@ -51,6 +52,22 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
 
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   const current = loadedIdentity === identity;
+  const target = current ? tree?.pushTarget : undefined;
+  /** Resolves to where the branch went. The status refreshes either way: a failure may be stale status. */
+  const push = useCallback(async (): Promise<string> => {
+    setPushingIdentity(identity);
+    try {
+      const response = await fetch(`${apiBase}/repository/push`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkoutId, target }),
+      });
+      const data = await response.json().catch(() => ({})) as { target?: string; error?: string };
+      if (!response.ok || !data.target) throw new Error(data.error || 'Could not push this branch.');
+      return data.target;
+    } finally {
+      setPushingIdentity((held) => held === identity ? undefined : held);
+      refresh();
+    }
+  }, [apiBase, checkoutId, identity, refresh, target]);
   return {
     tree: current ? tree : undefined,
     selectedPath: current ? selectedPath : undefined,
@@ -61,5 +78,8 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
     refresh,
     selectPath: setSelectedPath,
     closeInspector: () => setSelectedPath(undefined),
+    pushing: pushingIdentity === identity,
+    /** An attached machine's credentials are not this machine's to spend, so it offers no push. */
+    push: apiBase === '/api' ? push : undefined,
   };
 }

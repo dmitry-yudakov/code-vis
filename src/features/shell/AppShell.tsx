@@ -395,6 +395,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }) || [], [checkouts, session?.repositories]);
   const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
   const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
+  const pushRepositoryBranch = async (push: () => Promise<string>) => {
+    supersede('git-push');
+    try { notify({ key: 'git-push', tone: 'success', message: `Pushed to ${await push()}.` }); }
+    catch (error) { notifyError(error, 'Could not push this branch.', 'git-push'); }
+  };
 
   const executionProviders = health?.executions?.[session?.execution || 'local'].providers || health?.providers;
   const selectableProviders = useMemo(() => AGENT_PROVIDERS.filter((provider) => executionProviders?.[provider]?.available), [executionProviders]);
@@ -2689,6 +2694,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             repositoryName={selectedCheckout?.name || 'No repository'}
             changes={repositoryChanges}
             diffState={repositoryDiff}
+            onPush={repositoryChanges.push && (() => void pushRepositoryBranch(repositoryChanges.push!))}
             manager={(
               <RepositoryManager
                 key={session.id}

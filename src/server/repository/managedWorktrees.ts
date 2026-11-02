@@ -171,7 +171,7 @@ export async function worktreeCapability(config: AppConfig, ordinary: ServerChec
   } catch (error) { return { available: false, message: error instanceof SessionStoreError ? error.message : 'Worktrees root is unavailable or unwritable.' }; }
 }
 
-async function containedMetadata(gitDirectory: string): Promise<void> {
+export async function containedMetadata(gitDirectory: string): Promise<void> {
   let visited = 0;
   const deadline = Date.now() + 15_000;
   async function walk(directory: string) {

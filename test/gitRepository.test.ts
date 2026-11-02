@@ -32,6 +32,17 @@ describe('Git repository status', () => {
     await expect(readWorkingTree(clean)).resolves.toMatchObject({ isRepository: true, branch: 'main', files: [] });
   });
 
+  it('names the upstream, and says when the branch has no commits', () => {
+    expect(parseGitStatus('## feature/x...origin/feature/x [ahead 2, behind 1]\0')).toMatchObject({
+      branch: 'feature/x', upstream: 'origin/feature/x', ahead: 2, behind: 1,
+    });
+    expect(parseGitStatus('## main...origin/main\0').upstream).toBe('origin/main');
+    expect(parseGitStatus('## main...origin/main [gone]\0').upstream).toBe('origin/main');
+    expect(parseGitStatus('## main\0').upstream).toBeUndefined();
+    expect(parseGitStatus('## main\0').unborn).toBeUndefined();
+    expect(parseGitStatus('## No commits yet on main\0')).toMatchObject({ branch: 'main', unborn: true });
+  });
+
   it('parses branch metadata and staged, unstaged, untracked, and conflicted states', () => {
     const tree = parseGitStatus([
       '## feature/sidebar...origin/feature/sidebar [ahead 2, behind 1]',

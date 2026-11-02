@@ -59,6 +59,13 @@ export interface GitChangedFile {
 export interface GitWorkingTree {
   isRepository: boolean;
   branch?: string;
+  upstream?: string;
+  /** The branch has no commits yet. */
+  unborn?: boolean;
+  /** Where Changes' button sends this branch, such as `origin/main`; absent when it offers none. */
+  pushTarget?: string;
+  /** The button creates or re-tracks that branch rather than updating its upstream. */
+  publishes?: boolean;
   ahead?: number;
   behind?: number;
   files: GitChangedFile[];

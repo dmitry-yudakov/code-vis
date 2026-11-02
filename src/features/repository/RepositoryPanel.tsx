@@ -15,7 +15,7 @@ import type { RepositoryDiffState } from './useRepositoryDiff';
  * Repository-view composition point. A future file-tree view belongs here beside `changes`,
  * while the sidebar chrome and each view's data controller remain independent.
  */
-export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, tab, onInspectorOpenChange, paneControl }: {
+export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, tab, onInspectorOpenChange, onPush, paneControl }: {
   checkoutId?: string;
   repositoryName: string;
   manager?: ReactNode;
@@ -27,6 +27,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
   tab: SideTab;
   paneControl?: ReactNode;
   onInspectorOpenChange(open: boolean): void;
+  onPush?(): void;
 }) {
 
   useEffect(() => {
@@ -60,6 +61,8 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
           selectedPath={changes.selectedPath}
           onSelect={changes.selectPath}
           onRetry={changes.refresh}
+          pushing={changes.pushing}
+          onPush={onPush}
         />
       ) : (
         <div className="repository-summary-scroll">

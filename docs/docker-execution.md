@@ -250,6 +250,10 @@ external diff/textconv, ambient configuration, optional index writes and the ima
 are disabled. Replacing `.git` or redirecting configuration cannot add a host mount. Keep the
 pinned image available for these reads. Before provisioning, Local retains host Git with executable
 features disabled.
+The user's own **Push** in Changes must run on the host, since the helper has neither network nor
+credentials. It reads and allowlists the local configuration through the helper first, and holds
+writers off the checkout until Git exits, so a worker cannot use `.git/config` or hooks to run on the
+host. It can still redirect `remote.*.url` to another HTTPS or SSH host and receive that branch.
 Files the user ignores personally stay out of CodeAI's Git views before and after provisioning.
 CodeAI reads Git's default personal ignore file (`$XDG_CONFIG_HOME/git/ignore`, else
 `~/.config/git/ignore`) when it is a regular UTF-8 file of at most 64 KiB without NUL bytes. A
