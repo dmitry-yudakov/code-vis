@@ -51,6 +51,48 @@ the [workbench shell](EPIC-20260925-workbench-shell.md) and the
 
 Session deletion, automatic archive policy, server execution, VR presentation, deployment and restart.
 
+## Follow-up — Archive from the tab × (November 3, 2026)
+
+**Status:** Shipped
+
+The user now expects the tab's × to mean **Archive this session**. It should use the existing
+archive command for that specific session, including background tabs, rather than only hide its
+device view. This supersedes the × behavior above. Delete retains its existing close-only shortcut.
+
+Where the code is:
+
+- [WorkspaceTabs.tsx:81](../src/features/conversation/WorkspaceTabs.tsx#L81) owns the tab archive
+  control and asynchronous focus restoration.
+- [AppShell.tsx:2327](../src/features/shell/AppShell.tsx#L2327) owns per-session guards, revision
+  selection and the archive command.
+- [AppShell.tsx:1970](../src/features/shell/AppShell.tsx#L1970) owns successful removal, error
+  feedback and Undo. Story 115 now places the other Archive control in the conversation header.
+
+- [x] Every tab's × says “Archive this session” and archives that session without confirmation.
+- [x] Success removes the session from tabs and All sessions, retains neighbour/current/last-tab
+      focus (New session when All sessions is disabled), and offers Undo; restored sessions retain
+      their conversation and device draft.
+- [x] Failure retains the tab, draft and focus and allows retry. Pending requests, local and
+      machine-reported turns, preparation/reconnection and offline machines disable tab archive.
+- [x] Background and overlapping archives use their own session/revision and pending state;
+      finishing an archive respects newer tab selection and composer/control focus.
+- [x] Delete still closes a view without archiving; overflow, saved layouts and empty-state
+      persistence continue to work.
+- [x] Focused unit/browser checks, TypeScript, isolated build and independent review pass.
+
+Verify with the commands below, plus `e2e/desktop-workspace.spec.ts`'s activity-bar navigation
+checks. Inspect the existing desktop/phone screenshots in both themes. Do not restart the app.
+
+Verification: the updated rendering checks failed before implementation. All **90 focused unit
+checks**, TypeScript, the isolated production build into `.next-e2e`, and **20 distinct browser
+checks** pass. The browser coverage includes all title-bar and New chat cases, automatic archive,
+Arena/Inbox/More archive, and light/dark activity-bar navigation. The latter retains its original
+close-only empty-view journey with Delete. Desktop and phone screenshots were inspected in both
+themes. Independent review found and verified fixes for delayed responses stealing composer focus
+and the disabled All sessions focus target after the final archive. Its final review has no
+remaining findings. Browser tests use fake providers; real attached transport and physical devices
+were not rerun. The running app has not been restarted.
+
 ## How to verify
 
 1. `npm test -- test/workspaceTabs.test.ts test/workspaceViews.test.ts test/conversationArchive.test.ts test/newChat.test.ts test/chronologicalUi.test.ts test/panelLayout.test.ts`

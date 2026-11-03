@@ -670,12 +670,15 @@ device-local tabs, drafts, or panel state in the URL.
 
 Open session views sit in the title bar beside the project picker. **All sessions**
 lists every active session in that project, or the loose-session scope, including closed views and
-tabs that do not fit. Choosing one opens its view. Each tab has an **×** to close it; Delete
-also closes the selected tab. Closing a background tab keeps the current session selected; closing
-the selected tab focuses its neighbour. **Archive** below the final completed assistant reply
-archives that conversation and offers Undo, on desktop and phones alike.
-A live turn keeps its view open. Closing preserves its conversation and device draft for reopening;
-closing the last tab shows **No open sessions**, including after reload. **+ New** starts a session.
+tabs that do not fit. Choosing one opens its view. Each tab has an **×** labelled **Archive this
+session**; it archives that conversation and offers Undo. The conversation header's **Archive**
+action does the same, on desktop and phones alike. Archiving a background tab keeps the current
+session selected; archiving the selected tab focuses its neighbour, or **All sessions** when no
+tabs remain (**+ New** if there are no active sessions). A live turn or offline execution machine
+disables archiving. Restore archived conversations from Undo or the Arena archive; their history
+and device drafts are preserved.
+Delete closes the selected tab while keeping its session in All sessions. Closing the last tab
+shows **No open sessions**, including after reload. **+ New** starts a session.
 
 **Arena** in the activity bar opens an overview of active sessions, grouped first by execution
 machine and then by project. The security notice can be dismissed; this device remembers the

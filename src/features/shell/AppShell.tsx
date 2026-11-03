@@ -194,7 +194,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Kept apart from health, which a remote machine's catalog replaces; the count is this machine's.
   const [newerFormatSessions, setNewerFormatSessions] = useState(0);
   const [newerFormatNoticeDismissed, setNewerFormatNoticeDismissed] = useState(false);
-  const [archivingSessionId, setArchivingSessionId] = useState<string>();
+  const [archivingSessionIds, setArchivingSessionIds] = useState<string[]>([]);
   const reconciledArchiveRevisions = useRef(new Map<string, number>());
   const [participantBusy, setParticipantBusy] = useState(false);
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
@@ -2328,23 +2328,27 @@ export function AppShell({ children }: { children: ReactNode }) {
     const live = Boolean(runsBySession[item.id]) || preparingSends.includes(item.id) || reconnectingSends.includes(item.id)
       || immersiveMachine?.runs.active.some(run => run.sessionId === item.id);
     const reason = live ? 'Wait for this turn to finish.'
-      : archivingSessionId === item.id ? 'Archiving this session…' : undefined;
+      : archivingSessionIds.includes(item.id) ? 'Archiving this session…' : undefined;
     return reason ? [[item.id, reason]] : [];
   }));
-  const closeSessionDisabledReason = sessionId ? closeSessionDisabledReasons[sessionId] : undefined;
-  const canArchiveSession = Boolean(session) && !closeSessionDisabledReason && immersiveMachine?.machine.state === 'online';
-  const archiveSessionDisabledReason = closeSessionDisabledReason
-    || (immersiveMachine?.machine.state !== 'online' ? 'This execution machine is offline.' : undefined);
-  const archiveOpenSession = async () => {
+  const archiveSessionDisabledReasons = Object.fromEntries(sessions.flatMap(item => {
+    const reason = closeSessionDisabledReasons[item.id]
+      || (immersiveMachine?.machine.state !== 'online' ? 'This execution machine is offline.' : undefined);
+    return reason ? [[item.id, reason]] : [];
+  }));
+  const archiveSessionDisabledReason = sessionId ? archiveSessionDisabledReasons[sessionId] : undefined;
+  const canArchiveSession = Boolean(session) && !archiveSessionDisabledReason;
+  const archiveOpenSession = async (targetSessionId = sessionId) => {
+    const target = sessions.find(item => item.id === targetSessionId);
     const targetMachineId = machineId || localMachineId;
-    if (!session || !targetMachineId || !canArchiveSession) return false;
+    if (!target || !targetMachineId || archiveSessionDisabledReasons[target.id]) return false;
     // Nothing refetches an open session that another device changed; the Arena poll carries its newer revision.
-    const revision = Math.max(session.revision, immersiveMachine?.sessions.find((item) => item.id === session.id)?.revision ?? 0);
-    setArchivingSessionId(session.id);
+    const revision = Math.max(target.revision, immersiveMachine?.sessions.find((item) => item.id === target.id)?.revision ?? 0);
+    setArchivingSessionIds(current => [...current, target.id]);
     try {
-      return await archiveArenaSession(targetMachineId, { ...session, revision });
+      return await archiveArenaSession(targetMachineId, { ...target, revision });
     } finally {
-      setArchivingSessionId(undefined);
+      setArchivingSessionIds(current => current.filter(id => id !== target.id));
     }
   };
   // Only the session workspace has a canvas to hide; the Arena and the welcome screen keep the frame.
@@ -2433,7 +2437,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                   unreadBySession={unreadBySession}
                   onFocus={workspace.open}
                   onClose={(id) => { workspace.close(id); if (id === sessionId) setRepositoryTree(undefined); }}
+                  onArchive={archiveOpenSession}
                   closeDisabledReasons={closeSessionDisabledReasons}
+                  archiveDisabledReasons={archiveSessionDisabledReasons}
                 />
                 <SessionPicker
                   onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}

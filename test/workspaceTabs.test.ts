@@ -12,16 +12,17 @@ function tabs(props: Partial<ComponentProps<typeof WorkspaceTabs>> = {}) {
   return renderToStaticMarkup(createElement(WorkspaceTabs, {
     sessions: [{ id: SESSION_A, title: 'First session' }, { id: SESSION_B, title: 'Second session' }] as SessionSnapshot[],
     openSessionIds: [SESSION_A, SESSION_B], focusedSessionId: SESSION_A,
-    runsBySession: {}, unreadBySession: {}, onFocus: vi.fn(), onClose: vi.fn(),
+    runsBySession: {}, unreadBySession: {}, onFocus: vi.fn(), onClose: vi.fn(), onArchive: vi.fn(),
     ...props,
   })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }
 
 describe('workspace tabs', () => {
-  it('puts a named close button on every tab without nested native buttons or detached actions', () => {
+  it('puts a named archive button on every tab without nested native buttons or detached actions', () => {
     const markup = tabs();
-    expect(markup).toContain('aria-label="Close tab: First session"');
-    expect(markup).toContain('aria-label="Close tab: Second session"');
+    expect(markup).toContain('aria-label="Archive this session: First session"');
+    expect(markup).toContain('aria-label="Archive this session: Second session"');
+    expect(markup.match(/title="Archive this session"/g)).toHaveLength(2);
     expect(markup).not.toContain('aria-label="Archive session"');
     expect(markup).not.toContain('aria-label="Session actions"');
     expect(markup).not.toMatch(/<button[^>]*role="tab"/);
@@ -30,15 +31,21 @@ describe('workspace tabs', () => {
 
   it.each(['running', 'queued', 'needs-you'] as const)('protects only the %s tab while retaining its status', (state) => {
     const markup = tabs({ runsBySession: { [SESSION_A]: { state, status: state, pendingApprovals: 1 } } });
-    expect(markup).toMatch(/<button(?=[^>]*aria-label="Close tab: First session")(?=[^>]*disabled="")[^>]*>/);
-    expect(markup).toMatch(/<button(?=[^>]*aria-label="Close tab: Second session")(?![^>]*disabled="")[^>]*>/);
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Archive this session: First session")(?=[^>]*disabled="")[^>]*>/);
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Archive this session: Second session")(?![^>]*disabled="")[^>]*>/);
     expect(markup).toContain(`First session — ${state}`);
   });
 
   it('protects a background tab during preparation or an archive request', () => {
     const markup = tabs({ closeDisabledReasons: { [SESSION_B]: 'Archiving this session…' } });
-    expect(markup).toMatch(/<button(?=[^>]*aria-label="Close tab: Second session")(?=[^>]*disabled="")[^>]*>/);
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Archive this session: Second session")(?=[^>]*disabled="")[^>]*>/);
     expect(markup).toContain('Archiving this session…');
+  });
+
+  it('disables archive with its offline reason', () => {
+    const markup = tabs({ archiveDisabledReasons: { [SESSION_B]: 'This execution machine is offline.' } });
+    expect(markup).toMatch(/<button(?=[^>]*aria-label="Archive this session: Second session")(?=[^>]*disabled="")[^>]*>/);
+    expect(markup).toContain('title="This execution machine is offline."');
   });
 
   it('retains queue, approval and unread indicators after presentation changes', () => {

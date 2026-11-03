@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-02. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-03. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -132,10 +132,10 @@ Updated 2026-11-02. When a story ships, change the line that names it; each stor
   actions and made last-tab close survive reload. Story 112 refines the controls; its original
   Astra consultation/review and focused offline/browser checks passed.
 - **Shipped:** [Story 112](stories/STORY-20261020-tab-close-and-reply-archive.md) — each session
-  tab has an × to close it, and Archive sits below the final completed assistant reply. Closing
-  preserves drafts, history, focus and current Git status; archive retains its guards and Undo.
-  All 57 focused unit tests, 18 production-browser checks, TypeScript, isolated build, light/dark
-  desktop/phone screenshot inspection and independent review pass. The running app has not been restarted.
+  tab's × now means Archive this session, with guarded per-session archiving, Undo, retained drafts
+  and focus; Delete still closes only the view. The November 3 follow-up passes 90 focused unit
+  checks, 20 distinct production-browser checks, TypeScript, isolated build, both-theme desktop/phone
+  screenshot inspection and independent review. The running app has not been restarted.
 - **Shipped:** [Story 114](stories/STORY-20261026-activity-bar.md) — inset activity buttons have
   a short selection marker, and Arena, Inbox, and More stay together at the bottom across session,
   Arena, Inbox, and welcome screens. TypeScript, production build, 20 focused unit tests, five

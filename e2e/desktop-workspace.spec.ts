@@ -217,7 +217,7 @@ for (const appearance of ['light', 'dark']) {
       await page.keyboard.press('Escape');
       await expect(more).toBeFocused();
 
-      await page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Close tab:/ }).click();
+      await page.getByRole('tab', { selected: true }).press('Delete');
       await expect(page.getByRole('heading', { name: 'No open sessions', exact: true })).toBeVisible();
       await expect(history).toHaveCount(0);
       expect(await positions()).toEqual(anchored);

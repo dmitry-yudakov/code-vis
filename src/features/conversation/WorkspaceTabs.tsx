@@ -21,7 +21,9 @@ export function WorkspaceTabs({
   unreadBySession,
   onFocus,
   onClose,
+  onArchive,
   closeDisabledReasons = {},
+  archiveDisabledReasons = {},
 }: {
   sessions: SessionSnapshot[];
   openSessionIds: string[];
@@ -30,7 +32,9 @@ export function WorkspaceTabs({
   unreadBySession: Record<string, number>;
   onFocus(sessionId: string): void;
   onClose(sessionId: string): void;
+  onArchive(sessionId: string): Promise<boolean>;
   closeDisabledReasons?: Record<string, string>;
+  archiveDisabledReasons?: Record<string, string>;
 }) {
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const tablistRef = useRef<HTMLDivElement>(null);
@@ -74,6 +78,29 @@ export function WorkspaceTabs({
     });
   }
 
+  async function archiveSession(id: string) {
+    if (runsBySession[id] || closeDisabledReasons[id] || archiveDisabledReasons[id]) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const archived = await onArchive(id);
+    requestAnimationFrame(() => {
+      const focused = document.activeElement;
+      // A delayed response must not take focus from a composer or another control.
+      if (focused !== document.body && !tablistRef.current?.contains(focused)) return;
+      if (!archived) {
+        if (focused === document.body || focused === trigger) trigger?.focus();
+        return;
+      }
+      // The user may have selected another session while the archive was pending.
+      const selected = [...tabRefs.current.values()].find(tab => tab.getAttribute('aria-selected') === 'true');
+      if (selected) selected.focus();
+      else {
+        const picker = document.getElementById('all-sessions') as HTMLSelectElement | null;
+        if (picker && !picker.disabled) picker.focus();
+        else document.querySelector<HTMLElement>('.new-session-menu > button')?.focus();
+      }
+    });
+  }
+
   if (!openSessions.length) return null;
 
   return (
@@ -87,7 +114,8 @@ export function WorkspaceTabs({
           const running = run?.state === 'running';
           const queued = run?.state === 'queued';
           const needsYou = run?.state === 'needs-you';
-          const closeReason = closeDisabledReasons[session.id] || (run ? 'Wait for this turn to finish.' : undefined);
+          const archiveReason = archiveDisabledReasons[session.id] || closeDisabledReasons[session.id]
+            || (run ? 'Wait for this turn to finish.' : undefined);
           const unread = unreadBySession[session.id] || 0;
           return (
             <Tab component="div"
@@ -125,10 +153,10 @@ export function WorkspaceTabs({
               {needsYou && run.pendingApprovals > 0 && <span className="approval-badge">{run.pendingApprovals}</span>}
               {unread > 0 && <span className="unread-badge">{unread}</span>}
               <IconButton className="workspace-tab-close" size="small" color="inherit"
-                aria-label={`Close tab: ${session.title}`} title={closeReason || 'Close tab · Keep in All sessions'}
-                disabled={Boolean(closeReason)} tabIndex={selected ? 0 : -1}
+                aria-label={`Archive this session: ${session.title}`} title={archiveReason || 'Archive this session'}
+                disabled={Boolean(archiveReason)} tabIndex={selected ? 0 : -1}
                 sx={{ flex: 'none', width: 24, height: 24, ml: 'auto', p: 0 }}
-                onClick={event => { event.stopPropagation(); closeView(session.id); }}
+                onClick={event => { event.stopPropagation(); void archiveSession(session.id); }}
                 onKeyDown={event => event.stopPropagation()}
                 onKeyUp={event => event.stopPropagation()}
               >×</IconButton>
