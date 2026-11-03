@@ -6,11 +6,13 @@ interface DevOriginEnvironment {
   CODEAI_WEB2_ALLOWED_DEV_ORIGINS?: string;
   CODEAI_PUBLIC_ORIGIN?: string;
   CODEAI_WEB2_PUBLIC_ORIGIN?: string;
+  CODEAI_ADDITIONAL_ORIGINS?: string;
+  CODEAI_WEB2_ADDITIONAL_ORIGINS?: string;
 }
 
 /**
  * Next's development guard matches source hostnames rather than full URL origins. Keep LAN access
- * opt-in, but reuse the already-explicit paired-device origin when one is configured.
+ * opt-in, but reuse the already-explicit paired-device origins when configured.
  */
 export function resolveAllowedDevOrigins(environment: DevOriginEnvironment): string[] | undefined {
   const configured = environment.CODEAI_ALLOWED_DEV_ORIGINS
@@ -22,10 +24,13 @@ export function resolveAllowedDevOrigins(environment: DevOriginEnvironment): str
     .filter(Boolean);
   const publicOrigin = environment.CODEAI_PUBLIC_ORIGIN
     || environment.CODEAI_WEB2_PUBLIC_ORIGIN;
+  const additionalOrigins = environment.CODEAI_ADDITIONAL_ORIGINS
+    || environment.CODEAI_WEB2_ADDITIONAL_ORIGINS || '';
 
-  if (publicOrigin) {
+  for (const origin of [publicOrigin, ...additionalOrigins.split(',')]) {
+    if (!origin) continue;
     try {
-      origins.push(new URL(publicOrigin).hostname.toLowerCase());
+      origins.push(new URL(origin.trim()).hostname.toLowerCase());
     } catch {
       // Paired-mode configuration owns validation. An invalid optional value must not make an
       // otherwise-local Next.js development or build command fail while loading this file.

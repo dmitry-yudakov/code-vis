@@ -24,6 +24,17 @@ describe('Next.js development origins', () => {
     expect(resolveAllowedDevOrigins({ CODEAI_PUBLIC_ORIGIN: 'not a URL' })).toBeUndefined();
   });
 
+  it('includes additional public hostnames and accepts the legacy name', () => {
+    expect(resolveAllowedDevOrigins({
+      CODEAI_PUBLIC_ORIGIN: 'https://192.168.100.10:3023',
+      CODEAI_WEB2_ADDITIONAL_ORIGINS: ' https://100.64.0.10:3023, https://CODEAI.test:3023 ',
+    })).toEqual(['192.168.100.10', '100.64.0.10', 'codeai.test']);
+    expect(resolveAllowedDevOrigins({
+      CODEAI_ADDITIONAL_ORIGINS: 'https://100.64.0.10:3023,invalid',
+      CODEAI_WEB2_ADDITIONAL_ORIGINS: 'https://legacy.test:3023',
+    })).toEqual(['100.64.0.10']);
+  });
+
   it('grants XR spatial tracking only to the same origin on every production response', async () => {
     const rules = await nextConfig.headers!();
     const policy = rules.flatMap((rule) => rule.headers)

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import next from 'next';
 import nextEnv from '@next/env';
+import { parsePublicOrigins } from '../src/server/devices/publicOrigins.mjs';
 
 const { loadEnvConfig } = nextEnv;
 
@@ -64,17 +65,9 @@ async function main() {
   if (setting('REMOTE_ACCESS') !== 'paired') {
     throw new Error('CODEAI_REMOTE_ACCESS=paired is required for start:remote');
   }
-  const publicOrigin = new URL(requireSetting('PUBLIC_ORIGIN'));
-  if (
-    publicOrigin.protocol !== 'https:'
-    || publicOrigin.username
-    || publicOrigin.password
-    || publicOrigin.pathname !== '/'
-    || publicOrigin.search
-    || publicOrigin.hash
-  ) {
-    throw new Error('CODEAI_PUBLIC_ORIGIN must be an exact HTTPS origin');
-  }
+  const publicOrigins = parsePublicOrigins(requireSetting('PUBLIC_ORIGIN'), setting('ADDITIONAL_ORIGINS'));
+  const publicOrigin = new URL(publicOrigins[0]);
+  const allowedHosts = new Set(publicOrigins.map((origin) => new URL(origin).host));
   const port = Number(setting('BIND_PORT') || publicOrigin.port || 443);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error('CODEAI_BIND_PORT must be a valid TCP port');
@@ -109,9 +102,9 @@ async function main() {
   const releaseId = init && (await readFile(path.join(process.cwd(), init.slot, 'BUILD_ID'), 'utf8')).trim();
 
   server = createServer({ cert, key }, (request, response) => {
-    if (request.headers.host !== publicOrigin.host) {
+    if (!allowedHosts.has(request.headers.host)) {
       response.writeHead(421, { 'Content-Type': 'text/plain; charset=utf-8' });
-      response.end('This host is not the configured CodeAI origin.');
+      response.end('This host is not a configured CodeAI origin.');
       return;
     }
     request.headers['x-codeai-internal-transport'] = transportMarker;
@@ -124,7 +117,7 @@ async function main() {
     process.exit(1);
   });
   server.listen(port, bindHost, () => {
-    process.stdout.write(`CodeAI personal-device server listening at ${publicOrigin.origin}\n`);
+    process.stdout.write(`CodeAI personal-device server listening at ${publicOrigins.join(', ')}\n`);
     // Readiness is this private message, sent only once Next is prepared and TLS is listening.
     if (init) globalThis.__codeaiManagedLifecycle.send({ type: 'lifecycle-ready', releaseId });
   });

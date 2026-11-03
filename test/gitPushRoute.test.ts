@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   remoteAccess: 'local' as 'local' | 'paired',
   publicOrigin: undefined as string | undefined,
+  publicOrigins: undefined as string[] | undefined,
   denied: undefined as Response | undefined,
   resolve: vi.fn(),
   push: vi.fn(),
 }));
 
 vi.mock('@/server/config', () => ({
-  getConfig: () => ({ remoteAccess: state.remoteAccess, publicOrigin: state.publicOrigin, repositoriesRoot: '/repositories', repositoryDiscoveryDepth: 1 }),
+  getConfig: () => ({ remoteAccess: state.remoteAccess, publicOrigin: state.publicOrigin, publicOrigins: state.publicOrigins, repositoriesRoot: '/repositories', repositoryDiscoveryDepth: 1 }),
 }));
 vi.mock('@/server/devices/deviceAuthorization', async (original) => ({
   ...await original<typeof import('@/server/devices/deviceAuthorization')>(),
@@ -23,9 +24,10 @@ vi.mock('@/server/repository/gitPush', () => ({ pushCurrentBranch: state.push })
 import { POST } from '@/app/api/repository/push/route';
 import { machineOperationAllowed } from '@/server/machines/machineRoutePolicy';
 
-const post = (body: unknown, origin: string | null = 'http://localhost:3023') => POST(new Request('http://localhost:3023/api/repository/push', {
+const post = (body: unknown, origin: string | null = 'http://localhost:3023',
+  host = state.publicOrigin ? new URL(state.publicOrigin).host : 'localhost:3023') => POST(new Request('http://localhost:3023/api/repository/push', {
   method: 'POST',
-  headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}), host: 'localhost:3023' },
+  headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}), host },
   body: typeof body === 'string' ? body : JSON.stringify(body),
 }));
 
@@ -33,6 +35,7 @@ beforeEach(() => {
   state.denied = undefined;
   state.remoteAccess = 'local';
   state.publicOrigin = undefined;
+  state.publicOrigins = undefined;
   state.resolve.mockReset().mockResolvedValue({ realPath: '/repositories/alpha' });
   state.push.mockReset().mockResolvedValue('origin/main');
 });
@@ -61,6 +64,18 @@ describe('POST /api/repository/push', () => {
     state.publicOrigin = 'https://codeai.test';
     expect((await post({ checkoutId: 'alpha-id', target: 'origin/main' })).status).toBe(403);
     expect((await post({ checkoutId: 'alpha-id', target: 'origin/main' }, 'https://codeai.test')).status).toBe(200);
+  });
+
+  it('allows the second address while rejecting requests between the allowed origins', async () => {
+    state.remoteAccess = 'paired';
+    state.publicOrigin = 'https://codeai.test';
+    state.publicOrigins = [state.publicOrigin, 'https://100.64.0.10'];
+    const body = { checkoutId: 'alpha-id', target: 'origin/main' };
+    expect((await post(body, 'https://100.64.0.10', '100.64.0.10')).status).toBe(200);
+    state.push.mockClear();
+    expect((await post(body, 'https://codeai.test', '100.64.0.10')).status).toBe(403);
+    expect((await post(body, 'https://100.64.0.10', 'codeai.test')).status).toBe(403);
+    expect(state.push).not.toHaveBeenCalled();
   });
 
   it('rejects an unauthorized device before doing anything', async () => {

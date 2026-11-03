@@ -32,30 +32,33 @@ function sameSecret(left: string | undefined, right: string | undefined): boolea
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
-function expectedHost(config: AppConfig): string | undefined {
-  return config.publicOrigin ? new URL(config.publicOrigin).host : undefined;
+function requestOrigin(request: Request, config: AppConfig): string | undefined {
+  const url = new URL(request.url);
+  // Next.js may normalize request.url to the primary hostname. Host retains the browser's target;
+  // forwarded headers are caller-controlled and must never select an authorized origin.
+  const host = request.headers.get('host') ?? url.host;
+  if (config.remoteAccess !== 'paired') return `${url.protocol}//${host}`;
+  const origins = config.publicOrigins ?? (config.publicOrigin ? [config.publicOrigin] : []);
+  return origins.find((origin) => new URL(origin).host === host);
 }
 
 export function requestHasSecureTransport(request: Request, config: AppConfig): boolean {
   if (config.remoteAccess !== 'paired') return true;
-  return new URL(request.url).host === expectedHost(config)
+  return Boolean(requestOrigin(request, config))
     && sameSecret(request.headers.get(TRANSPORT_HEADER) || undefined, internalTransportMarker());
 }
 
 export function requestHasExpectedMutationOrigin(request: Request, config: AppConfig): boolean {
   if (config.remoteAccess !== 'paired' || /^(GET|HEAD)$/i.test(request.method)) return true;
-  return request.headers.get('origin') === config.publicOrigin;
+  return requestHasExactOrigin(request, config);
 }
 
 /**
  * Docker mutations change what runs on this machine, so they demand the exact browser origin in
- * every access mode: the configured public origin, or else the one the browser addressed.
+ * every access mode. Being in the allowlist never grants access from one origin to another.
  */
 export function requestHasExactOrigin(request: Request, config: AppConfig): boolean {
-  const url = new URL(request.url);
-  // Next.js may normalize request.url to its internal hostname. Host retains the browser origin.
-  const origin = config.publicOrigin || `${url.protocol}//${request.headers.get('host') || url.host}`;
-  return request.headers.get('origin') === origin;
+  return request.headers.get('origin') === requestOrigin(request, config);
 }
 
 export async function deviceAuthStatus(request: Request): Promise<DeviceAuthStatus> {

@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-01. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-02. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -152,6 +152,11 @@ Updated 2026-11-01. When a story ships, change the line that names it; each stor
 - **Shipped:** [Story 121](stories/STORY-20261101-push-from-changes.md) — Push and Publish in Changes
   send the current branch with the user's credentials, guarded against a `.git/config` a worker could
   have written. Details and the checks that passed are in the story. The running app has not been restarted.
+- **Shipped:** [Story 122](stories/STORY-20261102-multiple-access-origins.md) — paired HTTPS accepts
+  explicit additional origins for LAN and Tailscale addresses on the same port, retaining pairing
+  and per-request same-origin checks. All 183 focused tests, TypeScript, an isolated production build,
+  a real TLS/Next.js check through two IPs and independent review pass. Real remote-device use remains
+  unverified; private settings and certificates are unchanged, and the running app has not been restarted.
 - **Shipped:** [Story 120](stories/STORY-20261031-mobile-pane-maximize.md) — phone modules
   fill the width above a bottom bar, with a compact header/composer; Conversation, Canvas and the
   side panel maximize and restore their saved arrangement on desktop and phones; docked, Maximize
@@ -470,8 +475,8 @@ importing file's own directory; keep `./…` for same-directory siblings.
   server-owned capability resolution, budgets, cancellation, and session persistence hold at both
   levels. No browser request may set the level. A Native writing turn can plant provider settings
   that later writing turns load. An explicitly isolated session cannot run Native Claude writing.
-- Remote personal-device access must use `start:remote`, an exact HTTPS origin, a certificate the
-  device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode. The
+- Remote personal-device access must use `start:remote`, explicitly configured exact HTTPS origins,
+  a certificate the device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode. The
   one exception is the README's development-only headset loop (`npm run devs`): it is
   unauthenticated by design and for a network where every device is trusted. Do not extend it.
 - Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is

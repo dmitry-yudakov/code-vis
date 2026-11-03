@@ -73,7 +73,7 @@ CODEAI_E2E_VISUAL=1 CODEAI_E2E_PORT=3124 CODEAI_DIST_DIR=.next-e2e npx playwrigh
 
 Normal development and production startup remain local and need no sign-in. To open the same
 machine-owned Arena from your own tablet, phone, laptop, or headset, opt into paired HTTPS access.
-CodeAI terminates TLS itself in this mode; the certificate must name the configured host and must
+CodeAI terminates TLS itself in this mode; the certificate must name every configured host and must
 already be trusted by every device. Certificate creation and trust distribution are deliberately
 operator-owned—do not commit the private key (`.cert/` is ignored).
 
@@ -85,7 +85,7 @@ CODEAI_ALLOWED_DEV_ORIGINS=192.168.100.10 npm run dev
 ```
 
 The value is a comma-separated list of hostnames or IP addresses, without schemes, ports, brackets,
-or quotes. When `CODEAI_PUBLIC_ORIGIN` is already configured, its hostname is allowed automatically.
+or quotes. Hostnames in `CODEAI_PUBLIC_ORIGIN` and `CODEAI_ADDITIONAL_ORIGINS` are allowed automatically.
 This setting only satisfies Next.js's development asset/HMR origin guard; it does not add pairing,
 HTTPS, or a WebXR secure context. Use the paired `start:remote` path below for normal
 personal-device access, or [Develop against a headset](#develop-against-a-headset) for a
@@ -126,9 +126,37 @@ CODEAI_BIND_PORT=3023
 # CODEAI_BIND_HOST=0.0.0.0 is the default for the dedicated remote server
 ```
 
-The public origin must be one exact `https://` origin with no path. Its port and
+The primary public origin must be one exact `https://` origin with no path. Its port and
 `CODEAI_BIND_PORT` must describe the same listener (when the origin omits a port, the default is
-443). Then build and start the dedicated server:
+443). To use both a LAN address and a Tailscale address, keep the primary URL and add the other
+address to `CODEAI_ADDITIONAL_ORIGINS` (replace the example IPs with yours):
+
+```sh
+CODEAI_PUBLIC_ORIGIN=https://192.168.100.10:3023
+CODEAI_ADDITIONAL_ORIGINS=https://100.64.0.10:3023
+```
+
+Additional origins are comma-separated exact HTTPS URLs with no paths, credentials, queries,
+fragments or wildcards. All must use the primary origin's port. The server accepts only these
+addresses, and a browser mutation must originate from the exact address it targets; allowing two
+addresses does not allow cross-origin actions between them.
+
+Create a certificate covering **both** IPs and every other name you use, for example:
+
+```sh
+mkcert \
+  -cert-file .cert/codeai-cert.pem \
+  -key-file .cert/codeai-key.pem \
+  192.168.100.10 100.64.0.10 localhost 127.0.0.1 ::1
+```
+
+The remote device must trust the issuing CA as described above. Restart the server after changing
+these settings or replacing its certificate. You must pair separately at each hostname/IP;
+browser cookies, drafts, and view preferences are stored separately for each origin, while the
+server's conversations and repositories are shared. Tailscale must already provide connectivity;
+these settings do not configure routes or open firewall ports.
+
+Then build and start the dedicated server:
 
 ```sh
 npm run build
@@ -1387,7 +1415,7 @@ See [.env.example](.env.example). The most useful options are:
   the end-to-end server, which names a fixture. `start:managed` ignores it and uses its own checkout;
 - `CODEAI_HOST_LABEL` — label persisted when a fresh host store is first created;
 - `CODEAI_REMOTE_ACCESS` / `CODEAI_PUBLIC_ORIGIN` — opt into paired personal-device access at one
-  exact HTTPS origin;
+  exact primary HTTPS origin, with optional comma-separated `CODEAI_ADDITIONAL_ORIGINS` on the same port;
 - `CODEAI_ALLOWED_DEV_ORIGINS` — opt specific LAN hostnames or IP addresses into Next.js's
   development-only asset/HMR origin guard;
 - `CODEAI_TLS_CERT` / `CODEAI_TLS_KEY` and optional `CODEAI_BIND_*` — dedicated `start:remote`

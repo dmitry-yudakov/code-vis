@@ -3,12 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const routeState = vi.hoisted(() => ({ dataDir: '' }));
+const routeState = vi.hoisted(() => ({ dataDir: '', additionalOrigins: [] as string[] }));
 
 vi.mock('@/server/config', () => ({
   getConfig: () => ({
     remoteAccess: 'paired',
     publicOrigin: 'https://codeai.test',
+    publicOrigins: ['https://codeai.test', ...routeState.additionalOrigins],
     dataDir: routeState.dataDir,
     hostLabel: 'Home desktop',
     repositoriesRoot: '/repositories',
@@ -32,12 +33,12 @@ import { DeviceAuthStore } from '@/server/devices/deviceAuthStore';
 
 const MARKER = 'test-tls-marker';
 
-function request(pathname: string, init: RequestInit = {}, credential?: string): Request {
+function request(pathname: string, init: RequestInit = {}, credential?: string, origin = 'https://codeai.test'): Request {
   const headers = new Headers(init.headers);
   headers.set('x-codeai-internal-transport', MARKER);
-  if (init.method && !/^(GET|HEAD)$/i.test(init.method)) headers.set('Origin', 'https://codeai.test');
+  if (init.method && !/^(GET|HEAD)$/i.test(init.method)) headers.set('Origin', origin);
   if (credential) headers.set('Cookie', `__Host-codeai-device=${credential}`);
-  return new Request(`https://codeai.test${pathname}`, { ...init, headers });
+  return new Request(`${origin}${pathname}`, { ...init, headers });
 }
 
 function credentialFrom(response: Response): string {
@@ -49,19 +50,20 @@ function credentialFrom(response: Response): string {
   return cookie.match(/__Host-codeai-device=([^;]+)/)![1];
 }
 
-async function pair(label = 'Test tablet'): Promise<{ credential: string; code: string }> {
+async function pair(label = 'Test tablet', origin = 'https://codeai.test'): Promise<{ credential: string; code: string }> {
   const challenge = await new DeviceAuthStore(routeState.dataDir).issuePairingCode();
   const response = await POST_PAIR(request('/api/auth/pair', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label, code: challenge.code }),
-  }));
+  }, undefined, origin));
   expect(response.status).toBe(201);
   return { credential: credentialFrom(response), code: challenge.code };
 }
 
 describe.sequential('paired device route boundary', () => {
   beforeEach(async () => {
+    routeState.additionalOrigins = [];
     routeState.dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-device-routes-'));
     (globalThis as typeof globalThis & { __codeaiInternalTlsMarker?: string })
       .__codeaiInternalTlsMarker = MARKER;
@@ -147,5 +149,73 @@ describe.sequential('paired device route boundary', () => {
     expect((await signedOut.json()).signedOut).toBe(true);
     expect(signedOut.headers.get('set-cookie')).toContain('Max-Age=0');
     expect((await GET_RUNS(request('/api/agent/runs', {}, first.credential))).status).toBe(401);
+  });
+
+  it.each(['https://codeai.test', 'https://100.64.0.10'])('pairs, reads, mutates and signs out through %s', async (origin) => {
+    routeState.additionalOrigins = ['https://100.64.0.10'];
+    const { credential } = await pair('Remote laptop', origin);
+    const status = await (await GET_STATUS(request('/api/auth/status', {}, credential, origin))).json();
+    expect(status).toMatchObject({ authenticated: true, transportSecure: true });
+    expect((await GET_RUNS(request('/api/agent/runs', {}, credential, origin))).status).toBe(200);
+    // This reaches Docker's body validation only after its stricter exact-origin guard passes.
+    expect((await PATCH_DOCKER(request('/api/execution/docker', { method: 'PATCH' }, credential, origin))).status).toBe(400);
+    const signedOut = await DELETE_DEVICE(request('/api/auth/devices', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: status.device.id }),
+    }, credential, origin));
+    expect(signedOut.status).toBe(200);
+    expect((await GET_RUNS(request('/api/agent/runs', {}, credential, origin))).status).toBe(401);
+  });
+
+  it('authorizes the actual Host when Next.js normalizes the URL to the primary hostname', async () => {
+    routeState.additionalOrigins = ['https://100.64.0.10'];
+    const { credential } = await pair();
+    const normalized = request('/api/execution/docker', { method: 'PATCH' }, credential);
+    normalized.headers.set('Host', '100.64.0.10');
+    normalized.headers.set('Origin', 'https://100.64.0.10');
+    expect((await PATCH_DOCKER(normalized)).status).toBe(400);
+    normalized.headers.set('Origin', 'https://codeai.test');
+    expect((await PATCH_DOCKER(normalized)).status).toBe(403);
+    normalized.headers.set('Host', 'attacker.test');
+    expect((await PATCH_DOCKER(normalized)).status).toBe(426);
+  });
+
+  it.each([null, 'https://attacker.test', 'https://codeai.test'])('rejects secondary-address pairing with Origin %s without consuming the code', async (origin) => {
+    routeState.additionalOrigins = ['https://100.64.0.10'];
+    const challenge = await new DeviceAuthStore(routeState.dataDir).issuePairingCode();
+    const pairing = request('/api/auth/pair', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: 'Remote laptop', code: challenge.code }),
+    }, undefined, 'https://100.64.0.10');
+    if (origin) pairing.headers.set('Origin', origin);
+    else pairing.headers.delete('Origin');
+    expect((await POST_PAIR(pairing)).status).toBe(403);
+    pairing.headers.set('Origin', 'https://100.64.0.10');
+    expect((await POST_PAIR(pairing)).status).toBe(201);
+  });
+
+  it('still requires pairing and the private TLS marker on an additional address', async () => {
+    routeState.additionalOrigins = ['https://100.64.0.10'];
+    const unpaired = request('/api/agent/runs', {}, undefined, 'https://100.64.0.10');
+    expect((await GET_RUNS(unpaired)).status).toBe(401);
+    const { credential } = await pair();
+    const forged = request('/api/agent/runs', {}, credential, 'https://100.64.0.10');
+    forged.headers.set('x-codeai-internal-transport', 'forged');
+    expect((await GET_RUNS(forged)).status).toBe(426);
+    forged.headers.delete('x-codeai-internal-transport');
+    expect((await GET_RUNS(forged)).status).toBe(426);
+  });
+
+  it('does not let forwarded headers select a different allowed origin', async () => {
+    routeState.additionalOrigins = ['https://100.64.0.10'];
+    const { credential } = await pair();
+    const forwarded = request('/api/execution/docker', { method: 'PATCH' }, credential);
+    forwarded.headers.set('Host', 'codeai.test');
+    forwarded.headers.set('X-Forwarded-Host', '100.64.0.10');
+    forwarded.headers.set('X-Forwarded-Proto', 'https');
+    forwarded.headers.set('Forwarded', 'host=100.64.0.10;proto=https');
+    expect((await PATCH_DOCKER(forwarded)).status).toBe(400);
+    forwarded.headers.set('Origin', 'https://100.64.0.10');
+    expect((await PATCH_DOCKER(forwarded)).status).toBe(403);
   });
 });

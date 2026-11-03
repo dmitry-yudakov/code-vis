@@ -19,6 +19,7 @@ const MANAGED = [
   'CODEAI_BUILD_TIMEOUT_MS', 'CODEAI_WEB2_BUILD_TIMEOUT_MS',
   'CODEAI_REMOTE_ACCESS', 'CODEAI_WEB2_REMOTE_ACCESS',
   'CODEAI_PUBLIC_ORIGIN', 'CODEAI_WEB2_PUBLIC_ORIGIN',
+  'CODEAI_ADDITIONAL_ORIGINS', 'CODEAI_WEB2_ADDITIONAL_ORIGINS',
 ] as const;
 
 const original = new Map(MANAGED.map((name) => [name, process.env[name]]));
@@ -172,7 +173,48 @@ describe.sequential('config', () => {
     process.env.CODEAI_PUBLIC_ORIGIN = 'https://codeai.test:3023';
     expect(getConfig()).toMatchObject({
       remoteAccess: 'paired', publicOrigin: 'https://codeai.test:3023',
+      publicOrigins: ['https://codeai.test:3023'],
     });
+  });
+
+  it('normalizes and deduplicates additional paired origins while retaining the primary URL', () => {
+    process.env.CODEAI_REMOTE_ACCESS = 'paired';
+    process.env.CODEAI_PUBLIC_ORIGIN = 'https://192.168.100.10:3023';
+    process.env.CODEAI_ADDITIONAL_ORIGINS =
+      ' https://100.64.0.10:3023/, https://CODEAI.test:3023, https://192.168.100.10:3023 ';
+    expect(getConfig()).toMatchObject({
+      publicOrigin: 'https://192.168.100.10:3023',
+      publicOrigins: ['https://192.168.100.10:3023', 'https://100.64.0.10:3023', 'https://codeai.test:3023'],
+    });
+  });
+
+  it('accepts legacy additional origins and prefers the neutral name', () => {
+    process.env.CODEAI_REMOTE_ACCESS = 'paired';
+    process.env.CODEAI_PUBLIC_ORIGIN = 'https://codeai.test';
+    delete process.env.CODEAI_ADDITIONAL_ORIGINS;
+    process.env.CODEAI_WEB2_ADDITIONAL_ORIGINS = 'https://legacy.test:443';
+    expect(getConfig().publicOrigins).toEqual(['https://codeai.test', 'https://legacy.test']);
+    process.env.CODEAI_ADDITIONAL_ORIGINS = 'https://neutral.test';
+    expect(getConfig().publicOrigins).toEqual(['https://codeai.test', 'https://neutral.test']);
+  });
+
+  it.each([
+    'not a URL', 'http://100.64.0.10:3023', 'https://*.test:3023',
+    'https://user:secret@codeai.test:3023', 'https://codeai.test:3023/path',
+    'https://codeai.test:3023?query=yes', 'https://codeai.test:3023#fragment',
+    'https://codeai.test:3024', 'https://100.64.0.10:3023,', ',https://100.64.0.10:3023',
+  ])('rejects an invalid additional paired origin %s', (value) => {
+    process.env.CODEAI_REMOTE_ACCESS = 'paired';
+    process.env.CODEAI_PUBLIC_ORIGIN = 'https://192.168.100.10:3023';
+    process.env.CODEAI_ADDITIONAL_ORIGINS = value;
+    expect(() => getConfig()).toThrow('CODEAI_ADDITIONAL_ORIGINS');
+  });
+
+  it('does not enable paired access through additional origins in local mode', () => {
+    process.env.CODEAI_REMOTE_ACCESS = 'local';
+    process.env.CODEAI_ADDITIONAL_ORIGINS = 'invalid';
+    expect(getConfig()).toMatchObject({ remoteAccess: 'local' });
+    expect(getConfig().publicOrigins).toBeUndefined();
   });
 
   describe('web2 compatibility', () => {

@@ -3,12 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const routeState = vi.hoisted(() => ({ dataDir: '' }));
+const routeState = vi.hoisted(() => ({ dataDir: '', additionalOrigins: [] as string[] }));
 
 vi.mock('@/server/config', () => ({
   getConfig: () => ({
     remoteAccess: 'paired',
     publicOrigin: 'https://executor.test',
+    publicOrigins: ['https://executor.test', ...routeState.additionalOrigins],
     dataDir: routeState.dataDir,
     hostLabel: 'Executor laptop',
     repositoriesRoot: '/repositories',
@@ -27,15 +28,16 @@ import { getSessionStore } from '@/server/storage/sessionStore';
 const MARKER = 'machine-route-marker';
 const HOME = { id: '11111111-1111-4111-8111-111111111111', label: 'Home desktop' };
 
-function secure(pathname: string, init: RequestInit = {}, credential?: string): Request {
+function secure(pathname: string, init: RequestInit = {}, credential?: string, origin = 'https://executor.test'): Request {
   const headers = new Headers(init.headers);
   headers.set('x-codeai-internal-transport', MARKER);
   if (credential) headers.set('Authorization', `Bearer ${credential}`);
-  return new Request(`https://executor.test${pathname}`, { ...init, headers });
+  return new Request(`${origin}${pathname}`, { ...init, headers });
 }
 
 describe.sequential('execution machine route authorization', () => {
   beforeEach(async () => {
+    routeState.additionalOrigins = [];
     routeState.dataDir = await mkdtemp(path.join(os.tmpdir(), 'codeai-machine-routes-'));
     (globalThis as typeof globalThis & { __codeaiInternalTlsMarker?: string }).__codeaiInternalTlsMarker = MARKER;
   });
@@ -82,5 +84,21 @@ describe.sequential('execution machine route authorization', () => {
       body: JSON.stringify({ code: challenge.code, machine: local }),
     }));
     expect(response.status).toBe(409);
+  });
+
+  it('pairs and authorizes a machine through an additional address without browser Origin', async () => {
+    const origin = 'https://100.64.0.10';
+    routeState.additionalOrigins = [origin];
+    const challenge = await new MachineAuthStore(routeState.dataDir).issuePairingCode();
+    const paired = await PAIR_MACHINE(secure('/api/machine/pair', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: challenge.code, machine: HOME }),
+    }, undefined, origin));
+    expect(paired.status).toBe(201);
+    const { credential } = await paired.json();
+    expect((await GET_RUNS(secure('/api/agent/runs', {}, credential, origin))).status).toBe(200);
+    expect((await GET_ARENA(secure('/api/arena', {}, credential, origin))).status).toBe(401);
+    expect((await DETACH_MACHINE(secure('/api/machine/attachment', { method: 'DELETE' }, credential, origin))).status).toBe(200);
+    expect((await GET_RUNS(secure('/api/agent/runs', {}, credential, origin))).status).toBe(401);
   });
 });

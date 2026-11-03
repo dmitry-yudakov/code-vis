@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { savedDockerEnabled } from '@/server/execution/dockerSettings';
 import { managedBridge } from '@/server/lifecycle/managedBridge';
+import { parsePublicOrigins } from '@/server/devices/publicOrigins.mjs';
 import type { SecurityLevel } from '@/shared/types';
 import {
   DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES, MAX_WIRE_TRANSCRIPT_MESSAGES,
@@ -11,6 +12,8 @@ export interface AppConfig {
   securityLevel: SecurityLevel;
   remoteAccess: 'local' | 'paired';
   publicOrigin?: string;
+  /** Primary origin followed by explicitly allowed aliases, all on the same HTTPS listener. */
+  publicOrigins?: string[];
   repositoriesRoot: string;
   worktreesRoot: string;
   repositoryDiscoveryDepth: number;
@@ -136,7 +139,7 @@ function dockerEnabled(dataDir: string): boolean {
   return savedDockerEnabled(dataDir) ?? /^(1|true|yes)$/i.test(value);
 }
 
-function remoteAccess(): Pick<AppConfig, 'remoteAccess' | 'publicOrigin'> {
+function remoteAccess(): Pick<AppConfig, 'remoteAccess' | 'publicOrigin' | 'publicOrigins'> {
   const mode = rawSetting('REMOTE_ACCESS') || 'local';
   if (mode !== 'local' && mode !== 'paired') {
     throw new Error('CODEAI_REMOTE_ACCESS must be either local or paired');
@@ -146,23 +149,8 @@ function remoteAccess(): Pick<AppConfig, 'remoteAccess' | 'publicOrigin'> {
   if (!rawOrigin) {
     throw new Error('CODEAI_PUBLIC_ORIGIN is required when CODEAI_REMOTE_ACCESS=paired');
   }
-  let origin: URL;
-  try {
-    origin = new URL(rawOrigin);
-  } catch {
-    throw new Error('CODEAI_PUBLIC_ORIGIN must be an exact HTTPS origin');
-  }
-  if (
-    origin.protocol !== 'https:'
-    || origin.username
-    || origin.password
-    || origin.pathname !== '/'
-    || origin.search
-    || origin.hash
-  ) {
-    throw new Error('CODEAI_PUBLIC_ORIGIN must be an exact HTTPS origin');
-  }
-  return { remoteAccess: mode, publicOrigin: origin.origin };
+  const publicOrigins = parsePublicOrigins(rawOrigin, rawSetting('ADDITIONAL_ORIGINS'));
+  return { remoteAccess: mode, publicOrigin: publicOrigins[0], publicOrigins };
 }
 
 function expandHome(value: string): string {
