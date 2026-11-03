@@ -1,5 +1,5 @@
 import type {
-  CanvasTarget, SessionSnapshot, DiagramArtifact, PublicSession, SketchCanvas,
+  ArenaMachineSnapshot, CanvasTarget, SessionSnapshot, DiagramArtifact, PublicSession, SketchCanvas,
 } from '@/shared/types';
 import { boundSessionActivity, type TurnRecord } from '@/shared/turnActivity';
 
@@ -62,6 +62,10 @@ export function hydrateSession(
   device?: Partial<SessionHydrationState>,
 ): SessionSnapshot {
   const base = structuredClone(snapshot) as SessionSnapshot;
+  if (prior?.titleRevision && prior.titleRevision > snapshot.revision) {
+    base.title = prior.title;
+    base.titleRevision = prior.titleRevision;
+  }
   if (prior) {
     base.messages = base.messages.map(message => {
       if (message.role !== 'user') return message;
@@ -105,10 +109,25 @@ export function hydrateSession(
   };
 }
 
+/** Merge metadata without claiming the rest of a newer full session has been fetched. */
+export function reconcileSessionTitles(sessions: SessionSnapshot[], machines: ArenaMachineSnapshot[], localMachineId?: string): SessionSnapshot[] {
+  let changed = false;
+  const next = sessions.map(session => {
+    const owner = machines.find(machine => machine.machine.id === (session.machineId ?? localMachineId));
+    if (owner?.machine.state !== 'online' || owner.snapshotFresh === false) return session;
+    const summary = owner.sessions.find(item => item.id === session.id);
+    if (!summary || summary.revision <= Math.max(session.revision, session.titleRevision ?? 0) || summary.title === session.title) return session;
+    changed = true;
+    return { ...session, title: summary.title, titleRevision: summary.revision };
+  });
+  return changed ? next : sessions;
+}
+
 export function serializeSessionExport(session: SessionSnapshot, exportedAt = new Date().toISOString()) {
   const participantById = new Map(session.participants.map((participant) => [participant.id, participant]));
   const {
     machineId: _machineId,
+    titleRevision: _titleRevision,
     addressedAgentId: _addressedAgentId,
     activeDiagramId: _activeDiagramId,
     previousDiagramId: _previousDiagramId,

@@ -424,6 +424,17 @@ stored copy and no route that serves one.
 8. Commit the assistant message, user delivery state, and participant cursor in one revision before
    emitting the durable assistant event. Remove the run directory, always.
 
+After the first successful reply, `conversationTitle.ts` makes one best-effort background title
+request through the same provider/execution login, using bounded opening-prompt/reply excerpts.
+It uses a fresh provider session, private scratch directory and restricted title invocation; Docker
+mounts no checkout and uses separate `title-lease`/`title-worker` resources, which orphan cleanup
+removes without attributing interrupted conversation delivery. At most two title jobs run per process,
+with no queue or retries. The 30-second deadline and 1 KiB result bound are independent of foreground
+run ownership; provider/Docker teardown can outlast the deadline. Failure retains the placeholder.
+The conditional serialized title mutation preserves messages, provider cursors and `updatedAt`.
+Arena summaries reconcile title metadata only; the next revisioned edit fetches a complete snapshot
+first if the observed title revision is newer. The disposable title watermark is never exported.
+
 A request beginning with `/model` on its own line also opts into a bounded `codeai-model` JSON
 emission. `src/shared/softwareModel.ts` owns the vocabulary and source-based ids;
 `src/server/model/agentEmission.ts` validates the entire suggestion and assigns LLM provenance.

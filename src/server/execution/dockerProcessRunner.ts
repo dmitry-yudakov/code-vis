@@ -32,7 +32,9 @@ export class DockerProcessRunner implements AgentProcessRunner {
       if (input.signal.aborted) throw new AgentRunError('cancelled', 'The request was cancelled.', 'not-sent');
       const context = await realpath(input.attachmentDirectory);
       const worker = await runtime.createWorker({ ...this.identity, provider: this.provider, runId: input.runId }, {
-        checkout: input.checkout.realPath, context, mode: input.policy.mode, customizations: input.userCustomizations,
+        ...(input.titleOnly ? { context, mode: 'ask', leaseId: input.runId } : {
+          checkout: input.checkout.realPath, context, mode: input.policy.mode, customizations: input.userCustomizations,
+        }),
       });
       stop = worker.stop;
       try { await worker.authenticate(); }
@@ -40,7 +42,7 @@ export class DockerProcessRunner implements AgentProcessRunner {
       if (input.signal.aborted) throw new AgentRunError('cancelled', 'The request was cancelled.', 'not-sent');
       const translated = {
         ...input,
-        checkout: { ...input.checkout, realPath: '/workspace' }, attachmentDirectory: '/context',
+        checkout: { ...input.checkout, realPath: input.titleOnly ? '/context' : '/workspace' }, attachmentDirectory: '/context',
         prompt: input.prompt.replaceAll(input.attachmentDirectory, '/context').replaceAll(input.checkout.realPath, '/workspace'),
       };
       const common = {
@@ -52,7 +54,7 @@ export class DockerProcessRunner implements AgentProcessRunner {
         : new CodexProcessRunner({ ...common, binary: '/usr/local/bin/codex', model: this.config.codexModel,
           // The same files local Codex receives: canvas composites (PNG), report screenshots (JPEG), and a
           // message's images (PNG or JPEG), each validated and bounded when written.
-          imagePaths: (await readdir(context)).filter((name) => /\.(png|jpg)$/.test(name)).map((name) => `/context/${name}`) });
+          imagePaths: input.titleOnly ? [] : (await readdir(context)).filter((name) => /\.(png|jpg)$/.test(name)).map((name) => `/context/${name}`) });
       return await runner.run(translated);
     } catch (error) {
       if (error instanceof DockerTerminationError) await finishStopping(error.stop);

@@ -680,6 +680,12 @@ and device drafts are preserved.
 Delete closes the selected tab while keeping its session in All sessions. Closing the last tab
 shows **No open sessions**, including after reload. **+ New** starts a session.
 
+New conversations show the beginning of the first prompt as a temporary title. After the first
+complete reply, a separate background request uses the same provider and login to generate a short
+title from bounded prompt/reply excerpts. It prefers a small model when available. Conversation
+continues while it runs; a failed title request keeps the temporary title. Existing conversations
+that already have a reply are not retitled.
+
 **Arena** in the activity bar opens an overview of active sessions, grouped first by execution
 machine and then by project. The security notice can be dismissed; this device remembers the
 choice for this machine and security level. **More → Machine settings** keeps security details,

@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+vi.mock('@/server/conversation/conversationTitle', () => ({ generateConversationTitle: vi.fn(async () => undefined) }));
+
 const fixture = vi.hoisted(() => ({ outcome: 'complete', invoked: 0, beforeProvider: '' }));
 vi.mock('@/server/agents/providerRegistry', () => ({
   getProviderAdapters: () => ({ claude: {

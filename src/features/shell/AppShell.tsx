@@ -38,7 +38,7 @@ import { compositePng } from '@/features/diagram/annotations/compositeExport';
 import { createUuid } from '@/shared/uuid';
 import {
   canvasTargetId, exportSession, findCanvasTarget, getArtifacts, getSketches, hydrateSession,
-  loadSelectedCheckoutId, saveSelectedCheckoutId, mergeTurnActivity,
+  loadSelectedCheckoutId, saveSelectedCheckoutId, mergeTurnActivity, reconcileSessionTitles,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
@@ -498,8 +498,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     const prior = mutationQueues.current.get(targetSessionId) || Promise.resolve();
     let result!: Promise<SessionSnapshot>;
     const queued = prior.then(async () => {
-      const current = sessionsRef.current.find((item) => item.id === targetSessionId) || capturedSession;
+      let current = sessionsRef.current.find((item) => item.id === targetSessionId) || capturedSession;
       if (!current) throw new Error('Session is no longer available.');
+      if ((current.titleRevision ?? 0) > current.revision) {
+        current = await refreshSession(targetSessionId);
+        if (!current || (current.titleRevision ?? 0) > current.revision) throw new Error('Could not refresh the session. Try again.');
+      }
       const response = await operation(current);
       const data = await response.json().catch(() => ({})) as { session?: PublicSession; error?: string };
       if (!response.ok || !data.session) {
@@ -669,6 +673,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
     }
   }, [arena.machines, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject, workspace.ready]);
+
+  useEffect(() => {
+    const current = sessionsRef.current;
+    const next = reconcileSessionTitles(current, arena.machines, localMachineId);
+    if (next !== current) {
+      sessionsRef.current = next;
+      setSessions(next);
+    }
+  }, [arena.machines, localMachineId]);
 
   useEffect(() => {
     snapshotRef.current = undefined;

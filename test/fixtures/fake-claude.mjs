@@ -69,7 +69,15 @@ const record = (extra) => {
 };
 record();
 
-if (prompt.includes('[history-burst-ui]')) {
+if (args.includes('--no-session-persistence')) {
+  if (prompt.includes('[title-pending]')) await new Promise(resolve => setTimeout(resolve, 5000));
+  if (prompt.includes('[title-failure]')) process.exit(1);
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  const title = 'Improve conversation titles';
+  emit({ type: 'assistant', message: { id: 'title', stop_reason: 'end_turn', content: [{ type: 'text', text: title }] } });
+  emit({ type: 'result', subtype: 'success', result: title, session_id: sessionId });
+}
+else if (prompt.includes('[history-burst-ui]')) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
   // The reported turn accumulated tool output. Keep those details collapsed in the browser so
   // this exercises transport without making giant unbroken paragraphs dominate text layout.
@@ -364,7 +372,7 @@ else {
     ? marker ? `Your global instructions say: ${marker}.` : 'I have no global instructions.'
     : asked('Spatial fixture')
     ? `Eight spatial fixture panels; panel four is deliberately non-ready.\n\n${spatialFixture}`
-    : asked('Draw a simple architecture')
+    : asked('Draw a simple architecture') || asked('Draw a simple architecture [title-pending]')
     ? 'Here is one architecture map.\n\n```mermaid\nflowchart LR\n  UI["`.claude/settings.local.json`<br/>M · +3 / −0"] --> API[Agent API]\n  API --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'
     : asked('Revise it with a context step')
       ? 'I used the attached diagram and marks as context.\n\n```mermaid\nflowchart LR\n  UI[Canvas UI] --> API[Agent API]\n  API --> Context[Bounded context]\n  Context --> Agent[Read-only agent]\n  Agent --> Repo[(Repository)]\n```'

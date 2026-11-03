@@ -47,6 +47,18 @@ async function fixture() {
 describe('Docker protocol transport lifecycle', () => {
   afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
+  it('uses a separate title lease with the same login, no repository mount or customizations', async () => {
+    const { runner, input } = await fixture();
+    await runner.run({ ...input, titleOnly: true, session: { action: 'start' } });
+    const [identity, options] = mocks.create.mock.lastCall!;
+    expect(identity).toMatchObject({ sessionId: 'session', participantId: 'participant' });
+    expect(options).toEqual({ mode: 'ask', context: input.attachmentDirectory, leaseId: input.runId });
+    const translated = mocks.run.mock.lastCall![0] as AgentProcessRun;
+    expect(translated.checkout.realPath).toBe('/context');
+    expect(translated.titleOnly).toBe(true);
+    expect(mocks.options.mock.lastCall![0].imagePaths).toEqual([]);
+  });
+
   it.each(['claude', 'codex'] as const)('forwards normalized chronology, review metadata and final identities unchanged for %s', async provider => {
     const { input } = await fixture();
     const events: AgentProcessEvent[] = [

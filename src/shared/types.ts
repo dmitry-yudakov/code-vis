@@ -548,6 +548,8 @@ export interface ArenaSessionSummary {
  * as session content and can be reconstructed after a refetch.
  */
 export interface SessionSnapshot extends PublicSession {
+  /** A title-only Arena update may be newer than this full snapshot's revision. Device memory only. */
+  titleRevision?: number;
   /** Executor selected by this browser view; never persisted in the canonical session. */
   machineId?: string;
   /** Recipient selected for the next turn. Falls back to `primaryAgentId`. */
@@ -762,6 +764,8 @@ export interface GlobalInstructions {
 }
 
 export interface AgentProcessRun {
+  /** Server-owned background metadata request; never resumed or exposed as conversation activity. */
+  titleOnly?: boolean;
   runId: string;
   checkout: ServerCheckout;
   session: { id?: string; action: 'start' | 'resume' };

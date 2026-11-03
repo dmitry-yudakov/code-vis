@@ -18,6 +18,7 @@ import type { AgentMode, AgentProcessEvent } from '@/shared/types';
 const binary = path.resolve('test/fixtures/fake-codex.mjs');
 
 interface RunOptions {
+  titleOnly?: boolean;
   action?: 'start' | 'resume';
   sessionId?: string;
   mode?: AgentMode;
@@ -59,6 +60,7 @@ describe.sequential('CodexProcessRunner', () => {
       ...(options.execution === 'docker' ? { transport: { spawn: (executable: string, args: string[]) => spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'] }) } } : {}),
     });
     const result = await runner.run({
+      titleOnly: options.titleOnly,
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id: options.sessionId, action: options.action || 'start' },
@@ -74,6 +76,19 @@ describe.sequential('CodexProcessRunner', () => {
     const invocation = JSON.parse(await readFile(recordPath, 'utf8'));
     return { result, events, invocation, recordPath };
   }
+
+  it('restricts a fresh ephemeral title request without repository tools or inherited instructions', async () => {
+    const { invocation } = await run({ titleOnly: true });
+    const start = invocation.requests.find((request: RecordedRequest) => request.method === 'thread/start').params;
+    expect(start).toMatchObject({ ephemeral: true, config: { project_doc_max_bytes: 0,
+      features: { shell_tool: false, multi_agent: false, code_mode_host: false, memories: false } } });
+    expect(start.baseInstructions).toContain('title');
+    expect(start.developerInstructions).not.toContain('built-in repository');
+    const turn = invocation.requests.find((request: RecordedRequest) => request.method === 'turn/start').params;
+    expect(turn.input).toHaveLength(1);
+    expect(turn.sandboxPolicy).toEqual({ type: 'readOnly', networkAccess: false });
+    expect(invocation.args).toContain('shell_tool');
+  });
 
   it('projects completed, failed, unknown and completion-first tools with stable provider identities', async () => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'chronological';

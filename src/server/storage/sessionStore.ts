@@ -111,6 +111,8 @@ interface MutationResult<T> {
   changed: boolean;
   /** Display history has its own turn sequence and cannot invalidate a canonical edit. */
   preserveRevision?: true;
+  /** Metadata such as an automatic title is not conversation activity. */
+  preserveUpdatedAt?: true;
 }
 
 /** Reads only the stable machine identity without acquiring the store's exclusive writer lock. */
@@ -820,6 +822,15 @@ export class SessionStore {
     });
   }
 
+  async saveGeneratedTitle(id: string, expectedTitle: string, firstReplyId: string, title: string): Promise<boolean> {
+    return this.mutate(id, session => {
+      if (session.title !== expectedTitle || session.messages.find(message => message.role === 'assistant')?.id !== firstReplyId
+        || !title.trim() || title.length > 72 || session.title === title) return { result: false, changed: false };
+      session.title = title;
+      return { result: true, changed: true, preserveUpdatedAt: true };
+    });
+  }
+
   async addAgent(
     id: string,
     provider: AgentProvider,
@@ -1141,7 +1152,7 @@ export class SessionStore {
       const outcome = await operation(session);
       if (outcome.changed) {
         if (!outcome.preserveRevision) session.revision += 1;
-        session.updatedAt = this.now().toISOString();
+        if (!outcome.preserveUpdatedAt) session.updatedAt = this.now().toISOString();
         await this.writeSession(session);
       }
       return structuredClone(outcome.result);

@@ -2,6 +2,7 @@ import type { AgentExecution, AgentMode, ModelChoices, ProviderModel, ResolvedAg
 import { changesCheckout } from '@/shared/agentModes';
 
 export function buildClaudeArgs(input: {
+  titleOnly?: boolean;
   session: { id: string; action: 'start' | 'resume' };
   attachmentDirectory: string;
   policy: ResolvedAgentPolicy;
@@ -10,6 +11,15 @@ export function buildClaudeArgs(input: {
   /** The user's framed text for Guarded turns; Native loads its own file. */
   appendSystemPrompt?: string;
 }): string[] {
+  if (input.titleOnly) return [
+    '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    '--safe-mode', '--tools', '', '--strict-mcp-config', '--disable-slash-commands',
+    '--setting-sources', '', '--permission-mode', 'default', '--max-turns', '1',
+    '--no-session-persistence', '--session-id', input.session.id, '--add-dir', input.attachmentDirectory,
+    '--system-prompt', 'Generate a short conversation title from the supplied data. Return only the title. Do not use tools.',
+    ...(input.model ? ['--model', input.model] : []),
+    ...(input.effort ? ['--effort', input.effort] : []),
+  ];
   const args = [
     '-p',
     '--output-format', 'stream-json',

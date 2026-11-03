@@ -22,20 +22,22 @@ const CODEX_DISABLED_FEATURES = [
   'exec_permission_approvals',
 ] as const;
 const TURN_PERMISSION_FEATURES = ['request_permissions_tool', 'exec_permission_approvals'] as const;
+const TITLE_DISABLED_FEATURES = ['shell_tool', 'multi_agent', 'code_mode_host', 'memories', 'sleep_tool', 'tool_suggest'] as const;
 
 /**
  * App Server inherits the user's login, but CodeAI owns the capability surface. These
  * overrides remove ambient executable integrations while leaving Codex's built-in repository
  * and shell tools available inside the per-turn sandbox.
  */
-export function buildCodexAppServerArgs(level: SecurityLevel = 'guarded'): string[] {
+export function buildCodexAppServerArgs(level: SecurityLevel = 'guarded', titleOnly = false): string[] {
   return [
     'app-server',
     '--stdio',
     '--strict-config',
     ...(level === 'native' ? [] : ['-c', 'mcp_servers={}', '-c', 'web_search="disabled"']),
-    ...(level === 'native' ? [] : ['--enable', 'multi_agent']),
+    ...(level === 'native' || titleOnly ? [] : ['--enable', 'multi_agent']),
     ...(level === 'native' ? TURN_PERMISSION_FEATURES : CODEX_DISABLED_FEATURES).flatMap((feature) => ['--disable', feature]),
+    ...(titleOnly ? ['-c', 'project_doc_max_bytes=0', ...TITLE_DISABLED_FEATURES.flatMap(feature => ['--disable', feature])] : []),
   ];
 }
 
@@ -122,6 +124,7 @@ export function codexThreadConfig(
   disabledMcpServers: readonly string[] = [],
   security?: Pick<CodexTurnSecurity, 'permissionProfile'>,
   level: SecurityLevel = 'guarded',
+  titleOnly = false,
 ): Record<string, unknown> {
   if (level === 'native') return { features: Object.fromEntries(TURN_PERMISSION_FEATURES.map((feature) => [feature, false])) };
   const mcpServers: Record<string, { enabled: false }> = Object.create(null) as Record<string, { enabled: false }>;
@@ -129,7 +132,9 @@ export function codexThreadConfig(
   return {
     mcp_servers: mcpServers,
     web_search: 'disabled',
-    features: { ...Object.fromEntries(CODEX_DISABLED_FEATURES.map((feature) => [feature, false])), multi_agent: true },
+    features: { ...Object.fromEntries(CODEX_DISABLED_FEATURES.map((feature) => [feature, false])), multi_agent: true,
+      ...(titleOnly ? Object.fromEntries(TITLE_DISABLED_FEATURES.map(feature => [feature, false])) : {}) },
+    ...(titleOnly ? { project_doc_max_bytes: 0 } : {}),
     ...(security?.permissionProfile ? {
       default_permissions: security.permissionProfile,
       permissions: { [security.permissionProfile]: CODEX_AUTO_PROFILE },

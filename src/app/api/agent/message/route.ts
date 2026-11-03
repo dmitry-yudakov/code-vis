@@ -19,6 +19,7 @@ import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runConversation } from '@/server/conversation/conversationService';
+import { generateConversationTitle } from '@/server/conversation/conversationTitle';
 import { agentEventStream } from '../eventStream';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
 import { changesCheckout, nativeMessageLevel } from '@/shared/agentModes';
@@ -368,6 +369,8 @@ export async function POST(request: Request): Promise<Response> {
         turnMode,
         beforeAttempt,
       });
+      void generateConversationTitle({ session, participantId: participant.id, messageId: parsed.data.messageId,
+        sessionStore: store, config, choices: providerHealth, model: parsed.data.model });
     } catch (error: unknown) {
       const known = error instanceof AgentRunError ? error : undefined;
       const delivery = known?.delivery || (providerInvoked && (abortController.signal.aborted || currentParticipant.session.started) ? 'possibly-sent' : 'not-sent');

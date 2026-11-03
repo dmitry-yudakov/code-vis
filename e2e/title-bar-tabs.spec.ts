@@ -304,13 +304,14 @@ test('Delete preserves drafts and tab archive shares failure, pending and Undo h
     await archiveGate;
     await route.continue();
   });
+  const archivedTitle = await page.getByRole('tab', { selected: true }).locator('.workspace-tab-title').innerText();
   await tabArchive.click();
   await expect(archive).toBeDisabled();
   await expect(page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ })).toBeDisabled();
   releaseArchive();
   await expect(page.getByRole('tab')).toHaveCount(1);
   await expect(picker.locator(`option[value="${sessions[1].id}"]`)).toHaveCount(0);
-  const toast = page.getByRole('status').filter({ hasText: 'Archived “Explain the project.”' });
+  const toast = page.getByRole('status').filter({ hasText: `Archived “${archivedTitle}”` });
   await expect(toast).toBeVisible();
   expect(archiveRequests).toBe(2);
   await toast.getByRole('button', { name: 'Undo archive' }).click();

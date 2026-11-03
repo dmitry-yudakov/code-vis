@@ -478,6 +478,22 @@ describe('Docker checkout mounts', () => {
 });
 
 describe('Docker worker lifetime', () => {
+  it('keeps title workers independent of foreground leases and out of interrupted conversation delivery', async () => {
+    const { runtime, identity, legacyHome, context, containers, volumes, command } = await workerFixture();
+    volumes.set(legacyHome, { [`${DOCKER_LABEL}.owner`]: runtime.owner, [`${DOCKER_LABEL}.participant`]: identity.participantId,
+      [`${DOCKER_LABEL}.session`]: identity.sessionId });
+    const foreground = await runtime.createWorker(identity, { mode: 'ask' });
+    const title = await runtime.createWorker({ ...identity, runId: crypto.randomUUID() }, { context, mode: 'ask', leaseId: crypto.randomUUID() });
+    const launch = containers.get(title.worker)!;
+    expect(mounts(launch)).toEqual([`type=volume,src=${legacyHome},dst=${DOCKER_HOME}`, `type=bind,src=${context},dst=/context,readonly`]);
+    expect(launch).toContain(`${DOCKER_LABEL}.kind=title-worker`);
+    await foreground.stop();
+    const original = command.getMockImplementation()!;
+    command.mockImplementation(async (args: string[]) => args[0] === 'network' && args[1] === 'inspect' ? '{}' : original(args));
+    expect(await new DockerRuntime(runtime.config).reconcile()).toEqual([]);
+    expect(containers.size).toBe(0);
+  });
+
   it.each(['ask', 'plan'] as const)('keeps unlimited %s workers alive until normal cleanup', async (mode) => {
     const { runtime, identity, checkout, containers } = await workerFixture();
     runtime.config.agentTimeoutMs = 0;

@@ -4,6 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, AgentMode, AgentProcessResult, AgentProcessRun, SecurityLevel } from '@/shared/types';
 
+// Background metadata inference has its own lifecycle/provider coverage in conversationTitle.test.ts.
+vi.mock('@/server/conversation/conversationTitle', () => ({ generateConversationTitle: vi.fn(async () => undefined) }));
+
 const fixture = vi.hoisted(() => ({
   checkout: '', attempts: [] as AgentProcessRun[], modes: ['ask', 'plan', 'agent', 'auto', 'full'] as AgentMode[],
   run: undefined as undefined | ((input: AgentProcessRun) => Promise<AgentProcessResult>),

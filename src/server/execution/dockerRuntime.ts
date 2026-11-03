@@ -351,6 +351,8 @@ export class DockerRuntime {
 
   async createWorker(identity: WorkerIdentity, options: {
     checkout?: string; context?: string; mode: AgentMode; setup?: boolean;
+    /** Background metadata uses a separate lease while retaining the participant's login home. */
+    leaseId?: string;
     /** Bind the user's allowlisted customizations read-only. Never for a setup terminal. */
     customizations?: boolean;
   }) {
@@ -364,7 +366,7 @@ export class DockerRuntime {
     }
     let home = providerVolume(this.owner, identity.provider);
     let legacyHome = false;
-    const name = `codeai-${this.owner}-${identity.sessionId}`;
+    const name = `codeai-${this.owner}-${options.leaseId ?? identity.sessionId}`;
     const network = `${name}-${identity.runId.slice(0, 8)}`;
     // Every turn gets a new worker, and Docker turns never pause their clock for approvals. PID 1
     // therefore outlasts a bounded turn. Explicit unlimited turns rely on normal cleanup and
@@ -391,7 +393,7 @@ export class DockerRuntime {
       const gitPlan = options.checkout ? await validateDockerCheckout(options.checkout, this.config, options.mode === 'agent') : undefined;
       const gitMounts = gitPlan?.gitMounts || [];
       const lease = await this.createLease(command, [
-        'create', '--name', name, ...this.labels(options.setup ? 'setup' : 'lease', identity),
+        'create', '--name', name, ...this.labels(options.leaseId ? 'title-lease' : options.setup ? 'setup' : 'lease', identity),
         ...containerSecurity(uid, gid), '--network', 'none', image, 'sleep', 'infinity',
       ]);
       resources.push(lease);
@@ -455,7 +457,7 @@ export class DockerRuntime {
       const customizations = options.customizations && !options.setup
         ? (await resolveDockerCustomizations(identity.provider, this.config)).mounts : [];
       const worker = (await command([
-        'create', ...this.labels(options.setup ? 'setup' : 'worker', identity), ...containerSecurity(uid, gid, true),
+        'create', ...this.labels(options.leaseId ? 'title-worker' : options.setup ? 'setup' : 'worker', identity), ...containerSecurity(uid, gid, true),
         '--network', network, '--dns', '127.0.0.1',
         ...Object.entries(environment).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
         '--mount', `type=volume,src=${home},dst=${DOCKER_HOME}`,

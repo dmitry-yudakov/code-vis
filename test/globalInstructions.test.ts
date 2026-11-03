@@ -55,8 +55,8 @@ vi.mock('@/server/agents/providerRegistry', async (original) => {
     checkHealth: async () => ({ available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'] }),
     // Records what the turn was given, then completes it.
     createRunner: () => ({
-      run: async (input: { globalInstructions?: { displayPath: string; text: string }; userCustomizations?: boolean }) => {
-        routeState.runs.push({ provider, globalInstructions: input.globalInstructions, userCustomizations: input.userCustomizations });
+      run: async (input: { titleOnly?: boolean; globalInstructions?: { displayPath: string; text: string }; userCustomizations?: boolean }) => {
+        if (!input.titleOnly) routeState.runs.push({ provider, globalInstructions: input.globalInstructions, userCustomizations: input.userCustomizations });
         return { finalText: 'Done.', sessionId: 'provider-session', durationMs: 1, outputBytes: 5 };
       },
     }),

@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/server/conversation/conversationTitle', () => ({ generateConversationTitle: vi.fn(async () => undefined) }));
 import type { AgentMode, DurableSession, SecurityLevel } from '@/shared/types';
 const runs = vi.hoisted(() => [] as Array<{ mode: AgentMode; level: SecurityLevel }>);
 const healthModes = vi.hoisted(() => [] as Array<AgentMode | undefined>);

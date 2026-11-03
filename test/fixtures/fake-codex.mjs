@@ -339,7 +339,8 @@ while (true) {
     turnSent = true;
     turnId = 'codex-turn-1';
     result(message.id, { turn: { id: turnId, items: [], itemsView: 'full', status: 'inProgress', error: null } });
-    if (!incomingDelegation && mode.startsWith('subagent-')) beginDelegation();
+    if (threadConfigs.get(threadId)?.project_doc_max_bytes === 0) completeTurn('Improve conversation titles');
+    else if (!incomingDelegation && mode.startsWith('subagent-')) beginDelegation();
     else if (incomingDelegation) {
       let agentThreadId = 'child-thread';
       const childTurnId = 'child-turn';

@@ -157,6 +157,11 @@ Updated 2026-11-03. When a story ships, change the line that names it; each stor
   and per-request same-origin checks. All 183 focused tests, TypeScript, an isolated production build,
   a real TLS/Next.js check through two IPs and independent review pass. Real remote-device use remains
   unverified; private settings and certificates are unchanged, and the running app has not been restarted.
+- **Shipped:** [Story 123](stories/STORY-20261103-conversation-titles.md) — conversations receive a
+  short background-generated title after their first successful reply, using the same provider and
+  login, with small-model selection, bounded failure fallback and live tab/header updates. All
+  1,798 offline tests, TypeScript, isolated build, production-browser checks, real Claude/Codex title
+  probes and independent review pass. The running app has not been restarted.
 - **Shipped:** [Story 120](stories/STORY-20261031-mobile-pane-maximize.md) — phone modules
   fill the width above a bottom bar, with a compact header/composer; Conversation, Canvas and the
   side panel maximize and restore their saved arrangement on desktop and phones; docked, Maximize

@@ -14,6 +14,7 @@ import { createTurn, updateActivity, finishTurn } from '@/shared/turnActivity';
 const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
 interface RunOptions {
+  titleOnly?: boolean;
   action?: 'start' | 'resume';
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -46,6 +47,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     const runner = new ClaudeProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50, debug });
     const events: AgentProcessEvent[] = [];
     const result = await runner.run({
+      titleOnly: options.titleOnly,
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id, action },
@@ -60,6 +62,18 @@ describe.sequential('ClaudeProcessRunner', () => {
     });
     return { result, events, sessionId: id, invocation: JSON.parse(await readFile(path.join(directory, 'fake-invocation.json'), 'utf8')) };
   }
+
+  it('runs title requests without tools, persisted sessions, or repository settings', async () => {
+    const { invocation } = await run({ titleOnly: true, model: 'haiku' });
+    const args: string[] = invocation.args;
+    expect(args[args.indexOf('--tools') + 1]).toBe('');
+    expect(args).not.toContain('--allowedTools');
+    expect(args).toContain('--no-session-persistence');
+    expect(args).toContain('--safe-mode');
+    expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
+    expect(args).toContain('--system-prompt');
+    expect(args).not.toContain('--resume');
+  });
 
   it('retains tool identities/results and root final identity without private provider fields', async () => {
     process.env.CODEAI_FAKE_MODE = 'chronological';
