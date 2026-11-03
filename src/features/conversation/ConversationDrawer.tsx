@@ -2,6 +2,7 @@
 
 import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
 
@@ -182,8 +183,6 @@ export function ConversationDrawer({
   const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => <ChatMessage
     message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
     navigation={navigation.get(`message:${message.id}`)}
-    onArchive={message.id === lastMessage?.id && message.role === 'assistant' && message.status === 'complete' ? onArchive : undefined}
-    archiveDisabledReason={archiveDisabledReason}
     running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
     executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
     onSelectDiagram={onSelectDiagram} onRetry={retryBlocked ? undefined : onRetry} onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined} />;
@@ -195,16 +194,21 @@ export function ConversationDrawer({
           {repositoryContext && <p className="conversation-repository-context">{repositoryContext}</p>}
         </div>
         <div className="pane-header-actions">
-          <Button
+          <IconButton
             type="button"
-            className="drawer-new-chat"
+            className="drawer-session-action"
             aria-label="New chat"
             title={running ? 'Wait for this turn to finish.' : continuing ? 'Creating a session…'
               : participantBusy ? 'Wait for agent changes to finish.' : recovery?.busy ? 'Wait for Undo to finish.'
               : 'New chat with the same project and settings'}
             disabled={!session || !activeAgent || running || continuing || participantBusy || recovery?.busy}
             onClick={onNewChat}
-          ><ShellIcon name="newChat" /></Button>
+          ><ShellIcon name="newChat" /></IconButton>
+          <Tooltip title={archiveDisabledReason || (running ? 'Wait for this turn to finish.' : 'Archive session. You can undo or restore it later.')}>
+            <span><IconButton type="button" className="drawer-session-action" aria-label="Archive session"
+              disabled={!session || running || Boolean(archiveDisabledReason)} onClick={onArchive}
+            ><ShellIcon name="archive" /></IconButton></span>
+          </Tooltip>
           {paneControl}
         </div>
       </header>

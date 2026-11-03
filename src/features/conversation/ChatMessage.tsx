@@ -32,7 +32,7 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onArchive, archiveDisabledReason, navigation }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, navigation }: {
   message: ChatMessageType;
   theme: ThemeName;
   participants: Participant[];
@@ -43,8 +43,6 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   onSelectDiagram(id: string): void;
   onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
   onExecutePlan?(participantId: string): void;
-  onArchive?(): void;
-  archiveDisabledReason?: string;
   navigation?: ReactNode;
 }) {
   const [copyState, setCopyState] = useState<'copied' | 'failed'>();
@@ -127,11 +125,6 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
       <Box component="footer" className="message-actions" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5, mt: 0.5, color: 'text.secondary', fontSize: 11,
         '& .shell-icon': { width: 16, height: 16 } }}>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-        {onArchive && <Tooltip title={archiveDisabledReason || (running ? 'Wait for this turn to finish.' : 'Archive session. You can undo or restore it later.')}>
-          <span><IconButton type="button" size="small" color="inherit" aria-label="Archive session"
-            disabled={running || Boolean(archiveDisabledReason)} onClick={onArchive}
-          ><ShellIcon name="archive" /></IconButton></span>
-        </Tooltip>}
         <Tooltip title="Copy reply">
           <IconButton type="button" size="small" color="inherit" aria-label="Copy reply" onClick={async () => {
             try { await navigator.clipboard.writeText(message.rawMarkdown); setCopyState('copied'); }

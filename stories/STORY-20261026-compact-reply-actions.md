@@ -102,3 +102,29 @@ to the affected activity. Unsaved activity still reports its state.
 - Independent review reports no actionable code issues. Its outdated verification-instruction
   finding is corrected above. No real-provider or physical-headset run was needed for these
   desktop presentation changes. The running app was not restarted; changes remain uncommitted.
+
+## Follow-up — November 3, 2026: session actions in the conversation header
+
+The user requested Archive beside New chat in the conversation's top panel, with a quieter
+New chat control and comfortable phone spacing. This replaces the final-reply Archive placement
+above; timestamp, Copy and message navigation remain in reply footers.
+
+Where the code is: `src/features/conversation/ConversationDrawer.tsx:194` owns the header and
+shared archive callback; `src/features/conversation/ChatMessage.tsx:125` owns reply footers;
+`src/app/globals.css:395` and `:854` size header controls.
+
+- [x] Show Archive once beside New chat in the conversation header, including empty or failed chats.
+- [x] Use borderless MUI icon buttons, with separated 40px touch targets on phones and no overflow.
+- [x] Preserve shared live/pending/offline guards, current-revision routing, failure recovery and Undo.
+- [x] Preserve timestamp, exact Markdown Copy and navigation in replies; remove unused reply archive props.
+- [x] Focused tests, TypeScript, production build, both-theme desktop/phone inspection and review pass.
+
+Verify with `test/conversationArchive.test.ts`, `test/newChat.test.ts`, `npm run lint`, an isolated
+production build, and the title-bar, New chat and ordered-reply-footer browser checks.
+
+Verification: the revised unit assertions first failed against the old footer placement. All
+75 focused unit tests, TypeScript, the production build into `.next-e2e`, and 14 production-browser
+checks pass. Browser checks cover archive failure/retry, pending/offline/live guards, latest revision,
+Undo, exact Markdown copying, New chat, and 40px borderless actions separated by 4px at 320/390px
+in both themes. Desktop/phone light/dark screenshots were inspected; independent review found no
+actionable issues. Physical-device testing was not run. The running app was not restarted.

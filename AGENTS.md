@@ -174,11 +174,12 @@ Updated 2026-11-02. When a story ships, change the line that names it; each stor
   headers and response footers jump between prompts and stopped replies. All 91 selected unit checks,
   16 browser checks, TypeScript, production build, both-theme desktop/phone inspection and independent
   review pass; one previously recorded stale composer assertion is excluded. The running app has not been restarted.
-- **Shipped:** [Story 115](stories/STORY-20261026-compact-reply-actions.md) — reply footers group
-  timestamp, icon-only Archive and Copy; running tools show spinners and routine composer status is
-  removed. Restore controls precede the triggering user message, and only specific history omissions
-  are shown. The October 27 follow-up passes 141 focused unit checks, 21 browser checks, TypeScript,
-  production build, both-theme desktop/phone inspection and independent review.
+- **Shipped:** [Story 115](stories/STORY-20261026-compact-reply-actions.md) — Archive sits beside
+  borderless New chat in the conversation header, with spaced 40px phone controls; reply footers keep
+  timestamp, Copy and navigation. Running tools show spinners; restore controls precede the triggering
+  user message, and only specific history omissions are shown. The November 3 follow-up passes
+  75 focused unit checks, 14 browser checks, TypeScript, production build, both-theme desktop/phone
+  inspection and independent review.
   The running app has not been restarted.
 - **Shipped:** [Story 113](stories/STORY-20261023-quiet-message-activity.md) — desktop message
   headers omit repeated mode badges, and compact tool rows show accessible result dots with full

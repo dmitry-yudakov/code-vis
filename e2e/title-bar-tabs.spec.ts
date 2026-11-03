@@ -104,7 +104,7 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   expect(canvas.y).toBe(52);
   expect(canvas.height).toBe(844);
   const count = await visibleControls(page);
-  expect(count).toBeLessThanOrEqual(31); // Includes the three empty-conversation starter actions.
+  expect(count).toBeLessThanOrEqual(32); // Includes the three empty-conversation starters and header Archive.
   await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await page.locator('.more-menu > button').click();
@@ -239,7 +239,7 @@ test('title-bar tabs preserve stored layouts and protect approval-blocked views'
   await expect(selected.locator('.approval-badge')).toHaveText('1');
   await expectSelectedInView(page);
   await expect(selected.getByRole('button', { name: /^Close tab:/ })).toBeDisabled();
-  await expect(conversation.getByRole('button', { name: 'Archive session', exact: true })).toHaveCount(0);
+  await expect(conversation.locator(':scope > header').getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
   await selected.press('Delete');
   await expect(page.getByRole('tab')).toHaveCount(2);
   await picker.selectOption(sessions[0].id);
@@ -251,7 +251,7 @@ test('title-bar tabs preserve stored layouts and protect approval-blocked views'
   await expect(selected.getByRole('button', { name: /^Close tab:/ })).toBeEnabled();
 });
 
-test('tab closes preserve drafts and reply archive handles failure, pending requests and Undo', async ({ page, request }) => {
+test('tab closes preserve drafts and header archive handles failure, pending requests and Undo', async ({ page, request }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const { sessions } = await openProject(page, request, 2);
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
@@ -269,7 +269,7 @@ test('tab closes preserve drafts and reply archive handles failure, pending requ
   await expect(page.getByRole('tab')).toHaveCount(2);
 
   await finishReply(page);
-  const archive = conversation.locator('.chat-message.assistant.complete').getByRole('button', { name: 'Archive session', exact: true });
+  const archive = conversation.locator(':scope > header').getByRole('button', { name: 'Archive session', exact: true });
   await expect(archive).toHaveCount(1);
   await page.reload();
   await expect(archive).toHaveCount(1);
@@ -309,7 +309,7 @@ test('tab closes preserve drafts and reply archive handles failure, pending requ
   await expect(page.getByRole('tab')).toHaveCount(2);
 });
 
-test('phone tabs close directly and the final reply offers Archive in both themes', async ({ page, request }) => {
+test('phone tabs close directly and header session actions fit in both themes', async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { sessions } = await openProject(page, request, 1);
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
@@ -319,25 +319,41 @@ test('phone tabs close directly and the final reply offers Archive in both theme
   await page.reload();
   await expect(page.getByRole('tab')).toHaveCount(0);
   await picker.selectOption(sessions[0].id);
+  await expect(page.getByRole('complementary', { name: 'Conversation' }).locator(':scope > header')
+    .getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
   const conversation = await finishReply(page);
-  const archive = conversation.getByRole('button', { name: 'Archive session', exact: true });
+  const header = conversation.locator(':scope > header');
+  const archive = header.getByRole('button', { name: 'Archive session', exact: true });
+  const newChat = header.getByRole('button', { name: 'New chat', exact: true });
+  await expect(conversation.locator('.message-actions').getByRole('button', { name: 'Archive session', exact: true })).toHaveCount(0);
   for (const theme of ['Light', 'Dark']) {
     await page.locator('.more-menu > button').click();
     await page.getByRole('button', { name: theme, exact: true }).click();
     await page.locator('.more-menu > button').click();
-    await archive.scrollIntoViewIfNeeded();
     await expectSelectedInView(page);
-    const box = (await archive.boundingBox())!;
-    expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(390);
-    await page.screenshot({ path: `/tmp/codeai-story112-phone-${theme.toLowerCase()}.png` });
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const action of [newChat, archive]) {
+        await expect(action).toBeInViewport();
+        const box = (await action.boundingBox())!;
+        expect(box.width).toBeGreaterThanOrEqual(40);
+        expect(box.height).toBeGreaterThanOrEqual(40);
+        expect(box.x + box.width).toBeLessThanOrEqual(width - 8);
+        expect(await action.evaluate(element => getComputedStyle(element).borderWidth)).toBe('0px');
+      }
+      const start = (await newChat.boundingBox())!;
+      const end = (await archive.boundingBox())!;
+      expect(end.x - start.x - start.width).toBeGreaterThanOrEqual(4);
+      expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: `/tmp/codeai-header-actions-phone-${theme.toLowerCase()}-${width}.png` });
+    }
   }
   await archive.click();
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   await expect(picker.locator(`option[value="${sessions[0].id}"]`)).toHaveCount(0);
 });
 
-test('tab and reply guards use machine-reported turns, offline state and the latest revision', async ({ page, request }) => {
+test('tab and header archive guards use machine-reported turns, offline state and the latest revision', async ({ page, request }) => {
   const { sessions } = await openProject(page, request, 1);
   await finishReply(page);
   const session = sessions[0];

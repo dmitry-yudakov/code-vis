@@ -26,18 +26,20 @@ function drawer(messages: ChatMessage[], overrides: Partial<Props> = {}) {
 }
 
 describe('conversation archive action', () => {
-  it('offers Archive only below the final completed reply', () => {
+  it('offers Archive once beside New chat in the header and keeps timestamp and Copy in replies', () => {
     const html = drawer([{ ...reply, id: 'old' }, user, reply]);
     expect(html.match(/aria-label="Archive session"/g)).toHaveLength(1);
-    expect(html.indexOf('aria-label="Archive session"')).toBeGreaterThan(html.lastIndexOf('Finished.'));
+    const header = html.slice(html.indexOf('<header>'), html.indexOf('</header>'));
+    expect(header).toContain('aria-label="Archive session"');
+    expect(header.indexOf('aria-label="Archive session"')).toBeGreaterThan(header.indexOf('aria-label="New chat"'));
     expect(html).toMatch(/<button(?=[^>]*aria-label="Archive session")(?![^>]*disabled="")[^>]*>/);
     expect(html).not.toContain('>Archive</button>');
     expect(html).toContain('aria-label="Copy reply"');
     expect(html.lastIndexOf('<time')).toBeGreaterThan(html.lastIndexOf('Finished.'));
     expect(html).toContain(`dateTime="${reply.createdAt}"`);
     const footer = html.slice(html.lastIndexOf('<footer'));
-    expect(footer.indexOf('<time')).toBeLessThan(footer.indexOf('aria-label="Archive session"'));
-    expect(footer.indexOf('aria-label="Archive session"')).toBeLessThan(footer.indexOf('aria-label="Copy reply"'));
+    expect(footer).not.toContain('aria-label="Archive session"');
+    expect(footer.indexOf('<time')).toBeLessThan(footer.indexOf('aria-label="Copy reply"'));
   });
 
   it('omits the permanent idle status and shows working progress in the timeline', () => {
@@ -89,9 +91,13 @@ describe('conversation archive action', () => {
   });
 
   it.each(([[], [user], [{ ...reply, status: 'failed' }], [reply, user]] as ChatMessage[][]).map(messages => ({ messages })))
-    ('does not offer Archive without a final completed assistant reply: $messages', ({ messages }) => {
-      expect(drawer(messages)).not.toContain('aria-label="Archive session"');
+    ('offers header Archive independently of the transcript: $messages', ({ messages }) => {
+      expect(drawer(messages)).toMatch(/<button(?=[^>]*aria-label="Archive session")(?![^>]*disabled="")[^>]*>/);
     });
+
+  it.each([{ running: true }, { session: undefined }])('disables Archive without an idle session: %j', overrides => {
+    expect(drawer([reply], overrides)).toMatch(/<button(?=[^>]*aria-label="Archive session")(?=[^>]*disabled="")[^>]*>/);
+  });
 
   it.each(['Wait for this turn to finish.', 'Archiving this session…', 'This execution machine is offline.'])
     ('retains the shared guard and its reason: %s', archiveDisabledReason => {

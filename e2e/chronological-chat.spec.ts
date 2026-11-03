@@ -188,12 +188,12 @@ for (const theme of ['light', 'dark'] as const) {
     const reply = conversation.locator('.chat-message.assistant.complete');
     const footer = reply.locator('.message-actions');
     const copy = footer.getByRole('button', { name: 'Copy reply', exact: true });
-    const archive = footer.getByRole('button', { name: 'Archive session', exact: true });
+    const archive = conversation.locator(':scope > header').getByRole('button', { name: 'Archive session', exact: true });
     await expect(reply).toHaveCount(1);
     await expect(reply.locator('.message-meta time')).toHaveCount(0);
     await expect(footer.locator('time')).toHaveAttribute('datetime', session.createdAt);
     expect(await footer.locator('time, button').evaluateAll(elements => elements.map(element => element.tagName === 'TIME' ? 'timestamp' : element.getAttribute('aria-label'))))
-      .toEqual(['timestamp', 'Archive session', 'Copy reply']);
+      .toEqual(['timestamp', 'Copy reply']);
     const recovery = conversation.getByLabel('Turn recovery');
     await expect(recovery.getByRole('button', { name: 'Restore files', exact: true })).toBeEnabled();
     expect(await recovery.evaluate(element => {
