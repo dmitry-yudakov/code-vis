@@ -75,7 +75,7 @@ export function RepositoryDiffInspector({ file, state, onClose, onRetry, hidden 
         {showPreview ? <span className="diff-preview-source">Current working-tree file</span> : <ToggleButton size="small" value="wrap" selected={wrap} onChange={() => setWrap(!wrap)} aria-label="Wrap text">Wrap</ToggleButton>}
       </div>
       <div ref={restoreScroll} className="diff-inspector-scroll" onScroll={event => { scrollPositions.current[shownView] = event.currentTarget.scrollTop; }}>
-        {loading ? <div className="repository-state"><span className="pulse-dot" /><p>Reading patch…</p></div> : error ? (
+        {loading && !diff ? <div className="repository-state"><span className="pulse-dot" /><p>Reading patch…</p></div> : error ? (
           <div className="repository-state error"><strong>Diff unavailable</strong><p>{error}</p><Button type="button" onClick={onRetry}>Try again</Button></div>
         ) : showPreview ? 'markdown' in preview ? (
           <article className="assistant-blocks diff-markdown-preview" aria-label="Markdown preview">

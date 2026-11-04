@@ -59,6 +59,7 @@ import { EMPTY_CANVAS_SVG } from '@/features/diagram/components/DiagramCanvas';
 import { renderMermaid } from '@/features/diagram/mermaid/mermaidRenderer';
 import { useRepositoryChanges } from '@/features/repository/useRepositoryChanges';
 import { useRepositoryDiff } from '@/features/repository/useRepositoryDiff';
+import { useRepositoryAutoRefresh } from '@/features/repository/useRepositoryAutoRefresh';
 import { ReportsPanel } from '@/features/reports/ReportsPanel';
 import { REPORT_ONLY_INSTRUCTION, capturedReportTarget, pendingReportLabel } from '@/features/reports/reportModel';
 import { useImmersiveReports } from '@/features/reports/useImmersiveReports';
@@ -395,6 +396,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   }) || [], [checkouts, session?.repositories]);
   const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
   const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
+  useRepositoryAutoRefresh(Boolean(!loading && !arenaOpen && !immersiveActive && session && selectedCheckout && panelLayout.sideShown
+    && (panelLayout.sideTab === 'changes' || panelLayout.sideTab === 'reports' && !(reports.available && reports.projectId))), repositoryChanges.refresh);
+  const repositoryRefreshRef = useRef({ checkoutId: selectedCheckout?.id, apiBase: repositoryApiBase, refresh: repositoryChanges.refresh });
+  repositoryRefreshRef.current = { checkoutId: selectedCheckout?.id, apiBase: repositoryApiBase, refresh: repositoryChanges.refresh };
   const pushRepositoryBranch = async (push: () => Promise<string>) => {
     supersede('git-push');
     try { notify({ key: 'git-push', tone: 'success', message: `Pushed to ${await push()}.` }); }
@@ -1528,8 +1533,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         await refreshSession(turn.sessionId);
       }
     }
+    // Stream closure follows checkpoint cleanup and checkout release. Intermediate output and
+    // a disconnected stream do not promise that the repository is ready to read.
+    const target = repositoryRefreshRef.current;
+    if ((receivedFinal || streamError) && target.apiBase === repositoryApiBase
+      && sessionsRef.current.find((item) => item.id === turn.sessionId)?.repositories.some((binding) => binding.checkoutId === target.checkoutId)) {
+      target.refresh();
+    }
     return { receivedFinal, streamError, userMessageId, runId: streamRunId };
-  }, [mutateSession, refreshSession, setRunOutcome, updatePreferences, updateRun, workspace.updateView]);
+  }, [mutateSession, refreshSession, repositoryApiBase, setRunOutcome, updatePreferences, updateRun, workspace.updateView]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
     if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id) || reconnectingRuns.current.has(session.id) || acceptanceChecks.current.has(session.id) || recovery.busy) return;
@@ -2750,6 +2762,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               />
             ) : undefined}
             open={panelLayout.repositoryOpen || maximized === 'side'}
+            visible={panelLayout.sideShown && !immersiveActive}
             paneControl={paneControl('side', sideView === 'changes' ? 'Repository' : sideView[0].toUpperCase() + sideView.slice(1))}
             tab={panelLayout.sideTab}
             onInspectorOpenChange={panelLayout.setInspectorOpen}

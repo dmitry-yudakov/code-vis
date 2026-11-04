@@ -4,7 +4,8 @@ import type { AgentEvent, AssistantMessage, CheckoutsResponse, DurableProject, P
 interface DraftFixture {
   requests: Array<{ messageId: string; participantId: string; text: string; mode: UserMessage['mode']; fileAttachments?: Array<{ name: string; text: string }>; imageAttachments?: unknown[] }>;
   accept(): void;
-  finish(failed?: boolean): void;
+  finish(failed?: boolean, holdOpen?: boolean): void;
+  close(): void;
   activity(text: string): void;
   disconnect(): void;
   readable: boolean;
@@ -38,6 +39,7 @@ async function openDraftFixture(page: Page, request: APIRequestContext, reply: '
     const fixture: DraftFixture = {
       requests: [], session, otherSessionId, readable: true, discoveryReadable: true, allowRetry: false,
       disconnect() { stream?.error(new TypeError('Fixture stream disconnected')); },
+      close() { stream?.close(); },
       activity(text) {
         const user = fixture.session.messages.find((message) => message.id === fixture.requests.at(-1)?.messageId) as UserMessage | undefined;
         if (!user?.turn) throw new Error('The fixture turn has not been accepted.');
@@ -62,7 +64,7 @@ async function openDraftFixture(page: Page, request: APIRequestContext, reply: '
         if (reply === 'uncertain' && !fixture.allowRetry) fixture.readable = false;
         release?.();
       },
-      finish(failed = false) {
+      finish(failed = false, holdOpen = false) {
         const sent = fixture.requests.at(-1)!;
         finished = true;
         const user = fixture.session.messages.find((message) => message.id === sent.messageId) as UserMessage;
@@ -78,7 +80,7 @@ async function openDraftFixture(page: Page, request: APIRequestContext, reply: '
           emit({ type: 'assistant-message', runId, message: answer });
         }
         emit({ type: 'done', runId, durationMs: 1, cancelled: false });
-        stream?.close();
+        if (!holdOpen) stream?.close();
       },
     };
     window.draftFixture = fixture;
@@ -131,6 +133,91 @@ async function openDraftFixture(page: Page, request: APIRequestContext, reply: '
   await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
   return page.getByRole('textbox', { name: 'Instruction', exact: true });
 }
+
+for (const reconnected of [false, true]) for (const failed of [false, true]) test(`automatically refreshes repository and visible history after ${reconnected ? 'reconnected' : 'new'} ${failed ? 'failed' : 'successful'} turn cleanup`, async ({ page, request }) => {
+  let reads = 0;
+  let historyReads = 0;
+  await page.route('**/api/repository/status?*', route => {
+    reads++;
+    return route.fulfill({ json: { tree: { isRepository: true, branch: `read-${reads}`, files: [] } } });
+  });
+  await page.route('**/api/repository/history?*', route => {
+    historyReads++;
+    return route.fulfill({ json: { history: { isRepository: true, commits: [{
+      hash: 'a'.repeat(40), subject: `History read ${historyReads}`, author: 'Example', date: '2026-11-04T09:30:00Z',
+    }], truncated: false } } });
+  });
+  const field = await openDraftFixture(page, request);
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
+  const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
+  await repository.getByRole('tab', { name: 'History', exact: true }).click();
+  await expect(repository).toContainText('History read 1');
+  // Let the panel's activation refresh settle before measuring turn effects.
+  await page.waitForTimeout(300);
+  await expect(repository.getByRole('button', { name: 'Refresh Git status', exact: true })).toBeEnabled();
+  const before = reads;
+  const historyBefore = historyReads;
+  await field.fill('Make a repository change');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.draftFixture.requests.length)).toBe(1);
+  await page.evaluate(() => window.draftFixture.accept());
+  await expect(field).toHaveValue('');
+  await page.evaluate(() => window.draftFixture.activity('Still working on files.'));
+  await expect(page.locator('.turn-activity')).toContainText('Still working on files.');
+  expect(reads).toBe(before);
+  if (reconnected) {
+    await page.evaluate(() => { window.draftFixture.discoveryReadable = false; window.draftFixture.disconnect(); });
+    await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
+    expect(reads).toBe(before);
+    await page.evaluate(() => { window.draftFixture.discoveryReadable = true; });
+    await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
+  }
+  await page.evaluate(failed => window.draftFixture.finish(failed, true), failed);
+  await expect(page.locator('.chat-message.user')).toContainText('Make a repository change');
+  await page.waitForTimeout(200);
+  expect(reads).toBe(before);
+  await page.evaluate(() => window.draftFixture.close());
+  await expect(page.locator('.git-branch-summary')).toContainText(`read-${before + 1}`);
+  await expect(repository).toContainText(`History read ${historyBefore + 1}`);
+  expect(reads).toBe(before + 1);
+});
+
+for (const unrelated of [false, true]) test(`background completion ${unrelated ? 'does not refresh an unrelated checkout' : 'refreshes the same checkout in another session'}`, async ({ page, request }) => {
+  let reads = 0;
+  await page.route('**/api/repository/status?*', route => {
+    reads++;
+    return route.fulfill({ json: { tree: { isRepository: true, branch: `background-read-${reads}`, files: [] } } });
+  });
+  const field = await openDraftFixture(page, request, 'stream', true);
+  const ids = await page.evaluate(() => ({ current: window.draftFixture.session.id, other: window.draftFixture.otherSessionId! }));
+  if (unrelated) {
+    const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const other = (await (await request.get(`/api/sessions/${ids.other}`)).json()).session as PublicSession;
+    const updated = await request.put(`/api/sessions/${ids.other}/repositories`, { data: {
+      expectedRevision: other.revision,
+      repositories: [{ ...other.repositories[0], id: crypto.randomUUID(), checkoutId: checkouts.find(item => item.name === 'beta')!.id }],
+    } });
+    expect(updated.ok()).toBe(true);
+    await page.reload();
+    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(ids.current);
+  }
+  await field.fill('Complete while another session is open');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.draftFixture.requests.length)).toBe(1);
+  await page.evaluate(() => window.draftFixture.accept());
+  await expect(field).toHaveValue('');
+  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(ids.other);
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
+  const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
+  await expect(repository.locator('.repository-name')).toHaveText(unrelated ? 'beta' : 'alpha');
+  await expect(repository.getByRole('button', { name: 'Refresh Git status', exact: true })).toBeEnabled();
+  const before = reads;
+  await page.evaluate(() => window.draftFixture.finish());
+  await expect(page.locator('.workspace-tab.working, .workspace-tab.queued')).toHaveCount(0);
+  await expect(repository.locator('.git-branch-summary')).toContainText(`background-read-${before + Number(!unrelated)}`);
+  expect(reads).toBe(before + Number(!unrelated));
+});
 
 async function image(page: Page, color = '#e03030') {
   await page.evaluate(async (color) => {

@@ -639,6 +639,12 @@ the camera. The nearer tool/status strip stays outside every closable panel.
 AppShell owns the shared repository status/selection and diff hooks. DOM and immersive Evidence
 consume the same read-only result and refresh/select actions; Evidence never fetches independently.
 Responses are scoped to API origin, checkout, and file, and abandoned requests are ignored.
+The visible desktop Repository refreshes on opening and browser activation, with browser signals
+debounced for 150 ms. Completed agent streams refresh the selected checkout only when the source
+machine and session binding match, after checkpoint cleanup and checkout release. Status reads
+serialize with one pending follow-up; each completed attempt invalidates independent diff/history
+reads. Existing review content stays mounted during refresh, and status failures retain the last
+snapshot with explicit error feedback and no stale push offer. Git history loads only while visible.
 Diff raster pages wrap monospace text to the available line/column budget. The immersive surface can
 cycle only among the active session's repository bindings and always displays its machine, checkout,
 branch, file status, path, loading/error state, and bounded-read provenance.

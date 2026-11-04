@@ -168,6 +168,11 @@ Updated 2026-11-04. When a story ships, change the line that names it; each stor
   TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
   review pass. An unrelated wider phone archive/title-revision conflict is recorded in the story.
   The running app has not been restarted.
+- **Shipped:** [Story 126](stories/STORY-20261104-auto-refresh-repository.md) — the selected
+  repository refreshes on opening, browser activation and completed agent streams, preserving
+  file review and lazy history through refresh failures. All 40 focused unit checks, 61 distinct
+  production-browser cases, TypeScript, isolated build and independent review pass.
+  The running app has not been restarted.
 - **Shipped:** [Story 123](stories/STORY-20261103-conversation-titles.md) — conversations receive a
   short background-generated title after their first successful reply, using the same provider and
   login, with small-model selection, bounded failure fallback and live tab/header updates. All

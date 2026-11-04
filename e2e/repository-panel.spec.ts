@@ -25,6 +25,7 @@ async function openRepository(page: Page, request: APIRequestContext, count = 1)
   await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
   const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ });
   if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+  await expect(panel(page).getByRole('button', { name: 'Refresh Git status', exact: true })).toBeEnabled();
   return { ids, session };
 }
 
@@ -128,6 +129,201 @@ test('retains selected-file review across History and Changes', async ({ page, r
   await expect(inspector.getByRole('button', { name: 'Wrap text', exact: true })).toHaveAttribute('aria-pressed', 'false');
   expect(await inspector.locator('.diff-inspector-scroll').evaluate(node => node.scrollTop)).toBe(300);
   await expect(page.locator('.repository-file')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('automatically refreshes on Repository activation and coalesces browser activation signals', async ({ page, request }) => {
+  await openRepository(page, request);
+  await expect(page.locator('.repository-file')).toBeVisible();
+  let reads = 0;
+  await page.route('**/api/repository/status?*', route => {
+    reads++;
+    return route.fulfill({ json: { tree: { isRepository: true, branch: `activation-${reads}`, files: [] } } });
+  });
+  const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ });
+  await toggle.click();
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(250);
+  expect(reads).toBe(0);
+  await toggle.click();
+  await expect(page.locator('.git-branch-summary')).toContainText('activation-1');
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(page.locator('.git-branch-summary')).toContainText('activation-2');
+  await page.waitForTimeout(250);
+  expect(reads).toBe(2);
+});
+
+test('automatic refresh keeps the open diff, wrapping and scroll while reading unchanged file metadata', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1720, height: 900 });
+  let version = 'before refresh';
+  let release!: () => void;
+  let held: Promise<void> | undefined;
+  await page.route('**/api/repository/diff?*', async route => {
+    const text = version;
+    await held;
+    await route.fulfill({ json: { diff: { path: 'src/changed.ts', unstaged: `@@ -1 +1 @@\n-old\n+${text}\n` + '+line\n'.repeat(200) } } });
+  });
+  await openRepository(page, request);
+  await page.locator('.repository-file').click();
+  const inspector = page.getByRole('region', { name: 'Changes in src/changed.ts', exact: true });
+  await expect(inspector).toContainText('before refresh');
+  await inspector.getByRole('button', { name: 'Wrap text', exact: true }).click();
+  await inspector.locator('.diff-inspector-scroll').evaluate(node => { node.scrollTop = 300; });
+  version = 'after refresh';
+  held = new Promise<void>(resolve => { release = resolve; });
+  const reading = page.waitForRequest('**/api/repository/diff?*');
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await reading;
+  await expect(inspector).toContainText('before refresh');
+  expect(await inspector.locator('.diff-inspector-scroll').evaluate(node => node.scrollTop)).toBe(300);
+  release();
+  await expect(inspector).toContainText('after refresh');
+  await expect(inspector.getByRole('button', { name: 'Wrap text', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  expect(await inspector.locator('.diff-inspector-scroll').evaluate(node => node.scrollTop)).toBe(300);
+  await expect(page.locator('.repository-file')).toHaveAttribute('aria-pressed', 'true');
+  await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: { isRepository: true, branch: 'main', files: [] } } }));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(inspector).toHaveCount(0);
+  await expect(panel(page)).toContainText('Nothing to review');
+});
+
+test('automatic refresh serializes reads and coalesces requests during an in-flight read', async ({ page, request }) => {
+  await openRepository(page, request);
+  let reads = 0;
+  let inFlight = 0;
+  let maximumInFlight = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/repository/status?*', async route => {
+    const read = ++reads;
+    maximumInFlight = Math.max(maximumInFlight, ++inFlight);
+    if (read === 1) await held;
+    await route.fulfill({ json: { tree: { isRepository: true, branch: `serialized-${read}`, files: [] } } });
+    inFlight--;
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => reads).toBe(1);
+  for (let burst = 0; burst < 2; burst++) {
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    await page.waitForTimeout(200);
+  }
+  expect(reads).toBe(1);
+  release();
+  await expect(page.locator('.git-branch-summary')).toContainText('serialized-2');
+  await page.waitForTimeout(200);
+  expect(reads).toBe(2);
+  expect(maximumInFlight).toBe(1);
+});
+
+test('automatic refresh ignores a late status response after switching checkouts', async ({ page, request }) => {
+  const { ids } = await openRepository(page, request, 2);
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/repository/status?*', async route => {
+    const alpha = new URL(route.request().url()).searchParams.get('checkoutId') === ids[0];
+    if (alpha) await held;
+    await route.fulfill({ json: { tree: { isRepository: true, branch: alpha ? 'stale-alpha' : 'current-beta', files: [] } } });
+  });
+  const reading = page.waitForRequest('**/api/repository/status?*');
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await reading;
+  await panel(page).getByRole('combobox', { name: 'Current repository' }).selectOption(ids[1]);
+  await expect(page.locator('.git-branch-summary')).toContainText('current-beta');
+  release();
+  await expect(page.locator('.git-branch-summary')).not.toContainText('stale-alpha');
+});
+
+test('automatic refresh waits while the browser tab is hidden and recovers after failure', async ({ page, request }) => {
+  await openRepository(page, request);
+  let reads = 0;
+  await page.route('**/api/repository/status?*', route => {
+    reads++;
+    return route.fulfill(reads === 1 ? { status: 400, json: { error: 'Repository is busy.' } }
+      : { json: { tree: { isRepository: true, branch: 'recovered', files: [] } } });
+  });
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await page.waitForTimeout(200);
+  expect(reads).toBe(0);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(panel(page)).toContainText('Repository is busy.');
+  await panel(page).getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.locator('.git-branch-summary')).toContainText('recovered');
+  expect(reads).toBe(2);
+});
+
+test('automatic status failure retains file review and permits independent history retry', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1720, height: 900 });
+  let historyReads = 0;
+  await page.route('**/api/repository/history?*', route => {
+    historyReads++;
+    return route.fulfill(historyReads === 1 ? { status: 400, json: { error: 'History failed once.' } }
+      : { json: { history: history('History recovered despite status failure') } });
+  });
+  await page.route('**/api/repository/diff?*', route => route.fulfill({ json: { diff: {
+    path: 'src/changed.ts', unstaged: '@@ -1 +1 @@\n-before\n' + '+after\n'.repeat(200),
+  } } }));
+  await openRepository(page, request);
+  await page.locator('.repository-file').click();
+  const inspector = page.getByRole('region', { name: 'Changes in src/changed.ts', exact: true });
+  await expect(inspector).toContainText('+after');
+  await inspector.getByRole('button', { name: 'Wrap text', exact: true }).click();
+  await inspector.locator('.diff-inspector-scroll').evaluate(node => { node.scrollTop = 300; });
+  await page.route('**/api/repository/status?*', route => route.fulfill({ status: 400, json: { error: 'Status is temporarily busy.' } }));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(panel(page)).toContainText('Status is temporarily busy.');
+  await expect(inspector).toBeVisible();
+  await expect(inspector.getByRole('button', { name: 'Wrap text', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  expect(await inspector.locator('.diff-inspector-scroll').evaluate(node => node.scrollTop)).toBe(300);
+  await historyTab(page).click();
+  await expect(panel(page)).toContainText('History failed once.');
+  await panel(page).getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(panel(page)).toContainText('History recovered despite status failure');
+  await expect(panel(page)).toContainText('Status is temporarily busy.');
+  await panel(page).getByRole('tab', { name: /^Changes/ }).click();
+  await expect(inspector).toBeVisible();
+  expect(await inspector.locator('.diff-inspector-scroll').evaluate(node => node.scrollTop)).toBe(300);
+});
+
+test('automatic history refresh keeps the list and scroll while its new snapshot loads', async ({ page, request }) => {
+  let reads = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/repository/history?*', async route => {
+    const read = ++reads;
+    if (read === 2) await held;
+    await route.fulfill({ json: { history: { isRepository: true, truncated: false,
+      commits: Array.from({ length: 100 }, (_, index) => commit(`Snapshot ${read}, commit ${index}`, index.toString(16).padStart(40, '0'))),
+    } } });
+  });
+  await openRepository(page, request);
+  await historyTab(page).click();
+  const list = page.getByRole('list', { name: 'Recent commits' });
+  await expect(list).toContainText('Snapshot 1, commit 0');
+  const scroll = panel(page).locator('.repository-summary-scroll');
+  await scroll.evaluate(node => { node.scrollTop = 300; });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => reads).toBe(2);
+  await expect(list).toContainText('Snapshot 1, commit 0');
+  expect(await scroll.evaluate(node => node.scrollTop)).toBe(300);
+  release();
+  await expect(list).toContainText('Snapshot 2, commit 0');
+  expect(await scroll.evaluate(node => node.scrollTop)).toBe(300);
 });
 
 test('retries failed history, refreshes it, and announces the recent-history limit', async ({ page, request }) => {

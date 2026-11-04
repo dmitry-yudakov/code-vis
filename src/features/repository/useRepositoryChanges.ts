@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GitWorkingTree } from '@/shared/types';
 
 /** Git-specific state remains outside the reusable repository shell and presentation views. */
@@ -13,6 +13,8 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
   const [pushingIdentity, setPushingIdentity] = useState<string>();
+  const requestRefresh = useRef<() => void>(() => undefined);
+  const refresh = useCallback(() => requestRefresh.current(), []);
 
   useEffect(() => {
     setTree(undefined);
@@ -26,33 +28,48 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
   useEffect(() => {
     if (!checkoutId) return;
     const controller = new AbortController();
-    setLoading(true);
-    setError(undefined);
-    void fetch(`${apiBase}/repository/status?checkoutId=${encodeURIComponent(checkoutId)}`, {
-      cache: 'no-store', signal: controller.signal,
-    }).then(async (response) => {
-      const data = await response.json() as { tree?: GitWorkingTree; error?: string };
-      if (controller.signal.aborted) return;
-      if (!response.ok || !data.tree) throw new Error(data.error || 'Could not load repository status.');
-      setLoadedIdentity(identity);
-      setTree(data.tree);
-      onTreeChange(data.tree);
-      setSelectedPath((current) => current && data.tree!.files.some((file) => file.path === current) ? current : undefined);
-    }).catch((reason: unknown) => {
-      if (controller.signal.aborted) return;
-      setLoadedIdentity(identity);
-      setTree(undefined);
-      onTreeChange(undefined);
-      setError(reason instanceof Error ? reason.message : 'Could not load repository status.');
-    }).finally(() => {
+    let reading = false;
+    let pending = false;
+    const load = async () => {
+      if (reading) { pending = true; return; }
+      reading = true;
+      setLoading(true);
+      do {
+        pending = false;
+        setError(undefined);
+        try {
+          const response = await fetch(`${apiBase}/repository/status?checkoutId=${encodeURIComponent(checkoutId)}`, {
+            cache: 'no-store', signal: controller.signal,
+          });
+          const data = await response.json() as { tree?: GitWorkingTree; error?: string };
+          if (controller.signal.aborted) return;
+          if (!response.ok || !data.tree) throw new Error(data.error || 'Could not load repository status.');
+          setLoadedIdentity(identity);
+          setTree(data.tree);
+          onTreeChange(data.tree);
+          setSelectedPath((current) => current && data.tree!.files.some((file) => file.path === current) ? current : undefined);
+        } catch (reason: unknown) {
+          if (controller.signal.aborted) return;
+          setLoadedIdentity(identity);
+          setError(reason instanceof Error ? reason.message : 'Could not load repository status.');
+        }
+        // Content and HEAD may change without changing the file list. Diff/history reads also
+        // have their own limits and must remain retryable even when status cannot be read.
+        setRevision((current) => current + 1);
+      } while (pending && !controller.signal.aborted);
+      reading = false;
       if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [apiBase, checkoutId, onTreeChange, revision, identity]);
+    };
+    requestRefresh.current = () => { void load(); };
+    void load();
+    return () => {
+      requestRefresh.current = () => undefined;
+      controller.abort();
+    };
+  }, [apiBase, checkoutId, onTreeChange, identity]);
 
-  const refresh = useCallback(() => setRevision((current) => current + 1), []);
   const current = loadedIdentity === identity;
-  const target = current ? tree?.pushTarget : undefined;
+  const target = current && !error ? tree?.pushTarget : undefined;
   /** Resolves to where the branch went. The status refreshes either way: a failure may be stale status. */
   const push = useCallback(async (): Promise<string> => {
     setPushingIdentity(identity);

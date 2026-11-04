@@ -5,7 +5,7 @@ import type { useRepositoryHistory } from './useRepositoryHistory';
 
 export function RepositoryHistoryView({ history, error, loading, onRetry }: ReturnType<typeof useRepositoryHistory> & { onRetry(): void }) {
   return <div className="repository-summary-scroll">
-    {loading ? <div className="repository-state" role="status"><span className="pulse-dot" /><p>Reading Git history…</p></div>
+    {loading && !history ? <div className="repository-state" role="status"><span className="pulse-dot" /><p>Reading Git history…</p></div>
       : error ? <div className="repository-state error" role="alert"><strong>History unavailable</strong><p>{error}</p><Button onClick={onRetry}>Try again</Button></div>
       : history && !history.isRepository ? <div className="repository-state"><strong>Not a Git repository</strong><p>Git history is unavailable for this folder.</p></div>
       : history && !history.commits.length ? <div className="repository-state"><strong>No commits yet</strong><p>Commits on this branch will appear here.</p></div>

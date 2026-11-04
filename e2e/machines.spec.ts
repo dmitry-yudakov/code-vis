@@ -24,6 +24,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   });
   let remoteMessagePath = '';
   let remoteHistoryPath = '';
+  let remoteStatusReads = 0;
   const project = {
     version: 1 as const, revision: 0, id: PROJECT_ID, name: 'Remote project',
     repositories: [{ id: BINDING_ID, hostId: MACHINE_ID, checkoutId: 'remote-checkout', role: 'primary' as const }],
@@ -93,6 +94,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
       return;
     }
     if (route.request().method() === 'GET' && pathname === '/repository/status') {
+      remoteStatusReads++;
       await route.fulfill({ json: { tree: { isRepository: true, branch: 'main', upstream: 'origin/main', pushTarget: 'origin/main', ahead: 1, files: [] } } });
       return;
     }
@@ -160,9 +162,12 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
     await expect(page.getByRole('radio', { name: 'Full access', exact: true })).toBeVisible();
     await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   }
+  await expect.poll(() => remoteStatusReads).toBeGreaterThan(0);
+  const statusBeforeTurn = remoteStatusReads;
   await conversation.locator('textarea').fill('Answer on the laptop');
   await conversation.getByRole('button', { name: 'Send' }).click();
   await expect(conversation.getByText('Remote answer arrived.')).toBeVisible();
+  await expect.poll(() => remoteStatusReads).toBe(statusBeforeTurn + 1);
   if (securityLevel === 'native') {
     await expect(conversation.locator('.execution-line')).toContainText('Native');
     await expect(conversation.locator('.chat-message .mode-tag')).toHaveCount(0);

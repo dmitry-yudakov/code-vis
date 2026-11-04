@@ -1,6 +1,7 @@
 'use client';
 
 import IconButton from '@mui/material/IconButton';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
@@ -21,7 +22,7 @@ import type { RepositoryDiffState } from './useRepositoryDiff';
  * Repository-view composition point. A future file-tree view belongs here beside `changes`,
  * while the sidebar chrome and each view's data controller remain independent.
  */
-export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, tab, onInspectorOpenChange, onPush, paneControl, apiBase = '/api' }: {
+export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, visible = open, tab, onInspectorOpenChange, onPush, paneControl, apiBase = '/api' }: {
   checkoutId?: string;
   repositoryName: string;
   manager?: ReactNode;
@@ -30,6 +31,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
   changes: ReturnType<typeof useRepositoryChanges>;
   diffState: RepositoryDiffState;
   open: boolean;
+  visible?: boolean;
   tab: SideTab;
   paneControl?: ReactNode;
   apiBase?: string;
@@ -39,8 +41,8 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
   const [view, setView] = useState<'changes' | 'history'>('changes');
   const id = useId();
   const repositoryShown = tab === 'changes' || (tab === 'reports' && !reports);
-  const gitHistory = useRepositoryHistory(checkoutId || '', open && repositoryShown && view === 'history', changes.revision, apiBase);
-  const offer = changes.tree && onPush ? pushOffer(changes.tree) : undefined;
+  const gitHistory = useRepositoryHistory(checkoutId || '', visible && repositoryShown && view === 'history', changes.revision, apiBase);
+  const offer = changes.tree && !changes.error && onPush ? pushOffer(changes.tree) : undefined;
   const inspectorOpen = view === 'changes' && Boolean(changes.selectedFile);
 
   useEffect(() => {
@@ -81,6 +83,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
             <Tab value="changes" label={changes.tree?.files.length ? `Changes (${changes.tree.files.length})` : 'Changes'} id={`${id}-changes`} aria-controls={`${id}-panel`} />
             <Tab value="history" label="History" id={`${id}-history`} aria-controls={`${id}-panel`} />
           </Tabs>
+          {view === 'history' && changes.error && <Alert severity="warning" sx={{ mx: 1.5, my: 1 }}>Git status unavailable: {changes.error}</Alert>}
           <div className="repository-tab-panel" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${view}`} tabIndex={0}>
             {view === 'history' ? <RepositoryHistoryView {...gitHistory} onRetry={changes.refresh} /> : (
               <RepositoryChangesView
