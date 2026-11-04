@@ -555,7 +555,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 
 .repository-region { grid-area: rail; position: relative; min-width: 0; min-height: 0; margin: var(--pane-gutter, 0px) var(--pane-gutter, 0px) var(--pane-gutter, 0px) 0; z-index: 15; }
 .repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, var(--repository-panel-width)); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: var(--sidebar-shadow); }
-.repository-sidebar.has-inspector { grid-template-columns: minmax(0, var(--repository-panel-width)) minmax(0, 1fr); box-shadow: var(--sidebar-inspector-shadow); }
+.repository-sidebar.has-inspector { --review-split: clamp(180px, var(--repository-summary-width, var(--repository-panel-width)), calc(100% - 220px)); grid-template-columns: minmax(0, var(--review-split)) minmax(0, 1fr); box-shadow: var(--sidebar-inspector-shadow); }
+.repository-inspector-resize { left: calc(var(--review-split) - 4px); }
 .repository-panel-body { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .repository-summary-panel, .repository-inspector { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .repository-summary-scroll, .diff-inspector-scroll { min-width: 0; min-height: 0; overflow: auto; }
@@ -576,6 +577,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 :is(.dock-capacity-0, .dock-capacity-1) .repository-sidebar.has-inspector { grid-template-rows: auto minmax(0, 1fr); }
 :is(.dock-capacity-0, .dock-capacity-1) .has-inspector .repository-summary-panel { display: contents; }
 :is(.dock-capacity-0, .dock-capacity-1) .has-inspector .repository-panel-body { display: none; }
+:is(.dock-capacity-0, .dock-capacity-1) .repository-inspector-resize { display: none; }
 
 .repository-panel-header, .diff-inspector-header { min-width: 0; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--sheet); }
 .diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
@@ -635,9 +637,20 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .repository-state-mark { width: 42px; height: 42px; margin-bottom: 5px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); background: var(--neutral-wash-deep); font-size: 22px; }
 .repository-state-mark.clean { color: var(--on-emphasis); background: var(--live); font-size: 17px; }
 
-.diff-inspector { background: var(--diff-surface); }
+.diff-inspector { grid-template-rows: auto auto minmax(0, 1fr); background: var(--diff-surface); }
+.MuiDialog-paperFullScreen > .diff-inspector { height: 100%; }
 .diff-inspector-header { justify-content: flex-start; }
 .diff-inspector-header > div { flex: 1; }
+.diff-inspector-header > button { flex-shrink: 0; }
+.diff-inspector-toolbar { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--sheet); }
+.diff-preview-source { color: var(--muted); font-size: 10px; }
+.diff-markdown-preview { max-width: 960px; margin: 0 auto; padding: 20px; color: var(--ink); }
+.diff-markdown-preview table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.diff-markdown-preview :is(th, td) { padding: 6px 10px; border: 1px solid var(--line); text-align: left; }
+.diff-preview-image { color: var(--muted); }
+@media (max-width: 739px) {
+  .diff-inspector :is(.MuiIconButton-root, .MuiToggleButton-root) { min-width: 40px; min-height: 40px; }
+}
 .diff-inspector-scroll { padding-bottom: 35px; background: var(--diff-surface); }
 .diff-section { min-width: 0; border-bottom: 1px solid var(--line); }
 .diff-section > header { position: sticky; z-index: 2; top: 0; height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--neutral-wash-strong); }
@@ -645,6 +658,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .diff-section > header span { padding: 3px 6px; border-radius: 999px; color: var(--muted); background: var(--raised-backdrop-badge); font: 8px/1 var(--mono); }
 .diff-patch { min-height: 70px; margin: 0; padding: 10px 0 16px; overflow-x: auto; color: var(--ink-2); background: var(--sheet); font: 10px/1.55 var(--mono); tab-size: 4; }
 .diff-patch span { min-width: max-content; display: block; padding: 0 14px; white-space: pre; }
+.wrap-lines .diff-patch span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff-patch span.addition { color: var(--add); background: var(--add-wash); }
 .diff-patch span.removal { color: var(--del); background: var(--del-wash); }
 .diff-patch span.hunk { margin: 6px 0; color: var(--hunk); background: var(--hunk-wash); }
@@ -814,7 +828,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .app-shell.pane-maximized { grid-template-columns: [activity] 48px [rail] 0 [canvas] minmax(0, 1fr) [dock] 0; }
 .pane-maximized :is(.canvas-workspace, .repository-region, .conversation-region) { grid-column: rail / -1; }
 .pane-maximized .repository-sidebar { grid-template-columns: minmax(0, 1fr); }
-.pane-maximized.dock-capacity-2 .repository-sidebar.has-inspector { grid-template-columns: minmax(268px, 1fr) minmax(0, 2fr); }
+.pane-maximized.dock-capacity-2 .repository-sidebar.has-inspector { --review-split: clamp(180px, var(--repository-summary-width, max(268px, 33.333333%)), calc(100% - 220px)); grid-template-columns: minmax(0, var(--review-split)) minmax(0, 1fr); }
 .maximized-conversation .conversation-drawer > header { padding-inline: max(12px, calc((100% - 760px) / 2)); }
 .maximized-conversation .conversation-scroll { padding-inline: max(14px, calc((100% - 760px) / 2)); }
 .maximized-conversation .drawer-composer { padding-inline: max(10px, calc((100% - 760px) / 2)); }

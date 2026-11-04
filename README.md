@@ -1354,6 +1354,14 @@ back, so the two are never hidden together. The choice is per session view on th
 Opening a diagram or starting a sketch from the conversation shows the canvas again. Below 688px
 the panels overlay a canvas that always shows.
 
+In **Changes**, select a file to review its staged and working-tree diffs. **Wrap** starts enabled;
+turn it off for horizontal scrolling. Drag the divider between the file list and review, or focus
+it and use the arrow keys, to adjust their widths. The review's full-screen button shows the file
+alone; Restore or Escape returns to the layout and reading position. Markdown files also offer
+**Preview** of the complete current working-tree document. Preview supports UTF-8 files up to
+512 KiB and currently requires Linux for safe file verification; unavailable previews keep the
+diff accessible. Images appear as placeholders, and repository-relative links remain text.
+
 Once a diagram or sketch exists, **Flat / Spatial** switches between two projections of the same
 session artifacts. Spatial lazily loads a local WebGL room containing the active canvas plus the
 newest canvases, up to twelve, in chronological order. It is a view-only comparison surface:

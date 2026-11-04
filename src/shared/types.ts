@@ -75,6 +75,8 @@ export interface GitFileDiff {
   path: string;
   staged?: string;
   unstaged?: string;
+  /** Complete current working-tree Markdown, never reconstructed from diff hunks. */
+  preview?: { markdown: string } | { error: string };
 }
 
 export type AgentProvider = 'claude' | 'codex';

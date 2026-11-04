@@ -46,6 +46,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
       actions={<IconButton className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh Git status" disabled={changes.loading} onClick={changes.refresh}>↻</IconButton>}
       inspector={checkoutId && changes.selectedFile ? (
         <RepositoryDiffInspector
+          key={`${checkoutId}:${changes.selectedFile.path}`}
           file={changes.selectedFile}
           state={diffState}
           onClose={changes.closeInspector}

@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { findChangedFile, parseGitStatus, readFileDiff, readWorkingTree } from '@/server/repository/gitRepository';
+import * as boundedText from '@/server/boundedTextFile';
+import { runRegistry } from '@/server/runs/runRegistry';
 
 const execute = promisify(execFile);
 let dataDir: string;
@@ -108,5 +110,105 @@ describe('Git repository status', () => {
     expect(trackedDiff.unstaged).toContain('+export const value = 3; // working');
     const untrackedDiff = await readFileDiff(directory, untracked!);
     expect(untrackedDiff.unstaged).toContain('+# untracked');
+    expect(untrackedDiff.preview).toEqual({ markdown: '# untracked\n' });
+    expect(trackedDiff.preview).toBeUndefined();
+  });
+
+  it('previews the complete working Markdown, including unchanged text and unstaged changes', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-'));
+    const original = '# Full document\n\n' + 'Unchanged paragraph.\n\n'.repeat(20);
+    await execute('git', ['init', '-b', 'main'], { cwd: directory });
+    await writeFile(path.join(directory, 'Review.MD'), original + 'Staged ending.\n');
+    await execute('git', ['add', 'Review.MD'], { cwd: directory });
+    const current = original + 'Working ending.\n';
+    await writeFile(path.join(directory, 'Review.MD'), current);
+    const file = findChangedFile(await readWorkingTree(directory), 'Review.MD')!;
+    const diff = await readFileDiff(directory, file);
+    expect(diff.staged).toContain('+Staged ending.');
+    expect(diff.unstaged).toContain('+Working ending.');
+    expect(diff.preview).toEqual({ markdown: current });
+  });
+
+  it('retains patches when Markdown cannot be previewed and recovers after refresh', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-errors-'));
+    await execute('git', ['init', '-b', 'main'], { cwd: directory });
+    const read = async (name: string) => readFileDiff(directory, findChangedFile(await readWorkingTree(directory), name)!);
+    await writeFile(path.join(directory, 'large.md'), 'a'.repeat(512 * 1024 + 1));
+    expect((await read('large.md')).preview).toEqual({ error: expect.stringContaining('512 KiB') });
+    await writeFile(path.join(directory, 'binary.md'), Buffer.from([0, 1, 2]));
+    const binary = await read('binary.md');
+    expect(binary.unstaged).toContain('Binary files');
+    expect(binary.preview).toEqual({ error: expect.stringContaining('UTF-8') });
+    await writeFile(path.join(directory, 'empty.markdown'), '');
+    expect((await read('empty.markdown')).preview).toEqual({ markdown: '' });
+    await writeFile(path.join(directory, 'large.md'), '# Readable now\n');
+    expect((await read('large.md')).preview).toEqual({ markdown: '# Readable now\n' });
+    await execute('git', ['add', 'large.md'], { cwd: directory });
+    await rm(path.join(directory, 'large.md'));
+    const deleted = await read('large.md');
+    expect(deleted.unstaged).toContain('-# Readable now');
+    expect(deleted.preview).toEqual({ error: expect.stringContaining('no longer exists') });
+  });
+
+  it('does not preview symbolic links or paths outside the checkout', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-links-'));
+    const outside = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-outside-'));
+    await execute('git', ['init', '-b', 'main'], { cwd: directory });
+    await writeFile(path.join(outside, 'secret.md'), '# Outside secret\n');
+    await symlink(path.join(outside, 'secret.md'), path.join(directory, 'linked.md'));
+    const linked = await readFileDiff(directory, findChangedFile(await readWorkingTree(directory), 'linked.md')!);
+    expect(linked.preview).toEqual({ error: expect.stringContaining('symbolic links') });
+    expect(JSON.stringify(linked.preview)).not.toContain('Outside secret');
+    // Defend the reader independently of route membership, including linked parent directories.
+    await mkdir(path.join(directory, 'notes'));
+    await writeFile(path.join(directory, 'notes', 'inside.md'), '# Inside\n');
+    await symlink(path.join(directory, 'notes'), path.join(directory, 'alias'));
+    for (const name of [path.join(outside, 'secret.md'), '../outside.md', 'alias/inside.md']) {
+      const diff = await readFileDiff(directory, { path: name, status: 'modified', staged: false, unstaged: false });
+      expect(diff.preview).toEqual({ error: expect.any(String) });
+      expect(JSON.stringify(diff.preview)).not.toContain('# Outside secret');
+    }
+  });
+
+  it('withholds Markdown when the platform cannot prove which file was opened', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-platform-'));
+    await execute('git', ['init', '-b', 'main'], { cwd: directory });
+    await writeFile(path.join(directory, 'review.md'), '# Current document\n');
+    const proof = vi.spyOn(boundedText, 'namesOpenFiles').mockReturnValue(false);
+    const read = vi.spyOn(boundedText, 'readBoundedTextFile');
+    try {
+      const diff = await readFileDiff(directory, findChangedFile(await readWorkingTree(directory), 'review.md')!);
+      expect(diff.unstaged).toContain('+# Current document');
+      expect(diff.preview).toEqual({ error: expect.stringContaining('Linux') });
+      expect(read).not.toHaveBeenCalledWith(path.join(directory, 'review.md'), 512 * 1024, { exactly: true });
+    } finally {
+      proof.mockRestore();
+      read.mockRestore();
+    }
+  });
+
+  it('does not reauthorize a checkout root replaced by a symbolic link', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-root-'));
+    const outside = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-secret-'));
+    await writeFile(path.join(outside, 'review.md'), '# Private outside document\n');
+    await rename(directory, directory + '-original');
+    await symlink(outside, directory);
+    const diff = await readFileDiff(directory, { path: 'review.md', status: 'modified', staged: false, unstaged: false });
+    expect(diff.preview).toEqual({ error: expect.stringContaining('location changed') });
+    expect(JSON.stringify(diff)).not.toContain('Private outside document');
+  });
+
+  it('honors checkout recovery ownership and releases preview reads for subsequent recovery', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-markdown-busy-'));
+    await writeFile(path.join(directory, 'review.md'), '# Current document\n');
+    const file = { path: 'review.md', status: 'modified' as const, staged: false, unstaged: false };
+    const release = runRegistry.acquireCheckoutWrite(directory)!;
+    try {
+      expect((await readFileDiff(directory, file)).preview).toEqual({ error: expect.stringContaining('busy') });
+    } finally { release(); }
+    expect((await readFileDiff(directory, file)).preview).toEqual({ markdown: '# Current document\n' });
+    const recover = runRegistry.acquireCheckoutWrite(directory);
+    expect(recover).toBeTypeOf('function');
+    recover?.();
   });
 });

@@ -1,7 +1,12 @@
+import { realpath } from 'node:fs/promises';
+import path from 'node:path';
+import { namesOpenFiles, readBoundedTextFile } from '@/server/boundedTextFile';
+import { runRegistry } from '@/server/runs/runRegistry';
 import { isNotRepositoryOutput, runGitRead } from './gitRead';
 import type { GitChangedFile, GitFileDiff, GitFileStatus, GitWorkingTree } from '@/shared/types';
 
 const DIFF_BUFFER_BYTES = 2 * 1024 * 1024;
+const MARKDOWN_PREVIEW_BYTES = 512 * 1024;
 export const DETACHED_HEAD = 'Detached HEAD';
 
 interface GitFailure extends Error {
@@ -106,6 +111,32 @@ async function readDiff(repositoryPath: string, args: string[], allowedExitCodes
   }
 }
 
+async function readMarkdownPreview(repositoryPath: string, filePath: string): Promise<NonNullable<GitFileDiff['preview']>> {
+  // The checkout is agent-writable: never silently skip the handle's path proof on other systems.
+  if (!namesOpenFiles()) return { error: 'Markdown preview currently requires Linux to verify the file stays inside this repository.' };
+  const release = runRegistry.acquireCheckoutRead(repositoryPath, undefined, true);
+  if (!release) return { error: 'This repository is busy. Refresh to try again.' };
+  try {
+    const root = await realpath(repositoryPath);
+    if (root !== repositoryPath) return { error: 'The repository location changed. Refresh to try again.' };
+    const target = path.resolve(root, filePath);
+    if (!target.startsWith(root + path.sep) || await realpath(target) !== target) {
+      return { error: 'Preview is unavailable for symbolic links or files outside this repository.' };
+    }
+    const result = await readBoundedTextFile(target, MARKDOWN_PREVIEW_BYTES, { exactly: true });
+    if ('text' in result) return { markdown: result.text };
+    if (result.issue === 'too-large') return { error: 'Markdown preview is limited to 512 KiB per file.' };
+    if (result.issue === 'not-text') return { error: 'Markdown preview requires a UTF-8 text file.' };
+    return { error: 'The current file could not be read. Refresh to try again.' };
+  } catch (error) {
+    return { error: (error as NodeJS.ErrnoException).code === 'ENOENT'
+      ? 'The working-tree file no longer exists. Its changes are still available in Diff.'
+      : 'The current file could not be read. Refresh to try again.' };
+  } finally {
+    release();
+  }
+}
+
 export async function readFileDiff(repositoryPath: string, file: GitChangedFile): Promise<GitFileDiff> {
   const result: GitFileDiff = { path: file.path };
   const common = ['--no-ext-diff', '--no-textconv', '--no-color', '--unified=3'];
@@ -123,5 +154,6 @@ export async function readFileDiff(repositoryPath: string, file: GitChangedFile)
   } else if (file.unstaged) {
     result.unstaged = await readDiff(repositoryPath, ['diff', ...common, '--', file.path]);
   }
+  if (/\.(md|markdown)$/i.test(file.path)) result.preview = await readMarkdownPreview(repositoryPath, file.path);
   return result;
 }

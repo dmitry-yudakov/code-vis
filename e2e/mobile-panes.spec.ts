@@ -230,7 +230,9 @@ test('phone Changes keeps long file lists and patches scrollable with Restore an
   await side(page).locator('.repository-file').last().click();
   const patch = side(page).locator('.diff-inspector-scroll');
   await expect(patch).toBeVisible();
-  expect((await patch.boundingBox())!.y).toBeLessThan(100);
+  const toolbar = (await side(page).locator('.diff-inspector-toolbar').boundingBox())!;
+  expect((await patch.boundingBox())!.y).toBe(toolbar.y + toolbar.height);
+  expect((await patch.boundingBox())!.height).toBeGreaterThan(500);
   expect(await patch.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
   await patch.evaluate(node => { node.scrollTop = node.scrollHeight; });
   await expect.poll(() => patch.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2);

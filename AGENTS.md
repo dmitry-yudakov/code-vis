@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-03. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-04. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -157,6 +157,11 @@ Updated 2026-11-03. When a story ships, change the line that names it; each stor
   and per-request same-origin checks. All 183 focused tests, TypeScript, an isolated production build,
   a real TLS/Next.js check through two IPs and independent review pass. Real remote-device use remains
   unverified; private settings and certificates are unchanged, and the running app has not been restarted.
+- **Shipped:** [Story 124](stories/STORY-20261104-file-review.md) — file review offers wrapping,
+  a draggable/keyboard divider, full-screen restore and complete current-file Markdown preview.
+  Preview reads require Linux and are bounded to 512 KiB. All 69 focused unit checks, TypeScript,
+  isolated build, 30 production-browser checks, both-theme desktop/phone screenshot inspection
+  and independent review pass. The running app has not been restarted.
 - **Shipped:** [Story 123](stories/STORY-20261103-conversation-titles.md) — conversations receive a
   short background-generated title after their first successful reply, using the same provider and
   login, with small-model selection, bounded failure fallback and live tab/header updates. All
