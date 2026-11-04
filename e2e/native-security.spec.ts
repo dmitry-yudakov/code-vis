@@ -58,6 +58,60 @@ async function openFixture(page: Page, provider: 'claude' | 'codex', isolated = 
   return session;
 }
 
+for (const appearance of ['light', 'dark']) {
+  test(`composer shows full model details with a quiet Auto trigger: ${appearance}`, async ({ page }, testInfo) => {
+    await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), appearance);
+    await page.route('**/api/health', async route => {
+      const health = await (await route.fetch()).json();
+      const codex = { ...health.providers.codex, available: true, authenticated: true,
+        supportedModes: ['ask', 'plan', 'agent', 'auto', 'full'],
+        models: [{ id: 'gpt-6.1-sol', label: 'GPT-6.1-Sol', efforts: ['xhigh'] }], efforts: ['xhigh'] };
+      health.providers.codex = codex;
+      health.executions.local.providers.codex = codex;
+      await route.fulfill({ json: health });
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openFixture(page, 'codex');
+    const conversation = page.getByRole('complementary', { name: 'Conversation' });
+    const mode = conversation.locator('.mode-menu > button');
+    await mode.click();
+    await page.getByRole('radio', { name: 'Auto', exact: true }).click();
+    const model = conversation.locator('.model-menu > button');
+    await model.click();
+    await page.getByRole('radio', { name: 'GPT-6.1-Sol', exact: true }).click();
+    await page.getByRole('radio', { name: 'Extra high', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect(model).toBeFocused();
+    await expect(model).toHaveText('GPT-6.1-Sol · Extra high');
+
+    for (const [layout, width] of [['wide', 1440], ['docked', 1440], ['phone', 390], ['narrow-phone', 320]] as const) {
+      if (layout === 'docked') await page.getByRole('button', { name: 'Canvas', exact: true }).click();
+      await page.setViewportSize({ width, height: 900 });
+      await expect(model).toBeVisible();
+      expect(await model.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight)).toBe(true);
+      const row = conversation.locator('.composer-actions');
+      expect(await row.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      const controls = await Promise.all((await row.locator(':scope > *').all()).map(item => item.boundingBox()));
+      for (const [index, box] of controls.entries()) {
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+        if (index > 0) expect(box!.x).toBeGreaterThanOrEqual(controls[index - 1]!.x + controls[index - 1]!.width);
+      }
+      await conversation.getByRole('textbox', { name: 'Instruction', exact: true }).focus();
+      await page.mouse.move(0, 0);
+      await expect(mode).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(mode).toHaveAttribute('aria-label', 'Mode: Auto. Codex sandbox · your settings');
+      await page.screenshot({ path: testInfo.outputPath(`composer-${layout}.png`), animations: 'disabled' });
+    }
+    await mode.click();
+    const auto = page.getByRole('radio', { name: 'Auto', exact: true });
+    await expect(auto).toHaveAttribute('aria-checked', 'true');
+    await expect(auto).toContainText('Codex sandbox · your settings');
+    await page.keyboard.press('Escape');
+    await expect(mode).toBeFocused();
+  });
+}
+
 test('never falls back to Full access when it is the only supported mode', async ({ page }) => {
   await page.route('**/api/health', async (route) => {
     const health = await (await route.fetch()).json();

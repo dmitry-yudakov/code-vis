@@ -45,7 +45,7 @@ function ComposerMenu({ className, label, summary, disabled = false, color = 'pr
   label: string;
   summary: ReactNode;
   disabled?: boolean;
-  color?: 'primary' | 'warning' | 'error';
+  color?: 'primary' | 'warning' | 'error' | 'inherit';
   children(close: () => void): ReactNode;
 }) {
   return (
@@ -99,7 +99,7 @@ function ModePicker({ mode, execution, unsupportedModes, disabled, onChange, lev
   isolated: boolean;
 }) {
   return (
-    <ComposerMenu className={`mode-menu mode-${mode}`} disabled={disabled} color={mode === 'full' ? 'error' : ['agent', 'auto', 'edits'].includes(mode) ? 'warning' : 'primary'}
+    <ComposerMenu className={`mode-menu mode-${mode}`} disabled={disabled} color={mode === 'auto' ? 'inherit' : mode === 'full' ? 'error' : ['agent', 'edits'].includes(mode) ? 'warning' : 'primary'}
       label={`Mode: ${AGENT_MODE_LABELS[mode]}. ${agentModeHint(mode, execution, level, provider)}`}
       summary={<>{AGENT_MODE_LABELS[mode]}<Icon name="chevronDown" /></>}>
       {(close) => (

@@ -46,6 +46,27 @@ reserves space for an absent conversation. Improve the workbench shell slice of
 Server/provider policy, durable formats, VR rendering, new dependencies, deployment, and restarting
 the user's running application.
 
+## November 3 follow-up — composer model details and Auto
+
+The model picker truncates `GPT-6.1-Sol · Extra high` at 150px even in a wide composer, and
+Auto's filled amber trigger reads as a warning during routine work.
+
+Where the code is: `src/features/conversation/InstructionComposer.tsx:102` owns the mode trigger;
+`src/app/globals.css:754` caps the shared model picker, also used by session setup.
+
+- [x] Show the full model and effort when space permits; wrap long labels in narrow panes without
+      horizontal overflow or overlapping Attach, mode, or Send controls.
+- [x] Auto uses a neutral text trigger with its existing name, chevron, permission hint and menu
+      behavior. Agent/Accept edits and Full access retain their warning/error emphasis.
+- [x] Focused unit checks, TypeScript, an isolated production build, and light/dark browser checks
+      at wide, docked, and 390/320px phone widths pass; inspect the resulting screenshots.
+
+Verified: 72 focused unit checks, `npm run lint`, `CODEAI_DIST_DIR=.next-e2e npm run build`,
+and seven production-browser checks across `native-security`, `canvas`, and `session-setup` pass.
+The new layout regression fails against the previous build on the clipped model label. All eight
+light/dark layout screenshots were inspected; independent review found no issues. The running
+application has not been restarted.
+
 ## How to verify
 
 Run `npm run lint`, focused existing theme/layout/arena offline tests, and an isolated production
