@@ -2105,7 +2105,7 @@ test('shares a paged diff with desktop and bounds resources across twenty open/c
   const state = await workspaceFixture(page, true);
   await page.goto('/');
   // The desktop shows the shared diff in its side panel, which starts closed.
-  await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: /^Changes/ }).click();
+  await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: /^Repository/ }).click();
   await enter(page);
   await panelAction(page, 'evidence', 'open');
   await controls(page).getByRole('button', { name: 'Next file', exact: true }).click();

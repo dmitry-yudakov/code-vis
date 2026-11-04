@@ -15,7 +15,7 @@ test.afterEach(async ({ request }) => {
 
 async function startSession(page: Page) {
   await expect(page.locator('.new-session-menu > button')).toBeVisible();
-  const openViews = page.getByRole('tab');
+  const openViews = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab');
   const before = await openViews.count();
   // Toasts sit under the header's menus, so none can cover Start session.
   await page.locator('.new-session-menu > button').click();
@@ -106,7 +106,7 @@ function activityBar(page: Page) {
   return page.getByRole('navigation', { name: 'Views' });
 }
 
-function activityView(page: Page, name: 'Changes' | 'History' | 'Reports') {
+function activityView(page: Page, name: 'Repository' | 'History' | 'Reports') {
   return activityBar(page).getByRole('button', { name: new RegExp(`^${name}`) });
 }
 
@@ -120,25 +120,29 @@ async function fromMoreMenu(page: Page, name: string) {
 
 /** The side panel starts closed unless the session has no repository yet. */
 async function openRepositoryPanel(page: Page) {
-  const changes = activityView(page, 'Changes');
+  const changes = activityView(page, 'Repository');
   if (await changes.getAttribute('aria-pressed') !== 'true') await changes.click();
 }
 
 async function attachRepository(page: Page, name: string) {
   await openRepositoryPanel(page);
   const manager = page.getByRole('region', { name: 'Session repositories' });
-  // A single repository collapses the manager; attaching another starts by opening it.
-  const disclosure = manager.getByRole('button', { name: /^Session repositories/ });
-  if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
+  if (!await manager.isVisible()) await page.getByRole('button', { name: 'Manage repositories', exact: true }).click();
+  const firstRepository = !await manager.locator('.repository-binding').count();
   await manager.getByRole('combobox', { name: 'Repository to add' }).selectOption({ label: name });
   await manager.getByRole('button', { name: 'Add', exact: true }).click();
+  // Attaching the first repository replaces the inline form with the compact control.
+  if (firstRepository) {
+    await expect(page.getByRole('button', { name: 'Manage repositories', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Manage repositories', exact: true }).click();
+  }
   await expect(manager.locator('.repository-binding').filter({ hasText: name })).toHaveCount(1);
 }
 
 async function ensureRepository(page: Page) {
   await openRepositoryPanel(page);
   const manager = page.getByRole('region', { name: 'Session repositories' });
-  if (!await manager.locator('.repository-binding').count()) await attachRepository(page, 'alpha');
+  if (await manager.isVisible() && !await manager.locator('.repository-binding').count()) await attachRepository(page, 'alpha');
 }
 
 async function persistedSpatialLayout(page: Page) {
@@ -613,13 +617,13 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
 test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.new-session-menu > button')).toBeVisible();
-  while (await page.getByRole('tab').count()) await page.getByRole('tab', { selected: true }).press('Delete');
+  while (await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').count()) await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
   await startSession(page);
   const firstConversation = page.getByRole('complementary', { name: 'Conversation' });
   await firstConversation.locator('textarea').fill('first view draft');
 
   await startSession(page);
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
   expect(await page.locator('[role="tablist"] > *').evaluateAll((children) => (
     children.map((child) => child.getAttribute('role'))
   ))).toEqual(['tab', 'tab']);
@@ -630,7 +634,7 @@ test('keeps multiple session views and their device layout usable during backgro
   await expect(page.locator('.workspace-tab').nth(1)).toHaveClass(/working/);
   await expect(page.locator('.turn-activity')).toContainText('Read · README.md');
 
-  await page.getByRole('tab').nth(0).click();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').nth(0).click();
   const backgroundConversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(backgroundConversation.locator('textarea')).toHaveValue('first view draft');
   await backgroundConversation.locator('textarea').fill('first view draft, edited while another turn runs');
@@ -645,29 +649,29 @@ test('keeps multiple session views and their device layout usable during backgro
   // Recovery is host-wide: the running second view reattaches even though the first view owns
   // device focus at reload, and that focus plus its camera remain intact.
   await page.reload();
-  await expect(page.getByRole('tab')).toHaveCount(2);
-  await expect(page.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.workspace-tab').nth(1)).toHaveClass(/working/);
   await expect(page.locator('.canvas-controls > span').first()).toHaveText(firstViewZoom!);
 
-  await page.getByRole('tab').nth(1).click();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').nth(1).click();
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(toast(page, 'cancelled')).toHaveAttribute('data-tone', 'info');
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('second view draft');
 
   await page.reload();
-  await expect(page.getByRole('tab')).toHaveCount(2);
-  await expect(page.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('second view draft');
-  await page.getByRole('tab').nth(0).click();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').nth(0).click();
   await expect(page.getByRole('complementary', { name: 'Conversation' })).toHaveCount(0);
   await openConversation(page);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('first view draft, edited while another turn runs');
   await expect(page.locator('.canvas-controls > span').first()).toHaveText(firstViewZoom!);
-  await page.getByRole('tab').nth(0).press('Delete');
-  await expect(page.getByRole('tab')).toHaveCount(1);
-  await expect(page.getByRole('tab')).toBeFocused();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').nth(0).press('Delete');
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toBeFocused();
 });
 
 test('runs two turns, queues a third, and recovers background approval and promotion', async ({ page }) => {
@@ -902,7 +906,7 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   };
   const archivedSessionId = catalog.sessions[0].id;
 
-  const openTabs = page.getByRole('tab');
+  const openTabs = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab');
   await expect(openTabs).toHaveCount(1);
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   await expect(page).toHaveURL(/\/arena$/);
@@ -943,7 +947,7 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   await restoredProject.getByRole('button', { name: /Open Session/ }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
-  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
 });
 
 test('archives the open session from the More menu', async ({ page, request }) => {
@@ -954,7 +958,7 @@ test('archives the open session from the More menu', async ({ page, request }) =
   await createNamedProject(page, projectName);
   await startSession(page);
   await startSession(page);
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
   const projects = (await (await request.get('/api/projects')).json()) as { projects: Array<{ id: string; name: string }> };
   const projectId = projects.projects.find((project) => project.name === projectName)!.id;
   const sessionIds = async () => ((await (await request.get(`/api/sessions?projectId=${projectId}`)).json()) as {
@@ -987,7 +991,7 @@ test('archives the open session from the More menu', async ({ page, request }) =
   await menu.locator(':scope > button').click();
   await expect(archive).toBeEnabled();
   expect(archiveRequests).toEqual([]);
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
 
   // While the archive is in flight, the reopened menu cannot send a second one.
   let releaseArchive!: () => void;
@@ -999,7 +1003,7 @@ test('archives the open session from the More menu', async ({ page, request }) =
   await expect(archive).toBeDisabled();
   await menu.locator(':scope > button').click();
   releaseArchive();
-  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
   expect(dialogs).toEqual([]);
   expect(archiveRequests).toHaveLength(1);
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
@@ -1190,8 +1194,8 @@ test('separates replay from live recovery events and keeps terminal actions per 
   await page.getByRole('complementary', { name: 'Conversation' }).locator('textarea').fill('Concurrent slot recovery two');
   await page.getByRole('button', { name: 'Send' }).click();
 
-  const firstTab = page.getByRole('tab', { name: /Concurrent slot recovery one/ });
-  const secondTab = page.getByRole('tab', { name: /Concurrent slot recovery two/ });
+  const firstTab = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Concurrent slot recovery one/ });
+  const secondTab = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Concurrent slot recovery two/ });
   await expect(firstTab).toHaveClass(/working/);
   await expect(secondTab).toHaveClass(/working/);
   await firstTab.click();
@@ -1354,7 +1358,7 @@ test('discovers, reattaches, and cancels a turn that outlives a reload', async (
   await page.reload();
   expect((await (await discovery).json()).active).toHaveLength(1);
   // The session's tab carries a reattached turn while the conversation is closed.
-  await expect(page.getByRole('tab', { selected: true })).toHaveClass(/working/);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveClass(/working/);
   await ensureConversationOpen(page);
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -1380,7 +1384,7 @@ test('recovers a host-wide run in its canonical project scope', async ({ page })
   await page.reload();
   await expect(page.locator('.project-search-trigger')).toContainText(ownerProject);
   // The session's tab carries a reattached turn while the conversation is closed.
-  await expect(page.getByRole('tab', { selected: true })).toHaveClass(/working/);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveClass(/working/);
   await ensureConversationOpen(page);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(toast(page, 'cancelled')).toHaveAttribute('data-tone', 'info');
@@ -1934,8 +1938,8 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   await expect(header.locator('details:not(.new-session-menu, .device-menu, .session-advanced-settings)')).toHaveCount(0);
   const bar = activityBar(page);
   await expect(bar.locator(':scope > :is(button, a), .more-menu > button')).toHaveCount(5);
-  await expect(activityView(page, 'Changes')).toHaveAccessibleName('Changes, 2 files');
-  await expect(activityView(page, 'Changes').locator('.activity-badge')).toHaveText('2');
+  await expect(activityView(page, 'Repository')).toHaveAccessibleName('Repository, 2 files');
+  await expect(activityView(page, 'Repository').locator('.activity-badge')).toHaveText('2');
   await showCanvas(page);
   const [barBox, canvasBox] = await Promise.all([bar.boundingBox(), page.locator('.canvas-workspace').boundingBox()]);
   expect(barBox!.width).toBe(40);
@@ -1944,13 +1948,13 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
 
   // Each view toggles itself, and another view switches the panel.
   const sidePanel = page.locator('.repository-sidebar');
-  await activityView(page, 'Changes').click();
+  await activityView(page, 'Repository').click();
   await expect(page.getByRole('complementary', { name: 'Repository' })).toBeVisible();
-  await expect(sidePanel.getByRole('heading', { name: 'Changes' })).toBeVisible();
+  await expect(sidePanel.getByRole('heading', { name: 'Repository' })).toBeVisible();
   await expect(sidePanel.getByRole('button', { name: /Close|History|Reports/ })).toHaveCount(0);
   await activityView(page, 'History').click();
   await expect(page.getByRole('complementary', { name: 'Canvas history' })).toBeVisible();
-  await expect(activityView(page, 'Changes')).toHaveAttribute('aria-pressed', 'false');
+  await expect(activityView(page, 'Repository')).toHaveAttribute('aria-pressed', 'false');
   await expect(activityView(page, 'History')).toHaveAttribute('aria-pressed', 'true');
 
   // Focus mode hides the panel; pressing its view shows it again instead of closing it unseen.
@@ -1979,7 +1983,7 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
   await bar.getByRole('link', { name: 'Arena', exact: true }).click();
   await expect(page.getByRole('main', { name: 'Arena' })).toBeVisible();
   await expect(bar.getByRole('link', { name: 'Arena', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(bar.getByRole('button', { name: /^(Changes|History)/ })).toHaveCount(0);
+  await expect(bar.getByRole('button', { name: /^(Repository|History)/ })).toHaveCount(0);
   await bar.getByRole('link', { name: /^Inbox/ }).click();
   await expect(page).toHaveURL(/\/arena\/inbox$/);
   await expect(bar.getByRole('link', { name: /^Inbox/ })).toHaveAttribute('aria-current', 'page');
@@ -2064,7 +2068,7 @@ test('opens and hides the canvas for a wide conversation, and never hides it wit
 
   // Returning at a different width, a fitted view fits the canvas it returns to.
   await canvasToggle.click();
-  await activityView(page, 'Changes').click();
+  await activityView(page, 'Repository').click();
   await canvasToggle.click();
   await expect(page.getByRole('complementary', { name: 'Repository' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
@@ -2072,7 +2076,7 @@ test('opens and hides the canvas for a wide conversation, and never hides it wit
     const diagram = document.querySelector<HTMLElement>('.mermaid-layer')!.getBoundingClientRect();
     return diagram.left >= stage.left && diagram.right <= stage.right;
   })).toBe(true);
-  await activityView(page, 'Changes').click();
+  await activityView(page, 'Repository').click();
 
   // Opening a diagram or starting a sketch from the conversation brings a hidden canvas back.
   await canvasToggle.click();
@@ -2096,7 +2100,7 @@ test('opens and hides the canvas for a wide conversation, and never hides it wit
   // Where one dock fits beside the canvas, both panels still fit beside a hidden one.
   await page.setViewportSize({ width: 1000, height: 900 });
   await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-1/);
-  await activityView(page, 'Changes').click();
+  await activityView(page, 'Repository').click();
   await expect(page.getByRole('complementary', { name: 'Repository' })).toBeVisible();
   await expect(conversation).toBeVisible();
   await canvasToggle.click();
@@ -2197,7 +2201,7 @@ test('docks only the panels that fit the live shell width', async ({ page, reque
   await expect(repository).toBeHidden();
 
   // At one-panel capacity, the newly opened repository replaces the conversation column.
-  await activityView(page, 'Changes').click();
+  await activityView(page, 'Repository').click();
   await expect(repository).toBeVisible();
   await expect(conversation).toBeHidden();
 
@@ -2210,7 +2214,7 @@ test('docks only the panels that fit the live shell width', async ({ page, reque
   await expect(conversation).toBeVisible();
   await expect(conversation).toHaveCSS('width', '600px');
   await expect(page.getByRole('separator', { name: 'Resize conversation panel' })).toHaveCount(0);
-  await activityView(page, 'Changes').click();
+  await activityView(page, 'Repository').click();
   await expect(repository).toBeVisible();
   await expect(conversation).toBeHidden();
   await expect(repository).toHaveCSS('width', '600px');

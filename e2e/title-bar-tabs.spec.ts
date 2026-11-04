@@ -24,9 +24,9 @@ async function openProject(page: Page, request: APIRequestContext, count = 3) {
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
-  while (await page.getByRole('tab').count()) await page.getByRole('tab', { selected: true }).press('Delete');
+  while (await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').count()) await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
   for (const session of sessions) await picker.selectOption(session.id);
-  if (sessions.length) await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions.at(-1)!.title);
+  if (sessions.length) await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName(sessions.at(-1)!.title);
   return { project, sessions };
 }
 
@@ -42,7 +42,7 @@ async function finishReply(page: Page) {
 async function expectSelectedInView(page: Page) {
   await expect.poll(async () => {
     const list = (await page.locator('.workspace-tablist .MuiTabs-scroller').boundingBox())!;
-    const tab = (await page.getByRole('tab', { selected: true }).boundingBox())!;
+    const tab = (await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).boundingBox())!;
     return tab.x >= list.x - 1 && tab.x + tab.width <= list.x + list.width + 1;
   }).toBe(true);
 }
@@ -128,7 +128,7 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
 test('title-bar tabs keep overflow selection visible, wrap arrows and reopen closed views', async ({ page, request }) => {
   await page.setViewportSize({ width: 1000, height: 900 });
   const { sessions } = await openProject(page, request, 8);
-  const tabs = page.getByRole('tab');
+  const tabs = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab');
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
   await expect(picker).toHaveCount(1);
   await expectSelectedInView(page);
@@ -155,7 +155,7 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   await picker.selectOption(sessions[7].id);
 
   // Archiving applies the same neighbour focus as Delete, including overflow.
-  await page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ }).click();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ }).click();
   await expect(tabs).toHaveCount(7);
   await expect(tabs.last()).toBeFocused();
   await expectSelectedInView(page);
@@ -172,8 +172,8 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   }
   await picker.selectOption(sessions[0].id);
   await expectSelectedInView(page);
-  await page.getByRole('tab', { selected: true }).press('ArrowRight');
-  expect(await page.getByRole('tab', { selected: true }).evaluate((tab) => {
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('ArrowRight');
+  expect(await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).evaluate((tab) => {
     const bounds = tab.closest('.MuiTabs-scroller')!.getBoundingClientRect();
     const box = tab.getBoundingClientRect();
     const style = getComputedStyle(tab);
@@ -184,7 +184,7 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
       && box.top - extent >= bounds.top && box.bottom + extent <= bounds.bottom;
   })).toBe(true);
   await page.screenshot({ path: '/tmp/codeai-story73-phone.png' });
-  while (await tabs.count()) await page.getByRole('tab', { selected: true }).press('Delete');
+  while (await tabs.count()) await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
   await expect(picker).toBeFocused();
   await expect(picker).toHaveValue('');
   await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
@@ -201,12 +201,12 @@ test('archiving a background tab keeps the current session, Git status and keybo
     isRepository: true, branch: 'main', files: [{ path: 'README.md', status: 'modified', staged: false, unstaged: true }],
   } } }));
   const { sessions } = await openProject(page, request, 3);
-  const selected = page.getByRole('tab', { selected: true });
+  const selected = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true });
   await expect(selected).toHaveAccessibleName(sessions[2].title);
-  const changes = page.getByRole('button', { name: 'Changes, 1 file', exact: true });
+  const changes = page.getByRole('button', { name: 'Repository, 1 file', exact: true });
   await expect(changes).toBeVisible();
   await page.getByRole('button', { name: `Archive this session: ${sessions[0].title}`, exact: true }).click();
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
   await expect(selected).toHaveAccessibleName(sessions[2].title);
   await expect(selected).toBeFocused();
   await expect(changes).toBeVisible();
@@ -219,7 +219,7 @@ test('archiving a background tab keeps the current session, Git status and keybo
   const close = selected.getByRole('button', { name: /^Archive this session:/ });
   await expect(close).toBeFocused();
   await close.press('Enter');
-  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
   await expect(selected).toHaveAccessibleName(sessions[1].title);
   await expect(selected).toBeFocused();
 });
@@ -233,24 +233,24 @@ test('title-bar tabs preserve stored layouts and protect approval-blocked views'
   await page.reload();
   await expect(page.locator('.canvas-workspace')).toBeHidden();
   await expect(conversation.locator('textarea')).toHaveValue('Remember this draft');
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
   await conversation.getByLabel(/^Mode: /).click();
   await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Request an edit approval');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(conversation.getByRole('region', { name: 'Pending approvals' })).toContainText('Claude · Edit');
-  const selected = page.getByRole('tab', { selected: true });
+  const selected = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true });
   await expect(selected).toHaveClass(/awaiting-approval/);
   await expect(selected.locator('.approval-badge')).toHaveText('1');
   await expectSelectedInView(page);
   await expect(selected.getByRole('button', { name: /^Archive this session:/ })).toBeDisabled();
   await expect(conversation.locator(':scope > header').getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
   await selected.press('Delete');
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
   await picker.selectOption(sessions[0].id);
-  await expect(page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ })).toBeEnabled();
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ })).toBeEnabled();
   // The live background tab remains protected too.
-  await expect(page.getByRole('tab', { selected: false }).getByRole('button', { name: /^Archive this session:/ })).toBeDisabled();
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: false }).getByRole('button', { name: /^Archive this session:/ })).toBeDisabled();
   await picker.selectOption(sessions[1].id);
   await conversation.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(selected.getByRole('button', { name: /^Archive this session:/ })).toBeEnabled();
@@ -265,13 +265,13 @@ test('Delete preserves drafts and tab archive shares failure, pending and Undo h
   page.on('dialog', (dialog) => { throw new Error(`Unexpected confirmation: ${dialog.message()}`); });
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.locator('textarea').fill('Keep my draft when I close this tab');
-  await page.getByRole('tab', { selected: true }).press('Delete');
-  await expect(page.getByRole('tab')).toHaveCount(1);
-  await expect(page.getByRole('tab', { selected: true })).toBeFocused();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toBeFocused();
   expect(archiveRequests).toBe(0);
   await picker.selectOption(sessions[1].id);
   await expect(conversation.locator('textarea')).toHaveValue('Keep my draft when I close this tab');
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
 
   await finishReply(page);
   const archive = conversation.locator(':scope > header').getByRole('button', { name: 'Archive session', exact: true });
@@ -286,7 +286,7 @@ test('Delete preserves drafts and tab archive shares failure, pending and Undo h
     await page.screenshot({ path: `/tmp/codeai-story112-desktop-${theme.toLowerCase()}.png` });
   }
   // A failed archive retains the conversation and permits an explicit retry.
-  const tabArchive = page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ });
+  const tabArchive = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ });
   await conversation.locator('textarea').fill('Keep this draft through archive and Undo');
   await page.route(`**/api/sessions/${sessions[1].id}/archive`, route => route.fulfill({ status: 500, json: { error: 'Archive temporarily unavailable.' } }), { times: 1 });
   await tabArchive.click();
@@ -295,7 +295,7 @@ test('Delete preserves drafts and tab archive shares failure, pending and Undo h
   await expect(tabArchive).toBeEnabled();
   await expect(tabArchive).toBeFocused();
   await expect(conversation.locator('textarea')).toHaveValue('Keep this draft through archive and Undo');
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
 
   // Hold the archive to verify both actions guard duplicate/competing requests.
   let releaseArchive!: () => void;
@@ -304,12 +304,12 @@ test('Delete preserves drafts and tab archive shares failure, pending and Undo h
     await archiveGate;
     await route.continue();
   });
-  const archivedTitle = await page.getByRole('tab', { selected: true }).locator('.workspace-tab-title').innerText();
+  const archivedTitle = await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).locator('.workspace-tab-title').innerText();
   await tabArchive.click();
   await expect(archive).toBeDisabled();
-  await expect(page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ })).toBeDisabled();
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ })).toBeDisabled();
   releaseArchive();
-  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
   await expect(picker.locator(`option[value="${sessions[1].id}"]`)).toHaveCount(0);
   const toast = page.getByRole('status').filter({ hasText: `Archived “${archivedTitle}”` });
   await expect(toast).toBeVisible();
@@ -317,7 +317,7 @@ test('Delete preserves drafts and tab archive shares failure, pending and Undo h
   await toast.getByRole('button', { name: 'Undo archive' }).click();
   await expect(picker.locator(`option[value="${sessions[1].id}"]`)).toHaveCount(1);
   await picker.selectOption(sessions[1].id);
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
   await expect(conversation.locator('textarea')).toHaveValue('Keep this draft through archive and Undo');
   await expect(conversation.locator('.chat-message.assistant.complete')).toBeVisible();
 });
@@ -326,11 +326,11 @@ test('phone tab archive persists after reload and header session actions fit in 
   await page.setViewportSize({ width: 390, height: 844 });
   const { sessions } = await openProject(page, request, 1);
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
-  await page.getByRole('tab', { selected: true }).press('Delete');
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
   await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
   await expect(picker).toBeFocused();
   await page.reload();
-  await expect(page.getByRole('tab')).toHaveCount(0);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(0);
   await picker.selectOption(sessions[0].id);
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator(':scope > header')
     .getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
@@ -361,13 +361,13 @@ test('phone tab archive persists after reload and header session actions fit in 
       await page.screenshot({ path: `/tmp/codeai-header-actions-phone-${theme.toLowerCase()}-${width}.png` });
     }
   }
-  await page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ }).click();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ }).click();
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   await expect(picker.locator(`option[value="${sessions[0].id}"]`)).toHaveCount(0);
   await expect(picker).toBeDisabled();
   await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeFocused();
   await page.reload();
-  await expect(page.getByRole('tab')).toHaveCount(0);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(0);
   await expect(picker.locator(`option[value="${sessions[0].id}"]`)).toHaveCount(0);
 });
 
@@ -392,16 +392,16 @@ test('overlapping tab archives keep separate pending guards and respect a newer 
   await archiveFirst.click();
   await expect(archiveFirst).toBeDisabled();
   releases.get(sessions[2].id)!();
-  await expect(page.getByRole('tab')).toHaveCount(2);
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
-  await expect(page.getByRole('tab', { selected: true })).toBeFocused();
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toBeFocused();
   await expect(archiveFirst).toBeDisabled();
-  await page.getByRole('tab', { name: sessions[0].title, exact: true }).press('Delete');
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: sessions[0].title, exact: true }).press('Delete');
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
   releases.get(sessions[0].id)!();
-  await expect(page.getByRole('tab')).toHaveCount(1);
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
-  await expect(page.getByRole('tab', { selected: true })).toBeFocused();
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toBeFocused();
   expect(archiveRequests).toEqual([sessions[2].id, sessions[0].id]);
   for (const session of [sessions[0], sessions[2]]) {
     await expect(picker.locator(`option[value="${session.id}"]`)).toHaveCount(0);
@@ -416,7 +416,7 @@ test('a delayed tab archive preserves focus in another session composer', async 
     await gate;
     await route.continue();
   });
-  const archive = page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ });
+  const archive = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ });
   await archive.click();
   await expect(archive).toBeDisabled();
   await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sessions[0].id);
@@ -424,7 +424,7 @@ test('a delayed tab archive preserves focus in another session composer', async 
   await input.fill('Keep typing');
   const refreshed = page.waitForResponse(response => response.url().endsWith('/api/arena'));
   releaseArchive();
-  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
   await expect(page.getByRole('status').filter({ hasText: `Archived “${sessions[1].title}”` })).toBeVisible();
   await (await refreshed).finished();
   // Archive completes after its Arena refresh; let its scheduled focus update run before typing.
@@ -445,7 +445,7 @@ test('tab and header archive guards use machine-reported turns, offline state an
   await page.route('**/api/arena', (route) => route.fulfill({ json: snapshot, headers: { 'x-header-state': observation } }));
   await page.waitForResponse((response) => response.headers()['x-header-state'] === 'offline');
   const archive = page.getByRole('complementary', { name: 'Conversation' }).getByRole('button', { name: 'Archive session', exact: true });
-  const tabArchive = page.getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ });
+  const tabArchive = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ });
   await expect(archive).toBeDisabled();
   await expect(tabArchive).toBeDisabled();
   await expect(tabArchive).toHaveAttribute('title', 'This execution machine is offline.');
@@ -457,8 +457,8 @@ test('tab and header archive guards use machine-reported turns, offline state an
   await page.waitForResponse((response) => response.headers()['x-header-state'] === 'queued');
   await expect(archive).toBeDisabled();
   await expect(tabArchive).toBeDisabled();
-  await page.getByRole('tab', { selected: true }).press('Delete');
-  await expect(page.getByRole('tab')).toHaveCount(1);
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
 
   // Another device saved this revision; the open transcript still holds the original one.
   const filename = path.resolve('test-results/server-data/session-store-v2/sessions', `${session.id}.json`);

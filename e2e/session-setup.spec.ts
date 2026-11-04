@@ -116,7 +116,7 @@ test('same-project Arena card opens a background turn that completed before acce
   await expect(conversation).toContainText('Background Arena completion');
   await expect(conversation).toContainText('First turn complete.');
   await expect(conversation.locator('.chat-message.user.sent')).toHaveCount(1);
-  await page.getByRole('tab', { name: new RegExp(source.title) }).click();
+  await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: new RegExp(source.title) }).click();
   await expect(conversation.locator('textarea')).toHaveValue('Keep the source draft');
 });
 
@@ -147,12 +147,12 @@ test('same-project background approvals and replies stay connected while another
     await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
     await start('Background queued connection', 'ask');
     await expect(conversation).toContainText('Background queued connection');
-    await expect(page.getByRole('tab', { name: /Background approval connection/ })).toHaveClass(/awaiting-approval/);
-    await expect(page.getByRole('tab', { name: /Background queued connection/ })).toHaveClass(/queued/);
-    await page.getByRole('tab', { name: /Background approval connection/ }).click();
+    await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Background approval connection/ })).toHaveClass(/awaiting-approval/);
+    await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Background queued connection/ })).toHaveClass(/queued/);
+    await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Background approval connection/ }).click();
     await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
     await expect(conversation).toContainText('Edit approved — I applied it.');
-    await page.getByRole('tab', { name: /Background queued connection/ }).click();
+    await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Background queued connection/ }).click();
     await expect(conversation).toContainText('First turn complete.');
     await expect(conversation.locator('.chat-message.user.sent')).toHaveCount(1);
   } finally {
@@ -236,7 +236,7 @@ test('same-project background stream reconnects after a failed attachment when i
     await expect(conversation).toContainText('Background stream retry');
     releaseFailure();
     await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('Lost the connection to a running turn.');
-    await expect(page.getByRole('tab', { name: /Background stream retry/ })).not.toHaveClass(/working|awaiting-approval/);
+    await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Background stream retry/ })).not.toHaveClass(/working|awaiting-approval/);
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('button', { name: 'Open Background stream retry', exact: true }).click();
     await expect.poll(() => attachments).toBe(2);
@@ -270,7 +270,7 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     await page.getByRole('radio', { name: 'Plan', exact: true }).click();
     expect((await changing).status()).toBe(200);
     await expect(conversation.getByRole('button', { name: 'Execute plan', exact: true })).toBeVisible();
-    await expect(page.getByRole('tab', { name: /Completed Arena choices/ })).not.toHaveClass(/working|awaiting-approval/);
+    await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Completed Arena choices/ })).not.toHaveClass(/working|awaiting-approval/);
 
     await conversation.getByRole('button', { name: 'Session agents', exact: true }).click();
     await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
@@ -531,8 +531,8 @@ test('same-project empty gear launch focuses once, and title-tab return keeps ke
   await dialog.getByRole('textbox').press('Enter');
   await expect(dialog).not.toBeVisible();
   await expect(page.locator('.conversation-drawer textarea')).toBeFocused();
-  await expect(page.getByRole('tab')).toHaveCount(2);
-  const selected = page.getByRole('tab', { selected: true });
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
+  const selected = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true });
   await selected.press('ArrowLeft'); await expect(selected).toBeFocused();
   await selected.press('ArrowRight'); await expect(selected).toBeFocused();
 });

@@ -29,10 +29,10 @@ for (const theme of ['light', 'dark']) {
     const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
     await input.fill('Preserve my draft');
     await page.getByRole('button', { name: 'Canvas', exact: true }).click();
-    await views(page).getByRole('button', { name: /^Changes/ }).click();
+    await views(page).getByRole('button', { name: /^Repository/ }).click();
     const before = (await layouts(page))[session.id];
     const boxes = await Promise.all([canvas(page).boundingBox(), conversation(page).boundingBox(), side(page).boundingBox()]);
-    for (const [label, pane] of [['Conversation', conversation(page)], ['Canvas', canvas(page)], ['Changes', side(page)]] as const) {
+    for (const [label, pane] of [['Conversation', conversation(page)], ['Canvas', canvas(page)], ['Repository', side(page)]] as const) {
       await pane.getByRole('button', { name: `Maximize ${label}`, exact: true }).click();
       await expect(pane).toBeVisible();
       const box = (await pane.boundingBox())!;
@@ -60,8 +60,8 @@ for (const theme of ['light', 'dark']) {
     await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
     await expect(conversation(page)).toBeHidden();
     await page.locator('.app-header').getByRole('button', { name: 'Conversation', exact: true }).click();
-    await side(page).getByRole('button', { name: 'Maximize Changes', exact: true }).click();
-    await views(page).getByRole('button', { name: /^Changes/ }).click();
+    await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
+    await views(page).getByRole('button', { name: /^Repository/ }).click();
     await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
     await expect(side(page)).toBeHidden();
     await page.screenshot({ path: testInfo.outputPath('desktop-restored.png') });
@@ -143,9 +143,9 @@ test('desktop offers maximize only beside another pane; a phone always does', as
   await expect(maximizeCanvas).toBeVisible();
   await canvasToggle.click();
   await expect(maximizeChat).toHaveCount(0);
-  await views(page).getByRole('button', { name: /^Changes/ }).click();
+  await views(page).getByRole('button', { name: /^Repository/ }).click();
   await expect(maximizeChat).toBeVisible();
-  await views(page).getByRole('button', { name: /^Changes/ }).click();
+  await views(page).getByRole('button', { name: /^Repository/ }).click();
 
   // The canvas alone has nothing to take room from either.
   await page.locator('.app-header').getByRole('button', { name: 'Conversation', exact: true }).click();
@@ -193,11 +193,11 @@ test('maximized Changes keeps its diff and does not reconcile away the underlyin
   await page.route('**/api/repository/diff?*', route => route.fulfill({ json: { diff: { path: 'example.ts', unstaged: '@@ -1 +1 @@\n-old\n+new' } } }));
   const session = await openWorkspace(page, request);
   await page.getByRole('button', { name: 'Canvas', exact: true }).click();
-  await views(page).getByRole('button', { name: /^Changes/ }).click();
+  await views(page).getByRole('button', { name: /^Repository/ }).click();
   await side(page).locator('.repository-file').click();
   await expect(page.getByLabel('Unified diff')).toContainText('+new');
   const before = (await layouts(page))[session.id];
-  await side(page).getByRole('button', { name: 'Maximize Changes', exact: true }).click();
+  await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
   await expect(page.getByLabel('Unified diff')).toBeVisible();
   await page.setViewportSize({ width: 1000, height: 900 });
   await expect(side(page)).toBeVisible();
@@ -210,7 +210,7 @@ test('maximized Changes keeps its diff and does not reconcile away the underlyin
   await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-0/);
   await expect(side(page)).toBeVisible();
   await expect(page.getByLabel('Unified diff')).toBeVisible();
-  await side(page).getByRole('button', { name: 'Maximize Changes', exact: true }).click();
+  await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
   await expect(side(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
   await expect(page.getByLabel('Unified diff')).toBeVisible();
   await side(page).getByRole('button', { name: 'Close file changes', exact: true }).click();
@@ -223,8 +223,8 @@ test('phone Changes keeps long file lists and patches scrollable with Restore an
   await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: { isRepository: true, files } } }));
   await page.route('**/api/repository/diff?*', route => route.fulfill({ json: { diff: { path: 'file-29.ts', unstaged: '@@ -1 +1 @@\n' + Array.from({ length: 150 }, (_, index) => `+Patch line ${index + 1}`).join('\n') } } }));
   await openWorkspace(page, request);
-  await views(page).getByRole('button', { name: /^Changes/ }).click();
-  await side(page).getByRole('button', { name: 'Maximize Changes', exact: true }).click();
+  await views(page).getByRole('button', { name: /^Repository/ }).click();
+  await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
   const list = side(page).locator('.repository-summary-scroll');
   expect(await list.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
   await side(page).locator('.repository-file').last().click();

@@ -2,7 +2,6 @@
 
 import Button from '@mui/material/Button';
 import ListItemButton from '@mui/material/ListItemButton';
-import Paper from '@mui/material/Paper';
 
 import type { GitChangedFile, GitFileStatus, GitWorkingTree } from '@/shared/types';
 
@@ -52,23 +51,20 @@ function FileRow({ file, selected, onSelect }: {
 }
 
 /** The button's words for what the server said it would do. */
-function pushOffer({ pushTarget, publishes, ahead, upstream }: GitWorkingTree): { label: string; description: string } | undefined {
+export function pushOffer({ pushTarget, publishes, ahead, upstream }: GitWorkingTree): { label: string; description: string } | undefined {
   if (!pushTarget) return undefined;
   if (publishes) return { label: 'Publish', description: `Publish this branch to ${pushTarget}` };
   return { label: 'Push', description: ahead && upstream === pushTarget ? `Push ${ahead} ${ahead === 1 ? 'commit' : 'commits'} to ${pushTarget}` : `Push to ${pushTarget}` };
 }
 
-export function RepositoryChangesView({ tree, loading, error, selectedPath, onSelect, onRetry, pushing, onPush }: {
+export function RepositoryChangesView({ tree, loading, error, selectedPath, onSelect, onRetry }: {
   tree?: GitWorkingTree;
   loading: boolean;
   error?: string;
   selectedPath?: string;
   onSelect(path: string): void;
   onRetry(): void;
-  pushing?: boolean;
-  onPush?(): void;
 }) {
-  const offer = tree && onPush ? pushOffer(tree) : undefined;
   const staged = tree?.files.filter((file) => file.staged).length || 0;
   const working = tree?.files.filter((file) => file.unstaged && file.status !== 'untracked').length || 0;
   const untracked = tree?.files.filter((file) => file.status === 'untracked').length || 0;
@@ -81,15 +77,8 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
         <div className="repository-state"><span className="repository-state-mark">◇</span><strong>Not a Git repository</strong><p>This repository can still be used as working context; Git changes are unavailable.</p></div>
       ) : tree ? (
         <>
-          <div className="repository-view-heading"><span className="eyebrow">Changes</span></div>
-          <Paper className="git-branch-summary">
-            <span aria-hidden="true">⑂</span>
-            <div><small>Current branch</small><strong>{tree.branch || 'Unknown branch'}</strong></div>
-            {(tree.ahead || tree.behind) ? <em>{tree.ahead ? `↑${tree.ahead}` : ''}{tree.ahead && tree.behind ? ' ' : ''}{tree.behind ? `↓${tree.behind}` : ''}</em> : null}
-            {offer && <Button type="button" variant="outlined" title={offer.description} aria-label={offer.description} disabled={pushing || loading} onClick={onPush}>{pushing ? `${offer.label}ing…` : offer.label}</Button>}
-          </Paper>
           <div className="git-change-heading">
-            <div><span className="eyebrow">Working tree</span><strong>{tree.files.length ? `${tree.files.length} changed ${tree.files.length === 1 ? 'file' : 'files'}` : 'Clean'}</strong></div>
+            <strong>{tree.files.length ? `${tree.files.length} changed ${tree.files.length === 1 ? 'file' : 'files'}` : 'Working tree clean'}</strong>
             {/* Only the counts that are actually non-zero, spelled out. `S 0  W 0  U 5` gives two
                 zeros the same weight as the one number that matters, behind letters nobody reads. */}
             {tree.files.length > 0 && (
@@ -105,7 +94,7 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
               {tree.files.map((file) => <FileRow key={file.path} file={file} selected={file.path === selectedPath} onSelect={() => onSelect(file.path)} />)}
             </div>
           ) : (
-            <div className="repository-state compact"><span className="repository-state-mark clean">✓</span><strong>Nothing to review</strong><p>Your tracked files match the index and there are no untracked files.</p></div>
+            <div className="repository-state compact"><span className="repository-state-mark clean">✓</span><strong>Nothing to review</strong><p>No uncommitted changes.</p></div>
           )}
         </>
       ) : null}

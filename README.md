@@ -1343,8 +1343,8 @@ The canvas supports pan, wheel/buttons zoom, fit/reset, pen, rectangle, arrow, t
 export. Focus mode fills the application viewport while retaining tools, status, and the
 instruction composer.
 
-The activity bar at the left edge picks the side panel's view: **Changes** (with the working
-tree's change count), **History**, and, in CodeAI's own project, **Reports**. Pressing the shown
+The activity bar at the left edge picks the side panel's view: **Repository** (with the working
+tree's change count), **History** for canvases, and, in CodeAI's own project, **Reports**. Pressing the shown
 view closes the panel. **Arena** and **Inbox** follow, and the gear at the bottom holds **More**:
 the theme, Export session, Archive session, and Build & restart where offered. The header ends with
 two layout icons. **Conversation** opens and closes the conversation and, while it is closed,
@@ -1354,6 +1354,12 @@ back, so the two are never hidden together. The choice is per session view on th
 Opening a diagram or starting a sketch from the conversation shows the canvas again. Below 688px
 the panels overlay a canvas that always shows.
 
+**Repository** shows the current checkout and a compact branch row. Use **＋** to add or manage
+repositories; with several attached, choose the checkout from the selector. An empty session
+shows the add form directly. Switch between **Changes** and **History** with the tabs. Git history
+lists the latest 100 commits reachable from HEAD, with author, date and hash; it loads on demand
+and offers Retry or Refresh after a failure. Staging and committing are not offered.
+
 In **Changes**, select a file to review its staged and working-tree diffs. **Wrap** starts enabled;
 turn it off for horizontal scrolling. Drag the divider between the file list and review, or focus
 it and use the arrow keys, to adjust their widths. The review's full-screen button shows the file
@@ -1361,6 +1367,7 @@ alone; Restore or Escape returns to the layout and reading position. Markdown fi
 **Preview** of the complete current working-tree document. Preview supports UTF-8 files up to
 512 KiB and currently requires Linux for safe file verification; unavailable previews keep the
 diff accessible. Images appear as placeholders, and repository-relative links remain text.
+Switching to Git History and back retains the selected file and its review choices and position.
 
 Once a diagram or sketch exists, **Flat / Spatial** switches between two projections of the same
 session artifacts. Spatial lazily loads a local WebGL room containing the active canvas plus the

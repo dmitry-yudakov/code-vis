@@ -68,10 +68,10 @@ test('gear launches an independent worktree while the source task waits for appr
   await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Continue the source task');
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+  await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
   const relatedRuns = async () => (await (await page.request.get(`${origin}/api/agent/runs`)).json()).active;
   try {
-    await expect(conversation.locator('textarea')).toBeDisabled();
+    await expect(conversation.locator('textarea')).toBeEnabled();
     await page.locator('.more-menu > button').click();
     await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New CodeAI session' });
@@ -85,7 +85,7 @@ test('gear launches an independent worktree while the source task waits for appr
     const { session } = await response.json() as { session: PublicSession };
     await expect(dialog).not.toBeVisible();
     await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(sourceSession.id);
-    await expect(conversation.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
     await expect.poll(relatedRuns).toEqual(expect.arrayContaining([
       expect.objectContaining({ sessionId: sourceSession.id, state: 'needs-you' }),
       expect.objectContaining({ sessionId: session.id, state: 'needs-you' }),
@@ -173,7 +173,7 @@ for (const theme of ['light', 'dark']) test(`creates and retains a managed workt
   await expect(readFile(path.join(destination, '.env.local'))).rejects.toThrow();
   await conversation.locator('.mode-menu > button').click(); await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Checkpoint change'); await conversation.getByRole('button', { name: 'Send' }).click();
-  await conversation.getByRole('button', { name: 'Allow', exact: true }).click();
+  await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
   await expect(conversation.locator('.chat-message.assistant').last()).toContainText('Checkpoint fixture finished.');
   expect(await readFile(path.join(destination, 'a.txt'), 'utf8')).toBe('provider edit');
   expect(await readFile(path.join(source, 'a.txt'), 'utf8')).toBe('source human work');
@@ -221,8 +221,16 @@ test('retries a lost creation response with the same identity and exposes manage
   await form.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(saved!.id);
   expect(payloads).toHaveLength(2); expect(payloads[1]).toEqual(payloads[0]);
-  await page.getByRole('button', { name: /^Changes(?:,|$)/ }).click();
-  await expect(page.getByRole('region', { name: 'Session repositories' })).toContainText('Repository bindings are fixed');
+  await page.getByRole('button', { name: /^Repository(?:,|$)/ }).click();
+  await page.getByRole('button', { name: 'Manage repositories', exact: true }).click();
+  const repositories = page.getByRole('region', { name: 'Session repositories' });
+  await expect(repositories).toContainText('Repository bindings are fixed');
+  await expect(repositories.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
+  await expect(repositories.getByRole('button', { name: /^Remove/ })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.getByRole('complementary', { name: 'Repository', exact: true }).getByRole('tab', { name: 'History', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Recent commits' })).toContainText('fixture');
+  await expect(page.getByRole('list', { name: 'Recent commits' })).toContainText('Browser fixture');
   await page.reload();
   await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: 'No project' }).click();
   await expect(page.getByRole('complementary', { name: 'Conversation' })).toContainText(saved!.worktree!.branch);

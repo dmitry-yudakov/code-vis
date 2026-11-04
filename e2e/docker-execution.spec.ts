@@ -240,7 +240,7 @@ test('project creation offers Docker without a host provider and keeps the selec
   await expect(picker.getByRole('button', { name: 'Start session' })).toBeDisabled();
   await picker.getByRole('combobox', { name: 'Execution', exact: true }).selectOption('docker');
   await picker.getByRole('button', { name: 'Start session' }).click();
-  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
   expect(creations[1].projectId).toBe(project.id);
   expect(creations[1].execution).toBe('docker');
   await page.screenshot({ path: testInfo.outputPath('docker-project-session.png'), fullPage: true });

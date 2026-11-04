@@ -192,7 +192,7 @@ for (const theme of ['light', 'dark'] as const) {
       await route.fulfill({ response, json: body });
     });
     await page.goto('/');
-    await expect(page.getByRole('tab', { selected: true })).toBeVisible();
+    await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toBeVisible();
     await expectScreenshot(page.locator('.app-header'), `titlebar-${theme}-${width}.png`);
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await expect(page.getByRole('group', { name: 'Theme' })).toBeVisible();
@@ -223,7 +223,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/');
     if (width === 1440) await page.getByRole('button', { name: 'Canvas', exact: true }).click();
     if (width === 360) await page.getByRole('button', { name: /^(Conversation|Chat)/ }).click();
-    await page.getByRole('button', { name: /^Changes/ }).click();
+    await page.getByRole('button', { name: /^Repository/ }).click();
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
     await expect(repository.locator('.repository-file')).toHaveCount(2);
     if (width === 1440) {
@@ -234,7 +234,7 @@ for (const theme of ['light', 'dark'] as const) {
     }
     expect(await repository.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expectScreenshot(repository, `repository-${theme}-${width}.png`);
-    await page.getByRole('button', { name: /^Changes/ }).click();
+    await page.getByRole('button', { name: /^Repository/ }).click();
     if (await page.getByRole('button', { name: /^(Conversation|Chat)/ }).getAttribute('aria-pressed') === 'true') await page.getByRole('button', { name: /^(Conversation|Chat)/ }).click();
     await page.route('**/api/sessions/*/sketches', (route) => route.fulfill({ status: 500, json: { error: 'The sketch could not be saved. Try again.' } }), { times: 1 });
     await page.getByRole('button', { name: /Start a sketch/ }).click();

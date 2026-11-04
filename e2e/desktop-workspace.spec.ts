@@ -29,7 +29,7 @@ for (const appearance of ['light', 'dark']) {
     const canvasToggle = page.getByRole('button', { name: 'Canvas', exact: true });
     await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
     await canvasToggle.click();
-    const changes = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Changes/ });
+    const changes = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ });
     await changes.click();
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
     const canvas = page.locator('.canvas-workspace');
@@ -111,7 +111,7 @@ for (const appearance of ['light', 'dark']) {
     const canvasToggle = page.getByRole('button', { name: 'Canvas', exact: true });
     await expect(canvasToggle).toHaveAttribute('aria-pressed', 'false');
     await canvasToggle.click();
-    await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Changes/ }).click();
+    await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
     const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
     await repository.locator('.repository-file').click();
@@ -217,7 +217,7 @@ for (const appearance of ['light', 'dark']) {
       await page.keyboard.press('Escape');
       await expect(more).toBeFocused();
 
-      await page.getByRole('tab', { selected: true }).press('Delete');
+      await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
       await expect(page.getByRole('heading', { name: 'No open sessions', exact: true })).toBeVisible();
       await expect(history).toHaveCount(0);
       expect(await positions()).toEqual(anchored);

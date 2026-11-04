@@ -32,11 +32,12 @@ function Patch({ source }: { source?: string }) {
   );
 }
 
-export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
+export function RepositoryDiffInspector({ file, state, onClose, onRetry, hidden = false }: {
   file: GitChangedFile;
   state: RepositoryDiffState;
   onClose(): void;
   onRetry(): void;
+  hidden?: boolean;
 }) {
   const { diff, loading, error } = state;
   const [wrap, setWrap] = useState(true);
@@ -58,7 +59,7 @@ export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
   }, [shownView]);
 
   const content = (
-    <section className={`repository-inspector diff-inspector ${wrap ? 'wrap-lines' : ''}`} aria-label={`Changes in ${file.path}`}>
+    <section hidden={hidden} className={`repository-inspector diff-inspector ${wrap ? 'wrap-lines' : ''}`} aria-label={`Changes in ${file.path}`}>
       <header className="diff-inspector-header">
         <IconButton type="button" aria-label="Close file changes" title="Back to changed files" onClick={onClose}>←</IconButton>
         <div><span className="eyebrow">{file.status} · read only</span><strong title={file.path}>{file.path}</strong></div>

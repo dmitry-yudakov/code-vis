@@ -36,7 +36,7 @@ async function openReview(page: Page, request: APIRequestContext) {
   await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
   const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
   await input.fill('Keep this review draft');
-  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Changes/ }).click();
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
   await page.locator('.repository-file').filter({ hasText: 'review.md' }).click();
   await expect(page.getByLabel('Unified diff').last()).toContainText('Changed line 120');
   return input;
@@ -134,7 +134,7 @@ test('file review divider resizes with pointer and keyboard and hides on narrow 
   expect((await summary.boundingBox())!.width).toBe(180);
   await page.keyboard.press('End');
   expect((await inspector.boundingBox())!.width).toBe(220);
-  await sidebar.getByRole('button', { name: 'Maximize Changes', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Maximize Repository', exact: true }).click();
   const maximizedStart = (await summary.boundingBox())!.width;
   await divider.focus();
   await page.keyboard.press('ArrowLeft');
@@ -187,7 +187,7 @@ test('full-screen review contains shortcuts and preserves the maximized layout b
   await page.keyboard.press('Escape');
   await expect(rectangle).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-mark-id]')).toHaveCount(1);
-  await page.locator('.repository-sidebar').getByRole('button', { name: 'Maximize Changes', exact: true }).click();
+  await page.locator('.repository-sidebar').getByRole('button', { name: 'Maximize Repository', exact: true }).click();
   const before = await page.evaluate(() => localStorage.getItem('code-ai:device:v1:view-panel-layouts'));
   await page.getByRole('button', { name: 'Full screen file review', exact: true }).click();
   await page.keyboard.press('Escape');

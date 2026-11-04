@@ -23,6 +23,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
     await route.continue();
   });
   let remoteMessagePath = '';
+  let remoteHistoryPath = '';
   const project = {
     version: 1 as const, revision: 0, id: PROJECT_ID, name: 'Remote project',
     repositories: [{ id: BINDING_ID, hostId: MACHINE_ID, checkoutId: 'remote-checkout', role: 'primary' as const }],
@@ -95,6 +96,14 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
       await route.fulfill({ json: { tree: { isRepository: true, branch: 'main', upstream: 'origin/main', pushTarget: 'origin/main', ahead: 1, files: [] } } });
       return;
     }
+    if (route.request().method() === 'GET' && pathname === '/repository/history') {
+      remoteHistoryPath = url.pathname;
+      expect(url.searchParams.get('checkoutId')).toBe('remote-checkout');
+      await route.fulfill({ json: { history: { isRepository: true, commits: [{
+        hash: 'a'.repeat(40), subject: 'Committed on the laptop', author: 'Remote owner', date: NOW,
+      }], truncated: false } } });
+      return;
+    }
     if (route.request().method() === 'POST' && pathname === '/agent/message') {
       remoteMessagePath = url.pathname;
       const input = route.request().postDataJSON() as AgentMessageRequest;
@@ -161,9 +170,13 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   expect(remoteMessagePath).toBe(`/api/machines/${MACHINE_ID}/agent/message`);
 
   // An executor's Git credentials are not offered to its home machine.
-  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Changes/ }).click();
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
   await expect(page.locator('.git-branch-summary')).toContainText('↑1');
   await expect(page.locator('.git-branch-summary').getByRole('button')).toHaveCount(0);
+  const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
+  await repository.getByRole('tab', { name: 'History', exact: true }).click();
+  await expect(repository).toContainText('Committed on the laptop');
+  expect(remoteHistoryPath).toBe(`/api/machines/${MACHINE_ID}/repository/history`);
 
   // Home settings remain reachable here without admitting Docker on this executor.
   const ready = { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };

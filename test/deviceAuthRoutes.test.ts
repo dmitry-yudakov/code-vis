@@ -22,6 +22,7 @@ import { POST as POST_PAIR } from '@/app/api/auth/pair/route';
 import { DELETE as DELETE_DEVICE, GET as GET_DEVICES } from '@/app/api/auth/devices/route';
 import { GET as GET_SESSIONS } from '@/app/api/sessions/route';
 import { GET as GET_REPOSITORY } from '@/app/api/repository/status/route';
+import { GET as GET_GIT_HISTORY } from '@/app/api/repository/history/route';
 import { GET as GET_RUNS } from '@/app/api/agent/runs/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { POST as POST_CANCEL } from '@/app/api/agent/cancel/route';
@@ -89,6 +90,7 @@ describe.sequential('paired device route boundary', () => {
   it('rejects every sensitive read and action class before parsing or domain work', async () => {
     expect((await GET_SESSIONS(request('/api/sessions'))).status).toBe(401);
     expect((await GET_REPOSITORY(request('/api/repository/status'))).status).toBe(401);
+    expect((await GET_GIT_HISTORY(request('/api/repository/history'))).status).toBe(401);
     expect((await GET_RUNS(request('/api/agent/runs'))).status).toBe(401);
     expect((await POST_MESSAGE(request('/api/agent/message', { method: 'POST' }))).status).toBe(401);
     expect((await POST_CANCEL(request('/api/agent/cancel', { method: 'POST' }))).status).toBe(401);

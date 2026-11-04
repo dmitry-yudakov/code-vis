@@ -8,7 +8,7 @@ import { ARENA_SECTION_PATHS, type ArenaSection } from '@/features/arena/routes'
 import type { SideTab } from './panelLayout';
 import { ShellIcon } from './ShellIcon';
 
-const VIEW_LABELS: Record<SideTab, string> = { changes: 'Changes', history: 'History', reports: 'Reports' };
+const VIEW_LABELS: Record<SideTab, string> = { changes: 'Repository', history: 'History', reports: 'Reports' };
 
 /**
  * The column of views beside the side panel. The session's views toggle the side panel; the Arena

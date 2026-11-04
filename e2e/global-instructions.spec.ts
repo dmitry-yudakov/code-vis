@@ -26,7 +26,7 @@ async function ask(page: Page, answer: string) {
 }
 
 async function startSession(page: Page, instructions?: 'Use' | 'Isolate') {
-  const tabs = page.getByRole('tab');
+  const tabs = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab');
   const before = await tabs.count();
   await page.locator('.new-session-menu > button').click();
   if (instructions) {

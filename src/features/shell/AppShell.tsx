@@ -2709,6 +2709,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {!loading && !arenaOpen && session && (
         <div className="repository-region" hidden={!panelLayout.sideShown}>
           <RepositoryPanel
+            apiBase={repositoryApiBase}
             checkoutId={selectedCheckout?.id}
             repositoryName={selectedCheckout?.name || 'No repository'}
             changes={repositoryChanges}
@@ -2749,7 +2750,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               />
             ) : undefined}
             open={panelLayout.repositoryOpen || maximized === 'side'}
-            paneControl={paneControl('side', sideView[0].toUpperCase() + sideView.slice(1))}
+            paneControl={paneControl('side', sideView === 'changes' ? 'Repository' : sideView[0].toUpperCase() + sideView.slice(1))}
             tab={panelLayout.sideTab}
             onInspectorOpenChange={panelLayout.setInspectorOpen}
           />

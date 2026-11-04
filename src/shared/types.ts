@@ -71,6 +71,13 @@ export interface GitWorkingTree {
   files: GitChangedFile[];
 }
 
+export interface GitHistory {
+  isRepository: boolean;
+  commits: { hash: string; subject: string; author: string; date: string }[];
+  /** Only the latest 100 commits reachable from HEAD are included. */
+  truncated: boolean;
+}
+
 export interface GitFileDiff {
   path: string;
   staged?: string;

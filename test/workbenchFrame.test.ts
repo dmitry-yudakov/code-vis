@@ -25,7 +25,7 @@ describe('activity bar', () => {
   it('lists the session views, then the Arena and the Inbox, then More', () => {
     const markup = activityBar();
     expect(markup).toMatch(/^<nav class="activity-bar" aria-label="Views">/);
-    expect(controlNames(markup)).toEqual(['Changes', 'History', 'Arena', 'Inbox', 'More']);
+    expect(controlNames(markup)).toEqual(['Repository', 'History', 'Arena', 'Inbox', 'More']);
     expect(markup).toContain('href="/arena"');
     expect(markup).toContain('href="/arena/inbox"');
     // Each control names itself for the pointer as well as for assistive technology.
@@ -34,7 +34,7 @@ describe('activity bar', () => {
 
   it('offers Reports only where it is given, which is CodeAI\'s own project', () => {
     expect(controlNames(activityBar({ views: ['changes', 'history', 'reports'] })))
-      .toEqual(['Changes', 'History', 'Reports', 'Arena', 'Inbox', 'More']);
+      .toEqual(['Repository', 'History', 'Reports', 'Arena', 'Inbox', 'More']);
   });
 
   it('has no session views on the Arena page or the welcome screen', () => {
@@ -47,21 +47,21 @@ describe('activity bar', () => {
     expect(closed.match(/aria-pressed="false"/g)).toHaveLength(2);
     const history = activityBar({ shownView: 'history' });
     expect(history).toMatch(/aria-label="History" aria-pressed="true"/);
-    expect(history).toMatch(/aria-label="Changes" aria-pressed="false"/);
+    expect(history).toMatch(/aria-label="Repository" aria-pressed="false"/);
   });
 
   it('counts the changed files on Changes and the unread items on the Inbox', () => {
     const markup = activityBar({ changeCount: 7, unread: 2 });
-    expect(controlNames(markup)).toEqual(['Changes, 7 files', 'History', 'Arena', 'Inbox, 2 unread', 'More']);
+    expect(controlNames(markup)).toEqual(['Repository, 7 files', 'History', 'Arena', 'Inbox, 2 unread', 'More']);
     expect(markup).toMatch(/<span class="activity-badge"[^>]*>7<\/span>/);
     expect(markup).toMatch(/<span class="activity-badge attention"[^>]*>2<\/span>/);
-    expect(controlNames(activityBar({ changeCount: 1 }))[0]).toBe('Changes, 1 file');
+    expect(controlNames(activityBar({ changeCount: 1 }))[0]).toBe('Repository, 1 file');
     expect(activityBar({ changeCount: 0 })).not.toContain('activity-badge');
   });
 
   it('keeps large badges compact while naming their exact counts', () => {
     const markup = activityBar({ changeCount: 10000, unread: 999, updateCount: 123 });
-    expect(controlNames(markup)).toEqual(['Changes, 10000 files', 'History', 'Arena', 'Inbox, 999 unread', 'More']);
+    expect(controlNames(markup)).toEqual(['Repository, 10000 files', 'History', 'Arena', 'Inbox, 999 unread', 'More']);
     expect(markup).toMatch(/<span class="activity-badge"[^>]*>99\+<\/span>/);
     expect(markup).toMatch(/<span class="activity-badge attention"[^>]*>99\+<\/span>/);
     expect(markup).toMatch(/<span class="activity-badge updates" aria-label="123 Docker agent updates available">99\+<\/span>/);
@@ -84,7 +84,7 @@ describe('activity bar', () => {
     expect(markup).toContain('Chat');
     expect(markup).not.toContain('href="/arena"');
     expect(markup).not.toContain('href="/arena/inbox"');
-    expect(controlNames(markup)).toEqual(['Changes', 'History', 'More']);
+    expect(controlNames(markup)).toEqual(['Repository', 'History', 'More']);
   });
 
   it('prioritizes Inbox attention on compact More without overlapping an update badge', () => {
@@ -120,7 +120,7 @@ describe('side panel', () => {
 
   it('names its view in its header instead of offering tabs or a close button', () => {
     const changes = panel('changes');
-    expect(changes).toMatch(/<h2 class="side-panel-title">Changes<\/h2>/);
+    expect(changes).toMatch(/<h2 class="side-panel-title">Repository<\/h2>/);
     expect(changes).not.toContain('side-panel-tabs');
     expect(changes).not.toContain('Close side panel');
     expect(panel('history')).toMatch(/<h2 class="side-panel-title">History<\/h2>[\s\S]*History body/);
@@ -128,7 +128,7 @@ describe('side panel', () => {
   });
 
   it('falls back to Changes where a remembered Reports view is unavailable', () => {
-    expect(panel('reports')).toMatch(/<h2 class="side-panel-title">Changes<\/h2>[\s\S]*Changes body/);
+    expect(panel('reports')).toMatch(/<h2 class="side-panel-title">Repository<\/h2>[\s\S]*Changes body/);
   });
 });
 

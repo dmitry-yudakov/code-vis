@@ -22,12 +22,12 @@ test('a late title updates the open tab and header, permits another turn and sur
   await conversation.locator('textarea').fill(prompt);
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(prompt.slice(0, 56));
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName(prompt.slice(0, 56));
   await conversation.locator('textarea').fill('Please explain the implementation too.');
   await expect(conversation.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(2);
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName('Improve conversation titles', { timeout: 15_000 });
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName('Improve conversation titles', { timeout: 15_000 });
   await expect(conversation.locator('header > div > strong')).toHaveText('Improve conversation titles');
   // The title revision must not make the next canonical mutation conflict.
   await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: /^History/ }).click();
@@ -41,7 +41,7 @@ test('a late title updates the open tab and header, permits another turn and sur
   expect(saved.messages).toHaveLength(4);
   expect(saved.pinnedDiagramIds).toHaveLength(1);
   await page.reload();
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName('Improve conversation titles');
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName('Improve conversation titles');
 });
 
 test('a failed background title keeps the placeholder and the conversation usable', async ({ page, request }) => {
@@ -54,7 +54,7 @@ test('a failed background title keeps the placeholder and the conversation usabl
   await expect(conversation.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   await conversation.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(2);
-  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(prompt.slice(0, 56));
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toHaveAccessibleName(prompt.slice(0, 56));
   const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
   expect(saved.title).toBe(prompt);
   expect(saved.messages).toHaveLength(4);

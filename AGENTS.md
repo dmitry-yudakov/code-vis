@@ -162,6 +162,12 @@ Updated 2026-11-04. When a story ships, change the line that names it; each stor
   Preview reads require Linux and are bounded to 512 KiB. All 69 focused unit checks, TypeScript,
   isolated build, 30 production-browser checks, both-theme desktop/phone screenshot inspection
   and independent review pass. The running app has not been restarted.
+- **Shipped:** [Story 125](stories/STORY-20261104-repository-panel.md) — Repository has Changes/
+  History tabs, a compact inset branch row, and repository management behind a small button.
+  Recent Git history loads on demand; 179 focused unit checks, 77 distinct browser cases,
+  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
+  review pass. An unrelated wider phone archive/title-revision conflict is recorded in the story.
+  The running app has not been restarted.
 - **Shipped:** [Story 123](stories/STORY-20261103-conversation-titles.md) — conversations receive a
   short background-generated title after their first successful reply, using the same provider and
   login, with small-model selection, bounded failure fallback and live tab/header updates. All

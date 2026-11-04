@@ -5,7 +5,7 @@ import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { SideTab } from '@/features/shell/panelLayout';
 
 const SIDE_PANEL_LABELS: Record<SideTab, string> = { changes: 'Repository', history: 'Canvas history', reports: 'CodeAI reports' };
-const SIDE_PANEL_TITLES: Record<SideTab, string> = { changes: 'Changes', history: 'History', reports: 'Reports' };
+const SIDE_PANEL_TITLES: Record<SideTab, string> = { changes: 'Repository', history: 'History', reports: 'Reports' };
 
 /**
  * The side panel's chrome. Individual views own their data and actions; this shell owns only the
@@ -13,7 +13,7 @@ const SIDE_PANEL_TITLES: Record<SideTab, string> = { changes: 'Changes', history
  * panel. The repository's changes, the session's canvas history, and — in CodeAI's own project —
  * its reports share it, so none competes with the conversation for the other dock.
  */
-export function RepositorySidebar({ repositoryName, open, tab, actions, manager, inspector, history, reports, children, paneControl }: {
+export function RepositorySidebar({ repositoryName, open, tab, actions, manager, inspector, inspectorVisible = true, history, reports, children, paneControl }: {
   repositoryName: string;
   open: boolean;
   tab: SideTab;
@@ -21,6 +21,7 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
   paneControl?: ReactNode;
   manager?: ReactNode;
   inspector?: ReactNode;
+  inspectorVisible?: boolean;
   history: ReactNode;
   /** Present only while the selected project is a self project. */
   reports?: ReactNode;
@@ -40,7 +41,7 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
   const changes = shown === 'changes';
 
   return (
-    <Paper ref={sidebar} component="aside" square variant="elevation" elevation={0} className={`repository-sidebar ${changes && inspector ? 'has-inspector' : ''} ${resizing ? 'panel-resizing' : ''}`} aria-label={SIDE_PANEL_LABELS[shown]}
+    <Paper ref={sidebar} component="aside" square variant="elevation" elevation={0} className={`repository-sidebar ${changes && inspector && inspectorVisible ? 'has-inspector' : ''} ${resizing ? 'panel-resizing' : ''}`} aria-label={SIDE_PANEL_LABELS[shown]}
       style={summaryPercent === undefined ? undefined : { '--repository-summary-width': `${summaryPercent}%` } as CSSProperties}>
       <section ref={summary} className="repository-summary-panel">
         <header className="repository-panel-header">
@@ -49,15 +50,12 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
         </header>
         {changes ? (
           <div className="repository-panel-body">
-            <div>
-              <strong className="repository-name">{repositoryName}</strong>
-              {manager}
-            </div>
+            {manager || <strong className="repository-name">{repositoryName}</strong>}
             {children}
           </div>
         ) : shown === 'reports' ? reports : history}
       </section>
-      {changes && inspector && <div className="panel-resize-handle repository-inspector-resize" role="separator" tabIndex={0}
+      {changes && inspector && inspectorVisible && <div className="panel-resize-handle repository-inspector-resize" role="separator" tabIndex={0}
         aria-label="Resize file review" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(summaryPercent ?? 50)}
         onPointerDown={event => {
           if (event.button !== 0) return;
