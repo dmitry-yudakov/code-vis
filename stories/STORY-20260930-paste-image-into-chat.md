@@ -307,3 +307,13 @@ seen an image.
   the next message.
 - Pending before **Shipped**: How to verify steps 2–7 in the running app, with a real screenshot,
   a real macOS screenshot drag, and real Claude, Codex, and Docker turns.
+
+**November 4, 2026, first real Claude turn with an image.** A 641 KB, 2048×922 PNG pasted into a
+Native Auto Claude turn failed with *Claude emitted an oversized stream event.* Claude Code reports
+a Read image twice in one `user` stream event (the tool result and `tool_use_result`), here about
+1.36 MB against the runner's 1 MiB bound per event. Valid composer images could exceed that bound.
+The bound is now 8 MiB, as for Codex, and the fake Claude's `image-read` mode replays the real event
+shape for a 768 KiB image ([claudeProcessRunner.test.ts](../test/claudeProcessRunner.test.ts)).
+Review verification: all 58 focused runner, image-attachment, and display tests pass, along with
+TypeScript and independent review. The image regression also checks that history records only
+`[Image result omitted]` for the tool result. The real Claude turn has not been repeated after the fix.

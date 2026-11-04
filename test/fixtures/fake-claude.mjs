@@ -298,9 +298,22 @@ else if (mode === 'long-run') {
   emit({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
   emit({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: sessionId });
 }
+else if (mode === 'image-read') {
+  // Claude Code reports a Read image twice in one `user` frame: once as the tool result, once in
+  // `tool_use_result`. 768 KiB is the largest image CodeAI accepts in the composer.
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  const id = 'toolu-image';
+  const base64 = Buffer.alloc(768 * 1024, 7).toString('base64');
+  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Read', input: { file_path: path.join(process.cwd(), 'image-1.png') } }] } });
+  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'image', source: { type: 'base64', data: base64, media_type: 'image/png' } }] }] },
+    tool_use_result: { type: 'image', file: { base64, type: 'image/png', originalSize: 768 * 1024 } } });
+  const text = 'Image read.';
+  emit({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
+  emit({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: sessionId });
+}
 else if (mode === 'unterminated') {
   // One event that never ends, from a process that stays alive.
-  writeOut(`{"type":"stream_event","padding":"${'x'.repeat(1_100_000)}`);
+  writeOut(`{"type":"stream_event","padding":"${'x'.repeat(8 * 1024 * 1024 + 1)}`);
   setTimeout(() => process.exit(0), 30_000);
 }
 else if (mode === 'checkpoint' && streamingInput) {

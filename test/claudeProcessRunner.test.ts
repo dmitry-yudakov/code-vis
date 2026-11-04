@@ -301,6 +301,13 @@ describe.sequential('ClaudeProcessRunner', () => {
     // The fake emits 600 KB of tool results against a 100 KB answer limit.
     process.env.CODEAI_FAKE_MODE = 'long-run';
     await expect(run()).resolves.toMatchObject({ result: { finalText: 'Long run complete.' } });
+    // Reading the largest image the composer accepts produces one event of about 2 MiB.
+    process.env.CODEAI_FAKE_MODE = 'image-read';
+    const imageRead = await run();
+    expect(imageRead.result.finalText).toBe('Image read.');
+    expect(imageRead.events).toContainEqual({ type: 'history', activity: expect.objectContaining({
+      kind: 'tool', tool: 'Read', status: 'succeeded', output: '[Image result omitted]',
+    }) });
     // An unfinished event stops the run while it streams, not later at the time limit.
     process.env.CODEAI_FAKE_MODE = 'unterminated';
     const started = Date.now();

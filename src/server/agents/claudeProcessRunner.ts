@@ -49,9 +49,11 @@ const PATH_INPUT_KEYS = ['file_path', 'notebook_path', 'path'] as const;
 /**
  * Bounds one stream line, finished or not. The stream as a whole is not capped: tool results,
  * thinking, and partial messages make a long turn's stream far larger than its answer, and only the
- * unfinished line is held in memory. The answer has its own cap (`maxOutputBytes`).
+ * unfinished line is held in memory. Allow 8 MiB, as for Codex: a Read image arrives base64-encoded
+ * twice in one `user` event, so the largest composer image is about 2 MiB of stream. The answer has
+ * its own cap (`maxOutputBytes`).
  */
-const MAX_STREAM_EVENT_BYTES = 1_048_576;
+const MAX_STREAM_EVENT_BYTES = 8 * 1024 * 1024;
 const oversizedEvent = () => new AgentRunError('oversized-output', 'Claude emitted an oversized stream event.');
 
 function describeToolUse(
