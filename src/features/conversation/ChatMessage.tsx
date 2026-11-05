@@ -16,6 +16,7 @@ import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord
 import { DiagramCard } from '@/features/diagram/components/DiagramCard';
 import { reportAttachmentSummary } from '@/features/reports/reportModel';
 import { imageAttachmentSummary } from './imageAttachments';
+import { CodeBlock } from './CodeBlock';
 
 function safeHref(href?: string): string | undefined {
   if (!href) return undefined;
@@ -97,10 +98,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
             />
           );
           if (block.kind === 'code') return (
-            <div key={index} className="code-block">
-              {block.warning && <div className="block-warning">{block.warning}</div>}
-              <pre><code>{block.source}</code></pre>
-            </div>
+            <CodeBlock key={index} warning={block.warning}><code>{block.source}</code></CodeBlock>
           );
           return (
             <ReactMarkdown
@@ -108,6 +106,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
               remarkPlugins={[remarkGfm]}
               components={{
                 a: ({ href, children }) => <a href={safeHref(href)} target="_blank" rel="noreferrer noopener">{children}</a>,
+                pre: CodeBlock,
                 code: ({ children }) => <code>{children}</code>,
               }}
             >

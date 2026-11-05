@@ -9,12 +9,14 @@ import { Disclosure } from '@/features/shell/Disclosure';
 import type { PendingPermission } from '@/features/agents/toolActivity';
 import type { TurnRecord, ToolStatus } from '@/shared/turnActivity';
 import { activityNavigationId } from './messageNavigation';
+import { CodeBlock } from './CodeBlock';
 
 const statusLabels: Record<ToolStatus, string> = { running: 'Running', succeeded: 'Succeeded', failed: 'Failed', denied: 'Denied', cancelled: 'Cancelled', unknown: 'Outcome unknown' };
 export function StreamingMarkdown({ text }: { text: string }) {
   return <div className="assistant-blocks"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
     a: ({ href, children }) => <a href={href && /^(https?:|mailto:|#)/i.test(href) ? href : undefined} target="_blank" rel="noreferrer noopener">{children}</a>,
     img: ({ alt }) => <span>{alt ? `[Image: ${alt}]` : '[Image omitted]'}</span>,
+    pre: CodeBlock,
   }}>{text}</ReactMarkdown></div>;
 }
 export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal, renderNavigation }: {

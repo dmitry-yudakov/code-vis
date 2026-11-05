@@ -161,6 +161,83 @@ test('chat text stays selectable and copyable after interrupted panel resizing',
 });
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`${theme}: code blocks copy independently and long sent text wraps`, async ({ page, request, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const { conversation, session } = await openSession(page, request, theme, null);
+    const source = `  const value = "<example> & text";\n\n  console.log(value);\n// ${'long-code-'.repeat(60)}\n`;
+    const sentText = `I ran it but it seems stuck:\n\n${JSON.stringify({ output: 'long-output-'.repeat(80) })}\n${'https://example.com/'.repeat(40)}`;
+    const markdown = 'Use `inline code` here.\n\n```\nsecond block\n```';
+    const userId = crypto.randomUUID();
+    const turn = finishTurn(updateActivity(createTurn('code-copy', userId, session.primaryAgentId, session.createdAt), 1,
+      { kind: 'assistant', key: 'commentary', text: 'An unfinished fence:\n\n~~~sh\nprintf "streamed"' }), 'completed');
+    session.messages.push({ id: userId, role: 'user', authorId: `${session.id}:human`,
+      addressedParticipantId: session.primaryAgentId, createdAt: session.createdAt, status: 'sent',
+      text: sentText, diagramAttachments: [], turn: { ...turn, history: 'saved' } },
+    { id: crypto.randomUUID(), role: 'assistant', authorId: session.primaryAgentId, createdAt: session.createdAt,
+      status: 'complete', rawMarkdown: `\`\`\`ts\n${source}\`\`\`\n\n${markdown}`, blocks: [
+        { kind: 'code', language: 'ts', source },
+        { kind: 'markdown', markdown },
+        { kind: 'code', source: 'unclosed source', warning: 'The model fence was not closed.' },
+      ] });
+    await page.route('**/api/sessions**', async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      if (new URL(route.request().url()).pathname === `/api/sessions/${session.id}`) data.session = session;
+      if (Array.isArray(data.sessions)) data.sessions = data.sessions.map((item: PublicSession) => item.id === session.id ? session : item);
+      await route.fulfill({ response, json: data });
+    });
+    await page.reload();
+    const blocks = conversation.locator('.code-block');
+    await expect(blocks).toHaveCount(4);
+    await expect(conversation.getByRole('button', { name: 'Copy code', exact: true })).toHaveCount(4);
+    const expected = ['printf "streamed"\n', source, 'second block\n', 'unclosed source'];
+    for (let i = 0; i < expected.length; i++) {
+      const copy = blocks.nth(i).getByRole('button', { name: 'Copy code', exact: true });
+      await copy.focus();
+      await page.keyboard.press('Enter');
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected[i]);
+      await expect(blocks.nth(i).getByRole('status')).toHaveText('Copied');
+      await expect(blocks.nth(i).locator('pre')).toHaveText(expected[i]);
+      const pre = await blocks.nth(i).locator('pre').elementHandle();
+      await conversation.getByRole('textbox', { name: 'Instruction', exact: true }).fill(`Draft ${i}`);
+      expect(await pre!.evaluate(element => element.isConnected)).toBe(true);
+      await expect(blocks.nth(i).getByRole('status')).toHaveText('Copied');
+    }
+    const first = blocks.first();
+    await page.evaluate(() => {
+      const original = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = async () => {
+        navigator.clipboard.writeText = original;
+        throw new DOMException('Clipboard denied', 'NotAllowedError');
+      };
+    });
+    await first.getByRole('button', { name: 'Copy code', exact: true }).click();
+    await expect(first.getByRole('status')).toHaveText('Could not copy. Try again.');
+    await expect(first.locator('pre')).toHaveText(expected[0]);
+    await first.getByRole('button', { name: 'Copy code', exact: true }).click();
+    await expect(first.getByRole('status')).toHaveText('Copied');
+    await expect(first.getByRole('status')).toHaveCount(0, { timeout: 4000 });
+    await expect(conversation.locator('.block-warning')).toHaveText('The model fence was not closed.');
+    const userText = conversation.locator('.chat-message.user > p');
+    await expect(userText).toHaveText(sentText);
+    await mkdir('test-results/code-copy-wrap', { recursive: true });
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await userText.scrollIntoViewIfNeeded();
+      expect(await userText.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      expect(await conversation.locator('.conversation-scroll').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await page.screenshot({ animations: 'disabled', path: `test-results/code-copy-wrap/${theme}-${width}-text.png` });
+      await blocks.nth(1).getByRole('button', { name: 'Copy code', exact: true }).scrollIntoViewIfNeeded();
+      if (width <= 390) {
+        expect(await blocks.nth(1).locator('pre').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+        await blocks.nth(1).locator('pre').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+        await expect(blocks.nth(1).getByRole('button', { name: 'Copy code', exact: true })).toBeInViewport();
+      }
+      await page.screenshot({ animations: 'disabled', path: `test-results/code-copy-wrap/${theme}-${width}-code.png` });
+    }
+    await page.unrouteAll({ behavior: 'wait' });
+  });
+
   test(`${theme}: ordered reply footer copies Markdown and recovery precedes its user message`, async ({ page, request, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const { conversation, session } = await openSession(page, request, theme, null);
