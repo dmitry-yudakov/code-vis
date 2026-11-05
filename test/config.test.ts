@@ -125,13 +125,48 @@ describe.sequential('config', () => {
     },
   );
 
-  it('validates the legacy read-only timeout and keeps zero invalid for writing timeouts', () => {
+  it('validates the legacy read-only timeout', () => {
     delete process.env.CODEAI_AGENT_TIMEOUT_MS;
     process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '-1';
     expect(() => getConfig()).toThrow('CODEAI_WEB2_AGENT_TIMEOUT_MS');
-    process.env.CODEAI_WEB2_AGENT_TIMEOUT_MS = '0';
+  });
+
+  it('keeps the writing timeout default and accepts unlimited zero with normal alias precedence', () => {
+    delete process.env.CODEAI_BUILD_TIMEOUT_MS;
+    delete process.env.CODEAI_WEB2_BUILD_TIMEOUT_MS;
+    expect(getConfig().buildTimeoutMs).toBe(3_600_000);
+    process.env.CODEAI_WEB2_BUILD_TIMEOUT_MS = '0';
+    expect(getConfig().buildTimeoutMs).toBe(0);
+    process.env.CODEAI_BUILD_TIMEOUT_MS = '1000';
+    expect(getConfig().buildTimeoutMs).toBe(1000);
     process.env.CODEAI_BUILD_TIMEOUT_MS = '0';
-    expect(() => getConfig()).toThrow('CODEAI_BUILD_TIMEOUT_MS');
+    process.env.CODEAI_WEB2_BUILD_TIMEOUT_MS = '60000';
+    expect(getConfig().buildTimeoutMs).toBe(0);
+    process.env.CODEAI_BUILD_TIMEOUT_MS = ' 0 ';
+    expect(getConfig().buildTimeoutMs).toBe(0);
+    process.env.CODEAI_BUILD_TIMEOUT_MS = '';
+    expect(getConfig().buildTimeoutMs).toBe(60_000);
+    process.env.CODEAI_WEB2_BUILD_TIMEOUT_MS = '';
+    expect(getConfig().buildTimeoutMs).toBe(3_600_000);
+  });
+
+  it.each(['1000', '7200000'])('retains the positive writing timeout bound %s', (value) => {
+    process.env.CODEAI_BUILD_TIMEOUT_MS = value;
+    expect(getConfig().buildTimeoutMs).toBe(Number(value));
+  });
+
+  it.each(['-1', '1', '999', '1000.5', '7200001', 'Infinity', 'invalid', ' ', '\t'])(
+    'rejects invalid writing timeout %s despite a valid legacy value', (value) => {
+      process.env.CODEAI_BUILD_TIMEOUT_MS = value;
+      process.env.CODEAI_WEB2_BUILD_TIMEOUT_MS = '0';
+      expect(() => getConfig()).toThrow('CODEAI_BUILD_TIMEOUT_MS');
+    },
+  );
+
+  it('validates the legacy writing timeout when the neutral setting is unset', () => {
+    delete process.env.CODEAI_BUILD_TIMEOUT_MS;
+    process.env.CODEAI_WEB2_BUILD_TIMEOUT_MS = '-1';
+    expect(() => getConfig()).toThrow('CODEAI_WEB2_BUILD_TIMEOUT_MS');
   });
 
   it.each(['5000', '600000', '3600000'])('keeps an explicitly configured approval timeout of %s ms', (value) => {

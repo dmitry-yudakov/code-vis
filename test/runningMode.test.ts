@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -150,6 +150,71 @@ describe.sequential('changing the current turn mode', () => {
     expect(fixture.attempts.map((attempt) => attempt.policy.timeoutMs)).toEqual([0, 0]);
     expect(streamed.some((event) => event.type === 'error')).toBe(false);
     expect(streamed.at(-1)).toMatchObject({ type: 'done', cancelled: false });
+  });
+
+  it.each([false, true])('runs Native Auto with a configured unlimited timeout and releases admission (cancel: %s)', async (cancel) => {
+    vi.stubEnv('CODEAI_BUILD_TIMEOUT_MS', '0');
+    vi.stubEnv('CODEAI_FAKE_CODEX_MODE', cancel ? 'wait' : 'normal');
+    const recordPath = path.join(root, 'codex-invocation.json');
+    vi.stubEnv('CODEAI_FAKE_CODEX_RECORD', recordPath);
+    const runner = new CodexProcessRunner({ binary: path.resolve('test/fixtures/fake-codex.mjs'), maxOutputBytes: 100_000, killGraceMs: 50 });
+    fixture.run = input => runner.run(input);
+    const finish = vi.spyOn(checkpoints, 'finish');
+    const turn = await start('auto');
+    if (cancel) {
+      await vi.waitFor(async () => {
+        const record = JSON.parse(await readFile(recordPath, 'utf8'));
+        expect(record.requests).toContainEqual(expect.objectContaining({ method: 'turn/start' }));
+      });
+      expect(await runRegistry.cancel(turn.runId)).toBe('accepted');
+    }
+    const streamed = await events(turn.response);
+    await runRegistry.wait(turn.runId);
+    expect(fixture.attempts[0].policy).toMatchObject({ level: 'native', mode: 'auto', timeoutMs: 0 });
+    expect(streamed.filter(event => event.type === 'error').map(event => event.code)).toEqual(cancel ? ['cancelled'] : []);
+    expect(streamed.at(-1)).toMatchObject({ type: 'done', cancelled: cancel });
+    if (cancel) {
+      expect((await store.getSession(turn.session.id)).messages[0]).toMatchObject({ status: 'cancelled' });
+    } else {
+      expect(streamed).toContainEqual(expect.objectContaining({ type: 'assistant-message' }));
+      expect((await store.getSession(turn.session.id)).messages.map(message => message.status)).toEqual(['sent', 'complete']);
+    }
+    expect(finish).toHaveBeenCalledOnce();
+    expect(runRegistry.acquireMaintenance()).toBe('acquired');
+    runRegistry.releaseMaintenance();
+  });
+
+  it.each(['agent', 'auto', 'full'] as const)('starts and resumes unlimited writing in %s after an hour of work', async (mode) => {
+    vi.stubEnv('CODEAI_BUILD_TIMEOUT_MS', '0');
+    const finish = vi.spyOn(checkpoints, 'finish');
+    const turn = await start(mode);
+    expect(fixture.attempts[0].policy.timeoutMs).toBe(0);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_600_001);
+    expect((await turn.select(mode === 'auto' ? 'full' : 'auto')).status).toBe(200);
+    const streamed = await events(turn.response);
+    await runRegistry.wait(turn.runId);
+    expect(fixture.attempts.map(attempt => attempt.policy.timeoutMs)).toEqual([0, 0]);
+    expect(streamed.some(event => event.type === 'error')).toBe(false);
+    expect(streamed).toContainEqual(expect.objectContaining({ type: 'assistant-message' }));
+    expect((await store.getSession(turn.session.id)).messages.map(message => message.status)).toEqual(['sent', 'complete']);
+    expect(finish).toHaveBeenCalledOnce();
+  });
+
+  it.each([250, 2000])('retains %s ms of unlimited writing against a later finite Ask budget', async (elapsed) => {
+    vi.stubEnv('CODEAI_BUILD_TIMEOUT_MS', '0');
+    vi.stubEnv('CODEAI_AGENT_TIMEOUT_MS', '1000');
+    const turn = await start('auto');
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + elapsed);
+    expect((await turn.select('ask')).status).toBe(200);
+    const streamed = await events(turn.response);
+    if (elapsed > 1000) {
+      expect(fixture.attempts).toHaveLength(1);
+      expect(streamed).toContainEqual(expect.objectContaining({ type: 'error', code: 'timeout' }));
+    } else {
+      expect(fixture.attempts[1].policy.timeoutMs).toBeGreaterThan(0);
+      expect(fixture.attempts[1].policy.timeoutMs).toBeLessThan(1000);
+      expect(streamed.some(event => event.type === 'error')).toBe(false);
+    }
   });
 
   it('can switch a finite writing turn to unlimited Plan after spending its time budget', async () => {

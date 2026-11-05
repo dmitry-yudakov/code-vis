@@ -26,6 +26,7 @@ export interface AppConfig {
   /** Zero disables the Ask/Plan execution clock. */
   agentTimeoutMs: number;
   agentMaxTurns: number;
+  /** Zero disables the execution clock for writing modes. */
   buildTimeoutMs: number;
   buildMaxTurns: number;
   /** Zero keeps approval requests pending until a decision or run termination. */
@@ -188,7 +189,8 @@ export function getConfig(): AppConfig {
     agentMaxTurns: boundedInteger('AGENT_MAX_TURNS', 20, 1, 100),
     // Building needs a far larger budget than answering: research alone can spend the read-only
     // allowance before the first edit. Approval time never counts against the timeout.
-    buildTimeoutMs: boundedInteger('BUILD_TIMEOUT_MS', 3_600_000, 1_000, 7_200_000),
+    buildTimeoutMs: rawSetting('BUILD_TIMEOUT_MS')?.trim() === '0'
+      ? 0 : boundedInteger('BUILD_TIMEOUT_MS', 3_600_000, 1_000, 7_200_000),
     buildMaxTurns: boundedInteger('BUILD_MAX_TURNS', 200, 1, 1_000),
     approvalTimeoutMs: approvalTimeoutMs === 0
       ? 0 : boundedInteger('APPROVAL_TIMEOUT_MS', 0, 5_000, 3_600_000),

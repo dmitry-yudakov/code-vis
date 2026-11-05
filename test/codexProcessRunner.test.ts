@@ -777,16 +777,16 @@ describe.sequential('CodexProcessRunner', () => {
     expect(record.requests).toContainEqual(expect.objectContaining({ method: 'turn/interrupt' }));
   });
 
-  it.each(['ask', 'plan'] as const)('completes %s with no execution timeout', async (mode) => {
-    const { result } = await run({ mode, timeoutMs: 0 });
+  it.each(['ask', 'plan', 'agent', 'auto'] as const)('completes %s with no execution timeout', async (mode) => {
+    const { result } = await run({ mode, timeoutMs: 0, level: mode === 'auto' ? 'native' : 'guarded' });
     expect(result.finalText).toContain(mode === 'plan' ? '## Codex plan' : 'Codex answer.');
   });
 
-  it('still cancels a stalled turn with no execution timeout', async () => {
+  it.each(['ask', 'agent', 'auto'] as const)('still cancels a stalled %s turn with no execution timeout', async (mode) => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'wait';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 100);
-    try { await expect(run({ timeoutMs: 0, signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' }); }
+    try { await expect(run({ mode, timeoutMs: 0, level: mode === 'auto' ? 'native' : 'guarded', signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' }); }
     finally { clearTimeout(timer); }
   });
 

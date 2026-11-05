@@ -984,9 +984,10 @@ a turn early is therefore an explicit act — the **Cancel** button — which re
 approvals as denied and stops the child. A finished run stays reattachable for five minutes.
 
 Building spends turns on research long before the first edit, so Agent gets its own budget
-(`CODEAI_BUILD_MAX_TURNS`, `CODEAI_BUILD_TIMEOUT_MS`) rather than the conversation's. If a
-message still runs out, the turn ends with an explicit notice and a **Continue** action — the
-session is intact, so the agent picks up where it stopped.
+(`CODEAI_BUILD_MAX_TURNS`, `CODEAI_BUILD_TIMEOUT_MS`) rather than the conversation's. Set
+`CODEAI_BUILD_TIMEOUT_MS=0` to let writing turns run until completion or cancellation, subject to
+other existing limits. If a message still runs out, the turn ends with an explicit notice and a
+**Continue** action — the session is intact, so the agent picks up where it stopped.
 
 ### Model and effort
 
@@ -1456,6 +1457,13 @@ See [.env.example](.env.example). The most useful options are:
   Claude's maximum-turn limit and provider-owned limits still apply. The existing Codex runner
   does not enforce CodeAI's maximum-turn setting. Writing turns retain their separate
   `CODEAI_BUILD_TIMEOUT_MS` budget. Restart the server after changing the setting;
+- `CODEAI_BUILD_TIMEOUT_MS=0` — disable the execution timeout for writing modes (Agent, Auto,
+  Accept edits and Full access), for Claude and Codex, Local and Docker where supported. Unset
+  or empty keeps the one-hour default; positive values are `1000`–`7200000` milliseconds. The
+  legacy `CODEAI_WEB2_BUILD_TIMEOUT_MS` name also works. Ask/Plan keep their independent setting,
+  and maximum-turn and provider-owned limits still apply. Unlimited Docker workers rely on normal
+  cleanup and server restart reconciliation; setup/login workers stay bounded. Restart the server
+  after changing the setting;
 - `CODEAI_MAX_TRANSCRIPT_MESSAGES` / `CODEAI_MAX_TRANSCRIPT_BYTES` — server-side prompt bounds
   applied to the canonical host transcript;
 - `CODEAI_LOG_DIR` — opt-in rotating server console files, for example `./logs`; see below;

@@ -1,9 +1,9 @@
-# Story 100 — Allow Ask/Plan turns without an execution timeout
+# Story 100 — Allow turns without an execution timeout
 
 **Status:** Shipped · **Type:** Server-only · **Depends on:** nothing
 
-**Vision slice:** [Inside a session](../docs/vision.md#inside-a-session): the owner can let a
-read-only agent finish a long investigation and explicitly cancel it when needed.
+**Vision slice:** [Inside a session](../docs/vision.md#inside-a-session): the owner can let an
+agent finish a long task and explicitly cancel it when needed.
 
 ## Motivation
 
@@ -11,17 +11,20 @@ The owner asked to make `CODEAI_AGENT_TIMEOUT_MS` optional after learning that e
 could not be disabled. Accept zero as an explicit unlimited setting without changing the existing
 default for installations that omit it.
 
+The November 5 follow-up extends this to `CODEAI_BUILD_TIMEOUT_MS=0`: an Auto turn hit the
+separate one-hour writing budget even though Ask/Plan was already configured without a timeout.
+
 ## Implementation (where the code is)
 
-- `src/server/config.ts:198` — explicit trimmed `0` disables the Ask/Plan timeout; unset/empty
-  keeps 900,000 ms and all other values use the existing positive bounded validation.
+- `src/server/config.ts` — explicit trimmed `0` disables the selected Ask/Plan or writing
+  timeout; unset/empty keeps each default and all other values use positive bounded validation.
 - `src/server/agents/claudeProcessRunner.ts:188` and
   `src/server/agents/codexProcessRunner.ts:201` — zero policies never start or restart an execution
   timer; exhausted finite timers keep their existing behavior.
 - `src/server/conversation/conversationService.ts:119` — mode continuation checks spent time
   against finite timeouts while preserving zero; elapsed work and used turns stay accounted for.
-- `src/server/execution/dockerRuntime.ts:351` — unlimited Ask/Plan workers use `sleep infinity`,
-  writing workers retain timeout plus 600 seconds, and setup/login workers keep their own bound.
+- `src/server/execution/dockerRuntime.ts` — unlimited turn workers use `sleep infinity`,
+  finite workers retain timeout plus 600 seconds, and setup/login workers keep their own bound.
 - `test/runningMode.test.ts:61` — exercises real route/conversation mode changes with fake runners.
 
 ## Desired behavior
@@ -31,6 +34,12 @@ for Claude and Codex, Local and Docker. The existing `CODEAI_WEB2_AGENT_TIMEOUT_
 with normal precedence. Unset or empty retains the 15-minute default; positive values keep their
 current 1-second–1-hour range. Invalid nonzero values still fail validation.
 
+`CODEAI_BUILD_TIMEOUT_MS=0` independently disables the execution clock for writing modes
+(Agent, Auto, Accept edits and Full access), for both providers and execution targets where
+supported. Unset/empty retains one hour, and positive values retain the 1-second–2-hour range.
+The legacy `CODEAI_WEB2_BUILD_TIMEOUT_MS` alias follows the same precedence. Neither setting
+changes the other's timeout, maximum-turn counts, permissions or provider-owned limits.
+
 Resolved policy keeps its numeric contract: `timeoutMs: 0` means no execution timer. Provider
 runners never start or restart a timeout timer for that policy. Cancellation, protocol/output
 bounds, Claude's maximum turns, permissions, checkout locks and provider-owned limits keep their
@@ -38,10 +47,10 @@ meaning. The existing Codex runner does not enforce CodeAI's maximum-turn settin
 that is outside this timeout change.
 
 Conversation mode changes preserve zero and existing elapsed-time/turn accounting. A bounded
-writing mode still deducts work already spent; an unlimited Ask/Plan mode does not reject elapsed
-time or turn it into a negative timeout. Writing timeouts use `CODEAI_BUILD_TIMEOUT_MS` unchanged.
+mode still deducts work already spent; an unlimited mode does not reject elapsed time or turn it
+into a negative timeout.
 
-An unlimited Docker Ask/Plan worker uses `sleep infinity`, matching the existing lease command,
+An unlimited Docker turn worker uses `sleep infinity`, matching the existing lease command,
 instead of ending after the grace period. Completion/cancellation/error cleanup, process-exit
 removal and restart reconciliation stay active. A worker abandoned by an abrupt process death has
 no time-based expiry when this setting is explicitly zero; the next server reconciliation cleans
@@ -50,13 +59,13 @@ it up. Login/setup terminals keep their bounded lifetime.
 ## Acceptance criteria
 
 - [x] Configuration supports explicit zero, defaults, aliases, precedence and existing positive
-  bounds, while leaving the writing timeout's validation unchanged.
+  bounds for both Ask/Plan and writing timeouts.
 - [x] Claude and Codex can complete a zero-timeout turn and cancel one without a timeout error;
   positive execution timeouts still terminate a stalled provider.
-- [x] Real conversation execution and mode changes preserve unlimited Ask/Plan policies and
+- [x] Real conversation execution and mode changes preserve unlimited policies and
   enforce existing finite time/turn budgets when switching to a bounded mode.
-- [x] Docker Ask/Plan workers do not impose an expiry on unlimited turns; normal cleanup works
-  and finite writing/setup worker lifetimes stay bounded.
+- [x] Docker workers do not impose an expiry on unlimited turns; normal cleanup works
+  and finite turn/setup worker lifetimes stay bounded.
 - [x] README, environment example and policy comments document explicit zero, unchanged defaults,
   independent turn/writing limits and Docker recovery behavior.
 - [x] Focused regressions fail before implementation, then focused/offline tests, TypeScript and
@@ -64,9 +73,9 @@ it up. Login/setup terminals keep their bounded lifetime.
 
 ## Out of scope
 
-Disabling writing timeouts or maximum-turn limits, changing the default timeout, editing the
-owner's environment, removing provider-internal limits, restarting/deploying the owner server,
-or committing without another request.
+Disabling maximum-turn limits, changing default timeouts, removing provider-internal limits,
+restarting/deploying the owner server, or committing without another request. The November 5 fix
+also configures the owner's `.env.local` writing timeout to zero; applying it needs a rebuild/restart.
 
 ## How to verify
 
@@ -75,7 +84,7 @@ or committing without another request.
    read-only review and fix blockers before shipping.
 3. Configure `CODEAI_AGENT_TIMEOUT_MS=0` in `.env.local` and restart the server when applying the
    change. Ask/Plan then keep running until completion, cancellation, or another existing limit.
-   `CODEAI_BUILD_TIMEOUT_MS` still controls writing turns.
+   `CODEAI_BUILD_TIMEOUT_MS=0` does the same for writing turns; configure either independently.
 
 ## Verification record
 
@@ -96,3 +105,24 @@ timeout/protocol/approval tests remain green. Docker tests verify unlimited work
 alongside bounded writing/setup workers. Real providers, a real Docker daemon, production build
 and browser checks were not needed for this server budget change and were not rerun. The owner's
 running server and environment were not changed, and these changes were not staged or committed.
+
+### November 5, 2026 — Unlimited writing turns
+
+Six configuration/mode regressions failed before the fix because zero writing timeouts were
+rejected. The follow-up accepts trimmed explicit zero for the writing setting with normal alias
+precedence, without changing defaults or positive validation. Existing zero-aware runners,
+conversation accounting and Docker lifetime handling need no implementation changes.
+
+All 350 focused checks across configuration, both provider runners, mode changes, Docker runtime,
+mode policy and Native security pass, along with `npm run lint` and `git diff --check`. Coverage
+includes a real fixture Codex runner through the message route in Native Auto, successful durable
+delivery, explicit cancellation, checkpoint finalization, released admission, unlimited writing
+mode switches after one hour, and elapsed work carried into a later finite Ask budget. Docker
+checks include unlimited Agent cleanup and bounded setup workers. Independent read-only review
+found no correctness issues.
+
+The focused checks run without inherited `CODEAI_*` settings. Two Docker customization cases
+needed a rerun outside the sandbox because their existing fixtures live under `/var/tmp`.
+Real providers, a real Docker daemon, production build and browser checks were not rerun.
+The owner's ignored `.env.local` now has `CODEAI_BUILD_TIMEOUT_MS=0`; the running application
+has not been rebuilt or restarted.

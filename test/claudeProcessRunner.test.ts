@@ -285,15 +285,15 @@ describe.sequential('ClaudeProcessRunner', () => {
     await expect(run({ action: 'start', signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' });
   });
 
-  it.each(['ask', 'plan'] as const)('completes %s with no execution timeout', async (mode) => {
+  it.each(['ask', 'plan', 'agent'] as const)('completes %s with no execution timeout', async (mode) => {
     await expect(run({ mode, timeoutMs: 0 })).resolves.toMatchObject({ result: { sessionId: expect.any(String) } });
   });
 
-  it('still cancels a stalled turn with no execution timeout', async () => {
+  it.each(['ask', 'agent'] as const)('still cancels a stalled %s turn with no execution timeout', async (mode) => {
     process.env.CODEAI_FAKE_MODE = 'timeout';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 100);
-    try { await expect(run({ timeoutMs: 0, signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' }); }
+    try { await expect(run({ mode, timeoutMs: 0, signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' }); }
     finally { clearTimeout(timer); }
   });
 

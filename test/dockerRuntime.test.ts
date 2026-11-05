@@ -494,13 +494,22 @@ describe('Docker worker lifetime', () => {
     expect(containers.size).toBe(0);
   });
 
-  it.each(['ask', 'plan'] as const)('keeps unlimited %s workers alive until normal cleanup', async (mode) => {
+  it.each(['ask', 'plan', 'agent'] as const)('keeps unlimited %s workers alive until normal cleanup', async (mode) => {
     const { runtime, identity, checkout, containers } = await workerFixture();
     runtime.config.agentTimeoutMs = 0;
+    runtime.config.buildTimeoutMs = 0;
     const worker = await runtime.createWorker(identity, { checkout, mode });
     expect(containers.get(worker.worker)!.slice(-2)).toEqual(['sleep', 'infinity']);
     await worker.stop();
     expect(containers.has(worker.worker)).toBe(false);
+  });
+
+  it('keeps setup workers bounded when writing is unlimited', async () => {
+    const { runtime, identity, containers } = await workerFixture();
+    runtime.config.buildTimeoutMs = 0;
+    const setup = await runtime.createWorker(identity, { mode: 'agent', setup: true });
+    expect(containers.get(setup.worker)!.slice(-2)).toEqual(['sleep', '3600']);
+    await setup.stop();
   });
 
   it('keeps writing and setup worker lifetimes bounded when Ask/Plan is unlimited', async () => {

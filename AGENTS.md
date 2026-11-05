@@ -298,8 +298,10 @@ Updated 2026-11-04. When a story ships, change the line that names it; each stor
   console files under `CODEAI_LOG_DIR` let agents investigate from the checkout; 58 focused tests,
   TypeScript, isolated Next.js smoke checks and independent review passed.
 - **Shipped:** [Story 100](stories/STORY-20261008-optional-agent-timeout.md) —
-  `CODEAI_AGENT_TIMEOUT_MS=0` disables the Ask/Plan execution clock for Claude/Codex and Local/Docker;
-  writing budgets remain separate. All 1,297 offline tests, TypeScript and independent review passed.
+  `CODEAI_AGENT_TIMEOUT_MS=0` disables the Ask/Plan execution clock, and `CODEAI_BUILD_TIMEOUT_MS=0`
+  independently disables it for writing modes, for Claude/Codex and Local/Docker where supported.
+  The November 5 follow-up passes 350 focused checks, TypeScript and independent review; the local
+  writing setting is zero, and the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 102](stories/STORY-20261009-codex-subagent-approvals.md) — verified Native
   Codex review subagents use their parent conversation's permission cards; stale ancestry/turns
   close cards, and teardown interrupts verified descendants. All 1,355 offline tests, TypeScript,
