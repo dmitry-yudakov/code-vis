@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import IconButton from '@mui/material/IconButton';
@@ -20,6 +21,7 @@ export function WorkspaceTabs({
   runsBySession,
   unreadBySession,
   onFocus,
+  sessionHref,
   onClose,
   onArchive,
   closeDisabledReasons = {},
@@ -31,6 +33,7 @@ export function WorkspaceTabs({
   runsBySession: Record<string, WorkspaceRunState>;
   unreadBySession: Record<string, number>;
   onFocus(sessionId: string): void;
+  sessionHref?(sessionId: string): string;
   onClose(sessionId: string): void;
   onArchive(sessionId: string): Promise<boolean>;
   closeDisabledReasons?: Record<string, string>;
@@ -148,7 +151,16 @@ export function WorkspaceTabs({
               }}
               label={<>
               <span className="workspace-tab-state" aria-hidden="true" />
-              <span className="workspace-tab-title">{session.title}</span>
+              {sessionHref ? <Link className="workspace-tab-title" href={sessionHref(session.id)} prefetch={false} tabIndex={-1}
+                style={{ color: 'inherit', textDecoration: 'none' }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault();
+                  onFocus(session.id);
+                  tabRefs.current.get(session.id)?.focus();
+                }} onAuxClick={event => event.stopPropagation()}>{session.title}</Link>
+                : <span className="workspace-tab-title">{session.title}</span>}
               {queued && <span className="queue-badge">Q{run.queuePosition || 1}</span>}
               {needsYou && run.pendingApprovals > 0 && <span className="approval-badge">{run.pendingApprovals}</span>}
               {unread > 0 && <span className="unread-badge">{unread}</span>}

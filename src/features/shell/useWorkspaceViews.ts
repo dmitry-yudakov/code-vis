@@ -15,6 +15,7 @@ import {
   workspaceScopeKey,
   type DeviceViewState,
   type DeviceWorkspace,
+  type DeviceWorkspaceScope,
 } from './workspaceViews';
 
 export function useWorkspaceViews(projectId?: string, machineId?: string) {
@@ -27,7 +28,10 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
 
   useEffect(() => {
     try {
-      const stored = parseDeviceWorkspace(localStorage.getItem(DEVICE_WORKSPACE_STORAGE_KEY));
+      // A tab owns its workspace. The shared copy seeds new tabs and migrates older releases.
+      let saved: string | null = null;
+      try { saved = sessionStorage.getItem(DEVICE_WORKSPACE_STORAGE_KEY); } catch { /* optional */ }
+      const stored = parseDeviceWorkspace(saved ?? localStorage.getItem(DEVICE_WORKSPACE_STORAGE_KEY));
       workspaceRef.current = stored;
       setWorkspace(stored);
     } catch {
@@ -41,6 +45,7 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
 
   useEffect(() => {
     if (!ready) return;
+    try { sessionStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(workspace)); } catch { /* optional */ }
     try { localStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(workspace)); } catch { /* Device state is optional. */ }
   }, [ready, workspace]);
 
@@ -50,6 +55,7 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
     // User navigation/camera events can be followed immediately by a reload. Persist in the same
     // turn instead of depending only on a later passive effect that the navigation may pre-empt.
     if (readyRef.current) {
+      try { sessionStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional */ }
       try { localStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional */ }
     }
     setWorkspace(next);
@@ -67,10 +73,11 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
     });
   }, [commit]);
   const close = useCallback((sessionId: string) => {
-    commit((current) => closeWorkspaceView(current, scopeId, sessionId));
+    return getWorkspaceScope(commit((current) => closeWorkspaceView(current, scopeId, sessionId)), scopeId).focusedSessionId;
   }, [commit, scopeId]);
   const closeInProject = useCallback((targetProjectId: string | undefined, sessionId: string, targetMachineId?: string) => {
-    commit((current) => closeWorkspaceView(current, workspaceScopeKey(targetProjectId, targetMachineId), sessionId));
+    const targetScopeId = workspaceScopeKey(targetProjectId, targetMachineId);
+    return getWorkspaceScope(commit((current) => closeWorkspaceView(current, targetScopeId, sessionId)), targetScopeId).focusedSessionId;
   }, [commit]);
   const ensure = useCallback((sessionId: string) => {
     commit((current) => ensureWorkspaceView(current, scopeId, sessionId));
@@ -89,7 +96,10 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
   const getView = useCallback((sessionId: string) => (
     getWorkspaceScope(workspaceRef.current, scopeId).views[sessionId]
   ), [scopeId]);
+  const getScopeInProject = useCallback((targetProjectId?: string, targetMachineId?: string): DeviceWorkspaceScope | undefined => (
+    workspaceRef.current.scopes[workspaceScopeKey(targetProjectId, targetMachineId)]
+  ), []);
 
   const scope = useMemo(() => getWorkspaceScope(workspace, scopeId), [scopeId, workspace]);
-  return { ready, scope, open, openInProject, ensure, close, closeInProject, reconcile, updateView, updateViewInProject, getView };
+  return { ready, scope, open, openInProject, ensure, close, closeInProject, reconcile, updateView, updateViewInProject, getView, getScopeInProject };
 }

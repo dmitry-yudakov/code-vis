@@ -149,8 +149,8 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   const refreshRequest = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/health');
   await arena.getByRole('button', { name: 'Refresh' }).click();
   await refreshRequest;
-  await remoteMachine.getByRole('button', { name: 'Open Work on the laptop' }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await remoteMachine.getByRole('link', { name: 'Open Work on the laptop' }).click();
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect(page.locator('.project-search-trigger')).toContainText('Remote project');
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
@@ -216,7 +216,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   await arena.getByRole('button', { name: 'Refresh' }).click();
   await expect(remoteMachine).toContainText('Offline');
-  await expect(remoteMachine.getByRole('button', { name: 'Open Work on the laptop' })).toBeDisabled();
+  await expect(remoteMachine.getByRole('link', { name: 'Open Work on the laptop' })).toBeDisabled();
 });
 
 }

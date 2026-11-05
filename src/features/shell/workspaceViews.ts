@@ -318,6 +318,10 @@ export function reconcileWorkspaceScope(
 
 export function openWorkspaceView(workspace: DeviceWorkspace, scopeId: string, sessionId: string): DeviceWorkspace {
   const current = getWorkspaceScope(workspace, scopeId);
+  // Project deletion moves a conversation to No project; its tab-local draft follows its identity.
+  const machinePrefix = scopeId.slice(0, scopeId.lastIndexOf(':') + 1);
+  const retainedView = current.views[sessionId] || Object.entries(workspace.scopes)
+    .find(([key, scope]) => key.startsWith(machinePrefix) && scope.views[sessionId])?.[1].views[sessionId];
   return {
     ...workspace,
     scopes: {
@@ -327,7 +331,7 @@ export function openWorkspaceView(workspace: DeviceWorkspace, scopeId: string, s
           ? current.openSessionIds
           : [...current.openSessionIds, sessionId],
         focusedSessionId: sessionId,
-        views: { ...current.views, [sessionId]: current.views[sessionId] || emptyDeviceView() },
+        views: { ...current.views, [sessionId]: retainedView || emptyDeviceView() },
       },
     },
   };

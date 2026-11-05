@@ -201,7 +201,7 @@ for (const theme of ['light', 'dark'] as const) {
     if (width === 360) await page.getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     const arena = page.getByRole('main', { name: 'Arena' });
-    await expect(arena.getByRole('button', { name: 'Open Review the parser and its long session title', exact: true })).toBeVisible();
+    await expect(arena.getByRole('link', { name: 'Open Review the parser and its long session title', exact: true })).toBeVisible();
     expect(await arena.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expectScreenshot(arena, `arena-${theme}-${width}.png`);
   });

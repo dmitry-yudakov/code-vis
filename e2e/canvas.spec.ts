@@ -757,7 +757,7 @@ test('routes Arena views through browser history without remounting the shell', 
   await expect(page).toHaveURL(/\/arena$/);
   await expect(arena.getByRole('tab', { name: /Active/ })).toHaveAttribute('aria-selected', 'true');
   await page.goBack();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect(page.getByRole('main', { name: 'Arena' })).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveAttribute('data-route-sentinel', 'preserved');
 
@@ -789,6 +789,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
 
   await createNamedProject(page, alphaProject);
   await startSession(page);
+  const alphaSessionId = await page.getByRole('combobox', { name: 'All sessions', exact: true }).inputValue();
   await attachRepository(page, 'alpha');
 
   await createNamedProject(page, betaProject);
@@ -818,9 +819,9 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   const permissionItem = arena.locator('.arena-inbox-item:has(.arena-attention-kind.permission)').filter({ hasText: 'Arena permission from Alpha' });
   await expect(permissionItem).toContainText(alphaProject);
   await expect(permissionItem).toContainText('Edit: README.md');
-  await expect(permissionItem.getByRole('button', { name: 'Open Arena permission from Alpha', exact: true })).toHaveAccessibleDescription(/Needs you.*Arena permission from Alpha.*Edit: README\.md/);
+  await expect(permissionItem.getByRole('link', { name: 'Open Arena permission from Alpha', exact: true })).toHaveAccessibleDescription(/Needs you.*Arena permission from Alpha.*Edit: README\.md/);
   await permissionItem.locator('strong').click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect(page.locator('.project-search-trigger')).toContainText(alphaProject);
   await expect(alphaConversation.getByRole('region', { name: 'Pending approvals', exact: true })).toBeVisible();
   await inbox.click();
@@ -829,7 +830,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   await expect(permissionItem).toHaveCount(0);
   await expect(page).toHaveURL(/\/arena\/inbox$/);
 
-  const finishedItem = arena.locator('.arena-inbox-item').filter({ hasText: 'Arena permission from Alpha' }).filter({ hasText: 'Finished' });
+  const finishedItem = arena.locator('.arena-inbox-item').filter({ has: page.locator(`a[href="/?session=${alphaSessionId}"]`) }).filter({ hasText: 'Finished' });
   await expect(finishedItem).toBeVisible();
   await finishedItem.getByRole('button', { name: 'Mark read' }).click();
   await expect(finishedItem).toHaveClass(/read/);
@@ -842,10 +843,10 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   await page.getByRole('button', { name: 'Undo archive' }).click();
   await expect(finishedItem).toBeVisible();
 
-  const openFinished = finishedItem.getByRole('button', { name: 'Open Arena permission from Alpha', exact: true });
+  const openFinished = finishedItem.locator(`a[href="/?session=${alphaSessionId}"]`);
   await openFinished.focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect(page.locator('.project-search-trigger')).toContainText(alphaProject);
   await inbox.click();
   await expect(finishedItem).toHaveClass(/read/);
@@ -853,7 +854,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   await arena.getByRole('tab', { name: /Active/ }).click();
   await expect(page).toHaveURL(/\/arena$/);
   const alphaGroup = arena.getByRole('region', { name: alphaProject });
-  const alphaCard = alphaGroup.getByRole('button', { name: 'Open Arena permission from Alpha' });
+  const alphaCard = alphaGroup.locator(`a[href="/?session=${alphaSessionId}"]`);
   await expect(alphaCard).toContainText('Idle');
   await expect(alphaCard).toContainText('alpha');
   await expect(alphaCard).toContainText('Claude');
@@ -877,13 +878,13 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
 
   // Starting from the overview chooses project/provider/mode, opens the resulting view, and does
   // not itself start a provider run.
-  await arena.getByRole('button', { name: 'New session' }).click();
+  await arena.getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await create.getByLabel('Project').selectOption({ label: betaProject });
   await create.getByLabel('Provider').selectOption('claude');
   await create.getByLabel('Mode', { exact: true }).selectOption('plan');
   await create.getByRole('button', { name: 'Create and open' }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect(page.locator('.project-search-trigger')).toContainText(betaProject);
   await expect(modePicker(page.getByRole('complementary', { name: 'Conversation' }))).toHaveText('Plan');
   await expect(page.locator('.chat-message')).toHaveCount(0);
@@ -919,7 +920,7 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
 
   await card.locator('.arena-card-menu > button').click();
   await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session' }).click();
-  await expect(project).toHaveCount(0);
+  await expect(project.locator('.arena-card')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   expect(dialogs).toEqual([]);
   expect(await page.evaluate(() => {
@@ -944,8 +945,8 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   await expect(page).toHaveURL(/\/arena$/);
   const restoredProject = arena.getByRole('region', { name: projectName });
   await expect(restoredProject.locator('.arena-card')).toHaveCount(1);
-  await restoredProject.getByRole('button', { name: /Open Session/ }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await restoredProject.getByRole('link', { name: /Open Session/ }).click();
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
 });
@@ -1293,7 +1294,7 @@ test('explains sessions hidden because a newer CodeAI wrote them, only while the
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('tab', { name: /Active/ }).click();
-  await arena.getByRole('region', { name: projectName }).getByRole('button', { name: /^Open / }).click();
+  await arena.getByRole('region', { name: projectName }).getByRole('link', { name: /^Open / }).click();
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await expect(notice).toHaveText(/^2 sessions were written by a newer CodeAI and are hidden here\./);
   await notice.getByRole('button', { name: 'Dismiss notification' }).click();
@@ -1711,7 +1712,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await expect(create.getByLabel('Mode', { exact: true })).toHaveValue('plan');
   await create.getByLabel('Mode', { exact: true }).selectOption('agent');
   await create.getByRole('button', { name: 'Create and open' }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect(modePicker(conversation)).toHaveText('Agent');
   await startSession(page);
   await expect(modePicker(conversation)).toHaveText('Agent');

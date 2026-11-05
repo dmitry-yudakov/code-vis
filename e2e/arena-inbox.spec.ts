@@ -21,7 +21,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     await page.goto('/arena/inbox');
     const arena = page.getByRole('main', { name: 'Arena' });
     const item = arena.locator('.arena-inbox-item').filter({ hasText: 'Clickable Inbox session' });
-    const open = item.getByRole('button', { name: 'Open Clickable Inbox session', exact: true });
+    const open = item.getByRole('link', { name: 'Open Clickable Inbox session', exact: true });
     await expect(open).toHaveAccessibleDescription(/Finished.*No project.*Turn completed/);
     await expect(open).toBeDisabled();
     await item.locator('strong').click({ force: true });
@@ -36,7 +36,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     await page.screenshot({ path: testInfo.outputPath('inbox.png'), animations: 'disabled' });
     // Padding belongs to the same action as the title and status badge.
     await open.click({ position: { x: 8, y: 8 } });
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/\?(?:session|project)=/);
     await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
     const openInbox = async () => {
       const views = page.getByRole('navigation', { name: 'Views', exact: true });
@@ -50,7 +50,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     for (const key of ['Enter', 'Space']) {
       await open.focus();
       await page.keyboard.press(key);
-      await expect(page).toHaveURL(/\/$/);
+      await expect(page).toHaveURL(/\/\?(?:session|project)=/);
       await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
       await openInbox();
     }

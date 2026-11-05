@@ -663,10 +663,17 @@ stored data. `next dev` and `next build` now use Turbopack, and `next dev` write
 
 ## Arena and Inbox
 
-The workspace lives at `/`; the Arena's canonical destinations are `/arena` for active sessions,
-`/arena/inbox`, and `/arena/archived`. The activity bar's links and the Arena tabs use client navigation, so
-refresh, bookmarks, and browser Back/Forward preserve the top-level destination without encoding
-device-local tabs, drafts, or panel state in the URL.
+Conversation URLs use `/?session=<id>` on the machine serving the page. Only a conversation on an
+attached executor adds `&machine=<id>`; its project comes from the saved conversation. An empty
+workspace uses `/?project=<id>` or `/?project=none`. The Arena's destinations remain `/arena`,
+`/arena/inbox`, and `/arena/archived`. Refresh, bookmarks, browser session restore and Back/Forward
+preserve the destination. Session links in the title bar, Arena and Inbox support opening another
+browser tab. Drafts and pane geometry stay outside URLs.
+
+Returning to a conversation tab refreshes its saved messages and discovers live work without
+replacing its draft. Unavailable links retain their destination and offer Retry, Arena and Archive.
+Tabs from older versions addressed only by `/` cannot recover their former individual conversation
+with certainty; once opened in this version, their URLs carry that identity.
 
 Open session views sit in the title bar beside the project picker. **All sessions**
 lists every active session in that project, or the loose-session scope, including closed views and
@@ -1244,10 +1251,13 @@ environment of whoever starts CodeAI.**
   own repository list, editable except for fixed managed-worktree bindings. A session can be loose or repository-free; the
   canvas, roster, and conversation record remain available, while a turn clearly asks for a primary
   repository.
-- The browser lists and hydrates snapshots from `/api/sessions`. A versioned device record in
-  `localStorage` restores open/focused session views, drafts, unread counts, active canvases,
-  addressee/mode, repository selection, flat and spatial cameras, spatial panel placements, and
-  per-view panels. It writes no
+- The browser lists and hydrates snapshots from `/api/sessions`. The URL chooses the focused session.
+  A versioned tab record in `sessionStorage` restores open session views, drafts, unread counts, active canvases,
+  addressee/mode, repository selection, flat and spatial cameras, and spatial panel placements.
+  A separate device record keeps per-view panel layouts. The workspace's `localStorage` copy seeds
+  new tabs and migrates older releases; existing tabs restore their own `sessionStorage` copy first.
+  Browser session restoration determines whether tab drafts survive closing the browser; the URL
+  identifies the conversation independently. The browser writes no
   transcript, canvas, roster, annotation, project, or repository-binding content there. Reloading
   or a second browser context sees committed host content after refetch, with its own layout.
 - A second device record, `code-ai:device:v1:preferences`, keeps the last mode, the last provider

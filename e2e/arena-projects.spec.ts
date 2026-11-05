@@ -35,7 +35,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     await setup.getByLabel('Provider', { exact: true }).selectOption('claude');
     await setup.getByRole('button', { name: 'Create and open', exact: true }).click();
     await expect(setup).not.toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/\?(?:session|project)=/);
     await expect(page.locator('.project-search-trigger')).toContainText(name);
     const { sessions } = await (await request.get(`/api/sessions?projectId=${created.id}`)).json() as { sessions: PublicSession[] };
     expect(sessions).toHaveLength(1);
@@ -228,5 +228,5 @@ test('the conversation project picker still creates and selects a project', asyn
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(picker).toContainText(name);
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
 });

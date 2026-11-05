@@ -873,7 +873,7 @@ for (const location of ['Arena', 'Inbox', 'Flat', 'Spatial', 'Empty'] as const) 
     if (location === 'Spatial') await page.getByRole('button', { name: 'Spatial', exact: true }).click();
     if (location === 'Empty') {
       await page.getByRole('link', { name: 'Arena', exact: true }).click();
-      await page.getByRole('button', { name: 'Open Empty remote session', exact: true }).click();
+      await page.getByRole('link', { name: 'Open Empty remote session', exact: true }).click();
       await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Canvas', exact: true })).toHaveAttribute('aria-pressed', 'false');
     }
@@ -3052,7 +3052,7 @@ for (const theme of ['light', 'dark']) test(`session setup ${theme}: keyboard, r
   page.on('request', (req) => { if (req.url().endsWith('/api/agent/message')) sent.push(req.postDataJSON()); });
   await input.press('Enter'); await expect(input).toHaveCount(0);
   await expect.poll(() => sent.length).toBe(1); expect(sent[0].sessionId).not.toBe(source.id);
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/);
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
   expect(await controls(page).locator('[data-immersive-panel]').evaluateAll((panels) => panels.map((panel) => panel.getAttribute('data-layout')))).toEqual(before);
   await expect(page.locator('.conversation-drawer textarea')).toHaveValue('Preserve my source task');

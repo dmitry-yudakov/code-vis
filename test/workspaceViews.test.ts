@@ -31,6 +31,16 @@ const AGENT_B = '34343434-3434-4343-8343-343434343434';
 const scopeId = workspaceScopeKey(PROJECT);
 
 describe('device workspace views', () => {
+  it('retains a moved conversation’s draft on the same machine without copying another executor’s state', () => {
+    let workspace = openWorkspaceView(EMPTY_DEVICE_WORKSPACE, scopeId, SESSION_A);
+    workspace = updateWorkspaceView(workspace, scopeId, SESSION_A, view => ({ ...view, composer: 'Draft before project removal' }));
+    workspace = openWorkspaceView(workspace, LOOSE_WORKSPACE_SCOPE, SESSION_A);
+    expect(getWorkspaceScope(workspace, LOOSE_WORKSPACE_SCOPE).views[SESSION_A].composer).toBe('Draft before project removal');
+    const remote = workspaceScopeKey(undefined, PROJECT);
+    workspace = openWorkspaceView(workspace, remote, SESSION_A);
+    expect(getWorkspaceScope(workspace, remote).views[SESSION_A].composer).toBe('');
+  });
+
   it('opens, focuses, closes, and ensures views without touching their device state', () => {
     let workspace = openWorkspaceView(EMPTY_DEVICE_WORKSPACE, scopeId, SESSION_A);
     workspace = updateWorkspaceView(workspace, scopeId, SESSION_A, (view) => ({ ...view, composer: 'keep me' }));

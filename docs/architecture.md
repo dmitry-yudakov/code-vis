@@ -153,7 +153,10 @@ capability.
 | Concern | Owner |
 |---|---|
 | Transcript, Mermaid artifacts, marks, pins, roster | Host session store |
-| Focused canvas, next recipient/mode, panels, drafts, Flat/Spatial layout, transient XR state | Browser memory |
+| Screen, focused conversation, executing machine and empty-workspace project | Browser URL |
+| Focused canvas, next recipient/mode, drafts and Flat/Spatial view | Browser tab state |
+| Panel layout and appearance | Browser device state |
+| Transient XR state | Browser memory |
 | Last mode, new-session provider, and each provider's last model and effort | Versioned browser device state |
 | Provider session ids and transcript cursors | Private fields in the host store |
 | Projects, session membership, repository bindings | Host store |
@@ -212,8 +215,27 @@ Instructions are guidance, never a boundary: no mode, sandbox, or approval depen
 The public client routes share `src/app/(shell)/layout.tsx`, which owns one persistent `AppShell`
 across client transitions. The shell derives its top-level destination from the pathname: `/` is
 the focused workspace, `/arena` is Active, `/arena/inbox` is Inbox, and `/arena/archived` is the
-recoverable archive. Those URLs own navigation and browser history only; project selection, open
-session views, drafts, panels, and canvases remain device state and survive route transitions.
+recoverable archive. Workspace URLs select `/?session=<uuid>`, with `&machine=<uuid>` only for an
+attached executor; omission always names the serving host. The saved session supplies its project.
+`/?project=<uuid>` and `/?project=none` explicitly select an empty workspace. `workspaceLocation.ts`
+validates and builds these destinations. One URL-to-workspace resolver gates initial catalog
+reconciliation and ignores abandoned requests. Explicit open/create actions push URLs; close/archive
+replaces the destination with its surviving neighbour or empty project. Unqualified `/` retains the
+old fallback once, then replaces itself with the resolved identity. No draft or geometry enters URLs.
+Query-only changes use Next's integrated native history API; pathname transitions use client routing.
+
+`useWorkspaceViews` restores the tab's `sessionStorage` workspace first. Its existing `localStorage`
+record remains a migration/new-tab seed and best-effort mirror; mounted tabs never reread another
+tab's workspace. Tab drafts therefore survive ordinary reload without competing browser-tab writes.
+Whether they survive browser closure depends on the browser's session restoration; conversation
+identity is independently recoverable from the URL. Per-view panel layout and execution/theme
+preferences retain their existing device storage. Project removal carries a retained draft into the
+same machine's No project scope without copying state between machines.
+
+Conversation activation (focus, visibility and page restoration, debounced for 150 ms) fetches the
+named session and uses existing targeted run discovery. Background snapshots skip locally owned
+sends/streams/reconnections and are discarded if navigation or the loaded session changed during
+the read. Failures retain content with Retry; unavailable destinations offer Arena/Archive recovery.
 
 `WorkspaceTabs` lives inside that shell's title bar. It clips overflowing views and keeps the selected
 tab in view on focus or resize; `SessionPicker` provides the scoped native **All sessions** list for
@@ -756,8 +778,8 @@ These are real and deliberate, and they bound what can be built next:
   one machine catalog and several machine-qualified device-local tabbed views;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows
   a device-selected binding while turns continue to use the primary binding;
-- paired personal devices see committed host content after refetch/reload, but there is no live
-  multi-view synchronization or presence;
+- paired personal devices see committed host content after entry or activation and can reconnect to
+  live turns, but idle views have no continuous transcript synchronization or presence;
 - Offline executors retain only cached Arena cards, not transcripts/canvases or actionable run
   state; sessions and projects are neither moved nor replicated between machines;
 - attachment is direct: there is no discovery, relay, NAT traversal, transitive federation, or

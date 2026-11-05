@@ -266,5 +266,5 @@ test('Arena creates an independent worktree and labels its source and live branc
   expect(payloads[1]).toEqual(payloads[0]);
   await expect(page.getByRole('complementary', { name: 'Conversation' })).toContainText(session.worktree!.branch);
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await expect(arena.getByRole('button', { name: `Open ${session.title}`, exact: true })).toContainText(`Worktree · ${session.worktree!.branch} · Source: source`);
+  await expect(arena.getByRole('link', { name: `Open ${session.title}`, exact: true })).toContainText(`Worktree · ${session.worktree!.branch} · Source: source`);
 });

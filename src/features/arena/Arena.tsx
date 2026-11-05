@@ -23,6 +23,7 @@ import {
 import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
+import { workspaceHref } from '@/features/shell/workspaceLocation';
 
 const STATE_LABELS = {
   idle: 'Idle',
@@ -193,7 +194,16 @@ export function Arena({
                         const key = actionKey(machine.machine.id, card.session.id);
                         return (
                           <Paper component="article" className={`arena-card state-${card.state}`} key={card.session.id}>
-                            <ListItemButton component="button" sx={{ flexWrap: 'wrap' }} className="arena-card-open" type="button" disabled={!online} onClick={() => onOpenSession(machine, card.session)} aria-label={`Open ${card.session.title}`}>
+                            <ListItemButton component={Link} prefetch={false}
+                              href={workspaceHref({ sessionId: card.session.id, machineId: machine.machine.id }, localMachine?.machine.id)}
+                              sx={{ flexWrap: 'wrap' }} className="arena-card-open" disabled={!online}
+                              onKeyDown={(event) => { if (event.key === ' ' && online) { event.preventDefault(); event.currentTarget.click(); } }}
+                              onClick={(event) => {
+                                if (!online) { event.preventDefault(); return; }
+                                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                                event.preventDefault();
+                                onOpenSession(machine, card.session);
+                              }} aria-label={`Open ${card.session.title}`}>
                               <Chip component="span" className={`arena-state state-${card.state}`} variant="outlined"
                                 color={card.state === 'needs-you' ? 'warning' : card.state === 'running' ? 'success' : card.state === 'failed' ? 'error' : 'default'} label={STATE_LABELS[card.state]} />
                               <SessionFacts session={card.session} checkouts={checkoutById} />
@@ -234,7 +244,16 @@ export function Arena({
               };
               return (
                 <Paper component="article" className={`arena-inbox-item ${item.read ? 'read' : ''}`} key={key}>
-                  <ListItemButton component="button" type="button" className="arena-inbox-open" sx={{ display: 'grid' }} disabled={!canOpen} onClick={openSession} aria-label={`Open ${item.sessionTitle}`} aria-describedby={`${descriptionId}-kind ${descriptionId}-copy`}>
+                  <ListItemButton component={Link} prefetch={false}
+                    href={workspaceHref({ sessionId: item.sessionId, machineId: item.machineId }, localMachine?.machine.id)}
+                    className="arena-inbox-open" sx={{ display: 'grid' }} disabled={!canOpen}
+                    onKeyDown={(event) => { if (event.key === ' ' && canOpen) { event.preventDefault(); event.currentTarget.click(); } }}
+                    onClick={(event) => {
+                      if (!canOpen) { event.preventDefault(); return; }
+                      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      event.preventDefault();
+                      openSession();
+                    }} aria-label={`Open ${item.sessionTitle}`} aria-describedby={`${descriptionId}-kind ${descriptionId}-copy`}>
                     <AttentionKind item={item} id={`${descriptionId}-kind`} />
                     <span className="arena-inbox-copy" id={`${descriptionId}-copy`}><strong>{item.sessionTitle}</strong><small>{item.projectName} · {item.machineLabel} · {new Date(item.createdAt).toLocaleString()}</small><span>{item.reason}</span></span>
                   </ListItemButton>

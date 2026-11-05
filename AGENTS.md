@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-04. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-05. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -173,6 +173,12 @@ Updated 2026-11-04. When a story ships, change the line that names it; each stor
   file review and lazy history through refresh failures. All 40 focused unit checks, 61 distinct
   production-browser cases, TypeScript, isolated build and independent review pass.
   The running app has not been restarted.
+- **Shipped:** [Story 128](stories/STORY-20261105-conversation-urls.md) — conversation URLs restore
+  each browser tab's machine/project/session, with host-default routing, independent drafts,
+  native links/history and activation refresh/run recovery. All 65 focused unit checks, 84 distinct
+  production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
+  inspection and independent review pass. The recorded wider phone archive/title-revision
+  conflict remains; the running app has not been restarted.
 - **Shipped:** [Story 127](stories/STORY-20261104-arena-project-actions.md) — Arena creates projects
   with an optional repository and starts sessions from each active project heading; empty projects
   remain visible, and pending setup/recovery stays intact. All 46 focused unit checks, 41 distinct

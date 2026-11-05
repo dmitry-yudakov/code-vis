@@ -108,10 +108,13 @@ test('same-project Arena card opens a background turn that completed before acce
   await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
   await dialog.getByLabel('Mode', { exact: true }).selectOption('ask');
   await dialog.getByRole('textbox').fill('Background Arena completion');
+  const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
   await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+  const launched = (await (await created).json()).session as PublicSession;
   await expect(dialog).not.toBeVisible();
   await expect(page).toHaveURL(/\/arena$/);
-  await page.getByRole('button', { name: 'Open Background Arena completion', exact: true }).click();
+  // A completed turn may already have generated a new title; its conversation URL stays stable.
+  await page.locator(`.arena-card-open[href="/?session=${launched.id}"]`).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toContainText('Background Arena completion');
   await expect(conversation).toContainText('First turn complete.');
@@ -138,7 +141,7 @@ test('same-project background approvals and replies stay connected while another
     await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
     launches.push((await (await created).json()).session);
     await expect(dialog).not.toBeVisible();
-    await page.getByRole('button', { name: `Open ${text}`, exact: true }).click();
+    await page.getByRole('link', { name: `Open ${text}`, exact: true }).click();
   };
   try {
     await start('Background approval connection', 'agent');
@@ -231,14 +234,14 @@ test('same-project background stream reconnects after a failed attachment when i
     launched = (await (await created).json()).session;
     await expect(dialog).not.toBeVisible();
     await expect.poll(() => attachments).toBe(1);
-    await page.getByRole('button', { name: 'Open Background stream retry', exact: true }).click();
+    await page.getByRole('link', { name: 'Open Background stream retry', exact: true }).click();
     const conversation = page.getByRole('complementary', { name: 'Conversation' });
     await expect(conversation).toContainText('Background stream retry');
     releaseFailure();
     await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('Lost the connection to a running turn.');
     await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Background stream retry/ })).not.toHaveClass(/working|awaiting-approval/);
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
-    await page.getByRole('button', { name: 'Open Background stream retry', exact: true }).click();
+    await page.getByRole('link', { name: 'Open Background stream retry', exact: true }).click();
     await expect.poll(() => attachments).toBe(2);
     await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
     await conversation.getByRole('button', { name: 'Allow once', exact: true }).click();
@@ -288,7 +291,7 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     const replay = page.waitForResponse((response) => response.url().includes('/api/agent/stream?runId='));
     // Background title generation may already have replaced the first-message fallback.
-    await page.getByRole('region', { name: target.name, exact: true }).getByRole('button', { name: /^Open / }).click();
+    await page.getByRole('region', { name: target.name, exact: true }).getByRole('link', { name: /^Open / }).click();
     const stream = await replay;
     expect(stream.headers()['x-codeai-run-finished']).toBe('true');
     expect(retainedEvents).toContain('"type":"mode-changed"');
@@ -393,7 +396,7 @@ for (const theme of ['light', 'dark']) test(`${theme}: setup Enter starts a file
   if (initial.role === 'user') { expect(initial.fileAttachments?.[0]).toMatchObject({ name: 'error.txt', text: 'Exact report 🌍\n' }); expect(initial.imageAttachments).toHaveLength(1); }
   expect(messages).toBe(1);
   await page.getByRole('button', { name: 'Open session', exact: true }).click();
-  await expect(page).toHaveURL(/\/$/); await expect(page.locator('.conversation-drawer')).toContainText('error.txt');
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/); await expect(page.locator('.conversation-drawer')).toContainText('error.txt');
 });
 
 test('empty input opens idle session, and Cancel/reopen keeps separate setup evidence', async ({ page, request }) => {
@@ -409,7 +412,7 @@ test('empty input opens idle session, and Cancel/reopen keeps separate setup evi
   await dialog.getByRole('textbox').fill('  ');
   let turns = 0; page.on('request', (req) => { if (req.url().endsWith('/api/agent/message')) turns++; });
   await dialog.getByRole('textbox').press('Enter');
-  await expect(page).toHaveURL(/\/$/); await expect(page.locator('.conversation-drawer textarea')).toBeVisible();
+  await expect(page).toHaveURL(/\/\?(?:session|project)=/); await expect(page.locator('.conversation-drawer textarea')).toBeVisible();
   expect(turns).toBe(0);
 });
 

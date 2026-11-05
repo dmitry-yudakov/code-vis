@@ -99,14 +99,15 @@ test('polling archives old conversations, closes their views, and preserves rest
   await expect(picker.locator(`option[value="${session.id}"]`)).toHaveCount(0);
   const archivedSnapshot = await (await page.request.get(`${origin}/api/arena`)).json() as ArenaSnapshot;
 
-  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Workspace unavailable', exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('tab', { name: /Archived/ }).click();
   const archivedProject = arena.getByRole('region', { name: projectName });
   await archivedProject.getByRole('button', { name: 'Restore', exact: true }).click();
   await expect(archivedProject).toHaveCount(0);
   await arena.getByRole('tab', { name: /Active/ }).click();
-  await arena.getByRole('region', { name: projectName }).getByRole('button', { name: `Open ${original.title}`, exact: true }).click();
+  await arena.getByRole('region', { name: projectName }).getByRole('link', { name: `Open ${original.title}`, exact: true }).click();
   await expect(openViews.getByRole('tab')).toHaveCount(1);
   await expect(conversation).toContainText(retainedText);
 
