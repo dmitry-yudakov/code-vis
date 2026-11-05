@@ -22,6 +22,7 @@ import {
 } from './arenaModel';
 import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
+import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 
 const STATE_LABELS = {
   idle: 'Idle',
@@ -75,6 +76,8 @@ export function Arena({
   onRefresh,
   onOpenSession,
   onNewSession,
+  onNewProjectSession,
+  onCreateProject,
   onArchiveSession,
   onRestoreSession,
   onDecidePermission,
@@ -87,6 +90,8 @@ export function Arena({
   onRefresh(): Promise<void>;
   onOpenSession(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): void;
   onNewSession(): void;
+  onNewProjectSession(machineId: string, projectId?: string): void;
+  onCreateProject(machineId: string, name: string, checkoutIds: string[]): Promise<void>;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
@@ -98,6 +103,7 @@ export function Arena({
   const archivedSessions = machines.flatMap((machine) => machine.archivedSessions);
   const onlineMachines = machines.filter((machine) => machine.machine.state === 'online');
   const [refreshing, setRefreshing] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const localMachine = machines.find((machine) => machine.machine.kind === 'local');
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
@@ -138,6 +144,7 @@ export function Arena({
         </div>
         <div className="arena-heading-actions">
           <Button type="button" variant="text" color="inherit" startIcon={<ShellIcon name="refresh" />} disabled={refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</Button>
+          <Button type="button" variant="outlined" disabled={!onlineMachines.length} onClick={() => setCreatingProject(true)}>New project</Button>
           <Button type="button" className="arena-primary" variant="contained" startIcon={<ShellIcon name="newChat" />} disabled={!onlineMachines.length} onClick={onNewSession}>
             New session
           </Button>
@@ -159,10 +166,10 @@ export function Arena({
 
       {section === 'sessions' ? (
         <div className="arena-groups" role="tabpanel">
-          {!sessions.length && <div className="arena-empty"><h2>No active sessions</h2><p>Start a new session when you are ready.</p></div>}
+          {!sessions.length && !machines.some(machine => machine.projects.length) && <div className="arena-empty"><h2>No active sessions</h2><p>Create a project or start a new session.</p></div>}
           {machines.map((machine) => {
             const online = machine.machine.state === 'online';
-            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false);
+            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false, true);
             const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
             return (
               <section className={`arena-machine ${online ? 'online' : 'offline'} ${showMachines ? '' : 'solo'}`} aria-label={machine.machine.label} key={machine.machine.id}>
@@ -175,7 +182,11 @@ export function Arena({
                 {!groups.length && <div className="arena-machine-empty">No active sessions on this machine.</div>}
                 {groups.map((group) => (
                   <section className="arena-group" aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
-                    <header><div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span></div></header>
+                    <header>
+                      <div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span></div>
+                      {(group.id === 'none' || machine.projects.some(project => project.id === group.id)) && <Button type="button" startIcon={<ShellIcon name="newChat" />} disabled={!online}
+                        aria-label={`New session in ${group.name}`} onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}>New session</Button>}
+                    </header>
                     <div className="arena-card-grid">
                       {group.sessions.map((card) => {
                         const attention = unread.filter((item) => item.machineId === machine.machine.id && item.sessionId === card.session.id).length;
@@ -278,6 +289,7 @@ export function Arena({
           })}
         </div>
       )}
+      {creatingProject && <NewProjectDialog machines={machines} onCreate={onCreateProject} onClose={() => setCreatingProject(false)} />}
     </main>
   );
 }

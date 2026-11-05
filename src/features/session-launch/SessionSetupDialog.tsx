@@ -135,6 +135,7 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
     </>}
     {launcher.isOpen && previewUrl && <div className="session-setup-preview"><img src={previewUrl} alt="Attachment preview" /><Button type="button" onClick={() => setPreview(undefined)}>Close preview</Button></div>}
     {launcher.blocker && !launcher.error && <p role="status">{launcher.blocker}</p>}
+    {launcher.targetNotice && <Alert severity="info" role="status">{launcher.targetNotice}</Alert>}
     {launcher.error && <Alert severity="error">{launcher.error}</Alert>}
     </DialogContent>
     <DialogActions><Button type="button" onClick={launcher.close}>Cancel</Button>

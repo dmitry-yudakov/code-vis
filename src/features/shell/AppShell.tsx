@@ -891,21 +891,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     setRepositoryTree(undefined);
   };
 
-  const createProject = useCallback(async (name: string) => {
-    try {
-      const response = await fetch(apiPath('/api/projects'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, checkoutIds: [] }),
-      });
-      const data = await response.json() as { project?: DurableProject; error?: string };
-      if (!response.ok || !data.project) throw new Error(data.error || 'Could not create the project.');
-      setProjects((current) => [data.project!, ...current]);
-      switchProject(data.project.id);
-    } catch (error) {
-      notifyError(error, 'Could not create the project.');
-    }
-  }, [apiPath, projectId, running]);
+  const createProject = useCallback(async (targetMachineId: string | undefined, name: string, checkoutIds: string[]) => {
+    const response = await fetch(machineApiPath('/api/projects', targetMachineId, localMachineId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, checkoutIds }),
+    });
+    const data = await response.json() as { project?: DurableProject; error?: string };
+    if (!response.ok || !data.project) throw new Error(data.error || 'Could not create the project.');
+    const created = data.project;
+    if (targetMachineId === machineIdRef.current) setProjects((current) => [created, ...current.filter(project => project.id !== created.id)]);
+    void arena.refresh();
+    return created;
+  }, [arena.refresh, localMachineId]);
 
   const renameProject = useCallback(async (project: DurableProject, name: string) => {
     try {
@@ -2449,7 +2447,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   projects={projects}
                   value={projectId}
                   onChange={switchProject}
-                  onCreate={(name) => void createProject(name)}
+                  onCreate={(name) => { void createProject(machineId, name, []).then(project => switchProject(project.id)).catch(error => notifyError(error, 'Could not create the project.')); }}
                   onRename={(project, name) => void renameProject(project, name)}
                   onDelete={(project) => void deleteProject(project)}
                 />
@@ -2797,6 +2795,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           onRefresh={refreshArena}
           onOpenSession={openArenaSession}
           onNewSession={launcher.open}
+          onNewProjectSession={launcher.openForProject}
+          onCreateProject={async (machineId, name, checkoutIds) => {
+            await createProject(machineId, name, checkoutIds);
+            if (arenaSection !== 'sessions') router.push('/arena', { scroll: false });
+          }}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
           onDecidePermission={decideArenaPermission}

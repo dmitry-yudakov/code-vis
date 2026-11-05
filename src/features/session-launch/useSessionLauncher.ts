@@ -18,7 +18,7 @@ import { launchChoice, launchModes, type DevicePreferences } from '@/features/sh
 import { LaunchFailure, launchSession, launchText, type LaunchAttempt, type LaunchResult, type LaunchSettings } from './sessionLaunch';
 
 interface Draft { settings: LaunchSettings; text: string; images: PendingImage[]; files: TextFile[]; reportIds: string[] }
-interface SetupState { open: boolean; draft?: Draft; busy: boolean; preparing: boolean; voicePending: boolean; error?: string; frozen: boolean; outcome?: LaunchResult & { settings: LaunchSettings } }
+interface SetupState { open: boolean; draft?: Draft; busy: boolean; preparing: boolean; voicePending: boolean; error?: string; targetNotice?: string; frozen: boolean; outcome?: LaunchResult & { settings: LaunchSettings } }
 export interface LauncherOptions {
   authorized: boolean; localMachineId?: string; machines: ArenaMachineSnapshot[]; executions?: ExecutionHealth;
   preferences: DevicePreferences; currentMachineId?: string; currentProjectId?: string; origin: string;
@@ -65,7 +65,7 @@ export function useSessionLauncher(options: LauncherOptions) {
     void refreshAvailability();
     if (!options.authorized) {
       generation.current++; captureGeneration.current++; attempt.current = undefined; setSelfProject(undefined);
-      patch({ open: false, draft: undefined, outcome: undefined, frozen: false, busy: false, preparing: false, voicePending: false, error: undefined });
+      patch({ open: false, draft: undefined, outcome: undefined, frozen: false, busy: false, preparing: false, voicePending: false, error: undefined, targetNotice: undefined });
     }
     // Availability belongs to the paired home, independently of the selected project or executor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,22 +81,36 @@ export function useSessionLauncher(options: LauncherOptions) {
       instructions: props.current.preferences.instructions,
       modelSelection: offeredModelSelection(props.current.preferences.models?.[choice.provider], providers?.[choice.provider]) };
   };
-  const open = () => {
+  const openSetup = (requested?: { machineId: string; projectId?: string }) => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (!props.current.authorized) return;
-    if (current.current.draft) { patch({ open: true }); return; }
-    const target = props.current.machines.find((entry) => entry.machine.id === props.current.currentMachineId && entry.machine.state === 'online')
-      ?? props.current.machines.find((entry) => entry.machine.state === 'online');
-    const settings = defaults(target, target?.projects.some((project) => project.id === props.current.currentProjectId) ? props.current.currentProjectId : undefined);
-    if (settings) { captureGeneration.current++; patch({ open: true, error: undefined, frozen: false, draft: { settings, text: '', images: [], files: [], reportIds: [] } }); }
+    if (current.current.draft) {
+      const settings = current.current.draft.settings;
+      const differentTarget = requested && (settings.machineId !== requested.machineId || settings.projectId !== requested.projectId || settings.codeai);
+      patch({ open: true, targetNotice: differentTarget
+        ? current.current.frozen || current.current.busy
+          ? 'A setup draft is already pending for another target. Finish or recover that setup first.'
+          : 'A setup draft is already pending for another target. Clear setup before starting a session here.'
+        : undefined });
+      return;
+    }
+    if (current.current.preparing) { patch({ open: true }); return; }
+    const target = props.current.machines.find((entry) => entry.machine.id === (requested?.machineId ?? props.current.currentMachineId) && entry.machine.state === 'online')
+      ?? (!requested ? props.current.machines.find((entry) => entry.machine.state === 'online') : undefined);
+    const projectId = requested ? requested.projectId : props.current.currentProjectId;
+    if (requested?.projectId && !target?.projects.some((project) => project.id === requested.projectId)) return;
+    const settings = defaults(target, target?.projects.some((project) => project.id === projectId) ? projectId : undefined);
+    if (settings) { captureGeneration.current++; patch({ open: true, error: undefined, targetNotice: undefined, frozen: false, draft: { settings, text: '', images: [], files: [], reportIds: [] } }); }
   };
+  const open = () => openSetup();
+  const openForProject = (machineId: string, projectId?: string) => openSetup({ machineId, projectId });
   const openCodeAi = async (source?: HTMLElement | null) => {
     opener.current = source ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     if (!props.current.authorized) return;
     if (current.current.preparing && !current.current.draft) { patch({ open: true }); return; }
     if (current.current.draft) { patch({ open: true, error: current.current.draft.settings.codeai ? current.current.error : 'A setup draft is already pending. Clear it before starting a CodeAI session.' }); return; }
     const serial = ++generation.current;
-    patch({ open: true, preparing: true, error: undefined });
+    patch({ open: true, preparing: true, error: undefined, targetNotice: undefined });
     try {
       const response = await fetch('/api/codeai-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'prepare' }) });
       const data = await response.json() as { preparedContext?: PreparedCodeAiContext; project?: DurableProject; error?: string };
@@ -118,7 +132,7 @@ export function useSessionLauncher(options: LauncherOptions) {
       attempt.current.messageId = createUuid(); attempt.current.messageAttempted = false;
       if (update.settings) attempt.current.settings = structuredClone(update.settings);
     } else attempt.current = undefined;
-    patch({ draft: { ...current.current.draft, ...update }, error: undefined });
+    patch({ draft: { ...current.current.draft, ...update }, error: undefined, targetNotice: undefined });
   };
   const setSettings = (update: Partial<LaunchSettings>) => {
     const draft = current.current.draft;
@@ -185,7 +199,7 @@ export function useSessionLauncher(options: LauncherOptions) {
   const clear = () => {
     if (current.current.busy || current.current.frozen) return;
     generation.current++; captureGeneration.current++; attempt.current = undefined; setSelfProject(undefined);
-    patch({ draft: undefined, error: undefined, preparing: false, voicePending: false, open: false });
+    patch({ draft: undefined, error: undefined, targetNotice: undefined, preparing: false, voicePending: false, open: false });
   };
   const submit = async () => {
     const draft = current.current.draft;
@@ -196,14 +210,14 @@ export function useSessionLauncher(options: LauncherOptions) {
       images: draft.images.map(({ dataUrl }) => ({ dataUrl })), files: structuredClone(draft.files), reportIds: [...draft.reportIds] },
       creationRequestId: createUuid(), messageId: createUuid() };
     else attempt.current.content = { text: draft.text, images: draft.images.map(({ dataUrl }) => ({ dataUrl })), files: structuredClone(draft.files), reportIds: [...draft.reportIds] };
-    patch({ busy: true, frozen: true, error: undefined });
+    patch({ busy: true, frozen: true, error: undefined, targetNotice: undefined });
     try {
       const result = await launchSession(attempt.current, props.current.localMachineId, fetch, (session) => { if (generation.current === serial) props.current.onCreated(session, draft.settings); });
       if (generation.current !== serial) return;
       const autoOpen = !result.started && current.current.open && props.current.origin === origin;
       props.current.onResult(result, draft.settings, autoOpen);
       attempt.current = undefined; generation.current++; captureGeneration.current++;
-      patch({ open: false, busy: false, preparing: false, voicePending: false, frozen: false, draft: undefined, outcome: { ...result, settings: draft.settings } });
+      patch({ open: false, busy: false, preparing: false, voicePending: false, frozen: false, draft: undefined, targetNotice: undefined, outcome: { ...result, settings: draft.settings } });
     } catch (error) {
       if (generation.current !== serial) return;
       const failure = error instanceof LaunchFailure ? error : new LaunchFailure('Setup failed. Retry keeps this request.', false, true);
@@ -231,7 +245,7 @@ export function useSessionLauncher(options: LauncherOptions) {
   return { ...state, opener, availabilityError, blocker, isOpen: state.open, dockerOffered: Boolean(options.executions?.docker.enabled), availability, machines: options.machines, machine, providers, modes, health, reports, selectedProject, checkoutChoice,
     hasContent, canSubmit: !blocked, settingsLocked: state.frozen || state.busy || Boolean(attempt.current?.session),
     turnSettingsLocked: state.frozen || state.busy,
-    createdSession: attempt.current?.session, refreshAvailability, open, openCodeAi, close: () => { captureGeneration.current++; if (current.current.preparing && !current.current.draft && !current.current.busy) { generation.current++; patch({ preparing: false }); } patch({ open: false }); }, clear,
+    createdSession: attempt.current?.session, refreshAvailability, open, openForProject, openCodeAi, close: () => { captureGeneration.current++; if (current.current.preparing && !current.current.draft && !current.current.busy) { generation.current++; patch({ preparing: false }); } patch({ open: false }); }, clear,
     setText: (text: string) => edit({ text }), setSettings, setVoicePending, addFiles,
     removeFile: (index: number) => edit({ files: current.current.draft?.files.filter((_, i) => i !== index) ?? [] }),
     removeImage: (id: string) => edit({ images: current.current.draft?.images.filter((image) => image.id !== id) ?? [] }),

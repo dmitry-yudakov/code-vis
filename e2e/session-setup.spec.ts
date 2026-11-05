@@ -287,7 +287,8 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     });
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     const replay = page.waitForResponse((response) => response.url().includes('/api/agent/stream?runId='));
-    await page.getByRole('button', { name: 'Open Completed Arena choices', exact: true }).click();
+    // Background title generation may already have replaced the first-message fallback.
+    await page.getByRole('region', { name: target.name, exact: true }).getByRole('button', { name: /^Open / }).click();
     const stream = await replay;
     expect(stream.headers()['x-codeai-run-finished']).toBe('true');
     expect(retainedEvents).toContain('"type":"mode-changed"');

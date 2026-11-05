@@ -99,6 +99,20 @@ describe('Arena presentation model', () => {
     expect(groups[1].sessions.map((card) => card.state)).toEqual(['failed', 'idle']);
   });
 
+  it('optionally includes empty projects after session groups without changing archive/immersive grouping', () => {
+    const projects = [
+      project(PROJECT_A, 'Active', '2026-09-01T00:00:00.000Z'),
+      project(PROJECT_B, 'Empty', '2026-11-04T00:00:00.000Z'),
+    ];
+    const sessions = [session(SESSION_A, '2026-09-03T09:00:00.000Z', PROJECT_A)];
+    const discovery: RunDiscovery = { active: [], recent: [] };
+    expect(groupArenaSessions(projects, sessions, discovery).map(group => group.name)).toEqual(['Active']);
+    const groups = groupArenaSessions(projects, sessions, discovery, true, true, true);
+    expect(groups.map(group => group.name)).toEqual(['Active', 'Empty']);
+    expect(groups[1].sessions).toEqual([]);
+    expect(groupArenaSessions(projects, [], discovery, true, true, true).map(group => group.name)).toEqual(['Empty', 'Active']);
+  });
+
   it('orders archived cards by archive time even when later metadata changed updatedAt', () => {
     const olderArchive = {
       ...session(SESSION_A, '2026-09-03T15:00:00.000Z', PROJECT_A),

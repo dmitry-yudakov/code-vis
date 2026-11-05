@@ -105,6 +105,7 @@ export function groupArenaSessions(
   discovery: RunDiscovery,
   machineOnline = true,
   fresh = true,
+  includeEmptyProjects = false,
 ): ArenaProjectGroup[] {
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const active = activeBySession(discovery);
@@ -132,11 +133,20 @@ export function groupArenaSessions(
     grouped.set(groupId, group);
   }
 
+  if (includeEmptyProjects) {
+    for (const project of projects) {
+      if (!grouped.has(project.id)) grouped.set(project.id, {
+        id: project.id, name: project.name, sessions: [], updatedAt: project.updatedAt,
+      });
+    }
+  }
+
   // Sessions arrived newest first, so a stable sort by attention keeps recency within each state.
   const groups = [...grouped.values()];
   for (const group of groups) group.sessions.sort((left, right) => ATTENTION_RANK[left.state] - ATTENTION_RANK[right.state]);
+  const rank = (group: ArenaProjectGroup) => group.sessions.length ? ATTENTION_RANK[group.sessions[0].state] : 6;
   return groups.sort((left, right) => (
-    ATTENTION_RANK[left.sessions[0].state] - ATTENTION_RANK[right.sessions[0].state]
+    rank(left) - rank(right)
     || right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name)
   ));
 }

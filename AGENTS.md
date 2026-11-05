@@ -173,6 +173,11 @@ Updated 2026-11-04. When a story ships, change the line that names it; each stor
   file review and lazy history through refresh failures. All 40 focused unit checks, 61 distinct
   production-browser cases, TypeScript, isolated build and independent review pass.
   The running app has not been restarted.
+- **Shipped:** [Story 127](stories/STORY-20261104-arena-project-actions.md) — Arena creates projects
+  with an optional repository and starts sessions from each active project heading; empty projects
+  remain visible, and pending setup/recovery stays intact. All 46 focused unit checks, 41 distinct
+  production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
+  inspection and independent review pass. The running app has not been restarted.
 - **Shipped:** [Story 123](stories/STORY-20261103-conversation-titles.md) — conversations receive a
   short background-generated title after their first successful reply, using the same provider and
   login, with small-model selection, bounded failure fallback and live tab/header updates. All

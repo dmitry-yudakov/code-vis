@@ -38,8 +38,12 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     await open.click({ position: { x: 8, y: 8 } });
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
-    const inbox = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('link', { name: /^Inbox/ });
-    await inbox.click();
+    const openInbox = async () => {
+      const views = page.getByRole('navigation', { name: 'Views', exact: true });
+      if (width === 360) await views.getByRole('button', { name: /^More/ }).click();
+      await page.getByRole('link', { name: /^Inbox/ }).click();
+    };
+    await openInbox();
     await expect(item).toHaveClass(/read/);
     await page.reload();
     await expect(item).toHaveClass(/read/);
@@ -48,7 +52,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
       await page.keyboard.press(key);
       await expect(page).toHaveURL(/\/$/);
       await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
-      await inbox.click();
+      await openInbox();
     }
     await page.unrouteAll({ behavior: 'wait' });
   });
