@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { fetchArenaSnapshot, fulfillArenaSnapshot } from './arena-stream';
+import { expect, test } from './arena-stream';
 import { openMachineSettings } from './machine-settings';
 import type { AgentMessageRequest, ArenaMachineSnapshot, PublicSession, UserMessage } from '../src/shared/types';
 
@@ -73,9 +74,9 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   });
 
   await page.route('**/api/arena', async (route) => {
-    const local = await route.fetch();
+    const local = await fetchArenaSnapshot(route);
     const body = await local.json() as { machines: ArenaMachineSnapshot[] };
-    await route.fulfill({ response: local, json: { machines: [...body.machines, machineSnapshot()] } });
+    await fulfillArenaSnapshot(route, { response: local, json: { machines: [...body.machines, machineSnapshot()] } });
   });
   await page.route(`**/api/machines/${MACHINE_ID}/**`, async (route) => {
     const url = new URL(route.request().url());

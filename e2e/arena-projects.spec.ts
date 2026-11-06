@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { fulfillArenaSnapshot, pushArenaSnapshot } from './arena-stream';
+import { expect, test } from './arena-stream';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 390], ['dark', 390]] as const) {
@@ -124,7 +125,7 @@ test('project actions route to the selected machine, reset its repository, and d
   const remote = { ...structuredClone(local), machine: { ...local.machine, id: remoteId, kind: 'remote' as const, label: 'Fixture executor' },
     projects: [] as DurableProject[], sessions: [], archivedSessions: [], checkouts: [{ ...local.checkouts[0], id: 'remote-checkout', name: 'Remote repository' }] };
   snapshot.machines.push(remote);
-  await page.route('**/api/arena', route => route.fulfill({ json: snapshot }));
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
   let posted: { name: string; checkoutIds: string[] } | undefined;
   await page.route(`**/api/machines/${remoteId}/projects`, async route => {
     posted = route.request().postDataJSON();
@@ -145,8 +146,10 @@ test('project actions route to the selected machine, reset its repository, and d
   const name = 'Remote'.repeat(32);
   await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
   remote.machine.state = 'offline';
+  await pushArenaSnapshot(page);
   await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeDisabled();
   remote.machine.state = 'online';
+  await pushArenaSnapshot(page);
   await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeEnabled();
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog).not.toBeVisible();

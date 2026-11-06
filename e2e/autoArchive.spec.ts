@@ -1,10 +1,11 @@
+import { fulfillArenaSnapshot, pushArenaSnapshot, restartArenaSubscription } from './arena-stream';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './arena-stream';
 import type { ArenaSnapshot, DurableSession } from '../src/shared/types';
 
 let server: ChildProcess;
@@ -47,7 +48,7 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-test('polling archives old conversations, closes their views, and preserves restored work', async ({ page }) => {
+test('workspace notifications archive old conversations, close their views, and preserve restored work', async ({ page }) => {
   const projectName = 'Automatic archive journey';
   const retainedText = 'This conversation survives automatic archiving.';
   const { project } = await (await page.request.post(`${origin}/api/projects`, { data: { name: projectName } })).json();
@@ -76,17 +77,17 @@ test('polling archives old conversations, closes their views, and preserves rest
   owner.sessions = owner.sessions.filter((item) => item.id !== session.id);
   let projection: ArenaSnapshot | undefined = offline;
   await page.route('**/api/arena', async (route) => {
-    if (projection) await route.fulfill({ json: projection, headers: { 'x-e2e-archive-projection': 'cached' } });
+    if (projection) await fulfillArenaSnapshot(route, { json: projection, headers: { 'x-e2e-archive-projection': 'cached' } });
     else await route.continue();
   });
-  await page.waitForResponse((response) => response.url().endsWith('/api/arena')
-    && response.headers()['x-e2e-archive-projection'] === 'cached');
+  await restartArenaSubscription(page);
   await page.getByLabel('More', { exact: true }).click();
   await expect(page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session', exact: true })).toBeDisabled();
   await expect(page.locator('.app-header').getByRole('button', { name: 'Archive session', exact: true })).toHaveCount(0);
   await expect(openViews.getByRole('tab')).toHaveCount(1);
   await page.getByLabel('More', { exact: true }).click();
   projection = undefined;
+  await restartArenaSubscription(page);
 
   await ageSession(session.id);
   await expect(openViews.getByRole('tab')).toHaveCount(0);
@@ -113,16 +114,15 @@ test('polling archives old conversations, closes their views, and preserves rest
 
   // A delayed online archive response must not close the newer restored revision.
   projection = archivedSnapshot;
-  // The second poll observes the UI after the first snapshot's reconciliation has completed.
-  for (let poll = 0; poll < 2; poll += 1) {
-    await page.waitForResponse((response) => response.url().endsWith('/api/arena')
-      && response.headers()['x-e2e-archive-projection'] === 'cached');
-  }
+  await restartArenaSubscription(page);
+  // Repeat the stale notification after the first reconciliation has completed.
+  await pushArenaSnapshot(page);
   await page.getByLabel('More', { exact: true }).click();
   await expect(page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session', exact: true })).toBeEnabled();
   await expect(openViews.getByRole('tab')).toHaveCount(1);
   await page.getByLabel('More', { exact: true }).click();
   projection = undefined;
+  await restartArenaSubscription(page);
   const restored = JSON.parse(await readFile(sessionPath(session.id), 'utf8')) as DurableSession;
   expect(restored.messages).toEqual(original.messages);
   expect(restored.participants).toEqual(original.participants);

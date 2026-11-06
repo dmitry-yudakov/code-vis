@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { fetchArenaSnapshot, fulfillArenaSnapshot } from './arena-stream';
+import { expect, test } from './arena-stream';
 import { openMachineSettings } from './machine-settings';
 
 test('security can be dismissed across reloads and remains available from settings', async ({ page }) => {
@@ -25,10 +26,10 @@ test('security can be dismissed across reloads and remains available from settin
 test('a changed security level shows the notice again', async ({ page }) => {
   let native = false;
   await page.route('**/api/arena**', async (route) => {
-    const response = await route.fetch();
+    const response = await fetchArenaSnapshot(route);
     const body = await response.json();
     for (const machine of body.machines) if (machine.machine.kind === 'local') machine.securityLevel = native ? 'native' : 'guarded';
-    await route.fulfill({ response, json: body });
+    await fulfillArenaSnapshot(route, { response, json: body });
   });
   await page.goto('/arena');
   const notice = page.getByRole('main', { name: 'Arena' }).getByRole('region', { name: 'Security level' });
@@ -41,10 +42,10 @@ test('a changed security level shows the notice again', async ({ page }) => {
 test('dismissing one machine does not dismiss another machine', async ({ page }) => {
   let replacement = false;
   await page.route('**/api/arena', async (route) => {
-    const response = await route.fetch();
+    const response = await fetchArenaSnapshot(route);
     const body = await response.json();
     if (replacement) for (const machine of body.machines) if (machine.machine.kind === 'local') machine.machine.id = 'different-home-machine';
-    await route.fulfill({ response, json: body });
+    await fulfillArenaSnapshot(route, { response, json: body });
   });
   await page.goto('/arena');
   const notice = page.getByRole('main', { name: 'Arena' }).getByRole('region', { name: 'Security level' });

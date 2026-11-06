@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { fulfillArenaSnapshot } from './arena-stream';
+import { expect, test, type APIRequestContext, type Page } from './arena-stream';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 const WORKSPACE_KEY = 'code-ai:device:v1:workspace';
@@ -308,7 +309,7 @@ test('an explicit host id canonicalizes away and an attached executor retains it
   remote.machine = { ...remote.machine, id: remoteId, kind: 'remote', label: 'URL fixture executor' };
   const remoteSession = { ...session, id: '99999999-9999-4999-8999-999999999999' };
   remote.sessions = [{ ...remote.sessions.find(item => item.id === session.id)!, id: remoteSession.id }];
-  await page.route('**/api/arena', route => route.fulfill({ json: { ...snapshot, machines: [...snapshot.machines, remote] } }));
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: { ...snapshot, machines: [...snapshot.machines, remote] } }));
   await page.route(`**/api/machines/${remoteId}/sessions/${remoteSession.id}`, route => route.fulfill({ json: { session: remoteSession } }));
   await page.route(`**/api/machines/${remoteId}/sessions?*`, route => route.fulfill({ json: { sessions: [remoteSession] } }));
   await page.route(`**/api/machines/${remoteId}/agent/runs*`, route => route.fulfill({ json: { active: [], recent: [] } }));

@@ -248,9 +248,12 @@ does not persist conversation content. `AppShell` lists snapshots by project (or
 annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
 revisions return 409 and trigger a refetch instead of silently replacing another client's work.
 
-The Arena polls one bounded `GET /api/arena` projection containing the local machine and every
-explicitly attached executor. Remote projections are fetched concurrently with a 1.5-second
-timeout. They carry separate active and archived card summaries, safe pending-permission details,
+The Arena subscribes to `GET /api/arena` with `Accept: application/x-ndjson`, receiving an initial
+snapshot and subsequent changed snapshots. One process-wide local snapshot owner serves browser
+tabs and directly attached homes; one home aggregate shares one upstream subscription to
+`/api/machine/snapshot` per attached executor. Ordinary JSON GETs remain available for explicit
+refresh, including their existing 1.5-second remote-read timeout. Snapshots carry separate active
+and archived card summaries, safe pending-permission details,
 and brief terminal run outcomes, never full transcripts or private provider-session handles. A
 validated projection is cached in the home registry; failure produces cached Offline cards with
 live runs and actions removed. The browser derives cross-machine card and Inbox presentation,
@@ -258,7 +261,37 @@ stores only bounded finished-item read ids under `code-ai:device:v1:arena`, and 
 live permission locally. Revisioned archive/restore routes reject every live run reservation,
 including the pre-activation interval hidden from normal discovery.
 
-Executor polling, inactivity sweeps, and recent-checkout listing reuse compact session summaries
+Committed store writes, Arena-visible run changes, and attachment changes invalidate shared
+snapshots. Fifty-millisecond coalescing and a dirty-during-load flag absorb bursts without losing
+the next update. Narrow filesystem watches detect external edits and directory replacements in
+canonical session/project, worktree-journal and settings directories; repository trees and build
+output are never watched. Repository discovery and provider readiness also refresh on browser
+activation or explicit Refresh. Automatic archive and recent-run expiry schedule their own next
+deadline while observed; they do not depend on another browser request.
+
+Five-second heartbeats renew liveness and recheck authorization without rebuilding snapshots. A
+twenty-second silence aborts a stalled connection; reconnect backs off from one to thirty seconds
+and recovers snapshots. Cached browser cards stay stale until the new connection delivers its first
+snapshot, even if heartbeats arrive sooner. Peers validate frame size, schema, machine identity,
+expiry and revocation, keeping Offline cards and removing their live actions after failure. Machine
+bearers cannot subscribe to the personal Arena. Each response retains only the latest pending
+snapshot and serializes on demand: peer frames are bounded to 8,001,024 bytes, browser frames to
+72,001,024 bytes, independently of stream lifetime. Request abort and the final subscriber's
+departure release watches, timers, run notifications and upstream connections.
+
+`browserStreamBudget.ts` prevents workspace responses from consuming an HTTP/1 browser's last
+previously available command connection. It counts actual agent response lifetimes, including
+the browser-facing remote proxy, and admits at most five combined run/workspace responses per
+cohort while a workspace is connected. A new run closes excess workspace responses gracefully;
+workspace admission returns 429 until capacity is available. Cached overview state becomes stale
+and existing backoff recovers it. Agent execution/admission and command authority are unchanged.
+Paired cohorts use the authenticated personal-cookie digest, scoped by host and data directory;
+Local mode conservatively groups identical User-Agent values, so separate same-UA profiles may
+share a budget. No cookie or UA grants authority. Authorized machine transport without a personal
+cookie is exempt. This prevents the new workspace stream from lowering the existing HTTP/1
+connection ceiling; it does not resolve the pre-existing limit of six simultaneous run responses.
+
+Workspace snapshots, inactivity sweeps, and recent-checkout listing reuse compact session summaries
 in the process-wide `SessionStore`. Every listing checks the combined active/archive file bound
 and file metadata; unchanged files avoid transcript reads and schema validation. Changed files
 are read through the ordinary validator, concurrent reads of the same version are shared, and
@@ -276,7 +309,7 @@ diagram scale, and transcript scroll position are still more ephemeral: they are
 `code-ai:web2:v1:*` conversation keys are untouched and unread.
 
 In paired mode, `DeviceAccessGate` checks the bounded `/api/auth/status` bootstrap route before it
-mounts `AppShell`, preventing catalog and Arena polls from starting on an unpaired browser. The
+mounts `AppShell`, preventing catalog and Arena subscriptions from starting on an unpaired browser. The
 credential itself is a host-only HttpOnly cookie and therefore is neither browser device state nor
 available to client JavaScript. An authenticated header menu lists public device summaries and can
 revoke a device or sign out the current one.
@@ -586,7 +619,7 @@ suspended while immersive and restored from their existing device state on exit.
 The bridge owns one `@react-three/xr` store with controller rays and `local-floor`/`local` reference
 space handling. Normal project/machine/session and Arena/Inbox navigation does not replace it.
 AppShell supplies records, loading/error status, and explicitly addressed session-opening commands
-from its existing Arena polling owner, including each session's modification timestamp. The
+from its existing workspace subscription owner, including each session's modification timestamp. The
 conversation-list view replaces the chat within its panel, sorts all machines' choices newest first,
 and shows relative update times. It initially exposes 20 choices; Load more appends another 20 from
 the available catalog without moving the reading position. One fixed 1024×1024 texture draws only
@@ -597,7 +630,7 @@ rendering stays in the diagram feature and failures remain local; the opaque env
 separate presentation component. Conversation combines continuous scrolling with the shared draft,
 agent controls, and local voice input.
 
-`ArenaTools` is the fourth world panel and consumes that same Arena polling owner. Its pure model
+`ArenaTools` is the fourth world panel and consumes that same workspace subscription owner. Its pure model
 reuses the DOM Arena's grouping and Inbox derivation, qualifies every row by machine, and pages six
 summaries without mounting another stream or detailed session scene. Active, Inbox, and Archived
 actions call AppShell's canonical open/create/archive/restore/read handlers. Offline rows stay
@@ -752,7 +785,7 @@ Story 48 adds `SessionTools` within the conversation panel: a local-execution se
 existing-checkout attachment, and paged permission inspection. `usePermissionDecisions` is the
 shared DOM/XR command owner, keyed by captured machine/session/run/request identity, with bounded
 device-only outcomes and explicit refresh before retrying an uncertain delivery. The existing
-Arena poll and run stream supply requests; existing authorized routes decide them. Session creation,
+workspace subscription and run stream supply requests; existing authorized routes decide them. Session creation,
 repository attachment, draft retry, cancellation, and device revocation reuse shell actions and
 the pairing gate. Neither speech nor card focus can approve a permission.
 Story 49 adds session-checkout evidence, artifact comparison, controller-authored canonical marks,

@@ -179,6 +179,12 @@ Updated 2026-11-06. When a story ships, change the line that names it; each stor
   production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
   inspection and independent review pass. The recorded wider phone archive/title-revision
   conflict remains; the running app has not been restarted.
+- **Shipped:** [Story 129](stories/STORY-20261106-workspace-subscriptions.md) — workspace
+  subscriptions replace the Arena's two-second poll, sharing local snapshots and attached-executor
+  streams, pushing saved/run changes and scheduling archive/retention deadlines. All 1,897 unit tests,
+  128 distinct production-browser checks, TypeScript, isolated build and independent review pass.
+  Real attached-executor TLS streaming and physical headset acceptance remain unverified;
+  the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 127](stories/STORY-20261104-arena-project-actions.md) — Arena creates projects
   with an optional repository and starts sessions from each active project heading; empty projects
   remain visible, and pending setup/recovery stays intact. All 46 focused unit checks, 41 distinct
@@ -245,9 +251,9 @@ Updated 2026-11-06. When a story ships, change the line that names it; each stor
   requires Linux; Git history/index, ignored/private files and external effects are excluded.
 - **Shipped:** [Story 85](stories/STORY-20261002-auto-archive-inactive-conversations.md) —
   conversations automatically move to the recoverable archive after 48 hours without saved
-  activity; owner-machine polling/loading, live-turn protection, Restore, automated checks,
-  production-browser verification, and independent review passed. Polling now reuses compact
-  summaries and reads only changed histories. The threshold is fixed for now; the running app has
+  activity; owner-machine snapshots/loading, live-turn protection, Restore, automated checks,
+  production-browser verification, and independent review passed. Workspace snapshots reuse compact
+  summaries and read only changed histories. The threshold is fixed for now; the running app has
   not been restarted for this follow-up.
 - **Shipped:** [Story 86](stories/STORY-20261002-new-chat-from-conversation.md) — New chat
   in the desktop conversation header creates a fresh session with the same project and agent
@@ -412,7 +418,7 @@ paths explicitly when investigating runtime problems; `rg --files` may skip igno
 | `src/features/shell/` | Application composition (`AppShell`) |
 | `src/features/shell/immersive/` | The VR workspace: panels, tools, layout, input, capture, and reports |
 | `src/features/agents/` | Activity timeline, participants, modes, permission cards |
-| `src/features/arena/` | Host-wide session cards, Inbox derivation, polling, device read state, and the machine's Docker and Global instructions sections |
+| `src/features/arena/` | Host-wide session cards, Inbox derivation, workspace subscriptions, device read state, and the machine's Docker and Global instructions sections |
 | `src/features/devices/` | Personal-device pairing gate and paired-device management UI |
 | `src/features/conversation/` | Transcript, composer, drawer, session selection, public snapshot helpers, and the preparation of pasted or dropped images |
 | `src/features/diagram/components/` | Canvas, cards, navigation, drawing and evidence UI |

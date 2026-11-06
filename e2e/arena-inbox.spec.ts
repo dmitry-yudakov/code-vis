@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { fulfillArenaSnapshot } from './arena-stream';
+import { expect, test } from './arena-stream';
 import type { ArenaSnapshot, PublicSession } from '../src/shared/types';
 
 for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
@@ -17,7 +18,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
       pendingPermissionCount: 0, pendingPermissions: [],
     });
     owner.machine.state = 'offline';
-    await page.route('**/api/arena', route => route.fulfill({ json: snapshot }));
+    await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
     await page.goto('/arena/inbox');
     const arena = page.getByRole('main', { name: 'Arena' });
     const item = arena.locator('.arena-inbox-item').filter({ hasText: 'Clickable Inbox session' });

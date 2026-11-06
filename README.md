@@ -254,7 +254,7 @@ place of **Cancel run** while the session has no live turn; it needs a second se
 archive**, and then brings the Arena panel forward. **Forget this device** requires a second
 selection and returns a paired headset to the existing pairing gate.
 
-The Arena panel reuses the shell's single Arena poll and presents Active, Inbox, and Archived views
+The Arena panel reuses the shell's single workspace subscription and presents Active, Inbox, and Archived views
 six summaries at a time. Session identity is machine-qualified, Offline entries cannot be opened,
 and archive requires confirmation. New opens shared session setup. Inspecting a background
 permission opens its exact machine/session/run/request card; Return restores the prior session and
@@ -564,7 +564,7 @@ firewall must allow port 3023.
 
 One home machine can attach up to eight other CodeAI executors and show all of their sessions in
 one Arena. Each installation keeps its own projects, sessions, repositories, provider login, and
-per-machine run scheduler. The browser talks only to the home origin; that server polls and proxies
+per-machine run scheduler. The browser talks only to the home origin; that server subscribes to updates and proxies
 explicitly allowed operations to the executor that owns the session.
 
 Use distinct `CODEAI_DATA_DIR` values. Run the executor in paired mode at an exact, trusted HTTPS
@@ -595,7 +595,7 @@ home data directory and backups are security-sensitive. Credentials and executor
 enter browser state or API responses.
 
 If an executor sleeps, its cached cards remain visible as **Offline** with live actions disabled;
-full transcript/canvas reads require it to reconnect. The next successful Arena poll restores it
+full transcript/canvas reads require it to reconnect. The next successful workspace subscription restores it
 without re-pairing. Detach by id from the home machine:
 
 ```sh
@@ -706,8 +706,8 @@ intact later. A session with a reserved, queued, executing, or permission-blocke
 archived.
 Conversations automatically move to **Archived** after more than **48 hours without saved activity**.
 Messages, canvas changes, and other saved session changes restart that clock; viewing or keeping a
-tab open does not. Existing Arena polling and conversation loading apply the rule on each owning
-machine, catching up on the next load after downtime. Restore preserves the complete conversation
+tab open does not. The workspace subscription schedules the next archive deadline on its owning
+machine; conversation loading also catches up after downtime. Restore preserves the complete conversation
 and starts a fresh 48-hour window. The threshold is fixed for now. If Docker recovery is unavailable,
 Docker conversations stay active until recovery succeeds.
 Use **New session** there to open setup, choose the machine/project or repository, execution,
@@ -736,9 +736,20 @@ source conversation, and an empty submission opens the new CodeAI conversation.
 **Inbox** in the activity bar follows you into every session and aggregates all online attached machines. It
 puts live permission requests first, then
 failed and completed turns, and lets you answer a background session's permission without opening
-it. Finished-item read markers are bounded device-only state. The Arena polls compact, bounded
-executor summaries in parallel; a failed remote refresh leaves its last good cards visible as
+it. Finished-item read markers are bounded device-only state. The Arena receives compact, bounded
+executor summaries over shared subscriptions; a failed remote connection leaves its last good cards visible as
 Offline, without claiming that cached run or permission state is live.
+
+An idle workspace keeps one NDJSON connection per browser tab and sends only liveness heartbeats;
+it does not request another Arena snapshot every two seconds. Sessions, titles, approvals and
+machine changes push new snapshots. Reconnect retains stale cards until a fresh snapshot arrives.
+The home shares one upstream subscription per attached executor; both installations need the
+workspace-subscription build. **Refresh** and browser activation also recheck repository discovery
+and provider readiness, so external repository/tool installation changes need no background scan.
+When many agent connections fill an HTTP/1 browser's connection pool, overview updates pause and
+retry so the new subscription does not take the last available approval/cancel connection. Current
+agent streams keep running. Local mode uses conservative browser grouping, so identical browser
+profiles can share this limit; the pre-existing six-run-response HTTP/1 ceiling is unchanged.
 
 ## Participants, roles, and manual handoffs
 
@@ -1291,8 +1302,8 @@ remain in the source; no setup, install, stash, or commit runs during creation. 
 Arena identify its live branch and source. Provider cwd, repository reads, model accumulation,
 and Undo use that worktree; its project continues to reference the original repository.
 
-Checkout listing offers worktree creation from lightweight filesystem checks, without Git or
-Docker probes on each Arena poll. Submission independently performs full, fresh source validation;
+Checkout listing offers worktree creation from lightweight filesystem checks, without repeated idle
+Git or Docker probes. Submission independently performs full, fresh source validation;
 unsupported configuration or missing objects can still refuse creation before anything is changed.
 
 Managed creation currently requires Linux, one ordinary primary Git checkout on the executing

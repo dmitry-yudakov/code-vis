@@ -1,5 +1,6 @@
-import { expect, test } from '@playwright/test';
-import type { APIRequestContext, Page } from '@playwright/test';
+import { fulfillArenaSnapshot, pushArenaSnapshot, restartArenaSubscription } from './arena-stream';
+import { expect, test } from './arena-stream';
+import type { APIRequestContext, Page } from './arena-stream';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ArenaSnapshot, CheckoutsResponse, DurableSession, PublicSession } from '../src/shared/types';
@@ -422,7 +423,8 @@ test('a delayed tab archive preserves focus in another session composer', async 
   await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sessions[0].id);
   const input = page.getByRole('complementary', { name: 'Conversation' }).locator('textarea');
   await input.fill('Keep typing');
-  const refreshed = page.waitForResponse(response => response.url().endsWith('/api/arena'));
+  const refreshed = page.waitForResponse(response => response.url().endsWith('/api/arena')
+    && !response.request().headers().accept?.includes('application/x-ndjson'));
   releaseArchive();
   await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
   await expect(page.getByRole('status').filter({ hasText: `Archived “${sessions[1].title}”` })).toBeVisible();
@@ -442,8 +444,8 @@ test('tab and header archive guards use machine-reported turns, offline state an
   const owner = snapshot.machines.find((machine) => machine.sessions.some((item) => item.id === session.id))!;
   owner.machine.state = 'offline';
   let observation = 'offline';
-  await page.route('**/api/arena', (route) => route.fulfill({ json: snapshot, headers: { 'x-header-state': observation } }));
-  await page.waitForResponse((response) => response.headers()['x-header-state'] === 'offline');
+  await page.route('**/api/arena', (route) => fulfillArenaSnapshot(route, { json: snapshot, headers: { 'x-header-state': observation } }));
+  await restartArenaSubscription(page);
   const archive = page.getByRole('complementary', { name: 'Conversation' }).getByRole('button', { name: 'Archive session', exact: true });
   const tabArchive = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).getByRole('button', { name: /^Archive this session:/ });
   await expect(archive).toBeDisabled();
@@ -454,7 +456,7 @@ test('tab and header archive guards use machine-reported turns, offline state an
   owner.runs.active.push({ runId: 'another-device-run', sessionId: session.id, participantId: session.primaryAgentId,
     state: 'queued', enqueuedAt: Date.now(), pendingPermissionCount: 0, pendingPermissions: [], status: 'Queued on another device' });
   observation = 'queued';
-  await page.waitForResponse((response) => response.headers()['x-header-state'] === 'queued');
+  await pushArenaSnapshot(page);
   await expect(archive).toBeDisabled();
   await expect(tabArchive).toBeDisabled();
   await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
@@ -468,7 +470,7 @@ test('tab and header archive guards use machine-reported turns, offline state an
   owner.sessions.find((item) => item.id === session.id)!.revision = stored.revision;
   owner.runs.active = [];
   observation = 'ready';
-  await page.waitForResponse((response) => response.headers()['x-header-state'] === 'ready');
+  await pushArenaSnapshot(page);
   await expect(archive).toBeEnabled();
   await page.route(`**/api/sessions/${session.id}/archive`, async (route) => {
     expect(route.request().postDataJSON()).toEqual({ expectedRevision: stored.revision });

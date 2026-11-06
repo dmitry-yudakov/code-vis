@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { fetchArenaSnapshot, fulfillArenaSnapshot } from './arena-stream';
+import { expect, test, type Locator, type Page } from './arena-stream';
 import { openMachineSettings } from './machine-settings';
 
 async function expectScreenshot(target: Locator, name: string, options: { mask?: Locator[] } = {}) {
@@ -117,7 +118,7 @@ for (const theme of ['light', 'dark'] as const) {
         localStorage.setItem('code-ai:theme', appearance);
       }, theme);
       await page.route('**/api/arena**', async (route) => {
-        const response = await route.fetch();
+        const response = await fetchArenaSnapshot(route);
         const body = await response.json();
         for (const entry of body.machines) {
           entry.machine.label = 'Home machine';
@@ -125,7 +126,7 @@ for (const theme of ['light', 'dark'] as const) {
           entry.checkouts = [];
           entry.sessions = [];
         }
-        await route.fulfill({ response, json: body });
+        await fulfillArenaSnapshot(route, { response, json: body });
       });
       await page.goto('/arena');
       const settings = await openMachineSettings(page);
@@ -180,7 +181,7 @@ for (const theme of ['light', 'dark'] as const) {
       await route.fulfill({ response, json: body });
     });
     await page.route('**/api/arena**', async (route) => {
-      const response = await route.fetch();
+      const response = await fetchArenaSnapshot(route);
       const body = await response.json();
       body.machines = body.machines.filter((entry: { machine: { kind: string } }) => entry.machine.kind === 'local');
       for (const entry of body.machines) {
@@ -189,7 +190,7 @@ for (const theme of ['light', 'dark'] as const) {
         entry.sessions = entry.sessions.filter((item: { projectId: string }) => item.projectId === project.id);
         for (const session of entry.sessions) { session.updatedAt = '2026-10-13T11:59:00Z'; session.title = 'Review the parser and its long session title'; }
       }
-      await route.fulfill({ response, json: body });
+      await fulfillArenaSnapshot(route, { response, json: body });
     });
     await page.goto('/');
     await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toBeVisible();
@@ -263,10 +264,10 @@ test('screenshots detect a deliberately changed control', async ({ page }) => {
   await settingsFixture(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.route('**/api/arena**', async (route) => {
-    const response = await route.fetch();
+    const response = await fetchArenaSnapshot(route);
     const body = await response.json();
     for (const entry of body.machines) { entry.machine.label = 'Home machine'; entry.projects = []; entry.checkouts = []; entry.sessions = []; }
-    await route.fulfill({ response, json: body });
+    await fulfillArenaSnapshot(route, { response, json: body });
   });
   await page.addInitScript(() => localStorage.setItem('code-ai:theme', 'light'));
   await page.goto('/arena');

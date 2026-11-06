@@ -128,6 +128,35 @@ export class RunRegistry implements MaintenanceLease {
   private readonly liveByRunId = new Map<string, RunRecord>();
   private readonly recentByRunId = new Map<string, RunRecord>();
   private readonly queue: string[] = [];
+  private readonly changeListeners = new Set<() => void>();
+  private expiryTimer?: ReturnType<typeof setTimeout>;
+
+  /** Workspace discovery observes descriptor changes, independently of per-run transcript streams. */
+  subscribeChanges(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    this.scheduleExpiry();
+    return () => {
+      this.changeListeners.delete(listener);
+      if (!this.changeListeners.size && this.expiryTimer) clearTimeout(this.expiryTimer);
+    };
+  }
+
+  private notifyChanges(): void {
+    this.scheduleExpiry();
+    for (const listener of this.changeListeners) {
+      try { listener(); } catch { /* Presentation cannot affect execution ownership. */ }
+    }
+  }
+
+  private scheduleExpiry(): void {
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    this.expiryTimer = undefined;
+    if (!this.changeListeners.size || !this.recentByRunId.size) return;
+    let next = Infinity;
+    for (const run of this.recentByRunId.values()) next = Math.min(next, run.finishedAt! + RETENTION_MS + 1);
+    this.expiryTimer = setTimeout(() => { this.evictExpired(); this.scheduleExpiry(); }, Math.max(1, next - Date.now()));
+    this.expiryTimer.unref?.();
+  }
 
   constructor(private readonly maxConcurrentRuns = 2) {
     if (!Number.isSafeInteger(maxConcurrentRuns) || maxConcurrentRuns < 1 || maxConcurrentRuns > 8) {
@@ -278,6 +307,7 @@ export class RunRegistry implements MaintenanceLease {
     run.cancelQueued = input.cancelQueued;
     this.queue.push(runId);
     this.schedule();
+    this.notifyChanges();
     return true;
   }
 
@@ -287,6 +317,7 @@ export class RunRegistry implements MaintenanceLease {
     if (!run || run.activated) return false;
     this.liveByRunId.delete(runId);
     run.resolveCompletion();
+    this.notifyChanges();
     return true;
   }
 
@@ -324,6 +355,7 @@ export class RunRegistry implements MaintenanceLease {
       completion: completion.promise,
       resolveCompletion: completion.resolve,
     });
+    this.notifyChanges();
     return true;
   }
 
@@ -432,6 +464,9 @@ export class RunRegistry implements MaintenanceLease {
     for (const subscriber of run?.subscribers.values() || []) {
       try { subscriber(event); } catch { /* a broken attachment must not starve the others */ }
     }
+    if (run && ['mode-changed', 'permission-request', 'permission-resolved', 'status', 'tool-activity', 'error', 'done'].includes(event.type)) {
+      this.notifyChanges();
+    }
   }
 
   /** Attaches a stream directly to a live or retained run, replaying what it has missed. */
@@ -526,6 +561,7 @@ export class RunRegistry implements MaintenanceLease {
     run.resolveCompletion();
     this.evictExpired();
     this.schedule();
+    this.notifyChanges();
   }
 
   list(sessionId?: string): RunDiscovery {
@@ -607,6 +643,7 @@ export class RunRegistry implements MaintenanceLease {
       starting.push(run);
     }
     this.emitQueuePositions();
+    if (starting.length) this.notifyChanges();
     for (const run of starting) {
       if (run.resumeAccess) {
         run.resumeAccess();
@@ -658,9 +695,11 @@ export class RunRegistry implements MaintenanceLease {
 
   private evictExpired(): void {
     const cutoff = Date.now() - RETENTION_MS;
+    let changed = false;
     for (const [runId, run] of this.recentByRunId) {
-      if ((run.finishedAt ?? 0) < cutoff) this.recentByRunId.delete(runId);
+      if ((run.finishedAt ?? 0) < cutoff) { this.recentByRunId.delete(runId); changed = true; }
     }
+    if (changed) this.notifyChanges();
   }
 }
 

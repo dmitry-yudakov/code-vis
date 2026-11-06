@@ -2,27 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ArenaMachineSnapshot, ArenaSnapshot, RunDiscovery } from '@/shared/types';
+import { useDeviceAccess } from '@/features/devices/DeviceAccess';
+import { subscribeArena } from './arenaSubscription';
 import {
   acknowledgeAttention, DEVICE_ARENA_STORAGE_KEY, EMPTY_DEVICE_ARENA_STATE,
   parseDeviceArenaState, type DeviceArenaState,
 } from './arenaModel';
 
-const EMPTY_DISCOVERY: RunDiscovery = { active: [], recent: [] };
-const POLL_INTERVAL_MS = 2_000;
-
 export function useArena() {
-  const [lastObservation, setLastObservation] = useState(0);
+  const [connected, setConnected] = useState(false);
   const [machines, setMachines] = useState<ArenaMachineSnapshot[]>([]);
   const [refreshError, setRefreshError] = useState<string>();
   const [deviceState, setDeviceState] = useState<DeviceArenaState>(EMPTY_DEVICE_ARENA_STATE);
   const [deviceReady, setDeviceReady] = useState(false);
-  const mounted = useRef(true);
-  const refreshing = useRef(false);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
+  const subscription = useRef<ReturnType<typeof subscribeArena> | undefined>(undefined);
+  const { refresh: refreshAccess } = useDeviceAccess();
 
   useEffect(() => {
     try { setDeviceState(parseDeviceArenaState(localStorage.getItem(DEVICE_ARENA_STORAGE_KEY))); } catch {
@@ -39,29 +33,32 @@ export function useArena() {
     }
   }, [deviceReady, deviceState]);
 
-  const refresh = useCallback(async () => {
-    if (refreshing.current) return;
-    refreshing.current = true;
-    try {
-      const response = await fetch('/api/arena', { cache: 'no-store' });
-      const data = await response.json().catch(() => ({})) as ArenaSnapshot & { error?: string };
-      if (!response.ok) throw new Error(data.error || 'Could not refresh the Arena.');
-      if (!mounted.current) return;
-      setMachines(data.machines || []);
-      setLastObservation(Date.now());
-      setRefreshError(undefined);
-    } catch (error) {
-      if (mounted.current) setRefreshError(error instanceof Error ? error.message : 'Could not refresh the Arena.');
-    } finally {
-      refreshing.current = false;
-    }
-  }, []);
+  const refresh = useCallback(() => subscription.current?.refresh() ?? Promise.resolve(), []);
 
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => { void refresh(); }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+    const owner = subscribeArena({
+      snapshot: (snapshot: ArenaSnapshot) => setMachines(snapshot.machines),
+      connected: setConnected, error: setRefreshError, unauthorized: () => void refreshAccess(),
+    });
+    subscription.current = owner;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const activate = () => {
+      clearTimeout(timer);
+      if (document.visibilityState === 'hidden') return;
+      timer = setTimeout(() => void owner.refresh(), 150);
+    };
+    window.addEventListener('focus', activate);
+    window.addEventListener('pageshow', activate);
+    document.addEventListener('visibilitychange', activate);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', activate);
+      window.removeEventListener('pageshow', activate);
+      document.removeEventListener('visibilitychange', activate);
+      owner.stop();
+      if (subscription.current === owner) subscription.current = undefined;
+    };
+  }, [refreshAccess]);
 
   const acknowledge = useCallback((itemIds: string[]) => {
     setDeviceState((current) => acknowledgeAttention(current, itemIds));
@@ -79,7 +76,7 @@ export function useArena() {
   };
 
   return {
-    machines: machines.map((entry) => ({ ...entry, snapshotFresh: !refreshError && Date.now() - lastObservation < 10_000 })),
+    machines: machines.map((entry) => ({ ...entry, snapshotFresh: connected && !refreshError })),
     sessions,
     archivedSessions,
     discovery,

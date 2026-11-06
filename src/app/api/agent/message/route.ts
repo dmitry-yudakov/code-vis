@@ -21,6 +21,7 @@ import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execut
 import { runConversation } from '@/server/conversation/conversationService';
 import { generateConversationTitle } from '@/server/conversation/conversationTitle';
 import { agentEventStream } from '../eventStream';
+import { withBrowserRunBudget } from '@/server/workspace/browserStreamBudget';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
 import { changesCheckout, nativeMessageLevel } from '@/shared/agentModes';
 import { getTurnCheckpoints } from '@/server/repository/turnCheckpoints';
@@ -425,7 +426,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   let attachmentId: string | undefined;
-  return agentEventStream({
+  return withBrowserRunBudget(request, agentEventStream({
     runId,
     headers: { 'X-CodeAI-Run-Id': runId },
     // A closed browser tab must not kill work the user already approved: detach, never cancel.
@@ -438,5 +439,5 @@ export async function POST(request: Request): Promise<Response> {
       for (const event of attachment?.replay || []) write(event);
       return runRegistry.wait(runId) || Promise.resolve();
     },
-  });
+  }));
 }

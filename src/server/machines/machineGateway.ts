@@ -4,6 +4,7 @@ import { machineAuthorization } from './machineClient';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
 import { boundedRequestBody } from './boundedBody';
 import { machineOperationAllowed } from './machineRoutePolicy';
+import { withBrowserRunBudget } from '@/server/workspace/browserStreamBudget';
 
 const MAX_PROXY_BODY_BYTES = 7_000_000;
 const CONNECT_TIMEOUT_MS = 5_000;
@@ -70,7 +71,9 @@ export async function proxyMachineRequest(
       clearTimeout(timeout);
       request.signal.removeEventListener('abort', abort);
     }
-    return new Response(remote.body, { status: remote.status, headers: responseHeaders(remote) });
+    const response = new Response(remote.body, { status: remote.status, headers: responseHeaders(remote) });
+    return pathSegments[0] === 'agent' && ['message', 'stream'].includes(pathSegments[1])
+      ? withBrowserRunBudget(request, response) : response;
   } catch (error) {
     const message = publicError(error);
     if (message === 'Request body is too large.') {

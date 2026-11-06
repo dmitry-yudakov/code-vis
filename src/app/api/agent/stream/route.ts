@@ -3,6 +3,7 @@ import { safeJsonResponse } from '@/shared/protocol';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { agentEventStream } from '../eventStream';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { withBrowserRunBudget } from '@/server/workspace/browserStreamBudget';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,7 @@ export async function GET(request: Request): Promise<Response> {
   const attachment = runRegistry.subscribe(runId, (event) => live?.(event));
   if (!attachment) return safeJsonResponse({ error: 'That agent run is no longer available.' }, { status: 404 });
 
-  return agentEventStream({
+  return withBrowserRunBudget(request, agentEventStream({
     runId: attachment.runId,
     replay: attachment.replay,
     headers: {
@@ -38,5 +39,5 @@ export async function GET(request: Request): Promise<Response> {
       // slot is released. It also covers queued cancellation and terminal paths without `done`.
       return runRegistry.wait(runId) || Promise.resolve();
     },
-  });
+  }));
 }

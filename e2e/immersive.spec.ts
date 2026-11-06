@@ -1,9 +1,10 @@
+import { fulfillArenaSnapshot, pushArenaSnapshot } from './arena-stream';
 import { readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { RootState } from '@react-three/fiber';
 import type { XRStore } from '@react-three/xr';
 import type { Mesh } from 'three';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './arena-stream';
 import type { ArenaMachineSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 import { validVoiceWav } from '../src/shared/voice';
 
@@ -801,7 +802,7 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
     { id: 'checkout', name: 'Fixture', relativePath: 'fixture' },
     ...(multipleRepositories ? [{ id: 'reference-checkout', name: 'Reference', relativePath: 'reference' }] : []),
   ] : [], recentCheckoutIds: [] } }));
-  await page.route('**/api/arena', (route) => route.fulfill({ json: { machines: [snapshot(LOCAL, 'Home', local), snapshot(REMOTE, 'Laptop', remote)] } }));
+  await page.route('**/api/arena', (route) => fulfillArenaSnapshot(route, { json: { machines: [snapshot(LOCAL, 'Home', local), snapshot(REMOTE, 'Laptop', remote)] } }));
   await page.route('**/api/agent/runs*', (route) => route.fulfill({ json: { active: [], recent: [] } }));
   await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [local, ...olderSessions] } }));
   for (const item of olderSessions) await page.route(`**/api/sessions/${item.id}`, (route) => route.fulfill({ json: { session: item } }));
@@ -1040,6 +1041,7 @@ test('retains one XR store across machine/project navigation, loading races, his
   state.failLoad = false;
   await openSession(page, SESSION);
   state.online = false;
+  await pushArenaSnapshot(page);
   await expect(controls(page).locator(`[data-immersive-session="${EMPTY}"]`)).toContainText('Offline');
   await openSession(page, EMPTY);
   await expect(controls(page).getByRole('status')).toContainText('Laptop is Offline');
@@ -1108,7 +1110,7 @@ test('selects the exact Inbox summary with the immersive ray without deciding it
       state: 'needs-you', enqueuedAt: 1, pendingPermissionCount: 1,
       pendingPermissions: [{ requestId: 'request', participantId: AGENT, tool: 'Edit', detail: machine.machine.label }],
     }];
-    return route.fulfill({ json: { machines } });
+    return fulfillArenaSnapshot(route, { json: { machines } });
   });
   const decisions: string[] = [];
   page.on('request', (request) => { if (request.url().endsWith('/agent/permission')) decisions.push(request.url()); });
@@ -1136,7 +1138,7 @@ test('pages the immersive Arena, inspects an exact background permission, and re
       runId: 'arena-run', sessionId: EMPTY, participantId: AGENT, state: 'needs-you', enqueuedAt: 1,
       pendingPermissionCount: pending.length, pendingPermissions: [...pending],
     }];
-    return route.fulfill({ json: { machines: [home, remote] } });
+    return fulfillArenaSnapshot(route, { json: { machines: [home, remote] } });
   });
   const decisions: Array<{ runId: string; requestId: string; decision: string }> = [];
   await page.route(`**/api/machines/${REMOTE}/agent/permission`, (route) => {
@@ -1202,7 +1204,7 @@ test('archives, restores, and refuses to open Offline sessions from the immersiv
     home.sessions = home.sessions.filter((item) => item.id !== older.id || !archived);
     home.archivedSessions = archived ? [{ ...older, revision: 1, archivedAt: '2026-09-20T12:00:00.000Z' }] : [];
     const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote);
-    return route.fulfill({ json: { machines: [home, remote] } });
+    return fulfillArenaSnapshot(route, { json: { machines: [home, remote] } });
   });
   await page.route(`**/api/sessions/${older.id}/archive`, async (route) => {
     await archivePending;
@@ -1260,7 +1262,7 @@ test('archives the open session from Session tools after a confirmation and brin
   await page.route('**/api/agent/runs*', (route) => route.fulfill({ json: {
     active: live ? [liveRun('cccccccc-cccc-4ccc-8ccc-cccccccccccc')] : [], recent: [],
   } }));
-  // A turn another device starts, and a change another device makes, reach this one only through the Arena poll.
+  // Another device's changes reach this one through workspace notifications.
   let elsewhere = false;
   let arenaRevision: number | undefined;
   let arenaHold: Promise<void> | undefined;
@@ -1271,7 +1273,7 @@ test('archives the open session from Session tools after a confirmation and brin
     const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
     if (elsewhere) home.runs.active = [liveRun('dddddddd-dddd-4ddd-8ddd-dddddddddddd')];
     if (arenaRevision !== undefined) home.sessions = home.sessions.map((item) => item.id === SESSION ? { ...item, revision: arenaRevision! } : item);
-    await route.fulfill({ json: { machines: [home, fixture.snapshot(REMOTE, 'Laptop', fixture.remote)] } });
+    await fulfillArenaSnapshot(route, { json: { machines: [home, fixture.snapshot(REMOTE, 'Laptop', fixture.remote)] } });
     arenaServed++;
   });
   let releaseStream!: () => void;
@@ -1313,20 +1315,25 @@ test('archives the open session from Session tools after a confirmation and brin
 
   // A turn starting withdraws the confirmation; the slot returns to Cancel run.
   elsewhere = true;
+  await pushArenaSnapshot(page);
   await expect.poll(slot).toEqual({ cancel: false });
   await sessionAction(page, 'confirm-archive');
   elsewhere = false;
+  await pushArenaSnapshot(page);
   await expect.poll(slot).toEqual({ archive: true });
   expect(archives).toEqual([]);
   expect(await sessionToolsState(page)).not.toMatchObject({ text: expect.stringContaining('Archive “Canvas session”?') });
 
-  // Another device changed the session, which this one learns only from the Arena poll.
+  // Another device changed the session; repeat the notification after reconciliation.
   arenaRevision = fixture.local.revision + 2;
   const served = arenaServed;
-  await expect.poll(() => arenaServed, { timeout: 6_000 }).toBeGreaterThan(served + 1);
-  // An Arena poll is in flight when the archive returns, so the archive resolves before the next render.
+  await pushArenaSnapshot(page); await pushArenaSnapshot(page);
+  expect(arenaServed).toBeGreaterThan(served + 1);
+  // A workspace read is in flight when the archive returns, before the next render.
   let releaseArena!: () => void;
   arenaHold = new Promise((resolve) => { releaseArena = resolve; });
+  await sessionAction(page, 'refresh');
+  await expect.poll(() => arenaHeld).toBe(true);
   await sessionAction(page, 'archive'); await sessionAction(page, 'confirm-archive');
   await expect.poll(() => archives).toEqual([{ expectedRevision: arenaRevision }]);
   // Each view keeps its own layout, and Canvas holds focus by default in the view shown next.
@@ -2485,7 +2492,7 @@ test('VR worktree launcher names its source, preserves retry identity, and targe
   await page.route('**/api/arena', (route) => {
     const home = fixture.snapshot(LOCAL, 'Home', fixture.local); home.worktrees = { available: false, message: 'Docker Git helper lacks linked-worktree support.' };
     const remote = fixture.snapshot(REMOTE, 'Laptop', fixture.remote); remote.worktrees = { available: true }; remote.checkouts = [source];
-    return route.fulfill({ json: { machines: [home, remote] } });
+    return fulfillArenaSnapshot(route, { json: { machines: [home, remote] } });
   });
   await page.route(`**/api/machines/${REMOTE}/sessions`, (route) => {
     if (route.request().method() !== 'POST') return route.continue();
@@ -2605,7 +2612,7 @@ test('VR permission cards page complete details, retain outcomes, retry explicit
     remote.machine.state = online ? 'online' : 'offline';
     remote.runs.active = [{ runId: 'remote-run', sessionId: EMPTY, participantId: AGENT, state: 'needs-you',
       enqueuedAt: 1, pendingPermissionCount: pending.length, pendingPermissions: [...pending] }];
-    return route.fulfill({ json: { machines: [fixture.snapshot(LOCAL, 'Home', fixture.local), remote] } });
+    return fulfillArenaSnapshot(route, { json: { machines: [fixture.snapshot(LOCAL, 'Home', fixture.local), remote] } });
   });
   await page.route(`**/api/machines/${REMOTE}/agent/runs?*`, (route) => route.fulfill({ json: { active: [{
     runId: 'remote-run', sessionId: EMPTY, pendingPermissions: [...pending],
@@ -2664,7 +2671,7 @@ for (const status of [404, 409, 401]) {
       const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
       home.runs.active = [{ runId: 'stale-run', sessionId: SESSION, participantId: AGENT, state: 'needs-you',
         enqueuedAt: 1, pendingPermissionCount: pending.length, pendingPermissions: [...pending] }];
-      return route.fulfill({ json: { machines: [home] } });
+      return fulfillArenaSnapshot(route, { json: { machines: [home] } });
     });
     const message = status === 404 ? 'That agent run is no longer active.' : status === 409 ? 'That approval was already resolved.' : 'Pair this device again.';
     let posts = 0;
@@ -2732,7 +2739,7 @@ test('VR setup restores Auto and offers it alongside Ask, Plan, and Agent', asyn
     ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true,
     securityLevel: 'guarded', providers: home.providers,
   } }));
-  await page.route('**/api/arena', (route) => route.fulfill({ json: { machines: [home] } }));
+  await page.route('**/api/arena', (route) => fulfillArenaSnapshot(route, { json: { machines: [home] } }));
   await page.addInitScript(() => localStorage.setItem('code-ai:device:v1:preferences', JSON.stringify({ version: 1, mode: 'auto' })));
   await page.goto('/'); await enter(page);
   await controls(page).locator('[data-immersive-action="arena:new"]').click();

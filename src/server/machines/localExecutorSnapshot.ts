@@ -9,8 +9,7 @@ import type { ExecutorSnapshot } from '@/shared/types';
 import { worktreeCapability } from '@/server/repository/managedWorktrees';
 
 /** Builds only this executor's projection; attached peers are intentionally never traversed. */
-export async function localExecutorSnapshot(): Promise<ExecutorSnapshot> {
-  const config = getConfig();
+export async function localExecutorSnapshot(config = getConfig()): Promise<ExecutorSnapshot> {
   const store = getSessionStore(config.dataDir, config.hostLabel);
   await autoArchiveSessions(config);
   const [machine, projects, checkouts, sessions, archivedSessions, providers] = await Promise.all([

@@ -37,7 +37,11 @@ function conversationToggle(page: Page) {
 }
 
 async function ensureConversationOpen(page: Page) {
+  // The toggle appears after session loading. Inspecting the pane before that can race the
+  // restored layout, then click an already-open conversation closed.
+  await expect(conversationToggle(page)).toBeVisible();
   if (!await page.getByRole('complementary', { name: 'Conversation' }).count()) await conversationToggle(page).click();
+  await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
 }
 
 async function showCanvas(page: Page) {
@@ -1462,7 +1466,7 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   // device-local selection when this browser reloads.
   await selectAgent(page, 'Main');
   const discovery = page.waitForResponse((response) => response.url().endsWith('/api/agent/runs'));
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   expect((await (await discovery).json()).active).toHaveLength(0);
   await expect(page.locator('.unread-badge, .layout-badge')).toHaveCount(0);
   await ensureConversationOpen(page);
@@ -1541,7 +1545,7 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
   expect(handoff.participantId).not.toBe(plain.participantId);
   expect(handoff).toMatchObject({ model: 'opus', effort: 'xhigh' });
 
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureConversationOpen(page);
   const reloaded = page.getByRole('complementary', { name: 'Conversation' });
   await expect(reloaded.locator('.model-menu > button')).toHaveText('Opus · Extra high');
@@ -1673,7 +1677,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   await expect(modePicker(conversation)).toHaveText('Plan');
 
   // After a reload every choice is where it was, and the next session starts at the last ones.
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureConversationOpen(page);
   await expect(modePicker(conversation)).toHaveText('Plan');
   await expect(summary).toHaveText('Opus · High');
@@ -1697,7 +1701,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   // device and shows the last ones.
   const { session: elsewhere } = await (await request.post('/api/sessions', { data: { provider: 'claude', projectId: project.id } }))
     .json() as { session: { id: string } };
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
   await page.getByRole('combobox', { name: 'All sessions' }).selectOption(elsewhere.id);
   await ensureConversationOpen(page);
@@ -1707,7 +1711,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   // The Arena's form opens at the last mode, and what it creates with becomes the last choice.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
-  await arena.getByRole('button', { name: 'New session' }).click();
+  await arena.getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(create.getByLabel('Mode', { exact: true })).toHaveValue('plan');
   await create.getByLabel('Mode', { exact: true }).selectOption('agent');
@@ -1742,7 +1746,7 @@ test('offers Auto only where the provider advertises it and remembers it for new
     for (const providers of [body.providers, body.executions.local.providers]) providers.claude.supportedModes.push('auto');
     await route.fulfill({ response, json: body });
   });
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureConversationOpen(page);
   await modePicker(conversation).click();
   await expect(modes).toHaveText([/^Ask/, /^Plan/, /^Agent/, /^Auto/]);
@@ -1762,7 +1766,7 @@ test('offers Auto only where the provider advertises it and remembers it for new
   await expect(toast(page, 'Claude is not healthy for auto mode in this CodeAI configuration.')).toBeVisible();
 
   // Auto stays with its session across a reload, and the next Local session inherits it.
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureConversationOpen(page);
   await expect(modePicker(conversation)).toHaveText('Auto');
   await startSession(page);
@@ -1775,7 +1779,7 @@ test('offers Auto only where the provider advertises it and remembers it for new
   await chooseMode(conversation, 'Auto');
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
-  await arena.getByRole('button', { name: 'New session' }).click();
+  await arena.getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(create.getByLabel('Mode', { exact: true }).locator('option')).toHaveCount(4);
   await expect(create.getByLabel('Mode', { exact: true }).locator('option[value=auto]')).toHaveCount(1);
@@ -1890,7 +1894,7 @@ test('attaches from the composer, picks a mode from the keyboard, and names the 
   await expect(picker).toBeFocused();
 
   // A chosen mode survives a reload (Story 70).
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureConversationOpen(page);
   await expect(picker).toHaveText('Agent');
 

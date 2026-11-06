@@ -36,10 +36,10 @@ move to the existing recoverable archive without requiring manual housekeeping.
 
 1. On an authorized owner-machine Arena/snapshot or session-list request, archive sessions whose
    last saved activity (`updatedAt`) is **more than 48 hours** old. This covers Local and Docker,
-   project-bound and No project conversations. No background daemon or additional timer is needed:
-   existing Arena polling checks while the app is open, and the next load catches up after downtime.
+   project-bound and No project conversations. While the workspace is observed, the server schedules
+   the next inactivity deadline; a load also catches up after downtime (Story 129).
 2. Saved conversation/canvas/participant/repository changes reset the age; merely reading,
-   selecting, polling, or keeping a tab open does not. Restore starts a fresh 48-hour window.
+   selecting, receiving updates, or keeping a tab open does not. Restore starts a fresh 48-hour window.
 3. Reserved, queued, executing, and permission-blocked turns are excluded. A short per-session
    archive lease also prevents a turn being admitted during the move; unrelated sessions continue.
    A changed revision wins over a stale sweep candidate. Concurrent sweeps remain safe.
@@ -73,8 +73,8 @@ move to the existing recoverable archive without requiring manual housekeeping.
 
 1. Run focused archive, scheduler, store, and route tests, then `npm run lint` and `npm test`.
 2. With a production fixture server, open a conversation, age its saved `updatedAt` past 48 hours,
-   and let Arena polling run. Confirm the tab closes and Archived offers Restore.
-3. Restore and reopen it; verify content survives and the next poll leaves it active. Reload with
+   and leave the workspace open. Confirm the tab closes and Archived offers Restore.
+3. Restore and reopen it; verify content survives and subsequent updates leave it active. Reload with
    an old saved conversation and confirm the session picker omits it.
 4. Complete an independent review and resolve findings before marking this story shipped.
 

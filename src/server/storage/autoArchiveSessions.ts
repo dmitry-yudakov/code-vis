@@ -3,7 +3,7 @@ import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { getSessionStore, sessionStoreErrorCode, type SessionStore } from './sessionStore';
 
-const INACTIVITY_MS = 48 * 60 * 60 * 1_000;
+export const SESSION_INACTIVITY_MS = 48 * 60 * 60 * 1_000;
 const scope = globalThis as typeof globalThis & { __codeAiAutoArchiveSweeps?: WeakMap<SessionStore, Promise<void>> };
 
 /** Apply the owner machine's inactivity policy before returning its session collections. */
@@ -21,7 +21,7 @@ export function autoArchiveSessions(config: AppConfig, now = Date.now()): Promis
 }
 
 async function sweep(store: SessionStore, config: AppConfig, now: number): Promise<void> {
-  const candidates = (await store.listSessionSummaries()).filter((session) => Date.parse(session.updatedAt) < now - INACTIVITY_MS);
+  const candidates = (await store.listSessionSummaries()).filter((session) => Date.parse(session.updatedAt) < now - SESSION_INACTIVITY_MS);
   // An orphan worker and its interrupted-delivery record must be recovered before moving its
   // session. A missing daemon keeps Docker records active without blocking Local housekeeping.
   const dockerRecovered = !candidates.some((session) => session.execution === 'docker')

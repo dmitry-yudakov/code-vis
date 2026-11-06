@@ -21,6 +21,7 @@ import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/glob
 import { isNativeMessage } from '@/shared/agentModes';
 import { boundSessionActivity, finishTurn, type TurnRecord } from '@/shared/turnActivity';
 import { repairClaudeActivity } from './claudeActivityRepair';
+import { workspaceChanged } from '@/server/workspace/workspaceChanges';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
@@ -443,6 +444,7 @@ export class SessionStore {
       }
       await unlink(this.projectPath(id));
       await syncDirectory(this.projectsDirectory);
+      workspaceChanged(this.dataDirectory);
       return { detachedSessionCount: sessions.length };
     });
   }
@@ -563,6 +565,7 @@ export class SessionStore {
         throw error;
       }
       await Promise.all([syncDirectory(this.sessionsDirectory), syncDirectory(this.archivedSessionsDirectory)]);
+      workspaceChanged(this.dataDirectory);
       return structuredClone(archived);
     });
   }
@@ -586,6 +589,7 @@ export class SessionStore {
         throw error;
       }
       await Promise.all([syncDirectory(this.archivedSessionsDirectory), syncDirectory(this.sessionsDirectory)]);
+      workspaceChanged(this.dataDirectory);
       return structuredClone(restored);
     });
   }
@@ -1137,12 +1141,14 @@ export class SessionStore {
   private async writeSession(session: DurableSession): Promise<void> {
     durableSessionSchema.parse(session);
     await atomicWrite(this.sessionPath(session.id), session, this.beforeRename);
+    workspaceChanged(this.dataDirectory);
   }
 
   private async writeArchivedSession(session: DurableSession): Promise<void> {
     durableSessionSchema.parse(session);
     if (!session.archivedAt) throw new SessionStoreError('corrupt', 'An archived session requires archivedAt.');
     await atomicWrite(this.archivedSessionPath(session.id), session, this.beforeRename);
+    workspaceChanged(this.dataDirectory);
   }
 
   private async expectNoSessionAt(filePath: string, message: string): Promise<void> {
@@ -1191,6 +1197,7 @@ export class SessionStore {
   private async writeProject(project: DurableProject): Promise<void> {
     durableProjectSchema.parse(project);
     await atomicWrite(this.projectPath(project.id), project, this.beforeRename);
+    workspaceChanged(this.dataDirectory);
   }
 
   private async mutate<T>(

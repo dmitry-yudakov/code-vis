@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { fetchArenaSnapshot, fulfillArenaSnapshot } from './arena-stream';
+import { expect, test, type APIRequestContext, type Page } from './arena-stream';
 import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 async function project(request: APIRequestContext, name = `Setup ${Date.now()}`, repository = 'alpha') {
@@ -10,7 +11,7 @@ async function project(request: APIRequestContext, name = `Setup ${Date.now()}`,
 }
 async function openSetup(page: Page, target: DurableProject) {
   await page.goto('/arena');
-  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
@@ -31,12 +32,12 @@ for (const [mode, label] of [['ask', 'Ask'], ['plan', 'Plan'], ['agent', 'Agent'
       await route.fulfill({ response, json: body });
     });
     await page.route('**/api/arena', async (route) => {
-      const response = await route.fetch();
+      const response = await fetchArenaSnapshot(route);
       const body = await response.json();
       for (const machine of body.machines as Array<{ machine: { kind: string }; providers: { claude: { supportedModes: string[] } } }>) {
         if (machine.machine.kind === 'local') machine.providers.claude.supportedModes.push('auto');
       }
-      await route.fulfill({ response, json: body });
+      await fulfillArenaSnapshot(route, { response, json: body });
     });
     const preparedContext = { projectId: self.id, checkoutId: checkout.id, bindingsFingerprint: 'a'.repeat(64) };
     await page.route('**/api/codeai-session', async (route) => {
@@ -57,16 +58,16 @@ for (const [mode, label] of [['ask', 'Ask'], ['plan', 'Plan'], ['agent', 'Agent'
       await expect(picker).toHaveText(choice);
     }
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences') || '{}').mode)).toBe(mode);
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
-    await page.getByRole('button', { name: 'New session', exact: true }).click();
+    await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
     const general = page.getByRole('dialog', { name: 'New session', exact: true });
     await expect(general.getByLabel('Mode', { exact: true })).toHaveValue(mode);
     await general.getByLabel('Project', { exact: true }).selectOption(source.id);
     await general.getByRole('button', { name: 'Create and open', exact: true }).click();
     await expect(general).not.toBeVisible();
     await expect(picker).toHaveText(label);
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await chooseProject(page, source);
     await expect(picker).toHaveText(label);
     await page.locator('.more-menu > button').click();
@@ -77,15 +78,15 @@ for (const [mode, label] of [['ask', 'Ask'], ['plan', 'Plan'], ['agent', 'Agent'
     await expect(codeai).not.toBeVisible();
     await expect(page.locator('.project-search-trigger')).toContainText(self.name);
     await expect(picker).toHaveText(label);
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(picker).toHaveText(label);
     if (mode === 'auto') {
       // A different readiness result must withhold Auto without forgetting the user's choice.
       await page.unroute('**/api/health');
       await page.unroute('**/api/arena');
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByRole('link', { name: 'Arena', exact: true }).click();
-      await page.getByRole('button', { name: 'New session', exact: true }).click();
+      await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
       await expect(general.getByLabel('Mode', { exact: true })).toHaveValue('ask');
       await expect(general.getByLabel('Mode', { exact: true }).locator('option[value=auto]')).toHaveCount(0);
       expect(await page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences') || '{}').mode)).toBe('auto');
@@ -102,7 +103,7 @@ test('same-project Arena card opens a background turn that completed before acce
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   // Buffer the real provider response so the accepted run is already retained when launch returns.
   await page.route('**/api/agent/message', async (route) => route.fulfill({ response: await route.fetch() }));
-  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
   await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
@@ -131,7 +132,7 @@ test('same-project background approvals and replies stay connected while another
   const launches: PublicSession[] = [];
   const start = async (text: string, mode: 'ask' | 'agent') => {
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
-    await page.getByRole('button', { name: 'New session', exact: true }).click();
+    await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
     await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
     await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
@@ -193,7 +194,7 @@ for (const scope of ['same-project', 'other-project']) test(`${scope} background
     await route.fulfill({ headers: { 'X-CodeAI-Run-Id': runId }, body: '' });
   });
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
   await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
@@ -223,7 +224,7 @@ test('same-project background stream reconnects after a failed attachment when i
   let launched: PublicSession | undefined;
   try {
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
-    await page.getByRole('button', { name: 'New session', exact: true }).click();
+    await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
     await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
     await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
@@ -273,7 +274,7 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     await page.getByRole('radio', { name: 'Plan', exact: true }).click();
     expect((await changing).status()).toBe(200);
     await expect(conversation.getByRole('button', { name: 'Execute plan', exact: true })).toBeVisible();
-    await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { name: /Completed Arena choices/ })).not.toHaveClass(/working|awaiting-approval/);
+    await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').filter({ has: page.locator('a[href="/?session=' + session.id + '"]') })).not.toHaveClass(/working|awaiting-approval/);
 
     await conversation.getByRole('button', { name: 'Session agents', exact: true }).click();
     await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
@@ -296,7 +297,7 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     expect(stream.headers()['x-codeai-run-finished']).toBe('true');
     expect(retainedEvents).toContain('"type":"mode-changed"');
     // Wait for replay and its final snapshot refresh before checking idle selections.
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(conversation.getByRole('button', { name: 'Session agents', exact: true })).toContainText('Claude Reviewer');
     await expect(conversation.getByLabel(/^Mode: Ask/)).toBeVisible();
     await expect(conversation.locator('textarea')).toHaveValue('Keep the next turn draft');
@@ -387,7 +388,7 @@ for (const theme of ['light', 'dark']) test(`${theme}: setup Enter starts a file
   page.on('request', (req) => { if (req.url().endsWith('/api/agent/message')) messages++; });
   await input.press('Enter');
   await expect(dialog).not.toBeVisible(); await expect(page).toHaveURL(/\/arena$/);
-  await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeFocused();
+  await expect(page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Open session', exact: true })).toBeVisible();
   await expect.poll(() => createdId).not.toBe('');
   await expect.poll(async () => (await (await request.get(`/api/sessions/${createdId}`)).json()).session.messages.length).toBeGreaterThan(0);
@@ -405,7 +406,7 @@ test('empty input opens idle session, and Cancel/reopen keeps separate setup evi
   await dialog.getByRole('textbox').fill('Keep this setup draft');
   await dialog.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('notes') });
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   await expect(dialog.getByRole('textbox')).toHaveValue('Keep this setup draft');
   await expect(dialog).toContainText('notes.txt');
   await dialog.getByRole('button', { name: 'Remove file notes.txt' }).click();
@@ -485,7 +486,7 @@ for (const width of [1280, 390]) test(`setup model and effort choices remain usa
   await expect(menu.getByRole('button', { name: /Model and effort/ })).toHaveText('Setup model · High');
   await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeInViewport();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   await expect(menu.getByRole('button', { name: /Model and effort/ })).toHaveText('Setup model · High');
 });
 
@@ -594,8 +595,8 @@ test('narrow setup retains valid files and guards Shift Enter, composition, repe
   });
   expect(creates).toBe(0);
   await page.keyboard.press('Escape'); await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeFocused();
-  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await expect(page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true })).toBeFocused();
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   await expect(dialog.getByRole('textbox')).toHaveValue('Keep this message\n');
 });
 

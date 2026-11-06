@@ -6,6 +6,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { executorSnapshotSchema } from '@/shared/machineSchema';
 import type { ExecutorSnapshot, MachineIdentity } from '@/shared/types';
+import { workspaceChanged } from '@/server/workspace/workspaceChanges';
 
 const REGISTRY_RECORD = 'machine-registry-v1.json';
 const REGISTRY_VERSION = 1;
@@ -132,6 +133,7 @@ export class MachineRegistry {
       connectionSchema.parse(connection);
       record.machines.push(connection);
       await this.writeRecord(record);
+      workspaceChanged(this.dataDirectory, 'machines');
     });
   }
 
@@ -163,6 +165,7 @@ export class MachineRegistry {
       if (index < 0) throw new MachineRegistryError('unknown', 'That machine is not attached.');
       const [removed] = record.machines.splice(index, 1);
       await this.writeRecord(record);
+      workspaceChanged(this.dataDirectory, 'machines');
       return structuredClone(removed);
     });
   }
