@@ -17,11 +17,7 @@ import { DiagramCard } from '@/features/diagram/components/DiagramCard';
 import { reportAttachmentSummary } from '@/features/reports/reportModel';
 import { imageAttachmentSummary } from './imageAttachments';
 import { CodeBlock } from './CodeBlock';
-
-function safeHref(href?: string): string | undefined {
-  if (!href) return undefined;
-  return /^(https?:|mailto:|#)/i.test(href) ? href : undefined;
-}
+import { RepositoryLink, repositoryUrlTransform } from '@/features/repository/RepositoryFilesProvider';
 
 function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   const sketches = records.filter((record) => record.kind === 'sketch').length;
@@ -104,8 +100,9 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
             <ReactMarkdown
               key={index}
               remarkPlugins={[remarkGfm]}
+              urlTransform={repositoryUrlTransform}
               components={{
-                a: ({ href, children }) => <a href={safeHref(href)} target="_blank" rel="noreferrer noopener">{children}</a>,
+                a: RepositoryLink,
                 pre: CodeBlock,
                 code: ({ children }) => <code>{children}</code>,
               }}

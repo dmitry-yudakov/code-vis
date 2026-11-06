@@ -561,6 +561,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .repository-sidebar.has-inspector { --review-split: clamp(180px, var(--repository-summary-width, var(--repository-panel-width)), calc(100% - 220px)); grid-template-columns: minmax(0, var(--review-split)) minmax(0, 1fr); box-shadow: var(--sidebar-inspector-shadow); }
 .repository-inspector-resize { left: calc(var(--review-split) - 4px); }
 .repository-panel-body { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.repository-view-content { min-height: 0; min-width: 0; display: grid; }
+.repository-panel-body[hidden], .repository-view-content[hidden] { display: none; }
 .repository-summary-panel, .repository-inspector { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .repository-inspector[hidden] { display: none; }
 .repository-summary-scroll, .diff-inspector-scroll { min-width: 0; min-height: 0; overflow: auto; }
@@ -663,7 +665,18 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .diff-markdown-preview table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .diff-markdown-preview :is(th, td) { padding: 6px 10px; border: 1px solid var(--line); text-align: left; }
 .diff-preview-image { color: var(--muted); }
+.repository-tree-entry.MuiListItemButton-root { width: 100%; min-width: 0; min-height: 32px; gap: 7px; padding: 4px 10px; text-align: left; }
+.repository-tree-entry > .shell-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
+.repository-tree-chevron { width: 12px; height: 16px; flex-shrink: 0; display: flex; align-items: center; }
+.repository-tree-chevron > .shell-icon { width: 12px; height: 12px; }
+.repository-tree-chevron.expanded { transform: rotate(90deg); }
+.repository-tree-feedback { color: var(--muted); font-size: 12px; }
+.repository-file-source { margin: 0; padding: 16px 20px; color: var(--ink); font: 12px/1.6 var(--mono); tab-size: 4; white-space: pre; }
+.repository-file-source.wrap-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
+.repository-file-source code { font: inherit; }
+.repository-file-source mark { color: inherit; background: var(--hunk-wash); outline: 1px solid var(--hunk); }
 @media (max-width: 739px) {
+  .repository-tree-entry.MuiListItemButton-root { min-height: 40px; }
   .repository-context-row .MuiIconButton-root, .repository-view-tabs .MuiTab-root { min-width: 40px; min-height: 40px; }
   .diff-inspector :is(.MuiIconButton-root, .MuiToggleButton-root) { min-width: 40px; min-height: 40px; }
 }

@@ -17,10 +17,10 @@ import { RepositorySidebar } from './RepositorySidebar';
 import type { SideTab } from '@/features/shell/panelLayout';
 import type { useRepositoryChanges } from './useRepositoryChanges';
 import type { RepositoryDiffState } from './useRepositoryDiff';
+import { RepositoryFilesView } from './RepositoryFilesView';
 
 /**
- * Repository-view composition point. A future file-tree view belongs here beside `changes`,
- * while the sidebar chrome and each view's data controller remain independent.
+ * Repository-view composition point; each view owns its data controller.
  */
 export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, visible = open, tab, onInspectorOpenChange, onPush, paneControl, apiBase = '/api' }: {
   checkoutId?: string;
@@ -39,11 +39,12 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
   onPush?(): void;
 }) {
   const [view, setView] = useState<'changes' | 'history'>('changes');
+  const [filesRevision, setFilesRevision] = useState(0);
   const id = useId();
   const repositoryShown = tab === 'changes' || (tab === 'reports' && !reports);
   const gitHistory = useRepositoryHistory(checkoutId || '', visible && repositoryShown && view === 'history', changes.revision, apiBase);
   const offer = changes.tree && !changes.error && onPush ? pushOffer(changes.tree) : undefined;
-  const inspectorOpen = view === 'changes' && Boolean(changes.selectedFile);
+  const inspectorOpen = repositoryShown && view === 'changes' && Boolean(changes.selectedFile);
 
   useEffect(() => {
     onInspectorOpenChange(inspectorOpen);
@@ -55,10 +56,15 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
       manager={manager}
       history={history}
       reports={reports}
+      files={checkoutId ? <RepositoryFilesView key={`${apiBase}:${checkoutId}`} checkoutId={checkoutId} apiBase={apiBase}
+        active={visible && tab === 'files'} revision={changes.revision + filesRevision} />
+        : <div className="repository-state"><strong>No repository attached</strong><p>Choose a repository above to get started.</p></div>}
       open={open}
       tab={tab}
       paneControl={paneControl}
-      actions={<IconButton className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh repository" disabled={changes.loading || gitHistory.loading} onClick={changes.refresh}><ShellIcon name="refresh" /></IconButton>}
+      actions={tab === 'files'
+        ? <IconButton type="button" aria-label="Refresh files" title="Refresh files" onClick={() => setFilesRevision(value => value + 1)}><ShellIcon name="refresh" /></IconButton>
+        : <IconButton className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh repository" disabled={changes.loading || gitHistory.loading} onClick={changes.refresh}><ShellIcon name="refresh" /></IconButton>}
       inspectorVisible={inspectorOpen}
       inspector={checkoutId && changes.selectedFile ? (
         <RepositoryDiffInspector

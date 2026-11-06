@@ -315,7 +315,7 @@ test('automatic history refresh keeps the list and scroll while its new snapshot
   await historyTab(page).click();
   const list = page.getByRole('list', { name: 'Recent commits' });
   await expect(list).toContainText('Snapshot 1, commit 0');
-  const scroll = panel(page).locator('.repository-summary-scroll');
+  const scroll = panel(page).getByRole('tabpanel').locator('.repository-summary-scroll');
   await scroll.evaluate(node => { node.scrollTop = 300; });
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect.poll(() => reads).toBe(2);
@@ -398,7 +398,7 @@ test('phone history scrolls through 100 commits with branch and tabs still in re
   } } }));
   await openRepository(page, request);
   await historyTab(page).click();
-  const scroll = panel(page).locator('.repository-summary-scroll');
+  const scroll = panel(page).getByRole('tabpanel').locator('.repository-summary-scroll');
   await expect(page.getByRole('list', { name: 'Recent commits' }).getByRole('listitem')).toHaveCount(100);
   expect(await scroll.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
   await scroll.evaluate(node => { node.scrollTop = node.scrollHeight; });

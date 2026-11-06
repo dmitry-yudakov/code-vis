@@ -4,22 +4,23 @@ import Paper from '@mui/material/Paper';
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { SideTab } from '@/features/shell/panelLayout';
 
-const SIDE_PANEL_LABELS: Record<SideTab, string> = { changes: 'Repository', history: 'Canvas history', reports: 'CodeAI reports' };
-const SIDE_PANEL_TITLES: Record<SideTab, string> = { changes: 'Repository', history: 'History', reports: 'Reports' };
+const SIDE_PANEL_LABELS: Record<SideTab, string> = { files: 'Files', changes: 'Repository', history: 'Canvas history', reports: 'CodeAI reports' };
+const SIDE_PANEL_TITLES: Record<SideTab, string> = { files: 'Files', changes: 'Repository', history: 'History', reports: 'Reports' };
 
 /**
  * The side panel's chrome. Individual views own their data and actions; this shell owns only the
  * view's title and the primary/inspector layout. The activity bar picks the view and closes the
- * panel. The repository's changes, the session's canvas history, and — in CodeAI's own project —
+ * panel. Files, the repository's changes, the session's canvas history, and — in CodeAI's own project —
  * its reports share it, so none competes with the conversation for the other dock.
  */
-export function RepositorySidebar({ repositoryName, open, tab, actions, manager, inspector, inspectorVisible = true, history, reports, children, paneControl }: {
+export function RepositorySidebar({ repositoryName, open, tab, actions, manager, files, inspector, inspectorVisible = true, history, reports, children, paneControl }: {
   repositoryName: string;
   open: boolean;
   tab: SideTab;
   actions?: ReactNode;
   paneControl?: ReactNode;
   manager?: ReactNode;
+  files?: ReactNode;
   inspector?: ReactNode;
   inspectorVisible?: boolean;
   history: ReactNode;
@@ -39,6 +40,7 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
   // A remembered Reports tab falls back to Changes wherever reports are unavailable.
   const shown: SideTab = tab === 'reports' && !reports ? 'changes' : tab;
   const changes = shown === 'changes';
+  const repository = changes || shown === 'files';
 
   return (
     <Paper ref={sidebar} component="aside" square variant="elevation" elevation={0} className={`repository-sidebar ${changes && inspector && inspectorVisible ? 'has-inspector' : ''} ${resizing ? 'panel-resizing' : ''}`} aria-label={SIDE_PANEL_LABELS[shown]}
@@ -46,14 +48,14 @@ export function RepositorySidebar({ repositoryName, open, tab, actions, manager,
       <section ref={summary} className="repository-summary-panel">
         <header className="repository-panel-header">
           <h2 className="side-panel-title">{SIDE_PANEL_TITLES[shown]}</h2>
-          <div className="repository-header-actions">{changes && actions}{paneControl}</div>
+          <div className="repository-header-actions">{repository && actions}{paneControl}</div>
         </header>
-        {changes ? (
-          <div className="repository-panel-body">
-            {manager || <strong className="repository-name">{repositoryName}</strong>}
-            {children}
-          </div>
-        ) : shown === 'reports' ? reports : history}
+        <div className="repository-panel-body" hidden={!repository}>
+          {manager || <strong className="repository-name">{repositoryName}</strong>}
+          <div className="repository-view-content" hidden={!changes}>{children}</div>
+          <div className="repository-view-content" hidden={shown !== 'files'}>{files}</div>
+        </div>
+        {shown === 'reports' ? reports : shown === 'history' ? history : null}
       </section>
       {changes && inspector && inspectorVisible && <div className="panel-resize-handle repository-inspector-resize" role="separator" tabIndex={0}
         aria-label="Resize file review" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(summaryPercent ?? 50)}

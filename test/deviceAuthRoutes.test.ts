@@ -23,6 +23,8 @@ import { DELETE as DELETE_DEVICE, GET as GET_DEVICES } from '@/app/api/auth/devi
 import { GET as GET_SESSIONS } from '@/app/api/sessions/route';
 import { GET as GET_REPOSITORY } from '@/app/api/repository/status/route';
 import { GET as GET_GIT_HISTORY } from '@/app/api/repository/history/route';
+import { GET as GET_REPOSITORY_FILE } from '@/app/api/repository/file/route';
+import { GET as GET_REPOSITORY_FILES } from '@/app/api/repository/files/route';
 import { GET as GET_RUNS } from '@/app/api/agent/runs/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { POST as POST_CANCEL } from '@/app/api/agent/cancel/route';
@@ -91,6 +93,8 @@ describe.sequential('paired device route boundary', () => {
     expect((await GET_SESSIONS(request('/api/sessions'))).status).toBe(401);
     expect((await GET_REPOSITORY(request('/api/repository/status'))).status).toBe(401);
     expect((await GET_GIT_HISTORY(request('/api/repository/history'))).status).toBe(401);
+    expect((await GET_REPOSITORY_FILE(request('/api/repository/file'))).status).toBe(401);
+    expect((await GET_REPOSITORY_FILES(request('/api/repository/files'))).status).toBe(401);
     expect((await GET_RUNS(request('/api/agent/runs'))).status).toBe(401);
     expect((await POST_MESSAGE(request('/api/agent/message', { method: 'POST' }))).status).toBe(401);
     expect((await POST_CANCEL(request('/api/agent/cancel', { method: 'POST' }))).status).toBe(401);

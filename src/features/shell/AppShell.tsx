@@ -69,6 +69,7 @@ import { lifecycleConfirmation } from '@/features/lifecycle/lifecycleFlow';
 import { takeRestartProject, useCodeAiLifecycle } from '@/features/lifecycle/useCodeAiLifecycle';
 import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
+import { RepositoryFilesProvider } from '@/features/repository/RepositoryFilesProvider';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { DeviceMenu } from '@/features/devices/DeviceMenu';
 import { useDeviceAccess } from '@/features/devices/DeviceAccess';
@@ -414,6 +415,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     const checkout = checkouts.find((item) => item.id === binding.checkoutId);
     return checkout ? [{ id: checkout.id, name: checkout.name }] : [];
   }) || [], [checkouts, session?.repositories]);
+  const fileRepositories = useMemo(() => (session?.repositories || []).filter(binding => binding.hostId === hostId)
+    .sort((a, b) => Number(b.role === 'primary') - Number(a.role === 'primary'))
+    .flatMap(binding => sessionCheckouts.filter(checkout => checkout.id === binding.checkoutId)), [session?.repositories, sessionCheckouts, hostId]);
   const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
   const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
   useRepositoryAutoRefresh(Boolean(!loading && !arenaOpen && !immersiveActive && session && selectedCheckout && panelLayout.sideShown
@@ -2632,6 +2636,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? 'This conversation is unavailable. It may have been archived or deleted.' : undefined);
 
   return (
+    <RepositoryFilesProvider scope={session?.id || ''} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>
     <div
       ref={shellRef}
       className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${maximized ? `pane-maximized maximized-${maximized}` : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
@@ -2862,7 +2867,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             approvals={permissions.length} unread={unread}
             onToggleCanvas={panelLayout.showCanvas} onToggleConversation={panelLayout.openConversation}
           /> : undefined}
-          views={!arenaOpen && session ? ['changes', 'history', ...(!compact && reportsOffered ? ['reports' as const] : [])] : []}
+          views={!arenaOpen && session ? ['files', 'changes', 'history', ...(!compact && reportsOffered ? ['reports' as const] : [])] : []}
           shownView={panelLayout.sideShown ? sideView : undefined}
           changeCount={repositoryTree?.files.length}
           arenaSection={arenaSection}
@@ -3166,5 +3171,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
       {children}
     </div>
+    </RepositoryFilesProvider>
   );
 }

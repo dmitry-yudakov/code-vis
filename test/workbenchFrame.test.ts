@@ -22,6 +22,12 @@ function controlNames(markup: string): string[] {
 }
 
 describe('activity bar', () => {
+  it('offers Files independently beside Repository and marks only the selected view', () => {
+    const markup = activityBar({ views: ['files', 'changes', 'history'], shownView: 'files', changeCount: 3 });
+    expect(controlNames(markup)).toEqual(['Files', 'Repository, 3 files', 'History', 'Arena', 'Inbox', 'More']);
+    expect(markup).toMatch(/aria-label="Files" aria-pressed="true"/);
+    expect(markup).toMatch(/aria-label="Repository, 3 files" aria-pressed="false"/);
+  });
   it('lists the session views, then the Arena and the Inbox, then More', () => {
     const markup = activityBar();
     expect(markup).toMatch(/^<nav class="activity-bar" aria-label="Views">/);
@@ -129,6 +135,21 @@ describe('side panel', () => {
 
   it('falls back to Changes where a remembered Reports view is unavailable', () => {
     expect(panel('reports')).toMatch(/<h2 class="side-panel-title">Repository<\/h2>[\s\S]*Changes body/);
+  });
+
+  it('shows file browsing with the repository selector and without a Git inspector', () => {
+    const markup = renderToStaticMarkup(createElement(RepositorySidebar, {
+      repositoryName: 'alpha', open: true, tab: 'files',
+      manager: createElement('button', null, 'Choose repository'),
+      files: createElement('p', null, 'File tree'),
+      history: 'History body', children: 'Changes body', inspector: 'Git inspector',
+    }));
+    expect(markup).toContain('aria-label="Files"');
+    expect(markup).toMatch(/<h2 class="side-panel-title">Files<\/h2>/);
+    expect(markup).toContain('Choose repository');
+    expect(markup).toContain('File tree');
+    expect(markup).not.toContain('has-inspector');
+    expect(markup).not.toContain('Git inspector');
   });
 });
 

@@ -5,7 +5,7 @@ export function machineOperationAllowed(method: string, segments: readonly strin
   const normalizedMethod = method.toUpperCase();
   const exact = segments.join('/');
   if (normalizedMethod === 'GET' && [
-    'health', 'checkouts', 'projects', 'sessions', 'repository/status', 'repository/diff', 'repository/history',
+    'health', 'checkouts', 'projects', 'sessions', 'repository/status', 'repository/diff', 'repository/history', 'repository/file', 'repository/files',
     'agent/runs', 'agent/stream', 'agent/checkpoint',
   ].includes(exact)) return true;
   if (normalizedMethod === 'POST' && [

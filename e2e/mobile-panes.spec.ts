@@ -225,7 +225,7 @@ test('phone Changes keeps long file lists and patches scrollable with Restore an
   await openWorkspace(page, request);
   await views(page).getByRole('button', { name: /^Repository/ }).click();
   await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
-  const list = side(page).locator('.repository-summary-scroll');
+  const list = side(page).getByRole('tabpanel').locator('.repository-summary-scroll');
   expect(await list.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
   await side(page).locator('.repository-file').last().click();
   const patch = side(page).locator('.diff-inspector-scroll');
