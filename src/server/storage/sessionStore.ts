@@ -266,6 +266,9 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
   };
 }
 
+/** Repository bindings stay server-local for recent-checkout ordering. No transcript is retained. */
+type StoredSessionSummary = ArenaSessionSummary & Pick<DurableSession, 'repositories'>;
+
 export function serverAgent(
   session: DurableSession,
   participantId: string,
@@ -301,6 +304,9 @@ export class SessionStore {
   private manifest?: StoreManifest;
   private opening?: Promise<void>;
   private mutationQueue: Promise<void> = Promise.resolve();
+  private readonly sessionSummaries = new Map<string, {
+    stamp: string; value: Promise<StoredSessionSummary | undefined>;
+  }>();
 
   constructor(readonly dataDirectory: string, options: SessionStoreOptions = {}) {
     this.storeDirectory = path.join(dataDirectory, STORE_DIRECTORY);
@@ -461,6 +467,45 @@ export class SessionStore {
       .sort((left, right) => (
         (right.archivedAt || right.updatedAt).localeCompare(left.archivedAt || left.updatedAt)
       ));
+  }
+
+  /** Each poll stats files, reading and validating only changed histories. Concurrent polls share reads. */
+  async listSessionSummaries({ archived = false } = {}): Promise<StoredSessionSummary[]> {
+    await this.openStore();
+    const directory = archived ? this.archivedSessionsDirectory : this.sessionsDirectory;
+    const names = await this.boundedSessionFileNames(directory);
+    const files = new Set(names.map(name => path.join(directory, name)));
+    for (const file of this.sessionSummaries.keys()) {
+      if (path.dirname(file) === directory && !files.has(file)) this.sessionSummaries.delete(file);
+    }
+    const summaries = await Promise.all([...files].map(async file => {
+      try {
+        const metadata = await stat(file, { bigint: true });
+        const stamp = `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeNs}:${metadata.ctimeNs}`;
+        let cached = this.sessionSummaries.get(file);
+        if (cached?.stamp !== stamp) {
+          const value = this.readSessionFile(file).then(session => ({
+            ...arenaSessionSummary(session), repositories: session.repositories,
+          })).catch(skipNewerFormat).catch(error => {
+            // Do not let one failed read poison retries, or evict a newer in-flight version.
+            if (this.sessionSummaries.get(file)?.value === value) this.sessionSummaries.delete(file);
+            throw error;
+          });
+          cached = { stamp, value };
+          this.sessionSummaries.set(file, cached);
+        }
+        return await cached.value;
+      } catch (error) {
+        // A manual archive/restore may move a file after listing or stat.
+        if (isMissing(error)) return undefined;
+        throw error;
+      }
+    }));
+    return structuredClone(summaries.filter((session): session is StoredSessionSummary => (
+      session !== undefined && Boolean(session.archivedAt) === archived
+    )).sort((left, right) => (
+      (right.archivedAt || right.updatedAt).localeCompare(left.archivedAt || left.updatedAt)
+    )));
   }
 
   /** Session files in active or archived storage that only a newer CodeAI can open. */
@@ -998,6 +1043,7 @@ export class SessionStore {
     await this.releaseWriterLock();
     this.opening = undefined;
     this.manifest = undefined;
+    this.sessionSummaries.clear();
   }
 
   private async releaseWriterLock(): Promise<void> {
@@ -1120,8 +1166,7 @@ export class SessionStore {
     return sessions.filter((session) => archived ? Boolean(session.archivedAt) : !session.archivedAt);
   }
 
-  /** Reads one directory under the whole store's file bound; newer-format files are counted, not read. */
-  private async scanSessionDirectory(directory: string): Promise<{ sessions: DurableSession[]; newerFormat: number }> {
+  private async boundedSessionFileNames(directory: string): Promise<string[]> {
     const [activeNames, archivedNames] = await Promise.all([
       this.sessionFileNames(this.sessionsDirectory),
       this.sessionFileNames(this.archivedSessionsDirectory),
@@ -1129,7 +1174,12 @@ export class SessionStore {
     if (activeNames.length + archivedNames.length > MAX_SESSIONS) {
       throw new SessionStoreError('corrupt', `Session store exceeds its ${MAX_SESSIONS}-file safety bound.`);
     }
-    const names = directory === this.sessionsDirectory ? activeNames : archivedNames;
+    return directory === this.sessionsDirectory ? activeNames : archivedNames;
+  }
+
+  /** Reads one directory under the whole store's file bound; newer-format files are counted, not read. */
+  private async scanSessionDirectory(directory: string): Promise<{ sessions: DurableSession[]; newerFormat: number }> {
+    const names = await this.boundedSessionFileNames(directory);
     const read = await Promise.all(names.map((name) => (
       // An archive/restore can move a file between the directory listing and its read.
       this.readSessionFile(path.join(directory, name)).catch((error) => isMissing(error) ? null : skipNewerFormat(error))

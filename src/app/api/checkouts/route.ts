@@ -16,7 +16,7 @@ export async function GET(request: Request = new Request('http://localhost/api/c
     const store = getSessionStore(config.dataDir, config.hostLabel);
     const [checkouts, sessions, host] = await Promise.all([
       getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).list(),
-      store.listSessions(),
+      store.listSessionSummaries(),
       store.host(),
     ]);
     return safeJsonResponse({

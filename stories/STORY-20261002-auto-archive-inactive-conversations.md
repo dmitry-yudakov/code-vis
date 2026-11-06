@@ -96,3 +96,41 @@ move to the existing recoverable archive without requiring manual housekeeping.
   live-turn and revision guards, Docker recovery, newer formats, or stale/offline UI handling.
 
 The production application was not deployed or restarted; the checks use fixture data only.
+
+## Follow-up — November 6, 2026: expensive idle polling
+
+The personal-device server was reported at about 87% CPU. Host process counters showed roughly
+350 MiB read and 5.45 CPU seconds over five seconds; open-file sampling found repeated active
+and archived conversation reads. The Arena's two-second poll validated every complete transcript,
+and its inactivity sweep scanned active transcripts again. Multiple connected pages repeated that
+work even with no saved changes. No recursive browser request loop was identified, and this path
+predates the latest URL changes.
+
+`SessionStore.listSessionSummaries` now retains compact card metadata and server-local repository
+bindings, sharing concurrent reads of the same file version. Each listing still checks the combined
+1,000-session file bound and stats files. Device/inode, size, and nanosecond modification/change
+timestamps identify changed files, including same-size atomic replacements with preserved mtime.
+Changed files use the existing full validator; removed entries are pruned and transient read errors
+remain retryable. Callers receive isolated copies. Executor responses omit the private bindings.
+Auto-archive and recent-checkout listing reuse this path; canonical full-session reads and
+revision-checked mutations keep their existing behavior.
+
+On a private copy of the live store with 133 sessions (19 active, 114 archived, about 51 MiB), the
+old sweep-plus-listing workload averaged **818.4 ms wall / 923.6 ms CPU per poll** over four polls.
+The first compact-summary pass cost 543.7 ms wall / 599.9 ms CPU; eight unchanged passes averaged
+**1.4 ms wall / 2.5 ms CPU**. This measures session collection work, excluding HTTP, provider health,
+and checkout discovery. The live server has not been rebuilt or restarted, so its post-fix CPU has
+not been measured.
+
+Seven new storage/snapshot regressions cover unchanged and concurrent polls, compact public
+delivery and subsequent edits, caller isolation, archive/restore and project removal, external
+replacement/deletion, newer formats, corruption, transient failure, a file moving during its read,
+and the combined store bound. Restoring the original snapshot/sweep path makes the integration
+regression fail on its redundant transcript read. Existing archive regressions retain stale-revision
+and live-run protection.
+
+All **1,867 offline tests across 156 files**, TypeScript, the isolated `.next-e2e` production build,
+all 14 production-browser checks across `autoArchive`, `arena-projects`, and `conversation-titles`,
+and independent review pass. Offline checks need a clean deployment environment and host access
+for local IPC and `/var/tmp` fixtures. The first clean four-worker run passed 1,866/1,867; its
+queue-ordering failure passed alone, then the complete suite passed with two workers.

@@ -100,9 +100,9 @@ describe('48-hour conversation auto archive', () => {
 
   it('lets a newer saved change win and tolerates concurrent sweeps', async () => {
     const old = await seed(AGE + 1);
-    const list = store.listSessions.bind(store);
+    const list = store.listSessionSummaries.bind(store);
     let changed = false;
-    vi.spyOn(store, 'listSessions').mockImplementation(async () => {
+    vi.spyOn(store, 'listSessionSummaries').mockImplementation(async () => {
       const candidates = await list();
       if (!changed) {
         changed = true;
@@ -131,7 +131,7 @@ describe('48-hour conversation auto archive', () => {
 
   it('shares an in-flight sweep across concurrent collection requests', async () => {
     const old = await seed(AGE + 1);
-    const list = vi.spyOn(store, 'listSessions');
+    const list = vi.spyOn(store, 'listSessionSummaries');
     const archive = store.archiveSession.bind(store);
     let resume!: () => void;
     const held = new Promise<void>((resolve) => { resume = resolve; });

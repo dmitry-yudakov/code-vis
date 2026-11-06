@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-05. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-06. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -246,7 +246,9 @@ Updated 2026-11-05. When a story ships, change the line that names it; each stor
 - **Shipped:** [Story 85](stories/STORY-20261002-auto-archive-inactive-conversations.md) —
   conversations automatically move to the recoverable archive after 48 hours without saved
   activity; owner-machine polling/loading, live-turn protection, Restore, automated checks,
-  production-browser verification, and independent review passed. The threshold is fixed for now.
+  production-browser verification, and independent review passed. Polling now reuses compact
+  summaries and reads only changed histories. The threshold is fixed for now; the running app has
+  not been restarted for this follow-up.
 - **Shipped:** [Story 86](stories/STORY-20261002-new-chat-from-conversation.md) — New chat
   in the desktop conversation header creates a fresh session with the same project and agent
   settings, then closes the source tab while keeping its history. Offline checks, the production

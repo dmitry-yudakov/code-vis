@@ -3,7 +3,7 @@ import { getConfig } from '@/server/config';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { recentCheckoutIds } from '@/server/repository/recentCheckouts';
 import { runRegistry } from '@/server/runs/runRegistry';
-import { arenaSessionSummary, getSessionStore } from '@/server/storage/sessionStore';
+import { getSessionStore } from '@/server/storage/sessionStore';
 import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
 import type { ExecutorSnapshot } from '@/shared/types';
 import { worktreeCapability } from '@/server/repository/managedWorktrees';
@@ -17,8 +17,8 @@ export async function localExecutorSnapshot(): Promise<ExecutorSnapshot> {
     store.host(),
     store.listProjects(),
     getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).list(),
-    store.listSessions(),
-    store.listArchivedSessions(),
+    store.listSessionSummaries(),
+    store.listSessionSummaries({ archived: true }),
     cachedLocalProviderHealth(config),
   ]);
   return {
@@ -29,8 +29,8 @@ export async function localExecutorSnapshot(): Promise<ExecutorSnapshot> {
     checkouts,
     recentCheckoutIds: recentCheckoutIds(checkouts, sessions, machine.id),
     providers,
-    sessions: sessions.map(arenaSessionSummary),
-    archivedSessions: archivedSessions.map(arenaSessionSummary),
+    sessions: sessions.map(({ repositories, ...summary }) => summary),
+    archivedSessions: archivedSessions.map(({ repositories, ...summary }) => summary),
     runs: runRegistry.list(),
   };
 }

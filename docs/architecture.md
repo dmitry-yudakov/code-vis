@@ -258,6 +258,14 @@ stores only bounded finished-item read ids under `code-ai:device:v1:arena`, and 
 live permission locally. Revisioned archive/restore routes reject every live run reservation,
 including the pre-activation interval hidden from normal discovery.
 
+Executor polling, inactivity sweeps, and recent-checkout listing reuse compact session summaries
+in the process-wide `SessionStore`. Every listing checks the combined active/archive file bound
+and file metadata; unchanged files avoid transcript reads and schema validation. Changed files
+are read through the ordinary validator, concurrent reads of the same version are shared, and
+removed entries are pruned. The cache retains no transcripts or provider continuation handles;
+repository bindings are kept only for server-local recent-checkout ordering and omitted from
+executor responses. Full-session routes and revision-checked mutations still read canonical files.
+
 The selected checkout preference and loose-session workspace scopes are machine-qualified under
 the `code-ai:device:v1:*` records; focus, next recipient, mode, panels, flat viewport, Spatial
 surface/camera/placements, and drafts remain React state. Spatial coordinates are finite, clamped,
