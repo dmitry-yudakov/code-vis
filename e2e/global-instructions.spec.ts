@@ -115,12 +115,12 @@ test('shows the global instructions in Machine settings, switches them, and isol
   // The Arena's form opens at the remembered choice and carries the one made there.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
-  await arena.getByRole('button', { name: 'New session' }).click();
+  await arena.getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
+  await create.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(create.getByLabel('Global instructions')).toHaveValue('isolated');
   await create.getByLabel('Project').selectOption({ label: projectName });
   await expect(create.getByLabel('Global instructions').locator('option[value="isolated"]')).toHaveJSProperty('disabled', false);
-  await create.getByText('Advanced settings', { exact: true }).click();
   await create.getByLabel('Global instructions').selectOption({ label: 'Default' });
   const created = page.waitForRequest((sent) => sent.url().endsWith('/api/sessions') && sent.method() === 'POST');
   await create.getByRole('button', { name: 'Create and open' }).click();
@@ -140,7 +140,8 @@ test('shows the global instructions in Machine settings, switches them, and isol
   await expect(line).toHaveText('global instructions');
   await startSession(page, 'Isolate');
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await arena.getByRole('button', { name: 'New session' }).click();
+  await arena.getByRole('button', { name: 'New session', exact: true }).click();
+  await create.getByRole('button', { name: 'Settings', exact: true }).click();
   await create.getByLabel('Project').selectOption({ label: projectName });
   await expect(create.getByLabel('Global instructions')).toHaveValue('isolated');
   await create.getByLabel('Provider').selectOption({ label: 'Codex' });

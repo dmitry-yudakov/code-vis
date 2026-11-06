@@ -185,6 +185,13 @@ Updated 2026-11-06. When a story ships, change the line that names it; each stor
   128 distinct production-browser checks, TypeScript, isolated build and independent review pass.
   Real attached-executor TLS streaming and physical headset acceptance remain unverified;
   the running app has not been rebuilt or restarted.
+- **Shipped:** [Story 130](stories/STORY-20261106-compact-session-setup.md) — new sessions use a
+  compact composer, an Attach menu, visible provider/mode and one closed Settings panel; general
+  launches remember their machine, and progress replaces the submitted form. Draft recovery and
+  Discard draft remain explicit. All 40 focused unit checks, 89 distinct production-browser cases,
+  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review
+  pass. A wider tab-return focus failure also reproduces on the pre-change build and is recorded
+  in the story. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 127](stories/STORY-20261104-arena-project-actions.md) — Arena creates projects
   with an optional repository and starts sessions from each active project heading; empty projects
   remain visible, and pending setup/recovery stays intact. All 46 focused unit checks, 41 distinct

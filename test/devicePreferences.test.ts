@@ -10,6 +10,13 @@ const AGENT_A = '12121212-1212-4121-8121-121212121212';
 const AGENT_B = '34343434-3434-4343-8343-343434343434';
 
 describe('device preferences', () => {
+  it('remembers a new-session machine without accepting malformed choices', () => {
+    const machineId = '99999999-9999-4999-8999-999999999999';
+    expect(parseDevicePreferences(serializeDevicePreferences({ machineId }))).toEqual({ machineId });
+    for (const value of ['', 123, true, {}]) {
+      expect(parseDevicePreferences(JSON.stringify({ version: 1, machineId: value }))).toEqual({});
+    }
+  });
   it('keeps the last mode, provider, and each provider\'s model choice, and nothing else', () => {
     expect(parseDevicePreferences(JSON.stringify({
       version: 1,

@@ -157,7 +157,7 @@ capability.
 | Focused canvas, next recipient/mode, drafts and Flat/Spatial view | Browser tab state |
 | Panel layout and appearance | Browser device state |
 | Transient XR state | Browser memory |
-| Last mode, new-session provider, and each provider's last model and effort | Versioned browser device state |
+| Last mode, general new-session machine, new-session provider, and each provider's last model and effort | Versioned browser device state |
 | Provider session ids and transcript cursors | Private fields in the host store |
 | Projects, session membership, repository bindings | Host store |
 | Arena session summaries and run attention | Derived server snapshots |

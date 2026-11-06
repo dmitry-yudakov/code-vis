@@ -15,6 +15,8 @@ const INSTRUCTION_CHOICES: readonly GlobalInstructionsChoice[] = ['global', 'iso
  * choice starts from these. Execution is deliberately absent: Docker stays an explicit choice.
  */
 export interface DevicePreferences {
+  /** Machine for general New session launches; the CodeAI shortcut always uses home. */
+  machineId?: string;
   mode?: AgentMode;
   /** Provider for a new session. */
   provider?: AgentProvider;
@@ -35,6 +37,7 @@ export function parseDevicePreferences(value: string | null): DevicePreferences 
       if (selection) models[provider] = selection;
     }
     return {
+      ...(typeof parsed.machineId === 'string' && parsed.machineId.length > 0 ? { machineId: parsed.machineId } : {}),
       ...(isAgentMode(parsed.mode) ? { mode: parsed.mode } : {}),
       ...(AGENT_PROVIDERS.includes(parsed.provider as AgentProvider) ? { provider: parsed.provider as AgentProvider } : {}),
       ...(Object.keys(models).length ? { models } : {}),

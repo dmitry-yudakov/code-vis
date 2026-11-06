@@ -75,6 +75,7 @@ test('gear launches an independent worktree while the source task waits for appr
     await page.locator('.more-menu > button').click();
     await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New CodeAI session' });
+    await dialog.getByRole('button', { name: 'Settings', exact: true }).click();
     await dialog.getByLabel('Session checkout', { exact: true }).selectOption('worktree');
     await dialog.getByLabel('Mode', { exact: true }).selectOption('agent');
     await dialog.getByRole('textbox').fill('Work independently in a new checkout');
@@ -241,6 +242,7 @@ test('Arena creates an independent worktree and labels its source and live branc
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('button', { name: 'New session', exact: true }).click();
   const creation = page.getByRole('dialog', { name: 'New session', exact: true });
+  await creation.getByRole('button', { name: 'Settings', exact: true }).click();
   await creation.getByRole('combobox', { name: 'Project', exact: true }).selectOption('');
   await creation.getByRole('combobox', { name: 'Repository', exact: true }).selectOption({ label: 'source' });
   await expect(creation.getByRole('combobox', { name: 'Session checkout' })).toHaveValue('current');

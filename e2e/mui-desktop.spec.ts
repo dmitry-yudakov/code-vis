@@ -51,6 +51,7 @@ test('MUI dialogs retain backdrop protection, textarea focus and nested model se
   const message = setup.getByRole('textbox', { name: 'First message (optional)' });
   await expect(message).toBeFocused();
   await message.fill('Retained MUI draft');
+  await setup.getByRole('button', { name: 'Settings', exact: true }).click();
   await setup.getByRole('button', { name: /Model and effort/ }).click();
   const models = page.getByRole('radiogroup', { name: 'Model', exact: true });
   await models.getByRole('radio', { name: 'Pilot model', exact: true }).click();
@@ -64,6 +65,7 @@ test('MUI dialogs retain backdrop protection, textarea focus and nested model se
   await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeFocused();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
   await expect(message).toHaveValue('Retained MUI draft');
+  await setup.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(setup.getByRole('button', { name: /Model and effort/ })).toContainText('Pilot model · High');
 });
 
@@ -330,6 +332,7 @@ for (const theme of ['light', 'dark'] as const) test(`loading controls, long mod
   await settings.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'New session', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'New session', exact: true });
+  await setup.getByRole('button', { name: 'Settings', exact: true }).click();
   await setup.getByRole('button', { name: /Model and effort/ }).click();
   const picker = page.locator('.desktop-picker-paper:visible');
   await expect(picker.getByRole('radio', { name: /A long model name/ })).toBeVisible();

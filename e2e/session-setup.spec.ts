@@ -1,5 +1,5 @@
 import { fetchArenaSnapshot, fulfillArenaSnapshot } from './arena-stream';
-import { expect, test, type APIRequestContext, type Page } from './arena-stream';
+import { expect, test, type APIRequestContext, type Locator, type Page } from './arena-stream';
 import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 async function project(request: APIRequestContext, name = `Setup ${Date.now()}`, repository = 'alpha') {
@@ -9,13 +9,19 @@ async function project(request: APIRequestContext, name = `Setup ${Date.now()}`,
   const response = await request.post('/api/projects', { data: { name, checkoutIds: [checkout.id] } });
   return { project: (await response.json()).project as DurableProject, catalog, checkout };
 }
+async function expandSettings(dialog: Locator) {
+  const button = dialog.getByRole('button', { name: 'Settings', exact: true });
+  if (await button.getAttribute('aria-expanded') !== 'true') await button.click();
+}
 async function openSetup(page: Page, target: DurableProject) {
   await page.goto('/arena');
   await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(dialog).toBeVisible();
+  await expandSettings(dialog);
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
   await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+  await dialog.getByRole('textbox').focus();
   return dialog;
 }
 
@@ -63,6 +69,7 @@ for (const [mode, label] of [['ask', 'Ask'], ['plan', 'Plan'], ['agent', 'Agent'
     await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
     const general = page.getByRole('dialog', { name: 'New session', exact: true });
     await expect(general.getByLabel('Mode', { exact: true })).toHaveValue(mode);
+    await expandSettings(general);
     await general.getByLabel('Project', { exact: true }).selectOption(source.id);
     await general.getByRole('button', { name: 'Create and open', exact: true }).click();
     await expect(general).not.toBeVisible();
@@ -105,6 +112,7 @@ test('same-project Arena card opens a background turn that completed before acce
   await page.route('**/api/agent/message', async (route) => route.fulfill({ response: await route.fetch() }));
   await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+  await expandSettings(dialog);
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
   await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
   await dialog.getByLabel('Mode', { exact: true }).selectOption('ask');
@@ -134,6 +142,7 @@ test('same-project background approvals and replies stay connected while another
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    await expandSettings(dialog);
     await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
     await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
     await dialog.getByLabel('Mode', { exact: true }).selectOption(mode);
@@ -196,6 +205,7 @@ for (const scope of ['same-project', 'other-project']) test(`${scope} background
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+  await expandSettings(dialog);
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
   await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
   await dialog.getByRole('textbox').fill('Background failed connection');
@@ -226,6 +236,7 @@ test('same-project background stream reconnects after a failed attachment when i
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    await expandSettings(dialog);
     await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
     await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
     await dialog.getByLabel('Mode', { exact: true }).selectOption('agent');
@@ -400,12 +411,12 @@ for (const theme of ['light', 'dark']) test(`${theme}: setup Enter starts a file
   await expect(page).toHaveURL(/\/\?(?:session|project)=/); await expect(page.locator('.conversation-drawer')).toContainText('error.txt');
 });
 
-test('empty input opens idle session, and Cancel/reopen keeps separate setup evidence', async ({ page, request }) => {
+test('empty input opens idle session, and close/reopen keeps separate setup evidence', async ({ page, request }) => {
   const { project: target } = await project(request);
   const dialog = await openSetup(page, target);
   await dialog.getByRole('textbox').fill('Keep this setup draft');
   await dialog.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('notes') });
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
   await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
   await expect(dialog.getByRole('textbox')).toHaveValue('Keep this setup draft');
   await expect(dialog).toContainText('notes.txt');
@@ -438,6 +449,8 @@ test('lost creation retries the same UUID and retained errors keep settings froz
 });
 
 test('managed gear setup targets CodeAI while preserving the source task and its files', async ({ page, request }) => {
+  const lastMachine = '99999999-9999-4999-8999-999999999999';
+  await page.addInitScript(machineId => localStorage.setItem('code-ai:device:v1:preferences', JSON.stringify({ version: 1, machineId })), lastMachine);
   const { project: source, catalog } = await project(request);
   const { project: self, checkout } = await project(request, `Installation ${Date.now()}`, 'installation');
   await request.post('/api/sessions', { data: { projectId: source.id, provider: 'claude' } });
@@ -465,6 +478,7 @@ test('managed gear setup targets CodeAI while preserving the source task and its
   await expect(sourceInput).toHaveValue('Keep my current task'); await expect(page.locator('.instruction-composer')).toContainText('source.txt');
   await expect(page.locator('.project-search-trigger')).toContainText(source.name);
   expect(creations).toMatchObject([{ action: 'create', preparedContext }]);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences')!).machineId)).toBe(lastMachine);
 });
 
 for (const width of [1280, 390]) test(`setup model and effort choices remain usable at ${width}px`, async ({ page, request }) => {
@@ -485,12 +499,13 @@ for (const width of [1280, 390]) test(`setup model and effort choices remain usa
   await page.keyboard.press('Escape');
   await expect(menu.getByRole('button', { name: /Model and effort/ })).toHaveText('Setup model · High');
   await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeInViewport();
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
   await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
+  await expandSettings(dialog);
   await expect(menu.getByRole('button', { name: /Model and effort/ })).toHaveText('Setup model · High');
 });
 
-test('empty completion after Cancel does not navigate and announces the created session', async ({ page, request }) => {
+test('empty completion after Close does not navigate and announces the created session', async ({ page, request }) => {
   const { project: target } = await project(request);
   let release!: () => void; const held = new Promise<void>((resolve) => { release = resolve; });
   await page.route('**/api/sessions', async (route) => {
@@ -499,7 +514,7 @@ test('empty completion after Cancel does not navigate and announces the created 
   });
   const dialog = await openSetup(page, target);
   await dialog.getByRole('button', { name: 'Create and open' }).click();
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
   release();
   await expect(page.getByRole('button', { name: 'Open session', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/arena$/);
@@ -555,7 +570,7 @@ test('delayed background gear launch pins source choices through navigation and 
   await picker.selectOption(sessions[0].id);
   const dialog = await gear(page); await dialog.getByLabel('Mode', { exact: true }).selectOption('plan');
   await dialog.getByRole('textbox').fill('Work in background'); await dialog.getByRole('textbox').press('Enter');
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
   await picker.selectOption(sessions[1].id); release();
   await expect(page.getByRole('button', { name: 'Open session', exact: true })).toBeVisible();
   await picker.selectOption(sessions[0].id);
@@ -568,7 +583,7 @@ test('cancelled CodeAI preparation cannot overwrite a newly opened Arena draft',
   let release!: () => void; const held = new Promise<void>((resolve) => { release = resolve; });
   await managedSetup(page, request, self, catalog, checkout.id, held);
   await page.goto('/arena'); await gear(page);
-  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close setup', exact: true }).click();
   const dialog = await openSetup(page, target);
   await dialog.getByRole('textbox').fill('Keep this newer draft'); release();
   await expect(dialog.getByRole('textbox')).toHaveValue('Keep this newer draft');
@@ -625,7 +640,8 @@ test('report-only setup labels evidence captured in another project and starts w
     note: 'Captured during another task', errors: [], diagnostics: { version: 1, browser: 'Setup test', events: [] },
     context: { machineId: catalog.hostId, projectId: elsewhere.id, sessionId: source.id } } });
   expect(report.ok()).toBe(true); const reportId = (await report.json()).name;
-  const dialog = await openSetup(page, self); await dialog.getByText('Attach CodeAI report', { exact: true }).click();
+  const dialog = await openSetup(page, self); await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Attach CodeAI report', exact: true }).click();
   const choice = dialog.locator('.session-setup-reports label').filter({ hasText: 'Captured during another task' });
   await expect(choice).toContainText(elsewhere.name); await choice.getByRole('checkbox').check();
   await expect(dialog).toContainText('Investigate the attached CodeAI report.');

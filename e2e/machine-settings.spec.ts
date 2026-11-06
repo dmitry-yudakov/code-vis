@@ -74,12 +74,12 @@ for (const theme of ['Light', 'Dark']) {
   });
 }
 
-test('both new-session forms hide global instructions under Advanced settings', async ({ page }) => {
+test('new-session forms hide global instructions in their settings', async ({ page }) => {
   await page.goto('/arena');
   await page.getByRole('main', { name: 'Arena' }).getByRole('button', { name: 'New session' }).click();
   const setup = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(setup.getByLabel('Global instructions')).toBeHidden();
-  await setup.getByText('Advanced settings', { exact: true }).click();
+  await setup.getByRole('button', { name: 'Settings', exact: true }).click();
   await setup.getByLabel('Global instructions').selectOption('isolated');
   await setup.getByRole('button', { name: 'Create and open' }).click();
   await expect(setup).toBeHidden();

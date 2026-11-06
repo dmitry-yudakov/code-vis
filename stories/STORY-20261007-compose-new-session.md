@@ -39,6 +39,10 @@ fresh session so the user can begin there. Implementation follows the reviewed s
 
 ## Desired behavior
 
+Desktop presentation is refined by [Story 130](STORY-20261106-compact-session-setup.md): compact
+composition, one closed Settings panel, Discard draft, and progress in place of the submitted form.
+The launch, evidence and recovery contracts below still apply.
+
 ### 1. One launcher, two entry points
 
 **Arena → New session** opens a desktop modal replacing the inline form. **Gear → New CodeAI

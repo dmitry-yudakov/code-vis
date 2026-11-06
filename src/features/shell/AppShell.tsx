@@ -2151,6 +2151,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     workspace.updateViewInProject(created.projectId, created.id, (current) => ({ ...current, defaultMode: settings.mode,
       modelSelections: { [created.primaryAgentId]: settings.modelSelection } }), settings.machineId === localMachineId ? undefined : settings.machineId);
     updatePreferences((current) => ({ ...current, provider: settings.provider, mode: settings.mode, instructions: settings.instructions,
+      machineId: settings.codeai ? current.machineId : settings.machineId,
       models: { ...current.models, [settings.provider]: settings.modelSelection } }));
   };
   const launcher = useSessionLauncher({
