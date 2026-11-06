@@ -55,6 +55,12 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
   const previewUrl = previewImage?.dataUrl ?? (previewReport && launcher.reports.available && launcher.reports.projectId
     ? immersiveReportPath(launcher.reports.projectId, previewReport.id, true) : undefined);
   const projectName = launcher.selectedProject?.name ?? launcher.checkoutChoice.source?.name ?? 'No project';
+  const targetDetails = [
+    !settings?.projectId && launcher.checkoutChoice.source?.name,
+    !settings?.codeai && launcher.machines.length > 1 && (launcher.machine?.machine.label ?? 'Unavailable machine'),
+    settings?.execution === 'docker' && 'Docker',
+    settings?.checkoutMode === 'worktree' && 'New worktree',
+  ].filter(Boolean).join(' · ');
   const canDiscard = launcher.hasDraftChanges || launcher.error || launcher.targetNotice || launcher.createdSession;
   return <Dialog open={open} keepMounted disableRestoreFocus fullWidth maxWidth="sm" aria-labelledby="session-setup-title"
     onClose={(_, reason) => { if (reason === 'escapeKeyDown') { if (preview) setPreview(undefined); else launcher.close(); } }}
@@ -71,10 +77,15 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
     </Box> : <>
     {launcher.preparing && !draft && <p role="status">Preparing CodeAI project…</p>}
     {open && draft && settings && <>
-      <Typography component="p" variant="body2" color="text.secondary" sx={{ mb: 1.5, overflowWrap: 'anywhere' }}>
-        {projectName}{!settings.codeai && launcher.machines.length > 1 && ` · ${launcher.machine?.machine.label ?? 'Unavailable machine'}`}
-        {settings.execution === 'docker' && ' · Docker'}{settings.checkoutMode === 'worktree' && ' · New worktree'}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+        {settings.codeai ? <Typography variant="body2" color="text.secondary">{projectName}</Typography>
+          : <NativeSelect disableUnderline inputProps={{ 'aria-label': 'Project' }} value={settings.projectId ?? ''} disabled={locked}
+            sx={{ minWidth: 0, maxWidth: '100%', '& select': { textOverflow: 'ellipsis' } }}
+            onChange={(event) => launcher.setSettings({ projectId: event.target.value || undefined, checkoutId: undefined })}>
+            <option value="">No project</option>{launcher.machine?.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </NativeSelect>}
+        {targetDetails && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{targetDetails}</Typography>}
+      </Box>
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
         <TextField multiline fullWidth variant="standard" inputRef={input} value={draft.text} rows={4}
           slotProps={{ input: { disableUnderline: true }, htmlInput: { maxLength: 8_000, 'aria-label': 'First message (optional)' } }} disabled={launcher.frozen}
@@ -124,9 +135,6 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
             {!launcher.machine && <option value={settings.machineId} disabled>Unavailable machine</option>}
             {launcher.machines.map((entry) => <option key={entry.machine.id} value={entry.machine.id} disabled={entry.machine.state !== 'online'}>{entry.machine.label}{entry.machine.state !== 'online' && ' · Offline'}</option>)}
           </NativeSelect></label>}
-          <label><span>Project</span><NativeSelect inputProps={{ 'aria-label': 'Project' }} value={settings.projectId ?? ''} disabled={locked} onChange={(event) => launcher.setSettings({ projectId: event.target.value || undefined, checkoutId: undefined })}>
-            <option value="">No project</option>{launcher.machine?.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </NativeSelect></label>
           {!settings.projectId && <label><span>Repository</span><NativeSelect inputProps={{ 'aria-label': 'Repository' }} value={settings.checkoutId ?? ''} disabled={locked} onChange={(event) => launcher.setSettings({ checkoutId: event.target.value || undefined })}>
             <option value="">No repository</option>{launcher.machine?.checkouts.map((checkout) => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
           </NativeSelect></label>}

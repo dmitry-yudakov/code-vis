@@ -1,5 +1,5 @@
 import { expect, test, fulfillArenaSnapshot, pushArenaSnapshot } from './arena-stream';
-import type { ArenaSnapshot, CheckoutsResponse, DurableProject } from '../src/shared/types';
+import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
   test(`compact session setup keeps composition and draft actions usable: ${theme} ${width}`, async ({ page, request }, testInfo) => {
@@ -18,7 +18,9 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(settings).toHaveAttribute('aria-expanded', 'false');
     await expect(dialog.getByLabel('Provider', { exact: true })).toBeVisible();
     await expect(dialog.getByLabel('Mode', { exact: true })).toBeVisible();
-    await expect(dialog.getByLabel('Project', { exact: true })).toBeHidden();
+    await expect(dialog.getByLabel('Project', { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel('Project', { exact: true })).toHaveCount(1);
+    await expect(dialog.getByLabel('Project', { exact: true })).toHaveValue(target.id);
     await expect(dialog.getByLabel('Global instructions')).toBeHidden();
     await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: 'Clear setup', exact: true })).toHaveCount(0);
@@ -59,6 +61,43 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   });
 }
+
+for (const width of [1280, 390]) test(`global setup changes project without opening Settings or losing evidence at ${width}px`, async ({ page, request }, testInfo) => {
+  await page.setViewportSize({ width, height: 844 });
+  const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+  const projects: DurableProject[] = [];
+  for (const repository of ['alpha', 'beta']) {
+    const checkout = catalog.checkouts.find(item => item.relativePath === repository)!;
+    const name = repository === 'alpha' ? `Current project ${Date.now()}` : `Destination${'Project'.repeat(15)} ${Date.now()}`;
+    projects.push((await (await request.post('/api/projects', { data: { name, checkoutIds: [checkout.id] } })).json()).project);
+  }
+  const source = (await (await request.post('/api/sessions', { data: { projectId: projects[0].id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.goto(`/?session=${source.id}`);
+  await expect(page.locator('.project-search-trigger')).toContainText(projects[0].name);
+  if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^More/ }).click();
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+  const project = dialog.getByLabel('Project', { exact: true });
+  await expect(project).toHaveValue(projects[0].id);
+  await dialog.getByRole('textbox').fill('Work in the other project');
+  await dialog.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this evidence') });
+  await project.selectOption(projects[1].id);
+  await expect(dialog.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(dialog.getByRole('textbox')).toHaveValue('Work in the other project');
+  await expect(dialog).toContainText('notes.txt');
+  expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('project-choice.png'), animations: 'disabled' });
+  const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
+  let submitted: unknown;
+  page.on('request', req => { if (req.url().endsWith('/api/agent/message')) submitted = req.postDataJSON(); });
+  await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+  const session = (await (await created).json()).session as PublicSession;
+  await expect(dialog).toBeHidden();
+  expect(session.projectId).toBe(projects[1].id);
+  expect(session.repositories.map(binding => binding.checkoutId)).toEqual([catalog.checkouts.find(item => item.relativePath === 'beta')!.id]);
+  expect(submitted).toMatchObject({ sessionId: session.id, text: 'Work in the other project', fileAttachments: [{ name: 'notes.txt', text: 'Keep this evidence' }] });
+});
 
 test('compact progress recovers a rejected message in the created session and retries once', async ({ page, request }) => {
   const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;

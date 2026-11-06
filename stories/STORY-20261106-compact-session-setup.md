@@ -11,13 +11,13 @@ expanded session settings, a separate report section, and an ambiguous Clear set
 - Keep the message, attachment chips and a shared-style **+ Attach** menu in one composer surface.
   Files/screenshots and eligible CodeAI reports are reached through that menu; paste/drop and
   preview/remove keep their existing contracts.
-- Keep provider and mode directly available. One initially closed **Settings** panel holds
-  machine/project/repository, checkout/worktree, execution, model/effort and global instructions.
+- Keep project, provider and mode directly available. One initially closed **Settings** panel holds
+  machine/repository, checkout/worktree, execution, model/effort and global instructions.
   Hide the machine selector when the only configured machine is online. Show the project once, with
   multi-machine and non-default execution/worktree context where relevant.
 - General setup remembers the machine used to create its last session in browser device
   preferences. An unavailable remembered target remains blocked until explicitly changed.
-  Project shortcuts keep their exact target; the managed CodeAI shortcut stays fixed to home
+  Project shortcuts start at their explicit target; the managed CodeAI shortcut stays fixed to home
   and does not replace the general machine preference. Existing provider/model/effort memory stays.
 - **×** closes and keeps the memory-only draft. **Discard draft** lives inside Settings, appears
   for edited drafts or recovery/conflicting-target state, and explains that it removes the message,
@@ -55,6 +55,28 @@ session and its Instruction textarea receives focus. The same failure was reprod
 pre-change `.next` build. Its original assertions remain; conversation-tab focus is unchanged.
 One deliberate screenshot-difference self-test remains skipped under the ordinary visual-test
 configuration. There is no claim that the complete browser suite passes.
+
+## Project picker follow-up
+
+The project above the message is now a compact dropdown for ordinary launches, including global
+New session and project shortcuts. It starts at the entry point's existing target and can change
+without opening Settings or losing the message and evidence. Settings no longer repeats the
+project control. The CodeAI shortcut keeps its server-prepared self-project fixed; submitted or
+uncertain requests retain the existing creation locks. Repository-only, machine, Docker and
+worktree context stays visible alongside the selector. Long project names ellipsize within the
+available width.
+
+The visible-selector regression was confirmed to fail on the preceding build before the change.
+Browser coverage verifies the initial project from a conversation/global launch and a project
+shortcut, then changes project and delivers the same message/files to the newly selected
+repository on desktop and phone. The existing fixed-home, retry and draft-preservation checks
+remain applicable.
+
+The follow-up passes all 12 `sessionLaunch` unit checks, TypeScript, the isolated production build
+and 46 focused production-browser cases across compact setup, Arena projects and session setup.
+The already recorded tab-return focus case was excluded from this run. Desktop/phone screenshots
+in both themes and long-name screenshots were inspected; independent read-only review found no
+issues.
 
 The running application has not been rebuilt or restarted for this change. Physical device and
 real-provider acceptance are outside these fixture-based checks.

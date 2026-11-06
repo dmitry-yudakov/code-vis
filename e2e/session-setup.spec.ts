@@ -472,6 +472,7 @@ test('managed gear setup targets CodeAI while preserving the source task and its
   await page.locator('.more-menu > button').click(); await page.getByRole('button', { name: 'New CodeAI session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New CodeAI session' });
   await expect(dialog.getByRole('textbox')).toBeFocused();
+  await expect(dialog.getByLabel('Project', { exact: true })).toHaveCount(0);
   await dialog.getByRole('textbox').fill('Fix CodeAI'); await dialog.getByRole('textbox').press('Enter');
   await expect(dialog).not.toBeVisible();
   await expect(page.locator('.more-menu > button')).toBeFocused();

@@ -186,7 +186,7 @@ Updated 2026-11-06. When a story ships, change the line that names it; each stor
   Real attached-executor TLS streaming and physical headset acceptance remain unverified;
   the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 130](stories/STORY-20261106-compact-session-setup.md) — new sessions use a
-  compact composer, an Attach menu, visible provider/mode and one closed Settings panel; general
+  compact composer, an Attach menu, visible project/provider/mode and one closed Settings panel; general
   launches remember their machine, and progress replaces the submitted form. Draft recovery and
   Discard draft remain explicit. All 40 focused unit checks, 89 distinct production-browser cases,
   TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review
