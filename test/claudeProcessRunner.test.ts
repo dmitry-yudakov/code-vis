@@ -8,12 +8,13 @@ import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
-import type { AgentMode, AgentProcessEvent } from '@/shared/types';
+import type { AgentContextUsage, AgentMode, AgentProcessEvent } from '@/shared/types';
 import { createTurn, updateActivity, finishTurn } from '@/shared/turnActivity';
 
 const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
 interface RunOptions {
+  contextUsage?: AgentContextUsage;
   titleOnly?: boolean;
   action?: 'start' | 'resume';
   timeoutMs?: number;
@@ -47,6 +48,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     const runner = new ClaudeProcessRunner({ binary, model: options.runnerModel, maxOutputBytes: 100_000, killGraceMs: 50, debug });
     const events: AgentProcessEvent[] = [];
     const result = await runner.run({
+      contextUsage: options.contextUsage,
       titleOnly: options.titleOnly,
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
@@ -62,6 +64,21 @@ describe.sequential('ClaudeProcessRunner', () => {
     });
     return { result, events, sessionId: id, invocation: JSON.parse(await readFile(path.join(directory, 'fake-invocation.json'), 'utf8')) };
   }
+
+  it('uses latest root input/cache usage, ignores child/replay/synthetic usage, and resolves the root capacity', async () => {
+    process.env.CODEAI_FAKE_MODE = 'context-usage';
+    const { events } = await run();
+    expect(events.filter(event => event.type === 'context-usage').map(event => event.contextUsage)).toEqual([
+      { usedTokens: 150_000, model: 'root-model' }, { usedTokens: 40_000, model: 'root-model' },
+      { usedTokens: 40_000, model: 'root-model', contextWindow: 200_000 },
+    ]);
+  });
+
+  it('keeps a resumed root model’s reported capacity while working', async () => {
+    process.env.CODEAI_FAKE_MODE = 'context-usage';
+    const { events } = await run({ action: 'resume', contextUsage: { usedTokens: 20_000, model: 'root-model', contextWindow: 200_000 } });
+    expect(events.find(event => event.type === 'context-usage')?.contextUsage).toEqual({ usedTokens: 150_000, model: 'root-model', contextWindow: 200_000 });
+  });
 
   it('runs title requests without tools, persisted sessions, or repository settings', async () => {
     const { invocation } = await run({ titleOnly: true, model: 'haiku' });

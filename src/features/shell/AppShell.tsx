@@ -1627,6 +1627,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         if (event.turn.userMessageId === userMessageId) turn.onAccepted?.(event.runId);
         mutateSession(turn.sessionId, (current) => mergeTurnActivity(current, event.turn));
       }
+      if (event.type === 'context-usage') {
+        mutateSession(turn.sessionId, (current) => ({ ...current, participants: current.participants.map(participant =>
+          participant.kind === 'agent' && participant.id === event.participantId ? { ...participant, contextUsage: event.usage } : participant) }));
+      }
       if (event.type === 'mode-changed') {
         turn.mode = event.mode;
         if (!finishedReplay) {

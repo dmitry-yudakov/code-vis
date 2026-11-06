@@ -49,10 +49,11 @@ interface RunRecord {
   pendingPermissions: Map<string, RunPermissionSummary>;
   status?: string;
   outcome?: RunOutcome;
-  /** Every event except assistant-delta, which is accumulated into `deltaText` instead. */
+  /** Required events and bounded display history; replaceable snapshots have separate slots. */
   transcript: AgentEvent[];
   deltaText: string;
   turn?: TurnRecord;
+  contextUsage?: Extract<AgentEvent, { type: 'context-usage' }>;
   /** Full live review is separate from the compact Arena summaries and durable display budgets. */
   liveReviews?: Map<string, Extract<AgentEvent, { type: 'permission-request' }>>;
   subscribers: Map<string, (event: AgentEvent) => void>;
@@ -448,7 +449,9 @@ export class RunRegistry implements MaintenanceLease {
         run.outcome = event.cancelled ? 'cancelled' : run.outcome || 'completed';
         if (run.outcome === 'completed') run.status = 'Turn completed';
       }
-      if (event.type === 'turn-activity') {
+      if (event.type === 'context-usage') {
+        run.contextUsage = event;
+      } else if (event.type === 'turn-activity') {
         if (!run.turn || event.turn.sequence >= run.turn.sequence) run.turn = event.turn;
       } else if (event.type === 'assistant-delta') {
         run.deltaText = boundedDisplay(run.deltaText + event.delta, 256 * 1024).text;
@@ -480,6 +483,7 @@ export class RunRegistry implements MaintenanceLease {
       ? run.liveReviews.get(event.requestId)! : event);
     if (run.deltaText) replay.push({ type: 'assistant-delta', runId: run.runId, delta: run.deltaText });
     if (run.turn) replay.push({ type: 'turn-activity', runId: run.runId, turn: run.turn });
+    if (run.contextUsage) replay.push(run.contextUsage);
     for (const [requestId, event] of run.liveReviews ?? []) {
       if (!replay.some(item => item.type === 'permission-request' && item.requestId === requestId)) replay.push(event);
     }

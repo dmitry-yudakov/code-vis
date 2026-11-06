@@ -249,6 +249,30 @@ describe('host-owned session store', () => {
     await reopened.close();
   });
 
+  it('persists and publicly exposes independent context for each participant, upgrading only sessions that report it', async () => {
+    const dataDir = await directory();
+    let store = new SessionStore(dataDir);
+    try {
+      const session = await store.createSession({ provider: 'claude' });
+      const other = await store.createSession({ provider: 'codex' });
+      const roster = await store.addAgent(session.id, 'claude', 'reviewer', crypto.randomUUID());
+      const second = roster.participants.find(p => p.kind === 'agent' && p.id !== session.primaryAgentId)!;
+      const usage = { usedTokens: 40_000, contextWindow: 200_000, model: 'main' };
+      expect(durableSessionSchema.safeParse({ ...roster, participants: roster.participants.map(p => p.id === session.primaryAgentId ? { ...p, contextUsage: usage } : p) }).success).toBe(false);
+      await store.saveContextUsage(session.id, session.primaryAgentId, usage);
+      await store.saveContextUsage(session.id, second.id, { usedTokens: 9000 });
+      await store.close();
+      store = new SessionStore(dataDir);
+      const saved = publicSession(await store.getSession(session.id));
+      expect(saved.version).toBe(14);
+      expect(saved.participants.find(p => p.id === session.primaryAgentId)).toMatchObject({ contextUsage: usage });
+      expect(saved.participants.find(p => p.id === second.id)).toMatchObject({ contextUsage: { usedTokens: 9000 } });
+      expect(JSON.stringify(saved)).not.toContain('lastObservedMessageId');
+      expect((await store.getSession(other.id)).version).toBe(4);
+      await expect(store.saveContextUsage(session.id, second.id, { usedTokens: -1 })).rejects.toThrow();
+    } finally { await store.close(); }
+  });
+
   it('rejects invalid version/execution combinations and retains strict content validation', () => {
     const session = durableFixture(crypto.randomUUID(), crypto.randomUUID());
     expect(durableSessionSchema.safeParse(session).success).toBe(true);
@@ -268,7 +292,7 @@ describe('host-owned session store', () => {
       { ...versionThree, execution: null },
       { ...versionThree, version: 4 },
       { ...session, version: 4, execution: 'unknown' },
-      { ...session, version: 14, execution: 'local' },
+      { ...session, version: 15, execution: 'local' },
       { ...versionThree, version: 5 },
       { ...versionThree, version: 6 },
       { ...session, version: 4, execution: 'docker', repositories: [] },

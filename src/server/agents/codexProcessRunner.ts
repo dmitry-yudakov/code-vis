@@ -8,6 +8,7 @@ import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
 } from '@/shared/types';
 import { AgentRunError } from './agentRunError';
+import { codexContextUsage } from './contextUsage';
 import type { ProcessTransport } from '@/server/execution/processTransport';
 import {
   buildCodexAppServerArgs, codexDeveloperInstructions, codexIsolationIssue,
@@ -847,6 +848,11 @@ export class CodexProcessRunner implements AgentProcessRunner {
             inputTokens: typeof total?.inputTokens === 'number' ? total.inputTokens : undefined,
             outputTokens: typeof total?.outputTokens === 'number' ? total.outputTokens : undefined,
           };
+          // Child, stale-turn and unscoped usage must never fill the parent's context meter.
+          if (thread === sessionId && turnId && params?.turnId === turnId) {
+            const contextUsage = codexContextUsage(tokenUsage);
+            if (contextUsage) input.emit({ type: 'context-usage', contextUsage });
+          }
           return;
         }
         if (method === 'error' && params?.willRetry !== true) {

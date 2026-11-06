@@ -120,6 +120,15 @@ export interface HumanParticipant {
   displayName: string;
 }
 
+/** Latest provider-reported context occupancy, independent of cumulative billing usage. */
+export interface AgentContextUsage {
+  usedTokens: number;
+  /** Actual reporting model, when supplied; scopes reuse of a previously reported capacity. */
+  model?: string;
+  /** Absent when the provider has not reported its effective capacity. */
+  contextWindow?: number;
+}
+
 /** Public agent identity. Provider session ids never leave the server registry. */
 export interface AgentParticipant {
   id: string;
@@ -129,6 +138,7 @@ export interface AgentParticipant {
   role: AgentRole;
   /** A role's default is never Auto: Auto is chosen for a session, by the user. */
   defaultMode: LaunchMode;
+  contextUsage?: AgentContextUsage;
 }
 
 export type Participant = HumanParticipant | AgentParticipant;
@@ -150,7 +160,7 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
   /** Server-only receipt; never included in public sessions. */
   creationReceipt?: { requestId: string; fingerprint: string };
   worktree?: SessionWorktree;
@@ -509,7 +519,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
   worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
@@ -601,6 +611,7 @@ export type AgentErrorCode =
 export type PermissionResolution = 'allow' | 'deny' | 'timeout' | 'cancelled';
 
 export type AgentEvent =
+  | { type: 'context-usage'; runId: string; participantId: string; usage: AgentContextUsage }
   | { type: 'turn-activity'; runId: string; turn: import('./turnActivity').TurnRecord }
   | { type: 'run-started'; runId: string; sessionId: string; messageId: string; participantId: string }
   | { type: 'mode-changed'; runId: string; mode: AgentMode }
@@ -751,7 +762,8 @@ export interface PermissionGate {
 }
 
 export interface AgentProcessEvent {
-  type: 'session-started' | 'turn-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved' | 'history';
+  type: 'session-started' | 'turn-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved' | 'history' | 'context-usage';
+  contextUsage?: AgentContextUsage;
   activity?: import('./turnActivity').ProcessActivity;
   review?: import('./turnActivity').ApprovalReview;
   actor?: import('./turnActivity').ActivityActor;
@@ -773,6 +785,7 @@ export interface GlobalInstructions {
 }
 
 export interface AgentProcessRun {
+  contextUsage?: AgentContextUsage;
   /** Server-owned background metadata request; never resumed or exposed as conversation activity. */
   titleOnly?: boolean;
   runId: string;

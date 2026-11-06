@@ -340,6 +340,18 @@ while (true) {
     turnId = 'codex-turn-1';
     result(message.id, { turn: { id: turnId, items: [], itemsView: 'full', status: 'inProgress', error: null } });
     if (threadConfigs.get(threadId)?.project_doc_max_bytes === 0) completeTurn('Improve conversation titles');
+    else if (mode === 'context-usage') {
+      const report = (tokens, extra = {}) => emit({ method: 'thread/tokenUsage/updated', params: {
+        threadId, turnId, tokenUsage: { total: { inputTokens: 900_000, outputTokens: 100_000 }, last: { totalTokens: tokens }, modelContextWindow: 200_000 }, ...extra,
+      } });
+      report(150_000);
+      report(40_000);
+      report(999_999, { threadId: 'foreign-thread' });
+      report(888_888, { turnId: 'stale-turn' });
+      report(777_777, { threadId: undefined });
+      report(-1);
+      completeTurn('Context report.');
+    }
     else if (!incomingDelegation && mode.startsWith('subagent-')) beginDelegation();
     else if (incomingDelegation) {
       let agentThreadId = 'child-thread';

@@ -9,13 +9,13 @@ import { z } from 'zod';
 import { MAX_SESSION_TEXT_FILE_BYTES } from '@/shared/limits';
 import { validateTextFiles } from '@/shared/textFiles';
 import type {
-  AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
+  AgentContextUsage, AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
   ChatMessage, GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SessionWorktree, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
   NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
-  legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema,
+  legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema, agentContextUsageSchema, CONTEXT_USAGE_SESSION_VERSION,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
@@ -223,6 +223,7 @@ export function publicParticipants(session: DurableSession): Participant[] {
     provider: participant.provider,
     role: participant.role,
     defaultMode: participant.defaultMode,
+    ...(participant.contextUsage ? { contextUsage: { ...participant.contextUsage } } : {}),
   });
 }
 
@@ -1019,6 +1020,19 @@ export class SessionStore {
       durableSessionSchema.parse(nextSession);
       await this.writeSession(nextSession);
       return structuredClone(nextSession);
+    });
+  }
+
+  async saveContextUsage(id: string, participantId: string, usage: AgentContextUsage): Promise<void> {
+    const parsed = agentContextUsageSchema.parse(usage);
+    await this.mutate(id, (session) => {
+      const participant = serverAgent(session, participantId);
+      if (!participant) throw new Error('Unknown agent participant');
+      if (same(participant.contextUsage, parsed)) return { result: undefined, changed: false };
+      participant.contextUsage = parsed;
+      if (session.version === 3) session.execution = 'local';
+      if (session.version < CONTEXT_USAGE_SESSION_VERSION) session.version = CONTEXT_USAGE_SESSION_VERSION;
+      return { result: undefined, changed: true };
     });
   }
 

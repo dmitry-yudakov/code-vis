@@ -382,6 +382,13 @@ restore first persist their lifecycle marker, then atomically rename the record 
 directories; startup finishes a transition interrupted between those steps. Store directories are
 `0700`; manifest, lock, and session files are `0600`.
 
+Story 132 adds each agent participant's latest provider-reported context occupancy. Codex reads
+the active root turn's latest token usage; Claude reads root request input/cache tokens and its
+reported model capacity. One attempt-end metadata write upgrades only reporting sessions to
+format 14. Live delivery and reconnect replay keep one replaceable context snapshot per run,
+independently of ordered activity and required events. The selected agent's composer indicator
+uses these reports and shows unknown capacity explicitly; cumulative billing totals are excluded.
+
 Each project and session has a monotonic revision. A project contains its repository bindings; a
 session contains an optional project id, its independent repository bindings, participants,
 messages, canvases, annotations, pins, private provider sessions, and cursors. Public snapshots

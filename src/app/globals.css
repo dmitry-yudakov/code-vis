@@ -380,7 +380,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .conversation-drawer { position: absolute; z-index: 1; inset: 0; width: 100%; display: grid; grid-template-rows: auto minmax(0,1fr); grid-template-columns: minmax(0, 1fr); border-left: 1px solid var(--line); overflow: hidden; background: var(--shell); box-shadow: var(--drawer-shadow); }
 .conversation-drawer { grid-template-rows: auto minmax(0,1fr) auto; }
 .drawer-composer { position: relative; z-index: 3; display: grid; gap: 8px; padding: 12px 16px 16px; overflow: visible; background: var(--sheet); }
-.participant-controls { position: relative; min-width: 0; display: grid; gap: 6px; }
+.participant-controls { position: relative; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.participant-controls .agent-menu { min-width: 0; }
 .participant-row { min-width: 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: 5px; overflow: visible; padding-bottom: 1px; }
 .participant-chip { flex: none; min-width: 92px; max-width: 145px; display: grid; gap: 2px; text-align: left; }
 .participant-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

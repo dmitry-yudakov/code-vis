@@ -190,6 +190,12 @@ Updated 2026-11-06. When a story ships, change the line that names it; each stor
   expandable folder tree beside Repository's Changes/History. All 153 focused unit checks,
   63 distinct production-browser checks, TypeScript, isolated build, both-theme desktop/phone
   screenshot inspection and independent review pass. The running app has not been rebuilt or restarted.
+- **Shipped:** [Story 132](stories/STORY-20261106-participant-context-usage.md) — each selected
+  conversation agent has a filling context circle and percentage, with exact token counts on hover
+  or keyboard focus, live updates and per-participant reload recovery. All 1,969 unit tests,
+  22 production-browser checks, TypeScript, isolated build, both-theme desktop/phone screenshot
+  inspection and independent review pass. Real signed-in provider turns remain unverified;
+  the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 130](stories/STORY-20261106-compact-session-setup.md) — new sessions use a
   compact composer, an Attach menu, visible project/provider/mode and one closed Settings panel; general
   launches remember their machine, and progress replaces the submitted form. Draft recovery and

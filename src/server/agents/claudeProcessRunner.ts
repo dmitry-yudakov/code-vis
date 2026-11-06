@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { claudeContextUsage } from './contextUsage';
 import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
   ResolvedAgentPolicy,
@@ -207,6 +208,23 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       let killTimer: ReturnType<typeof setTimeout> | undefined;
       const emittedToolUseIds = new Set<string>();
       const emittedTurnIds = new Set<string>();
+      let contextMessage: Record<string, unknown> | undefined;
+      let contextMessageId: string | undefined;
+      let lastContextUsage = input.contextUsage;
+      const updateContext = (message: Record<string, unknown> | undefined, modelUsage?: unknown) => {
+        if (!message || message.model === '<synthetic>') return;
+        // A replay of an older root message cannot move occupancy back to an earlier request.
+        if (typeof message.id === 'string') {
+          const id = displayIdentity([message.id]);
+          if (contextMessageId !== id && emittedTurnIds.has(id)) return;
+          contextMessageId = id;
+        }
+        const contextUsage = claudeContextUsage(message, modelUsage, lastContextUsage);
+        if (!contextUsage) return;
+        contextMessage = message;
+        lastContextUsage = contextUsage;
+        input.emit({ type: 'context-usage', contextUsage });
+      };
       const countTurn = (id: string) => {
         id = displayIdentity([id]);
         if (emittedTurnIds.has(id)) return;
@@ -360,6 +378,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           const message = stream?.message as Record<string, unknown> | undefined;
           const parent = typeof event.parent_tool_use_id === 'string' ? event.parent_tool_use_id : '';
           if (stream?.type === 'message_start') {
+            if (!parent) updateContext(message);
             messageScopes.delete(displayIdentity([parent]));
             const scope = scopeFor(parent);
             scope.streaming = true;
@@ -422,6 +441,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           }
           const scope = scopeFor(parent);
           const messageId = typeof message?.id === 'string' ? displayIdentity([message.id]) : scope.streaming ? scope.id : `assistant-${++anonymousMessage}`;
+          if (!parent) updateContext(message);
           const sameMessage = scope.id === messageId;
           if (!sameMessage) {
             scope.id = messageId; scope.block = 0; scope.blockType = undefined;
@@ -482,6 +502,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
           return;
         }
         if (event.type === 'result') {
+          if (!event.parent_tool_use_id) updateContext(contextMessage, event.modelUsage);
           const subtype = typeof event.subtype === 'string' ? event.subtype : '';
           if (event.is_error === true || subtype.startsWith('error')) {
             throw classifyResultError(subtype, String(event.result || event.error || ''), input.policy, input.session.action);

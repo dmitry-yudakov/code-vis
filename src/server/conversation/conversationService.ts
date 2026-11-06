@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
-  AgentEvent, AgentMessageRequest, AgentMode, AgentProcessResult, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout,
+  AgentContextUsage, AgentEvent, AgentMessageRequest, AgentMode, AgentProcessResult, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import type { SessionStore } from '@/server/storage/sessionStore';
@@ -73,6 +73,7 @@ export async function runConversation(input: {
   let inputPossiblySent = false;
   const participant = serverAgent(session, request.participantId);
   if (!participant) throw new Error('Unknown addressed agent participant');
+  let latestContextUsage = participant.contextUsage;
   const user = session.messages.find(message => message.id === request.messageId);
   let turn: TurnRecord = { ...(user?.role === 'user' && user.turn || createTurn(runId, request.messageId, participant.id, new Date().toISOString())), lifecycle: 'running' };
   let attemptNumber = 0;
@@ -144,6 +145,7 @@ export async function runConversation(input: {
       input.onPermissionBroker?.(permissions);
       let workingSince = Date.now();
       const pending = new Set<string>();
+      let contextUsage: AgentContextUsage | undefined;
       const prompt = buildConversationPrompt({
         userText: request.text,
         attachmentDirectory: directory,
@@ -167,6 +169,7 @@ export async function runConversation(input: {
       try {
         if (attempt.signal.aborted) continue;
         result = await runner.run({
+          contextUsage: latestContextUsage,
           runId,
           checkout,
           session: {
@@ -184,7 +187,11 @@ export async function runConversation(input: {
           effort: request.effort,
           ...instructions,
           emit(event) {
-            if (event.type === 'history' && event.activity) {
+            if (event.type === 'context-usage' && event.contextUsage) {
+              contextUsage = event.contextUsage;
+              latestContextUsage = contextUsage;
+              emit({ type: 'context-usage', runId, participantId: participant.id, usage: contextUsage });
+            } else if (event.type === 'history' && event.activity) {
               sawHistory = true;
               activity(event.activity, event.activity.kind !== 'assistant' || Boolean(event.activity.complete));
             } else if (event.type === 'session-started' && event.sessionId) {
@@ -244,6 +251,10 @@ export async function runConversation(input: {
         permissions?.cancelAll();
         input.onPermissionBroker?.(undefined);
         if (!pending.size) spentMs += Date.now() - workingSince;
+        // One metadata write per attempt, including interrupted/failed attempts. Telemetry must
+        // not prevent the canonical reply or replace the provider's original error.
+        if (contextUsage) await sessionStore.saveContextUsage(session.id, participant.id, contextUsage)
+          .catch(error => console.error('Could not save participant context usage', error));
       }
       await sessionMark;
       if (sessionMarkError) throw sessionMarkError;

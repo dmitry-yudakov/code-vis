@@ -34,6 +34,25 @@ async function fixture() {
 }
 
 describe('conversation history lifecycle', () => {
+  it.each(['complete', 'failed', 'cancelled'] as const)('streams and saves the addressed participant’s latest context after a %s attempt', async outcome => {
+    const { input, store, events, close } = await fixture();
+    const usage = { usedTokens: 40_000, contextWindow: 200_000, model: 'actual-model' };
+    const runner: AgentProcessRunner = { async run(provider) {
+      provider.emit({ type: 'context-usage', contextUsage: { ...usage, usedTokens: 150_000 } });
+      provider.emit({ type: 'context-usage', contextUsage: usage });
+      if (outcome !== 'complete') throw new AgentRunError(outcome === 'cancelled' ? 'cancelled' : 'process-failed', 'Provider stopped.');
+      return { finalText: 'Done.', sessionId: 'provider', durationMs: 1, outputBytes: 5 };
+    } };
+    try {
+      const run = runConversation({ ...input, runner });
+      if (outcome === 'complete') await run;
+      else await expect(run).rejects.toThrow('Provider stopped.');
+      expect(events.filter(event => event.type === 'context-usage').at(-1)).toEqual({ type: 'context-usage', runId: input.runId, participantId: input.session.primaryAgentId, usage });
+      expect((await store.getSession(input.session.id)).participants.find(p => p.id === input.session.primaryAgentId)).toMatchObject({ contextUsage: usage });
+      expect((await store.getSession(input.session.id)).version).toBe(14);
+    } finally { await close(); }
+  });
+
   it('streams a large provider burst through completion and retains the same final answer after reload', async () => {
     const { input, store, close } = await fixture();
     const registry = new RunRegistry();

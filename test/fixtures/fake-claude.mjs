@@ -77,6 +77,27 @@ if (args.includes('--no-session-persistence')) {
   emit({ type: 'assistant', message: { id: 'title', stop_reason: 'end_turn', content: [{ type: 'text', text: title }] } });
   emit({ type: 'result', subtype: 'success', result: title, session_id: sessionId });
 }
+else if (mode.startsWith('context-usage') || prompt.includes('[context-usage]')) {
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  const root = (id, usage, model = 'root-model') => ({ type: 'assistant', uuid: id, message: {
+    id, model, usage, content: [{ type: 'text', text: 'Context report.' }], stop_reason: 'end_turn',
+  } });
+  const first = root('first-context', { input_tokens: 10_000, cache_read_input_tokens: 120_000, cache_creation_input_tokens: 20_000 });
+  // An initial stream start need not carry usage; its later complete snapshot does.
+  emit({ type: 'stream_event', event: { type: 'message_start', message: { id: first.message.id } } });
+  emit(first);
+  if (prompt.includes('[context-usage]')) await new Promise(resolve => setTimeout(resolve, 600));
+  emit({ ...root('child-context', { input_tokens: 900_000 }, 'child-model'), parent_tool_use_id: 'delegated-tool' });
+  const last = root('compacted-context', { input_tokens: 5000, cache_read_input_tokens: 30_000, cache_creation_input_tokens: 5000 });
+  emit({ type: 'stream_event', event: { type: 'message_start', message: { id: last.message.id } } });
+  emit(last);
+  // An older snapshot with a different event UUID must not replace the current reading.
+  emit({ ...first, uuid: 'replayed-first-context' });
+  emit(root('synthetic-context', { input_tokens: 0 }, '<synthetic>'));
+  if (prompt.includes('[context-usage]')) await new Promise(resolve => setTimeout(resolve, 600));
+  emit({ type: 'result', subtype: mode === 'context-usage-failure' ? 'error_max_turns' : 'success', result: 'Context report.', session_id: sessionId,
+    usage: { input_tokens: 999_999 }, modelUsage: { 'child-model': { contextWindow: 1_000_000 }, 'root-model': { contextWindow: 200_000, inputTokens: 999_999 } } });
+}
 else if (prompt.includes('[history-burst-ui]')) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });
   // The reported turn accumulated tool output. Keep those details collapsed in the browser so

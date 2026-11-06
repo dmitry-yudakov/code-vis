@@ -7,7 +7,7 @@ const NDJSON_HEADERS = {
 };
 
 const MAX_PENDING_BYTES = 8 * 1024 * 1024;
-type ActivityEvent = Extract<AgentEvent, { type: 'turn-activity' }>;
+type SnapshotEvent = Extract<AgentEvent, { type: 'turn-activity' | 'context-usage' }>;
 
 /**
  * Wraps a run's events in an NDJSON response. `start` receives the writer and returns a promise
@@ -27,11 +27,11 @@ export function agentEventStream(input: {
   let finished = false;
   let closed = false;
   let reading = false;
-  // Required events retain order and an 8 MiB pending-byte budget. Keep only one live activity
-  // snapshot (bounded by boundTurn's 1 MiB contract), serializing it when the consumer pulls.
-  const pending: (Uint8Array | ActivityEvent)[] = [];
+  // Required events retain order and an 8 MiB pending-byte budget. Keep only the latest live
+  // activity and context snapshots, serializing them when the consumer pulls.
+  const pending: (Uint8Array | SnapshotEvent)[] = [];
   let pendingBytes = 0;
-  let pendingActivity: ActivityEvent | undefined;
+  const pendingSnapshots = new Map<SnapshotEvent['type'], SnapshotEvent>();
 
   const detach = () => {
     if (!attached) return;
@@ -41,7 +41,7 @@ export function agentEventStream(input: {
 
   const clear = () => {
     pending.length = 0;
-    pendingActivity = undefined;
+    pendingSnapshots.clear();
     pendingBytes = 0;
   };
 
@@ -63,7 +63,7 @@ export function agentEventStream(input: {
         const next = pending.shift()!;
         const chunk = next instanceof Uint8Array ? next : encode(next);
         if (next instanceof Uint8Array) pendingBytes -= chunk.byteLength;
-        else pendingActivity = undefined;
+        else pendingSnapshots.delete(next.type);
         if (chunk.byteLength > MAX_PENDING_BYTES) { overflow(); return; }
         reading = false;
         controller!.enqueue(chunk);
@@ -78,11 +78,12 @@ export function agentEventStream(input: {
   const write = (event: AgentEvent, replay = false) => {
     if (!attached || closed) return;
     try {
-      if (event.type === 'turn-activity' && !replay) {
+      if ((event.type === 'turn-activity' || event.type === 'context-usage') && !replay) {
         // Move newer state after intervening required events. Replay stays verbatim because its
         // advertised prefix length tells the browser which attention events are historical.
-        if (pendingActivity) pending.splice(pending.indexOf(pendingActivity), 1);
-        pendingActivity = event;
+        const previous = pendingSnapshots.get(event.type);
+        if (previous) pending.splice(pending.indexOf(previous), 1);
+        pendingSnapshots.set(event.type, event);
         pending.push(event);
       } else {
         const chunk = encode(event);

@@ -77,6 +77,14 @@ describe.sequential('CodexProcessRunner', () => {
     return { result, events, invocation, recordPath };
   }
 
+  it('reports current root context, including decreases, while ignoring foreign, stale and invalid readings', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'context-usage';
+    const { events } = await run();
+    expect(events.filter(event => event.type === 'context-usage').map(event => event.contextUsage)).toEqual([
+      { usedTokens: 150_000, contextWindow: 200_000 }, { usedTokens: 40_000, contextWindow: 200_000 },
+    ]);
+  });
+
   it('restricts a fresh ephemeral title request without repository tools or inherited instructions', async () => {
     const { invocation } = await run({ titleOnly: true });
     const start = invocation.requests.find((request: RecordedRequest) => request.method === 'thread/start').params;

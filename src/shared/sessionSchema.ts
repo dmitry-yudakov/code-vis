@@ -102,6 +102,12 @@ export const humanParticipantSchema = z.object({
   displayName: z.string().trim().min(1).max(160),
 }).strict();
 
+export const agentContextUsageSchema = z.object({
+  usedTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  model: z.string().min(1).max(200).optional(),
+  contextWindow: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+}).strict();
+
 export const publicAgentParticipantSchema = z.object({
   id: participantId,
   kind: z.literal('agent'),
@@ -109,6 +115,7 @@ export const publicAgentParticipantSchema = z.object({
   provider: agentProvider,
   role: agentRole,
   defaultMode: roleDefaultMode,
+  contextUsage: agentContextUsageSchema.optional(),
 }).strict();
 
 export const serverAgentParticipantSchema = publicAgentParticipantSchema.extend({
@@ -234,7 +241,8 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 13;
+export const MAX_READABLE_SESSION_VERSION = 14;
+export const CONTEXT_USAGE_SESSION_VERSION = 14;
 export const TURN_ACTIVITY_SESSION_VERSION = 13;
 export const SESSION_SETUP_VERSION = 12;
 export const WORKTREE_SESSION_VERSION = 10;
@@ -274,6 +282,7 @@ const sessionBase = {
     z.literal(3), z.literal(4), z.literal(REPORT_EVIDENCE_SESSION_VERSION), z.literal(AUTO_MODE_SESSION_VERSION),
     z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION), z.literal(NATIVE_MODE_SESSION_VERSION),
     z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION), z.literal(SESSION_SETUP_VERSION), z.literal(TURN_ACTIVITY_SESSION_VERSION),
+    z.literal(CONTEXT_USAGE_SESSION_VERSION),
   ]),
   worktree: sessionWorktreeSchema.optional(),
   execution: z.enum(['local', 'docker']).optional(),
@@ -296,14 +305,14 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
     creationReceipt?: unknown;
     worktree?: unknown;
     execution?: 'local' | 'docker';
     instructions?: string;
     id: string;
     repositories: Array<{ id: string; hostId: string; checkoutId: string; role: string }>;
-    participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string }>;
+    participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string; contextUsage?: unknown }>;
     primaryAgentId: string;
     messages: Array<{
       id: string; role: string; authorId: string; addressedParticipantId?: string;
@@ -315,6 +324,9 @@ function validateSession(
   },
   ctx: z.RefinementCtx,
 ): void {
+  if (value.version < CONTEXT_USAGE_SESSION_VERSION && value.participants.some(participant => participant.contextUsage !== undefined)) {
+    ctx.addIssue({ code: 'custom', message: 'Participant context usage requires format 14.', path: ['participants'] });
+  }
   if (value.worktree !== undefined && (value.version < WORKTREE_SESSION_VERSION
     || value.execution === 'docker' && value.version < DOCKER_WORKTREE_SESSION_VERSION
     || value.repositories.length !== 1 || value.repositories[0].role !== 'primary')) {

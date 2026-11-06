@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import type { AgentMode, AgentParticipant, AgentProvider, AgentRole } from '@/shared/types';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
+import { ContextUsage } from './ContextUsage';
 
 const HANDOFF_PROMPTS: Record<AgentRole, string> = {
   orchestrator: 'Synthesize the conversation above into a concrete next-step plan. Call out unresolved decisions, dependencies, and risks.',
@@ -67,5 +68,6 @@ export function ParticipantControls({
         </div>
       </div>}
     </DesktopPopover>
+    {selected && <ContextUsage name={selected.displayName} usage={selected.contextUsage} />}
   </div>;
 }
