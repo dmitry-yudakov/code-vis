@@ -211,7 +211,9 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-card-restore { padding-right: 8px; }
 .arena-card-activity { flex: 0 1 auto; max-width: 32%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 11px; }
 .arena-card-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
-.arena-card-agents { flex: 0 0 120px; }
+.arena-card-agents { flex: 0 0 120px; display: flex; flex-wrap: wrap; gap: 4px 8px; overflow: visible; white-space: normal; }
+.arena-card-agent { min-width: 0; max-width: 100%; display: inline-flex; align-items: center; }
+.arena-card-agent > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arena-card-time { flex: none; margin-left: auto; color: var(--faint); font: 10px/1 var(--mono); }
 .arena-card-attention { padding: 4px 6px; border-radius: 999px; color: var(--wait-ink-strong); background: var(--wait-wash); font-weight: 700; }
 

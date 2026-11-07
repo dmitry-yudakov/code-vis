@@ -1,7 +1,7 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, fulfillArenaSnapshot, type APIRequestContext, type Page } from './arena-stream';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentProvider, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
+import type { AgentProvider, ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 async function openSession(page: Page, request: APIRequestContext, provider: AgentProvider = 'claude') {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
@@ -17,6 +17,28 @@ async function openSession(page: Page, request: APIRequestContext, provider: Age
   await expect(conversation).toBeVisible();
   return { session, conversation };
 }
+
+test('offline Arena context remains inspectable without restoring session navigation', async ({ page, request }) => {
+  const { session } = await openSession(page, request);
+  const snapshot = (await (await request.get('/api/arena')).json()) as ArenaSnapshot;
+  const owner = snapshot.machines.find(machine => machine.sessions.some(item => item.id === session.id))!;
+  owner.machine.state = 'offline';
+  const summary = owner.sessions.find(item => item.id === session.id)!;
+  summary.title = 'Offline context session';
+  summary.agents[0].contextUsage = { usedTokens: 40_000, contextWindow: 200_000 };
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
+  await page.goto('/arena');
+  const card = page.getByRole('main', { name: 'Arena' }).locator('.arena-card').filter({ hasText: summary.title });
+  const row = card.locator('.arena-card-open');
+  await expect(row).toBeDisabled();
+  await expect(row).not.toHaveAttribute('href');
+  const meter = row.getByRole('meter', { name: /@Claude context:/ });
+  await meter.hover();
+  await expect(page.getByRole('tooltip')).toContainText('20% used');
+  await meter.click({ button: 'middle', force: true });
+  await expect(page).toHaveURL(/\/arena$/);
+  expect(page.context().pages()).toHaveLength(1);
+});
 
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [1280, 390]) {
@@ -34,6 +56,8 @@ for (const theme of ['light', 'dark'] as const) {
       await conversation.getByRole('button', { name: 'Send', exact: true }).click();
       const meter = conversation.getByRole('meter', { name: /@Claude context:/ });
       await expect(meter).toHaveAttribute('aria-valuenow', '20');
+      await expect(meter).toHaveText('');
+      expect((await meter.locator('.MuiCircularProgress-root').first().boundingBox())!.width).toBe(14);
       await expect(conversation.getByRole('button', { name: 'Session agents', exact: true })).toBeEnabled();
       const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
       expect(saved.participants.find(p => p.id === session.primaryAgentId)).toMatchObject({ contextUsage: { usedTokens: 40_000, contextWindow: 200_000 } });
@@ -41,6 +65,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(meter).toHaveAttribute('aria-valuenow', '20');
       await meter.focus();
       await expect(page.getByRole('tooltip')).toContainText('40,000 of 200,000 tokens');
+      await expect(page.getByRole('tooltip')).toContainText('20% used');
 
       // The next turn can reuse capacity for this exact reporting model while it works.
       await conversation.getByRole('textbox', { name: 'Instruction', exact: true }).fill('[context-usage] Check again.');
@@ -69,6 +94,34 @@ for (const theme of ['light', 'dark'] as const) {
       });
       for (const bound of bounds) { expect(bound.left).toBeGreaterThanOrEqual(-1); expect(bound.right).toBeLessThanOrEqual(1); }
       await page.screenshot({ path: `test-results/context-usage-${theme}-${width}.png` });
+
+      await page.goto('/arena');
+      const arena = page.getByRole('main', { name: 'Arena' });
+      const link = arena.locator(`.arena-card-open[href*="${session.id}"]`);
+      const arenaMeter = link.getByRole('meter', { name: /@Claude context:/ });
+      await expect(arenaMeter).toHaveAttribute('aria-valuenow', '20');
+      await expect(arenaMeter).toHaveText('');
+      await expect(link.getByRole('img', { name: '@Claude Reviewer context: not reported yet', exact: true })).toBeVisible();
+      await expect(link.locator('[tabindex]')).toHaveCount(0);
+      await arenaMeter.hover();
+      await expect(page.getByRole('tooltip')).toContainText('20% used, 40,000 of 200,000 tokens');
+      await expect(page).toHaveURL(/\/arena$/);
+      const provider = arenaMeter.locator('..');
+      await expect(provider).toHaveText('Claude');
+      const [providerBounds, meterBounds] = await Promise.all([provider.boundingBox(), arenaMeter.boundingBox()]);
+      expect(meterBounds!.x + meterBounds!.width).toBeLessThanOrEqual(providerBounds!.x + providerBounds!.width + 1);
+      expect(await arena.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: `test-results/arena-context-${theme}-${width}.png` });
+      await arena.getByRole('heading', { name: 'Arena', exact: true }).hover();
+      await link.focus();
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      await expect(link).toBeFocused();
+      const rowTooltip = page.getByRole('tooltip').filter({ hasText: 'Claude Reviewer context: not reported yet' });
+      await expect(rowTooltip).toContainText('20% used');
+      // Context remains informative without taking over the row's navigation action.
+      await link.click();
+      await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
     });
   }
 
@@ -85,5 +138,22 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(meter).toHaveAttribute('aria-valuenow', '80');
     await meter.focus();
     await expect(page.getByRole('tooltip')).toContainText('160,000 of 200,000 tokens');
+    await expect(meter).toHaveText('');
+    await page.goto('/arena');
+    const arena = page.getByRole('main', { name: 'Arena' });
+    const link = arena.locator(`.arena-card-open[href*="${session.id}"]`);
+    await expect(link.getByRole('meter', { name: /@Codex context:/ })).toHaveAttribute('aria-valuenow', '80');
+    // Archived sessions use the same provider facts and retain a keyboard-focusable indicator.
+    const current = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+    expect((await request.post(`/api/sessions/${session.id}/archive`, { data: { expectedRevision: current.revision } })).ok()).toBe(true);
+    await page.goto('/arena/archived');
+    const card = arena.locator('.arena-card.archived').filter({ hasText: session.title });
+    const archivedMeter = card.getByRole('meter', { name: /@Codex context:/ });
+    await expect(archivedMeter).toHaveAttribute('aria-valuenow', '80');
+    await expect(archivedMeter).toHaveAttribute('tabindex', '0');
+    await archivedMeter.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('tooltip')).toContainText('80% used');
   });
 }

@@ -50,11 +50,16 @@ describe('home machine registry', () => {
       cachedSnapshot: { machine: REMOTE },
     });
     const working = snapshot();
+    working.sessions.push({ id: crypto.randomUUID(), revision: 1, title: 'Context session', execution: 'local',
+      repositoryCheckoutIds: [], updatedAt: '2026-11-07T10:00:00.000Z', agents: [{ id: 'agent', displayName: 'Claude', provider: 'claude', role: 'coder',
+        contextUsage: { usedTokens: 40_000, contextWindow: 200_000 } }],
+    });
     working.runs.active.push({ runId: crypto.randomUUID(), sessionId: crypto.randomUUID(), participantId: 'agent',
       mode: 'auto', state: 'running', enqueuedAt: 1, pendingPermissionCount: 0, pendingPermissions: [],
     });
     await registry.observe(REMOTE.id, working, '2026-09-04T10:02:00.000Z');
     expect((await registry.get(REMOTE.id))?.cachedSnapshot?.runs.active[0].mode).toBe('auto');
+    expect((await registry.get(REMOTE.id))?.cachedSnapshot?.sessions[0].agents[0]).toMatchObject({ contextUsage: { usedTokens: 40_000, contextWindow: 200_000 } });
     await expect(registry.observe(REMOTE.id, snapshot({
       id: '33333333-3333-4333-8333-333333333333', label: 'Impostor',
     }))).rejects.toThrow('different machine identity');

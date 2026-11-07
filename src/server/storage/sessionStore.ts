@@ -256,6 +256,7 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
       displayName: participant.displayName,
       provider: participant.provider,
       role: participant.role,
+      ...(participant.contextUsage ? { contextUsage: { ...participant.contextUsage } } : {}),
     }] : []),
     updatedAt: session.updatedAt,
     ...(latest ? {

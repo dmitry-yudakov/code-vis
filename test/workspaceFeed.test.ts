@@ -53,6 +53,10 @@ describe('workspace source notifications', () => {
     expect(localExecutorSnapshot).toHaveBeenCalledTimes(initial);
     const updated = await store.addAgent(session.id, 'codex', 'reviewer', crypto.randomUUID());
     await vi.waitFor(() => expect(first.at(-1)?.machines[0].sessions[0].revision).toBe(updated.revision));
+    const contextUsage = { usedTokens: 40_000, contextWindow: 200_000 };
+    await store.saveContextUsage(session.id, session.primaryAgentId, contextUsage);
+    await vi.waitFor(() => expect(first.at(-1)?.machines[0].sessions[0].agents[0]).toMatchObject({ contextUsage }));
+    expect(second.at(-1)).toEqual(first.at(-1));
     const runId = crypto.randomUUID(), requestId = crypto.randomUUID();
     runRegistry.start({ runId, sessionId: session.id, participantId: session.primaryAgentId, cancel() {} });
     runRegistry.record(runId, { type: 'permission-request', runId, requestId, participantId: session.primaryAgentId, tool: 'shell', detail: 'Needs approval' });

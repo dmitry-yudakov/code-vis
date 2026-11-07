@@ -553,7 +553,7 @@ export interface ArenaSessionSummary {
   archivedAt?: string;
   projectId?: string;
   repositoryCheckoutIds: string[];
-  agents: Array<Pick<AgentParticipant, 'id' | 'displayName' | 'provider' | 'role'>>;
+  agents: Array<Pick<AgentParticipant, 'id' | 'displayName' | 'provider' | 'role' | 'contextUsage'>>;
   updatedAt: string;
   lastActivity?: {
     messageId: string;

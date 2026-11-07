@@ -388,6 +388,9 @@ reported model capacity. One attempt-end metadata write upgrades only reporting 
 format 14. Live delivery and reconnect replay keep one replaceable context snapshot per run,
 independently of ordered activity and required events. The selected agent's composer indicator
 uses these reports and shows unknown capacity explicitly; cumulative billing totals are excluded.
+Compact Arena summaries carry each participant's saved reading through the machine schema and
+workspace subscriptions. Composer and Arena share a 14px circle, with percentage and token counts
+in tooltips and accessible labels.
 
 Each project and session has a monotonic revision. A project contains its repository bindings; a
 session contains an optional project id, its independent repository bindings, participants,

@@ -9,9 +9,10 @@ import Tab from '@mui/material/Tab';
 import Paper from '@mui/material/Paper';
 import Chip from '@mui/material/Chip';
 import ListItemButton from '@mui/material/ListItemButton';
+import Tooltip from '@mui/material/Tooltip';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { ShellIcon } from '@/features/shell/ShellIcon';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import type {
   ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
@@ -24,6 +25,7 @@ import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
+import { ContextUsage, contextUsageLabel } from '@/features/agents/ContextUsage';
 
 const STATE_LABELS = {
   idle: 'Idle',
@@ -34,20 +36,18 @@ const STATE_LABELS = {
   offline: 'Offline',
 } as const;
 
-function participantNames(session: ArenaSessionSummary): string {
-  return session.agents.map((agent) => agent.displayName).join(', ') || 'No agent';
-}
-
 function repositoryNames(session: ArenaSessionSummary, checkouts: Map<string, CheckoutSummary>): string {
   if (!session.repositoryCheckoutIds.length) return 'No repository';
   return session.repositoryCheckoutIds.map((checkoutId) => checkouts.get(checkoutId)?.name || 'Repository').join(', ');
 }
 
-function SessionFacts({ session, checkouts }: { session: ArenaSessionSummary; checkouts: Map<string, CheckoutSummary> }) {
+function SessionFacts({ session, checkouts, inLink = false }: { session: ArenaSessionSummary; checkouts: Map<string, CheckoutSummary>; inLink?: boolean }) {
   return (
     <>
       <strong>{session.title}</strong>
-      <span className="arena-card-meta arena-card-agents">{participantNames(session)}</span>
+      <span className="arena-card-meta arena-card-agents">{session.agents.length ? session.agents.map(agent => <span key={agent.id} className="arena-card-agent">
+        <span>{agent.displayName}</span><ContextUsage name={agent.displayName} usage={agent.contextUsage} focusable={!inLink} />
+      </span>) : 'No agent'}</span>
       <span className="arena-card-meta">{repositoryNames(session, checkouts)}</span>
       {session.worktree && <span className="arena-card-meta">Worktree · {checkouts.get(session.repositoryCheckoutIds[0])?.branch || 'branch unavailable'} · Source: {checkouts.get(session.worktree.originCheckoutId)?.name || 'Unavailable source'}</span>}
       {session.execution === 'docker' && <Chip component="span" className="execution-badge" variant="outlined" label="Docker" />}
@@ -194,24 +194,27 @@ export function Arena({
                         const key = actionKey(machine.machine.id, card.session.id);
                         return (
                           <Paper component="article" className={`arena-card state-${card.state}`} key={card.session.id}>
-                            <ListItemButton component={Link} prefetch={false}
-                              href={workspaceHref({ sessionId: card.session.id, machineId: machine.machine.id }, localMachine?.machine.id)}
-                              sx={{ flexWrap: 'wrap' }} className="arena-card-open" disabled={!online}
-                              onKeyDown={(event) => { if (event.key === ' ' && online) { event.preventDefault(); event.currentTarget.click(); } }}
-                              onClick={(event) => {
-                                if (!online) { event.preventDefault(); return; }
-                                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                                event.preventDefault();
-                                onOpenSession(machine, card.session);
-                              }} aria-label={`Open ${card.session.title}`}>
-                              <Chip component="span" className={`arena-state state-${card.state}`} variant="outlined"
-                                color={card.state === 'needs-you' ? 'warning' : card.state === 'running' ? 'success' : card.state === 'failed' ? 'error' : 'default'} label={STATE_LABELS[card.state]} />
-                              <SessionFacts session={card.session} checkouts={checkoutById} />
-                              {/* "Idle" already says a finished turn finished. */}
-                              {!(card.state === 'idle' && card.session.lastActivity?.status === 'complete') && <span className="arena-card-activity">{card.activity}</span>}
-                              {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
-                              <span className="arena-card-time">{relativeActivityTime(card.session.updatedAt, now)}</span>
-                            </ListItemButton>
+                            <Tooltip describeChild disableHoverListener disableTouchListener disableFocusListener={!online}
+                              title={card.session.agents.map(agent => contextUsageLabel(agent.displayName, agent.contextUsage)).join('; ')}>
+                              <ListItemButton component={online ? Link : 'div'} prefetch={online ? false : undefined}
+                                href={online ? workspaceHref({ sessionId: card.session.id, machineId: machine.machine.id }, localMachine?.machine.id) : undefined}
+                                sx={{ flexWrap: 'wrap' }} className="arena-card-open" disabled={!online}
+                                onKeyDown={(event: KeyboardEvent<HTMLElement>) => { if (event.key === ' ' && online) { event.preventDefault(); event.currentTarget.click(); } }}
+                                onClick={(event: MouseEvent<HTMLElement>) => {
+                                  if (!online) { event.preventDefault(); return; }
+                                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                                  event.preventDefault();
+                                  onOpenSession(machine, card.session);
+                                }} aria-label={`Open ${card.session.title}`}>
+                                <Chip component="span" className={`arena-state state-${card.state}`} variant="outlined"
+                                  color={card.state === 'needs-you' ? 'warning' : card.state === 'running' ? 'success' : card.state === 'failed' ? 'error' : 'default'} label={STATE_LABELS[card.state]} />
+                                <SessionFacts session={card.session} checkouts={checkoutById} inLink={online} />
+                                {/* "Idle" already says a finished turn finished. */}
+                                {!(card.state === 'idle' && card.session.lastActivity?.status === 'complete') && <span className="arena-card-activity">{card.activity}</span>}
+                                {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
+                                <span className="arena-card-time">{relativeActivityTime(card.session.updatedAt, now)}</span>
+                              </ListItemButton>
+                            </Tooltip>
                             <DesktopPopover className="arena-card-menu" label={`Actions for ${card.session.title}`} summary="•••" icon placement="bottom-end">
                               {(close) => <div><Button type="button" disabled={!online || Boolean(card.run) || archiving === key} title={!online ? 'This execution machine is offline.' : card.run ? 'Wait for the current turn to finish before archiving.' : undefined} onClick={() => { close(); archive(machine.machine.id, card.session); }}>{archiving === key ? 'Archiving…' : 'Archive session'}</Button></div>}
                             </DesktopPopover>

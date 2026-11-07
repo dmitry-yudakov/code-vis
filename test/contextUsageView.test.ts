@@ -13,6 +13,9 @@ describe('context indicator and recovery', () => {
     expect(markup).toContain('role="meter"');
     expect(markup).toContain('aria-valuenow="21"');
     expect(markup).toContain('42,000 of 200,000 tokens');
+    // Values remain accessible and in the tooltip, without inline numeric text.
+    expect(markup).not.toContain('>21%</');
+    expect(markup).not.toContain('MuiTypography');
     const full = renderToStaticMarkup(createElement(ContextUsage, { name: 'Claude', usage: { usedTokens: 250_000, contextWindow: 200_000 } }));
     expect(full).toContain('aria-valuenow="100"');
     expect(full).toContain('250,000 of 200,000 tokens');

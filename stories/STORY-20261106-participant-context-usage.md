@@ -4,10 +4,12 @@
 
 ## Behavior and contracts
 
-The selected conversation agent has a small filling circle and percentage beside its picker.
-Hover or keyboard focus reveals exact used/available token counts. Selecting another participant
+The selected conversation agent has a compact 14px filling circle beside its picker, and Arena
+shows the same circle beside each session participant's provider name. Percentages appear only
+in tooltips and accessible labels. Hover or keyboard focus reveals the percentage and exact
+used/available token counts. Selecting another conversation participant
 shows that participant's own reading; a new participant starts with “not reported yet.” Unknown
-capacity shows a neutral circle and dash, retaining any measured token count in the tooltip.
+capacity shows a neutral circle, retaining any measured token count in the tooltip.
 
 - Codex uses `thread/tokenUsage/updated.tokenUsage.last.totalTokens` and the provider's effective
   `modelContextWindow`. Cumulative `total` usage, child threads, unscoped notifications, stale turns,
@@ -28,9 +30,16 @@ capacity shows a neutral circle and dash, retaining any measured token count in 
   cannot replace the reply or the provider's original error. Reporting upgrades only that session
   to format 14; untouched sessions keep their prior version. Private provider handles remain private.
 - Desktop and phone reuse MUI progress/tooltip controls. Known percentages expose an accessible
-  meter; unknown usage uses a labelled image role. The warning color at 90% supplements the number.
+  meter; unknown usage uses a labelled image role. The warning color at 90% supplements the fill
+  and accessible value.
+- Arena's compact summaries include each participant's saved context usage; the existing workspace
+  subscriptions publish changes after persistence, including attached-machine snapshots. Active
+  and archived sessions retain independent readings. Active row links reveal their participants'
+  context on keyboard focus without nested tab stops; individual circles reveal their own tooltip
+  on hover. Offline rows have no link target, keeping their indicators inspectable without
+  enabling session navigation. An older snapshot without usage shows neutral circles.
 
-## Verification
+## Initial verification
 
 Focused checks cover provider parsing, real process fixtures, saved/public participant isolation,
 reload, failure/cancellation, compaction decreases, exact-model capacity reuse, unknown states,
@@ -49,6 +58,21 @@ Codex usage.
 
 Real signed-in provider turns and physical device acceptance have not been run for this change.
 The running app has not been rebuilt or restarted.
+
+## November 7 follow-up
+
+The smaller tooltip-only circles and Arena summaries pass 98 focused unit checks across 10 files,
+including assertions that fail before this follow-up. They cover the compact projection/cache,
+independent participant readings, archive/restore, attached snapshot validation, saved workspace
+notifications and unchanged telemetry parsing/replay.
+
+- Twenty distinct production-browser cases pass: seven context cases and 13 existing Arena project
+  and Inbox cases. They cover tooltip-only percentages, 14px circles, each session participant,
+  keyboard access, provider-row navigation, archived readings and inspectable offline rows without
+  a navigable link target.
+- TypeScript, the isolated `.next-e2e/context-compact` production build, `git diff --check`, and
+  independent review pass. Desktop/phone screenshots in both themes were inspected for the
+  conversation and Arena. The running app has not been rebuilt or restarted.
 
 ## Protocol references
 

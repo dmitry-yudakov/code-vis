@@ -20,6 +20,27 @@ afterEach(async () => {
 });
 
 describe('stat-validated session summaries', () => {
+  it('refreshes participant context in compact summaries and preserves it after archive and restore', async () => {
+    const session = await store.createSession({ provider: 'claude' });
+    const roster = await store.addAgent(session.id, 'codex', 'reviewer', crypto.randomUUID());
+    const second = roster.participants.find(participant => participant.kind === 'agent' && participant.id !== session.primaryAgentId)!;
+    await store.listSessionSummaries();
+    const usage = { usedTokens: 40_000, contextWindow: 200_000, model: 'root-model' };
+    await store.saveContextUsage(session.id, session.primaryAgentId, usage);
+    await store.saveContextUsage(session.id, second.id, { usedTokens: 160_000, contextWindow: 200_000 });
+    const [summary] = await store.listSessionSummaries();
+    expect(summary.agents).toEqual([
+      expect.objectContaining({ id: session.primaryAgentId, contextUsage: usage }),
+      expect.objectContaining({ id: second.id, contextUsage: { usedTokens: 160_000, contextWindow: 200_000 } }),
+    ]);
+    // A caller cannot mutate the canonical record or the cached summary's nested usage.
+    summary.agents[0].contextUsage!.usedTokens = 1;
+    const archived = await store.archiveSession(session.id, summary.revision);
+    expect((await store.listSessionSummaries({ archived: true }))[0].agents[0]).toMatchObject({ contextUsage: usage });
+    await store.restoreSession(session.id, archived.revision);
+    expect((await store.listSessionSummaries())[0].agents[0]).toMatchObject({ contextUsage: usage });
+  });
+
   it('shares unchanged reads across concurrent polls and retains only isolated compact projections', async () => {
     const project = await store.createProject('Project', ['checkout']);
     const active = await store.createSession({ provider: 'claude', projectId: project.id });

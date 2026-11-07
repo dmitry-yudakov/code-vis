@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-06. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-07. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -190,11 +190,12 @@ Updated 2026-11-06. When a story ships, change the line that names it; each stor
   expandable folder tree beside Repository's Changes/History. All 153 focused unit checks,
   63 distinct production-browser checks, TypeScript, isolated build, both-theme desktop/phone
   screenshot inspection and independent review pass. The running app has not been rebuilt or restarted.
-- **Shipped:** [Story 132](stories/STORY-20261106-participant-context-usage.md) — each selected
-  conversation agent has a filling context circle and percentage, with exact token counts on hover
-  or keyboard focus, live updates and per-participant reload recovery. All 1,969 unit tests,
-  22 production-browser checks, TypeScript, isolated build, both-theme desktop/phone screenshot
-  inspection and independent review pass. Real signed-in provider turns remain unverified;
+- **Shipped:** [Story 132](stories/STORY-20261106-participant-context-usage.md) — compact context
+  circles beside the conversation agent and each Arena provider show percentages and token counts
+  in tooltips, with live conversation updates and saved per-participant Arena readings. The initial
+  implementation passed all 1,969 unit tests and 22 browser checks; the November 7 follow-up passes
+  98 focused unit checks, 20 distinct production-browser checks, TypeScript, isolated build,
+  both-theme desktop/phone screenshot inspection and independent review. Real provider turns remain unverified;
   the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 130](stories/STORY-20261106-compact-session-setup.md) — new sessions use a
   compact composer, an Attach menu, visible project/provider/mode and one closed Settings panel; general
