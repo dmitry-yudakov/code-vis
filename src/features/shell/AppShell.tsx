@@ -11,7 +11,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { worktreeCreationError } from '@/features/conversation/worktreeCreationError';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type SetStateAction } from 'react';
 import type {
   AgentEvent, AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, ArenaMachineSnapshot,
   ArenaSessionSummary, AssistantMessage, SessionSnapshot, DiagramArtifact, ExecutionHealth,
@@ -27,7 +27,7 @@ import { MAX_IMAGES_PER_MESSAGE, MAX_REPORTS_PER_MESSAGE } from '@/shared/limits
 import { IMAGE_ONLY_INSTRUCTION, carriesFiles, prepareImage, type PendingImage } from '@/features/conversation/imageAttachments';
 import { offeredModelSelection } from '@/shared/modelChoices';
 import { readNdjson } from '@/features/conversation/ndjson';
-import { DraftIdentity, immutableEvidence, reconcileMessageAcceptance } from '@/features/conversation/draftLifecycle';
+import { DraftIdentity, immutableEvidence, reconcileMessageAcceptance, type DraftSource } from '@/features/conversation/draftLifecycle';
 import {
   applyRunEvent, isReplayedStreamEvent, latestRunUserMessage, runOutcomeFromError,
   unreadAfterRunAttention, withSessionRunOutcome,
@@ -136,6 +136,9 @@ function updateArtifact(session: SessionSnapshot, id: string, update: (artifact:
     } : message),
   };
 }
+
+const emptyDraft = () => '';
+const ignoreDraft = () => () => {};
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -307,7 +310,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     setRunOutcomesBySession((current) => withSessionRunOutcome(current, targetSessionId, outcome));
   }, []);
 
-  const composer = view?.composer || '';
+  const composerDraft = useMemo<DraftSource>(() => ({
+    getSnapshot: () => sessionId ? workspace.getView(sessionId)?.composer || '' : '',
+    subscribe: workspace.subscribeToDraft,
+  }), [sessionId, workspace.getView, workspace.subscribeToDraft]);
+  // VR keeps its existing shared controls reactive. Desktop subscribes only inside the composer.
+  const composer = useSyncExternalStore(immersiveActive ? composerDraft.subscribe : ignoreDraft,
+    immersiveActive ? composerDraft.getSnapshot : emptyDraft, emptyDraft);
   const unread = view?.unread || 0;
   const pendingAttachmentIds = view?.pendingAttachmentIds
     ?? (sessions.find((item) => item.id === sessionId)?.activeDiagramId
@@ -325,11 +334,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setComposer = useCallback((value: SetStateAction<string>) => {
     if (!sessionId) return;
     draftIdentity(sessionId).editText();
-    workspace.updateView(sessionId, (current) => ({
-      ...current,
-      composer: typeof value === 'function' ? value(current.composer) : value,
-    }));
-  }, [draftIdentity, sessionId, workspace.updateView]);
+    workspace.updateComposer(sessionId, current => typeof value === 'function' ? value(current) : value);
+  }, [draftIdentity, sessionId, workspace.updateComposer]);
   const setUnread = useCallback((value: SetStateAction<number>) => {
     if (!sessionId) return;
     workspace.updateView(sessionId, (current) => ({
@@ -1049,6 +1055,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const continueSession = (execution: AgentExecution) => {
     if (!session || sessionRunning || creatingSession) return;
+    const composer = composerDraft.getSnapshot();
     const recap = session.messages.slice(-6).map((message) => {
       const author = session.participants.find((participant) => participant.id === message.authorId)?.displayName || message.role;
       const text = message.role === 'user' ? message.text : message.rawMarkdown;
@@ -1767,7 +1774,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     // Export may outlive navigation to another session; keep this session's own canvas frame.
     const snapshotAtSend = snapshotRef.current;
     // A sketch, a report, or an image is itself the instruction, so an empty composer still makes a valid turn.
-    const typed = (override?.text ?? composer).trim();
+    const typed = (override?.text ?? composerDraft.getSnapshot()).trim();
     const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION
       : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : sentImages.length ? IMAGE_ONLY_INSTRUCTION : sentFiles.length ? FILE_ONLY_INSTRUCTION : '');
     if (!text) return;
@@ -2075,7 +2082,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setPreparingSends((current) => current.filter((id) => id !== session.id));
       if (reconnectAfterSend && machineIdRef.current === machineId && projectIdRef.current === projectId) void recoverRuns.current(session.id, acceptedRunId);
     }
-  }, [activeAgent, apiPath, applyServerSnapshot, composer, consumeStream, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
+  }, [activeAgent, apiPath, applyServerSnapshot, composerDraft, consumeStream, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
@@ -3123,7 +3130,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               securityLevel={securityLevel}
               recovery={recovery}
               status={sessionRunning ? status : ''}
-              composer={composer}
+              composer={composerDraft}
               mode={mode}
               unsupportedModes={unsupportedModes}
               modelChoices={providerHealth}

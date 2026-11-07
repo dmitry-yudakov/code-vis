@@ -129,7 +129,7 @@ describe('images in the browser', () => {
 describe('image chips and statements', () => {
   const pending: PendingImage = { id: 'image-a', dataUrl: png().dataUrl, mediaType: 'image/png', bytes: 12_288, width: 320, height: 200 };
   const composer = (images: PendingImage[]) => renderToStaticMarkup(createElement(InstructionComposer, {
-    value: '', running: false, attached: [], images, markCounts: {}, mode: 'ask', unsupportedModes: ['auto'], modelSelection: {},
+    draft: { getSnapshot: () => '', subscribe: () => () => {} }, running: false, attached: [], images, markCounts: {}, mode: 'ask', unsupportedModes: ['auto'], modelSelection: {},
     theme: 'light', recentCanvases: [], continuation: { onContinue: vi.fn() }, onChange: vi.fn(), onModeChange: vi.fn(),
     onModelSelectionChange: vi.fn(), onSend: vi.fn(), onCancel: vi.fn(), onRemoveAttachment: vi.fn(), onAddImages: vi.fn(),
     onRemoveImage: vi.fn(), onToggleAttachment: vi.fn(), onOpenHistory: vi.fn(), onNewSketch: vi.fn(),

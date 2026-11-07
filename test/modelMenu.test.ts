@@ -24,7 +24,7 @@ const CHOICES: Pick<ProviderHealth, 'models' | 'efforts'> = {
 
 function render(options: { choices?: Pick<ProviderHealth, 'models' | 'efforts'>; selection?: ModelSelection; running?: boolean } = {}) {
   return renderToStaticMarkup(createElement(InstructionComposer, {
-    value: 'hello',
+    draft: { getSnapshot: () => 'hello', subscribe: () => () => {} },
     running: options.running ?? false,
     attached: [],
     markCounts: {},

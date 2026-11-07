@@ -151,7 +151,7 @@ describe('Native modes in the conversation', () => {
   });
   it('shows Native modes, Native execution and isolated-mode reasons in the picker', () => {
     const render = (securityLevel: SecurityLevel, isolated = false) => renderToStaticMarkup(createElement(InstructionComposer, {
-      value: '', running: false, attached: [], markCounts: {}, mode: 'auto', unsupportedModes: [], securityLevel, provider: 'claude', isolated,
+      draft: { getSnapshot: () => '', subscribe: () => () => {} }, running: false, attached: [], markCounts: {}, mode: 'auto', unsupportedModes: [], securityLevel, provider: 'claude', isolated,
       modelSelection: {}, theme: 'light', recentCanvases: [], continuation: { onContinue() {} },
       onChange() {}, onModeChange() {}, onModelSelectionChange() {}, onSend() {}, onCancel() {}, onRemoveAttachment() {},
       onToggleAttachment() {}, onOpenHistory() {}, onNewSketch() {},

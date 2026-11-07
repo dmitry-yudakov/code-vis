@@ -197,6 +197,11 @@ Updated 2026-11-07. When a story ships, change the line that names it; each stor
   98 focused unit checks, 20 distinct production-browser checks, TypeScript, isolated build,
   both-theme desktop/phone screenshot inspection and independent review. Real provider turns remain unverified;
   the running app has not been rebuilt or restarted.
+- **Shipped:** [Story 133](stories/STORY-20261107-responsive-chat-drafts.md) — desktop typing
+  updates the composer directly, with coalesced draft saves and synchronous latest-text sending.
+  All 128 focused unit checks, 53 distinct production-browser cases, TypeScript, isolated build
+  and independent review pass. The user's remote browser remains unverified;
+  the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 130](stories/STORY-20261106-compact-session-setup.md) — new sessions use a
   compact composer, an Attach menu, visible project/provider/mode and one closed Settings panel; general
   launches remember their machine, and progress replaces the submitted form. Draft recovery and

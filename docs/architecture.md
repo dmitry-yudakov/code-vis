@@ -227,6 +227,10 @@ Query-only changes use Next's integrated native history API; pathname transition
 `useWorkspaceViews` restores the tab's `sessionStorage` workspace first. Its existing `localStorage`
 record remains a migration/new-tab seed and best-effort mirror; mounted tabs never reread another
 tab's workspace. Tab drafts therefore survive ordinary reload without competing browser-tab writes.
+Desktop draft subscriptions update only the composer and empty-conversation starters; Send reads
+the canonical workspace reference synchronously. Draft-only saves follow 250 ms of inactivity and
+flush on page hiding, unmount, or another workspace change. Metadata changes still render the shell
+and save immediately; immersive controls retain their shared reactive draft.
 Whether they survive browser closure depends on the browser's session restoration; conversation
 identity is independently recoverable from the URL. Per-view panel layout and execution/theme
 preferences retain their existing device storage. Project removal carries a retained draft into the

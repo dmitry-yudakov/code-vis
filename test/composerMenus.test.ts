@@ -43,7 +43,7 @@ function render(options: {
 } = {}) {
   const attachedIds = options.attachedIds ?? [];
   return renderToStaticMarkup(createElement(InstructionComposer, {
-    value: '',
+    draft: { getSnapshot: () => '', subscribe: () => () => {} },
     execution: options.execution,
     instructions: options.instructions,
     running: options.running ?? false,

@@ -134,6 +134,102 @@ async function openDraftFixture(page: Page, request: APIRequestContext, reply: '
   return page.getByRole('textbox', { name: 'Instruction', exact: true });
 }
 
+test('typing in a long conversation updates only the composer and coalesces workspace saves', async ({ page, request }) => {
+  await page.addInitScript(() => {
+    // Observe production React commits through the DevTools interface without shipping a probe.
+    type Fiber = { child?: Fiber; sibling?: Fiber; return?: Fiber; stateNode?: unknown; type?: unknown; flags: number };
+    const probe = { shell: 0, drawer: 0, commits: 0, writes: 0 };
+    Object.assign(window, { typingProbe: probe, __REACT_DEVTOOLS_GLOBAL_HOOK__: {
+      supportsFiber: true, inject: () => 1, onCommitFiberUnmount() {},
+      onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+        probe.commits++;
+        const visit = (fiber: Fiber) => {
+          if (fiber.stateNode instanceof Element) {
+            const name = fiber.stateNode.matches('.app-shell') ? 'shell'
+              : fiber.stateNode.matches('.conversation-drawer') ? 'drawer' : undefined;
+            if (name) {
+              let owner = fiber.return;
+              while (owner && typeof owner.type !== 'function') owner = owner.return;
+              if (name === 'shell') {
+                // AppShell returns RepositoryFilesProvider around this host div.
+                owner = owner?.return;
+                while (owner && typeof owner.type !== 'function') owner = owner.return;
+              }
+              if (owner && (owner.flags & 1)) probe[name]++;
+            }
+          }
+          if (fiber.child) visit(fiber.child);
+          if (fiber.sibling) visit(fiber.sibling);
+        };
+        visit(root.current);
+      },
+    } });
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'code-ai:device:v1:workspace') probe.writes++;
+      return setItem.call(this, key, value);
+    };
+  });
+  const field = await openDraftFixture(page, request, 'stream', true);
+  await expect(page.locator('.chat-message.assistant')).toHaveCount(50);
+  await page.waitForTimeout(500);
+  const readProbe = () => page.evaluate(() => (window as unknown as {
+    typingProbe: { shell: number; drawer: number; commits: number; writes: number };
+  }).typingProbe);
+  const before = await readProbe();
+  expect(before.shell).toBeGreaterThan(0);
+  expect(before.drawer).toBeGreaterThan(0);
+  const requests: string[] = [];
+  page.on('request', outgoing => { if (new URL(outgoing.url()).pathname.startsWith('/api/')) requests.push(outgoing.url()); });
+  const draft = 'Every letter should stay inside the composer.';
+  await field.pressSequentially(draft);
+  await expect(field).toHaveValue(draft);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('code-ai:device:v1:workspace'))).toContain(draft);
+  const after = await readProbe();
+  expect(after.commits).toBeGreaterThan(before.commits);
+  expect(after.shell - before.shell).toBe(0);
+  expect(after.drawer - before.drawer).toBe(0);
+  expect(after.writes - before.writes).toBe(2);
+  expect(requests).toEqual([]);
+});
+
+test('page hiding flushes the latest draft before its deferred save', async ({ page, request }) => {
+  const field = await openDraftFixture(page, request);
+  for (const event of ['pagehide', 'visibilitychange']) {
+    const draft = `Draft flushed by ${event}`;
+    await field.fill(draft);
+    const stored = await page.evaluate(event => {
+      const key = 'code-ai:device:v1:workspace';
+      const before = sessionStorage.getItem(key);
+      if (event === 'pagehide') window.dispatchEvent(new Event(event));
+      else {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+        document.dispatchEvent(new Event(event));
+      }
+      return { before, tab: sessionStorage.getItem(key), seed: localStorage.getItem(key) };
+    }, event);
+    expect(stored.before).not.toContain(draft);
+    expect(stored.tab).toContain(draft);
+    expect(stored.seed).toBe(stored.tab);
+  }
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Instruction', exact: true })).toHaveValue('Draft flushed by visibilitychange');
+});
+
+test('blocked browser storage still permits immediate Send of the latest draft', async ({ page, request }) => {
+  const field = await openDraftFixture(page, request);
+  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('Storage blocked'); }; });
+  await field.fill('Latest draft with storage blocked');
+  await field.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.draftFixture.requests.map(item => item.text))).toEqual(['Latest draft with storage blocked']);
+  await page.evaluate(() => window.draftFixture.accept());
+  await expect(field).toHaveValue('');
+  await field.fill('Next draft remains editable');
+  await page.evaluate(() => window.draftFixture.finish());
+  await expect(field).toHaveValue('Next draft remains editable');
+});
+
 for (const reconnected of [false, true]) for (const failed of [false, true]) test(`automatically refreshes repository and visible history after ${reconnected ? 'reconnected' : 'new'} ${failed ? 'failed' : 'successful'} turn cleanup`, async ({ page, request }) => {
   let reads = 0;
   let historyReads = 0;

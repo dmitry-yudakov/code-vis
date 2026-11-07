@@ -25,7 +25,7 @@ function header(overrides: Partial<Props> = {}) {
     ...actions,
     open: true, session, theme: 'light', agents: [agent], activeAgent: agent, healthyProviders: ['codex'],
     participantBusy: false, preview: '', toolActivity: [], permissions: [], running: false,
-    cancelReady: false, continuing: false, status: '', composer: '', mode: 'plan', unsupportedModes: [],
+    cancelReady: false, continuing: false, status: '', composer: { getSnapshot: () => '', subscribe: () => () => {} }, mode: 'plan', unsupportedModes: [],
     modelSelection: {}, attached: [], reports: [], images: [], markCounts: {}, ...overrides,
   };
   return renderToStaticMarkup(createElement(ConversationDrawer, props)).match(/<header>[\s\S]*?<\/header>/)?.[0] || '';

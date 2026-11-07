@@ -5,7 +5,8 @@ import Paper from '@mui/material/Paper';
 import ListItemButton from '@mui/material/ListItemButton';
 import { AttachmentChip } from './AttachmentChip';
 
-import { useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react';
+import type { DraftSource } from './draftLifecycle';
 import type { ThemeName } from '@/shared/design/tokens';
 import { AGENT_MODES, isLaunchMode } from '@/shared/agentModes';
 import type { AgentExecution, AgentMode, AgentProvider, CanvasTarget, InstructionsLine, ModelChoices, ModelSelection, SecurityLevel } from '@/shared/types';
@@ -288,13 +289,13 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  agentControl, value, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
+  agentControl, draft, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
 }: {
   agentControl?: ReactNode;
-  value: string;
+  draft: DraftSource;
   execution?: AgentExecution;
   securityLevel?: SecurityLevel;
   provider?: AgentProvider;
@@ -344,6 +345,7 @@ export function InstructionComposer({
   /** Present only in CodeAI's own project, where the Reports view exists. */
   onOpenReports?(): void;
 }) {
+  const value = useSyncExternalStore(draft.subscribe, draft.getSnapshot, draft.getSnapshot);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [dropTarget, setDropTarget] = useState(false);

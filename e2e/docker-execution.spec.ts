@@ -267,6 +267,7 @@ test('continuation opens fresh sessions in both directions with an editable reca
   expect(creations[1]).toEqual({ provider: 'claude', execution: 'docker', sourceSessionId: sourceId });
   await expect(conversation.locator('.chat-message')).toHaveCount(0);
   await expect(conversation.locator('textarea')).toHaveValue(/Remember this source request/);
+  await expect(conversation.locator('textarea')).toHaveValue(/Unsent original draft\./);
   expect((await conversation.locator('textarea').inputValue()).length).toBeLessThanOrEqual(7_600);
   expect((await (await request.get(`/api/sessions/${sourceId}`)).json()).session).toEqual(sourceBefore);
   expect((await (await request.get(`/api/sessions/${dockerId}`)).json()).session.repositories).toEqual(sourceBefore.repositories);

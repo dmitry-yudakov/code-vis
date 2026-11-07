@@ -1,5 +1,11 @@
 import type { PublicSession } from '@/shared/types';
 
+/** Read the canonical draft without subscribing the surrounding workspace to each letter. */
+export interface DraftSource {
+  getSnapshot(): string;
+  subscribe(listener: () => void): () => void;
+}
+
 interface SubmittedDraftIdentity {
   text: number;
   reports: ReadonlyMap<string, number>;

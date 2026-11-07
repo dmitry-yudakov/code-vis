@@ -6,7 +6,8 @@ import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
 
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import type { DraftSource } from './draftLifecycle';
 import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
 import type {
@@ -35,6 +36,20 @@ const STARTER_PROMPTS = [
   { label: 'Review changes', detail: 'Take a closer look at the working tree', icon: 'changes', text: 'Review the working changes in this project for bugs and regressions.' },
   { label: 'Plan a change', detail: 'Work through an idea before building', icon: 'plan', text: 'Help me plan a change to this project. Start by asking what I want to achieve.' },
 ] as const;
+
+function ConversationStarters({ draft, onChoose }: { draft: DraftSource; onChoose(label: string, text: string): void }) {
+  const text = useSyncExternalStore(draft.subscribe, draft.getSnapshot, draft.getSnapshot);
+  return <div className="conversation-starters">
+    {STARTER_PROMPTS.map(prompt => <Button key={prompt.label} color="inherit" className="conversation-starter"
+      sx={{ justifyContent: 'flex-start', gap: 1.5, px: 1.75, py: 1.5 }}
+      disabled={Boolean(text.trim())} aria-label={prompt.label}
+      onClick={() => { if (!draft.getSnapshot().trim()) onChoose(prompt.label, prompt.text); }}>
+      <ShellIcon name={prompt.icon} />
+      <span className="conversation-starter-copy"><strong>{prompt.label}</strong><small>{prompt.detail}</small></span>
+      <ShellIcon name="arrowUpRight" />
+    </Button>)}
+  </div>;
+}
 
 export function ConversationDrawer({
   open, visible = open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
@@ -76,7 +91,7 @@ export function ConversationDrawer({
   recovery?: TurnCheckpointControls;
   sendBlocked?: string;
   status: string;
-  composer: string;
+  composer: DraftSource;
   mode: AgentMode;
   unsupportedModes: AgentMode[];
   modelChoices?: ModelChoices;
@@ -266,20 +281,10 @@ export function ConversationDrawer({
           <div className="welcome-symbol" aria-hidden="true"><ShellIcon name="code" /></div>
           <h1>What would you like to build?</h1>
           <p>Bring a question, an idea, or a change to work through.</p>
-          <div className="conversation-starters">
-            {STARTER_PROMPTS.map(prompt => <Button key={prompt.label} color="inherit" className="conversation-starter"
-              sx={{ justifyContent: 'flex-start', gap: 1.5, px: 1.75, py: 1.5 }}
-              disabled={Boolean(composer.trim())} aria-label={prompt.label}
-              onClick={() => {
-                if (composer.trim()) return;
-                onComposer(prompt.text);
-                setStarterFocus(`${key}:${prompt.label}`);
-              }}>
-              <ShellIcon name={prompt.icon} />
-              <span className="conversation-starter-copy"><strong>{prompt.label}</strong><small>{prompt.detail}</small></span>
-              <ShellIcon name="arrowUpRight" />
-            </Button>)}
-          </div>
+          <ConversationStarters draft={composer} onChoose={(label, text) => {
+            onComposer(text);
+            setStarterFocus(`${key}:${label}`);
+          }} />
         </section>}
       </div>
       <div className="drawer-composer">
@@ -305,7 +310,7 @@ export function ConversationDrawer({
           provider={activeAgent?.provider}
           isolated={session?.instructions === 'isolated'}
           instructions={instructions}
-          value={composer}
+          draft={composer}
           running={running}
           cancelReady={cancelReady}
           sendBlocked={sendBlocked}

@@ -22,9 +22,21 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
   const scopeId = workspaceScopeKey(projectId, machineId);
   const [workspace, setWorkspace] = useState<DeviceWorkspace>(EMPTY_DEVICE_WORKSPACE);
   const [ready, setReady] = useState(false);
+  // The ref owns current drafts; workspace is the last snapshot published to the shell.
   const workspaceRef = useRef(workspace);
   const readyRef = useRef(false);
-  workspaceRef.current = workspace;
+  const draftListeners = useRef(new Set<() => void>());
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const dirty = useRef(false);
+  const persist = useCallback(() => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = undefined;
+    if (!readyRef.current || !dirty.current) return;
+    dirty.current = false;
+    const saved = JSON.stringify(workspaceRef.current);
+    try { sessionStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, saved); } catch { /* optional */ }
+    try { localStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, saved); } catch { /* optional */ }
+  }, []);
 
   useEffect(() => {
     try {
@@ -39,28 +51,47 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
       setWorkspace(EMPTY_DEVICE_WORKSPACE);
     } finally {
       readyRef.current = true;
+      dirty.current = true;
+      persist();
       setReady(true);
     }
-  }, []);
+  }, [persist]);
 
   useEffect(() => {
-    if (!ready) return;
-    try { sessionStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(workspace)); } catch { /* optional */ }
-    try { localStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(workspace)); } catch { /* Device state is optional. */ }
-  }, [ready, workspace]);
+    const hide = () => { if (document.visibilityState === 'hidden') persist(); };
+    window.addEventListener('pagehide', persist);
+    document.addEventListener('visibilitychange', hide);
+    return () => {
+      window.removeEventListener('pagehide', persist);
+      document.removeEventListener('visibilitychange', hide);
+      persist();
+    };
+  }, [persist]);
 
-  const commit = useCallback((update: (current: DeviceWorkspace) => DeviceWorkspace): DeviceWorkspace => {
+  const commit = useCallback((update: (current: DeviceWorkspace) => DeviceWorkspace, draftOnly = false): DeviceWorkspace => {
     const next = update(workspaceRef.current);
+    if (next === workspaceRef.current) return next;
     workspaceRef.current = next;
-    // User navigation/camera events can be followed immediately by a reload. Persist in the same
-    // turn instead of depending only on a later passive effect that the navigation may pre-empt.
-    if (readyRef.current) {
-      try { sessionStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional */ }
-      try { localStorage.setItem(DEVICE_WORKSPACE_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional */ }
+    dirty.current = true;
+    if (draftOnly) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(persist, 250);
+    } else {
+      // Navigation/camera changes must survive an immediate reload, including pending draft edits.
+      persist();
+      setWorkspace(next);
     }
-    setWorkspace(next);
+    draftListeners.current.forEach(listener => listener());
     return next;
+  }, [persist]);
+
+  const subscribeToDraft = useCallback((listener: () => void) => {
+    draftListeners.current.add(listener);
+    return () => { draftListeners.current.delete(listener); };
   }, []);
+  const updateComposer = useCallback((sessionId: string, update: (current: string) => string) => {
+    commit(current => updateWorkspaceView(current, scopeId, sessionId, view => ({ ...view, composer: update(view.composer) })), true);
+  }, [commit, scopeId]);
 
   const open = useCallback((sessionId: string) => {
     commit((current) => openWorkspaceView(current, scopeId, sessionId));
@@ -101,5 +132,5 @@ export function useWorkspaceViews(projectId?: string, machineId?: string) {
   ), []);
 
   const scope = useMemo(() => getWorkspaceScope(workspace, scopeId), [scopeId, workspace]);
-  return { ready, scope, open, openInProject, ensure, close, closeInProject, reconcile, updateView, updateViewInProject, getView, getScopeInProject };
+  return { ready, scope, open, openInProject, ensure, close, closeInProject, reconcile, updateView, updateViewInProject, getView, getScopeInProject, subscribeToDraft, updateComposer };
 }
