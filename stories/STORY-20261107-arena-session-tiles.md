@@ -1,0 +1,125 @@
+# Story 134 — Orchestrate sessions from desktop Arena tiles
+
+**Status:** Shipped · **Type:** Full-stack · **Depends on:** Stories 127, 129, 133
+
+## Problem and outcome
+
+Arena rows require opening a conversation to read the latest response or send a short reply.
+Offer an alternative desktop Tiles arrangement: one tile per session, grouped by project, with a
+latest-message excerpt, quick reply and existing permission controls. Keep List available for
+comparison, preserve attention/recency grouping, and retain the phone and immersive presentations.
+
+## Contracts
+
+- The device remembers List/Tiles; the control appears above 740px in Active only. Project
+  shortcuts, empty projects, archive, Inbox, native session links and context indicators stay intact.
+- `arenaSessionSummary` adds optional main-agent metadata and one excerpt capped at **600 UTF-16
+  characters per session**. User text or assistant Markdown blocks supply it. Code, diagram and
+  attachment contents and provider continuation handles stay outside it. Full text stays canonical.
+  Optional schema fields allow older executor summaries; those tiles offer Open for replying.
+- Existing compact summary caching and workspace subscriptions carry excerpts after committed
+  messages, including completed background replies. Token deltas do not rebuild Arena, and the
+  tile view never fetches all conversation histories. Full-session reads happen only for Send or
+  delivery recovery against the captured machine/session.
+- Quick replies address the main agent, follow the session's supported mode and reuse its remembered
+  model/effort. Agent/mode changes happen inside the conversation, without a repeated footer caption. Existing
+  Native Accept edits/Full access modes are retained where supported. Enter sends, Shift+Enter adds
+  a newline, and composition/repeated Enter events do not send. The input contains the same arrow
+  button as normal chat. Freshness, readiness, an active run and managed restart gate new sends.
+  A running tile still accepts preparation of the next draft; canvas/file attachments and recipient
+  changes remain in the full conversation.
+- Clipboard images become removable thumbnail chips above the reply input, using the existing
+  text-first paste filter, image preparation and four-image limit. An image alone is sendable;
+  preparation blocks Send/Enter until all active pastes finish. Images stay with their machine/session
+  through view changes and failed sends, in browser memory only. Accepted replies clear them.
+  Frozen retries retain the exact image payload; after reload, only canonical delivery checking is
+  available when the original pixels are missing, so retries cannot silently omit evidence.
+- `useArenaReplies` owns tab-local drafts independently of navigation. Tiles subscribe to their
+  own draft, so typing does not render AppShell or other tiles. Text saves coalesce for 150ms and
+  flush on send, page exit, visibility changes and teardown. Pending delivery UUID, recipient, mode
+  and model save synchronously before the POST. No canonical histories/previews enter tab storage.
+- Existing background-launch delivery handles acceptance, stable-message retries and detaching the
+  response without stopping execution. Uncertain replies stay read-only, survive reload and check
+  canonical delivery before retrying. Checking still works if provider readiness changes; retries
+  retain the original agent even if the session's main agent changes. Definitive rejection permits
+  editing, and accepted delivery alone clears the draft. Browser storage is optional; when blocked,
+  mounted drafts remain usable but reload recovery is unavailable.
+- Tile approvals show the exact tool/detail and call the existing machine/run/request permission
+  owner. Stale/offline cards cannot submit decisions. There is no new permission authority.
+
+## Acceptance
+
+- [x] Switch desktop arrangements, remember the choice, and retain grouping and narrow layouts.
+- [x] Expand bounded latest-message excerpts and see saved background replies without navigation.
+- [x] Send to two sessions, keep independent drafts, and route duplicate IDs to their own machine.
+- [x] Preserve text and frozen delivery across reload, including failed delivery, the same retry
+      UUID/recipient, provider unavailability and a changed main agent.
+- [x] Disable unavailable/offline sends through button and keyboard alike; resolve exact approvals.
+- [x] Focused unit/browser checks, TypeScript, isolated build, screenshots and independent review pass.
+
+## Verification
+
+The new summary regression failed before implementation. The first tile browser regression failed
+against the pre-change production build on the missing Tiles control. Focused checks cover compact
+summary production/cache, executor-schema limits, subscription delivery, launch acceptance,
+tab-local persistence and a hundred independent draft subscribers. Production-browser journeys
+cover layout, both themes, phone fallback, real fixture-provider delivery, reload/retry, machine
+routing, disabled keyboard sending and permission routing.
+
+November 7, 2026 verification:
+
+- **93 focused unit checks in 11 files pass**, covering reply persistence/subscriptions, session
+  summaries/store, background launch, Arena presentation/routes, executor schema/cache, workspace
+  feeds/stream framing and immersive Arena compatibility.
+- **27 distinct production-browser checks pass** across `arena-tiles.spec.ts`,
+  `arena-inbox.spec.ts`, `arena-projects.spec.ts` and `context-usage.spec.ts`. The seven new
+  tile journeys include successful fixture-provider turns through real routes, exact UUID/body and
+  recipient retry after a main-agent change, reload recovery with unavailable providers, duplicate
+  machine-qualified session IDs, offline/legacy-executor keyboard guards and exact permission routing.
+- TypeScript (`npm run lint -- --incremental false`), the isolated `.next-e2e` production build
+  and `git diff --check` pass. Desktop tile and phone fallback screenshots were inspected in both
+  light and dark themes.
+- Independent read-only review has no remaining material findings. Its draft/retry persistence,
+  changed-provider recovery, shared keyboard eligibility and captured-recipient findings are fixed
+  and covered by the browser journeys. Draft subscriptions also preserve Story 133's typing contract.
+
+The running installation was not restarted or deployed. Real signed-in providers, real attached
+executor transport and physical devices were not exercised; provider turns and remote routing
+above use the isolated suite's fixtures.
+
+## Composer follow-up — November 7, 2026
+
+Removed the mode dropdown, put the chat-style Send arrow inside the reply field and matched chat's
+Enter/Shift+Enter behavior. Non-delivery tile mode overrides are discarded on restore so changing
+mode in the conversation also changes its tile; frozen delivery retains its original mode.
+The shared background-delivery type accepts all existing-session modes while new-session setup
+keeps its narrower mode contract.
+
+- The new browser regression failed against the prior production build on the remaining dropdown.
+- **28 focused unit checks pass** for draft persistence, background delivery and device choices,
+  including Native mode preservation and migration of old tile mode overrides.
+- **Nine production-browser journeys pass**, including Enter, Shift+Enter, composition/repeat
+  guards, inline-button geometry, mode changes through the full conversation, and all existing
+  tile delivery/retry/machine/permission journeys.
+- TypeScript, isolated production build, `git diff --check` and light/dark screenshot inspection pass.
+- Independent read-only review has no material findings. The running installation was not restarted.
+
+## Clipboard images follow-up — November 7, 2026
+
+Removed the repeated agent/mode caption. Pasting an image adds a compact removable preview to that
+tile without adding an Attach/Add control. Image-only replies work through the existing background
+delivery path. The new persistence regression failed on the missing pending image count; the new
+browser regression failed against the prior build on its remaining agent/mode caption.
+
+- **37 focused unit checks pass** for draft persistence, background delivery and image handling,
+  including route acceptance, limits, metadata and exact provider evidence. These checks run with
+  `CODEAI_REMOTE_ACCESS=local` so deployment HTTPS requirements do not alter their local fixtures.
+- **14 production-browser journeys pass**, including both-theme image-only delivery through real
+  fixture-provider routes, plain-text clipboard precedence, thumbnails/removal, tile isolation,
+  preparation blocking across view changes, limits/read failures, exact image retries, following
+  text-only turns and safe delivery checking after reload clears the original image pixels.
+- TypeScript, isolated production build, `git diff --check`, both-theme image-composer screenshot
+  inspection and independent read-only review pass. No material review findings remain.
+
+The running installation was not rebuilt/restarted. Signed-in providers and native OS clipboard
+interaction were not exercised; browser checks supply real PNG clipboard events to the input.

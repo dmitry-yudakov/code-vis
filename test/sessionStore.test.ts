@@ -325,6 +325,24 @@ describe('host-owned session store', () => {
     expect(JSON.stringify(summary)).not.toContain('lastObservedMessageId');
   });
 
+  it('includes a bounded latest-message excerpt without code, diagrams, or provider metadata', () => {
+    const session = durableFixture(crypto.randomUUID(), crypto.randomUUID());
+    const latest = session.messages[1] as AssistantMessage;
+    latest.blocks = [{ kind: 'markdown', markdown: 'A useful result.\n\n' + 'More detail. '.repeat(100) },
+      { kind: 'code', source: 'private code' }, ...latest.blocks];
+    const summary = arenaSessionSummary(session);
+    expect(summary.primaryAgentId).toBe(session.primaryAgentId);
+    expect(summary.lastMessage).toMatchObject({ author: 'Claude', role: 'assistant', truncated: true });
+    expect(summary.lastMessage!.text).toHaveLength(600);
+    expect(summary.lastMessage!.text).toContain('A useful result.');
+    expect(JSON.stringify(summary)).not.toContain('private code');
+    expect(JSON.stringify(summary)).not.toContain('flowchart');
+    session.messages.pop();
+    expect(arenaSessionSummary(session).lastMessage).toEqual({ author: 'You', role: 'user', text: 'Map it.', truncated: false });
+    session.messages = [];
+    expect(arenaSessionSummary(session).lastMessage).toBeUndefined();
+  });
+
   it('creates a fresh private store, keeps its host identity, and leaves older prototype records unread', async () => {
     const dataDir = await directory();
     const legacyPath = path.join(dataDir, 'sessions.json');

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_MODEL_EFFORTS, MAX_MODEL_LABEL_CHARS, MAX_PROVIDER_MODELS } from './limits';
+import { MAX_ARENA_PREVIEW_CHARS, MAX_MODEL_EFFORTS, MAX_MODEL_LABEL_CHARS, MAX_PROVIDER_MODELS } from './limits';
 import { AGENT_MODES } from './agentModes';
 import { agentEffortSchema, agentModeSchema, agentModelIdSchema } from './protocol';
 import { agentContextUsageSchema, durableProjectSchema, sessionWorktreeSchema } from './sessionSchema';
@@ -57,6 +57,11 @@ const arenaSessionSummarySchema = z.object({
     role: z.enum(['orchestrator', 'coder', 'reviewer', 'tester', 'custom']),
     contextUsage: agentContextUsageSchema.optional(),
   }).strict()).max(8),
+  primaryAgentId: z.string().trim().min(1).max(160).optional(),
+  lastMessage: z.object({
+    author: z.string().max(160), role: z.enum(['user', 'assistant']),
+    text: z.string().max(MAX_ARENA_PREVIEW_CHARS), truncated: z.boolean(),
+  }).strict().optional(),
   updatedAt: dateTime,
   lastActivity: z.object({
     messageId: z.string().uuid(),

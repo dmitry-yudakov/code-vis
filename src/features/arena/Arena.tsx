@@ -10,9 +10,12 @@ import Paper from '@mui/material/Paper';
 import Chip from '@mui/material/Chip';
 import ListItemButton from '@mui/material/ListItemButton';
 import Tooltip from '@mui/material/Tooltip';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { ShellIcon } from '@/features/shell/ShellIcon';
-import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import type {
   ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
@@ -26,6 +29,10 @@ import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
 import { ContextUsage, contextUsageLabel } from '@/features/agents/ContextUsage';
+import { ArenaTileBody } from './ArenaTileBody';
+import type { ArenaReplyOptions, useArenaReplies } from './useArenaReplies';
+
+const LAYOUT_KEY = 'code-ai:device:arena-layout';
 
 const STATE_LABELS = {
   idle: 'Idle',
@@ -83,6 +90,8 @@ export function Arena({
   onRestoreSession,
   onDecidePermission,
   onAcknowledge,
+  replies,
+  replyOptions,
 }: {
   machines: ArenaMachineSnapshot[];
   deviceState: DeviceArenaState;
@@ -97,6 +106,8 @@ export function Arena({
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
   onAcknowledge(itemIds: string[]): void;
+  replies: ReturnType<typeof useArenaReplies>;
+  replyOptions(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): ArenaReplyOptions;
 }) {
   const inbox = useMemo(() => buildMultiMachineInbox(machines, deviceState), [deviceState, machines]);
   const unread = unreadArenaAttention(inbox);
@@ -109,6 +120,10 @@ export function Arena({
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
   const [restoring, setRestoring] = useState<string>();
+  const desktop = useMediaQuery('(min-width: 741px)');
+  const [layout, setLayout] = useState<'list' | 'tiles'>('list');
+  useEffect(() => { try { if (localStorage.getItem(LAYOUT_KEY) === 'tiles') setLayout('tiles'); } catch { /* optional device preference */ } }, []);
+  const tiles = desktop && layout === 'tiles';
 
   // One online machine is simply "here"; naming it on every screen says nothing.
   const offlineMachines = machines.length - onlineMachines.length;
@@ -159,14 +174,24 @@ export function Arena({
         <Alert className="arena-refresh-error" severity="warning" role="status" action={<Button type="button" disabled={refreshing} onClick={refresh}>Try again</Button>}>{refreshError} Showing the last good overview.</Alert>
       )}
 
+      <div className="arena-view-controls">
       <Tabs className="arena-sections" value={section} aria-label="Arena views" variant="scrollable" scrollButtons={false}>
         <Tab component={Link} href={ARENA_SECTION_PATHS.sessions} scroll={false} value="sessions" label={`Active (${sessions.length})`} />
         <Tab component={Link} href={ARENA_SECTION_PATHS.inbox} scroll={false} value="inbox" label={unread.length ? `Inbox (${unread.length})` : 'Inbox'} />
         <Tab component={Link} href={ARENA_SECTION_PATHS.archived} scroll={false} value="archived" label={`Archived (${archivedSessions.length})`} />
       </Tabs>
+      {desktop && section === 'sessions' && <ToggleButtonGroup exclusive value={layout} aria-label="Session arrangement" onChange={(_, value: 'list' | 'tiles' | null) => {
+        if (!value) return;
+        setLayout(value);
+        try { localStorage.setItem(LAYOUT_KEY, value); } catch { /* optional device preference */ }
+      }}>
+        <ToggleButton value="list"><ShellIcon name="plan" />List</ToggleButton>
+        <ToggleButton value="tiles"><ShellIcon name="arena" />Tiles</ToggleButton>
+      </ToggleButtonGroup>}
+      </div>
 
       {section === 'sessions' ? (
-        <div className="arena-groups" role="tabpanel">
+        <div className={`arena-groups ${tiles ? 'arena-tiles' : ''}`} role="tabpanel">
           {!sessions.length && !machines.some(machine => machine.projects.length) && <div className="arena-empty"><h2>No active sessions</h2><p>Create a project or start a new session.</p></div>}
           {machines.map((machine) => {
             const online = machine.machine.state === 'online';
@@ -218,6 +243,7 @@ export function Arena({
                             <DesktopPopover className="arena-card-menu" label={`Actions for ${card.session.title}`} summary="•••" icon placement="bottom-end">
                               {(close) => <div><Button type="button" disabled={!online || Boolean(card.run) || archiving === key} title={!online ? 'This execution machine is offline.' : card.run ? 'Wait for the current turn to finish before archiving.' : undefined} onClick={() => { close(); archive(machine.machine.id, card.session); }}>{archiving === key ? 'Archiving…' : 'Archive session'}</Button></div>}
                             </DesktopPopover>
+                            {tiles && <ArenaTileBody machine={machine} card={card} replies={replies} replyOptions={replyOptions} onDecidePermission={onDecidePermission} />}
                           </Paper>
                         );
                       })}

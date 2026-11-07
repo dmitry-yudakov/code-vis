@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LaunchFailure, launchSession, launchText, type LaunchAttempt } from '@/features/session-launch/sessionLaunch';
-import type { PublicSession } from '@/shared/types';
+import type { AgentMode, PublicSession } from '@/shared/types';
 const session: PublicSession = { version: 12, revision: 0, id: crypto.randomUUID(), title: 'New session', primaryAgentId: crypto.randomUUID(),
   repositories: [{ id: crypto.randomUUID(), hostId: 'home', checkoutId: 'repo', role: 'primary' }],
   participants: [], messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), annotations: {}, sketches: [], pinnedDiagramIds: [] };
@@ -12,6 +12,15 @@ const accepted = () => new Response('run data', { headers: { 'X-CodeAI-Run-Id': 
 const snapshot = (messageId?: string) => Response.json({ session: { ...session, messages: messageId ? [{ id: messageId, role: 'user' }] : [] } });
 
 describe('captured background session launch', () => {
+  it.each(['edits', 'full'] as const)('keeps an existing session’s %s mode during background delivery', async mode => {
+    const setup: LaunchAttempt<AgentMode> = attempt();
+    setup.session = session; setup.settings.mode = mode;
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(accepted());
+    await launchSession(setup, 'home', request);
+    expect(request).toHaveBeenCalledOnce();
+    expect(request.mock.calls[0][0]).toBe('/api/machines/remote/agent/message');
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toMatchObject({ sessionId: session.id, mode });
+  });
   it('keeps the remembered isolation choice while sending only supported Local Codex instructions', async () => {
     const setup = attempt(); setup.settings.provider = 'codex'; setup.settings.instructions = 'isolated';
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ session })).mockResolvedValueOnce(accepted());

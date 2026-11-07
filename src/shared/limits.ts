@@ -1,5 +1,7 @@
 /** Fixed browser/server wire limits. Keep these in one importable, runtime-neutral module. */
 export const MAX_MESSAGE_TEXT_CHARS = 8_000;
+/** Latest saved message in workspace summaries: UTF-16 characters, without code or artifacts. */
+export const MAX_ARENA_PREVIEW_CHARS = 600;
 export const MAX_WIRE_TRANSCRIPT_MESSAGES = 80;
 
 /** Local history is intentionally larger than the old 200-message wire-shaped ceiling. */

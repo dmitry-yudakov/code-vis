@@ -540,7 +540,7 @@ export interface PublicSession {
   sketches: SketchCanvas[];
 }
 
-/** Bounded host snapshot for the cross-project Arena; never includes transcripts or private handles. */
+/** Bounded host snapshot for Arena, including one short excerpt; never full transcripts or private handles. */
 export interface ArenaSessionSummary {
   worktree?: SessionWorktree;
   /** Added by the Arena client when flattening machine projections; never stored canonically. */
@@ -554,6 +554,9 @@ export interface ArenaSessionSummary {
   projectId?: string;
   repositoryCheckoutIds: string[];
   agents: Array<Pick<AgentParticipant, 'id' | 'displayName' | 'provider' | 'role' | 'contextUsage'>>;
+  /** Optional so older executors remain readable. */
+  primaryAgentId?: string;
+  lastMessage?: { author: string; role: ChatMessage['role']; text: string; truncated: boolean };
   updatedAt: string;
   lastActivity?: {
     messageId: string;
@@ -675,7 +678,7 @@ export interface ArenaSnapshot {
   machines: ArenaMachineSnapshot[];
 }
 
-/** A machine-owned projection. It never includes transcripts, provider handles, absolute paths, or credentials. */
+/** A machine-owned projection with bounded message excerpts, excluding full transcripts and private handles. */
 export interface ExecutorSnapshot {
   worktrees?: WorktreeCapability;
   machine: MachineIdentity;

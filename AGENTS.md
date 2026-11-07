@@ -197,6 +197,16 @@ Updated 2026-11-07. When a story ships, change the line that names it; each stor
   98 focused unit checks, 20 distinct production-browser checks, TypeScript, isolated build,
   both-theme desktop/phone screenshot inspection and independent review. Real provider turns remain unverified;
   the running app has not been rebuilt or restarted.
+- **Shipped:** [Story 134](stories/STORY-20261107-arena-session-tiles.md) — desktop Arena offers
+  project-grouped session tiles with saved-message previews, quick replies and approvals; drafts and
+  exact delivery retries survive reload. All 93 focused unit checks, 27 production-browser checks,
+  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review
+  pass. The composer follow-up sends on Enter, uses an inline Send arrow and follows the session's
+  mode without a dropdown; 28 focused unit checks, nine browser journeys, TypeScript, isolated build,
+  both-theme screenshot inspection and independent review pass. Clipboard images now have removable
+  previews and image-only sending, with the repeated agent/mode caption removed; 37 focused unit
+  checks, 14 browser journeys, TypeScript, isolated build, both-theme screenshot inspection and
+  independent review pass. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 133](stories/STORY-20261107-responsive-chat-drafts.md) — desktop typing
   updates the composer directly, with coalesced draft saves and synchronous latest-text sending.
   All 128 focused unit checks, 53 distinct production-browser cases, TypeScript, isolated build

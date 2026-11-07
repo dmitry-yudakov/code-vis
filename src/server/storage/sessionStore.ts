@@ -6,7 +6,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { MAX_SESSION_TEXT_FILE_BYTES } from '@/shared/limits';
+import { MAX_ARENA_PREVIEW_CHARS, MAX_SESSION_TEXT_FILE_BYTES } from '@/shared/limits';
 import { validateTextFiles } from '@/shared/textFiles';
 import type {
   AgentContextUsage, AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
@@ -239,9 +239,10 @@ export function publicSession(session: DurableSession): PublicSession {
   return publicSessionSchema.parse(snapshot) as PublicSession;
 }
 
-/** The Arena polls this bounded projection; full transcripts stay behind the session routes. */
+/** Workspace subscriptions share this bounded projection; full transcripts stay behind session routes. */
 export function arenaSessionSummary(session: DurableSession): ArenaSessionSummary {
   const latest = session.messages.at(-1);
+  const preview = latest?.role === 'user' ? latest.text : latest?.blocks.flatMap(block => block.kind === 'markdown' ? [block.markdown] : []).join('\n\n');
   return {
     ...(session.worktree ? { worktree: session.worktree } : {}),
     execution: session.execution,
@@ -258,6 +259,13 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
       role: participant.role,
       ...(participant.contextUsage ? { contextUsage: { ...participant.contextUsage } } : {}),
     }] : []),
+    primaryAgentId: session.primaryAgentId,
+    ...(latest ? { lastMessage: {
+      author: latest.role === 'user' ? 'You' : session.participants.find(participant => participant.id === latest.authorId)?.displayName || 'Agent',
+      role: latest.role,
+      text: (preview || '').slice(0, MAX_ARENA_PREVIEW_CHARS),
+      truncated: (preview?.length || 0) > MAX_ARENA_PREVIEW_CHARS,
+    } } : {}),
     updatedAt: session.updatedAt,
     ...(latest ? {
       lastActivity: {
@@ -269,7 +277,7 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
   };
 }
 
-/** Repository bindings stay server-local for recent-checkout ordering. No transcript is retained. */
+/** Repository bindings stay server-local for recent-checkout ordering. Only the bounded excerpt is retained. */
 type StoredSessionSummary = ArenaSessionSummary & Pick<DurableSession, 'repositories'>;
 
 export function serverAgent(

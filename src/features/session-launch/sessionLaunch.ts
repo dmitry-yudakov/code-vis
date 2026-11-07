@@ -1,4 +1,4 @@
-import type { AgentExecution, AgentProvider, GlobalInstructionsChoice, ModelSelection, PublicSession } from '@/shared/types';
+import type { AgentExecution, AgentMode, AgentProvider, GlobalInstructionsChoice, ModelSelection, PublicSession } from '@/shared/types';
 import type { SessionLaunchMode } from '@/shared/agentModes';
 import type { PreparedCodeAiContext } from '@/shared/codeAiSession';
 import type { TextFile } from '@/shared/textFiles';
@@ -27,8 +27,8 @@ export interface LaunchContent {
   files: TextFile[];
   reportIds: string[];
 }
-export interface LaunchAttempt {
-  settings: LaunchSettings;
+export interface LaunchAttempt<Mode extends AgentMode = SessionLaunchMode> {
+  settings: Omit<LaunchSettings, 'mode'> & { mode: Mode };
   content: LaunchContent;
   creationRequestId: string;
   messageId: string;
@@ -50,7 +50,7 @@ export class LaunchFailure extends Error {
 export interface LaunchResult { session: PublicSession; started: boolean; runId?: string }
 
 /** Explicit captured target throughout. Never reads or selects the open conversation. */
-export async function launchSession(attempt: LaunchAttempt, localMachineId: string,
+export async function launchSession(attempt: LaunchAttempt<AgentMode>, localMachineId: string,
   request: typeof fetch = fetch, onCreated?: (session: PublicSession) => void): Promise<LaunchResult> {
   const { settings, content } = attempt;
   const instructions = launchInstructions(settings.instructions, settings.execution, settings.provider);

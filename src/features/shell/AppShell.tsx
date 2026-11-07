@@ -51,6 +51,7 @@ import { MachineSettingsDialog } from '@/features/arena/MachineSettingsDialog';
 import { buildMultiMachineInbox, unreadArenaAttention, type ArenaAttentionItem } from '@/features/arena/arenaModel';
 import { arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
+import { useArenaReplies, type ArenaReplyOptions } from '@/features/arena/useArenaReplies';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
 import { DiagramNavigator } from '@/features/diagram/components/DiagramNavigator';
 import { CanvasWorkspace, type CanvasSnapshot } from '@/features/diagram/components/CanvasWorkspace';
@@ -2096,6 +2097,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   }]));
   const arenaInbox = buildMultiMachineInbox(arena.machines, arena.deviceState);
   const arenaUnread = unreadArenaAttention(arenaInbox);
+  const arenaReplies = useArenaReplies(localMachineId, lifecycle.busy ? 'CodeAI is restarting. Your draft is kept.' : undefined);
+  const arenaReplyOptions = (machine: ArenaMachineSnapshot, target: ArenaSessionSummary): ArenaReplyOptions => {
+    const recipientId = arenaReplies.get(machine.machine.id, target.id).delivery?.participantId ?? target.primaryAgentId;
+    const agent = target.agents.find(agent => agent.id === recipientId);
+    const providers = machine.machine.kind === 'local'
+      ? (target.execution === 'docker' ? localExecutionHealth?.docker.providers : localExecutionHealth?.local.providers) ?? machine.providers
+      : machine.providers;
+    const provider = agent && providers[agent.provider];
+    const unsupported = unsupportedAgentModes(provider?.supportedModes ?? [], target.execution);
+    const modes = provider?.available ? provider.supportedModes.filter(mode => !unsupported.includes(mode)) : [];
+    const saved = workspace.getScopeInProject(target.projectId, machine.machine.id === localMachineId ? undefined : machine.machine.id)?.views[target.id];
+    const preferred = saved?.defaultMode ?? inheritedMode(preferences.mode, target.execution);
+    return { modes, mode: composerMode(preferred, unsupported),
+      ...(!agent ? { unavailableReason: 'Open this session to reply. Its executor needs an update for quick replies.' }
+        : !provider?.available ? { unavailableReason: provider?.message || 'This provider is unavailable.' } : {}),
+      modelSelection: offeredModelSelection(agentModelSelection(saved, preferences, agent), provider) };
+  };
   const availableProviderUpdateCount = localExecutionHealth?.docker.enabled && localExecutionHealth.docker.providers.claude.available
     ? providerUpdateCount : 0;
 
@@ -3022,6 +3040,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           onRestoreSession={restoreArenaSession}
           onDecidePermission={decideArenaPermission}
           onAcknowledge={arena.acknowledge}
+          replies={arenaReplies}
+          replyOptions={arenaReplyOptions}
         />
       ) : navigationError ? (
         <div className="welcome-screen" role="region" aria-label="Workspace unavailable">

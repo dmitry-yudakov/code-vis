@@ -257,13 +257,34 @@ snapshot and subsequent changed snapshots. One process-wide local snapshot owner
 tabs and directly attached homes; one home aggregate shares one upstream subscription to
 `/api/machine/snapshot` per attached executor. Ordinary JSON GETs remain available for explicit
 refresh, including their existing 1.5-second remote-read timeout. Snapshots carry separate active
-and archived card summaries, safe pending-permission details,
+and archived card summaries, a latest-message excerpt capped at 600 UTF-16 characters per session
+(Markdown text blocks only for replies; code/diagram blocks and attachments are excluded), safe pending-permission details,
 and brief terminal run outcomes, never full transcripts or private provider-session handles. A
 validated projection is cached in the home registry; failure produces cached Offline cards with
 live runs and actions removed. The browser derives cross-machine card and Inbox presentation,
 stores only bounded finished-item read ids under `code-ai:device:v1:arena`, and cannot dismiss a
 live permission locally. Revisioned archive/restore routes reject every live run reservation,
 including the pre-activation interval hidden from normal discovery.
+
+Desktop Active sessions can also use project-grouped tiles. Layout is optional device state;
+quick-reply text and captured uncertain-delivery UUID/mode/model/recipient survive reload in
+tab-local `sessionStorage`. Canonical histories and previews are never saved there. The shell owns
+these drafts independently of navigation. Each tile subscribes only to its own draft. Text saves coalesce for 150 ms, with synchronous
+flush on send, visibility/page exit and teardown; delivery identities always save immediately.
+Quick replies fetch only the target session on Send, reuse background launch delivery against that
+existing session, and detach its response after
+acceptance. Frozen retries first reconcile the original message identity even if provider readiness
+changed; fresh online status and current capabilities gate any new POST. Approvals use the existing
+shared permission owner. Old executors without main-agent metadata retain navigation but require
+opening the conversation to reply. Token deltas still do not rebuild the overview.
+
+Tile inputs also accept clipboard images through the conversation composer's paste filter and
+bounded image preparation. Prepared pixels and removable thumbnails stay in shell memory per
+machine/session; they never enter tab storage. Preparation blocks sending until all active pastes
+finish, and image-only messages use the shared fallback instruction. Accepted delivery clears the
+images; rejection or uncertain delivery retains them. Frozen delivery persists only an image count:
+after reload, canonical acceptance can still be checked, but a missing image prevents retransmission
+with incomplete evidence.
 
 Committed store writes, Arena-visible run changes, and attachment changes invalidate shared
 snapshots. Fifty-millisecond coalescing and a dirty-during-load flag absorb bursts without losing
@@ -299,7 +320,7 @@ Workspace snapshots, inactivity sweeps, and recent-checkout listing reuse compac
 in the process-wide `SessionStore`. Every listing checks the combined active/archive file bound
 and file metadata; unchanged files avoid transcript reads and schema validation. Changed files
 are read through the ordinary validator, concurrent reads of the same version are shared, and
-removed entries are pruned. The cache retains no transcripts or provider continuation handles;
+removed entries are pruned. The cache retains only the bounded excerpt, without full transcripts or provider continuation handles;
 repository bindings are kept only for server-local recent-checkout ordering and omitted from
 executor responses. Full-session routes and revision-checked mutations still read canonical files.
 
