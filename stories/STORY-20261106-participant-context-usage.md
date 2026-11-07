@@ -8,8 +8,8 @@ The selected conversation agent has a compact 14px filling circle beside its pic
 shows the same circle beside each session participant's provider name. Percentages appear only
 in tooltips and accessible labels. Hover or keyboard focus reveals the percentage and exact
 used/available token counts. Selecting another conversation participant
-shows that participant's own reading; a new participant starts with “not reported yet.” Unknown
-capacity shows a neutral circle, retaining any measured token count in the tooltip.
+shows that participant's own reading; the circle stays hidden until that participant has a provider
+report. Unknown capacity shows a neutral circle, retaining any measured token count in the tooltip.
 
 - Codex uses `thread/tokenUsage/updated.tokenUsage.last.totalTokens` and the provider's effective
   `modelContextWindow`. Cumulative `total` usage, child threads, unscoped notifications, stale turns,
@@ -30,14 +30,14 @@ capacity shows a neutral circle, retaining any measured token count in the toolt
   cannot replace the reply or the provider's original error. Reporting upgrades only that session
   to format 14; untouched sessions keep their prior version. Private provider handles remain private.
 - Desktop and phone reuse MUI progress/tooltip controls. Known percentages expose an accessible
-  meter; unknown usage uses a labelled image role. The warning color at 90% supplements the fill
-  and accessible value.
+  meter; reported usage without capacity uses a labelled image role. The warning color at 90%
+  supplements the fill and accessible value.
 - Arena's compact summaries include each participant's saved context usage; the existing workspace
   subscriptions publish changes after persistence, including attached-machine snapshots. Active
   and archived sessions retain independent readings. Active row links reveal their participants'
   context on keyboard focus without nested tab stops; individual circles reveal their own tooltip
   on hover. Offline rows have no link target, keeping their indicators inspectable without
-  enabling session navigation. An older snapshot without usage shows neutral circles.
+  enabling session navigation. An older snapshot without usage has no circles.
 
 ## Initial verification
 
@@ -73,6 +73,13 @@ notifications and unchanged telemetry parsing/replay.
 - TypeScript, the isolated `.next-e2e/context-compact` production build, `git diff --check`, and
   independent review pass. Desktop/phone screenshots in both themes were inspected for the
   conversation and Arena. The running app has not been rebuilt or restarted.
+
+Unreported usage now hides the circle in both conversation and Arena; measured zero usage and
+reported tokens without capacity remain visible. All four context-view unit checks and seven
+production-browser cases pass, including desktop/phone layouts in both themes, participant
+switching, live reports, reload, archived readings and offline inspection. The hidden-state unit
+assertion fails before the fix. TypeScript, the isolated `.next-e2e/context-hidden` production build
+and `git diff --check` pass. The running app has not been rebuilt or restarted.
 
 ## Protocol references
 

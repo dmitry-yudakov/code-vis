@@ -21,10 +21,9 @@ describe('context indicator and recovery', () => {
     expect(full).toContain('250,000 of 200,000 tokens');
   });
 
-  it('distinguishes unavailable usage/capacity from an actual empty context', () => {
+  it('hides unreported usage while retaining measured tokens and an actual empty context', () => {
     const unknown = renderToStaticMarkup(createElement(ContextUsage, { name: 'Claude' }));
-    expect(unknown).toContain('not reported yet');
-    expect(unknown).not.toContain('role="meter"');
+    expect(unknown).toBe('');
     const tokens = renderToStaticMarkup(createElement(ContextUsage, { name: 'Claude', usage: { usedTokens: 10_000 } }));
     expect(tokens).toContain('10,000 tokens; capacity unavailable');
     const empty = renderToStaticMarkup(createElement(ContextUsage, { name: 'Codex', usage: { usedTokens: 0, contextWindow: 200_000 } }));

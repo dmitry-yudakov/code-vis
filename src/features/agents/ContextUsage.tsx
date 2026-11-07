@@ -18,9 +18,10 @@ export function contextUsageLabel(name: string, usage?: AgentContextUsage): stri
 }
 
 export function ContextUsage({ name, usage, focusable = true }: { name: string; usage?: AgentContextUsage; focusable?: boolean }) {
+  if (!usage) return null;
   const percent = contextPercent(usage);
   const label = contextUsageLabel(name, usage);
-  const detail = `${label}. ${usage ? 'Last provider report.' : 'Available after the provider reports usage.'}`;
+  const detail = `${label}. Last provider report.`;
   return <Tooltip title={detail} describeChild>
     <Box component="span" tabIndex={focusable ? 0 : undefined} role={percent === undefined ? 'img' : 'meter'} aria-label={label}
       {...(percent === undefined ? {} : { 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': percent, 'aria-valuetext': label })}

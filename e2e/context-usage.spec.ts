@@ -46,12 +46,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), theme);
       const { session, conversation } = await openSession(page, request);
-      const unknown = conversation.getByRole('img', { name: '@Claude context: not reported yet', exact: true });
-      await expect(unknown).toBeVisible();
-      await unknown.focus();
-      await page.keyboard.press('Shift+Tab');
-      await page.keyboard.press('Tab');
-      await expect(page.getByRole('tooltip')).toContainText('Available after the provider reports usage.');
+      await expect(conversation.locator('[aria-label*="context:"]')).toHaveCount(0);
       await conversation.getByRole('textbox', { name: 'Instruction', exact: true }).fill('[context-usage] Report current context.');
       await conversation.getByRole('button', { name: 'Send', exact: true }).click();
       const meter = conversation.getByRole('meter', { name: /@Claude context:/ });
@@ -80,7 +75,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(meter).toHaveAttribute('aria-valuenow', '20');
       await conversation.getByRole('button', { name: 'Session agents', exact: true }).click();
       await page.getByRole('button', { name: '@Claude Reviewer · Reviewer', exact: true }).click();
-      await expect(conversation.getByRole('img', { name: '@Claude Reviewer context: not reported yet', exact: true })).toBeVisible();
+      await expect(conversation.locator('[aria-label*="context:"]')).toHaveCount(0);
       await conversation.getByRole('button', { name: 'Session agents', exact: true }).click();
       await page.getByRole('button', { name: '@Claude · Coder · Main', exact: true }).click();
       await expect(meter).toHaveAttribute('aria-valuenow', '20');
@@ -101,7 +96,7 @@ for (const theme of ['light', 'dark'] as const) {
       const arenaMeter = link.getByRole('meter', { name: /@Claude context:/ });
       await expect(arenaMeter).toHaveAttribute('aria-valuenow', '20');
       await expect(arenaMeter).toHaveText('');
-      await expect(link.getByRole('img', { name: '@Claude Reviewer context: not reported yet', exact: true })).toBeVisible();
+      await expect(link.getByRole('img', { name: '@Claude Reviewer context: not reported yet', exact: true })).toHaveCount(0);
       await expect(link.locator('[tabindex]')).toHaveCount(0);
       await arenaMeter.hover();
       await expect(page.getByRole('tooltip')).toContainText('20% used, 40,000 of 200,000 tokens');
