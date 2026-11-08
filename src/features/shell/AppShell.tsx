@@ -2142,7 +2142,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const launchNavigation = useRef('');
   launchNavigation.current = JSON.stringify([pathname, machineId, projectId, sessionId]);
   const announceLaunch = (result: import('@/features/session-launch/sessionLaunch').LaunchResult, settings: LaunchSettings) => notify({
-    key: `launch:${result.session.id}`, tone: 'success', message: result.started ? 'Session started in the background.' : 'Session created.',
+    key: `launch:${result.session.id}`, tone: 'success', message: result.queued ? 'Session queued. It will start when the repository is free.'
+      : result.started && settings.waitForCheckout && result.queued === undefined ? 'Session submitted. Open it to check progress.'
+      : result.started ? 'Session started in the background.' : 'Session created.',
     actions: [{ label: 'Open session', onSelect: () => { void openLaunchedSession(result.session, settings); } }],
   });
   const openLaunchedSession = async (saved: PublicSession, settings: LaunchSettings, expectedNavigation?: string) => {

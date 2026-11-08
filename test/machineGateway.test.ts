@@ -28,7 +28,7 @@ describe('machine API gateway', () => {
 
   it('forwards only safe headers and streams the remote response', async () => {
     fetchMock.mockResolvedValue(new Response('first\nsecond\n', {
-      headers: { 'Content-Type': 'application/x-ndjson', 'X-CodeAI-Run-Finished': 'false', 'Set-Cookie': 'secret=bad' },
+      headers: { 'Content-Type': 'application/x-ndjson', 'X-CodeAI-Run-Finished': 'false', 'X-CodeAI-Run-State': 'queued', 'Set-Cookie': 'secret=bad' },
     }));
     const request = new Request(`https://home.test/api/machines/${REMOTE_ID}/agent/stream?runId=run`, {
       headers: { Cookie: 'device=secret', Origin: 'https://home.test', Accept: 'application/x-ndjson' },
@@ -38,6 +38,7 @@ describe('machine API gateway', () => {
     expect(await response.text()).toBe('first\nsecond\n');
     expect(response.headers.get('set-cookie')).toBeNull();
     expect(response.headers.get('x-codeai-run-finished')).toBe('false');
+    expect(response.headers.get('x-codeai-run-state')).toBe('queued');
     const [target, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(target.href).toBe('https://laptop.test:3023/api/agent/stream?runId=run');
     expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${CREDENTIAL}`);

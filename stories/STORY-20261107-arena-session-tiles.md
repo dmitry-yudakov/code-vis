@@ -123,3 +123,55 @@ browser regression failed against the prior build on its remaining agent/mode ca
 
 The running installation was not rebuilt/restarted. Signed-in providers and native OS clipboard
 interaction were not exercised; browser checks supply real PNG clipboard events to the input.
+
+## Compact headers follow-up — November 8, 2026
+
+The supplied Arena screenshot repeats the project's repository in every tile and spreads status,
+provider, activity and timestamp over several rows. Put shared repository names alongside the
+project heading in Active. A tile's header has two logical rows: title with Archive, then status,
+agent names/context circles and last-activity time. Long titles ellipsize with the full title
+available; activity detail moves to the status tooltip and keyboard-open description.
+
+Where the code is: `src/features/arena/Arena.tsx:46` renders repository/provider facts and
+`:211` renders project headings and active cards; `src/app/globals.css:198` owns project headings
+and `:223` owns tile geometry. These use the existing bounded Arena projection from Story 134 and
+context presentation from Story 132, with no snapshot/storage/protocol change.
+
+Remove a session's repository caption only when its checkout ids match its canonical project's
+bindings. Different checkouts, worktree branch/source, Docker execution, loose sessions and
+missing-project/checkout fallbacks retain their distinguishing facts. List/phone Active shares the
+project-level repository caption; its row layout and Archived/Inbox behavior remain intact.
+Multiple agents or exceptional checkout details can wrap when needed. Preserve native session
+links/modifier clicks, offline navigation guards, context hover/keyboard access, archive gating,
+unread cues and the tile's existing message/reply/approval controls.
+
+- [x] Active project headings show their repository names once, with shared captions removed from
+      sessions and differing/loose/worktree targets still identifiable.
+- [x] Tile headers group title/Archive and status/agent/context/time in two rows, preserve long-title
+      inspection and expose the full activity detail without a routine extra activity row.
+- [x] Layout remains contained on desktop/phone, in both themes, with multiple agents and long names;
+      navigation, archive, context, previews, replies and permission controls retain their contracts.
+- [x] Focused unit/browser checks, TypeScript, isolated build, screenshot inspection and independent
+      review pass.
+
+The project-repository regression failed against the preceding production build. All **25 focused
+unit checks** pass (`arenaModel`, `contextUsageView`, `arenaReplyDrafts`, `sessionSummaries`), along
+with TypeScript, the isolated `.next-e2e` production build and `git diff --check`.
+
+Across `arena-tile-headers`, `arena-tiles`, `context-usage` and `arena-projects`, **39 distinct
+production-browser cases pass** across the affected runs. The final seven header cases pass against
+the rebuilt final bundle. They check aligned metadata, title truncation/full-title inspection,
+repository deduplication, context hover/keyboard access, archive gating/success, keyboard session
+navigation, exceptional targets, multiple agents, long names and narrow fallback. The keyboard
+assertion uses actual Shift+Tab/Tab focus and selects the activity tooltip independently of the
+closing context tooltip. Both-theme desktop/phone and intermediate-width screenshots, plus
+exceptional-target and long-name screenshots, were inspected.
+
+Independent review found disabled Archive clicks falling through to the spanning session link.
+A coordinate-click regression confirmed the defect before its fix. The native disabled archive
+button now retains pointer hits, shielding its sibling link; tests confirm neither navigation nor
+an archive request occurs. Follow-up review found no remaining material issue.
+
+The running installation has not been rebuilt or restarted. This follow-up changes presentation
+only; real signed-in providers, attached-executor transport and physical phone/Quest use were not
+rerun. Existing fixture-based previews, replies, approval handling, archive and archived-context checks pass.

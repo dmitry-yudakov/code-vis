@@ -28,6 +28,7 @@ interface RunRecord {
   checkoutId: string;
   checkoutPath?: string;
   access: RunAccess;
+  waitForCheckout?: boolean;
   execution?: AgentExecution;
   mode?: AgentMode;
   changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
@@ -104,6 +105,8 @@ export interface ReserveRunInput {
   checkoutId: string;
   checkoutPath?: string;
   access: RunAccess;
+  /** Keep exclusive checkout scheduling even when this turn uses a read-only mode. */
+  waitForCheckout?: boolean;
   execution?: AgentExecution;
   mode?: AgentMode;
   changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
@@ -222,6 +225,7 @@ export class RunRegistry implements MaintenanceLease {
     const completion = deferred();
     this.liveByRunId.set(input.runId, {
       ...input,
+      access: input.waitForCheckout ? 'write' : input.access,
       state: 'queued',
       enqueuedAt: Date.now(),
       activated: false,
@@ -378,7 +382,7 @@ export class RunRegistry implements MaintenanceLease {
       if (run.mode === mode) return result;
       this.record(runId, { type: 'mode-changed', runId, mode });
       if (run.state === 'queued') {
-        run.access = changesCheckout(mode) ? 'write' : 'read';
+        run.access = changesCheckout(mode) || run.waitForCheckout ? 'write' : 'read';
         this.schedule();
       } else {
         this.record(runId, { type: 'status', runId, phase: 'resuming', label: `Changing mode to ${mode}…` });

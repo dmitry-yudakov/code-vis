@@ -93,6 +93,27 @@ describe('captured background session launch', () => {
 
 
 describe('compatibility and in-flight acceptance', () => {
+  it('requires content before creating a queued session and omits scheduling fields for ordinary starts', async () => {
+    const setup = attempt(); setup.settings.waitForCheckout = true;
+    setup.content = { text: '  ', images: [], files: [], reportIds: [] };
+    const request = vi.fn<typeof fetch>();
+    await expect(launchSession(setup, 'home', request)).rejects.toMatchObject({ editable: true, message: 'Add a first message to queue work.' });
+    expect(request).not.toHaveBeenCalled();
+    const ordinary = attempt();
+    request.mockResolvedValueOnce(Response.json({ session })).mockResolvedValueOnce(accepted());
+    await launchSession(ordinary, 'home', request);
+    expect(JSON.parse(String(request.mock.calls[1][1]?.body))).not.toHaveProperty('waitForCheckout');
+  });
+
+  it('submits queued starts to the same executor and reports acceptance without waiting for execution', async () => {
+    const setup = attempt(); setup.settings.waitForCheckout = true;
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ session }))
+      .mockResolvedValueOnce(new Response(new ReadableStream(), { headers: { 'X-CodeAI-Run-Id': 'waiting', 'X-CodeAI-Run-State': 'queued' } }));
+    expect(await launchSession(setup, 'home', request)).toMatchObject({ started: true, queued: true, runId: 'waiting' });
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body))).not.toHaveProperty('waitForCheckout');
+    expect(JSON.parse(String(request.mock.calls[1][1]?.body))).toMatchObject({ waitForCheckout: true, mode: setup.settings.mode });
+  });
+
   it('allows clearing a definitive older-executor schema rejection without silently dropping the creation UUID', async () => {
     const setup = attempt();
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({

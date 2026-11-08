@@ -14,6 +14,7 @@ export interface LaunchSettings {
   checkoutId?: string;
   execution: AgentExecution;
   checkoutMode: 'current' | 'worktree';
+  waitForCheckout?: boolean;
   provider: AgentProvider;
   mode: SessionLaunchMode;
   /** Remember the device choice; filter unsupported choices only at the wire/UI boundary. */
@@ -47,12 +48,13 @@ export class LaunchFailure extends Error {
   constructor(message: string, public readonly editable: boolean, public readonly uncertain = false,
     public readonly worktreeConflict?: unknown) { super(message); }
 }
-export interface LaunchResult { session: PublicSession; started: boolean; runId?: string }
+export interface LaunchResult { session: PublicSession; started: boolean; queued?: boolean; runId?: string }
 
 /** Explicit captured target throughout. Never reads or selects the open conversation. */
 export async function launchSession(attempt: LaunchAttempt<AgentMode>, localMachineId: string,
   request: typeof fetch = fetch, onCreated?: (session: PublicSession) => void): Promise<LaunchResult> {
   const { settings, content } = attempt;
+  if (settings.waitForCheckout && !launchText(content)) throw new LaunchFailure('Add a first message to queue work.', true);
   const instructions = launchInstructions(settings.instructions, settings.execution, settings.provider);
   validateTextFiles(content.files);
   const payloadBytes = new TextEncoder().encode(JSON.stringify({ ...content, text: launchText(content), settings,
@@ -105,14 +107,14 @@ export async function launchSession(attempt: LaunchAttempt<AgentMode>, localMach
     response = await request(api('/api/agent/message'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: session.id, messageId: attempt.messageId, participantId: session.primaryAgentId,
-        text, mode: settings.mode, ...settings.modelSelection, diagramAttachments: [],
+        text, mode: settings.mode, ...settings.modelSelection, ...(settings.waitForCheckout ? { waitForCheckout: true } : {}), diagramAttachments: [],
         reportAttachments: content.reportIds.map((reportId) => ({ reportId })), imageAttachments: content.images, ...(content.files.length ? { fileAttachments: content.files } : {}) }),
     });
     const runId = response.headers.get('X-CodeAI-Run-Id');
     if (response.ok && runId) {
       // Detach the response only. The server-owned run continues independently of its subscribers.
       await response.body?.cancel().catch(() => undefined);
-      return { session, started: true, runId };
+      return { session, started: true, runId, queued: response.headers.get('X-CodeAI-Run-State') === 'queued' };
     }
     if (response.ok) {
       // Older executors have a live NDJSON response but no acceptance header. Never wait for it.

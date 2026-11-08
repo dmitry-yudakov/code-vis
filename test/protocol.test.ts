@@ -8,6 +8,12 @@ const ids = {
 };
 
 describe('provider protocol contracts', () => {
+  it('accepts only a boolean for optional exclusive checkout scheduling', () => {
+    const request = { ...ids, text: 'Next task', diagramAttachments: [] };
+    expect(agentMessageRequestSchema.parse({ ...request, waitForCheckout: true })).toMatchObject({ waitForCheckout: true });
+    expect(agentMessageRequestSchema.parse(request)).not.toHaveProperty('waitForCheckout');
+    expect(() => agentMessageRequestSchema.parse({ ...request, waitForCheckout: 'true' })).toThrow();
+  });
   it('requires a supported provider when creating a session', () => {
     expect(createSessionRequestSchema.parse({ projectId: ids.sessionId, provider: 'codex' }).provider).toBe('codex');
     expect(createSessionRequestSchema.parse({ provider: 'codex' }).projectId).toBeUndefined();

@@ -11,6 +11,7 @@ interface TurnOptions {
   checkoutPath?: string;
   access?: RunAccess;
   execution?: AgentExecution;
+  waitForCheckout?: boolean;
 }
 
 function turn(registry: RunRegistry, options: TurnOptions = {}) {
@@ -26,6 +27,7 @@ function turn(registry: RunRegistry, options: TurnOptions = {}) {
     checkoutPath: options.checkoutPath,
     access: options.access || 'read',
     execution: options.execution,
+    waitForCheckout: options.waitForCheckout,
     cancel: vi.fn(),
   });
   expect(reservation).toMatchObject({ accepted: true, runId });
@@ -39,6 +41,45 @@ async function scheduled(): Promise<void> {
 }
 
 describe('machine run scheduler', () => {
+  it('runs queued read-only tasks in order after current work, without blocking unrelated checkouts', async () => {
+    const registry = new RunRegistry(4);
+    const current = turn(registry, { checkoutPath: '/repos/a', access: 'read' });
+    const first = turn(registry, { checkoutPath: '/repos/a', access: 'read', waitForCheckout: true });
+    const second = turn(registry, { checkoutPath: '/repos/a/nested', access: 'read', waitForCheckout: true });
+    const later = turn(registry, { checkoutPath: '/repos/a', access: 'read' });
+    const unrelated = turn(registry, { checkoutPath: '/repos/b', access: 'write' });
+    await scheduled();
+    expect(current.execute).toHaveBeenCalledOnce();
+    expect(unrelated.execute).toHaveBeenCalledOnce();
+    for (const task of [first, second, later]) expect(task.execute).not.toHaveBeenCalled();
+    registry.finish(current.runId); await scheduled();
+    expect(first.execute).toHaveBeenCalledOnce();
+    expect(second.execute).not.toHaveBeenCalled();
+    expect(later.execute).not.toHaveBeenCalled();
+    registry.finish(first.runId); await scheduled();
+    expect(second.execute).toHaveBeenCalledOnce();
+    expect(later.execute).not.toHaveBeenCalled();
+    registry.finish(second.runId); await scheduled();
+    expect(later.execute).toHaveBeenCalledOnce();
+  });
+
+  it('keeps after-current-work scheduling when a queued writing turn changes to Ask', async () => {
+    const registry = new RunRegistry(4);
+    const current = turn(registry, { checkoutId: 'a', access: 'read' });
+    const runId = crypto.randomUUID();
+    const execute = vi.fn(async () => new Promise<void>(() => undefined));
+    expect(registry.reserve({ runId, sessionId: crypto.randomUUID(), participantId: 'agent', providerKey: 'next',
+      checkoutId: 'a', access: 'write', mode: 'agent', waitForCheckout: true, cancel: vi.fn(),
+      changeMode: async () => ({ ok: true }) })).toMatchObject({ accepted: true });
+    registry.activate(runId, { execute, cancelQueued: async () => undefined });
+    expect(await registry.changeMode(runId, 'ask')).toEqual({ ok: true });
+    await scheduled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(registry.list().active.find(run => run.runId === runId)).toMatchObject({ state: 'queued', mode: 'ask' });
+    registry.finish(current.runId); await scheduled();
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it('creates alongside verified Local turns and read-only Git leases while new affected turns wait', async () => {
     const registry = new RunRegistry(3);
     const source = turn(registry, { checkoutPath: '/repos/a', access: 'write', execution: 'local' });

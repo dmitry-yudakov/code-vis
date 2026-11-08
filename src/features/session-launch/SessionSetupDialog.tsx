@@ -16,6 +16,7 @@ import NativeSelect from '@mui/material/NativeSelect';
 import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import Tooltip from '@mui/material/Tooltip';
 import { AttachmentChip } from '@/features/conversation/AttachmentChip';
 import { CheckoutChoice } from '@/features/conversation/CheckoutChoice';
 import { ModelMenu } from '@/features/conversation/InstructionComposer';
@@ -73,7 +74,7 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
     <DialogContent className="session-setup-body">
     {launcher.busy ? <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 3 }}>
       <CircularProgress size={20} />
-      {launcher.createdSession && launcher.hasContent ? 'Session created. Sending message…' : 'Starting session…'}
+      {launcher.createdSession && launcher.hasContent ? 'Session created. Sending message…' : settings?.waitForCheckout ? 'Queueing session…' : 'Starting session…'}
     </Box> : <>
     {launcher.preparing && !draft && <p role="status">Preparing CodeAI project…</p>}
     {open && draft && settings && <>
@@ -128,6 +129,9 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
         </NativeSelect>
         <Button sx={{ ml: 'auto' }} aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)}><span aria-hidden="true">⚙</span>&nbsp;Settings</Button>
       </Box>
+      {settings.waitForCheckout && (launcher.error || launcher.frozen) && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+        Starts after current turns on this repository finish. Keep CodeAI running.
+      </Typography>}
       <Collapse in={settingsOpen} id={settingsId}>
         <div className="session-setup-fields">
         {settings.codeai ? <Typography component="p" variant="body2" color="text.secondary">{launcher.machine?.machine.label} · Local</Typography> : <>
@@ -180,9 +184,16 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
     </>}
     </DialogContent>
     <DialogActions>
-      {launcher.busy || !draft ? <Button autoFocus onClick={launcher.close}>Close</Button> : <Button variant="contained" disabled={!launcher.canSubmit} onClick={() => void launcher.submit()}>
-        {launcher.error ? 'Retry' : launcher.hasContent ? 'Start in background' : 'Create and open'}
-      </Button>}
+      {launcher.busy || !draft ? <Button autoFocus onClick={launcher.close}>Close</Button> : <>
+        {settings?.checkoutMode === 'current' && !launcher.error && !launcher.frozen && <Tooltip describeChild
+          title="Starts after current turns on this repository finish. Keep CodeAI running.">
+          <span><Button variant="outlined" disabled={!launcher.canSubmit || !launcher.hasContent}
+            onClick={() => void launcher.submit({ waitForCheckout: true })}>Queue session</Button></span>
+        </Tooltip>}
+        <Button variant="contained" disabled={!launcher.canSubmit} onClick={() => void launcher.submit()}>
+          {launcher.error ? 'Retry' : launcher.hasContent ? 'Start in background' : 'Create and open'}
+        </Button>
+      </>}
     </DialogActions>
   </Dialog>;
 }

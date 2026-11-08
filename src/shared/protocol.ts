@@ -66,6 +66,8 @@ export const agentMessageRequestSchema = z.object({
   imageAttachments: z.array(imageAttachmentSchema).max(32).default([]),
   fileAttachments: z.array(textFileSchema).max(MAX_TEXT_FILES_PER_MESSAGE).default([]),
   mode: agentModeSchema.optional(),
+  // Scheduling only; the selected mode still owns provider permissions.
+  waitForCheckout: z.boolean().optional(),
   model: agentModelIdSchema.optional(),
   effort: agentEffortSchema.optional(),
 }).strict();

@@ -43,19 +43,21 @@ const STATE_LABELS = {
   offline: 'Offline',
 } as const;
 
-function repositoryNames(session: ArenaSessionSummary, checkouts: Map<string, CheckoutSummary>): string {
-  if (!session.repositoryCheckoutIds.length) return 'No repository';
-  return session.repositoryCheckoutIds.map((checkoutId) => checkouts.get(checkoutId)?.name || 'Repository').join(', ');
+function repositoryNames(checkoutIds: readonly string[], checkouts: Map<string, CheckoutSummary>): string {
+  if (!checkoutIds.length) return 'No repository';
+  return checkoutIds.map((checkoutId) => checkouts.get(checkoutId)?.name || 'Repository').join(', ');
 }
 
-function SessionFacts({ session, checkouts, inLink = false }: { session: ArenaSessionSummary; checkouts: Map<string, CheckoutSummary>; inLink?: boolean }) {
+function SessionFacts({ session, checkouts, inLink = false, showTitle = true, showRepository = true }: {
+  session: ArenaSessionSummary; checkouts: Map<string, CheckoutSummary>; inLink?: boolean; showTitle?: boolean; showRepository?: boolean;
+}) {
   return (
     <>
-      <strong>{session.title}</strong>
+      {showTitle && <strong>{session.title}</strong>}
       <span className="arena-card-meta arena-card-agents">{session.agents.length ? session.agents.map(agent => <span key={agent.id} className="arena-card-agent">
         <span>{agent.displayName}</span><ContextUsage name={agent.displayName} usage={agent.contextUsage} focusable={!inLink} />
       </span>) : 'No agent'}</span>
-      <span className="arena-card-meta">{repositoryNames(session, checkouts)}</span>
+      {showRepository && <span className="arena-card-meta">{repositoryNames(session.repositoryCheckoutIds, checkouts)}</span>}
       {session.worktree && <span className="arena-card-meta">Worktree · {checkouts.get(session.repositoryCheckoutIds[0])?.branch || 'branch unavailable'} · Source: {checkouts.get(session.worktree.originCheckoutId)?.name || 'Unavailable source'}</span>}
       {session.execution === 'docker' && <Chip component="span" className="execution-badge" variant="outlined" label="Docker" />}
     </>
@@ -206,10 +208,15 @@ export function Arena({
                   </header>
                 )}
                 {!groups.length && <div className="arena-machine-empty">No active sessions on this machine.</div>}
-                {groups.map((group) => (
+                {groups.map((group) => {
+                  const project = machine.projects.find(project => project.id === group.id);
+                  const projectCheckoutIds = project?.repositories.map(binding => binding.checkoutId);
+                  return (
                   <section className="arena-group" aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
                     <header>
-                      <div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span></div>
+                      <div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
+                        {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById)}</span>}
+                      </div>
                       {(group.id === 'none' || machine.projects.some(project => project.id === group.id)) && <Button type="button" startIcon={<ShellIcon name="newChat" />} disabled={!online}
                         aria-label={`New session in ${group.name}`} onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}>New session</Button>}
                     </header>
@@ -217,10 +224,21 @@ export function Arena({
                       {group.sessions.map((card) => {
                         const attention = unread.filter((item) => item.machineId === machine.machine.id && item.sessionId === card.session.id).length;
                         const key = actionKey(machine.machine.id, card.session.id);
+                        const sharedRepository = projectCheckoutIds && projectCheckoutIds.length === card.session.repositoryCheckoutIds.length
+                          && card.session.repositoryCheckoutIds.every(id => projectCheckoutIds.includes(id));
+                        const facts = <>
+                          <Chip component="span" className={`arena-state state-${card.state}`} variant="outlined" title={card.activity}
+                            color={card.state === 'needs-you' ? 'warning' : card.state === 'running' ? 'success' : card.state === 'failed' ? 'error' : 'default'} label={STATE_LABELS[card.state]} />
+                          <SessionFacts session={card.session} checkouts={checkoutById} inLink={online} showTitle={!tiles} showRepository={!sharedRepository} />
+                          {/* "Idle" already says a finished turn finished. Tile activity is available on the status. */}
+                          {!tiles && !(card.state === 'idle' && card.session.lastActivity?.status === 'complete') && <span className="arena-card-activity">{card.activity}</span>}
+                          {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
+                          <span className="arena-card-time">{relativeActivityTime(card.session.updatedAt, now)}</span>
+                        </>;
                         return (
                           <Paper component="article" className={`arena-card state-${card.state}`} key={card.session.id}>
                             <Tooltip describeChild disableHoverListener disableTouchListener disableFocusListener={!online}
-                              title={card.session.agents.map(agent => contextUsageLabel(agent.displayName, agent.contextUsage)).join('; ')}>
+                              title={[...(tiles ? [card.activity] : []), ...card.session.agents.map(agent => contextUsageLabel(agent.displayName, agent.contextUsage))].join('; ')}>
                               <ListItemButton component={online ? Link : 'div'} prefetch={online ? false : undefined}
                                 href={online ? workspaceHref({ sessionId: card.session.id, machineId: machine.machine.id }, localMachine?.machine.id) : undefined}
                                 sx={{ flexWrap: 'wrap' }} className="arena-card-open" disabled={!online}
@@ -231,13 +249,8 @@ export function Arena({
                                   event.preventDefault();
                                   onOpenSession(machine, card.session);
                                 }} aria-label={`Open ${card.session.title}`}>
-                                <Chip component="span" className={`arena-state state-${card.state}`} variant="outlined"
-                                  color={card.state === 'needs-you' ? 'warning' : card.state === 'running' ? 'success' : card.state === 'failed' ? 'error' : 'default'} label={STATE_LABELS[card.state]} />
-                                <SessionFacts session={card.session} checkouts={checkoutById} inLink={online} />
-                                {/* "Idle" already says a finished turn finished. */}
-                                {!(card.state === 'idle' && card.session.lastActivity?.status === 'complete') && <span className="arena-card-activity">{card.activity}</span>}
-                                {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
-                                <span className="arena-card-time">{relativeActivityTime(card.session.updatedAt, now)}</span>
+                                {tiles && <strong title={card.session.title}>{card.session.title}</strong>}
+                                {tiles ? <span className="arena-card-status">{facts}</span> : facts}
                               </ListItemButton>
                             </Tooltip>
                             <IconButton type="button" className="arena-card-archive"
@@ -254,7 +267,8 @@ export function Arena({
                       })}
                     </div>
                   </section>
-                ))}
+                  );
+                })}
               </section>
             );
           })}

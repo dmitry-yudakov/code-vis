@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-07. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-08. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -197,6 +197,12 @@ Updated 2026-11-07. When a story ships, change the line that names it; each stor
   98 focused unit checks, 20 distinct production-browser checks, TypeScript, isolated build,
   both-theme desktop/phone screenshot inspection and independent review. Real provider turns remain unverified;
   the running app has not been rebuilt or restarted.
+- **Shipped:** [Story 135](stories/STORY-20261107-queue-project-sessions.md) — new-session setup has
+  a secondary Queue session button beside the normal start action; the existing scheduler queues
+  its first turn even in Ask/Plan, retains its mode and supports cancellation and browser reloads.
+  The November 8 button follow-up passes 26 focused unit checks, 16 production-browser checks,
+  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review.
+  Queued turns require the server to stay running; the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 134](stories/STORY-20261107-arena-session-tiles.md) — desktop Arena offers
   project-grouped session tiles with saved-message previews, quick replies and approvals; drafts and
   exact delivery retries survive reload. All 93 focused unit checks, 27 production-browser checks,
@@ -206,7 +212,10 @@ Updated 2026-11-07. When a story ships, change the line that names it; each stor
   both-theme screenshot inspection and independent review pass. Clipboard images now have removable
   previews and image-only sending, with the repeated agent/mode caption removed; 37 focused unit
   checks, 14 browser journeys, TypeScript, isolated build, both-theme screenshot inspection and
-  independent review pass. The running app has not been rebuilt or restarted.
+  independent review pass. The compact-header follow-up moves shared repositories to project headings
+  and puts title/Archive above status/agent/context/time; 25 focused unit checks, 39 distinct browser
+  cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
+  review pass. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 133](stories/STORY-20261107-responsive-chat-drafts.md) — desktop typing
   updates the composer directly, with coalesced draft saves and synchronous latest-text sending.
   All 128 focused unit checks, 53 distinct production-browser cases, TypeScript, isolated build

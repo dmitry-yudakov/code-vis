@@ -102,7 +102,7 @@ async function createSessions(count: number, version: 3 | 4 = 3): Promise<Durabl
   return sessions;
 }
 
-function messageRequest(session: DurableSession): Request {
+function messageRequest(session: DurableSession, overrides: Record<string, unknown> = {}): Request {
   return new Request('http://localhost/api/agent/message', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -113,6 +113,7 @@ function messageRequest(session: DurableSession): Request {
       text: `Turn for ${session.id}`,
       diagramAttachments: [],
       mode: 'ask',
+      ...overrides,
     }),
   });
 }
@@ -140,6 +141,45 @@ describe('message route scheduler integration', () => {
     }
     routeState.started = [];
     routeState.resolvers.clear();
+  });
+
+  it('queues a new session behind a read-only turn, survives detachment, then starts with the original mode', async () => {
+    const [current, next] = await createSessions(2);
+    const active = await POST_MESSAGE(messageRequest(current));
+    await vi.waitFor(() => expect(routeState.started).toHaveLength(1));
+    const response = await POST_MESSAGE(messageRequest(next, { waitForCheckout: true, mode: 'plan' }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-CodeAI-Run-State')).toBe('queued');
+    const runId = response.headers.get('X-CodeAI-Run-Id')!;
+    await response.body?.cancel();
+    expect(runRegistry.list(next.id).active).toContainEqual(expect.objectContaining({ runId, state: 'queued', mode: 'plan' }));
+    expect(routeState.runnersCreated).toBe(1);
+    const store = getSessionStore(routeState.dataDir, 'Scheduler route host');
+    expect((await store.getSession(next.id)).messages.at(-1)).toMatchObject({ role: 'user', status: 'sending', mode: 'plan' });
+    routeState.resolvers.get(active.headers.get('X-CodeAI-Run-Id')!)?.();
+    await vi.waitFor(() => expect(routeState.started).toContain(runId));
+    expect(routeState.runnersCreated).toBe(2);
+    routeState.resolvers.get(runId)?.();
+    await vi.waitFor(() => expect(runRegistry.list().active).toEqual([]));
+    await active.body?.cancel();
+    await store.close();
+  });
+
+  it('cancels an explicitly queued session without ever constructing its provider runner', async () => {
+    const [current, next] = await createSessions(2);
+    const active = await POST_MESSAGE(messageRequest(current));
+    await vi.waitFor(() => expect(routeState.started).toHaveLength(1));
+    const queued = await POST_MESSAGE(messageRequest(next, { waitForCheckout: true }));
+    expect(queued.status).toBe(200);
+    expect(await runRegistry.cancel(queued.headers.get('X-CodeAI-Run-Id')!)).toBe('accepted');
+    expect(await queued.text()).toContain('"delivery":"not-sent"');
+    const store = getSessionStore(routeState.dataDir, 'Scheduler route host');
+    expect((await store.getSession(next.id)).messages.at(-1)).toMatchObject({ status: 'cancelled', delivery: 'not-sent' });
+    expect(routeState.runnersCreated).toBe(1);
+    routeState.resolvers.get(active.headers.get('X-CodeAI-Run-Id')!)?.();
+    await vi.waitFor(() => expect(runRegistry.list().active).toEqual([]));
+    await active.body?.cancel();
+    await store.close();
   });
 
   it.each([3, 4] as const)('accepts a version %i session request and promotes it after one running response finishes', async (version) => {

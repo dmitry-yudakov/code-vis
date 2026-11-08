@@ -147,11 +147,12 @@ export function useSessionLauncher(options: LauncherOptions) {
     const draft = current.current.draft;
     if (!draft || current.current.busy || current.current.frozen) return;
     if (attempt.current?.session) {
-      if (Object.keys(update).some((key) => key !== 'mode' && key !== 'modelSelection')) return;
+      if (Object.keys(update).some((key) => key !== 'mode' && key !== 'modelSelection' && key !== 'waitForCheckout')) return;
       edit({ settings: { ...draft.settings, ...update } });
       return;
     }
     const settings = { ...draft.settings, ...update };
+    if (settings.checkoutMode === 'worktree') settings.waitForCheckout = undefined;
     if (settings.codeai && (update.machineId || update.projectId || update.execution)) return;
     if (settings.machineId !== draft.settings.machineId || settings.projectId !== draft.settings.projectId || settings.checkoutId !== draft.settings.checkoutId) captureGeneration.current++;
     const target = props.current.machines.find((entry) => entry.machine.id === settings.machineId);
@@ -210,9 +211,11 @@ export function useSessionLauncher(options: LauncherOptions) {
     generation.current++; captureGeneration.current++; attempt.current = undefined; setSelfProject(undefined);
     patch({ draft: undefined, error: undefined, targetNotice: undefined, preparing: false, voicePending: false, open: false });
   };
-  const submit = async () => {
-    const draft = current.current.draft;
-    if (!draft || current.current.busy || current.current.preparing || current.current.voicePending || !props.current.localMachineId) return;
+  const submit = async (start?: { waitForCheckout: boolean }) => {
+    if (!current.current.draft || current.current.busy || current.current.preparing || current.current.voicePending || !props.current.localMachineId) return;
+    // Capture the action before creation; Retry preserves the exact submitted scheduling choice.
+    if (!current.current.frozen && !current.current.error) setSettings({ waitForCheckout: start?.waitForCheckout || undefined });
+    const draft = current.current.draft!;
     const serial = generation.current; const origin = props.current.origin;
     props.current.onSubmit();
     if (!attempt.current) attempt.current = { settings: structuredClone(draft.settings), content: { text: draft.text,

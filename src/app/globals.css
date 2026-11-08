@@ -200,6 +200,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-group h3 { overflow-wrap: anywhere; }
 .arena-group h2, .arena-group h3, .arena-inbox h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
 .arena-group > header span { color: var(--faint); font: 9px/1 var(--mono); text-transform: uppercase; }
+.arena-group > header .arena-project-repositories { color: var(--muted); font: 400 11px/1.4 var(--sans); text-transform: none; overflow-wrap: anywhere; }
 .arena-card-grid { display: grid; gap: 8px; }
 .arena-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .arena-card:hover { border-color: var(--line-strong); }
@@ -222,14 +223,15 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 
 .arena-tiles .arena-card-grid { grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 16px; align-items: start; }
 .arena-tiles .arena-card { align-items: start; overflow: hidden; border-radius: 12px; }
-.arena-tiles .arena-card-open { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 16px 0 12px 16px; }
-.arena-tiles .arena-card-open > strong { grid-column: 1 / -1; grid-row: 1; min-width: 0; white-space: normal; line-height: 1.5; }
-.arena-tiles .arena-card-open > .arena-state { width: auto; justify-self: start; }
-.arena-tiles .arena-card-meta, .arena-tiles .arena-card-activity { grid-column: 1 / -1; max-width: 100%; }
-.arena-tiles .arena-card-agents { grid-row: 3; }
-.arena-tiles .arena-card-time { grid-column: 2; grid-row: 2; }
-.arena-tiles .arena-card-attention { justify-self: start; }
-.arena-tiles .arena-card-archive { margin-top: 12px; }
+.arena-tiles .arena-card-open { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 16px 12px; }
+.arena-tiles .arena-card-open > strong { min-width: 0; padding-right: 32px; line-height: 1.5; }
+.arena-card-status { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.arena-card-status > .arena-state { flex-shrink: 0; }
+.arena-tiles .arena-card-agents { flex: 0 1 auto; }
+.arena-tiles .arena-card-meta { max-width: 100%; }
+.arena-tiles .arena-card-archive { grid-column: 2; grid-row: 1; align-self: start; margin-top: 12px; z-index: 1; }
+/* A disabled native button must still shield the session link underneath it. */
+.arena-tiles .arena-card-archive.Mui-disabled { pointer-events: auto; }
 .arena-tile-body { grid-column: 1 / -1; min-width: 0; padding: 0 16px 16px; display: grid; gap: 12px; }
 .arena-tile-caption { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .arena-tile-preview { min-width: 0; padding-top: 12px; border-top: 1px solid var(--line); }

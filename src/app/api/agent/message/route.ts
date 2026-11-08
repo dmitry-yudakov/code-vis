@@ -234,6 +234,7 @@ export async function POST(request: Request): Promise<Response> {
     checkoutId: repository.checkoutId,
     checkoutPath: checkout.realPath,
     access: changesCheckout(mode) ? 'write' : 'read',
+    waitForCheckout: parsed.data.waitForCheckout,
     execution,
     mode,
     async changeMode(next) {
@@ -428,7 +429,8 @@ export async function POST(request: Request): Promise<Response> {
   let attachmentId: string | undefined;
   return withBrowserRunBudget(request, agentEventStream({
     runId,
-    headers: { 'X-CodeAI-Run-Id': runId },
+    headers: { 'X-CodeAI-Run-Id': runId,
+      'X-CodeAI-Run-State': runRegistry.currentRuns.find((run) => run.runId === runId)?.state ?? 'finished' },
     // A closed browser tab must not kill work the user already approved: detach, never cancel.
     onDetach: () => {
       if (attachmentId) runRegistry.unsubscribe(runId, attachmentId);
