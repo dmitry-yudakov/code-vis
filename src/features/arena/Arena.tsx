@@ -1,6 +1,7 @@
 'use client';
 
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import Alert from '@mui/material/Alert';
 
 import Link from 'next/link';
@@ -13,7 +14,6 @@ import Tooltip from '@mui/material/Tooltip';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
@@ -240,9 +240,14 @@ export function Arena({
                                 <span className="arena-card-time">{relativeActivityTime(card.session.updatedAt, now)}</span>
                               </ListItemButton>
                             </Tooltip>
-                            <DesktopPopover className="arena-card-menu" label={`Actions for ${card.session.title}`} summary="•••" icon placement="bottom-end">
-                              {(close) => <div><Button type="button" disabled={!online || Boolean(card.run) || archiving === key} title={!online ? 'This execution machine is offline.' : card.run ? 'Wait for the current turn to finish before archiving.' : undefined} onClick={() => { close(); archive(machine.machine.id, card.session); }}>{archiving === key ? 'Archiving…' : 'Archive session'}</Button></div>}
-                            </DesktopPopover>
+                            <IconButton type="button" className="arena-card-archive"
+                              aria-label={archiving === key ? 'Archiving…' : 'Archive session'}
+                              disabled={!online || Boolean(card.run) || archiving === key}
+                              loading={archiving === key}
+                              title={!online ? 'This execution machine is offline.' : card.run ? 'Wait for the current turn to finish before archiving.' : archiving === key ? 'Archiving…' : 'Archive session'}
+                              onClick={() => archive(machine.machine.id, card.session)}>
+                              <ShellIcon name="archive" />
+                            </IconButton>
                             {tiles && <ArenaTileBody machine={machine} card={card} replies={replies} replyOptions={replyOptions} onDecidePermission={onDecidePermission} />}
                           </Paper>
                         );
