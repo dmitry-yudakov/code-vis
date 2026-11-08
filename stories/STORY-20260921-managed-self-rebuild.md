@@ -100,13 +100,13 @@ stops any running build and exits with the child's code, exactly as `start:remot
 
 ### 2. Capability is narrow and server-owned
 
-`GET /api/codeai-lifecycle?projectId=…` returns an authorized lifecycle snapshot. It is available only
-when the server has the live parent IPC channel and the selected project's local primary checkout
-satisfies Story 63's exact self-project predicate. A project named CodeAI at another path, a reference
-binding, a remote-machine project, or a renamed/missing checkout does not qualify. Sessions in a self
-project are always Local, because Docker execution refuses the installation's own checkout.
+`GET /api/codeai-lifecycle` returns an authorized lifecycle snapshot whenever the server has the live
+parent IPC channel. It addresses the home installation regardless of the open chat, project, attached
+executor, or Arena screen. The parent owns the verified installation root; a client cannot choose a
+different checkout to build. Report access retains Story 63's exact self-project predicate.
 
-`POST /api/codeai-lifecycle` accepts exactly `{ action: 'build-and-restart', projectId }`. It rejects
+`POST /api/codeai-lifecycle` accepts `{ action: 'build-and-restart' }` (an optional UUID `projectId` is
+accepted and ignored for older clients). It rejects
 unknown fields, an unavailable capability, a second lifecycle operation, and any live run in this
 machine's registry. It accepts no executable, command, arguments, working directory, environment,
 port, origin, build path, or signal from the request.
@@ -198,19 +198,23 @@ no-live-run admission rule.
 
 ### 5. Flat and immersive users explicitly approve the interruption
 
-An eligible self project shows **Build & restart CodeAI** in the flat More menu and in an immersive
+Any workspace on a managed home shows **Build & restart CodeAI** in the flat More menu and in an immersive
 CodeAI section of Session tools. The first activation opens a confirmation; the second starts it. The
-confirmation names the selected checkout, says modified code will execute on the home machine, and
+confirmation names the installed CodeAI checkout, says modified code will execute on the home machine, and
 warns that the current WebXR session will end.
 
 On desktop, activation closes the More menu and opens a centered MUI confirmation dialog. The
 checkout warning and both actions remain visible on short and narrow screens. Cancel or Escape
 closes the dialog without starting a build and returns focus to More.
-Request errors, failed builds being followed, and reconnect errors also appear in a toast, so closing
-More does not hide a failure. An old failed build read on initial load does not raise a new toast.
+The same modal stays open through submission, build, restart, reconnect, and reload, with phase,
+elapsed build time, and indeterminate progress. It blocks background pointer and keyboard actions;
+Escape and backdrop clicks cannot dismiss it while busy. Request errors, followed build failures,
+and reconnect timeouts stay in the modal with Close and Try again (or Check again). An old failed
+build read on initial load stays in menu status without opening a modal.
 
-During `building`, CodeAI remains usable for reading but disables new agent turns and another lifecycle
-request so source cannot change underneath the build. The initiating view shows phase and elapsed time.
+During `building`, the current release keeps serving, and server maintenance admission rejects new
+agent turns and another lifecycle request so source cannot change underneath the build. Desktop
+interaction waits in the progress modal, including when a page opens or reloads mid-build.
 At `restarting`, the browser expects connection loss, polls the same exact origin with bounded backoff,
 and reloads only after health reports the candidate release id (succeeded) or the former one (rolled
 back). After the reload the snapshot's last operation says which. The canonical session and draft
@@ -277,7 +281,7 @@ type CodeAiLifecycleSnapshot =
 
 interface BuildAndRestartRequest {
   action: 'build-and-restart';
-  projectId: string;
+  projectId?: string; // ignored legacy selection
 }
 
 // private parent/child IPC; never accepted from HTTP
@@ -302,10 +306,9 @@ it, and the parent's terminal output is the only channel.
 - [x] A fresh start serves the most recently built valid directory among `.next` and the two slots and
       keeps the next most recent as fallback; a rolled-back or abandoned managed slot is deleted and is
       not chosen again, and `.next` is never deleted.
-- [x] Lifecycle capability appears only for a selected local project whose primary checkout resolves
-      exactly to the managed installation real path. Names, client context, `CODEAI_INSTALLATION_ROOT`,
-      symlinks escaping the repository root, reference bindings, and remote machines cannot enable it.
-- [x] The authorized POST accepts only the fixed action and project id, rejects unknown input, a
+- [x] Lifecycle capability is available throughout a managed home's UI, including Arena without a
+      selected project and attached-executor chats. The parent alone selects the installation to build.
+- [x] The authorized POST accepts only the fixed action (and ignores an optional legacy project id), rejects unknown input, a
       concurrent operation, and any live run in this machine's registry, and returns before terminating
       a child. The scheduler's maintenance lease closes the race with a simultaneous new turn and is
       released when a build fails. A turn on an attached executor neither blocks the operation nor is
@@ -314,7 +317,7 @@ it, and the parent's terminal output is the only channel.
       source executes locally and that WebXR will end. Agent/provider text cannot approve the action.
 - [x] Desktop confirmation opens outside the More menu, keeps its warning and actions visible on
       short and narrow screens in both themes, returns focus to More on Cancel or Escape, and
-      surfaces rejected requests and followed build failures outside the closed menu.
+      retains blocking progress and actionable failures in the modal through reconnect and reload.
 - [x] While building, the old release stays responsive, new turns/lifecycle operations are rejected,
       status remains bounded, and the build runs Next's own CLI through `process.execPath` with only the
       verified root plus the exact inactive slot.
@@ -470,9 +473,9 @@ All three parts are implemented and verified offline, in the end-to-end suite, a
   creates it as the server starts, so `SIGUSR2` is answered before any route has loaded
   ([instrumentation.ts](../src/instrumentation.ts#L6)).
 - **Routes.** `GET`/`POST /api/codeai-lifecycle` admit only a paired personal device; the `POST` also
-  needs the exact origin in every access mode. Both need a live channel and Story 63's self-project
-  predicate. The body is `{ action: 'build-and-restart', projectId }` and nothing else: `400` for
-  anything more or another project, `409` for unmanaged, busy, or live turns, `202` with the building
+  needs the exact origin in every access mode. Both need a live parent channel. The body is
+  `{ action: 'build-and-restart' }`, with an optional ignored legacy `projectId`: `400` for
+  unknown or malformed input, `409` for unmanaged, busy, or live turns, `202` with the building
   snapshot ([route.ts](../src/app/api/codeai-lifecycle/route.ts#L35)). Health reports
   `release: { managed, releaseId }` without changing `ok` ([health/route.ts](../src/app/api/health/route.ts#L69)).
 
@@ -493,8 +496,8 @@ All three parts are implemented and verified offline, in the end-to-end suite, a
   - The same module supplies the status, header badge, and confirmation text
     ([lifecycleView](../src/features/lifecycle/lifecycleFlow.ts#L143),
     [lifecycleConfirmation](../src/features/lifecycle/lifecycleFlow.ts#L175)).
-- **Owner.** `useCodeAiLifecycle` fetches the snapshot for the selected local project. It drops an
-  answer overtaken by a later read, a project change, or a confirmation
+- **Owner.** `useCodeAiLifecycle` fetches the home installation's snapshot independently of the
+  selected workspace. It drops an answer overtaken by a later read or a confirmation
   ([useCodeAiLifecycle.ts](../src/features/lifecycle/useCodeAiLifecycle.ts#L95)). It posts the fixed
   body with a relative URL and reloads when the flow says so
   ([useCodeAiLifecycle.ts](../src/features/lifecycle/useCodeAiLifecycle.ts#L40)). Before reloading it
@@ -506,8 +509,9 @@ All three parts are implemented and verified offline, in the end-to-end suite, a
   button and the status. Activation closes More and opens `CodeAiLifecycleDialog` beside the shell's
   other dialogs, with the checkout warning, **Cancel**, and **Build and restart**
   ([CodeAiLifecycleMenu.tsx:24](../src/features/lifecycle/CodeAiLifecycleMenu.tsx#L24)). Cancel and
-  Escape restore focus to More; request/reconnect errors also raise a shell toast. A header pill
-  shows the badge while busy ([AppShell.tsx](../src/features/shell/AppShell.tsx#L1883)). `send()`
+  Escape restore focus to More. The modal keeps progress visible and blocks background interaction
+  while busy, above the More popover and other dialogs. Errors offer Close and Try again or Check
+  again; immersive errors retain their workspace toast. `send()`
   refuses with a notice and keeps the draft while busy ([AppShell.tsx](../src/features/shell/AppShell.tsx#L1132)).
 - **Headset.** Session tools' home button **Reports** became **CodeAI**
   ([SessionTools.tsx](../src/features/shell/immersive/SessionTools.tsx#L155),
@@ -555,11 +559,11 @@ All three parts are implemented and verified offline, in the end-to-end suite, a
 
 - Two slots hold the serving release and one other. A build reuses the other slot, so while it
   builds, and after it fails, the previous release is whatever else remains, often `.next`.
-- Only a view that reads the lifecycle follows an operation. It reads when a CodeAI project is
-  selected, when More or the CodeAI section opens, and while it follows one. Another device left idle
+- Only a view that reads the lifecycle follows an operation. It reads on shell mount, when More or
+  the CodeAI section opens, and while it follows one. Another device left idle
   on the old page, the headset while the flat browser starts a build for example, is not reloaded
-  after the swap; its sends get the retryable `503` during the build. A view that leaves the self
-  project during an operation stops following it.
+  after the swap; its sends get the retryable `503` during the build. Changing projects retains the
+  home installation's operation watch.
 - A parent killed with `SIGKILL` during a build stops its server through the closed channel, but it
   cannot restore `next-env.d.ts` and `tsconfig.json`; `git checkout -- tsconfig.json` restores the
   tracked one, and the next `npm run dev` rewrites the git-ignored `next-env.d.ts`.
@@ -630,3 +634,23 @@ September 23, 2026, on Ubuntu 26.04.1 with Node 24.20.0 and Next 16.3.1.
     then stopped its server and freed the port.
   - The slots were removed afterwards; your `.next` and the dev server were not touched.
 - Not yet run: the Quest 3S part of the last acceptance criterion and step 6 of How to verify.
+
+### November 7 — restart from any workspace and modal progress
+
+- Restart now addresses the managed home installation from any chat or Arena, including an
+  attached executor's chat and a workspace without a selected project. The fixed build target,
+  personal-device/exact-origin authorization, and maintenance lease remain server-owned.
+- Desktop confirmation becomes blocking progress through submission, build, restart, reconnect,
+  and reload. It stays above an already open More popover; Escape, backdrop clicks, and background
+  controls cannot dismiss or bypass active progress. Failures offer Close and Try again or Check
+  again. VR retains workspace error notices even after leaving the CodeAI tools section.
+- Each request, including its body read, has a 15-second wait. An uncertain submission checks the
+  server before reporting failure, follows an existing build, and recognizes already completed
+  success, rollback, and failure outcomes. Reconnect retains its five-minute recovery limit.
+- Verification: all 82 focused unit checks and 12 production-browser cases pass, along with
+  TypeScript, the isolated production build, light/dark desktop/phone screenshot inspection, and
+  independent review.
+  Browser coverage includes request stalls, blocking above More, rejection/build-failure recovery,
+  reload/draft preservation, attached-executor targeting, and immersive failure feedback. The
+  executor suite's stale offline-link assertion now matches the existing disabled button.
+- No live application rebuild/restart or physical Quest acceptance was performed for this follow-up.

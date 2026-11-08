@@ -85,6 +85,7 @@ describe('the build-and-restart sequence', () => {
     expect(run([seen(finished('build-failed', 'release-a'))], watching).error).toContain('current release is still running');
     // An old recorded failure is status, not a new notification when first opening the project.
     expect(run([seen(finished('build-failed', 'release-a'))]).error).toBeUndefined();
+    expect(run([{ type: 'dismiss' }], failed).error).toBeUndefined();
   });
 
   it('follows an operation it did not start, as after reloading this page mid-build', () => {
@@ -92,6 +93,31 @@ describe('the build-and-restart sequence', () => {
     expect(adopted.watch).toMatchObject({ operationId: OPERATION, formerReleaseId: 'release-a' });
     expect(lifecycleView(adopted, 0).busy).toBe(true);
     expect(run([{ type: 'unreachable', at: 0 }, seen(finished('succeeded', 'release-b'))], adopted).reload).toBe(true);
+  });
+
+  it('keeps reconciled progress after a lost submission response without reporting a failure', () => {
+    const reconciled = run([seen(idle), { type: 'ask' }, { type: 'confirm' }, seen(building),
+      { type: 'rejected', message: 'The submission response timed out.' }]);
+    expect(reconciled).toMatchObject({ submitting: false, error: undefined, watch: { operationId: OPERATION } });
+    expect(lifecycleView(reconciled, 0)).toMatchObject({ busy: true, canRequest: false });
+    expect(run([seen(finished('build-failed', 'release-a'))], reconciled).submitting).toBe(false);
+  });
+
+  it('reconciles an already completed submission before any building response was received', () => {
+    const submitting = run([seen(idle), { type: 'ask' }, { type: 'confirm' }]);
+    const rejected: LifecycleEvent = { type: 'rejected', message: 'The submission response timed out.' };
+    for (const outcome of ['succeeded', 'rolled-back', 'build-failed'] as const) {
+      const releaseId = outcome === 'succeeded' ? 'release-b' : 'release-a';
+      const flow = run([seen(finished(outcome, releaseId, 'Recorded build detail.')), rejected], submitting);
+      expect(flow).toMatchObject({ submitting: false, watch: undefined, reload: outcome !== 'build-failed' });
+      if (outcome === 'build-failed') expect(flow.error).toContain('Recorded build detail.');
+      else expect(flow.error).toBeUndefined();
+    }
+    expect(run([seen({ ...idle, releaseId: 'release-b' }), rejected], submitting)).toMatchObject({ reload: true, error: undefined });
+    // An old recorded failure does not turn a genuinely refused new request into that old failure.
+    const previous = finished('build-failed', 'release-a', 'Old failure.');
+    const refused = run([seen(previous), { type: 'ask' }, { type: 'confirm' }, seen(previous), rejected]);
+    expect(refused.error).toBe('The submission response timed out.');
   });
 
   it('backs off while CodeAI is away and gives up after a bounded time', () => {
@@ -127,8 +153,8 @@ describe('the build-and-restart sequence', () => {
   });
 
   it('names the checkout, the local execution, and the end of a VR session in its confirmation', () => {
-    const text = lifecycleConfirmation('code-ai');
-    expect(text).toContain('code-ai');
+    const text = lifecycleConfirmation();
+    expect(text).toContain('installed CodeAI checkout');
     expect(text).toContain('runs it on this machine');
     expect(text).toContain('VR session ends');
   });

@@ -41,6 +41,8 @@ export type LifecycleEvent =
 export const INITIAL_LIFECYCLE: LifecycleFlow = { confirming: false, submitting: false, reload: false };
 /** How long a view waits for CodeAI to come back before it stops and points at the terminal. */
 export const RECONNECT_LIMIT_MS = 5 * 60_000;
+/** Bound both response headers and body reads, including an uncertain build submission. */
+export const LIFECYCLE_REQUEST_TIMEOUT_MS = 15_000;
 const BUILD_POLL_MS = 2_000;
 const RECONNECT_POLL_MS = { first: 1_000, factor: 1.5, max: 5_000 };
 
@@ -66,8 +68,17 @@ function observe(flow: LifecycleFlow, snapshot: CodeAiLifecycleSnapshot): Lifecy
     const reload = Boolean(flow.watch && serverMayBeGone(flow.watch));
     return { ...answered, confirming: false, watch: undefined, reload: flow.reload || reload };
   }
-  const watch = flow.watch || watchFor(snapshot);
-  if (!watch) return answered;
+  const previous = flow.snapshot?.available ? flow.snapshot : undefined;
+  // A lost POST response can outlast the whole operation. Reconcile its newly recorded outcome
+  // against the pre-submit snapshot even when no building snapshot reached this page.
+  const completed = flow.submitting && snapshot.lastOperation?.operationId !== previous?.lastOperation?.operationId
+    ? snapshot.lastOperation : undefined;
+  const watch = flow.watch || watchFor(snapshot) || (completed ? {
+    operationId: completed.operationId, formerReleaseId: previous?.releaseId || snapshot.releaseId,
+    restarting: false, failures: 0,
+  } : undefined);
+  if (!watch) return flow.submitting && previous && snapshot.releaseId !== previous.releaseId
+    ? { ...answered, submitting: false, reload: true } : answered;
   if (snapshot.phase !== 'idle') {
     return {
       ...answered,
@@ -81,7 +92,7 @@ function observe(flow: LifecycleFlow, snapshot: CodeAiLifecycleSnapshot): Lifecy
   const error = outcome?.outcome === 'build-failed'
     ? [outcome.detail || 'The build failed.', 'The current release is still running.'].join(' ')
     : undefined;
-  return { ...answered, error, watch: undefined, reload: flow.reload || reload };
+  return { ...answered, error, submitting: false, watch: undefined, reload: flow.reload || reload };
 }
 
 export function lifecycleReducer(flow: LifecycleFlow, event: LifecycleEvent): LifecycleFlow {
@@ -89,13 +100,13 @@ export function lifecycleReducer(flow: LifecycleFlow, event: LifecycleEvent): Li
     case 'ask':
       return canRequest(flow) ? { ...flow, confirming: true, error: undefined } : flow;
     case 'dismiss':
-      return { ...flow, confirming: false };
+      return { ...flow, confirming: false, error: undefined };
     case 'confirm':
       return flow.confirming && canRequest(flow) ? { ...flow, confirming: false, submitting: true } : { ...flow, confirming: false };
     case 'accepted':
       return { ...flow, submitting: false, error: undefined, snapshot: event.snapshot, watch: watchFor(event.snapshot) };
     case 'rejected':
-      return { ...flow, submitting: false, error: event.message };
+      return { ...flow, submitting: false, error: flow.watch || flow.reload ? undefined : flow.error || event.message };
     case 'snapshot':
       return observe(flow, event.snapshot);
     case 'unreachable': {
@@ -175,6 +186,6 @@ export function lifecycleView(flow: LifecycleFlow, now: number): LifecycleView {
 }
 
 /** The one warning both confirmations show. */
-export function lifecycleConfirmation(checkoutName: string): string {
-  return `Build and restart CodeAI from ${checkoutName}? This builds the checkout as it is now, uncommitted changes included, and runs it on this machine. CodeAI is unavailable while it restarts, and a VR session ends; enter VR again afterwards.`;
+export function lifecycleConfirmation(): string {
+  return 'Build and restart CodeAI from the installed CodeAI checkout? This builds the checkout as it is now, uncommitted changes included, and runs it on this machine. CodeAI is unavailable while it restarts, and a VR session ends; enter VR again afterwards.';
 }

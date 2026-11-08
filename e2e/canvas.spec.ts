@@ -922,8 +922,7 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   const card = project.locator('.arena-card');
   await expect(card).toHaveCount(1);
 
-  await card.locator('.arena-card-menu > button').click();
-  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Archive session' }).click();
+  await card.getByRole('button', { name: 'Archive session', exact: true }).click();
   await expect(project.locator('.arena-card')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   expect(dialogs).toEqual([]);

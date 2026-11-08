@@ -3,10 +3,23 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { CODEAI_LIFECYCLE_PATH, availableLifecycleSnapshotSchema, codeAiLifecycleSnapshotSchema } from '@/shared/codeAiLifecycle';
 import {
-  INITIAL_LIFECYCLE, lifecyclePollDelay, lifecycleReducer, lifecycleView, type LifecycleFlow, type LifecycleView,
+  INITIAL_LIFECYCLE, LIFECYCLE_REQUEST_TIMEOUT_MS, lifecyclePollDelay, lifecycleReducer, lifecycleView, type LifecycleFlow, type LifecycleView,
 } from './lifecycleFlow';
 
 const RETURN_PROJECT_KEY = 'code-ai:lifecycle:return-project';
+
+/** Keep a stalled request from trapping the UI; the same-origin snapshot reconciles an uncertain POST. */
+async function requestLifecycle(init?: RequestInit) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LIFECYCLE_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(CODEAI_LIFECYCLE_PATH, { ...init, cache: 'no-store', signal: controller.signal });
+    const data: unknown = await response.json();
+    return { response, data };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 /**
  * The project a page reloaded by Build & restart was showing, read once. Page loads otherwise open
@@ -34,7 +47,7 @@ export interface CodeAiLifecycleOwner extends LifecycleView {
 }
 
 /**
- * The one owner of Build & restart for the selected project, shared by the flat shell and the
+ * The one owner of Build & restart for the home machine, shared by the flat shell and the
  * headset. The server decides availability; this follows an operation through the restart and
  * reloads the page on the release that answers afterwards.
  */
@@ -47,25 +60,20 @@ export function useCodeAiLifecycle(projectId?: string): CodeAiLifecycleOwner {
 
   const refresh = useCallback(async () => {
     const request = ++latestRequest.current;
-    if (!projectId) {
-      dispatch({ type: 'snapshot', snapshot: { available: false, reason: 'not-self-project' } });
-      return;
-    }
     let event: Parameters<typeof dispatch>[0];
     try {
       // Relative, so a reconnect only ever reaches the origin this page came from.
-      const response = await fetch(`${CODEAI_LIFECYCLE_PATH}?projectId=${encodeURIComponent(projectId)}`, { cache: 'no-store' });
-      const parsed = codeAiLifecycleSnapshotSchema.safeParse(response.ok ? await response.json() : undefined);
+      const { response, data } = await requestLifecycle();
+      const parsed = codeAiLifecycleSnapshotSchema.safeParse(response.ok ? data : undefined);
       event = parsed.success ? { type: 'snapshot', snapshot: parsed.data } : { type: 'unreachable', at: Date.now() };
     } catch {
       event = { type: 'unreachable', at: Date.now() };
     }
-    // An answer overtaken by a later read, a project change, or a confirmation is dropped.
+    // An answer overtaken by a later read or a confirmation is dropped.
     if (request === latestRequest.current) dispatch(event);
-  }, [projectId]);
+  }, []);
 
   useEffect(() => {
-    dispatch({ type: 'dismiss' });
     void refresh();
   }, [refresh]);
 
@@ -91,27 +99,30 @@ export function useCodeAiLifecycle(projectId?: string): CodeAiLifecycleOwner {
   }, [flow.reload, projectId]);
 
   const confirm = useCallback(() => {
-    if (!projectId || !flowRef.current.confirming) return;
+    if (!flowRef.current.confirming || !lifecycleView(flowRef.current, Date.now()).canRequest) return;
     // A read already in flight describes the server before this request.
     latestRequest.current += 1;
+    flowRef.current = lifecycleReducer(flowRef.current, { type: 'confirm' });
     dispatch({ type: 'confirm' });
     void (async () => {
       try {
-        const response = await fetch(CODEAI_LIFECYCLE_PATH, {
+        const { response, data } = await requestLifecycle({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'build-and-restart', projectId }),
+          body: JSON.stringify({ action: 'build-and-restart' }),
         });
-        const data = await response.json().catch(() => ({})) as { snapshot?: unknown; error?: string };
-        const snapshot = availableLifecycleSnapshotSchema.safeParse(data.snapshot);
-        if (!response.ok || !snapshot.success) throw new Error(data.error || 'CodeAI could not start the build.');
+        const result = data as { snapshot?: unknown; error?: string } | null;
+        const snapshot = availableLifecycleSnapshotSchema.safeParse(result?.snapshot);
+        if (!response.ok || !snapshot.success) throw new Error(result?.error || 'CodeAI could not start the build.');
         setNow(Date.now());
         dispatch({ type: 'accepted', snapshot: snapshot.data });
       } catch (error) {
+        // The request may have reached the supervisor despite its response being lost.
+        await refresh();
         dispatch({ type: 'rejected', message: error instanceof Error ? error.message : 'CodeAI could not start the build.' });
       }
     })();
-  }, [projectId]);
+  }, [refresh]);
 
   return {
     ...lifecycleView(flow, now),

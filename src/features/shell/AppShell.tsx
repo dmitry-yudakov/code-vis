@@ -326,11 +326,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const selectedCheckoutId = view?.selectedCheckoutId;
   // Reports are this home machine's; a remote executor's project is never CodeAI's own checkout here.
   const reports = useImmersiveReports(workspaceMachineId ? undefined : projectId);
-  // Build & restart operates this home machine's own installation, so it too follows a local project.
-  const lifecycle = useCodeAiLifecycle(workspaceMachineId ? undefined : projectId);
+  // Build & restart always operates the home installation, including from an executor's chat or Arena.
+  const lifecycle = useCodeAiLifecycle(projectId);
   useEffect(() => {
-    if (lifecycle.error) notify({ key: 'codeai-lifecycle', tone: 'error', message: lifecycle.error });
-  }, [lifecycle.error, notify]);
+    if (immersiveActive && lifecycle.error) notify({ key: 'codeai-lifecycle', tone: 'error', message: lifecycle.error });
+  }, [immersiveActive, lifecycle.error, notify]);
   const pendingReportIds = view?.pendingReportIds ?? [];
   const setComposer = useCallback((value: SetStateAction<string>) => {
     if (!sessionId) return;
@@ -404,8 +404,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     return result?.pending || result?.retryable;
   })?.requestId;
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
-  const projectCheckoutName = checkouts.find((checkout) => checkout.id
-    === selectedProject?.repositories.find((binding) => binding.role === 'primary')?.checkoutId)?.name || 'this checkout';
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
     return [...checkouts].sort((left, right) => {
@@ -2762,7 +2760,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onRemove: removeReport,
               } : undefined,
               codeai: lifecycle.available ? {
-                status: lifecycle.status || '', confirmation: lifecycleConfirmation(projectCheckoutName),
+                status: lifecycle.status || '', confirmation: lifecycleConfirmation(),
                 confirming: lifecycle.confirming, canRequest: lifecycle.canRequest,
                 onAsk: lifecycle.ask, onConfirm: lifecycle.confirm, onDismiss: lifecycle.dismiss,
               } : undefined,
@@ -2859,9 +2857,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             {(!providerHealth?.available || providerHealth.message) && (
               <Chip className="health-pill" variant="outlined" color="warning" title={providerHealth?.message || health?.message || 'Local readiness'} label={providerHealth?.available ? `${PROVIDER_LABELS[activeProvider]} ready` : 'Setup needed'} />
             )}
-            {lifecycle.badge && (
-              <Chip className="health-pill lifecycle-pill" role="status" color="warning" variant="outlined" title={lifecycle.status} label={lifecycle.badge} />
-            )}
             {!compact && <DeviceMenu />}
             {!compact && !arenaOpen && session && (
               <LayoutToggles
@@ -2879,7 +2874,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
 
       <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />
-      {!loading && !immersiveActive && <CodeAiLifecycleDialog lifecycle={lifecycle} checkoutName={projectCheckoutName} />}
+      {!loading && !immersiveActive && <CodeAiLifecycleDialog lifecycle={lifecycle} />}
       {!loading && <MachineSettingsDialog
         open={machineSettingsOpen}
         securityLevel={arena.machines.find((entry) => entry.machine.kind === 'local')?.securityLevel || 'guarded'}
@@ -2916,7 +2911,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               </>}
               <DeviceMenu />
               {providerHealth && (!providerHealth.available || providerHealth.message) && <p>{providerHealth.message || 'Provider setup needed'}</p>}
-              {lifecycle.badge && <p>{lifecycle.status || lifecycle.badge}</p>}
             </>}
             <Button type="button" variant="text" color="inherit" onClick={openMachineSettings} aria-description={availableProviderUpdateCount > 0 ? 'Docker agent updates available' : undefined}>
               Machine settings

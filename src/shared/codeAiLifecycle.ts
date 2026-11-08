@@ -48,7 +48,8 @@ export type CodeAiLifecycleSnapshot = z.infer<typeof codeAiLifecycleSnapshotSche
 
 export const buildAndRestartRequestSchema = z.object({
   action: z.literal('build-and-restart'),
-  projectId: z.string().uuid(),
+  /** Accepted for older clients; the supervisor always builds its own installation. */
+  projectId: z.string().uuid().optional(),
 }).strict();
 export type BuildAndRestartRequest = z.infer<typeof buildAndRestartRequestSchema>;
 

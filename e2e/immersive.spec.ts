@@ -2974,12 +2974,16 @@ test('Session tools’ CodeAI section needs a second, different control to build
   const operationId = '5b0c9a1e-3f4d-4e2a-9b1c-2d3e4f5a6b7c';
   const building = { available: true, phase: 'building', releaseId: 'release-a', operationId, startedAt: new Date().toISOString() };
   const posted: unknown[] = [];
+  let buildFailed = false;
   await page.route('**/api/codeai-lifecycle**', (route) => {
     if (route.request().method() === 'POST') {
       posted.push(route.request().postDataJSON());
       return route.fulfill({ status: 202, json: { snapshot: building } });
     }
-    return route.fulfill({ json: posted.length ? building : { available: true, phase: 'idle', releaseId: 'release-a' } });
+    return route.fulfill({ json: buildFailed ? {
+      available: true, phase: 'idle', releaseId: 'release-a',
+      lastOperation: { operationId, outcome: 'build-failed', finishedAt: new Date().toISOString(), detail: 'The headset build failed.' },
+    } : posted.length ? building : { available: true, phase: 'idle', releaseId: 'release-a' } });
   });
   await installAdapter(page);
   await page.goto('/');
@@ -3004,8 +3008,11 @@ test('Session tools’ CodeAI section needs a second, different control to build
   expect(posted).toEqual([]);
 
   await sessionAction(page, 'build-restart'); await sessionAction(page, 'confirm-build-restart');
-  await expect.poll(() => posted).toEqual([{ action: 'build-and-restart', projectId: project.id }]);
+  await expect.poll(() => posted).toEqual([{ action: 'build-and-restart' }]);
   await expect.poll(async () => (await sessionToolsState(page))?.text).toContain('Building CodeAI');
+  await sessionAction(page, 'back');
+  buildFailed = true;
+  await expect.poll(async () => (await workspaceStatus(page))?.detail).toContain('The headset build failed.');
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
   await released(page);
 });

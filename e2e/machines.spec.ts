@@ -156,6 +156,17 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
   releaseReadiness(); await refreshedHome; delayedHomeReadiness = undefined;
+  // Restart is a home-machine action even with an attached executor's conversation open.
+  await page.route('**/api/codeai-lifecycle**', route => {
+    expect(new URL(route.request().url()).pathname).toBe('/api/codeai-lifecycle');
+    return route.fulfill({ json: { available: true, phase: 'idle', releaseId: 'home-release' } });
+  });
+  await page.locator('.more-menu > button').click();
+  await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
+  const restart = page.getByRole('dialog', { name: 'Build and restart CodeAI?' });
+  await expect(restart).toContainText('installed CodeAI checkout');
+  await expect(restart).not.toContainText('remote-repo');
+  await restart.getByRole('button', { name: 'Cancel', exact: true }).click();
   if (securityLevel === 'native') {
     await expect(conversation.locator('.execution-line')).toContainText('Native');
     await conversation.locator('.mode-menu > button').click();
@@ -217,7 +228,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   await arena.getByRole('button', { name: 'Refresh' }).click();
   await expect(remoteMachine).toContainText('Offline');
-  await expect(remoteMachine.getByRole('link', { name: 'Open Work on the laptop' })).toBeDisabled();
+  await expect(remoteMachine.getByRole('button', { name: 'Open Work on the laptop' })).toBeDisabled();
 });
 
 }

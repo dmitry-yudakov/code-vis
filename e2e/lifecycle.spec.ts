@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { CheckoutsResponse, DurableProject } from '../src/shared/types';
+import { LIFECYCLE_REQUEST_TIMEOUT_MS, RECONNECT_LIMIT_MS } from '../src/features/lifecycle/lifecycleFlow';
 
 // The end-to-end server is plain `next start`, which no start:managed parent spawned (Story 64).
 test('an unmanaged server offers no Build & restart, even in CodeAI’s own project, and refuses the request', async ({ page, request, baseURL }) => {
@@ -29,7 +30,7 @@ test('an unmanaged server offers no Build & restart, even in CodeAI’s own proj
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
 });
 
-test('a managed server’s control confirms, follows the build and restart, and reloads into the same project', async ({ page, request }, testInfo) => {
+test('a managed server confirms and blocks the UI through build, failure, restart and reload from an ordinary chat', async ({ page, request }, testInfo) => {
   const stamp = Date.now();
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
   const create = async (name: string, relativePath: string) => {
@@ -38,9 +39,9 @@ test('a managed server’s control confirms, follows the build and restart, and 
     await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } });
     return project;
   };
-  const self = await create(`Managed self ${stamp}`, 'installation');
+  const self = await create(`Ordinary chat ${stamp}`, 'alpha');
   // Newer, so an ordinary page load would open it instead.
-  await create(`Opened first ${stamp}`, 'alpha');
+  await create(`Opened first ${stamp}`, 'installation');
 
   // This server is unmanaged; the route stands in for a managed one through a whole operation.
   const operationId = '5b0c9a1e-3f4d-4e2a-9b1c-2d3e4f5a6b7c';
@@ -70,9 +71,6 @@ test('a managed server’s control confirms, follows the build and restart, and 
       phase = 'building';
       return route.fulfill({ status: 202, json: { snapshot: snapshots.building } });
     }
-    if (new URL(route.request().url()).searchParams.get('projectId') !== self.id) {
-      return route.fulfill({ json: { available: false, reason: 'not-self-project' } });
-    }
     if (phase === 'gone') return route.abort('connectionrefused');
     return route.fulfill({ json: snapshots[phase] });
   });
@@ -91,7 +89,7 @@ test('a managed server’s control confirms, follows the build and restart, and 
       await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
       await expect(page.locator('.desktop-picker-paper:visible')).toHaveCount(0);
       await expect(dialog).toBeVisible();
-      await expect(dialog).toHaveAccessibleDescription(/from installation\?.*uncommitted changes included.*runs it on this machine.*VR session ends/);
+      await expect(dialog).toHaveAccessibleDescription(/from the installed CodeAI checkout\?.*uncommitted changes included.*runs it on this machine.*VR session ends/);
       await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
       for (const element of [dialog, dialog.locator('#lifecycle-confirmation-description'),
         dialog.getByRole('button', { name: 'Cancel' }), dialog.getByRole('button', { name: 'Build and restart', exact: true })]) {
@@ -107,46 +105,45 @@ test('a managed server’s control confirms, follows the build and restart, and 
     }
   }
   await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByPlaceholder(/Ask anything about this project/).fill('Kept for after the restart');
   rejectNext = true;
   await menu.locator(':scope > button').click();
   await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
   await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await expect(page.locator('.toast').filter({ hasText: 'Agent turns are queued or running.' })).toHaveAttribute('data-tone', 'error');
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Agent turns are queued or running.');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
-  const buildRequest = { action: 'build-and-restart', projectId: self.id };
+  const buildRequest = { action: 'build-and-restart' };
   expect(posted).toEqual([buildRequest]);
   await menu.locator(':scope > button').click();
   await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
   await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
-  await expect(page.locator('.lifecycle-pill')).toContainText('Building CodeAI');
+  await expect(page.getByRole('dialog')).toContainText('Building CodeAI');
   phase = 'failed';
-  const failure = page.locator('.toast').filter({ hasText: 'The build failed with exit code 1.' });
-  await expect(failure).toHaveAttribute('data-tone', 'error');
+  const failure = page.getByRole('dialog').getByRole('alert');
+  await expect(failure).toContainText('The build failed with exit code 1.');
   await expect(failure).toContainText('The current release is still running.');
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
-  phase = 'idle';
-  await menu.locator(':scope > button').click();
-  await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('Serving release release-a.');
-  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Build & restart CodeAI' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('from installation?');
+  await expect(dialog).toContainText('from the installed CodeAI checkout?');
   await expect(dialog).toContainText('runs it on this machine');
   expect(posted).toEqual([buildRequest, buildRequest]);
   await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
-  await expect(dialog).toBeHidden();
-
-  await expect(page.locator('.lifecycle-pill')).toContainText('Building CodeAI');
+  await expect(page.getByRole('dialog')).toContainText('Building CodeAI');
   expect(posted).toEqual([buildRequest, buildRequest, buildRequest]);
-  // New turns wait for the restart, and the draft stays.
-  const composer = page.getByPlaceholder(/Ask anything about this project/);
-  await composer.fill('Kept for after the restart');
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.locator('.toast').filter({ hasText: 'building a new release of itself' })).toHaveAttribute('data-tone', 'warning');
-  await expect(composer).toHaveValue('Kept for after the restart');
+  // The active modal blocks background actions, Escape, and backdrop dismissal.
+  await page.keyboard.press('Escape');
+  await page.mouse.click(5, 5);
+  await expect(page.getByRole('dialog')).toContainText('Building CodeAI');
+  await expect(page.getByRole('dialog').getByRole('button')).toHaveCount(0);
+  const blocked = await menu.locator(':scope > button').click({ timeout: 500 }).then(() => false, () => true);
+  expect(blocked).toBe(true);
+  await page.keyboard.press('Tab');
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('.MuiDialog-root')))).toBe(true);
 
   phase = 'restarting';
-  await expect(page.locator('.lifecycle-pill')).toContainText('Restarting CodeAI', { timeout: 10_000 });
+  await expect(page.getByRole('dialog')).toContainText('Restarting CodeAI', { timeout: 10_000 });
   phase = 'gone';
   await page.evaluate(() => { (window as Window & { beforeRestart?: boolean }).beforeRestart = true; });
   await page.waitForTimeout(2_500);
@@ -162,4 +159,129 @@ test('a managed server’s control confirms, follows the build and restart, and 
   await expect(page.locator('.desktop-picker-paper:visible').getByRole('status')).toContainText('the new release is running');
   await expect(page.locator('.lifecycle-pill')).toHaveCount(0);
   expect(posted).toHaveLength(3);
+});
+
+for (const theme of ['light', 'dark']) {
+  for (const width of [1280, 360]) {
+    test(`restart is available from Arena without a selected project and keeps submission and progress in the modal, ${theme}, ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 640 });
+      await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+      await page.route('**/api/projects', route => route.fulfill({ json: { projects: [] } }));
+      const building = {
+        available: true, phase: 'building', releaseId: 'release-a',
+        operationId: '5b0c9a1e-3f4d-4e2a-9b1c-2d3e4f5a6b7c', startedAt: new Date().toISOString(),
+      };
+      let releaseRequest!: () => void;
+      const requestGate = new Promise<void>(resolve => { releaseRequest = resolve; });
+      const posted: unknown[] = [];
+      await page.route('**/api/codeai-lifecycle**', async route => {
+        expect(new URL(route.request().url()).pathname).toBe('/api/codeai-lifecycle');
+        expect(new URL(route.request().url()).search).toBe('');
+        if (route.request().method() === 'POST') {
+          posted.push(route.request().postDataJSON());
+          await requestGate;
+          return route.fulfill({ status: 202, json: { snapshot: building } });
+        }
+        return route.fulfill({ json: posted.length ? building : { available: true, phase: 'idle', releaseId: 'release-a' } });
+      });
+      await page.goto('/arena');
+      await expect(page.getByRole('main', { name: 'Arena', exact: true })).toBeVisible();
+      await page.locator('.more-menu > button').click();
+      await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
+      await expect(dialog).toContainText('Starting build');
+      await page.keyboard.press('Escape');
+      await page.mouse.click(5, 5);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole('button')).toHaveCount(0);
+      expect(posted).toEqual([{ action: 'build-and-restart' }]);
+      releaseRequest();
+      await expect(dialog).toContainText('Building CodeAI');
+      await expect(dialog.getByRole('progressbar')).toBeVisible();
+      await expect(dialog).toBeInViewport({ ratio: 1 });
+      await expect(dialog.locator('#lifecycle-confirmation-description')).toBeInViewport({ ratio: 1 });
+      await page.screenshot({ path: testInfo.outputPath(`restart-progress-${theme}-${width}.png`), animations: 'disabled' });
+      // A page opened mid-build adopts the same blocking progress without another request.
+      await page.reload();
+      await expect(dialog).toContainText('Building CodeAI');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeVisible();
+      expect(posted).toHaveLength(1);
+    });
+  }
+}
+
+test('progress discovered while More is open blocks its controls too', async ({ page }) => {
+  let building = false;
+  await page.route('**/api/codeai-lifecycle**', route => route.fulfill({ json: building ? {
+    available: true, phase: 'building', releaseId: 'release-a',
+    operationId: '5b0c9a1e-3f4d-4e2a-9b1c-2d3e4f5a6b7c', startedAt: new Date().toISOString(),
+  } : { available: true, phase: 'idle', releaseId: 'release-a' } }));
+  await page.goto('/arena');
+  await expect(page.getByRole('main', { name: 'Arena', exact: true })).toBeVisible();
+  building = true;
+  await page.locator('.more-menu > button').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Building CodeAI');
+  const settings = page.getByRole('button', { name: 'Machine settings', exact: true });
+  const blocked = await settings.click({ timeout: 500 }).then(() => false, () => true);
+  expect(blocked).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+});
+
+test('an uncertain submission reconciles progress and stalled reconnect requests eventually allow recovery', async ({ page }) => {
+  const building = {
+    available: true, phase: 'building', releaseId: 'release-a',
+    operationId: '5b0c9a1e-3f4d-4e2a-9b1c-2d3e4f5a6b7c', startedAt: new Date().toISOString(),
+  };
+  let posted = 0;
+  let stallReads = false;
+  let stalledReads = 0;
+  let releaseRequests!: () => void;
+  const gate = new Promise<void>(resolve => { releaseRequests = resolve; });
+  await page.route('**/api/codeai-lifecycle**', async route => {
+    if (route.request().method() === 'POST' || stallReads) {
+      if (route.request().method() === 'POST') posted += 1;
+      else stalledReads += 1;
+      await gate;
+      await route.abort().catch(() => undefined);
+      return;
+    }
+    return route.fulfill({ json: posted ? building : { available: true, phase: 'idle', releaseId: 'release-a' } });
+  });
+  try {
+    await page.goto('/arena');
+    await expect(page.getByRole('main', { name: 'Arena', exact: true })).toBeVisible();
+    await page.clock.install();
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
+    await expect(dialog).toContainText('Starting build');
+    await page.clock.fastForward(LIFECYCLE_REQUEST_TIMEOUT_MS + 1);
+    await expect(dialog).toContainText('Building CodeAI');
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+    expect(posted).toBe(1);
+    stallReads = true;
+    await page.clock.fastForward(2_001);
+    await expect.poll(() => stalledReads).toBe(1);
+    await page.clock.fastForward(LIFECYCLE_REQUEST_TIMEOUT_MS + 1);
+    await expect(dialog).toContainText('Restarting CodeAI');
+    const now = await page.evaluate(() => Date.now());
+    await page.clock.setSystemTime(now + RECONNECT_LIMIT_MS + 1);
+    await page.clock.fastForward(1_001);
+    await expect.poll(() => stalledReads).toBe(2);
+    await page.clock.fastForward(LIFECYCLE_REQUEST_TIMEOUT_MS + 1);
+    await expect(dialog.getByRole('alert')).toContainText('did not come back within five minutes');
+    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeVisible();
+    stallReads = false;
+    await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
+    await expect(dialog).toContainText('Building CodeAI');
+    expect(posted).toBe(1);
+  } finally {
+    releaseRequests();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });

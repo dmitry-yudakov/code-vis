@@ -160,7 +160,7 @@ describe.sequential('the CodeAI lifecycle route', () => {
     });
   }
 
-  const snapshot = async (projectId: string) => (await GET(request(`/api/codeai-lifecycle?projectId=${projectId}`))).json();
+  const snapshot = async (projectId?: string) => (await GET(request(`/api/codeai-lifecycle${projectId ? `?projectId=${projectId}` : ''}`))).json();
   const start = (body: unknown, headers?: Record<string, string>) => POST(request('/api/codeai-lifecycle', { method: 'POST', body, headers }));
 
   beforeEach(async () => {
@@ -197,14 +197,14 @@ describe.sequential('the CodeAI lifecycle route', () => {
     expect(getConfig().installationRoot).not.toBe(installation);
   });
 
-  it('is available only for the exact local self project of a managed server', async () => {
+  it('is available across projects and without a selected project on the managed home machine', async () => {
     const self = await project('Renamed anything', 'installation');
     const copy = await project('CodeAI', 'copies/code-ai');
     const reference = await project('Reference only', 'installation', 'reference');
     expect(await snapshot(self.id)).toEqual({ available: true, phase: 'idle', releaseId: 'release-a' });
-    expect(await snapshot(copy.id)).toEqual({ available: false, reason: 'not-self-project' });
-    expect(await snapshot(reference.id)).toEqual({ available: false, reason: 'not-self-project' });
-    expect(await snapshot(crypto.randomUUID())).toEqual({ available: false, reason: 'not-self-project' });
+    for (const projectId of [undefined, copy.id, reference.id, crypto.randomUUID()]) {
+      expect(await snapshot(projectId)).toEqual({ available: true, phase: 'idle', releaseId: 'release-a' });
+    }
 
     // An initialization outside the contract never makes a server managed.
     delete globalScope.__codeAiLifecycle;
@@ -232,11 +232,12 @@ describe.sequential('the CodeAI lifecycle route', () => {
 
   it('accepts only the fixed action from the exact origin, and starts one build', async () => {
     const self = await project('CodeAI', 'installation');
-    const valid = { action: 'build-and-restart', projectId: self.id };
+    const valid = { action: 'build-and-restart' };
     expect((await start(valid, { Origin: 'https://elsewhere.test' })).status).toBe(403);
     for (const body of [
-      { ...valid, command: 'npm run build' }, { ...valid, action: 'restart' }, { action: 'build-and-restart' },
+      { ...valid, command: 'npm run build' }, { ...valid, action: 'restart' }, { ...valid, projectId: 'invalid' },
       { ...valid, slot: '.next-managed-a' }, { ...valid, env: { NODE_OPTIONS: '--inspect' } },
+      { ...valid, installationRoot: '/other-project' },
     ]) expect((await start(body)).status, JSON.stringify(body)).toBe(400);
     expect(fake.sent).toEqual([]);
 
@@ -261,13 +262,18 @@ describe.sequential('the CodeAI lifecycle route', () => {
     expect((await start({ action: 'build-and-restart', projectId: self.id })).status).toBe(202);
   });
 
-  it('refuses another project, an unmanaged server, and a machine with a live run', async () => {
-    const self = await project('CodeAI', 'installation');
+  it('accepts legacy project selection without changing the installation being built', async () => {
     const copy = await project('CodeAI', 'copies/code-ai');
-    expect((await start({ action: 'build-and-restart', projectId: copy.id })).status).toBe(400);
+    expect((await start({ action: 'build-and-restart', projectId: copy.id })).status).toBe(202);
+    expect(fake.sent).toEqual([{ type: 'lifecycle-request', operationId: expect.any(String), action: 'build-and-restart' }]);
+    expect(getConfig().installationRoot).toBe(installation);
+  });
+
+  it('refuses an unmanaged server and a machine with a live run without requiring a project', async () => {
+    const self = await project('CodeAI', 'installation');
 
     const runId = reserveRun(runRegistry);
-    const busy = await start({ action: 'build-and-restart', projectId: self.id });
+    const busy = await start({ action: 'build-and-restart' });
     expect(busy.status).toBe(409);
     expect((await busy.json()).error).toContain('Agent turns are queued or running');
     runRegistry.release(runId);

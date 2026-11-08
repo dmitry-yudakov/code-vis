@@ -47,7 +47,9 @@
     ".next-e2e-message-navigation/types/**/*.ts",
     ".next-e2e-message-navigation/dev/types/**/*.ts",
     ".next-e2e/inset-panes/types/**/*.ts",
-    ".next-e2e/inset-panes/dev/types/**/*.ts"
+    ".next-e2e/inset-panes/dev/types/**/*.ts",
+    ".next-e2e/arena-archive/types/**/*.ts",
+    ".next-e2e/arena-archive/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
