@@ -3027,6 +3027,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : arenaOpen && health ? (
         <Arena
           machines={arena.machines}
+          activeOrder={arena.activeOrder}
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}

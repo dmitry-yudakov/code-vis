@@ -215,7 +215,9 @@ Updated 2026-11-08. When a story ships, change the line that names it; each stor
   independent review pass. The compact-header follow-up moves shared repositories to project headings
   and puts title/Archive above status/agent/context/time; 25 focused unit checks, 39 distinct browser
   cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
-  review pass. The running app has not been rebuilt or restarted.
+  review pass. Active projects and cards now keep their initial positions until page reload, with
+  new items appended; 30 focused unit checks, 30 production-browser checks, TypeScript, isolated
+  build and independent review pass. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 133](stories/STORY-20261107-responsive-chat-drafts.md) — desktop typing
   updates the composer directly, with coalesced draft saves and synchronous latest-text sending.
   All 128 focused unit checks, 53 distinct production-browser cases, TypeScript, isolated build

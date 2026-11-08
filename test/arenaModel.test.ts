@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   acknowledgeAttention, arenaSessionState, buildArenaInbox, buildMultiMachineInbox, EMPTY_DEVICE_ARENA_STATE,
-  groupArenaSessions, parseDeviceArenaState, unreadArenaAttention,
+  groupArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, unreadArenaAttention, type ArenaActiveOrder,
 } from '@/features/arena/arenaModel';
 import type { ArenaMachineSnapshot, ArenaSessionSummary, DurableProject, RunDescriptor, RunDiscovery } from '@/shared/types';
 
@@ -111,6 +111,58 @@ describe('Arena presentation model', () => {
     expect(groups.map(group => group.name)).toEqual(['Active', 'Empty']);
     expect(groups[1].sessions).toEqual([]);
     expect(groupArenaSessions(projects, [], discovery, true, true, true).map(group => group.name)).toEqual(['Empty', 'Active']);
+  });
+
+  it('retains initial Active positions while showing current titles, project names, activity and attention', () => {
+    const projects = [project(PROJECT_A, 'Alpha', '2026-09-01'), project(PROJECT_B, 'Beta', '2026-09-02')];
+    const sessions = [session(SESSION_A, '2026-09-03T10:00:00Z', PROJECT_A),
+      session(SESSION_B, '2026-09-03T12:00:00Z', PROJECT_B), session(SESSION_C, '2026-09-03T11:00:00Z', PROJECT_A)];
+    const order: ArenaActiveOrder = new Map();
+    rememberArenaActiveOrder(order, groupArenaSessions(projects, sessions, { active: [], recent: [] }));
+    const changed = sessions.map(item => item.id === SESSION_A ? { ...item, title: 'Updated title', updatedAt: '2026-11-08T12:00:00Z' } : item);
+    const discovery: RunDiscovery = { active: [run({ runId: 'live', sessionId: SESSION_A, state: 'needs-you', status: 'Approve this command' })], recent: [] };
+    projects[0] = { ...projects[0], name: 'Renamed Alpha' };
+    // Remembering another snapshot only adds new positions; it cannot change existing ones.
+    rememberArenaActiveOrder(order, groupArenaSessions(projects, changed, discovery));
+    const groups = groupArenaSessions(projects, changed, discovery, true, true, true, order);
+    expect(groups.map(group => group.name)).toEqual(['Beta', 'Renamed Alpha']);
+    expect(groups[1].sessions.map(card => card.session.id)).toEqual([SESSION_C, SESSION_A]);
+    expect(groups[1].sessions[1]).toMatchObject({ session: { title: 'Updated title' }, state: 'needs-you', activity: 'Approve this command' });
+    expect(groupArenaSessions(projects, changed, discovery)[0].sessions[0].session.id).toBe(SESSION_A);
+    const offline = groupArenaSessions(projects, changed, discovery, false, false, true, order);
+    expect(offline.map(group => group.id)).toEqual([PROJECT_B, PROJECT_A]);
+    expect(offline[1].sessions.map(card => card.state)).toEqual(['offline', 'offline']);
+  });
+
+  it('appends newly observed projects and sessions without moving empty projects or existing cards', () => {
+    const projects = [project(PROJECT_A, 'Alpha', '2026-09-01'), project(PROJECT_B, 'Empty', '2026-09-02')];
+    const discovery: RunDiscovery = { active: [], recent: [] };
+    const sessions = [session(SESSION_A, '2026-09-03T10:00:00Z', PROJECT_A)];
+    const order: ArenaActiveOrder = new Map();
+    const group = () => groupArenaSessions(projects, sessions, discovery, true, true, true, order);
+    rememberArenaActiveOrder(order, group());
+    projects.push(project('new-project', 'Newest project', '2026-11-08'));
+    sessions.push(session(SESSION_C, '2026-11-08T13:00:00Z', PROJECT_A), session(SESSION_B, '2026-11-08T14:00:00Z', PROJECT_B));
+    rememberArenaActiveOrder(order, groupArenaSessions(projects, sessions, discovery, true, true, true));
+    const groups = group();
+    expect(groups.map(group => group.name)).toEqual(['Alpha', 'Empty', 'Newest project']);
+    expect(groups[0].sessions.map(card => card.session.id)).toEqual([SESSION_A, SESSION_C]);
+    expect(groups[1].sessions.map(card => card.session.id)).toEqual([SESSION_B]);
+  });
+
+  it('removes absent cards and restores their positions when they reappear, without retaining stale content', () => {
+    const discovery: RunDiscovery = { active: [], recent: [] };
+    const sessions = [session(SESSION_A, '2026-09-03T12:00:00Z'), session(SESSION_B, '2026-09-03T11:00:00Z')];
+    const order: ArenaActiveOrder = new Map();
+    rememberArenaActiveOrder(order, groupArenaSessions([], sessions, discovery));
+    expect(groupArenaSessions([], [], discovery, true, true, true, order)).toEqual([]);
+    const remaining = groupArenaSessions([], sessions.slice(1), discovery, true, true, true, order);
+    rememberArenaActiveOrder(order, remaining);
+    expect(remaining[0].sessions.map(card => card.session.id)).toEqual([SESSION_B]);
+    const restored = { ...sessions[0], title: 'Restored', updatedAt: '2026-09-01T00:00:00Z' };
+    const groups = groupArenaSessions([], [sessions[1], restored], discovery, true, true, true, order);
+    expect(groups[0].sessions.map(card => card.session.id)).toEqual([SESSION_A, SESSION_B]);
+    expect(groups[0].sessions[0].session.title).toBe('Restored');
   });
 
   it('orders archived cards by archive time even when later metadata changed updatedAt', () => {

@@ -29,6 +29,22 @@ export interface ArenaProjectGroup {
   updatedAt: string;
 }
 
+/** In-memory positions for one machine's Active view, retained until the page reloads. */
+export type ArenaActiveOrder = Map<string, { index: number; sessions: Map<string, number> }>;
+
+export function rememberArenaActiveOrder(order: ArenaActiveOrder, groups: readonly ArenaProjectGroup[]): void {
+  for (const group of groups) {
+    let position = order.get(group.id);
+    if (!position) {
+      position = { index: order.size, sessions: new Map() };
+      order.set(group.id, position);
+    }
+    for (const card of group.sessions) {
+      if (!position.sessions.has(card.session.id)) position.sessions.set(card.session.id, position.sessions.size);
+    }
+  }
+}
+
 export interface ArenaAttentionItem {
   id: string;
   kind: ArenaAttentionKind;
@@ -106,6 +122,7 @@ export function groupArenaSessions(
   machineOnline = true,
   fresh = true,
   includeEmptyProjects = false,
+  order?: ArenaActiveOrder,
 ): ArenaProjectGroup[] {
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const active = activeBySession(discovery);
@@ -145,10 +162,20 @@ export function groupArenaSessions(
   const groups = [...grouped.values()];
   for (const group of groups) group.sessions.sort((left, right) => ATTENTION_RANK[left.state] - ATTENTION_RANK[right.state]);
   const rank = (group: ArenaProjectGroup) => group.sessions.length ? ATTENTION_RANK[group.sessions[0].state] : 6;
-  return groups.sort((left, right) => (
+  groups.sort((left, right) => (
     rank(left) - rank(right)
     || right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name)
   ));
+  if (order) {
+    for (const group of groups) {
+      const positions = order.get(group.id)?.sessions;
+      if (positions) group.sessions.sort((left, right) => (
+        (positions.get(left.session.id) ?? positions.size) - (positions.get(right.session.id) ?? positions.size)
+      ));
+    }
+    groups.sort((left, right) => (order.get(left.id)?.index ?? order.size) - (order.get(right.id)?.index ?? order.size));
+  }
+  return groups;
 }
 
 export function parseDeviceArenaState(value: string | null): DeviceArenaState {

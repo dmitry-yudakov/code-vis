@@ -22,7 +22,7 @@ import type {
 } from '@/shared/types';
 import {
   buildMultiMachineInbox, groupArenaSessions, unreadArenaAttention,
-  type ArenaAttentionItem, type DeviceArenaState,
+  type ArenaActiveOrder, type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
 import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
@@ -80,6 +80,7 @@ function machineTime(machine: ArenaMachineSnapshot): string {
 
 export function Arena({
   machines,
+  activeOrder,
   deviceState,
   section,
   refreshError,
@@ -96,6 +97,7 @@ export function Arena({
   replyOptions,
 }: {
   machines: ArenaMachineSnapshot[];
+  activeOrder: ReadonlyMap<string, ArenaActiveOrder>;
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
@@ -197,7 +199,7 @@ export function Arena({
           {!sessions.length && !machines.some(machine => machine.projects.length) && <div className="arena-empty"><h2>No active sessions</h2><p>Create a project or start a new session.</p></div>}
           {machines.map((machine) => {
             const online = machine.machine.state === 'online';
-            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false, true);
+            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false, true, activeOrder.get(machine.machine.id));
             const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
             return (
               <section className={`arena-machine ${online ? 'online' : 'offline'} ${showMachines ? '' : 'solo'}`} aria-label={machine.machine.label} key={machine.machine.id}>

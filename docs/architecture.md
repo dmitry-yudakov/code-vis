@@ -266,6 +266,11 @@ stores only bounded finished-item read ids under `code-ai:device:v1:arena`, and 
 live permission locally. Revisioned archive/restore routes reject every live run reservation,
 including the pre-activation interval hidden from normal discovery.
 
+The browser's `useArena` owner retains each machine's Active project and session positions from
+its first snapshot until page reload. Later snapshots append new identities and update current
+content in place; navigation, refresh and reconnect preserve positions, including returning sessions.
+Inbox priority and Archived/immersive grouping keep their existing ordering.
+
 Desktop Active sessions can also use project-grouped tiles. Layout is optional device state;
 quick-reply text and captured uncertain-delivery UUID/mode/model/recipient survive reload in
 tab-local `sessionStorage`. Canonical histories and previews are never saved there. The shell owns

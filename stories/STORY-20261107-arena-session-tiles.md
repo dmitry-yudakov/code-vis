@@ -7,7 +7,8 @@
 Arena rows require opening a conversation to read the latest response or send a short reply.
 Offer an alternative desktop Tiles arrangement: one tile per session, grouped by project, with a
 latest-message excerpt, quick reply and existing permission controls. Keep List available for
-comparison, preserve attention/recency grouping, and retain the phone and immersive presentations.
+comparison, use attention/recency grouping on initial load, and retain the phone and immersive presentations.
+Active projects and cards keep those positions until page reload, as described in the follow-up below.
 
 ## Contracts
 
@@ -175,3 +176,29 @@ an archive request occurs. Follow-up review found no remaining material issue.
 The running installation has not been rebuilt or restarted. This follow-up changes presentation
 only; real signed-in providers, attached-executor transport and physical phone/Quest use were not
 rerun. Existing fixture-based previews, replies, approval handling, archive and archived-context checks pass.
+
+## Stable positions follow-up — November 8, 2026
+
+Active project groups and session cards kept jumping when live status or activity time changed.
+Keep their initial attention/recency order for the browser page's lifetime, in List, Tiles and the
+phone list. New projects append within their machine; new cards append within their project.
+Empty projects stay in place when their first session arrives. Removed sessions disappear, while
+returning sessions recover their previous position. A full reload establishes a new initial order.
+
+`useArena` remembers only machine/project/session identity positions; current snapshots continue to
+supply status, titles, previews and actions. The persistent shell owns these positions, so navigation,
+manual refresh, failed refresh recovery and reconnect cannot reset them. Inbox priority and the
+Archived/immersive presentations retain their existing ordering. No new persisted device state or
+server protocol is needed.
+
+The new browser regression failed against the preceding production bundle when an old session's
+approval moved its project ahead of the initially leading project. Focused unit checks cover live
+content, offline presentation, additions, empty projects and removal/return. Browser checks cover
+List, Tiles and phone layouts through live approval/failure changes, draft/preview updates, a real
+conversation round trip, refresh failure/recovery, reload, additions and returning cards.
+
+All **30 focused unit checks** pass (`arenaModel`, `arenaSubscription`, `arenaReplyDrafts`,
+`immersiveModel`), and **30 production-browser checks** pass (`arena-order`, `arena-tiles`,
+`arena-inbox`, `arena-projects`). TypeScript, the isolated `.next-e2e` production build,
+`git diff --check` and independent read-only review pass. The running installation has not been
+rebuilt or restarted; real providers, attached-executor transport and physical devices were not exercised.

@@ -6,7 +6,7 @@ import { useDeviceAccess } from '@/features/devices/DeviceAccess';
 import { subscribeArena } from './arenaSubscription';
 import {
   acknowledgeAttention, DEVICE_ARENA_STORAGE_KEY, EMPTY_DEVICE_ARENA_STATE,
-  parseDeviceArenaState, type DeviceArenaState,
+  groupArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, type ArenaActiveOrder, type DeviceArenaState,
 } from './arenaModel';
 
 export function useArena() {
@@ -16,6 +16,7 @@ export function useArena() {
   const [deviceState, setDeviceState] = useState<DeviceArenaState>(EMPTY_DEVICE_ARENA_STATE);
   const [deviceReady, setDeviceReady] = useState(false);
   const subscription = useRef<ReturnType<typeof subscribeArena> | undefined>(undefined);
+  const activeOrder = useRef(new Map<string, ArenaActiveOrder>());
   const { refresh: refreshAccess } = useDeviceAccess();
 
   useEffect(() => {
@@ -37,7 +38,16 @@ export function useArena() {
 
   useEffect(() => {
     const owner = subscribeArena({
-      snapshot: (snapshot: ArenaSnapshot) => setMachines(snapshot.machines),
+      snapshot: (snapshot: ArenaSnapshot) => {
+        for (const machine of snapshot.machines) {
+          const order = activeOrder.current.get(machine.machine.id) ?? new Map();
+          rememberArenaActiveOrder(order, groupArenaSessions(
+            machine.projects, machine.sessions, machine.runs, machine.machine.state === 'online', true, true,
+          ));
+          activeOrder.current.set(machine.machine.id, order);
+        }
+        setMachines(snapshot.machines);
+      },
       connected: setConnected, error: setRefreshError, unauthorized: () => void refreshAccess(),
     });
     subscription.current = owner;
@@ -77,6 +87,7 @@ export function useArena() {
 
   return {
     machines: machines.map((entry) => ({ ...entry, snapshotFresh: connected && !refreshError })),
+    activeOrder: activeOrder.current,
     sessions,
     archivedSessions,
     discovery,
