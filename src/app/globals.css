@@ -249,8 +249,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tile-preview p.expanded { display: block; max-height: 280px; overflow: auto; }
 .arena-tile-preview > .MuiButton-root { margin-top: 4px; padding-left: 0; }
 .arena-tile-reply { min-width: 0; display: grid; gap: 10px; margin-inline: -8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.arena-tile-reply:focus-within { border-top-color: var(--focus-color); box-shadow: 0 -1px 0 var(--focus-color); }
-.arena-tile-reply-field .MuiInputBase-root { align-items: flex-end; padding: 0; }
+.arena-tile-reply-field .MuiInputBase-root { align-items: center; min-height: 32px; padding: 0; }
 .arena-tile-reply-field .MuiInputAdornment-root { height: auto; max-height: none; }
 .arena-tile-permission { min-width: 0; padding: 10px; border: 1px solid var(--wait-line-strong); border-radius: 8px; background: var(--wait-backdrop); }
 .arena-tile-permission pre { max-height: 160px; margin: 6px 0 10px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 var(--mono); }
