@@ -49,6 +49,20 @@ afterEach(async () => {
 });
 
 describe('48-hour conversation auto archive', () => {
+  it('releases an idle predecessor only after inactivity archiving succeeds', async () => {
+    const predecessor = await seed(AGE + 1);
+    const runId = crypto.randomUUID();
+    const execute = vi.fn(async () => new Promise<void>(() => undefined));
+    runRegistry.reserve({ runId, sessionId: crypto.randomUUID(), participantId: 'agent', providerKey: runId, checkoutId: 'checkout',
+      access: 'read', waitForCheckout: true, blockedBySessions: [predecessor.id], cancel: () => undefined });
+    releaseRuns.push(() => runRegistry.finish(runId));
+    runRegistry.activate(runId, { execute, cancelQueued: async () => undefined });
+    expect(execute).not.toHaveBeenCalled();
+    await autoArchiveSessions(config, NOW);
+    await Promise.resolve();
+    expect((await store.getArchivedSession(predecessor.id)).archivedAt).toBeDefined();
+    expect(execute).toHaveBeenCalledOnce();
+  });
   it('archives only past the inactivity boundary, preserving complete content and leaving reads inert', async () => {
     const old = await seed(AGE + 1);
     const boundary = await seed(AGE);

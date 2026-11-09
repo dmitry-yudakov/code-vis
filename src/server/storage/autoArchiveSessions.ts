@@ -32,6 +32,7 @@ async function sweep(store: SessionStore, config: AppConfig, now: number): Promi
     if (!release) continue;
     try {
       await store.archiveSession(session.id, session.revision);
+      runRegistry.sessionArchived(session.id);
     } catch (error) {
       const code = sessionStoreErrorCode(error);
       // A newer saved change or another completed sweep wins; reconsider on the next request.

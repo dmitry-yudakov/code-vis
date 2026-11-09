@@ -56,7 +56,7 @@ export function ConversationDrawer({
   turn, liveMessageId, liveState, permissionFeedback, onRefreshPermissions, retryBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
-  onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan,
+  onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan, onEditQueuedMessage,
   continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onArchive, archiveDisabledReason, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports, paneControl,
 }: {
   open: boolean;
@@ -64,6 +64,7 @@ export function ConversationDrawer({
   paneControl?: ReactNode;
   turn?: TurnRecord;
   liveMessageId?: string;
+  onEditQueuedMessage?(messageId: string, text: string, expectedText: string): Promise<void>;
   retryBlocked?: boolean;
   liveState?: 'queued' | 'running' | 'needs-you';
   permissionFeedback?: Record<string, PermissionFeedback>;
@@ -199,6 +200,7 @@ export function ConversationDrawer({
     message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
     navigation={navigation.get(`message:${message.id}`)}
     running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
+    onEditQueuedMessage={message.id === liveMessageId && message.role === 'user' && message.turn?.lifecycle === 'queued' ? onEditQueuedMessage : undefined}
     executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
     onSelectDiagram={onSelectDiagram} onRetry={retryBlocked ? undefined : onRetry} onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined} />;
   return (

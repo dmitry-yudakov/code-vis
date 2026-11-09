@@ -1,5 +1,18 @@
-import { expect, test } from './arena-stream';
+import { expect, test, type APIRequestContext } from './arena-stream';
 import type { CheckoutsResponse, DurableProject, PublicSession, RunDiscovery } from '../src/shared/types';
+
+async function archiveEarlierFixtureSessions(request: APIRequestContext, checkoutId: string) {
+  const sessions = (await (await request.get('/api/sessions')).json()).sessions as PublicSession[];
+  const matching = sessions.filter(session => session.repositories.some(repository => repository.role === 'primary' && repository.checkoutId === checkoutId));
+  const ids = new Set(matching.map(session => session.id));
+  const runs = await (await request.get('/api/agent/runs')).json() as RunDiscovery;
+  for (const run of runs.active.filter(run => ids.has(run.sessionId))) await request.post('/api/agent/cancel', { data: { runId: run.runId } });
+  await expect.poll(async () => ((await (await request.get('/api/agent/runs')).json()) as RunDiscovery).active.filter(run => ids.has(run.sessionId)).length).toBe(0);
+  for (const session of matching) {
+    const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+    expect((await request.post(`/api/sessions/${session.id}/archive`, { data: { expectedRevision: saved.revision } })).ok()).toBe(true);
+  }
+}
 
 for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
   test(`queued setup preserves its draft and current checkout: ${theme} ${width}`, async ({ page, request }, testInfo) => {
@@ -23,7 +36,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(queue).toBeEnabled();
     await expect(dialog.getByRole('button', { name: 'Start in background', exact: true })).toBeEnabled();
     await queue.hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Starts after current turns on this repository finish. Keep CodeAI running.');
+    await expect(page.getByRole('tooltip')).toHaveText('Starts after earlier sessions on this repository are archived. Keep CodeAI running.');
     await message.focus();
     await message.fill('');
     await expect(queue).toBeDisabled();
@@ -87,7 +100,7 @@ for (const recovery of ['rejected', 'uncertain', 'edit-and-send'] as const) {
       await expect(dialog.getByRole('button', { name: 'Queue session', exact: true })).toBeDisabled();
       await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeEnabled();
       await message.fill('Start the edited task now');
-      await expect(dialog.getByText('Starts after current turns on this repository finish. Keep CodeAI running.', { exact: true })).toHaveCount(0);
+      await expect(dialog.getByText('Starts after earlier sessions on this repository are archived. Keep CodeAI running.', { exact: true })).toHaveCount(0);
       await expect(dialog.getByRole('button', { name: 'Start in background', exact: true })).toBeEnabled();
       await message.press('Enter');
     } else await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -102,9 +115,10 @@ for (const recovery of ['rejected', 'uncertain', 'edit-and-send'] as const) {
   });
 }
 
-test('a queued project task remains in Arena after reload and runs after the current turn', async ({ page, request }) => {
+test('a queued project task remains idle across reload and follow-ups, then runs after archive', async ({ page, request }) => {
   const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
   const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+  await archiveEarlierFixtureSessions(request, checkout.id);
   const project = (await (await request.post('/api/projects', { data: { name: `Project queue ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
   const current = (await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json()).session as PublicSession;
   const activeRunIds: string[] = [];
@@ -133,7 +147,7 @@ test('a queued project task remains in Arena after reload and runs after the cur
     expect(await response.headerValue('X-CodeAI-Run-State')).toBe('queued');
     activeRunIds.push((await response.headerValue('X-CodeAI-Run-Id'))!);
     await expect(dialog).toBeHidden();
-    await expect(page.getByText('Session queued. It will start when the repository is free.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Session queued. It will start after earlier sessions are archived.', { exact: true })).toBeVisible();
     await page.reload();
     const tile = page.locator('.arena-card').filter({ has: page.locator(`a[href*="session=${body.sessionId}"]`) });
     await expect(tile).toContainText('Queued');
@@ -142,7 +156,18 @@ test('a queued project task remains in Arena after reload and runs after the cur
     expect(snapshot.repositories.map(binding => binding.checkoutId)).toEqual([checkout.id]);
     expect(snapshot.worktree).toBeUndefined();
     expect(snapshot.messages.at(-1)).toMatchObject({ id: body.messageId, role: 'user', mode: 'plan', status: 'sending' });
-    // Let the fixture finish normally; the queued task must progress without another user action.
+    await expect.poll(async () => ((await (await request.get('/api/agent/runs')).json()) as RunDiscovery).active.some(run => run.runId === started.runId), { timeout: 25_000 }).toBe(false);
+    expect(((await (await request.get('/api/agent/runs')).json()) as RunDiscovery).active.find(run => run.sessionId === body.sessionId)).toMatchObject({ state: 'queued' });
+    // Follow-up work remains available even though another idea is waiting on this repository.
+    const followup = await request.post('/api/agent/message', { data: { sessionId: current.id, messageId: crypto.randomUUID(), participantId: current.primaryAgentId,
+      text: 'Continue the current conversation', mode: 'ask', diagramAttachments: [] } });
+    expect(followup.ok()).toBe(true);
+    await followup.text();
+    expect(((await (await request.get('/api/agent/runs')).json()) as RunDiscovery).active.find(run => run.sessionId === body.sessionId)).toMatchObject({ state: 'queued' });
+    const previous = (await (await request.get(`/api/sessions/${current.id}`)).json()).session as PublicSession;
+    const archived = await request.post(`/api/sessions/${current.id}/archive`, { data: { expectedRevision: previous.revision } });
+    expect(archived.ok()).toBe(true);
+    const archivedAt = Date.parse((await archived.json()).session.archivedAt);
     await expect.poll(async () => {
       const saved = (await (await request.get(`/api/sessions/${body.sessionId}`)).json()).session as PublicSession;
       return saved.messages.find(message => message.role === 'assistant')?.status;
@@ -150,8 +175,65 @@ test('a queued project task remains in Arena after reload and runs after the cur
     const discovery = await (await request.get('/api/agent/runs')).json() as RunDiscovery;
     const first = discovery.recent.find(run => run.runId === started.runId)!;
     const next = discovery.recent.find(run => run.sessionId === body.sessionId)!;
-    expect(next.startedAt).toBeGreaterThanOrEqual(first.finishedAt!);
+    expect(next.startedAt).toBeGreaterThanOrEqual(Math.max(first.finishedAt!, archivedAt));
   } finally {
     for (const runId of activeRunIds) await request.post('/api/agent/cancel', { data: { runId } });
   }
 });
+
+for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+  test(`edit a queued idea and retain failed saves: ${theme} ${width}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+    const project = (await (await request.post('/api/projects', { data: { name: `Editable idea ${theme} ${width} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    const current = (await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json()).session as PublicSession;
+    const first = await request.post('/api/agent/message', { data: { sessionId: current.id, messageId: crypto.randomUUID(), participantId: current.primaryAgentId, text: 'Current work', mode: 'ask', diagramAttachments: [] } });
+    expect(first.ok()).toBe(true); await first.text();
+    const next = (await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json()).session as PublicSession;
+    const messageId = crypto.randomUUID();
+    await page.goto(`/?session=${next.id}`);
+    const queued = await page.evaluate(async data => {
+      const response = await fetch('/api/agent/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const runId = response.headers.get('X-CodeAI-Run-Id');
+      await response.body?.cancel();
+      return { status: response.status, runId };
+    }, { sessionId: next.id, participantId: next.primaryAgentId, messageId, text: 'Original queued idea', mode: 'plan', waitForCheckout: true, diagramAttachments: [] });
+    expect(queued.status).toBe(200);
+    try {
+      await page.reload();
+      await page.getByRole('button', { name: 'Edit message', exact: true }).click();
+      const field = page.getByRole('textbox', { name: 'Queued message', exact: true });
+      await field.fill('Revised queued idea');
+      await page.route('**/api/agent/queued-message', route => route.fulfill({ status: 503, json: { error: 'Storage unavailable. Try saving again.' } }));
+      await page.getByRole('button', { name: 'Save message', exact: true }).click();
+      await expect(page.getByRole('complementary', { name: 'Conversation', exact: true }).getByRole('alert')).toContainText('Storage unavailable');
+      await expect(field).toHaveValue('Revised queued idea');
+      const dismiss = page.getByRole('button', { name: 'Dismiss notification', exact: true });
+      if (await dismiss.count()) { await dismiss.first().click(); await expect(dismiss).toHaveCount(0); }
+      await page.screenshot({ path: testInfo.outputPath('queued-edit.png'), animations: 'disabled' });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.unroute('**/api/agent/queued-message');
+      await page.getByRole('button', { name: 'Save message', exact: true }).click();
+      await expect(field).toHaveCount(0);
+      const saved = (await (await request.get(`/api/sessions/${next.id}`)).json()).session as PublicSession;
+      expect(saved.messages.at(-1)).toMatchObject({ id: messageId, role: 'user', text: 'Revised queued idea', mode: 'plan', turn: { runId: queued.runId } });
+      await page.reload();
+      await page.getByRole('button', { name: 'Edit message', exact: true }).click();
+      await expect(field).toHaveValue('Revised queued idea');
+      await field.fill('Unsaved local revision');
+      expect((await request.post('/api/agent/queued-message', { data: { runId: queued.runId, expectedText: 'Revised queued idea', text: 'Another device saved this' } })).ok()).toBe(true);
+      await page.getByRole('button', { name: 'Save message', exact: true }).click();
+      await expect(page.getByRole('complementary', { name: 'Conversation', exact: true }).getByRole('alert')).toContainText('another device');
+      await expect(field).toHaveValue('Unsaved local revision');
+      await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+      await expect(field).toHaveCount(0);
+      await page.reload();
+      await page.getByRole('button', { name: 'Edit message', exact: true }).click();
+      await expect(field).toHaveValue('Another device saved this');
+    } finally {
+      await request.post('/api/agent/cancel', { data: { runId: queued.runId } });
+    }
+  });
+}

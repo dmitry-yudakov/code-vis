@@ -6,6 +6,9 @@ import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
+import TextField from '@mui/material/TextField';
+import Alert from '@mui/material/Alert';
+import { MAX_MESSAGE_TEXT_CHARS } from '@/shared/limits';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 
 import ReactMarkdown from 'react-markdown';
@@ -29,7 +32,7 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, navigation }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onEditQueuedMessage, navigation }: {
   message: ChatMessageType;
   theme: ThemeName;
   participants: Participant[];
@@ -40,9 +43,13 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   onSelectDiagram(id: string): void;
   onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
   onExecutePlan?(participantId: string): void;
+  onEditQueuedMessage?(messageId: string, text: string, expectedText: string): Promise<void>;
   navigation?: ReactNode;
 }) {
   const [copyState, setCopyState] = useState<'copied' | 'failed'>();
+  const [edit, setEdit] = useState<{ text: string; original: string }>();
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string>();
   useEffect(() => {
     if (copyState !== 'copied') return;
     const timer = setTimeout(() => setCopyState(undefined), 2000);
@@ -60,7 +67,24 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
             {navigation}
           </Box>
         </div>
-        <p>{message.text}</p>
+        {edit ? <Box component="form" sx={{ display: 'grid', gap: 1, my: 1 }} onSubmit={async event => {
+          event.preventDefault();
+          if (saving || !edit.text.trim() || !onEditQueuedMessage) return;
+          setSaving(true); setEditError(undefined);
+          try { await onEditQueuedMessage(message.id, edit.text.trim(), edit.original); setEdit(undefined); }
+          catch (error) { setEditError(error instanceof Error ? error.message : 'Could not save. Your edit is kept.'); }
+          finally { setSaving(false); }
+        }}>
+          <TextField autoFocus fullWidth multiline minRows={3} maxRows={12} label="Queued message" value={edit.text} disabled={saving}
+            slotProps={{ htmlInput: { maxLength: MAX_MESSAGE_TEXT_CHARS } }}
+            onChange={event => setEdit({ ...edit, text: event.target.value })} />
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button type="submit" variant="contained" disabled={saving || !edit.text.trim() || liveState !== 'queued'}>{saving ? 'Saving…' : 'Save message'}</Button>
+            <Button type="button" disabled={saving} onClick={() => { setEdit(undefined); setEditError(undefined); }}>Cancel edit</Button>
+          </Box>
+          {liveState !== 'queued' && <Alert severity="warning">This turn has started. Your edit has not been sent.</Alert>}
+          {editError && <Alert severity="error">{editError}</Alert>}
+        </Box> : <p>{message.text}</p>}
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
         {message.reportAttachments?.length ? <div className="message-attachments report">{reportAttachmentSummary(message.reportAttachments)}</div> : null}
         {message.imageAttachments?.length ? <div className="message-attachments image">{imageAttachmentSummary(message.imageAttachments)}</div> : null}
@@ -69,6 +93,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
         {(liveState || message.status !== 'sent') && (
           <div className="message-state">
             <span>{liveState === 'queued' ? 'Queued' : liveState === 'needs-you' ? 'Needs approval' : liveState ? 'Working' : message.status === 'sending' ? 'Checking delivery' : message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
+            {liveState === 'queued' && onEditQueuedMessage && !edit && <Button type="button" onClick={() => { setEdit({ text: message.text, original: message.text }); setEditError(undefined); }}>Edit message</Button>}
             {onRetry && !running && !liveState && message.status !== 'sending' && <Button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
               message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent')}>Retry</Button>}
           </div>

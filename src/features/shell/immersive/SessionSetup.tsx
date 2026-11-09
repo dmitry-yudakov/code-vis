@@ -51,7 +51,7 @@ export function SessionSetup({ launcher, theme, onCapture, onController }: {
     : page === 'settings' ? [`Machine: ${launcher.machine?.machine.label ?? 'Offline'}`, `Project: ${launcher.selectedProject?.name ?? 'No project'}`,
       `Repository: ${launcher.checkoutChoice.source?.name ?? settings?.checkoutId ?? 'No repository'}`, `Execution: ${settings?.execution}`,
       `Checkout: ${settings?.checkoutMode === 'worktree' ? 'Create a worktree' : 'Current checkout'}`,
-      settings?.waitForCheckout && (launcher.error || launcher.frozen) ? 'Start: After current work. Keep CodeAI running.' : '',
+      settings?.waitForCheckout && (launcher.error || launcher.frozen) ? 'Start: After earlier sessions are archived. Keep CodeAI running.' : '',
       settings?.checkoutMode === 'worktree' ? WORKTREE_BASELINE : launcher.checkoutChoice.reason ?? ''].join('\n\n')
     : page === 'agents' ? [`Provider: ${settings?.provider}`, `Mode: ${settings?.mode}`, `Global instructions: ${settings ? launchInstructions(settings.instructions, settings.execution, settings.provider) ?? 'Default' : 'Default'}`,
       `Model: ${settings?.modelSelection.model ?? 'Default'}`, `Effort: ${settings?.modelSelection.effort ?? 'Default'}`,

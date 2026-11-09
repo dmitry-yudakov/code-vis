@@ -523,9 +523,16 @@ stored copy and no route that serves one.
    an exclusive writer, and a waiting writer blocks later readers on that checkout without blocking
    eligible work elsewhere.
    New-session **Queue session** sends `waitForCheckout: true` for its first turn. The scheduler
-   gives that turn exclusive checkout access even in Ask/Plan, retaining it through mode changes;
-   provider permissions still follow the selected mode. It uses the same bounded in-memory queue,
-   cancellation and browser-reconnection paths. Acceptance headers report the run id and current state.
+   waits for earlier saved conversations on overlapping primary checkouts to be archived, including
+   idle conversations. Snapshot-based admission is serialized with archive/restore; earlier live
+   reservations also count, and failed appends release their provisional dependencies. Completing a
+   turn does not advance this idea queue. Ordinary follow-ups, Push, Undo and worktree creation can
+   proceed while ideas wait. A successful manual or inactivity archive releases successors; they
+   then take exclusive checkout access even in Ask/Plan, retaining it through mode changes. Provider
+   permissions still follow the mode. The same bounded in-memory queue owns cancellation and browser
+   reconnection; it requires the executing server to remain running. Acceptance headers report the
+   run id and current state. `POST /api/agent/queued-message` compares and saves queued message text
+   under a promotion guard, retaining evidence, mode and identity; cancellation waits for this save.
 4. When the scheduler starts the turn, build the historical prompt delta from the current canonical
    record and a bounded per-run directory under `<dataDir>/run-attachments/` (`code-ai-run-*`), outside
    the repository and outside the system temp directory an Auto sandbox leaves writable, holding

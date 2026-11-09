@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { agentMessageRequestSchema, createSessionRequestSchema } from '@/shared/protocol';
+import { agentMessageRequestSchema, createSessionRequestSchema, editQueuedMessageRequestSchema } from '@/shared/protocol';
+import { MAX_MESSAGE_TEXT_CHARS } from '@/shared/limits';
 
 const ids = {
   sessionId: '11111111-1111-4111-8111-111111111111',
@@ -8,6 +9,12 @@ const ids = {
 };
 
 describe('provider protocol contracts', () => {
+  it('bounds edits and accepts only run identity and compared text', () => {
+    const edit = { runId: ids.messageId, text: 'Revised', expectedText: 'Original' };
+    expect(editQueuedMessageRequestSchema.parse(edit)).toEqual(edit);
+    for (const text of ['', ' ', 'x'.repeat(MAX_MESSAGE_TEXT_CHARS + 1)]) expect(editQueuedMessageRequestSchema.safeParse({ ...edit, text }).success).toBe(false);
+    expect(editQueuedMessageRequestSchema.safeParse({ ...edit, mode: 'agent' }).success).toBe(false);
+  });
   it('accepts only a boolean for optional exclusive checkout scheduling', () => {
     const request = { ...ids, text: 'Next task', diagramAttachments: [] };
     expect(agentMessageRequestSchema.parse({ ...request, waitForCheckout: true })).toMatchObject({ waitForCheckout: true });

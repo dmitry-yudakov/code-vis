@@ -130,7 +130,7 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
         <Button sx={{ ml: 'auto' }} aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)}><span aria-hidden="true">⚙</span>&nbsp;Settings</Button>
       </Box>
       {settings.waitForCheckout && (launcher.error || launcher.frozen) && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        Starts after current turns on this repository finish. Keep CodeAI running.
+        Starts after earlier sessions on this repository are archived. Keep CodeAI running.
       </Typography>}
       <Collapse in={settingsOpen} id={settingsId}>
         <div className="session-setup-fields">
@@ -186,7 +186,7 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
     <DialogActions>
       {launcher.busy || !draft ? <Button autoFocus onClick={launcher.close}>Close</Button> : <>
         {settings?.checkoutMode === 'current' && !launcher.error && !launcher.frozen && <Tooltip describeChild
-          title="Starts after current turns on this repository finish. Keep CodeAI running.">
+          title="Starts after earlier sessions on this repository are archived. Keep CodeAI running.">
           <span><Button variant="outlined" disabled={!launcher.canSubmit || !launcher.hasContent}
             onClick={() => void launcher.submit({ waitForCheckout: true })}>Queue session</Button></span>
         </Tooltip>}

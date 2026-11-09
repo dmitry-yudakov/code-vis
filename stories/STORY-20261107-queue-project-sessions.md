@@ -6,8 +6,8 @@
 
 Add another task to a busy project without creating a worktree or remembering to send it later.
 This extends the Arena's work orchestration in [the vision](../docs/vision.md#the-arena).
-A session remains an ongoing conversation; "after current work" means after its active turn,
-including any approval wait, rather than after archiving the conversation.
+A session remains an ongoing conversation. Since the November 9 follow-up, queued ideas wait until
+earlier conversations are archived, allowing additional work after each reply.
 
 ## Current behavior (where the code is)
 
@@ -20,7 +20,7 @@ including any approval wait, rather than after archiving the conversation.
   reads, and later readers cannot starve a waiting writer.
 - `src/features/shell/AppShell.tsx:2142` — announces background launches and offers Open session.
 
-## Desired behavior and contracts
+## Original desired behavior and contracts (archive policy revised below)
 
 New-session setup offers a secondary **Queue session** button beside the normal start action for the
 current checkout. Queue requires a first message and submits it immediately to the existing
@@ -123,3 +123,67 @@ only during captured error/frozen recovery in desktop and immersive setup. The n
 all eight queue browser cases pass against the rebuilt final bundle; follow-up review found no
 remaining issue. Server scheduling is unchanged. Fixture-only and physical-device limitations from
 the initial verification still apply; the running application has not been rebuilt or restarted.
+
+## Editable ideas and archive-gated execution — November 9, 2026
+
+This follow-up replaces the original turn-completion policy. The queue holds ideas until earlier
+work is finished as a conversation. A queued session waits for earlier active sessions with saved
+messages on the same or overlapping primary checkout to be archived, including idle sessions.
+Empty session shells and unrelated checkouts do not block it. With no predecessor it can start
+immediately. Each queued idea then holds later ideas until it is archived. A normal follow-up in
+an earlier session remains runnable. Turn completion, failure and cancellation do not complete a
+conversation; successful manual or existing inactivity archiving releases its successors.
+
+The existing machine scheduler and server-lifetime limitation remain. No new orchestrator or
+automatic conversation-completion decision is introduced. An accepted queued user message can be
+edited in its conversation until execution begins. Save preserves message/run identity, order,
+mode and evidence. Compare the original text to prevent overwriting another device's edit. Hold
+promotion while saving; failures retain the draft, cancellation waits for the save, and stale or
+already-started edits are refused. Only message text is edited.
+
+Where the code is: `src/server/runs/runRegistry.ts:207` owns admission/promotion;
+`src/app/api/agent/message/route.ts:238` owns accepted requests;
+`src/server/storage/sessionStore.ts:778` owns canonical user messages;
+`src/app/api/sessions/[sessionId]/archive/route.ts:15` and
+`src/server/storage/autoArchiveSessions.ts:24` own archive completion;
+`src/features/conversation/ChatMessage.tsx:32` renders the message action.
+
+How to verify this follow-up: run `runScheduler`, `sessionQueue`, `messageSchedulerRoutes`,
+`autoArchiveSessions`, protocol, session launch, running-mode and existing recovery unit suites.
+Run `queued-session-setup` and `compact-session-setup` against an isolated production bundle;
+the queue journey must remain parked after a reply and a follow-up, then start after archive.
+Editor checks must cover save failure, retry, reload and a conflicting device edit on both themes
+at desktop and phone widths. Inspect the resulting `queued-edit.png` screenshots.
+
+- [x] Idle earlier conversations block queued ideas; archive advances them in order, while normal
+      follow-ups and unrelated work stay usable. Existing mode/access/cancellation contracts hold.
+- [x] Edit and save queued text with stable identity and evidence; reject conflicting, oversized,
+      cancelled or started edits; saving races and failures preserve execution and recovery.
+- [x] Reload displays saved edits; queue feedback explains archiving, including setup and launch.
+- [x] Focused scheduler/storage/route/browser checks, TypeScript, isolated build, desktop/phone
+      both-theme inspection and independent review pass.
+
+All 274 focused unit checks pass across 16 suites: scheduler, queue storage/scope, message routes,
+inactivity archive, protocol, session launch, run routes, mode scheduler, running mode, session
+routes, checkpoints, Git push, machine gateway, Auto mode, session store and workspace feed. Run with
+`CODEAI_REMOTE_ACCESS=local CODEAI_SECURITY_LEVEL=guarded CODEAI_MAX_CONCURRENT_RUNS=2` to isolate
+fixture admission from installation settings. The three initial scheduler regressions failed before
+implementation. Coverage includes idle predecessors without retained runs, two queued ideas needing
+separate archives, overlapping repositories, failed appends/archives/saves, stale edits, evidence,
+ambiguous committed saves, concurrent cancellation during an edit, and helpers yielding while parked.
+
+Source TypeScript, `git diff --check`, and the isolated `.next-e2e/queue-ideas` webpack
+`compile`/`generate` production build pass. Font downloads required network access; only this task's
+generated failed output/cache was removed after an intermediate disk-full build. All 20 distinct
+production-browser checks in `queued-session-setup` and `compact-session-setup` pass. Both-theme
+1280px desktop/390px phone editor screenshots were inspected. The archive journey verifies that
+completion and a normal follow-up leave the idea queued, then archive starts it. Editor journeys
+verify failed save retention, retry, reload, another device's conflicting save and Cancel edit.
+
+Independent review identified and verified fixes for simultaneous cancellation during an edit,
+checkout resolution entering store recovery while holding the store writer queue, ambiguous-save
+text ownership and stale provisional queue status. Browser verification also caught missing queued
+message identity on reconnection; recovery now links the accepted saved message before replay.
+Final review found no remaining concrete issue. Real signed-in providers, Docker, attached-machine
+TLS and physical phone/Quest use were not rerun. Queue survival across server restart remains outside
+scope; the running installation has not been rebuilt or restarted.

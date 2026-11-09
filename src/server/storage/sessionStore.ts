@@ -6,7 +6,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { MAX_ARENA_PREVIEW_CHARS, MAX_SESSION_TEXT_FILE_BYTES } from '@/shared/limits';
+import { MAX_ARENA_PREVIEW_CHARS, MAX_MESSAGE_TEXT_CHARS, MAX_SESSION_TEXT_FILE_BYTES } from '@/shared/limits';
 import { validateTextFiles } from '@/shared/textFiles';
 import type {
   AgentContextUsage, AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
@@ -583,6 +583,11 @@ export class SessionStore {
     });
   }
 
+  /** Admission sees a settled snapshot and reserves before any archive/restore can change it. */
+  withActiveSessionSnapshot<T>(admit: (sessions: StoredSessionSummary[]) => Promise<T>): Promise<T> {
+    return this.enqueue(async () => admit(await this.listSessionSummaries()));
+  }
+
   async restoreSession(id: string, expectedRevision: number): Promise<DurableSession> {
     return this.enqueue(async () => {
       const session = await this.getArchivedSession(id);
@@ -811,6 +816,23 @@ export class SessionStore {
       durableSessionSchema.parse(session);
       await beforeSave?.();
       return { result: { session, appended: true }, changed: true };
+    });
+  }
+
+  /** Registry admission holds execution while the canonical queued text is compared and saved. */
+  async editQueuedMessage(id: string, runId: string, messageId: string, text: string, expectedText: string): Promise<DurableSession> {
+    if (!text.trim() || text.length > MAX_MESSAGE_TEXT_CHARS) throw new SessionStoreError('conflict', 'Enter a message within the text limit.');
+    return this.mutate(id, session => {
+      const message = session.messages.find(item => item.id === messageId);
+      if (!message || message.role !== 'user' || message.status !== 'sending'
+        || message.turn?.runId !== runId || message.turn.lifecycle !== 'queued') {
+        throw new SessionStoreError('conflict', 'This message is no longer queued. Reload the session.');
+      }
+      if (message.text === text) return { result: session, changed: false };
+      if (message.text !== expectedText) throw new SessionStoreError('conflict', 'This queued message changed on another device. Reload the session before editing it again.');
+      message.text = text;
+      if (session.messages.length === 1) session.title = text.trim().slice(0, 56);
+      return { result: session, changed: true };
     });
   }
 

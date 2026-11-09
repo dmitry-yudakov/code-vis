@@ -35,6 +35,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     try {
       const session = await getSessionStore(config.dataDir, config.hostLabel)
         .archiveSession(sessionId, parsed.data.expectedRevision);
+      runRegistry.sessionArchived(sessionId);
       return safeJsonResponse({ session: arenaSessionSummary(session) });
     } finally {
       release();

@@ -12,6 +12,7 @@ interface TurnOptions {
   access?: RunAccess;
   execution?: AgentExecution;
   waitForCheckout?: boolean;
+  blockedBySessions?: string[];
 }
 
 function turn(registry: RunRegistry, options: TurnOptions = {}) {
@@ -28,6 +29,7 @@ function turn(registry: RunRegistry, options: TurnOptions = {}) {
     access: options.access || 'read',
     execution: options.execution,
     waitForCheckout: options.waitForCheckout,
+    blockedBySessions: options.blockedBySessions,
     cancel: vi.fn(),
   });
   expect(reservation).toMatchObject({ accepted: true, runId });
@@ -41,31 +43,41 @@ async function scheduled(): Promise<void> {
 }
 
 describe('machine run scheduler', () => {
-  it('runs queued read-only tasks in order after current work, without blocking unrelated checkouts', async () => {
+  it('holds queued ideas until predecessors are archived, allowing follow-ups and unrelated work', async () => {
     const registry = new RunRegistry(4);
-    const current = turn(registry, { checkoutPath: '/repos/a', access: 'read' });
-    const first = turn(registry, { checkoutPath: '/repos/a', access: 'read', waitForCheckout: true });
-    const second = turn(registry, { checkoutPath: '/repos/a/nested', access: 'read', waitForCheckout: true });
+    const currentId = crypto.randomUUID();
+    const firstId = crypto.randomUUID();
+    const secondId = crypto.randomUUID();
+    const current = turn(registry, { sessionId: currentId, checkoutPath: '/repos/a', access: 'read' });
+    const first = turn(registry, { sessionId: firstId, checkoutPath: '/repos/a', access: 'read', waitForCheckout: true });
+    const second = turn(registry, { sessionId: secondId, checkoutPath: '/repos/a/nested', access: 'read', waitForCheckout: true });
     const later = turn(registry, { checkoutPath: '/repos/a', access: 'read' });
     const unrelated = turn(registry, { checkoutPath: '/repos/b', access: 'write' });
     await scheduled();
     expect(current.execute).toHaveBeenCalledOnce();
     expect(unrelated.execute).toHaveBeenCalledOnce();
-    for (const task of [first, second, later]) expect(task.execute).not.toHaveBeenCalled();
+    for (const task of [first, second]) expect(task.execute).not.toHaveBeenCalled();
+    expect(later.execute).toHaveBeenCalledOnce();
     registry.finish(current.runId); await scheduled();
+    expect(first.execute).not.toHaveBeenCalled();
+    const followup = turn(registry, { sessionId: currentId, checkoutPath: '/repos/a', access: 'write' });
+    registry.finish(later.runId); await scheduled();
+    expect(followup.execute).toHaveBeenCalledOnce();
+    registry.finish(followup.runId);
+    registry.sessionArchived(currentId); await scheduled();
     expect(first.execute).toHaveBeenCalledOnce();
     expect(second.execute).not.toHaveBeenCalled();
-    expect(later.execute).not.toHaveBeenCalled();
     registry.finish(first.runId); await scheduled();
+    expect(second.execute).not.toHaveBeenCalled();
+    registry.sessionArchived(firstId); await scheduled();
     expect(second.execute).toHaveBeenCalledOnce();
-    expect(later.execute).not.toHaveBeenCalled();
     registry.finish(second.runId); await scheduled();
-    expect(later.execute).toHaveBeenCalledOnce();
   });
 
   it('keeps after-current-work scheduling when a queued writing turn changes to Ask', async () => {
     const registry = new RunRegistry(4);
-    const current = turn(registry, { checkoutId: 'a', access: 'read' });
+    const sessionId = crypto.randomUUID();
+    const current = turn(registry, { sessionId, checkoutId: 'a', access: 'read' });
     const runId = crypto.randomUUID();
     const execute = vi.fn(async () => new Promise<void>(() => undefined));
     expect(registry.reserve({ runId, sessionId: crypto.randomUUID(), participantId: 'agent', providerKey: 'next',
@@ -77,7 +89,102 @@ describe('machine run scheduler', () => {
     expect(execute).not.toHaveBeenCalled();
     expect(registry.list().active.find(run => run.runId === runId)).toMatchObject({ state: 'queued', mode: 'ask' });
     registry.finish(current.runId); await scheduled();
+    expect(execute).not.toHaveBeenCalled();
+    registry.sessionArchived(sessionId); await scheduled();
     expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it('waits for idle saved sessions and holds promotion through an edit', async () => {
+    const registry = new RunRegistry(2);
+    const idle = crypto.randomUUID();
+    const runId = crypto.randomUUID();
+    const execute = vi.fn(async () => new Promise<void>(() => undefined));
+    let finishEdit!: () => void;
+    const editQueued = vi.fn(() => new Promise<void>(resolve => { finishEdit = resolve; }));
+    registry.reserve({ runId, sessionId: 'idea', participantId: 'agent', providerKey: 'idea', checkoutId: 'a',
+      access: 'read', waitForCheckout: true, blockedBySessions: [idle], cancel: vi.fn() });
+    registry.activate(runId, { execute, cancelQueued: async () => undefined, editQueued });
+    const saving = registry.editQueuedMessage(runId, 'Revised idea', 'Original idea');
+    registry.sessionArchived(idle); await scheduled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(await registry.editQueuedMessage(runId, 'Other device', 'Original idea')).toMatchObject({ ok: false, status: 409 });
+    finishEdit();
+    expect(await saving).toEqual({ ok: true });
+    await scheduled();
+    expect(execute).toHaveBeenCalledOnce();
+    expect(await registry.editQueuedMessage(runId, 'Too late', 'Revised idea')).toMatchObject({ ok: false, status: 409 });
+    registry.finish(runId);
+  });
+
+  it.each([false, true])('cancels during an edit without starting the provider (save fails: %s)', async fails => {
+    const registry = new RunRegistry();
+    const runId = crypto.randomUUID();
+    let settle!: () => void;
+    let finishCancel!: () => void;
+    const execute = vi.fn(async () => undefined);
+    const cancelQueued = vi.fn(() => new Promise<void>(resolve => { finishCancel = resolve; }));
+    registry.reserve({ runId, sessionId: 'idea', participantId: 'agent', providerKey: 'idea', checkoutId: 'a',
+      access: 'read', waitForCheckout: true, blockedBySessions: ['idle'], cancel: vi.fn() });
+    registry.activate(runId, { execute, cancelQueued, editQueued: () => new Promise<void>((resolve, reject) => {
+      settle = () => fails ? reject(new Error('disk unavailable')) : resolve();
+    }) });
+    const saving = registry.editQueuedMessage(runId, 'Updated', 'Original');
+    const saved = saving.catch(error => error);
+    await scheduled();
+    const cancelling = registry.cancel(runId);
+    const duplicateCancellation = registry.cancel(runId);
+    settle();
+    await saved;
+    await scheduled();
+    registry.sessionArchived('idle'); await scheduled();
+    expect(execute).not.toHaveBeenCalled();
+    finishCancel();
+    expect(await cancelling).toBe('accepted');
+    expect(await duplicateCancellation).toBe('accepted');
+    await scheduled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(cancelQueued).toHaveBeenCalledOnce();
+    expect(registry.currentRuns).toEqual([]);
+  });
+
+  it('drops only provisional dependencies when an earlier append fails', async () => {
+    const registry = new RunRegistry();
+    const runId = crypto.randomUUID();
+    registry.reserve({ runId, sessionId: 'empty-shell', participantId: 'agent', providerKey: 'empty', checkoutId: 'a', access: 'read', cancel: vi.fn() });
+    const idea = turn(registry, { checkoutId: 'a', checkoutPath: '/repos/a', waitForCheckout: true });
+    await scheduled();
+    expect(idea.execute).not.toHaveBeenCalled();
+    const reader = registry.acquireCheckoutRead('/repos/a')!;
+    registry.release(runId); await scheduled();
+    expect(registry.currentRuns.find(run => run.runId === idea.runId)?.status).not.toContain('archived');
+    reader(); await scheduled();
+    expect(idea.execute).toHaveBeenCalledOnce();
+    registry.finish(idea.runId);
+    registry.reserve({ runId: 'failed-followup', sessionId: 'saved-session', participantId: 'agent', providerKey: 'saved', checkoutId: 'a', access: 'read', cancel: vi.fn() });
+    const later = turn(registry, { checkoutId: 'a', waitForCheckout: true, blockedBySessions: ['saved-session'] });
+    registry.release('failed-followup'); await scheduled();
+    expect(later.execute).not.toHaveBeenCalled();
+    registry.sessionArchived('saved-session'); await scheduled();
+    expect(later.execute).toHaveBeenCalledOnce();
+  });
+
+  it('lets parked ideas yield to checkout recovery and worktree creation', async () => {
+    const registry = new RunRegistry();
+    const idea = turn(registry, { checkoutPath: '/repos/a', waitForCheckout: true, blockedBySessions: ['idle'] });
+    const recover = registry.acquireCheckoutWrite('/repos/a');
+    expect(recover).toBeTypeOf('function');
+    registry.sessionArchived('idle'); await scheduled();
+    expect(idea.execute).not.toHaveBeenCalled();
+    recover!(); await scheduled();
+    expect(idea.execute).toHaveBeenCalledOnce(); registry.finish(idea.runId);
+    const parked = turn(registry, { checkoutPath: '/repos/a', waitForCheckout: true, blockedBySessions: ['other'] });
+    const admission = registry.acquireWorktreeCreation();
+    if (!admission.acquired) throw new Error('Creation refused');
+    expect(admission.lease.acquireScopes(['/repos/a'])).toEqual({ acquired: true });
+    registry.sessionArchived('other'); await scheduled();
+    expect(parked.execute).not.toHaveBeenCalled();
+    admission.lease.release(); await scheduled();
+    expect(parked.execute).toHaveBeenCalledOnce();
   });
 
   it('creates alongside verified Local turns and read-only Git leases while new affected turns wait', async () => {

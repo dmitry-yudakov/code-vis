@@ -12,6 +12,7 @@ import {
   sessionStoreStatus, getSessionStore, primaryRepository, serverAgent,
 } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
+import { sessionQueueBlockers } from '@/server/runs/sessionQueue';
 import { TurnMode } from '@/server/runs/turnMode';
 import { AgentRunError } from '@/server/agents/agentRunError';
 import { autoDataDirectoryIssue, resolveAgentPolicy } from '@/server/agents/agentPolicy';
@@ -226,7 +227,7 @@ export async function POST(request: Request): Promise<Response> {
   const providerKey = participant.session.started
     ? `${host.id}:${execution}:${participant.provider}:session:${participant.session.sessionId}`
     : `${host.id}:${execution}:${participant.provider}:participant:${participant.id}`;
-  const reservation = runRegistry.reserve({
+  const reserve = (blockedBySessions?: string[]) => runRegistry.reserve({
     runId,
     sessionId: session.id,
     participantId: participant.id,
@@ -235,6 +236,7 @@ export async function POST(request: Request): Promise<Response> {
     checkoutPath: checkout.realPath,
     access: changesCheckout(mode) ? 'write' : 'read',
     waitForCheckout: parsed.data.waitForCheckout,
+    blockedBySessions,
     execution,
     mode,
     async changeMode(next) {
@@ -257,6 +259,16 @@ export async function POST(request: Request): Promise<Response> {
     },
     cancel: () => abortController.abort(),
   });
+  let reservation;
+  try {
+    reservation = parsed.data.waitForCheckout
+      ? await store.withActiveSessionSnapshot(async sessions => reserve(await sessionQueueBlockers(
+        sessions, session, checkout, getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth),
+      )))
+      : reserve();
+  } catch (error) {
+    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
+  }
   if (!reservation.accepted) {
     if (reservation.reason === 'session-archiving') {
       return safeJsonResponse({ error: 'This session is being archived. Restore it from the Arena archive to continue.' }, { status: 409 });
@@ -347,6 +359,9 @@ export async function POST(request: Request): Promise<Response> {
       // Queued work resolves its canonical snapshot and repository context only when it actually
       // starts, so it sees the checkout at execution time and holds no temporary directory early.
       session = await store.getSession(session.id);
+      const canonicalMessage = session.messages.find(message => message.id === parsed.data.messageId);
+      if (!canonicalMessage || canonicalMessage.role !== 'user') throw new AgentRunError('internal', 'The queued message is unavailable.', 'not-sent');
+      parsed.data.text = canonicalMessage.text;
       await validateManagedPath(checkout.realPath, config);
       currentParticipant = serverAgent(session, participant.id) || currentParticipant;
       await beforeAttempt(turnMode.mode);
@@ -404,6 +419,9 @@ export async function POST(request: Request): Promise<Response> {
 
   const activated = runRegistry.activate(runId, {
     execute,
+    async editQueued(text, expectedText) {
+      await store.editQueuedMessage(session.id, runId, parsed.data.messageId, text, expectedText);
+    },
     async cancelQueued() {
       // The terminal stream event is only truthful after the canonical user message is cancelled.
       // A write failure rejects back to the scheduler, which parks this queue entry for retry.

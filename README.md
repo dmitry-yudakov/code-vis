@@ -861,7 +861,8 @@ the scope to restore the original bytes and permissions, including pre-existing 
 and nonignored untracked work. The conversation and provider history stay.
 
 Undo refuses newer checkout edits, even an edit followed by a content revert, and waits for no
-active or queued checkout work, repository helper reads, or build. Do not edit files during Undo.
+active or runnable queued checkout work, repository helper reads, or build. Ideas waiting for earlier
+sessions to be archived allow Undo. Do not edit files during Undo.
 Commits, staging, index flags or a branch/HEAD change during the turn disable recovery: Git history,
 the index and other `.git` metadata are never restored. Ignored files (including personal ignores),
 private/provider folders, `.env*` except `.env.example`, recognized credential filenames and key/certificate files are

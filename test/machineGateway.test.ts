@@ -23,6 +23,16 @@ import { readNdjson } from '@/features/conversation/ndjson';
 import type { AgentEvent } from '@/shared/types';
 
 describe('machine API gateway', () => {
+  it('proxies compared queued-message edits to the executing machine', async () => {
+    fetchMock.mockResolvedValue(new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json' } }));
+    const body = JSON.stringify({ runId: REMOTE_ID, text: 'Revised idea', expectedText: 'Original idea' });
+    const response = await proxyMachineRequest(REMOTE_ID, ['agent', 'queued-message'], new Request('https://home.test/api/agent/queued-message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+    }));
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls[0][0].pathname).toBe('/api/agent/queued-message');
+    expect(new TextDecoder().decode(fetchMock.mock.calls[0][1].body)).toBe(body);
+  });
   beforeEach(() => vi.stubGlobal('fetch', fetchMock));
   afterEach(() => { fetchMock.mockReset(); vi.unstubAllGlobals(); });
 

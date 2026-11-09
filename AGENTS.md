@@ -200,10 +200,11 @@ Updated 2026-11-09. When a story ships, change the line that names it; each stor
   both-theme desktop/phone screenshot inspection and independent review. Real provider turns remain unverified;
   the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 135](stories/STORY-20261107-queue-project-sessions.md) — new-session setup has
-  a secondary Queue session button beside the normal start action; the existing scheduler queues
-  its first turn even in Ask/Plan, retains its mode and supports cancellation and browser reloads.
-  The November 8 button follow-up passes 26 focused unit checks, 16 production-browser checks,
-  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review.
+  a secondary Queue session button; ideas wait for earlier conversations on the repository to be
+  archived, while their follow-ups remain usable. Queued message text is editable in its conversation
+  with saved evidence, conflict detection and cancellation/promotion guards. The November 9 follow-up
+  passes 274 focused unit checks, 20 distinct production-browser checks, source TypeScript, isolated
+  webpack build, both-theme desktop/phone screenshot inspection and independent review.
   Queued turns require the server to stay running; the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 134](stories/STORY-20261107-arena-session-tiles.md) — desktop Arena offers
   project-grouped session tiles with saved-message previews, quick replies and approvals; drafts and

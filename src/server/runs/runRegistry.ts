@@ -29,6 +29,10 @@ interface RunRecord {
   checkoutPath?: string;
   access: RunAccess;
   waitForCheckout?: boolean;
+  blockedBySessions: Set<string>;
+  provisionalBlockers: Set<string>;
+  editQueued?(text: string, expectedText: string): Promise<void>;
+  editing?: Promise<void>;
   execution?: AgentExecution;
   mode?: AgentMode;
   changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
@@ -107,6 +111,8 @@ export interface ReserveRunInput {
   access: RunAccess;
   /** Keep exclusive checkout scheduling even when this turn uses a read-only mode. */
   waitForCheckout?: boolean;
+  /** Earlier saved conversations on overlapping primary checkouts, including idle sessions. */
+  blockedBySessions?: string[];
   execution?: AgentExecution;
   mode?: AgentMode;
   changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
@@ -186,15 +192,14 @@ export class RunRegistry implements MaintenanceLease {
     return () => { this.checkoutReaders.delete(token); this.schedule(); };
   }
 
-  /** Recovery takes exclusive checkout access without queuing a provider turn. Even queued and
-   * reserved work blocks it: a user's Undo must not reorder already accepted work. */
+  /** Recovery cannot reorder runnable accepted work. Ideas waiting for session archives yield. */
   acquireCheckoutWrite(checkoutPath: string): ((() => void) & { token: symbol }) | undefined {
     if (this.maintenance
       || this.creationContains(checkoutPath)
       || [...this.checkoutReaders.values()].some((held) => pathsOverlap(held.path, checkoutPath))
       || [...this.checkoutWriters.values()].some((held) => pathsOverlap(held, checkoutPath))
-      || [...this.liveByRunId.values()].some((run) => run.checkoutPath
-        ? pathsOverlap(run.checkoutPath, checkoutPath) : run.access === 'write')) return undefined;
+      || [...this.liveByRunId.values()].some((run) => !run.blockedBySessions.size && (run.checkoutPath
+        ? pathsOverlap(run.checkoutPath, checkoutPath) : run.access === 'write'))) return undefined;
     const token = Symbol();
     this.checkoutWriters.set(token, checkoutPath);
     return Object.assign(() => { this.checkoutWriters.delete(token); this.schedule(); }, { token });
@@ -223,8 +228,19 @@ export class RunRegistry implements MaintenanceLease {
     if (waiting >= MAX_QUEUED_RUNS) return { accepted: false, reason: 'queue-full' };
 
     const completion = deferred();
+    const blockedBySessions = new Set(input.blockedBySessions);
+    const provisionalBlockers = new Set<string>();
+    if (input.waitForCheckout) {
+      for (const earlier of this.liveByRunId.values()) {
+        if (!sameCheckout(input, earlier)) continue;
+        if (!earlier.activated && !blockedBySessions.has(earlier.sessionId)) provisionalBlockers.add(earlier.sessionId);
+        blockedBySessions.add(earlier.sessionId);
+      }
+    }
     this.liveByRunId.set(input.runId, {
       ...input,
+      blockedBySessions,
+      provisionalBlockers,
       access: input.waitForCheckout ? 'write' : input.access,
       state: 'queued',
       enqueuedAt: Date.now(),
@@ -272,6 +288,7 @@ export class RunRegistry implements MaintenanceLease {
         const overlaps = (held: string) => paths.some((target) => pathsOverlap(held, target));
         const conflicts = (held: string) => overlaps(held) || unknownCheckoutPath(proof, held);
         const runs = [...this.liveByRunId.values()].filter((run) => {
+          if (run.blockedBySessions.size) return false;
           const compatible = run.checkoutPath && proof?.concurrentTurnRoots?.includes(run.checkoutPath)
             && !(run.execution === 'docker' && run.access === 'write');
           return !compatible && (!run.checkoutPath || conflicts(run.checkoutPath));
@@ -304,12 +321,14 @@ export class RunRegistry implements MaintenanceLease {
   }
 
   /** Makes a successfully appended reservation runnable and schedules it when eligible. */
-  activate(runId: string, input: { execute(): Promise<void>; cancelQueued(): Promise<void> }): boolean {
+  activate(runId: string, input: { execute(): Promise<void>; cancelQueued(): Promise<void>; editQueued?(text: string, expectedText: string): Promise<void> }): boolean {
     const run = this.liveByRunId.get(runId);
     if (!run || run.activated) return false;
     run.activated = true;
     run.execute = input.execute;
     run.cancelQueued = input.cancelQueued;
+    run.editQueued = input.editQueued;
+    for (const other of this.liveByRunId.values()) other.provisionalBlockers.delete(run.sessionId);
     this.queue.push(runId);
     this.schedule();
     this.notifyChanges();
@@ -321,7 +340,11 @@ export class RunRegistry implements MaintenanceLease {
     const run = this.liveByRunId.get(runId);
     if (!run || run.activated) return false;
     this.liveByRunId.delete(runId);
+    for (const other of this.liveByRunId.values()) {
+      if (other.provisionalBlockers.delete(run.sessionId) && other.blockedBySessions.delete(run.sessionId)) other.lastQueuePosition = undefined;
+    }
     run.resolveCompletion();
+    this.schedule();
     this.notifyChanges();
     return true;
   }
@@ -347,6 +370,8 @@ export class RunRegistry implements MaintenanceLease {
       providerKey: input.providerKey || `legacy:${input.participantId}:${input.runId}`,
       checkoutId: input.checkoutId || `legacy:${input.runId}`,
       access: input.access || 'read',
+      blockedBySessions: new Set(),
+      provisionalBlockers: new Set(),
       state: 'running',
       enqueuedAt: now,
       startedAt: now,
@@ -513,6 +538,17 @@ export class RunRegistry implements MaintenanceLease {
     const run = this.liveByRunId.get(runId);
     if (!run) return 'unknown-run';
     if (run.cancelPromise) return run.cancelPromise;
+    if (run.editing) {
+      run.cancelling = true;
+      const cancellation = run.editing.catch(() => undefined).then(() => {
+        run.cancelPromise = undefined;
+        run.cancelling = false;
+        return this.cancel(runId);
+      });
+      // All callers share the edit wait; none can clear another cancellation's promotion guard.
+      run.cancelPromise = cancellation;
+      return cancellation;
+    }
     if (run.cancelling) return 'accepted';
     // A started turn can requeue for writing access; its execution still owns cleanup.
     if (run.startedAt !== undefined) {
@@ -593,6 +629,32 @@ export class RunRegistry implements MaintenanceLease {
     return this.list().active;
   }
 
+  /** Called only after an archive is durable. */
+  sessionArchived(sessionId: string): void {
+    for (const run of this.liveByRunId.values()) {
+      if (run.blockedBySessions.delete(sessionId)) run.lastQueuePosition = undefined;
+      run.provisionalBlockers.delete(sessionId);
+    }
+    this.schedule();
+    this.notifyChanges();
+  }
+
+  async editQueuedMessage(runId: string, text: string, expectedText: string): Promise<RunModeOutcome> {
+    const run = this.liveByRunId.get(runId);
+    if (!run?.activated || !run.editQueued || run.startedAt !== undefined || run.cancelling || run.cancelBlocked || run.editing) {
+      return { ok: false, status: 409, error: 'This message can only be edited before its queued turn starts. Reload the session to check its state.' };
+    }
+    const editing = Promise.resolve().then(() => run.editQueued!(text, expectedText));
+    run.editing = editing;
+    try {
+      await editing;
+      return { ok: true };
+    } finally {
+      run.editing = undefined;
+      this.schedule();
+    }
+  }
+
   private runningCount(): number {
     return [...this.liveByRunId.values()].filter((run) => (
       run.activated && (run.state === 'running' || run.state === 'needs-you')
@@ -600,26 +662,26 @@ export class RunRegistry implements MaintenanceLease {
   }
 
   private eligible(candidate: RunRecord): boolean {
+    if (candidate.blockedBySessions.size) return false;
     if (this.creationContains(candidate.checkoutPath)) return false;
     if (candidate.checkoutPath
       && [...this.checkoutWriters.values()].some((writer) => pathsOverlap(writer, candidate.checkoutPath!))) return false;
     if (candidate.access === 'write' && candidate.checkoutPath
       && [...this.checkoutReaders.values()].some((reader) => pathsOverlap(candidate.checkoutPath!, reader.path))) return false;
-    const sameCheckout = (other: RunRecord) => other.checkoutId === candidate.checkoutId
-      || Boolean(candidate.checkoutPath && other.checkoutPath && pathsOverlap(candidate.checkoutPath, other.checkoutPath));
     const running = [...this.liveByRunId.values()].filter((run) => (
       run.runId !== candidate.runId && (run.state === 'running' || run.state === 'needs-you')
     ));
     if (candidate.access === 'write') {
-      return !running.some(sameCheckout);
+      return !running.some(other => sameCheckout(candidate, other));
     }
-    if (running.some((run) => sameCheckout(run) && run.access === 'write')) return false;
+    if (running.some((run) => sameCheckout(candidate, run) && run.access === 'write')) return false;
     // Once a writer waits, later readers on that checkout wait behind it instead of starving it.
     const candidateIndex = this.queue.indexOf(candidate.runId);
     return !this.queue.slice(0, candidateIndex).some((runId) => {
       const earlier = this.liveByRunId.get(runId);
-      return earlier && sameCheckout(earlier)
+      return earlier && sameCheckout(candidate, earlier)
         && earlier.access === 'write'
+        && !earlier.blockedBySessions.size
         && !earlier.cancelBlocked;
     });
   }
@@ -639,7 +701,7 @@ export class RunRegistry implements MaintenanceLease {
     while (this.runningCount() < this.maxConcurrentRuns) {
       const index = this.queue.findIndex((runId) => {
         const run = this.liveByRunId.get(runId);
-        return Boolean(run?.activated && !run.cancelling && !run.cancelBlocked && run.execute && this.eligible(run));
+        return Boolean(run?.activated && !run.cancelling && !run.cancelBlocked && !run.editing && run.execute && this.eligible(run));
       });
       if (index < 0) break;
       const [runId] = this.queue.splice(index, 1);
@@ -677,7 +739,7 @@ export class RunRegistry implements MaintenanceLease {
         phase: 'queued',
         label: run.cancelBlocked
           ? `Queued · position ${position} · cancellation must be retried`
-          : `Queued · position ${position}`,
+          : `Queued · position ${position}${run.blockedBySessions.size ? ' · waiting for earlier sessions to be archived' : ''}`,
       });
     });
   }
@@ -718,6 +780,11 @@ function pathContains(root: string, candidate: string): boolean {
 
 function pathsOverlap(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left);
+}
+
+function sameCheckout(left: { checkoutId: string; checkoutPath?: string }, right: { checkoutId: string; checkoutPath?: string }): boolean {
+  return left.checkoutId === right.checkoutId
+    || Boolean(left.checkoutPath && right.checkoutPath && pathsOverlap(left.checkoutPath, right.checkoutPath));
 }
 
 function unknownCheckoutPath(proof: CheckoutScopeProof | undefined, target: string): boolean {

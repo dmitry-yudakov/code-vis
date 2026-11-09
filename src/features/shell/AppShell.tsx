@@ -2140,7 +2140,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const launchNavigation = useRef('');
   launchNavigation.current = JSON.stringify([pathname, machineId, projectId, sessionId]);
   const announceLaunch = (result: import('@/features/session-launch/sessionLaunch').LaunchResult, settings: LaunchSettings) => notify({
-    key: `launch:${result.session.id}`, tone: 'success', message: result.queued ? 'Session queued. It will start when the repository is free.'
+    key: `launch:${result.session.id}`, tone: 'success', message: result.queued ? 'Session queued. It will start after earlier sessions are archived.'
       : result.started && settings.waitForCheckout && result.queued === undefined ? 'Session submitted. Open it to check progress.'
       : result.started ? 'Session started in the background.' : 'Session created.',
     actions: [{ label: 'Open session', onSelect: () => { void openLaunchedSession(result.session, settings); } }],
@@ -2429,6 +2429,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           const recoveredMode = run.mode || acceptedMessage?.mode || participant?.defaultMode || 'agent';
           putRun({
             runId: run.runId,
+            userMessageId: acceptedMessage?.id,
             sessionId: run.sessionId,
             participantId: run.participantId,
             mode: recoveredMode,
@@ -3136,6 +3137,18 @@ export function AppShell({ children }: { children: ReactNode }) {
               turn={focusedRun?.turn}
               liveMessageId={focusedRun?.userMessageId}
               liveState={focusedRun?.state}
+              onEditQueuedMessage={async (messageId, text, expectedText) => {
+                if (!focusedRunId || !sessionId) throw new Error('Reload the session to check its queued turn.');
+                const response = await fetch(apiPath('/api/agent/queued-message'), {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ runId: focusedRunId, text, expectedText }),
+                });
+                const data = await response.json() as { error?: string };
+                if (!response.ok) throw new Error(data.error || 'Could not save. Your edit is kept.');
+                mutateSession(sessionId, current => ({ ...current, messages: current.messages.map(message =>
+                  message.id === messageId && message.role === 'user' ? { ...message, text } : message) }));
+                await refreshSession(sessionId);
+              }}
               retryBlocked={Boolean(sessionId && (sessionRunning || unconfirmedSends.includes(sessionId)
                 || arena.discovery.active.some(run => run.sessionId === sessionId && run.machineId === machineId)))}
               healthyProviders={selectableProviders}

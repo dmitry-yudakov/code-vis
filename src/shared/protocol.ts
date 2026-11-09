@@ -80,6 +80,11 @@ export const permissionDecisionRequestSchema = z.object({
 
 export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 export const changeRunModeRequestSchema = z.object({ runId: z.string().uuid(), mode: agentModeSchema }).strict();
+export const editQueuedMessageRequestSchema = z.object({
+  runId: z.string().uuid(),
+  text: z.string().trim().min(1).max(MAX_MESSAGE_TEXT_CHARS),
+  expectedText: z.string().max(MAX_MESSAGE_TEXT_CHARS),
+}).strict();
 
 export const pairDeviceRequestSchema = z.object({
   label: z.string().trim().min(1).max(64),

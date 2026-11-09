@@ -7,6 +7,7 @@ const routeState = vi.hoisted(() => ({
   dataDir: '',
   runnersCreated: 0,
   started: [] as string[],
+  texts: new Map<string, string>(),
   resolvers: new Map<string, () => void>(),
 }));
 
@@ -25,6 +26,7 @@ vi.mock('@/server/config', () => ({
 
 vi.mock('@/server/repository/checkoutRegistry', () => ({
   getCheckoutRegistry: () => ({
+    refresh: async () => ['checkout-a'].map(id => ({ id, name: 'Repository', relativePath: '.', realPath: `/repositories/${id}` })),
     resolve: async (checkoutId: string) => ({
       id: checkoutId,
       name: 'Repository',
@@ -61,10 +63,11 @@ vi.mock('@/server/agents/providerRegistry', () => ({
 vi.mock('@/server/conversation/conversationService', () => ({
   runConversation: vi.fn(async (input: {
     runId: string;
-    request: { sessionId: string; messageId: string; participantId: string };
+    request: { sessionId: string; messageId: string; participantId: string; text: string };
     emit(event: unknown): void;
   }) => {
     routeState.started.push(input.runId);
+    routeState.texts.set(input.runId, input.request.text);
     input.emit({
       type: 'run-started',
       runId: input.runId,
@@ -79,8 +82,10 @@ vi.mock('@/server/conversation/conversationService', () => ({
 
 import { POST as POST_CANCEL } from '@/app/api/agent/cancel/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
+import { POST as POST_EDIT } from '@/app/api/agent/queued-message/route';
+import { POST as POST_ARCHIVE } from '@/app/api/sessions/[sessionId]/archive/route';
 import { runRegistry } from '@/server/runs/runRegistry';
-import { getSessionStore, SessionStore } from '@/server/storage/sessionStore';
+import { getSessionStore, SessionStore, SessionStoreError } from '@/server/storage/sessionStore';
 import type { DurableSession } from '@/shared/types';
 
 async function createSessions(count: number, version: 3 | 4 = 3): Promise<DurableSession[]> {
@@ -129,6 +134,7 @@ describe('message route scheduler integration', () => {
     routeState.runnersCreated = 0;
     routeState.started = [];
     routeState.resolvers.clear();
+    routeState.texts.clear();
   });
 
   afterEach(async () => {
@@ -143,11 +149,11 @@ describe('message route scheduler integration', () => {
     routeState.resolvers.clear();
   });
 
-  it('queues a new session behind a read-only turn, survives detachment, then starts with the original mode', async () => {
+  it('keeps an edited idea queued through completion and failed archive, then starts after archive with its mode and evidence', async () => {
     const [current, next] = await createSessions(2);
     const active = await POST_MESSAGE(messageRequest(current));
     await vi.waitFor(() => expect(routeState.started).toHaveLength(1));
-    const response = await POST_MESSAGE(messageRequest(next, { waitForCheckout: true, mode: 'plan' }));
+    const response = await POST_MESSAGE(messageRequest(next, { waitForCheckout: true, mode: 'plan', fileAttachments: [{ name: 'idea.txt', text: 'Evidence' }] }));
     expect(response.status).toBe(200);
     expect(response.headers.get('X-CodeAI-Run-State')).toBe('queued');
     const runId = response.headers.get('X-CodeAI-Run-Id')!;
@@ -156,12 +162,65 @@ describe('message route scheduler integration', () => {
     expect(routeState.runnersCreated).toBe(1);
     const store = getSessionStore(routeState.dataDir, 'Scheduler route host');
     expect((await store.getSession(next.id)).messages.at(-1)).toMatchObject({ role: 'user', status: 'sending', mode: 'plan' });
+    const edit = (text: string, expectedText = `Turn for ${next.id}`) => POST_EDIT(new Request('http://localhost/api/agent/queued-message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, text, expectedText }),
+    }));
+    expect((await edit('Revised idea')).status).toBe(200);
+    expect((await edit('Revised idea')).status).toBe(200); // Lost-response retry is idempotent.
+    expect((await edit('Stale device overwrite')).status).toBe(409);
+    expect((await edit('')).status).toBe(400);
+    const saved = (await store.getSession(next.id)).messages.at(-1)!;
+    expect(saved).toMatchObject({ text: 'Revised idea', mode: 'plan', fileAttachments: [{ name: 'idea.txt', text: 'Evidence' }], turn: { runId } });
+    const originalSave = store.editQueuedMessage.bind(store);
+    const failSave = vi.spyOn(store, 'editQueuedMessage').mockRejectedValueOnce(new SessionStoreError('corrupt', 'disk full'));
+    expect((await edit('Failed edit', 'Revised idea')).status).toBe(500);
+    failSave.mockImplementation(originalSave);
+    failSave.mockImplementationOnce(async (...args) => {
+      await originalSave(...args);
+      throw new SessionStoreError('corrupt', 'Saved before a directory sync failure');
+    });
+    expect((await edit('Canonical edit after uncertain save', 'Revised idea')).status).toBe(500);
     routeState.resolvers.get(active.headers.get('X-CodeAI-Run-Id')!)?.();
+    await vi.waitFor(() => expect(runRegistry.list(current.id).active).toEqual([]));
+    expect(routeState.started).not.toContain(runId);
+    const archiveRequest = () => POST_ARCHIVE(new Request('http://localhost/api/sessions/archive', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: current.revision + 1 }) }),
+    { params: Promise.resolve({ sessionId: current.id }) });
+    const archive = vi.spyOn(store, 'archiveSession').mockRejectedValueOnce(new SessionStoreError('corrupt', 'disk unavailable'));
+    expect((await archiveRequest()).status).toBe(500);
+    expect(routeState.started).not.toContain(runId);
+    archive.mockRestore();
+    expect((await archiveRequest()).status).toBe(200);
     await vi.waitFor(() => expect(routeState.started).toContain(runId));
+    expect(routeState.texts.get(runId)).toBe('Canonical edit after uncertain save');
+    expect((await edit('Too late', 'Canonical edit after uncertain save')).status).toBe(409);
     expect(routeState.runnersCreated).toBe(2);
     routeState.resolvers.get(runId)?.();
     await vi.waitFor(() => expect(runRegistry.list().active).toEqual([]));
     await active.body?.cancel();
+    await store.close();
+  });
+
+  it('finds idle predecessor conversations even after their run descriptor expires', async () => {
+    const [current, next, empty] = await createSessions(3);
+    const store = getSessionStore(routeState.dataDir, 'Scheduler route host');
+    const human = current.participants.find(participant => participant.kind === 'human')!;
+    await store.appendUserMessage(current.id, { id: crypto.randomUUID(), role: 'user', authorId: human.id,
+      addressedParticipantId: current.primaryAgentId, text: 'Ongoing conversation', createdAt: new Date().toISOString(),
+      status: 'sent', diagramAttachments: [] });
+    const response = await POST_MESSAGE(messageRequest(next, { waitForCheckout: true }));
+    const runId = response.headers.get('X-CodeAI-Run-Id')!;
+    expect(response.headers.get('X-CodeAI-Run-State')).toBe('queued');
+    expect(routeState.runnersCreated).toBe(0);
+    const archived = await POST_ARCHIVE(new Request('http://localhost/api/archive', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: current.revision + 1 }) }),
+    { params: Promise.resolve({ sessionId: current.id }) });
+    expect(archived.status).toBe(200);
+    await vi.waitFor(() => expect(routeState.started).toContain(runId));
+    expect((await store.getSession(empty.id)).messages).toEqual([]);
+    routeState.resolvers.get(runId)?.();
+    await vi.waitFor(() => expect(runRegistry.list().active).toEqual([]));
+    await response.body?.cancel();
     await store.close();
   });
 
