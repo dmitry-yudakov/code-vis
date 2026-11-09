@@ -38,12 +38,13 @@ function choice(machine: ArenaMachineSnapshot, item: ArenaSessionSummary): Immer
   };
 }
 
-function sessionRows(machines: readonly ArenaMachineSnapshot[], archived: boolean): ImmersiveArenaRow[] {
+function sessionRows(machines: readonly ArenaMachineSnapshot[], archived: boolean, now: number): ImmersiveArenaRow[] {
   return machines.flatMap((machine) => groupArenaSessions(
     machine.projects,
     archived ? machine.archivedSessions : machine.sessions,
     machine.runs,
     machine.machine.state === 'online', machine.snapshotFresh !== false,
+    false, undefined, now,
   ).flatMap((group) => group.sessions.map((card) => ({
     key: `session:${machine.machine.id}:${card.session.id}`,
     kind: 'session' as const,
@@ -65,8 +66,9 @@ export function buildImmersiveArenaRows(
   machines: readonly ArenaMachineSnapshot[],
   deviceState: DeviceArenaState,
   tab: ImmersiveArenaTab,
+  now = Date.now(),
 ): ImmersiveArenaRow[] {
-  if (tab !== 'inbox') return sessionRows(machines, tab === 'archived');
+  if (tab !== 'inbox') return sessionRows(machines, tab === 'archived', now);
   const byMachine = new Map(machines.map((machine) => [machine.machine.id, machine]));
   return buildMultiMachineInbox(machines, deviceState).flatMap((item) => {
     const machine = item.machineId ? byMachine.get(item.machineId) : undefined;

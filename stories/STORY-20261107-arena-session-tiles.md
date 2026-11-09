@@ -279,3 +279,49 @@ The isolated production browser bundle uses the same webpack compile/generate fa
 above; source TypeScript passes after removing only webpack's generated `types/app` checks.
 No build settings or API routes changed. The running installation has not been rebuilt or restarted;
 signed-in providers, real attached transport and physical devices were not exercised.
+
+## Follow-up — recent replies and durable unread attention (November 9)
+
+The user could not distinguish a just-finished session from one idle for twenty hours, and a
+completion's unread cue disappeared after the run registry's five-minute replay window.
+
+- Active status uses blue **Running**, green **Ready** for one hour after a successful reply, then
+  neutral **Idle**. Approval, queue, failure and Offline retain precedence. Labels carry the meaning
+  alongside color; Ready's tooltip explains the hour. Both desktop arrangements and the immersive
+  Arena share the same age rule. A local minute clock and activation updates age the cue without
+  another server request. Renames, other metadata edits and marking read do not renew the hour.
+- Successful completion attention falls back to the saved latest reply after run expiry/restart.
+  Summaries project the saved turn's optional run id through the strict machine schema; older
+  executors use stable message identity with execution-interval matching during the live window.
+- Unread clears when the corresponding successful reply loads in the visible conversation on a
+  visible browser tab, or through the existing Inbox actions. Failed loads and hidden conversations
+  keep the notice. Reading does not remove Ready. Live permissions cannot be acknowledged locally.
+- Device read markers cover all supported sessions across nine machines: up to 20,000 ids, with
+  obsolete ids pruned on acknowledgment while current active and archived notices retain markers.
+  Existing run-id read aliases normalize to stable ids while their registry entry is available,
+  including archived sessions, so restoring them after expiry preserves read state.
+
+Regression checks cover the one-hour boundary, metadata edits, active/Offline precedence, saved
+summary/schema compatibility, stable read ids through expiry, older executors, 9,000 retained
+markers, loaded-successful-reply matching and existing ordering/Inbox/header behavior. The new
+state and retention unit regressions were observed failing before implementation.
+
+All **111 focused unit checks** pass (`arenaModel`, `sessionStore`, `immersiveArena`, `machineClient`,
+`arenaSubscription`, `arenaReplyDrafts`, `arenaRoutes`, `multiMachineArenaRoute`, `runPresentation`,
+`workspaceLocation`), plus **22 production-browser checks** (`arena-status`, `arena-order`,
+`arena-inbox`, `arena-tile-headers`). TypeScript, `git diff --check`, light/dark desktop Tiles/List
+and phone screenshot inspection, and independent read-only review pass. The provider-delivery
+browser journey uses the real route/store/summary path with the fake offline Claude: a failed
+URL load retains unread, opening the reply clears it while keeping Ready, and a second reply
+received in a hidden tab stays unread until visibility returns. Earlier revisions of that browser
+regression caught premature acknowledgment of a preloaded reply before URL resolution succeeded.
+
+Prepare the isolated bundle with `env -u TURBOPACK CODEAI_DIST_DIR=.next-e2e npx next build --webpack
+--experimental-build-mode compile`, then the same command with `generate`. Run the four browser
+files with `CODEAI_DIST_DIR=.next-e2e npx playwright test`. The previously recorded normal-build
+font/generated-route-check limitations remain; source TypeScript passes after removing only
+webpack's generated `.next-e2e/types/app` checks. No build configuration or API routes changed.
+Caught network errors from controlled stream transitions appear in test logs; all assertions pass.
+
+The running installation has not been rebuilt or restarted. Signed-in providers, real attached
+executor transport and physical Quest use were not exercised.

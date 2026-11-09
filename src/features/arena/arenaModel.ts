@@ -1,12 +1,14 @@
 import type {
-  ArenaMachineSnapshot, ArenaSessionSummary, DurableProject, RunDescriptor, RunDiscovery,
+  ArenaMachineSnapshot, ArenaSessionSummary, DurableProject, PublicSession, RunDescriptor, RunDiscovery,
 } from '@/shared/types';
 
 export const DEVICE_ARENA_STORAGE_KEY = 'code-ai:device:v1:arena';
-const MAX_ACKNOWLEDGED_ITEMS = 500;
+// Nine machines can each retain 1,000 sessions plus recent runs. Obsolete ids are pruned on read.
+const MAX_ACKNOWLEDGED_ITEMS = 20_000;
 const SAFE_ATTENTION_ID = /^[^\u0000-\u001f]{1,240}$/;
 
-export type ArenaSessionState = 'idle' | 'running' | 'needs-you' | 'queued' | 'failed' | 'offline';
+export type ArenaSessionState = 'idle' | 'ready' | 'running' | 'needs-you' | 'queued' | 'failed' | 'offline';
+export const ARENA_READY_MS = 60 * 60 * 1_000;
 export type ArenaAttentionKind = 'permission' | 'failed' | 'completed' | 'unavailable';
 
 export interface DeviceArenaState {
@@ -90,11 +92,13 @@ function activeBySession(discovery: RunDiscovery): Map<string, RunDescriptor> {
   return new Map(discovery.active.map((run) => [run.sessionId, run]));
 }
 
-export function arenaSessionState(session: ArenaSessionSummary, run?: RunDescriptor): ArenaSessionState {
+export function arenaSessionState(session: ArenaSessionSummary, run?: RunDescriptor, now = Date.now()): ArenaSessionState {
   if (run?.state === 'needs-you') return 'needs-you';
   if (run?.state === 'queued') return 'queued';
   if (run?.state === 'running') return 'running';
-  return hasFailedActivity(session) ? 'failed' : 'idle';
+  if (hasFailedActivity(session)) return 'failed';
+  if (session.lastActivity?.status === 'complete' && now - Date.parse(session.lastActivity.createdAt) < ARENA_READY_MS) return 'ready';
+  return 'idle';
 }
 
 export function arenaSessionActivity(session: ArenaSessionSummary, run?: RunDescriptor): string {
@@ -112,7 +116,7 @@ export function arenaSessionActivity(session: ArenaSessionSummary, run?: RunDesc
 
 /** What waits on the user comes first; what merely happened recently follows. */
 const ATTENTION_RANK: Record<ArenaSessionState, number> = {
-  'needs-you': 0, failed: 1, running: 2, queued: 3, idle: 4, offline: 5,
+  'needs-you': 0, failed: 1, running: 2, queued: 3, ready: 4, idle: 5, offline: 6,
 };
 
 export function groupArenaSessions(
@@ -123,6 +127,7 @@ export function groupArenaSessions(
   fresh = true,
   includeEmptyProjects = false,
   order?: ArenaActiveOrder,
+  now = Date.now(),
 ): ArenaProjectGroup[] {
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const active = activeBySession(discovery);
@@ -142,7 +147,7 @@ export function groupArenaSessions(
     group.sessions.push({
       session,
       projectName,
-      state: machineOnline ? fresh && executionUnavailable(session, discovery) ? 'needs-you' : arenaSessionState(session, run) : 'offline',
+      state: machineOnline ? fresh && executionUnavailable(session, discovery) ? 'needs-you' : arenaSessionState(session, run, now) : 'offline',
       activity: machineOnline ? fresh && executionUnavailable(session, discovery) ? 'Execution status unavailable' : arenaSessionActivity(session, run) : 'Execution machine is offline',
       ...(run ? { run } : {}),
     });
@@ -161,7 +166,7 @@ export function groupArenaSessions(
   // Sessions arrived newest first, so a stable sort by attention keeps recency within each state.
   const groups = [...grouped.values()];
   for (const group of groups) group.sessions.sort((left, right) => ATTENTION_RANK[left.state] - ATTENTION_RANK[right.state]);
-  const rank = (group: ArenaProjectGroup) => group.sessions.length ? ATTENTION_RANK[group.sessions[0].state] : 6;
+  const rank = (group: ArenaProjectGroup) => group.sessions.length ? ATTENTION_RANK[group.sessions[0].state] : 7;
   groups.sort((left, right) => (
     rank(left) - rank(right)
     || right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name)
@@ -197,12 +202,13 @@ export function parseDeviceArenaState(value: string | null): DeviceArenaState {
 export function acknowledgeAttention(
   state: DeviceArenaState,
   itemIds: readonly string[],
+  retainedIds?: ReadonlySet<string>,
 ): DeviceArenaState {
   const valid = itemIds.filter((id) => SAFE_ATTENTION_ID.test(id));
   if (!valid.length) return state;
   return {
     version: 1,
-    acknowledgedIds: [...new Set([...state.acknowledgedIds, ...valid])].slice(-MAX_ACKNOWLEDGED_ITEMS),
+    acknowledgedIds: [...new Set([...state.acknowledgedIds.filter(id => !retainedIds || retainedIds.has(id)), ...valid])].slice(-MAX_ACKNOWLEDGED_ITEMS),
   };
 }
 
@@ -245,12 +251,20 @@ export function buildArenaInbox(
   }
 
   const recentFailureSessions = new Set<string>();
+  const recentCompletionSessions = new Set<string>();
   for (const run of discovery.recent) {
     if (run.outcome !== 'completed' && run.outcome !== 'failed') continue;
     const session = sessionsById.get(run.sessionId);
     if (!session) continue;
     if (run.outcome === 'failed') recentFailureSessions.add(session.id);
-    const id = `run:${run.runId}`;
+    const completion = session.lastActivity?.status === 'complete' ? session.lastActivity : undefined;
+    // Older executors lack saved run ids. Match the reply to its execution interval and use its
+    // message identity both before and after the live registry expires.
+    const legacyCompletion = run.outcome === 'completed' && completion && !completion.runId
+      && Date.parse(completion.createdAt) >= (run.startedAt ?? run.enqueuedAt)
+      && Date.parse(completion.createdAt) <= (run.finishedAt ?? 0);
+    if (run.outcome === 'completed' && (completion?.runId === run.runId || legacyCompletion)) recentCompletionSessions.add(session.id);
+    const id = legacyCompletion ? `completion:${session.id}:${completion.messageId}` : `run:${run.runId}`;
     items.push({
       id,
       kind: run.outcome,
@@ -261,6 +275,22 @@ export function buildArenaInbox(
       reason: run.outcome === 'failed' ? run.status || 'The turn failed' : 'Turn completed',
       createdAt: run.finishedAt || run.startedAt || run.enqueuedAt,
       runId: run.runId,
+      read: acknowledged.has(id) || acknowledged.has(`run:${run.runId}`),
+      ...(machine ? { machineId: machine.id, machineLabel: machine.label, machineOnline: machine.online } : {}),
+    });
+  }
+
+  // Successful replies survive the live registry's five-minute window and process restarts too.
+  for (const session of sessions) {
+    const completion = session.lastActivity?.status === 'complete' ? session.lastActivity : undefined;
+    if (!completion || recentCompletionSessions.has(session.id)) continue;
+    const id = completion.runId ? `run:${completion.runId}` : `completion:${session.id}:${completion.messageId}`;
+    items.push({
+      id, kind: 'completed', sessionId: session.id,
+      ...(session.projectId ? { projectId: session.projectId } : {}),
+      projectName: projectNameFor(session, projectsById), sessionTitle: session.title,
+      reason: 'Turn completed', createdAt: Date.parse(completion.createdAt) || 0,
+      ...(completion.runId ? { runId: completion.runId } : {}),
       read: acknowledged.has(id),
       ...(machine ? { machineId: machine.id, machineLabel: machine.label, machineOnline: machine.online } : {}),
     });
@@ -314,7 +344,8 @@ export function buildMultiMachineInbox(
     const id = `machine:${entry.machine.id}:${item.id}`;
     // Preserve local read markers written before the Arena became machine-qualified.
     const read = item.kind !== 'permission' && (
-      acknowledged.has(id) || (entry.machine.kind === 'local' && acknowledged.has(item.id))
+      acknowledged.has(id) || (item.runId && acknowledged.has(`machine:${entry.machine.id}:run:${item.runId}`))
+      || (entry.machine.kind === 'local' && (acknowledged.has(item.id) || Boolean(item.runId && acknowledged.has(`run:${item.runId}`))))
     );
     return { ...item, id, read };
   }));
@@ -326,4 +357,18 @@ export function buildMultiMachineInbox(
 
 export function unreadArenaAttention(items: readonly ArenaAttentionItem[]): ArenaAttentionItem[] {
   return items.filter((item) => item.kind === 'permission' || !item.read);
+}
+
+/** Only acknowledge successful replies actually loaded in the visible conversation. */
+export function viewedArenaCompletionIds(items: readonly ArenaAttentionItem[], machineId: string, session: Pick<PublicSession, 'id' | 'messages'>): string[] {
+  const viewed = new Set<string>();
+  let runId: string | undefined;
+  for (const message of session.messages) {
+    if (message.role === 'user') runId = message.turn?.runId;
+    else if (message.status === 'complete') {
+      viewed.add(`machine:${machineId}:completion:${session.id}:${message.id}`);
+      if (runId) viewed.add(`machine:${machineId}:run:${runId}`);
+    }
+  }
+  return items.filter(item => item.kind === 'completed' && !item.read && viewed.has(item.id)).map(item => item.id);
 }

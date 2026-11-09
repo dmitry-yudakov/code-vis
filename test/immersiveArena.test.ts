@@ -33,6 +33,15 @@ function machine(id: string, title: string, online = true): ArenaMachineSnapshot
 }
 
 describe('immersive Arena summaries', () => {
+  it('uses the same Ready window as the desktop and keeps offline precedence', () => {
+    const home = machine('home', 'Home');
+    const now = Date.parse('2026-11-09T10:00:00Z');
+    home.sessions[0].lastActivity = { messageId: crypto.randomUUID(), createdAt: new Date(now).toISOString(), status: 'complete' };
+    expect(buildImmersiveArenaRows([home], EMPTY_DEVICE_ARENA_STATE, 'sessions', now + 60_000)[0].state).toBe('ready');
+    expect(buildImmersiveArenaRows([home], EMPTY_DEVICE_ARENA_STATE, 'sessions', now + 3_600_000)[0].state).toBe('idle');
+    home.machine.state = 'offline';
+    expect(buildImmersiveArenaRows([home], EMPTY_DEVICE_ARENA_STATE, 'sessions', now)[0].state).toBe('offline');
+  });
   it('keeps duplicate session ids machine-qualified and cached offline summaries non-actionable', () => {
     const rows = buildImmersiveArenaRows([
       machine('home', 'Home session'),

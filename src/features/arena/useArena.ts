@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ArenaMachineSnapshot, ArenaSnapshot, RunDiscovery } from '@/shared/types';
 import { useDeviceAccess } from '@/features/devices/DeviceAccess';
 import { subscribeArena } from './arenaSubscription';
 import {
-  acknowledgeAttention, DEVICE_ARENA_STORAGE_KEY, EMPTY_DEVICE_ARENA_STATE,
+  acknowledgeAttention, buildMultiMachineInbox, DEVICE_ARENA_STORAGE_KEY, EMPTY_DEVICE_ARENA_STATE,
   groupArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, type ArenaActiveOrder, type DeviceArenaState,
 } from './arenaModel';
 
@@ -15,6 +15,9 @@ export function useArena() {
   const [refreshError, setRefreshError] = useState<string>();
   const [deviceState, setDeviceState] = useState<DeviceArenaState>(EMPTY_DEVICE_ARENA_STATE);
   const [deviceReady, setDeviceReady] = useState(false);
+  const attentionMachines = useMemo(() => machines.map(machine => ({
+    ...machine, sessions: [...machine.sessions, ...machine.archivedSessions],
+  })), [machines]);
   const subscription = useRef<ReturnType<typeof subscribeArena> | undefined>(undefined);
   const activeOrder = useRef(new Map<string, ArenaActiveOrder>());
   const { refresh: refreshAccess } = useDeviceAccess();
@@ -33,6 +36,16 @@ export function useArena() {
       // Inbox read state is optional device state; the live permission authority stays on-server.
     }
   }, [deviceReady, deviceState]);
+
+  // Preserve previously saved read aliases while an older executor still supplies the run id.
+  useEffect(() => {
+    if (!deviceReady) return;
+    setDeviceState(current => {
+      const acknowledged = new Set(current.acknowledgedIds);
+      const aliases = buildMultiMachineInbox(attentionMachines, current).filter(item => item.read && !acknowledged.has(item.id));
+      return aliases.length ? acknowledgeAttention(current, aliases.map(item => item.id)) : current;
+    });
+  }, [deviceReady, attentionMachines]);
 
   const refresh = useCallback(() => subscription.current?.refresh() ?? Promise.resolve(), []);
 
@@ -71,8 +84,11 @@ export function useArena() {
   }, [refreshAccess]);
 
   const acknowledge = useCallback((itemIds: string[]) => {
-    setDeviceState((current) => acknowledgeAttention(current, itemIds));
-  }, []);
+    setDeviceState((current) => {
+      const inbox = buildMultiMachineInbox(attentionMachines, current);
+      return acknowledgeAttention(current, [...inbox.filter(item => item.read).map(item => item.id), ...itemIds], new Set(inbox.map(item => item.id)));
+    });
+  }, [attentionMachines]);
 
   const sessions = machines.flatMap((entry) => entry.sessions.map((session) => ({
     ...session, machineId: entry.machine.id,

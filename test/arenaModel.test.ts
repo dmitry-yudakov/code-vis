@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   acknowledgeAttention, arenaSessionState, buildArenaInbox, buildMultiMachineInbox, EMPTY_DEVICE_ARENA_STATE,
-  groupArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, unreadArenaAttention, type ArenaActiveOrder,
+  groupArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, unreadArenaAttention, viewedArenaCompletionIds, type ArenaActiveOrder,
 } from '@/features/arena/arenaModel';
-import type { ArenaMachineSnapshot, ArenaSessionSummary, DurableProject, RunDescriptor, RunDiscovery } from '@/shared/types';
+import type { ArenaMachineSnapshot, ArenaSessionSummary, AssistantMessage, DurableProject, RunDescriptor, RunDiscovery, UserMessage } from '@/shared/types';
+import { createTurn, finishTurn } from '@/shared/turnActivity';
 
 const PROJECT_A = '11111111-1111-4111-8111-111111111111';
 const PROJECT_B = '22222222-2222-4222-8222-222222222222';
@@ -45,6 +46,79 @@ function run(input: Partial<RunDescriptor> & Pick<RunDescriptor, 'runId' | 'sess
 }
 
 describe('Arena presentation model', () => {
+  it('keeps successful replies Ready for one hour independently of metadata edits and unread state', () => {
+    const finishedAt = Date.parse('2026-11-09T10:00:00Z');
+    const completed = session(SESSION_A, new Date(finishedAt).toISOString());
+    expect(arenaSessionState(completed, undefined, finishedAt + 60_000)).toBe('ready');
+    expect(arenaSessionState(completed, undefined, finishedAt + 3_600_000 - 1)).toBe('ready');
+    expect(arenaSessionState(completed, undefined, finishedAt + 3_600_000)).toBe('idle');
+    expect(arenaSessionState({ ...completed, updatedAt: new Date(finishedAt + 20 * 3_600_000).toISOString() }, undefined, finishedAt + 20 * 3_600_000)).toBe('idle');
+    expect(arenaSessionState(completed, run({ runId: 'live', sessionId: SESSION_A, state: 'running' }), finishedAt)).toBe('running');
+    for (const status of ['cancelled', 'sending', 'sent', 'failed'] as const) {
+      expect(arenaSessionState({ ...completed, lastActivity: { ...completed.lastActivity!, status } }, undefined, finishedAt)).toBe(status === 'failed' ? 'failed' : 'idle');
+    }
+    expect(arenaSessionState({ ...completed, lastActivity: undefined }, undefined, finishedAt)).toBe('idle');
+    expect(arenaSessionState({ ...completed, lastActivity: { ...completed.lastActivity!, createdAt: 'invalid' } }, undefined, finishedAt)).toBe('idle');
+  });
+
+  it('keeps saved completion attention and its read identity after run expiry or a server restart', () => {
+    const completed = session(SESSION_A, '2026-11-09T10:00:00Z');
+    completed.lastActivity!.runId = 'completed-run';
+    const recent = run({ runId: 'completed-run', sessionId: SESSION_A, state: 'finished', outcome: 'completed', finishedAt: Date.parse(completed.updatedAt) });
+    const discovery = { active: [], recent: [recent] };
+    const before = buildArenaInbox([], [completed], discovery, EMPTY_DEVICE_ARENA_STATE);
+    const after = buildArenaInbox([], [completed], { active: [], recent: [] }, EMPTY_DEVICE_ARENA_STATE);
+    expect(before).toHaveLength(1);
+    expect(after).toMatchObject([{ id: before[0].id, kind: 'completed', read: false, createdAt: Date.parse(completed.lastActivity!.createdAt) }]);
+    const state = acknowledgeAttention(EMPTY_DEVICE_ARENA_STATE, [before[0].id]);
+    expect(buildArenaInbox([], [completed], { active: [], recent: [] }, state)[0].read).toBe(true);
+    const next = { ...completed, lastActivity: { ...completed.lastActivity!, runId: 'next-run', messageId: crypto.randomUUID() } };
+    expect(buildArenaInbox([], [next], { active: [], recent: [] }, state)[0].read).toBe(false);
+    const legacy = { ...completed, lastActivity: { ...completed.lastActivity!, runId: undefined } };
+    expect(buildArenaInbox([], [legacy], { active: [], recent: [] }, EMPTY_DEVICE_ARENA_STATE)).toMatchObject([{ kind: 'completed', id: `completion:${SESSION_A}:${legacy.lastActivity.messageId}` }]);
+  });
+
+  it('uses stable completion identity for older executors without conflating earlier turns', () => {
+    const completed = session(SESSION_A, '2026-11-09T10:00:00Z');
+    const at = Date.parse(completed.lastActivity!.createdAt);
+    const recent = run({ runId: 'legacy-run', sessionId: SESSION_A, state: 'finished', outcome: 'completed', startedAt: at - 1_000, finishedAt: at + 10 });
+    const before = buildArenaInbox([], [completed], { active: [], recent: [recent] }, EMPTY_DEVICE_ARENA_STATE);
+    expect(before).toHaveLength(1);
+    const state = acknowledgeAttention(EMPTY_DEVICE_ARENA_STATE, before.map(item => item.id));
+    expect(buildArenaInbox([], [completed], { active: [], recent: [] }, state)[0]).toMatchObject({ id: before[0].id, read: true });
+    const older = { ...recent, finishedAt: at - 1_000 };
+    expect(buildArenaInbox([], [completed], { active: [], recent: [older] }, state)).toHaveLength(2);
+    expect(buildArenaInbox([], [completed], { active: [], recent: [recent] }, acknowledgeAttention(EMPTY_DEVICE_ARENA_STATE, ['run:legacy-run']))[0].read).toBe(true);
+  });
+
+  it('marks all supported durable notices read and prunes obsolete markers without reviving retained ones', () => {
+    const ids = Array.from({ length: 9_000 }, (_, i) => `machine:${i % 9}:run:${i}`);
+    const all = acknowledgeAttention(EMPTY_DEVICE_ARENA_STATE, ids);
+    expect(parseDeviceArenaState(JSON.stringify(all)).acknowledgedIds).toEqual(ids);
+    const retained = new Set([...ids, 'run:new']);
+    const busy = acknowledgeAttention(all, Array.from({ length: 11_000 }, (_, i) => `run:old-${i}`));
+    const next = acknowledgeAttention(busy, ['run:new'], retained);
+    expect(next.acknowledgedIds).toEqual([...ids, 'run:new']);
+  });
+
+  it('acknowledges only completions whose saved replies have loaded on the exact machine', () => {
+    const completed = session(SESSION_A, '2026-11-09T10:00:00Z');
+    completed.lastActivity!.runId = 'saved-run';
+    const inbox = buildArenaInbox([], [completed], { active: [], recent: [] }, EMPTY_DEVICE_ARENA_STATE)
+      .map(item => ({ ...item, id: `machine:home:${item.id}` }));
+    const user: UserMessage = { id: crypto.randomUUID(), role: 'user', authorId: 'you', addressedParticipantId: AGENT, text: 'Work',
+      createdAt: completed.updatedAt, status: 'sent', diagramAttachments: [] };
+    user.turn = finishTurn(createTurn('saved-run', user.id, AGENT, user.createdAt), 'completed');
+    const assistant: AssistantMessage = { id: completed.lastActivity!.messageId, role: 'assistant', authorId: AGENT,
+      createdAt: completed.updatedAt, status: 'complete', rawMarkdown: 'Done', blocks: [] };
+    const loaded = { id: completed.id, messages: [user, assistant] };
+    expect(viewedArenaCompletionIds(inbox, 'home', { ...loaded, messages: [user] })).toEqual([]);
+    expect(viewedArenaCompletionIds(inbox, 'remote', loaded)).toEqual([]);
+    expect(viewedArenaCompletionIds(inbox, 'home', loaded)).toEqual([inbox[0].id]);
+    expect(viewedArenaCompletionIds(inbox.map(item => ({ ...item, kind: 'permission' as const })), 'home', loaded)).toEqual([]);
+    expect(viewedArenaCompletionIds(inbox, 'home', { ...loaded, messages: [user, { ...assistant, status: 'failed' }] })).toEqual([]);
+  });
+
   it('gives active lifecycle precedence and otherwise preserves failed versus idle session semantics', () => {
     const failed = session(SESSION_A, '2026-09-03T10:00:00.000Z', PROJECT_A, 'failed');
     expect(arenaSessionState(failed)).toBe('failed');
@@ -185,9 +259,10 @@ describe('Arena presentation model', () => {
   it('orders permissions before failures before completions and never lets read state hide live approval', () => {
     const sessions = [
       session(SESSION_A, '2026-09-03T10:00:00.000Z', PROJECT_A),
-      session(SESSION_B, '2026-09-03T11:00:00.000Z', PROJECT_B),
+      session(SESSION_B, '2026-09-03T11:00:00.000Z', PROJECT_B, 'failed'),
       session(SESSION_C, '2026-09-03T12:00:00.000Z'),
     ];
+    sessions[0].lastActivity!.status = 'sending';
     const discovery: RunDiscovery = {
       active: [run({
         runId: 'permission-run',
@@ -199,7 +274,7 @@ describe('Arena presentation model', () => {
       })],
       recent: [
         run({ runId: 'failed-run', sessionId: SESSION_B, state: 'finished', finishedAt: 500, outcome: 'failed', status: 'Tests failed' }),
-        run({ runId: 'completed-run', sessionId: SESSION_C, state: 'finished', finishedAt: 600, outcome: 'completed' }),
+        run({ runId: 'completed-run', sessionId: SESSION_C, state: 'finished', finishedAt: Date.parse(sessions[2].updatedAt) + 1, outcome: 'completed' }),
       ],
     };
     let state = acknowledgeAttention(EMPTY_DEVICE_ARENA_STATE, [
@@ -227,10 +302,10 @@ describe('Arena presentation model', () => {
       .toEqual(EMPTY_DEVICE_ARENA_STATE);
     const parsed = parseDeviceArenaState(JSON.stringify({
       version: 1,
-      acknowledgedIds: [123, 'run:a', 'run:a', 'bad\nvalue', ...Array.from({ length: 600 }, (_, index) => `run:${index}`)],
+      acknowledgedIds: [123, 'run:a', 'run:a', 'bad\nvalue', ...Array.from({ length: 20_100 }, (_, index) => `run:${index}`)],
     }));
-    expect(parsed.acknowledgedIds).toHaveLength(500);
-    expect(parsed.acknowledgedIds.at(-1)).toBe('run:599');
+    expect(parsed.acknowledgedIds).toHaveLength(20_000);
+    expect(parsed.acknowledgedIds.at(-1)).toBe('run:20099');
   });
 
   it('marks cached machine cards offline and keeps Inbox routing bound to the owner', () => {

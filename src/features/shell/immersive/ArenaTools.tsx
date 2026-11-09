@@ -14,9 +14,10 @@ import { immersiveFont, immersiveTheme } from './immersiveTheme';
 import { createWorkspaceButtonResource, type PanelControlResources } from './workspaceResources';
 import { useTextureResource } from './useTextureResource';
 import { WorkspacePager, WorldButton } from './WorkspacePanel';
+import { useArenaNow } from '@/features/arena/useArenaNow';
 
 const STATE_LABELS = {
-  idle: 'Idle', running: 'Running', 'needs-you': 'Needs you', queued: 'Queued', failed: 'Failed', offline: 'Offline',
+  idle: 'Idle', ready: 'Ready', running: 'Running', 'needs-you': 'Needs you', queued: 'Queued', failed: 'Failed', offline: 'Offline',
 } as const;
 const SUMMARY_WIDTH = 640;
 const SUMMARY_HEIGHT = 400;
@@ -50,7 +51,7 @@ function createArenaSummaryResource(
     const top = SUMMARY_ROW.top + index * SUMMARY_ROW.stride;
     context.fillStyle = row.key === selectedKey ? colors.selected : row.key === hoveredKey ? colors.hover : colors.raised;
     context.beginPath(); context.roundRect(SUMMARY_ROW.left, top, SUMMARY_ROW.width, SUMMARY_ROW.height, 14); context.fill();
-    context.fillStyle = row.unread ? colors.link : colors.secondaryText;
+    context.fillStyle = row.state === 'ready' ? colors.positive : row.state === 'running' ? colors.link : row.unread ? colors.link : colors.secondaryText;
     context.beginPath(); context.arc(24, top + 19, 5, 0, Math.PI * 2); context.fill();
     context.fillStyle = row.key === selectedKey ? colors.selectedInk : colors.text;
     context.font = immersiveFont('heading', PIXELS_PER_METER);
@@ -81,7 +82,8 @@ export function ArenaTools({ controls, theme, enabled, focused, pagerIcons, onNe
   const [busyKey, setBusyKey] = useState<string>();
   const [confirmArchiveKey, setConfirmArchiveKey] = useState<string>();
   const busy = useRef(false);
-  const rows = useMemo(() => buildImmersiveArenaRows(controls.machines, controls.deviceState, tab), [controls.machines, controls.deviceState, tab]);
+  const now = useArenaNow();
+  const rows = useMemo(() => buildImmersiveArenaRows(controls.machines, controls.deviceState, tab, now), [controls.machines, controls.deviceState, tab, now]);
   const selectedIndex = Math.max(0, rows.findIndex((row) => row.key === selectedKey));
   const selected = rows[selectedIndex];
   const paged = useMemo(() => pageImmersiveArenaRows(rows, Math.floor(selectedIndex / IMMERSIVE_ARENA_PAGE_SIZE)), [rows, selectedIndex]);

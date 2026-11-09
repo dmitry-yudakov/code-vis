@@ -48,7 +48,7 @@ import { SessionSetupDialog } from '@/features/session-launch/SessionSetupDialog
 import type { LaunchSettings } from '@/features/session-launch/sessionLaunch';
 import { Arena } from '@/features/arena/Arena';
 import { MachineSettingsDialog } from '@/features/arena/MachineSettingsDialog';
-import { buildMultiMachineInbox, unreadArenaAttention, type ArenaAttentionItem } from '@/features/arena/arenaModel';
+import { buildMultiMachineInbox, unreadArenaAttention, viewedArenaCompletionIds, type ArenaAttentionItem } from '@/features/arena/arenaModel';
 import { arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
 import { useArenaReplies, type ArenaReplyOptions } from '@/features/arena/useArenaReplies';
@@ -2663,6 +2663,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigationError = !arenaOpen && (navigationFailure?.key === navigationKey ? navigationFailure.message
     : !openingWorkspace && location.kind === 'session' && !sessions.some(item => item.id === location.sessionId)
       ? 'This conversation is unavailable. It may have been archived or deleted.' : undefined);
+  useEffect(() => {
+    if (arenaOpen || openingWorkspace || resolvedNavigation !== navigationKey || navigationError || !panelLayout.conversationShown || !session || !machineId
+      || (location.kind === 'session' && !selectedDestinationLoaded)) return;
+    const acknowledge = () => {
+      if (document.visibilityState === 'hidden') return;
+      const ids = viewedArenaCompletionIds(arenaInbox, machineId, session);
+      if (ids.length) arena.acknowledge(ids);
+    };
+    acknowledge();
+    document.addEventListener('visibilitychange', acknowledge);
+    return () => document.removeEventListener('visibilitychange', acknowledge);
+  }, [arenaOpen, openingWorkspace, resolvedNavigation, navigationKey, navigationError, panelLayout.conversationShown, session, machineId, location.kind, selectedDestinationLoaded, arenaInbox, arena.acknowledge]);
 
   return (
     <RepositoryFilesProvider scope={session?.id || ''} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>

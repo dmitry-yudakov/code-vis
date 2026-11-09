@@ -242,6 +242,8 @@ export function publicSession(session: DurableSession): PublicSession {
 /** Workspace subscriptions share this bounded projection; full transcripts stay behind session routes. */
 export function arenaSessionSummary(session: DurableSession): ArenaSessionSummary {
   const latest = session.messages.at(-1);
+  const user = session.messages.findLast(message => message.role === 'user');
+  const runId = user?.role === 'user' ? user.turn?.runId : undefined;
   const preview = latest?.role === 'user' ? latest.text : latest?.blocks.flatMap(block => block.kind === 'markdown' ? [block.markdown] : []).join('\n\n');
   return {
     ...(session.worktree ? { worktree: session.worktree } : {}),
@@ -270,6 +272,7 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
     ...(latest ? {
       lastActivity: {
         messageId: latest.id,
+        ...(runId ? { runId } : {}),
         createdAt: latest.createdAt,
         status: latest.status,
       },

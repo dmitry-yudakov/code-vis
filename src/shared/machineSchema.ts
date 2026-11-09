@@ -65,6 +65,7 @@ const arenaSessionSummarySchema = z.object({
   updatedAt: dateTime,
   lastActivity: z.object({
     messageId: z.string().uuid(),
+    runId: z.string().uuid().optional(),
     createdAt: dateTime,
     status: z.enum(['sending', 'sent', 'cancelled', 'failed', 'complete']),
   }).strict().optional(),

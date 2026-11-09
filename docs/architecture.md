@@ -271,6 +271,17 @@ its first snapshot until page reload. Later snapshots append new identities and 
 content in place; navigation, refresh and reconnect preserve positions, including returning sessions.
 Inbox priority and Archived/immersive grouping keep their existing ordering.
 
+Active session status distinguishes blue Running, green Ready for one hour after a successful
+reply's `createdAt`, and neutral Idle afterward. A local minute clock and browser activation age
+the cue without polling the server; metadata edits and read state do not reset it. Live runs,
+failures and Offline still take precedence. Saved summaries include the latest turn's optional
+`lastActivity.runId`, so completion attention keeps its identity after the five-minute run registry
+expires or restarts. Older summaries use the reply's message id, matched to a recent run by its
+execution interval. A completion becomes read only through an explicit Inbox action or when its
+successful reply has loaded in the visible conversation on a visible browser tab. Device read ids
+are capped at 20,000 and pruned to current active/archived attention on acknowledgment, covering
+the supported home and eight attached executors without reviving notices during normal use.
+
 Desktop Active sessions can also use full-width wrapping project panels, with up to three
 populated panels per row sharing spare width and empty projects in compact rows. Session
 tiles wrap inside each project, with machine boundaries and project order retained. Layout is

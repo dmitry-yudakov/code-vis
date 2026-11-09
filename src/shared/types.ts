@@ -560,6 +560,8 @@ export interface ArenaSessionSummary {
   updatedAt: string;
   lastActivity?: {
     messageId: string;
+    /** Saved turn identity keeps completion attention stable after live-run retention expires. */
+    runId?: string;
     createdAt: string;
     status: ChatMessage['status'];
   };

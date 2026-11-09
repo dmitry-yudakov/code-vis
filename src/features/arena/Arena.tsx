@@ -30,12 +30,14 @@ import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
 import { ContextUsage, contextUsageLabel } from '@/features/agents/ContextUsage';
 import { ArenaTileBody } from './ArenaTileBody';
+import { useArenaNow } from './useArenaNow';
 import type { ArenaReplyOptions, useArenaReplies } from './useArenaReplies';
 
 const LAYOUT_KEY = 'code-ai:device:arena-layout';
 
 const STATE_LABELS = {
   idle: 'Idle',
+  ready: 'Ready',
   running: 'Running',
   'needs-you': 'Needs you',
   queued: 'Queued',
@@ -132,7 +134,7 @@ export function Arena({
   // One online machine is simply "here"; naming it on every screen says nothing.
   const offlineMachines = machines.length - onlineMachines.length;
   const showMachines = machines.length > 1 || offlineMachines > 0;
-  const now = Date.now();
+  const now = useArenaNow();
   const terminalUnreadIds = unread.filter((item) => item.kind !== 'permission').map((item) => item.id);
   const actionKey = (targetMachineId: string, sessionId: string) => `${targetMachineId}:${sessionId}`;
 
@@ -199,7 +201,7 @@ export function Arena({
           {!sessions.length && !machines.some(machine => machine.projects.length) && <div className="arena-empty"><h2>No active sessions</h2><p>Create a project or start a new session.</p></div>}
           {machines.map((machine) => {
             const online = machine.machine.state === 'online';
-            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false, true, activeOrder.get(machine.machine.id));
+            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false, true, activeOrder.get(machine.machine.id), now);
             const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
             return (
               <section className={`arena-machine ${online ? 'online' : 'offline'} ${showMachines ? '' : 'solo'}`} aria-label={machine.machine.label} key={machine.machine.id}>
@@ -230,11 +232,11 @@ export function Arena({
                         const sharedRepository = projectCheckoutIds && projectCheckoutIds.length === card.session.repositoryCheckoutIds.length
                           && card.session.repositoryCheckoutIds.every(id => projectCheckoutIds.includes(id));
                         const facts = <>
-                          <Chip component="span" className={`arena-state state-${card.state}`} variant="outlined" title={card.activity}
-                            color={card.state === 'needs-you' ? 'warning' : card.state === 'running' ? 'success' : card.state === 'failed' ? 'error' : 'default'} label={STATE_LABELS[card.state]} />
+                          <Chip component="span" className={`arena-state state-${card.state}`} variant="outlined" title={card.state === 'ready' ? 'Reply completed within the last hour' : card.activity}
+                            color={card.state === 'needs-you' ? 'warning' : card.state === 'running' ? 'info' : card.state === 'ready' ? 'success' : card.state === 'failed' ? 'error' : 'default'} label={STATE_LABELS[card.state]} />
                           <SessionFacts session={card.session} checkouts={checkoutById} inLink={online} showTitle={!tiles} showRepository={!sharedRepository} />
-                          {/* "Idle" already says a finished turn finished. Tile activity is available on the status. */}
-                          {!tiles && !(card.state === 'idle' && card.session.lastActivity?.status === 'complete') && <span className="arena-card-activity">{card.activity}</span>}
+                          {/* The status already conveys completion; tile activity is available on it. */}
+                          {!tiles && !(['idle', 'ready'].includes(card.state) && card.session.lastActivity?.status === 'complete') && <span className="arena-card-activity">{card.activity}</span>}
                           {attention > 0 && <span className="arena-card-attention">{attention} unread</span>}
                           <span className="arena-card-time">{relativeActivityTime(card.session.updatedAt, now)}</span>
                         </>;

@@ -325,6 +325,15 @@ describe('host-owned session store', () => {
     expect(JSON.stringify(summary)).not.toContain('lastObservedMessageId');
   });
 
+  it('projects the latest turn run id so saved completions retain their Inbox identity', () => {
+    const session = durableFixture(crypto.randomUUID(), crypto.randomUUID());
+    const user = session.messages[0] as UserMessage;
+    user.turn = finishTurn(createTurn(crypto.randomUUID(), user.id, session.primaryAgentId, user.createdAt), 'completed');
+    expect(arenaSessionSummary(session).lastActivity).toMatchObject({ runId: user.turn.runId, status: 'complete', createdAt: session.messages[1].createdAt });
+    session.messages.push({ ...user, id: crypto.randomUUID(), status: 'sending', turn: undefined });
+    expect(arenaSessionSummary(session).lastActivity).not.toHaveProperty('runId');
+  });
+
   it('includes a bounded latest-message excerpt without code, diagrams, or provider metadata', () => {
     const session = durableFixture(crypto.randomUUID(), crypto.randomUUID());
     const latest = session.messages[1] as AssistantMessage;

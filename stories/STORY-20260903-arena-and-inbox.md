@@ -56,6 +56,8 @@ not pretend the later machine/device security work has shipped.
    local machine exists.
 3. Active run state wins over canonical terminal state. Otherwise, a failed last turn is **Failed**
    and a completed turn returns the ongoing session to **Idle**; there is no Done state.
+   The November 9 follow-up in Story 134 refines successful completion to green **Ready** for one
+   hour, then neutral **Idle**, independently of unread attention.
 4. Opening a card switches to its canonical project scope, opens/focuses its device-local view, and
    works while unrelated local turns are queued, running, or waiting for approval.
 

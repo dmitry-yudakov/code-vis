@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { boundedResponseText, fetchExecutorSnapshot } from '@/server/machines/machineClient';
 import type { MachineConnection } from '@/server/machines/machineRegistry';
+import type { ArenaSessionSummary } from '@/shared/types';
 
 const MACHINE_ID = '11111111-1111-4111-8111-111111111111';
 const CREDENTIAL = `22222222-2222-4222-8222-222222222222.${'a'.repeat(43)}`;
@@ -30,6 +31,16 @@ describe('execution machine client', () => {
 
   it('bounds streamed responses even without a Content-Length header', async () => {
     await expect(boundedResponseText(new Response('12345'), 4)).rejects.toThrow('too large');
+  });
+
+  it('accepts saved completion run ids and older executor summaries without them', async () => {
+    const session: ArenaSessionSummary = { id: crypto.randomUUID(), revision: 0, title: 'Completed', repositoryCheckoutIds: [], agents: [],
+      updatedAt: '2026-11-09T10:00:00Z', lastActivity: { messageId: crypto.randomUUID(), runId: crypto.randomUUID(), createdAt: '2026-11-09T10:00:00Z', status: 'complete' } };
+    for (const runId of [session.lastActivity!.runId, undefined]) {
+      const body = { ...snapshot(), sessions: [{ ...session, lastActivity: { ...session.lastActivity, runId } }] };
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body))));
+      expect((await fetchExecutorSnapshot(connection)).sessions[0].lastActivity?.runId).toBe(runId);
+    }
   });
 
   it('rejects a valid projection whose machine identity differs from the attachment', async () => {
