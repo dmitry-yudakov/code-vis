@@ -62,8 +62,8 @@ export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePe
             <img src={image.dataUrl} alt="" /><span title={pendingImageDetail(image)}>Image {index + 1}</span>
           </AttachmentChip>)}
         </div>}
-        <TextField className="arena-tile-reply-field" multiline minRows={2} maxRows={5} fullWidth placeholder="Quick reply…" value={draft.text}
-          disabled={!fresh} slotProps={{ input: { readOnly: Boolean(locked), endAdornment: <InputAdornment position="end">
+        <TextField className="arena-tile-reply-field" variant="standard" multiline minRows={2} maxRows={5} fullWidth placeholder="Quick reply…" value={draft.text}
+          disabled={!fresh} slotProps={{ input: { disableUnderline: true, readOnly: Boolean(locked), endAdornment: <InputAdornment position="end">
             <Button type="submit" className="send-button" variant="contained" disabled={!canSend}
               aria-label={sendLabel} title={sendLabel}>
               <span aria-hidden="true">{draft.busy ? '…' : frozen ? '↻' : '↑'}</span>

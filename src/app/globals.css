@@ -242,14 +242,15 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tiles .arena-card-archive { grid-column: 2; grid-row: 1; align-self: start; margin-top: 12px; z-index: 1; }
 /* A disabled native button must still shield the session link underneath it. */
 .arena-tiles .arena-card-archive.Mui-disabled { pointer-events: auto; }
-.arena-tile-body { grid-column: 1 / -1; min-width: 0; padding: 0 16px 16px; display: grid; gap: 12px; }
+.arena-tile-body { grid-column: 1 / -1; min-width: 0; padding: 0 16px 8px; display: grid; gap: 8px; }
 .arena-tile-caption { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .arena-tile-preview { min-width: 0; padding-top: 12px; border-top: 1px solid var(--line); }
 .arena-tile-preview p { margin: 8px 0 0; min-height: 126px; color: var(--ink-2); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .arena-tile-preview p.expanded { display: block; max-height: 280px; overflow: auto; }
 .arena-tile-preview > .MuiButton-root { margin-top: 4px; padding-left: 0; }
-.arena-tile-reply { min-width: 0; display: grid; gap: 10px; }
-.arena-tile-reply-field .MuiInputBase-root { align-items: flex-end; }
+.arena-tile-reply { min-width: 0; display: grid; gap: 10px; margin-inline: -8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.arena-tile-reply:focus-within { border-top-color: var(--focus-color); box-shadow: 0 -1px 0 var(--focus-color); }
+.arena-tile-reply-field .MuiInputBase-root { align-items: flex-end; padding: 0; }
 .arena-tile-reply-field .MuiInputAdornment-root { height: auto; max-height: none; }
 .arena-tile-permission { min-width: 0; padding: 10px; border: 1px solid var(--wait-line-strong); border-radius: 8px; background: var(--wait-backdrop); }
 .arena-tile-permission pre { max-height: 160px; margin: 6px 0 10px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 var(--mono); }
