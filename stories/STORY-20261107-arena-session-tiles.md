@@ -202,3 +202,80 @@ All **30 focused unit checks** pass (`arenaModel`, `arenaSubscription`, `arenaRe
 `arena-inbox`, `arena-projects`). TypeScript, the isolated `.next-e2e` production build,
 `git diff --check` and independent read-only review pass. The running installation has not been
 rebuilt or restarted; real providers, attached-executor transport and physical devices were not exercised.
+
+## Project panels follow-up — November 8, 2026
+
+**Status: Shipped.** Use the available desktop width in Active Tiles for a responsive grid of
+project panels, with each project's session cards inside it. A wide desktop can show three
+projects across and six projects in two rows; narrower screens reduce the column count, and
+session cards wrap within their own project. Keep ordinary page scrolling, without hiding sessions
+or adding nested project scroll areas. List, phone, Inbox and Archived keep their existing layouts.
+
+Where the code is: `src/features/arena/Arena.tsx:157` owns the Arena frame and project rendering;
+`src/app/globals.css:224` owns tile geometry. `e2e/arena-project-tiles.spec.ts` covers the project
+grid through production browser rendering. This extends Story 134's existing Arena outcome and
+uses its current bounded summaries, stable positions and per-session reply owners.
+
+- [x] Active Tiles uses the desktop width for project panels, including a three-column/two-row
+      arrangement for six projects on a wide desktop and fewer columns at narrower widths.
+- [x] Sessions wrap inside their own project; long names, empty projects, and machine headings
+      stay contained, with no horizontal overflow or hidden sessions.
+- [x] Project creation shortcuts, session links, previews, quick replies, approvals, archive,
+      stable ordering and drafts retain their existing behavior through resizing/view changes.
+- [x] TypeScript, isolated production browser build, focused browser regressions, both-theme desktop/phone
+      screenshot inspection and independent review pass.
+
+All **24 focused unit checks** pass (`arenaModel`, `arenaReplyDrafts`, `arenaSubscription`), along
+with TypeScript and **40 production-browser checks** across `arena-project-tiles`, `arena-order`,
+`arena-tile-headers`, `arena-tiles`, `arena-projects` and `arena-inbox`. The new layout regression
+failed against the old bundle's vertically stacked projects. Light/dark desktop, narrow desktop,
+phone and long-name screenshots were inspected. Independent review found no material issues.
+
+How to verify: run the three unit files above, `npm run lint -- --incremental false`, and
+`CODEAI_DIST_DIR=.next-e2e npx playwright test` with those six browser spec files after preparing
+the isolated bundle. Explicitly select `.next-e2e`; the session environment inherits `.next`.
+
+Build limitation: the normal Turbopack build failed in its existing Google Fonts/Inter loader.
+Webpack compiled successfully, but its generated route checks reject pre-existing optional
+`Request` arguments in the Arena, Checkouts and Projects GET routes. The browser bundle was
+therefore built using webpack's `--experimental-build-mode compile`, then `generate`; source
+TypeScript passed after removing only webpack's generated `types/app` checks. No build settings,
+fonts or API routes were changed. The browser suite also logs caught network errors from its
+simulated workspace-stream transitions. All browser assertions pass, including live order,
+saved replies, image delivery/retry and exact permission routing.
+
+The running installation has not been rebuilt or restarted. Real signed-in providers,
+attached-executor transport and physical devices were not exercised.
+
+## Use remaining project space — November 8, 2026
+
+**Status: Shipped.** The wider screenshot shows four equal project columns, with one active project
+and two empty projects in the last row. Give desktop Tiles up to three populated panels per row, let
+populated panels share each row's spare width, and keep empty projects in compact rows. Preserve the
+existing machine/project DOM order, including when an empty project gains or loses a session.
+Keep the same mounted panel/session identities and the existing page scroll.
+
+Where the code is: `src/app/globals.css:227` owns project wrapping and sizing;
+`src/features/arena/Arena.tsx:220` renders each project panel;
+`e2e/arena-project-tiles.spec.ts:4` owns the representative multi-project fixture.
+
+- [x] Wide screens have at most three populated project panels per row; populated panels on an
+      incomplete row fill its width, while empty projects use compact rows without taking width
+      from their populated neighbours.
+- [x] Narrow layouts, long names, machine boundaries, project order and project shortcuts remain
+      usable; starting/removing a session in an empty project preserves other drafts and focus.
+- [x] Focused unit/browser checks, TypeScript, both-theme screenshot inspection and independent
+      review pass; record the production build path and any existing build limitations.
+
+All **24 focused unit checks** and **42 production-browser checks** pass across the same files
+listed above, along with TypeScript and `git diff --check`. The new wide-screen regression failed
+against the preceding bundle's fourth project in the first row. Its final fixture mirrors the
+screenshot's five populated and two empty projects, verifies the incomplete row reaches both
+edges, and preserves draft/focus/order while an empty project gains and loses a session. Long
+unbroken names are checked in both populated and empty panels. Both-theme wide/narrow desktop
+and phone screenshots were inspected; independent review found no material issues.
+
+The isolated production browser bundle uses the same webpack compile/generate fallback recorded
+above; source TypeScript passes after removing only webpack's generated `types/app` checks.
+No build settings or API routes changed. The running installation has not been rebuilt or restarted;
+signed-in providers, real attached transport and physical devices were not exercised.

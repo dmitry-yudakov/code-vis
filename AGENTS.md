@@ -219,7 +219,12 @@ Updated 2026-11-08. When a story ships, change the line that names it; each stor
   cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
   review pass. Active projects and cards now keep their initial positions until page reload, with
   new items appended; 30 focused unit checks, 30 production-browser checks, TypeScript, isolated
-  build and independent review pass. The running app has not been rebuilt or restarted.
+  build and independent review pass. Active Tiles now uses full-width wrapping project panels with
+  session tiles inside: up to three populated panels per row, incomplete rows filling the width,
+  and compact rows for empty projects; 24 focused unit checks, 42 production-browser checks, TypeScript,
+  both-theme screenshot inspection and independent review pass. The isolated browser build uses
+  webpack compile/generate because existing font/route checks block the normal build; details are
+  in the story. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 133](stories/STORY-20261107-responsive-chat-drafts.md) — desktop typing
   updates the composer directly, with coalesced draft saves and synchronous latest-text sending.
   All 128 focused unit checks, 53 distinct production-browser cases, TypeScript, isolated build

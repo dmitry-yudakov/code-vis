@@ -154,7 +154,7 @@ export function Arena({
   };
 
   return (
-    <main className="arena" aria-label="Arena">
+    <main className={`arena${tiles && section === 'sessions' ? ' arena-project-tiles' : ''}`} aria-label="Arena">
       <header className="arena-heading">
         <div className="arena-heading-copy">
           <span className="eyebrow">Your workspace</span>
@@ -210,11 +210,12 @@ export function Arena({
                   </header>
                 )}
                 {!groups.length && <div className="arena-machine-empty">No active sessions on this machine.</div>}
+                <div className="arena-project-grid">
                 {groups.map((group) => {
                   const project = machine.projects.find(project => project.id === group.id);
                   const projectCheckoutIds = project?.repositories.map(binding => binding.checkoutId);
                   return (
-                  <section className="arena-group" aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
+                  <Paper component="section" className={`arena-group${group.sessions.length ? '' : ' arena-group-empty'}`} sx={tiles ? undefined : { border: 0, background: 'transparent', borderRadius: 0 }} aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
                     <header>
                       <div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
                         {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById)}</span>}
@@ -268,9 +269,10 @@ export function Arena({
                         );
                       })}
                     </div>
-                  </section>
+                  </Paper>
                   );
                 })}
+                </div>
               </section>
             );
           })}

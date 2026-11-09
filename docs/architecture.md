@@ -271,8 +271,10 @@ its first snapshot until page reload. Later snapshots append new identities and 
 content in place; navigation, refresh and reconnect preserve positions, including returning sessions.
 Inbox priority and Archived/immersive grouping keep their existing ordering.
 
-Desktop Active sessions can also use project-grouped tiles. Layout is optional device state;
-quick-reply text and captured uncertain-delivery UUID/mode/model/recipient survive reload in
+Desktop Active sessions can also use full-width wrapping project panels, with up to three
+populated panels per row sharing spare width and empty projects in compact rows. Session
+tiles wrap inside each project, with machine boundaries and project order retained. Layout is
+optional device state; quick-reply text and captured uncertain-delivery UUID/mode/model/recipient survive reload in
 tab-local `sessionStorage`. Canonical histories and previews are never saved there. The shell owns
 these drafts independently of navigation. Each tile subscribes only to its own draft. Text saves coalesce for 150 ms, with synchronous
 flush on send, visibility/page exit and teardown; delivery identities always save immediately.
