@@ -5,7 +5,7 @@ import { fonts, palette } from '@/shared/design/tokens';
 
 describe('desktop theme', () => {
   it('maps both appearances to the shared palette, including approval semantics', () => {
-    for (const mode of ['light', 'dark'] as const) {
+    for (const mode of ['light', 'steel', 'sand', 'dark'] as const) {
       const colors = palette[mode];
       const mapped = desktopTheme.colorSchemes![mode]!.palette;
       expect(mapped.primary.main).toBe(colors.plot);
@@ -14,6 +14,7 @@ describe('desktop theme', () => {
       expect(mapped.background.paper).toBe(colors.raised);
       expect(mapped.text.primary).toBe(colors.ink);
       expect(mapped.text.secondary).toBe(colors.muted);
+      expect(mapped.mode).toBe(mode === 'dark' ? 'dark' : 'light');
       for (const color of ['primary', 'warning', 'success', 'error'] as const) {
         expect(getContrastRatio(mapped[color].contrastText, mapped[color].main)).toBeGreaterThanOrEqual(4.5);
         expect(getContrastRatio(mapped[color].contrastText, mapped[color].dark)).toBeGreaterThanOrEqual(4.5);
@@ -29,5 +30,7 @@ describe('desktop theme', () => {
     expect(css).toContain('dark');
     expect(css).toContain('light');
     expect(css).toContain(palette.dark.raised);
+    expect(css).toContain('[data-appearance=steel]');
+    expect(css).toContain('[data-appearance=sand]');
   });
 });

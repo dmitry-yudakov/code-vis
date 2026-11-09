@@ -43,6 +43,8 @@ describe('design tokens', () => {
     expect(css).toContain('@media (prefers-color-scheme: dark) {');
     expect(css).toContain(':root:not([data-theme="light"]) {');
     expect(css).toContain(':root[data-theme="dark"] {');
+    expect(css).toContain(':root[data-appearance="steel"] {');
+    expect(css).toContain(':root[data-appearance="sand"] {');
     const declarations = css.split('\n').filter((line) => /^\s+[^{}]+;$/.test(line));
     expect(declarations.every((line) => /^\s+(?:--[a-z0-9-]+: .+|color-scheme: (?:light|dark));$/.test(line))).toBe(true);
   });
@@ -85,8 +87,17 @@ describe('design tokens', () => {
     expect(fonts.display).toMatch(/^var\(--font-archivo\), var\(--font-geist\), .+sans-serif$/);
   });
 
+  it('keeps state text readable on the tinted light shell surfaces', () => {
+    for (const theme of ['steel', 'sand'] as const) {
+      const colors = palette[theme];
+      for (const token of ['live', 'wait', 'stop', 'plot'] as const) {
+        expect(contrast(colors[token], colors.shell)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   it('uses the full plot color for a visible focus ring in both themes', () => {
-    for (const theme of ['light', 'dark'] as const) {
+    for (const theme of ['light', 'steel', 'sand', 'dark'] as const) {
       expect(effects[theme].focusColor).toBe(palette[theme].plot);
     }
   });

@@ -1,4 +1,6 @@
-export type ThemeName = 'light' | 'dark';
+export const LIGHT_THEMES = { light: 'Classic', steel: 'Steel blue', sand: 'Warm sand' } as const;
+export type LightThemeName = keyof typeof LIGHT_THEMES;
+export type ThemeName = LightThemeName | 'dark';
 
 type CoreColorToken =
   | 'sheet'
@@ -296,9 +298,54 @@ const dark = {
   placeholder: darkCore.faint,
 } satisfies Record<ColorToken, string>;
 
-export const palette: Record<ThemeName, Record<ColorToken, string>> = { light, dark };
+// Light variants keep the established state/diff colors and change surfaces and plot accents.
+const steel = {
+  ...light,
+  sheet: '#eef2f6', shell: '#d8e0e9', shellSunk: '#cbd5e0', raised: '#f4f7fa',
+  ink: '#1d2938', ink2: '#394c60', muted: '#526478', faint: '#76889c',
+  line: '#becbd8', lineStrong: '#9bafc2', grid: 'rgba(29, 41, 56, .07)',
+  live: '#0e684f', wait: '#915000', stop: '#9e281f',
+  sheetSunk: '#e3eaf1', selectedWash: '#d9e5f0', idle: '#76889c',
+  untracked: '#526478', untrackedWash: '#cbd5e0',
+  plot: '#425f7d', plotBright: '#425f7d', plotWash: '#d9e5f0',
+  plotLine: '#8da6bd', plotLineSoft: '#becfdf', plotLineMuted: '#a7bdd0',
+  plotInk: '#425f7d', plotInkMuted: '#3c5873', plotInkDeep: '#304b65', plotHover: '#344e68',
+  plotWashSoft: '#e8eff6', plotWashMuted: '#d9e5f0',
+  plotScale1: '#e8eff6', plotScale2: '#d9e5f0', plotScale3: '#c8d8e7',
+  plotScale4: '#b6cbde', plotScale5: '#a4bdd3',
+  controlWash: '#e0e8f0', inlineCodeSurface: '#e0e8f0',
+  codeSurface: '#1d2938', codeInk: '#eef2f6',
+  neutralWash: '#d8e0e9', neutralWashRaised: '#f4f7fa',
+  neutralWashStrong: '#cbd5e0', neutralWashDeep: '#becbd8',
+  diffSurface: '#eef2f6', diffMeta: '#526478',
+  hunk: '#425f7d', hunkWash: '#d9e5f0', placeholder: '#526478',
+} satisfies Record<ColorToken, string>;
 
-export const effects: Record<ThemeName, Record<EffectToken, string>> = {
+const sand = {
+  ...light,
+  sheet: '#fffcf7', shell: '#eee8de', shellSunk: '#e3dbce', raised: '#fffcf7',
+  ink: '#302b25', ink2: '#51483e', muted: '#6b6053', faint: '#948575',
+  line: '#d9cfc1', lineStrong: '#bbad99', grid: 'rgba(48, 43, 37, .06)',
+  live: '#0e684f', wait: '#965300',
+  sheetSunk: '#f5efe5', selectedWash: '#dfede8', idle: '#948575',
+  untracked: '#6b6053', untrackedWash: '#e3dbce',
+  plot: '#38685f', plotBright: '#38685f', plotWash: '#dfede8',
+  plotLine: '#94b8ac', plotLineSoft: '#c1d7cf', plotLineMuted: '#aac7bc',
+  plotInk: '#38685f', plotInkMuted: '#315e55', plotInkDeep: '#284f47', plotHover: '#2c554d',
+  plotWashSoft: '#edf4ef', plotWashMuted: '#dfede8',
+  plotScale1: '#edf4ef', plotScale2: '#dfede8', plotScale3: '#cce2d9',
+  plotScale4: '#b8d5c9', plotScale5: '#a5c9ba',
+  controlWash: '#f1eadf', inlineCodeSurface: '#f1eadf',
+  codeSurface: '#302b25', codeInk: '#fffcf7',
+  neutralWash: '#eee8de', neutralWashRaised: '#fffcf7',
+  neutralWashStrong: '#e3dbce', neutralWashDeep: '#d9cfc1',
+  diffSurface: '#faf5ed', diffMeta: '#6b6053',
+  hunk: '#79603f', hunkWash: '#f2e9d9', placeholder: '#6b6053',
+} satisfies Record<ColorToken, string>;
+
+export const palette: Record<ThemeName, Record<ColorToken, string>> = { light, steel, sand, dark };
+
+const baseEffects: Record<'light' | 'dark', Record<EffectToken, string>> = {
   light: {
     shadow: '0 1px 2px rgba(15, 19, 25, .05), 0 8px 24px rgba(15, 19, 25, .07)',
     focusColor: '#2f5ad0',
@@ -383,6 +430,29 @@ export const effects: Record<ThemeName, Record<EffectToken, string>> = {
     raisedBackdropButton: 'rgba(255, 255, 255, .05)',
     raisedBackdropBadge: 'rgba(255, 255, 255, .06)',
   },
+};
+
+function lightEffects(colors: Record<ColorToken, string>): Record<EffectToken, string> {
+  // Hex alpha keeps translucent chrome in the same family as its opaque surfaces.
+  return {
+    ...baseEffects.light,
+    focusColor: colors.plot,
+    headerBackdrop: `${colors.shell}f5`, headerControlBackdrop: `${colors.raised}b3`,
+    sheetBackdrop: `${colors.sheet}e6`, lineBackdrop: `${colors.line}d9`,
+    floatingBackdrop: `${colors.raised}f5`, subtleRaisedBackdrop: `${colors.raised}c2`,
+    sheetErrorBackdrop: `${colors.sheet}eb`, raisedBackdrop: `${colors.raised}ad`,
+    raisedBackdropSoft: `${colors.raised}80`, raisedBackdropMedium: `${colors.raised}b8`,
+    raisedBackdropStrong: `${colors.raised}db`, diagramLabelBackdrop: `${colors.raised}f0`,
+    raisedBackdropButton: `${colors.raised}b8`, raisedBackdropBadge: `${colors.raised}d1`,
+    focusWash: `${colors.plot}1a`, focusWashStrong: `${colors.plot}21`,
+    plotControlWash: `${colors.plot}1f`, plotInset: `${colors.plot}21`,
+    plotHalo: `${colors.plot}14`, plotHaloSoft: `${colors.plot}09`,
+    plotOrbit: `${colors.plot}33`, plotOrbitInner: `${colors.plot}26`,
+  };
+}
+
+export const effects: Record<ThemeName, Record<EffectToken, string>> = {
+  ...baseEffects, steel: lightEffects(steel), sand: lightEffects(sand),
 };
 
 export const fonts = {

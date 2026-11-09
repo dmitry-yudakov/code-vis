@@ -5,6 +5,9 @@ import Link from 'next/link';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import NativeSelect from '@mui/material/NativeSelect';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 
@@ -79,6 +82,7 @@ import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
 import { instructionsLine, isolatesLocalCodex, LOCAL_CODEX_ISOLATION_MESSAGE, nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import type { DesktopPopoverHandle } from './DesktopPopover';
 import { useTheme, type ThemePreference } from './useTheme';
+import { LIGHT_THEMES, type LightThemeName } from '@/shared/design/tokens';
 import { usePanelLayout } from './usePanelLayout';
 import { ActivityBar } from './ActivityBar';
 import { LayoutToggles } from './LayoutToggles';
@@ -157,7 +161,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const arenaSection = arenaSectionForPathname(pathname);
   const arenaOpen = arenaSection !== undefined;
   const { status: deviceAccess, refresh: refreshDeviceAccess } = useDeviceAccess();
-  const { preference: themePreference, resolved: theme, setPreference: setThemePreference } = useTheme();
+  const { preference: themePreference, resolved: theme, setPreference: setThemePreference, lightTheme, setLightTheme } = useTheme();
   const [health, setHealth] = useState<Health>();
   const [localExecutionHealth, setLocalExecutionHealth] = useState<ExecutionHealth>();
   // Kept beside the health of whichever machine is shown: these are the home machine's own.
@@ -2943,6 +2947,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </ToggleButton>
               ))}
             </ToggleButtonGroup>
+            {themePreference !== 'dark' && <FormControl fullWidth variant="standard">
+              <InputLabel htmlFor="light-theme">Light palette</InputLabel>
+              <NativeSelect value={lightTheme} onChange={(event) => setLightTheme(event.target.value as LightThemeName)}
+                inputProps={{ id: 'light-theme' }}>
+                {Object.entries(LIGHT_THEMES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </NativeSelect>
+            </FormControl>}
             {!arenaOpen && session && <Button type="button" variant="text" color="inherit" onClick={() => exportSession(session)}>Export session</Button>}
             {!arenaOpen && session && (
               <Button

@@ -2299,6 +2299,21 @@ test('switches themes, repaints Mermaid, and keeps attachment composites light',
   await expect(page.locator('.diagram-scene')).toHaveAttribute('style', transformBeforeThemeChange!);
   await expect(page.locator('[data-mark-id]')).toHaveCount(1);
 
+  for (const lightTheme of ['steel', 'sand']) {
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('combobox', { name: 'Light palette' }).selectOption(lightTheme);
+    await page.locator('.more-menu > button').click();
+    await expect(root).toHaveAttribute('data-appearance', lightTheme);
+    await expect(page.locator(`.mermaid-layer[data-mermaid-theme="${lightTheme}"] svg`)).toBeVisible();
+    await expect(conversation.locator(`.diagram-card-svg[data-mermaid-theme="${lightTheme}"] svg`)).toBeVisible();
+    expect(await page.locator('.mermaid-layer svg').evaluate(element => element.outerHTML)).not.toBe(lightSvg);
+    await expect(page.locator('.diagram-scene')).toHaveAttribute('style', transformBeforeThemeChange!);
+    await expect(page.locator('[data-mark-id]')).toHaveCount(1);
+  }
+  await page.locator('.more-menu > button').click();
+  await page.getByRole('combobox', { name: 'Light palette' }).selectOption('light');
+  await page.locator('.more-menu > button').click();
+
   await fromMoreMenu(page, 'System');
   await expect(root).not.toHaveAttribute('data-theme', /.+/);
   await expect(page.locator('.mermaid-layer[data-mermaid-theme="dark"] svg')).toBeVisible();

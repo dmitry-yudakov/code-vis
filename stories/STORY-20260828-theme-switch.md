@@ -191,3 +191,27 @@ composite while the visible canvas remains dark.
    the attachment's composite PNG and confirm it has a light background — and that the canvas
    behind it stayed dark throughout.
 7. Run `npm run dev` and confirm the theme stamp survives Strict Mode's double render.
+
+## November 9, 2026 — Multiple light palettes
+
+More keeps the existing **Light / Dark / System** controls and adds **Light palette** for Light
+and System: **Classic**, **Steel blue**, and **Warm sand**. Steel blue uses metallic grey-blue
+surfaces and slate accents inspired by the user's reference; Warm sand uses warm neutral surfaces
+and teal accents. State colors retain their meanings and meet AA text contrast on the tinted shells.
+
+The selection is device-local in `code-ai:light-theme`, separate from the existing `code-ai:theme`.
+Classic remains the default for missing, invalid, or unavailable palette storage. System uses the
+selected light palette when the OS is light and the existing dark palette when it is dark.
+The pre-paint script and React owner share the preference contract; generated CSS, MUI controls
+and portals, canvas diagrams, and conversation diagram cards use the same resolved palette.
+Immersive controls retain their verified light surfaces. Attachment composites remain canonical
+Classic light, independent of the visible palette.
+
+Verification: **61 focused unit checks** cover bootstrap parity, invalid/blocked storage, palette
+and semantic contrast, MUI mapping, generated CSS parity, Mermaid policy, and immersive colors.
+**15 production-browser checks** cover selection/reload, live System changes, explicit Light under
+a dark OS before hydration, blocked storage, matching portal surfaces, desktop/phone layouts, and
+Mermaid repainting with preserved ink, pan, zoom, and light attachment export. All three light
+palettes were inspected at 1440px and 390px. TypeScript, the isolated webpack compile/generate
+production build, `git diff --check`, and independent review pass. The running app has not been
+rebuilt or restarted for this change.

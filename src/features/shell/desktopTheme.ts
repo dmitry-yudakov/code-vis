@@ -4,9 +4,15 @@ import { createTheme } from '@mui/material/styles';
 import type {} from '@mui/material/themeCssVarsAugmentation';
 import { effects, fonts, palette, type ThemeName } from '@/shared/design/tokens';
 
-function colorScheme(mode: ThemeName) {
-  const colors = palette[mode];
-  return { palette: {
+declare module '@mui/material/styles' {
+  interface ColorSchemeOverrides { steel: true; sand: true }
+}
+
+function colorScheme(theme: ThemeName) {
+  const mode = theme === 'dark' ? 'dark' : 'light';
+  const colors = palette[theme];
+  // Custom schemes need a complete MUI palette, including common/action/grey defaults.
+  return { palette: createTheme({ palette: {
     mode,
     primary: { main: colors.plot, dark: colors.plotHover, contrastText: colors.onEmphasis },
     warning: { main: colors.wait, dark: colors.wait, contrastText: colors.onEmphasis },
@@ -16,13 +22,13 @@ function colorScheme(mode: ThemeName) {
     background: { default: colors.shell, paper: colors.raised },
     text: { primary: colors.ink, secondary: colors.muted },
     divider: colors.line,
-  } };
+  } }).palette };
 }
 
 /** Appearance is stamped by our existing preference owner, including before React loads. */
 export const desktopTheme = createTheme({
   cssVariables: { colorSchemeSelector: '[data-appearance=%s]' },
-  colorSchemes: { light: colorScheme('light'), dark: colorScheme('dark') },
+  colorSchemes: { light: colorScheme('light'), dark: colorScheme('dark'), steel: colorScheme('steel'), sand: colorScheme('sand') },
   typography: {
     fontFamily: fonts.sans,
     fontSize: 14,

@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
-import { effects, fonts, palette } from '@/shared/design/tokens';
+import { effects, fonts, LIGHT_THEMES, palette, type LightThemeName } from '@/shared/design/tokens';
 
 const GENERATED_HEADER =
   '/* Generated from src/shared/design/tokens.ts by scripts/generate-tokens.ts. Do not edit. */';
@@ -37,6 +37,15 @@ export function renderTokensCss(): string {
     ':root[data-theme="dark"] {',
     ...darkDeclarations,
     '}',
+    ...Object.keys(LIGHT_THEMES).filter((theme) => theme !== 'light').flatMap((name) => {
+      const theme = name as LightThemeName;
+      return [
+        `:root[data-appearance="${theme}"] {`,
+        '  color-scheme: light;',
+        ...declarations({ ...palette[theme], ...effects[theme] }),
+        '}',
+      ];
+    }),
     '',
   ].join('\n');
 }

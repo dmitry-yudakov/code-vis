@@ -27,7 +27,7 @@ export const immersiveRadii = {
 
 export type ImmersiveTypeName = keyof typeof immersiveType;
 
-export const immersiveTheme = {
+const baseImmersiveTheme = {
   dark: {
     environment: '#1A1A1A', surface: '#303030', raised: '#3B3B3B', control: '#454545',
     hover: '#505050', pressed: '#3A3A3A', selected: '#EBEBEB', selectedInk: '#1F1F1F',
@@ -40,7 +40,12 @@ export const immersiveTheme = {
     text: '#1A1A1A', secondaryText: '#424242', positive: '#07561A', negative: '#8C1022',
     warning: '#6B3A00', link: '#084C96', focus: '#1A1A1A', annotation: '#6B3A00',
   },
-} as const satisfies Record<ThemeName, Record<string, string>>;
+} as const;
+
+// Desktop palette choices retain the headset's separately verified light surfaces.
+export const immersiveTheme = {
+  ...baseImmersiveTheme, steel: baseImmersiveTheme.light, sand: baseImmersiveTheme.light,
+} satisfies Record<ThemeName, Record<string, string>>;
 
 export type ImmersiveColors = typeof immersiveTheme[ThemeName];
 

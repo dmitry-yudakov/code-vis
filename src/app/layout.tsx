@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Archivo, Geist, Geist_Mono, Inter } from 'next/font/google';
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
 import { DesktopThemeProvider } from '@/features/shell/DesktopThemeProvider';
+import { appearanceScript } from '@/shared/design/appearance';
 import './globals.css';
 
 const geist = Geist({
@@ -45,8 +46,6 @@ export const viewport: Viewport = {
   interactiveWidget: 'resizes-content',
 };
 
-const themeScript = `(function(){var r=document.documentElement;var t="system";try{t=localStorage.getItem("code-ai:theme")}catch(e){}if(t==="light"||t==="dark")r.setAttribute("data-theme",t);else{t="system";r.removeAttribute("data-theme")}r.setAttribute("data-appearance",t==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):t)})()`;
-
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
@@ -55,7 +54,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: appearanceScript }} />
       </head>
       <body><AppRouterCacheProvider><DesktopThemeProvider>{children}</DesktopThemeProvider></AppRouterCacheProvider></body>
     </html>
