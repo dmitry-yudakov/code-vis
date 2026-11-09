@@ -230,7 +230,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tiles .arena-group > header { align-items: flex-start; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
 .arena-tiles .arena-group-empty > header { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
 .arena-tiles .arena-group > header > div { flex: 1; }
-.arena-tiles .arena-group > header > .MuiButton-root { flex-shrink: 0; }
+.arena-tiles .arena-group > header > .MuiIconButton-root { flex-shrink: 0; }
 .arena-tiles .arena-card-grid { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; align-items: start; }
 .arena-tiles .arena-card { align-items: start; overflow: hidden; border-radius: 12px; }
 .arena-tiles .arena-card-open { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 16px 12px; }

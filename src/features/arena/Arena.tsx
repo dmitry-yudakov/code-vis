@@ -222,8 +222,9 @@ export function Arena({
                       <div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
                         {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById)}</span>}
                       </div>
-                      {(group.id === 'none' || machine.projects.some(project => project.id === group.id)) && <Button type="button" startIcon={<ShellIcon name="newChat" />} disabled={!online}
-                        aria-label={`New session in ${group.name}`} onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}>New session</Button>}
+                      {(group.id === 'none' || machine.projects.some(project => project.id === group.id)) && <IconButton type="button" disabled={!online}
+                        aria-label={`New session in ${group.name}`} title={`New session in ${group.name}`}
+                        onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}><ShellIcon name="newChat" /></IconButton>}
                     </header>
                     <div className="arena-card-grid">
                       {group.sessions.map((card) => {
