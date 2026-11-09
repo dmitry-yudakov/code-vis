@@ -187,3 +187,38 @@ message identity on reconnection; recovery now links the accepted saved message 
 Final review found no remaining concrete issue. Real signed-in providers, Docker, attached-machine
 TLS and physical phone/Quest use were not rerun. Queue survival across server restart remains outside
 scope; the running installation has not been rebuilt or restarted.
+
+## Keyboard shortcut and project activity hint — November 9, 2026
+
+In the first-message field, **Ctrl+Enter** and **Cmd+Enter** submit **Queue session** with the same
+eligibility as its button. Empty drafts, new-worktree launches, blocked setup and recovery states
+cannot queue through the shortcut or fall through to a normal start. Plain Enter keeps normal
+start/retry behavior; Shift+Enter, input composition and repeated keydown events remain unchanged.
+The queue tooltip advertises the shortcut and its existing archive/server-lifetime requirements.
+
+A compact count beside the launch actions shows unarchived sessions in the selected project on
+the selected machine. It follows workspace updates and project selection, excludes the session
+created by a pending recovery, and hides without a project, with no sessions, or when the machine
+is offline or its snapshot is stale. The tooltip distinguishes unarchived conversations from
+currently running turns and explains the repository-specific queue wait. On phones the count wraps
+above the buttons.
+
+Where the code is: `src/features/session-launch/SessionSetupDialog.tsx:66` owns shortcut eligibility
+and the live project count; `e2e/queued-session-setup.spec.ts:4` covers keyboard and activity feedback.
+
+- [x] Ctrl/Cmd+Enter queues only when the button is available, preserving ordinary Enter and retries.
+- [x] Show a live, compact project activity count beside launch actions on desktop and phone.
+- [x] Focused unit/browser checks, source TypeScript, isolated build, screenshot inspection and review pass.
+
+All 30 focused unit checks (`sessionLaunch`, `devicePreferences`, `sessionQueue`) and 26 distinct
+production-browser cases (`queued-session-setup`, `compact-session-setup`) pass. The shortcut
+regression failed before implementation by creating an empty session. Browser coverage includes
+both modifiers, empty/worktree/error states, Shift+Enter, composition, repeated keys, exact retry
+identity, project switching, archive exclusion and live count/offline updates. Both-theme desktop
+and phone screenshots were inspected. Independent review found no blocking issue.
+
+Source TypeScript and the isolated `.next-e2e/queue-shortcut` webpack compile/generate build pass.
+The standard lint command remains blocked by the previously recorded generated route checks for
+optional `Request` parameters in Arena, checkouts and projects. The new tooltip tests use actual
+keyboard navigation and wait for MUI transitions. Verification uses fixture providers; physical
+devices and real-provider turns were not rerun. The running installation has not been restarted.

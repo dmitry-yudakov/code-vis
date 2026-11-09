@@ -1,5 +1,108 @@
-import { expect, test, type APIRequestContext } from './arena-stream';
-import type { CheckoutsResponse, DurableProject, PublicSession, RunDiscovery } from '../src/shared/types';
+import { expect, test, fulfillArenaSnapshot, pushArenaSnapshot, type APIRequestContext } from './arena-stream';
+import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession, RunDiscovery } from '../src/shared/types';
+
+for (const modifier of ['Control', 'Meta']) {
+  test(`${modifier}+Enter queues only when the queue action is available`, async ({ page, request }) => {
+    const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+    const project = (await (await request.post('/api/projects', { data: { name: `Queue shortcut ${modifier} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    const messages: Array<{ waitForCheckout?: boolean }> = [];
+    let creations = 0;
+    page.on('request', req => { if (req.url().endsWith('/api/sessions') && req.method() === 'POST') creations++; });
+    await page.route('**/api/agent/message', route => {
+      messages.push(route.request().postDataJSON());
+      return route.fulfill({ status: 429, json: { error: 'The machine queue is full. Your draft is kept.' } });
+    });
+    await page.goto('/arena');
+    await page.getByRole('button', { name: `New session in ${project.name}`, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    const message = dialog.getByRole('textbox', { name: 'First message (optional)' });
+    await message.press(`${modifier}+Enter`);
+    await expect(dialog).toBeVisible();
+    expect(creations).toBe(0);
+    await message.fill('Queue using the keyboard');
+    await message.press('Shift+Enter');
+    await expect(message).toHaveValue('Queue using the keyboard\n');
+    for (const flags of [{ isComposing: true }, { repeat: true }]) {
+      await message.dispatchEvent('keydown', { key: 'Enter', ctrlKey: modifier === 'Control', metaKey: modifier === 'Meta', ...flags });
+    }
+    expect(creations).toBe(0);
+    await dialog.getByRole('button', { name: 'Settings', exact: true }).click();
+    await dialog.getByLabel('Session checkout', { exact: true }).selectOption('worktree');
+    await message.press(`${modifier}+Enter`);
+    expect(creations).toBe(0);
+    await dialog.getByLabel('Session checkout', { exact: true }).selectOption('current');
+    await message.press(`${modifier}+Enter`);
+    await expect(dialog.getByRole('alert')).toContainText('queue is full');
+    expect(creations).toBe(1);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ waitForCheckout: true });
+    // Modified Enter cannot switch or retry an error; ordinary Enter preserves the captured request.
+    await message.press(`${modifier}+Enter`);
+    expect(messages).toHaveLength(1);
+    await message.press('Enter');
+    await expect.poll(() => messages.length).toBe(2);
+    expect(messages[1]).toEqual(messages[0]);
+    expect(creations).toBe(1);
+  });
+}
+
+for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+  test(`setup shows live active project sessions beside launch actions: ${theme} ${width}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+    const project = (await (await request.post('/api/projects', { data: { name: `Active hint ${theme} ${width} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    const otherProject = (await (await request.post('/api/projects', { data: { name: `Other hint ${theme} ${width} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
+    const machine = snapshot.machines.find(entry => entry.machine.kind === 'local')!;
+    const session = { id: crypto.randomUUID(), revision: 0, title: 'Earlier work', projectId: project.id,
+      repositoryCheckoutIds: [checkout.id], agents: [], updatedAt: new Date().toISOString() };
+    machine.sessions.push(session);
+    machine.sessions.push({ ...session, id: crypto.randomUUID(), projectId: otherProject.id });
+    machine.archivedSessions.push({ ...session, id: crypto.randomUUID(), archivedAt: new Date().toISOString() });
+    await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
+    await page.goto('/arena');
+    await page.getByRole('button', { name: `New session in ${project.name}`, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    const actions = dialog.locator('.MuiDialogActions-root');
+    await expect(actions.getByText('1 active session in this project', { exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Settings', exact: true }).focus();
+    await page.keyboard.press('Tab');
+    await expect(actions.getByText('1 active session in this project', { exact: true })).toBeFocused();
+    await expect(page.getByRole('tooltip', { name: /^Unarchived conversations/ })).toBeVisible();
+    await dialog.getByRole('textbox').fill('Next task');
+    await dialog.getByRole('button', { name: 'Queue session', exact: true }).hover();
+    await expect(page.getByRole('tooltip', { name: /^Ctrl\/Cmd\+Enter/ })).toBeVisible();
+    await dialog.getByRole('textbox').focus();
+    await page.mouse.move(0, 0);
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('active-project-hint.png'), animations: 'disabled' });
+    expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await expect(dialog.getByRole('button', { name: 'Queue session', exact: true })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Start in background', exact: true })).toBeInViewport();
+    machine.sessions.push({ ...session, id: crypto.randomUUID() });
+    await pushArenaSnapshot(page);
+    await expect(actions.getByText('2 active sessions in this project', { exact: true })).toBeVisible();
+    await dialog.getByLabel('Project', { exact: true }).selectOption(otherProject.id);
+    await expect(actions.getByText('1 active session in this project', { exact: true })).toBeVisible();
+    await dialog.getByLabel('Project', { exact: true }).selectOption('');
+    await expect(actions.getByText(/active sessions? in this project/)).toHaveCount(0);
+    await dialog.getByLabel('Project', { exact: true }).selectOption(project.id);
+    await expect(actions.getByText('2 active sessions in this project', { exact: true })).toBeVisible();
+    machine.machine.state = 'offline';
+    await pushArenaSnapshot(page);
+    await expect(actions.getByText(/active sessions? in this project/)).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Queue session', exact: true })).toBeDisabled();
+    machine.machine.state = 'online';
+    await pushArenaSnapshot(page);
+    await expect(actions.getByText('2 active sessions in this project', { exact: true })).toBeVisible();
+    machine.sessions = machine.sessions.filter(item => item.projectId !== project.id);
+    await pushArenaSnapshot(page);
+    await expect(actions.getByText(/active sessions? in this project/)).toHaveCount(0);
+  });
+}
 
 async function archiveEarlierFixtureSessions(request: APIRequestContext, checkoutId: string) {
   const sessions = (await (await request.get('/api/sessions')).json()).sessions as PublicSession[];
@@ -36,7 +139,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(queue).toBeEnabled();
     await expect(dialog.getByRole('button', { name: 'Start in background', exact: true })).toBeEnabled();
     await queue.hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Starts after earlier sessions on this repository are archived. Keep CodeAI running.');
+    await expect(page.getByRole('tooltip')).toHaveText('Ctrl/Cmd+Enter. Starts after earlier sessions on this repository are archived. Keep CodeAI running.');
     await message.focus();
     await message.fill('');
     await expect(queue).toBeDisabled();

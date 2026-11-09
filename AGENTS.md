@@ -205,6 +205,9 @@ Updated 2026-11-09. When a story ships, change the line that names it; each stor
   with saved evidence, conflict detection and cancellation/promotion guards. The November 9 follow-up
   passes 274 focused unit checks, 20 distinct production-browser checks, source TypeScript, isolated
   webpack build, both-theme desktop/phone screenshot inspection and independent review.
+  New-session setup also queues with Ctrl/Cmd+Enter and shows a compact count of active sessions
+  in the selected project beside launch actions; 30 focused unit checks, 26 distinct browser cases, source
+  TypeScript, isolated build, both-theme screenshot inspection and independent review pass.
   Queued turns require the server to stay running; the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 134](stories/STORY-20261107-arena-session-tiles.md) — desktop Arena offers
   project-grouped session tiles with saved-message previews, quick replies and approvals; drafts and

@@ -63,6 +63,11 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
     settings?.checkoutMode === 'worktree' && 'New worktree',
   ].filter(Boolean).join(' · ');
   const canDiscard = launcher.hasDraftChanges || launcher.error || launcher.targetNotice || launcher.createdSession;
+  const queueOffered = settings?.checkoutMode === 'current' && !launcher.error && !launcher.frozen;
+  const canQueue = queueOffered && launcher.canSubmit && launcher.hasContent;
+  const activeProjectSessions = launcher.selectedProject && launcher.machine?.machine.state === 'online' && launcher.machine.snapshotFresh !== false
+    ? launcher.machine.sessions.filter((session) => session.projectId === launcher.selectedProject?.id
+      && !session.archivedAt && session.id !== launcher.createdSession?.id).length : 0;
   return <Dialog open={open} keepMounted disableRestoreFocus fullWidth maxWidth="sm" aria-labelledby="session-setup-title"
     onClose={(_, reason) => { if (reason === 'escapeKeyDown') { if (preview) setPreview(undefined); else launcher.close(); } }}
     slotProps={{ paper: { className: 'session-setup-dialog' }, transition: {
@@ -97,7 +102,9 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
           onDrop={(event) => { event.preventDefault(); void launcher.addFiles(Array.from(event.dataTransfer.files)); }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) {
-              event.preventDefault(); if (launcher.canSubmit) void launcher.submit();
+              event.preventDefault();
+              if (event.ctrlKey || event.metaKey) { if (canQueue) void launcher.submit({ waitForCheckout: true }); }
+              else if (launcher.canSubmit) void launcher.submit();
             }
           }} />
         <div className="session-setup-attachments">
@@ -183,11 +190,17 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
     {launcher.error && <Alert severity="error">{launcher.error}</Alert>}
     </>}
     </DialogContent>
-    <DialogActions>
+    <DialogActions sx={{ rowGap: 0.5 }}>
       {launcher.busy || !draft ? <Button autoFocus onClick={launcher.close}>Close</Button> : <>
-        {settings?.checkoutMode === 'current' && !launcher.error && !launcher.frozen && <Tooltip describeChild
-          title="Starts after earlier sessions on this repository are archived. Keep CodeAI running.">
-          <span><Button variant="outlined" disabled={!launcher.canSubmit || !launcher.hasContent}
+        {activeProjectSessions > 0 && <Tooltip describeChild
+          title="Unarchived conversations in this project. Queue waits for earlier conversations on the same repository to be archived.">
+          <Typography variant="caption" color="text.secondary" tabIndex={0} sx={{ mr: 'auto', width: { xs: '100%', sm: 'auto' } }}>
+            {activeProjectSessions} active {activeProjectSessions === 1 ? 'session' : 'sessions'} in this project
+          </Typography>
+        </Tooltip>}
+        {queueOffered && <Tooltip describeChild
+          title="Ctrl/Cmd+Enter. Starts after earlier sessions on this repository are archived. Keep CodeAI running.">
+          <span><Button variant="outlined" disabled={!canQueue} aria-keyshortcuts="Control+Enter Meta+Enter"
             onClick={() => void launcher.submit({ waitForCheckout: true })}>Queue session</Button></span>
         </Tooltip>}
         <Button variant="contained" disabled={!launcher.canSubmit} onClick={() => void launcher.submit()}>
