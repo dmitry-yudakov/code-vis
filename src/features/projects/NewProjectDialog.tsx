@@ -56,7 +56,7 @@ export function NewProjectDialog({ machines, onCreate, onClose }: {
         </option>)}
       </TextField>}
       <TextField select label="Repository" value={checkoutId} disabled={busy}
-        slotProps={{ select: { native: true } }} onChange={event => setCheckoutId(event.target.value)}>
+        slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} onChange={event => setCheckoutId(event.target.value)}>
         <option value="">No repository</option>
         {checkouts.map(checkout => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
       </TextField>
