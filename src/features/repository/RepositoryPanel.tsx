@@ -18,6 +18,7 @@ import type { SideTab } from '@/features/shell/panelLayout';
 import type { useRepositoryChanges } from './useRepositoryChanges';
 import type { RepositoryDiffState } from './useRepositoryDiff';
 import { RepositoryFilesView } from './RepositoryFilesView';
+import { RepositoryBranchPicker } from './RepositoryBranchPicker';
 
 /**
  * Repository-view composition point; each view owns its data controller.
@@ -40,6 +41,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
 }) {
   const [view, setView] = useState<'changes' | 'history'>('changes');
   const [filesRevision, setFilesRevision] = useState(0);
+  const [switching, setSwitching] = useState(false);
   const id = useId();
   const repositoryShown = tab === 'changes' || (tab === 'reports' && !reports);
   const gitHistory = useRepositoryHistory(checkoutId || '', visible && repositoryShown && view === 'history', changes.revision, apiBase);
@@ -81,9 +83,12 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
         <div className="repository-git-view">
           {changes.tree?.isRepository && <div className="git-branch-summary" aria-label="Current branch">
             <ShellIcon name="changes" />
-            <strong title={changes.tree.branch}>{changes.tree.branch || 'Unknown branch'}</strong>
+            {apiBase === '/api' ? <RepositoryBranchPicker key={`${apiBase}:${checkoutId}`} checkoutId={checkoutId}
+              repositoryName={repositoryName} branch={changes.tree.branch} disabled={changes.pushing || changes.loading || Boolean(changes.error)}
+              onRefresh={changes.refresh} onBusyChange={setSwitching} />
+              : <strong title={changes.tree.branch}>{changes.tree.branch || 'Unknown branch'}</strong>}
             {(changes.tree.ahead || changes.tree.behind) ? <em aria-label={`${changes.tree.ahead || 0} commits ahead, ${changes.tree.behind || 0} behind`}>{changes.tree.ahead ? `↑${changes.tree.ahead}` : ''}{changes.tree.ahead && changes.tree.behind ? ' ' : ''}{changes.tree.behind ? `↓${changes.tree.behind}` : ''}</em> : null}
-            {offer && <Button type="button" variant="outlined" title={offer.description} aria-label={offer.description} disabled={changes.pushing || changes.loading} onClick={onPush}>{changes.pushing ? `${offer.label}ing…` : offer.label}</Button>}
+            {offer && <Button type="button" variant="outlined" title={offer.description} aria-label={offer.description} disabled={switching || changes.pushing || changes.loading} onClick={onPush}>{changes.pushing ? `${offer.label}ing…` : offer.label}</Button>}
           </div>}
           <Tabs value={view} onChange={(_, value: 'changes' | 'history') => setView(value)} aria-label="Repository views" className="repository-view-tabs">
             <Tab value="changes" label={changes.tree?.files.length ? `Changes (${changes.tree.files.length})` : 'Changes'} id={`${id}-changes`} aria-controls={`${id}-panel`} />

@@ -1345,7 +1345,7 @@ linkage. **Retry** after a lost
 response or failed session save finishes that same creation; changed choices use a new request UUID.
 Startup admission reconciles unfinished intents. Ambiguous partial state is retained and unavailable,
 with no force removal or reset. The journal and saved sessions share the 1,000-session host limit.
-The browser never supplies paths, branch names, or Git flags.
+For worktree creation, the browser never supplies paths, branch names, or Git flags.
 
 Managed repository bindings are fixed. **New chat** shares the exact existing worktree and starts
 fresh provider history; use **New session → Create a worktree** for an independent task. Closing,
@@ -1377,7 +1377,15 @@ back, so the two are never hidden together. The choice is per session view on th
 Opening a diagram or starting a sketch from the conversation shows the canvas again. Below 688px
 the panels overlay a canvas that always shows.
 
-**Repository** shows the current checkout and a compact branch row. Use **＋** to add or manage
+**Repository** shows the current checkout and a compact branch row. Click the branch name to search
+and switch to an existing local branch. All sessions using that checkout follow the switch. Compatible
+local edits are kept; conflicting changes must be committed, stashed or moved first. Branches used
+by another worktree are unavailable. If the checkout is busy, retry after its operation finishes.
+Switching refreshes Changes, History and file review afterward. It does not fetch or create
+branches. Attached executors and repositories with unverified linked worktrees or unsupported Git
+configuration require switching in a terminal.
+
+Use **＋** to add or manage
 repositories; with several attached, choose the checkout from the selector. An empty session
 shows the add form directly. Switch between **Changes** and **History** with the tabs. Git history
 lists the latest 100 commits reachable from HEAD, with author, date and hash; it loads on demand

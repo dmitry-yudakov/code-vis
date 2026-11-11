@@ -656,7 +656,7 @@ shell, in the selected repository checkout, with bounded output
 and the per-run context snapshots. Agent mode's writes go through the provider's own tools under
 approval, not through this module.
 
-`src/server/repository/gitPush.ts` is the one exception to read-only: a user's click in Changes
+`src/server/repository/gitPush.ts` is a guarded mutation: a user's click in Changes
 sends the current branch to its own name on the selected remote, on the host, with the user's
 credentials. Its contract is in the [Story 121](../stories/STORY-20261101-push-from-changes.md)
 invariants: the local configuration
@@ -664,6 +664,16 @@ passes an allowlist through the ordinary read path, with contained metadata and 
 source and managed sibling writers out until Git exits; transports are limited to HTTPS and SSH;
 and hooks never run. Advisory global/system configuration reads disable repository discovery so
 host Git does not open local configuration while status permits writers.
+
+`src/server/repository/gitBranches.ts` lists existing local branches on demand and switches one on
+an explicit same-origin browser request. The click checks the expected branch/commit under exclusive
+checkout access, excludes related writers, and reuses the local-configuration allowlist in
+`gitLocalConfiguration.ts`. Managed siblings retain their verified linkage; discovered ordinary
+checkouts must prove independent metadata or exclude writers too. Unverified linked worktrees
+require a terminal. Inspection stays in the isolated helper after Docker provisioning. The offline
+host switch disables hooks, filters, credentials, network and submodule recursion; it never forces,
+stashes, or overwrites ignored files. The existing repository revision refreshes review/history/files.
+See [Story 137](../stories/STORY-20261111-switch-repository-branches.md).
 
 ## Diagrams
 

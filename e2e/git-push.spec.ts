@@ -79,7 +79,7 @@ for (const [label, tree] of [
     await mockStatus(page, () => tree);
     await openChanges(page, request);
     await expect(page.locator('.git-branch-summary')).toContainText('feature/thing');
-    await expect(page.locator('.git-branch-summary').getByRole('button')).toHaveCount(0);
+    await expect(page.locator('.git-branch-summary').getByRole('button', { name: /^(Push|Publish) / })).toHaveCount(0);
   });
 }
 

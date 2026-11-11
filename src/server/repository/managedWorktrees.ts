@@ -199,7 +199,8 @@ async function sourceGitDirectory(checkout: ServerCheckout) {
   return { gitPath, info };
 }
 
-async function sourceMetadata(checkout: ServerCheckout) {
+/** Structural proof shared by creation and branch-switch admission for independent checkouts. */
+export async function sourceMetadata(checkout: ServerCheckout) {
   const { gitPath, info } = await sourceGitDirectory(checkout);
   await containedMetadata(gitPath);
   for (const file of ['commondir', 'config.worktree', 'objects/info/alternates', 'objects/info/http-alternates', 'shallow']) {
@@ -344,10 +345,10 @@ async function linkage(record: WorktreeRecord, config: AppConfig, writeLease?: s
   return { branch, gitDirectory: { path: expected, identity: identity(gitInfo) } };
 }
 
-export async function resolveManagedWorktree(record: WorktreeRecord, config: AppConfig): Promise<ServerCheckout> {
+export async function resolveManagedWorktree(record: WorktreeRecord, config: AppConfig, checkoutWriteLease?: symbol): Promise<ServerCheckout> {
   if (record.state !== 'ready') conflict(record.reason || 'Worktree creation is unfinished. Retry its original creation request.');
   try {
-    const { branch } = await linkage(record, config);
+    const { branch } = await linkage(record, config, checkoutWriteLease);
     return { id: record.checkoutId, realPath: record.destination, name: `Worktree · ${branch}`,
       relativePath: `worktrees/${record.session.worktree!.id}`, worktree: record.session.worktree as SessionWorktree, branch };
   } catch (error) {

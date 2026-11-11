@@ -29,12 +29,17 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-09. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-11. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 137](stories/STORY-20261111-switch-repository-branches.md) — click the
+  Repository branch name to search and switch existing local branches, with checkout locks,
+  preserved local work, retry feedback and refreshed review/history. All 258 focused unit checks,
+  37 production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
+  inspection and independent review pass. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 136](stories/STORY-20261109-project-logos.md) — click a project's logo or
   placeholder to browse repository images with a preview; the same control edits the logo in Arena,
   the project picker and open project/session headers. All 106 focused unit checks, 28 production-browser
@@ -500,7 +505,7 @@ paths explicitly when investigating runtime problems; `rg --files` may skip igno
 | `src/features/repository/` | Repository tree, status, and diff UI and client state |
 | `src/server/agents/` | Provider policies, adapters, preflight, process runners, and the user's global instructions: file resolution, the machine's switches in `<dataDir>/instructions/`, and the framed text |
 | `src/server/conversation/` | Prompt, transcript, response parsing, orchestration |
-| `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, the guarded push, and bounded context |
+| `src/server/repository/` | Checkout discovery, the self-project rule, fixed read-only git invocations, guarded push/branch switching, and bounded context |
 | `src/server/runs/` | Run lifecycle and permission broker |
 | `src/server/storage/` | Project/session store, durable server records, promoted report evidence under `<dataDir>/attachments/`, per-run attachment directories under `<dataDir>/run-attachments/` |
 | `src/server/config.ts` | Environment resolution and limits |
@@ -595,9 +600,13 @@ importing file's own directory; keep `./…` for same-directory siblings.
   ignored and must stay untracked.
 - **Push** (Story 121, `src/server/repository/gitPush.ts`) is the only CodeAI Git command that runs on the
   host with the user's credentials, after provisioning included, under a `.git/config` a worker may have
-  written. Do not add a key to `ALLOWED_LOCAL_KEY` that can run a command or redirect traffic, add a
+  written. Do not add a key to `ALLOWED_LOCAL_KEY` in `gitLocalConfiguration.ts` that can run a command or redirect traffic, add a
   transport to `PUSH_PROTOCOLS`, pass more environment, run hooks, or let an attached machine reach it,
   without a recorded review.
+- **Branch switching** (Story 137, `src/server/repository/gitBranches.ts`) is an offline host
+  mutation after the same local-configuration gate, contained-metadata proof and exclusive checkout
+  admission. Related writers, moved managed worktrees and unproved ordinary metadata cannot bypass
+  it. Hooks, filters, credentials, transport, force and submodule recursion remain disabled.
 
 ## Key conventions
 

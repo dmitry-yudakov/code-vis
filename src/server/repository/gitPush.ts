@@ -8,6 +8,7 @@ import { runRegistry } from '@/server/runs/runRegistry';
 import type { GitWorkingTree } from '@/shared/types';
 import { GIT_READ_OPTIONS, runGitRead } from './gitRead';
 import { DETACHED_HEAD } from './gitRepository';
+import { configuration, unsupportedLocalGitKey, type GitConfiguration } from './gitLocalConfiguration';
 import { containedMetadata, readWorktreeRecords, validateManagedPath } from './managedWorktrees';
 
 const PUSH_TIMEOUT_MS = 120_000;
@@ -19,35 +20,10 @@ const PUSH_PROTOCOLS = 'https:ssh';
 const PUSH_ENVIRONMENT = ['USER', 'LOGNAME', 'SSH_AUTH_SOCK', 'XDG_CONFIG_HOME', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
   'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy'];
 
-/**
- * Push runs on the host with the user's credentials, under a `.git/config` a Docker worker or an
- * Auto turn in a nested repository may have written, and Git runs commands that file names. Local
- * keys are therefore allowed, not denied: Git's list of keys that execute or redirect keeps growing.
- * `core.hooksPath` may stay because the push overrides it, and only hook detection reads it.
- */
-const ALLOWED_LOCAL_KEY = new RegExp(`^(?:${[
-  'core\\.(?:repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|hookspath)',
-  'user\\.(?:name|email|signingkey)', 'commit\\.gpgsign', 'pull\\.(?:rebase|ff)', 'fetch\\.prune', 'rerere\\.enabled',
-  'remote\\.pushdefault', 'remote\\..+\\.(?:url|pushurl|fetch|tagopt|prune|gh-resolved)', 'branch\\..+\\.[^.]+', 'submodule\\..+\\.(?:url|active)',
-].join('|')})$`, 's');
-
-type GitConfiguration = Map<string, string[]>;
 interface PushPlan { remote: string; target: string; publish: boolean }
 
-function configuration(output: string): GitConfiguration {
-  const config: GitConfiguration = new Map();
-  for (const entry of output.split('\0').filter(Boolean)) {
-    const separator = entry.indexOf('\n');
-    const key = separator === -1 ? entry : entry.slice(0, separator);
-    const values = config.get(key) || [];
-    values.push(separator === -1 ? '' : entry.slice(separator + 1));
-    config.set(key, values);
-  }
-  return config;
-}
-
 function gate(config: GitConfiguration): void {
-  const refused = [...config.keys()].find((key) => !ALLOWED_LOCAL_KEY.test(key));
+  const refused = unsupportedLocalGitKey(config);
   if (refused) throw new Error(`This repository's Git configuration sets ${redactUserInfo(refused)}, which CodeAI does not push under. Push from a terminal.`);
 }
 

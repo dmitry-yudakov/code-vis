@@ -661,6 +661,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .git-branch-summary strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px/1.5 var(--mono); }
 .git-branch-summary em { flex-shrink: 0; color: var(--muted); font: 11px/1.5 var(--mono); }
 .git-branch-summary button { flex-shrink: 0; }
+.git-branch-summary .repository-branch-picker { flex: 1; min-width: 0; justify-content: flex-start; gap: 6px; padding: 4px; color: inherit; }
+.repository-branch-picker strong { text-align: left; }
 .repository-view-tabs { flex-shrink: 0; min-height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line); }
 .repository-view-tabs .MuiTab-root { min-width: 0; min-height: 36px; padding: 6px 12px; font-size: 12px; }
 .repository-tab-panel { flex: 1; display: grid; min-height: 0; min-width: 0; }

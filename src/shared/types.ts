@@ -78,6 +78,13 @@ export interface GitHistory {
   truncated: boolean;
 }
 
+export interface GitBranches {
+  /** Opaque branch/commit identity checked again under exclusive access before switching. */
+  head: string;
+  current?: string;
+  branches: { name: string; occupied: boolean }[];
+}
+
 export interface GitFileDiff {
   path: string;
   staged?: string;
