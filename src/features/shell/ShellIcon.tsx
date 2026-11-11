@@ -1,4 +1,5 @@
 const SHELL_ICON_PATHS = {
+  image: 'M3 3h18v18H3zM3 17l5-5 4 4 4-6 5 7M9 7h.01',
   files: 'M9 7H4v14h11v-5M9 3h7l4 4v10H9zM15 3v5h5',
   folder: 'M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11H3z',
   file: 'M6 3h8l4 4v14H6zM13 3v5h5',

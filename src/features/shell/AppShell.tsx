@@ -44,6 +44,7 @@ import {
   loadSelectedCheckoutId, saveSelectedCheckoutId, mergeTurnActivity, reconcileSessionTitles,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
+import { ProjectLogoDialog } from '@/features/projects/ProjectLogoDialog';
 import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { useSessionLauncher } from '@/features/session-launch/useSessionLauncher';
@@ -408,6 +409,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return result?.pending || result?.retryable;
   })?.requestId;
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
+  const [projectLogoTarget, setProjectLogoTarget] = useState<{ machineId: string; project: DurableProject }>();
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
     return [...checkouts].sort((left, right) => {
@@ -1106,6 +1108,25 @@ export function AppShell({ children }: { children: ReactNode }) {
     void arena.refresh();
     return created;
   }, [arena.refresh, localMachineId]);
+
+  const saveProjectLogo = async (targetMachineId: string, project: DurableProject, logo: DurableProject['logo'] | null) => {
+    const url = machineApiPath(`/api/projects/${encodeURIComponent(project.id)}`, targetMachineId, localMachineId);
+    const response = await fetch(url, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: project.revision, expectedLogo: project.logo ?? null, logo }),
+    });
+    const data = await response.json() as { project?: DurableProject; error?: string };
+    if (!response.ok || !data.project) {
+      if (response.status === 409) {
+        const latest = await fetch(url, { cache: 'no-store' }).then(result => result.ok ? result.json() : undefined).catch(() => undefined) as { project?: DurableProject } | undefined;
+        if (latest?.project) setProjectLogoTarget(current => current?.machineId === targetMachineId && current.project.id === project.id
+          ? { ...current, project: latest.project! } : current);
+      }
+      throw new Error(data.error || 'Could not save the project logo.');
+    }
+    if (machineIdRef.current === targetMachineId) setProjects(current => current.map(item => item.id === project.id ? data.project! : item));
+    void arena.refresh();
+  };
 
   const renameProject = useCallback(async (project: DurableProject, name: string) => {
     try {
@@ -2698,10 +2719,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <ProjectPicker
                   projects={projects}
                   value={projectId}
+                  apiBase={machineApiBase(machineId, localMachineId)}
                   onChange={switchProject}
                   onCreate={(name) => { void createProject(machineId, name, []).then(project => switchProject(project.id)).catch(error => notifyError(error, 'Could not create the project.')); }}
                   onRename={(project, name) => void renameProject(project, name)}
                   onDelete={(project) => void deleteProject(project)}
+                  onLogo={project => { if (machineId) setProjectLogoTarget({ machineId, project }); }}
                 />
                 <span className="breadcrumb-separator" aria-hidden="true">/</span>
                 <WorkspaceTabs
@@ -3039,6 +3062,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
 
       <ToastStack toasts={shownToasts} className={toastPlacement} onRemove={dismissToast} />
+      {projectLogoTarget && <ProjectLogoDialog key={`${projectLogoTarget.machineId}:${projectLogoTarget.project.id}`}
+        project={projectLogoTarget.project} machineId={projectLogoTarget.machineId}
+        checkouts={arena.machines.find(machine => machine.machine.id === projectLogoTarget.machineId)?.checkouts ?? []}
+        apiBase={machineApiBase(projectLogoTarget.machineId, localMachineId)}
+        online={arena.machines.some(machine => machine.machine.id === projectLogoTarget.machineId && machine.machine.state === 'online')}
+        onSave={logo => saveProjectLogo(projectLogoTarget.machineId, projectLogoTarget.project, logo)}
+        onClose={() => setProjectLogoTarget(undefined)} />}
 
       {openingWorkspace ? (
         <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>
@@ -3057,6 +3087,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             await createProject(machineId, name, checkoutIds);
             if (arenaSection !== 'sessions') router.push('/arena', { scroll: false });
           }}
+          onProjectLogo={(machineId, project) => setProjectLogoTarget({ machineId, project })}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
           onDecidePermission={decideArenaPermission}

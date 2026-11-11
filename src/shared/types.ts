@@ -110,6 +110,8 @@ export interface DurableProject {
   id: string;
   name: string;
   repositories: RepositoryBinding[];
+  /** Image in one of this project's repositories, relative to its checkout root. */
+  logo?: { repositoryId: string; path: string };
   createdAt: string;
   updatedAt: string;
 }

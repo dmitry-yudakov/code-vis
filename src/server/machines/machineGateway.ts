@@ -18,7 +18,7 @@ async function boundedBody(request: Request): Promise<ArrayBuffer | undefined> {
 function responseHeaders(remote: Response): Headers {
   const headers = new Headers();
   for (const name of [
-    'content-type', 'cache-control', 'x-content-type-options',
+    'content-type', 'cache-control', 'x-content-type-options', 'content-security-policy',
     'x-codeai-run-finished', 'x-codeai-replay-events', 'x-codeai-run-id', 'x-codeai-run-state',
   ]) {
     const value = remote.headers.get(name);

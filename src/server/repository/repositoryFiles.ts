@@ -47,6 +47,42 @@ export async function readRepositoryFile(root: string, requested: string): Promi
   });
 }
 
+/** Image-only reads reuse the file viewer's path proof and checkout ownership. */
+export async function readRepositoryImage(root: string, requested: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; contentType: string }> {
+  return withRepositoryPath(root, requested, async target => {
+    const handle = await open(target, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+    try {
+      const maxBytes = 2 * 1024 * 1024;
+      const info = await handle.stat();
+      if (!info.isFile()) throw new RepositoryFileError('Choose a regular image file.');
+      if (await readlink(`/proc/self/fd/${handle.fd}`) !== target) throw new RepositoryFileError('The image location changed. Try again.');
+      if (info.size > maxBytes) throw new RepositoryFileError('Project logos are limited to 2 MiB.');
+      const buffer = Buffer.alloc(maxBytes + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+        if (!bytesRead) break;
+        length += bytesRead;
+      }
+      if (length > maxBytes) throw new RepositoryFileError('Project logos are limited to 2 MiB.');
+      const bytes = buffer.subarray(0, length);
+      const extension = path.extname(target).toLowerCase();
+      const signatures: Record<string, [string, boolean]> = {
+        '.png': ['image/png', bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))],
+        '.jpg': ['image/jpeg', bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255],
+        '.jpeg': ['image/jpeg', bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255],
+        '.gif': ['image/gif', /^GIF8[79]a/.test(bytes.subarray(0, 6).toString())],
+        '.webp': ['image/webp', bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP'],
+        '.ico': ['image/x-icon', bytes.subarray(0, 4).equals(Buffer.from([0, 0, 1, 0]))],
+        '.svg': ['image/svg+xml', !bytes.includes(0) && /<svg[\s>]/i.test(bytes.toString('utf8'))],
+      };
+      const format = signatures[extension];
+      if (!format?.[1]) throw new RepositoryFileError('Choose a PNG, JPEG, GIF, WebP, SVG or ICO image.');
+      return { bytes: new Uint8Array(bytes), contentType: format[0] };
+    } finally { await handle.close(); }
+  });
+}
+
 /** One directory at a time, pinned to its verified handle; never recursively walk the checkout. */
 export async function listRepositoryDirectory(root: string, requested: string): Promise<RepositoryDirectory> {
   return withRepositoryPath(root, requested, async (target, relative) => {

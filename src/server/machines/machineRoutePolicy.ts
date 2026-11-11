@@ -14,6 +14,9 @@ export function machineOperationAllowed(method: string, segments: readonly strin
   if (segments.length === 2 && segments[0] === 'projects' && UUID.test(segments[1])) {
     return ['GET', 'PATCH', 'DELETE'].includes(normalizedMethod);
   }
+  if (segments.length === 3 && segments[0] === 'projects' && UUID.test(segments[1]) && segments[2] === 'logo') {
+    return normalizedMethod === 'GET';
+  }
   if (segments.length === 2 && segments[0] === 'sessions' && UUID.test(segments[1])) {
     return normalizedMethod === 'GET';
   }

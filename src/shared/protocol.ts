@@ -5,7 +5,7 @@ import { MAX_TEXT_FILES_PER_MESSAGE } from './limits';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_MESSAGE_TEXT_CHARS, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from './limits';
 import {
-  diagramAnnotationSchema, drawingMarkSchema, globalInstructionsChoiceSchema, repositoryBindingSchema, sketchCanvasSchema,
+  diagramAnnotationSchema, drawingMarkSchema, globalInstructionsChoiceSchema, projectLogoSchema, repositoryBindingSchema, sketchCanvasSchema,
 } from './sessionSchema';
 
 export {
@@ -142,8 +142,13 @@ export const updateProjectRequestSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
   name: z.string().trim().min(1).max(200).optional(),
   repositories: z.array(repositoryBindingSchema).max(32).optional(),
-}).strict().refine((value) => value.name !== undefined || value.repositories !== undefined, {
-  message: 'A project update requires a name or repositories.',
+  logo: projectLogoSchema.nullable().optional(),
+  expectedLogo: projectLogoSchema.nullable().optional(),
+}).strict().refine((value) => value.name !== undefined || value.repositories !== undefined || value.logo !== undefined, {
+  message: 'A project update requires a name, repositories or logo.',
+}).refine(value => value.logo === undefined ? value.expectedLogo === undefined
+  : value.expectedLogo !== undefined && value.name === undefined && value.repositories === undefined, {
+  message: 'Change a logo separately, comparing its previous value.',
 });
 
 export const deleteProjectRequestSchema = z.object({

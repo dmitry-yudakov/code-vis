@@ -23,6 +23,23 @@ import { readNdjson } from '@/features/conversation/ndjson';
 import type { AgentEvent } from '@/shared/types';
 
 describe('machine API gateway', () => {
+  it('serves executor project logos with their image isolation headers and no executor cookies', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    const policy = "sandbox; default-src 'none'; frame-ancestors 'none'";
+    fetchMock.mockResolvedValue(new Response(svg, { headers: {
+      'Content-Type': 'image/svg+xml', 'Content-Security-Policy': policy,
+      'X-Content-Type-Options': 'nosniff', 'Set-Cookie': 'private=value',
+    } }));
+    const response = await proxyMachineRequest(REMOTE_ID, ['projects', REMOTE_ID, 'logo'],
+      new Request(`https://home.test/api/machines/${REMOTE_ID}/projects/${REMOTE_ID}/logo?revision=1`));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(svg);
+    expect(response.headers.get('Content-Type')).toBe('image/svg+xml');
+    expect(response.headers.get('Content-Security-Policy')).toBe(policy);
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(response.headers.get('Set-Cookie')).toBeNull();
+    expect(fetchMock.mock.calls[0][0].href).toBe(`https://laptop.test:3023/api/projects/${REMOTE_ID}/logo?revision=1`);
+  });
   it('proxies compared queued-message edits to the executing machine', async () => {
     fetchMock.mockResolvedValue(new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json' } }));
     const body = JSON.stringify({ runId: REMOTE_ID, text: 'Revised idea', expectedText: 'Original idea' });

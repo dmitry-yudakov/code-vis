@@ -8,21 +8,26 @@ import TextField from '@mui/material/TextField';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { useState } from 'react';
 import type { DurableProject } from '@/shared/types';
+import { ProjectLogoButton } from './ProjectLogo';
 
-export function ProjectPicker({ projects, value, disabled, onChange, onCreate, onRename, onDelete }: {
+export function ProjectPicker({ projects, value, disabled, apiBase, onChange, onCreate, onRename, onDelete, onLogo }: {
   projects: DurableProject[];
   value?: string;
   disabled?: boolean;
+  apiBase?: string;
   onChange(value?: string): void;
   onCreate(name: string): void;
   onRename(project: DurableProject, name: string): void;
   onDelete(project: DurableProject): void;
+  onLogo(project: DurableProject): void;
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const selected = projects.find((project) => project.id === value);
 
   return (
+    <div className="project-picker-with-logo">
+    {selected && <ProjectLogoButton project={selected} apiBase={apiBase} disabled={disabled} onClick={() => onLogo(selected)} />}
     <DesktopPopover className="project-search-picker" triggerClassName="project-search-trigger" disabled={disabled}
       label={`Project: ${selected?.name || 'No project'}`} width={390} placement="bottom-start"
       summary={<><span>{selected?.name || 'No project'}</span><span aria-hidden="true">⌄</span></>}>
@@ -53,6 +58,7 @@ export function ProjectPicker({ projects, value, disabled, onChange, onCreate, o
             </ListItemButton>
             {projects.map((project) => (
               <div className="project-record-option" key={project.id}>
+                <ProjectLogoButton project={project} apiBase={apiBase} onClick={() => { close(); onLogo(project); }} />
                 <ListItemButton component="button"
                   type="button" role="option" aria-selected={project.id === value} selected={project.id === value} className={`project-search-option${project.id === value ? ' selected' : ''}`} onClick={() => { onChange(project.id); close(); }}
                 >
@@ -73,5 +79,6 @@ export function ProjectPicker({ projects, value, disabled, onChange, onCreate, o
         </div>
       }
     </DesktopPopover>
+    </div>
   );
 }

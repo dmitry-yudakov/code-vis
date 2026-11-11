@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } fro
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import type {
   ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
+  DurableProject,
 } from '@/shared/types';
 import {
   buildMultiMachineInbox, groupArenaSessions, unreadArenaAttention,
@@ -27,6 +28,8 @@ import {
 import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
+import { ProjectLogoButton } from '@/features/projects/ProjectLogo';
+import { machineApiBase } from '@/features/machines/routes';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
 import { ContextUsage, contextUsageLabel } from '@/features/agents/ContextUsage';
 import { ArenaTileBody } from './ArenaTileBody';
@@ -91,6 +94,7 @@ export function Arena({
   onNewSession,
   onNewProjectSession,
   onCreateProject,
+  onProjectLogo,
   onArchiveSession,
   onRestoreSession,
   onDecidePermission,
@@ -108,6 +112,7 @@ export function Arena({
   onNewSession(): void;
   onNewProjectSession(machineId: string, projectId?: string): void;
   onCreateProject(machineId: string, name: string, checkoutIds: string[]): Promise<void>;
+  onProjectLogo(machineId: string, project: DurableProject): void;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
@@ -219,7 +224,10 @@ export function Arena({
                   return (
                   <Paper component="section" className={`arena-group${group.sessions.length ? '' : ' arena-group-empty'}`} sx={tiles ? undefined : { border: 0, background: 'transparent', borderRadius: 0 }} aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
                     <header>
-                      <div><h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
+                      <div><div className="project-logo-name">
+                        {project && <ProjectLogoButton project={project} apiBase={machineApiBase(machine.machine.id, localMachine?.machine.id)}
+                          disabled={!online} onClick={() => onProjectLogo(machine.machine.id, project)} />}
+                        <h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3></div><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
                         {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById)}</span>}
                       </div>
                       {(group.id === 'none' || machine.projects.some(project => project.id === group.id)) && <IconButton type="button" disabled={!online}

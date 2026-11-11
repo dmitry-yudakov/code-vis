@@ -1,10 +1,12 @@
 import { getConfig } from '@/server/config';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
-import { getSessionStore, sessionStoreStatus } from '@/server/storage/sessionStore';
+import { getSessionStore, SessionStoreError, sessionStoreStatus } from '@/server/storage/sessionStore';
 import {
   deleteProjectRequestSchema, publicError, safeJsonResponse, updateProjectRequestSchema,
 } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { readProjectLogo } from '@/server/repository/projectLogo';
+import { RepositoryFileError } from '@/server/repository/repositoryFiles';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,10 +42,15 @@ export async function PATCH(request: Request, context: ProjectRouteContext): Pro
         .filter((repository) => repository.hostId === host.id)
         .map((repository) => repository.checkoutId));
     }
+    if (parsed.data.logo) {
+      const current = await store.getProject(projectId);
+      if (current.revision !== parsed.data.expectedRevision) throw new SessionStoreError('conflict', 'Project changed on another client. Refetch and retry.');
+      await readProjectLogo({ ...current, ...parsed.data, logo: parsed.data.logo }, (await store.host()).id, config);
+    }
     const project = await store.updateProject(projectId, parsed.data);
     return safeJsonResponse({ project });
   } catch (error) {
-    return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
+    return safeJsonResponse({ error: publicError(error) }, { status: error instanceof RepositoryFileError ? error.status : sessionStoreStatus(error) });
   }
 }
 

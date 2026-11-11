@@ -76,15 +76,31 @@ function validateRepositoryBindings(
   }
 }
 
+export const projectLogoSchema = z.object({
+  repositoryId: z.string().uuid(),
+  path: z.string().trim().min(1).max(4096).refine(value =>
+    !/[\u0000-\u001f\u007f\\]/.test(value)
+    && !value.split('/').some(part => ['', '.', '..', '.git'].includes(part))
+    && !/^[a-z]:/i.test(value)
+    && /\.(png|jpe?g|gif|webp|svg|ico)$/i.test(value),
+  'Choose a PNG, JPEG, GIF, WebP, SVG or ICO path relative to the repository.'),
+}).strict();
+
 export const durableProjectSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
   id: z.string().uuid(),
   name: z.string().trim().min(1).max(200),
   repositories: z.array(repositoryBindingSchema).max(32),
+  logo: projectLogoSchema.optional(),
   createdAt: dateTime,
   updatedAt: dateTime,
-}).strict().superRefine((project, ctx) => validateRepositoryBindings(project.repositories, ctx));
+}).strict().superRefine((project, ctx) => {
+  validateRepositoryBindings(project.repositories, ctx);
+  if (project.logo && !project.repositories.some(binding => binding.id === project.logo!.repositoryId)) {
+    ctx.addIssue({ code: 'custom', message: 'The logo must belong to a project repository.', path: ['logo'] });
+  }
+});
 
 export const providerSessionRefSchema = z.discriminatedUnion('started', [
   z.object({ provider: agentProvider, started: z.literal(false) }).strict(),

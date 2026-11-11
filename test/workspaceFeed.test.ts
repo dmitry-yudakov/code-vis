@@ -40,6 +40,23 @@ afterEach(async () => {
 });
 
 describe('workspace source notifications', () => {
+  it('publishes project logo choices and watches external decoration changes without changing the base revision', async () => {
+    const project = await store.createProject('Logo project', ['repo']);
+    const logo = { repositoryId: project.repositories[0].id, path: 'logo.svg' };
+    const received: ExecutorSnapshot[] = [];
+    const fail = vi.fn();
+    releases.push(workspaceFeeds().executor.subscribe(value => received.push(value), fail));
+    await vi.waitFor(() => expect(received.at(-1)?.projects[0]?.id).toBe(project.id));
+    await store.updateProject(project.id, { expectedRevision: 0, expectedLogo: null, logo });
+    await vi.waitFor(() => expect(received.at(-1)?.projects[0]?.logo).toEqual(logo));
+    const other = { ...logo, path: 'other.svg' };
+    await writeFile(path.join(store.dataDirectory, 'session-store-v2', 'project-logos', `${project.id}.json`),
+      JSON.stringify({ logo: other, repository: project.repositories[0] }));
+    await vi.waitFor(() => expect(received.at(-1)?.projects[0]?.logo).toEqual(other));
+    expect(received.at(-1)?.projects[0]?.revision).toBe(0);
+    expect(fail).not.toHaveBeenCalled();
+  });
+
   it('shares the local source across tabs, delivers saved changes and approvals, and skips token deltas', async () => {
     const session = await store.createSession({ provider: 'claude' });
     const feed = workspaceFeeds().arena;

@@ -5,7 +5,7 @@ import path from 'node:path';
 export function watchWorkspaceFiles(dataDir: string, changed: (scope: 'local' | 'machines') => void, fail: (cause: unknown) => void): () => void {
   const watchers = new Map<string, FSWatcher>();
   const store = path.join(/* turbopackIgnore: true */ dataDir, 'session-store-v2');
-  const paths = [dataDir, store, ...['sessions', 'archived-sessions', 'projects'].map(name => path.join(/* turbopackIgnore: true */ store, name)),
+  const paths = [dataDir, store, ...['sessions', 'archived-sessions', 'projects', 'project-logos'].map(name => path.join(/* turbopackIgnore: true */ store, name)),
     ...['worktrees', 'docker', 'instructions'].map(name => path.join(/* turbopackIgnore: true */ dataDir, name))];
   let closed = false;
   const attach = () => {
@@ -29,7 +29,7 @@ export function watchWorkspaceFiles(dataDir: string, changed: (scope: 'local' | 
               changed('local');
             }
           } else if (directory === store) {
-            if (['sessions', 'archived-sessions', 'projects'].includes(name)) {
+            if (['sessions', 'archived-sessions', 'projects', 'project-logos'].includes(name)) {
               const target = path.join(store, name);
               watchers.get(target)?.close(); watchers.delete(target); attach(); changed('local');
             }

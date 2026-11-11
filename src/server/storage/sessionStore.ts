@@ -16,6 +16,7 @@ import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
   NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema, agentContextUsageSchema, CONTEXT_USAGE_SESSION_VERSION,
+  projectLogoSchema, repositoryBindingSchema,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
@@ -39,6 +40,8 @@ const LOCK_STALE_MS = 30_000;
 const HEARTBEAT_MS = 10_000;
 const MAX_SESSIONS = 1_000;
 const MAX_PROJECTS = 1_000;
+const projectLogoRecordSchema = z.object({ logo: projectLogoSchema, repository: repositoryBindingSchema }).strict()
+  .refine(record => record.logo.repositoryId === record.repository.id);
 
 function upgradeForMessage(session: DurableSession, message: ChatMessage): void {
   const needed = message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
@@ -410,14 +413,41 @@ export class SessionStore {
     expectedRevision: number;
     name?: string;
     repositories?: RepositoryBinding[];
+    logo?: DurableProject['logo'] | null;
+    expectedLogo?: DurableProject['logo'] | null;
   }): Promise<DurableProject> {
     return this.enqueue(async () => {
       const project = await this.getProject(id);
       this.expectProjectRevision(project, input.expectedRevision);
+      if (input.logo !== undefined) {
+        if (input.expectedLogo === undefined || input.name !== undefined || input.repositories !== undefined) {
+          throw new Error('Change a logo separately, comparing its previous value.');
+        }
+        if (!same(project.logo ?? null, input.expectedLogo)) {
+          throw new SessionStoreError('conflict', 'Project logo changed on another client. Refetch and retry.');
+        }
+        if (same(project.logo ?? null, input.logo)) return structuredClone(project);
+        const logoPath = this.projectLogoPath(id);
+        if (input.logo === null) {
+          await unlink(logoPath).catch(error => { if (!isMissing(error)) throw error; });
+          await syncDirectory(path.dirname(logoPath));
+          delete project.logo;
+        } else {
+          const repository = project.repositories.find(binding => binding.id === input.logo!.repositoryId);
+          const record = projectLogoRecordSchema.parse({ logo: input.logo, repository });
+          await mkdir(path.dirname(logoPath), { recursive: true, mode: 0o700 });
+          await atomicWrite(logoPath, record, this.beforeRename);
+          project.logo = record.logo;
+        }
+        workspaceChanged(this.dataDirectory);
+        return structuredClone(project);
+      }
       if (input.repositories) await this.refuseManagedProjectBindings(input.repositories.map((binding) => binding.checkoutId));
       const before = structuredClone(project);
       if (input.name !== undefined) project.name = input.name.trim();
       if (input.repositories !== undefined) project.repositories = structuredClone(input.repositories);
+      if (project.logo && !project.repositories.some(binding => same(binding,
+        before.repositories.find(previous => previous.id === project.logo!.repositoryId)))) delete project.logo;
       if (same(before, project)) return structuredClone(project);
       const next = structuredClone(project);
       next.revision += 1;
@@ -456,6 +486,7 @@ export class SessionStore {
         else await this.writeSession(session);
       }
       await unlink(this.projectPath(id));
+      await unlink(this.projectLogoPath(id)).catch(() => undefined);
       await syncDirectory(this.projectsDirectory);
       workspaceChanged(this.dataDirectory);
       return { detachedSessionCount: sessions.length };
@@ -1161,7 +1192,13 @@ export class SessionStore {
         `Project store contains an invalid project file (${path.basename(filePath)}). Restore the whole ${STORE_DIRECTORY} directory from backup.`,
       );
     }
-    return result.data as DurableProject;
+    const project = result.data as DurableProject;
+    // Decorative metadata stays outside the strict v1 record so a managed rollback can read it.
+    try {
+      const record = projectLogoRecordSchema.parse(JSON.parse(await readFile(this.projectLogoPath(project.id), 'utf8')));
+      if (project.repositories.some(binding => same(binding, record.repository))) project.logo = record.logo;
+    } catch { /* Missing, stale or damaged decoration must not hide the project. */ }
+    return project;
   }
 
   private async readSessionFile(filePath: string): Promise<DurableSession> {
@@ -1244,8 +1281,14 @@ export class SessionStore {
 
   private async writeProject(project: DurableProject): Promise<void> {
     durableProjectSchema.parse(project);
-    await atomicWrite(this.projectPath(project.id), project, this.beforeRename);
+    const { logo: _logo, ...base } = project;
+    await atomicWrite(this.projectPath(project.id), base, this.beforeRename);
+    if (!_logo) await unlink(this.projectLogoPath(project.id)).catch(() => undefined);
     workspaceChanged(this.dataDirectory);
+  }
+
+  private projectLogoPath(id: string): string {
+    return path.join(this.storeDirectory, 'project-logos', `${id}.json`);
   }
 
   private async mutate<T>(

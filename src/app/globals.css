@@ -30,7 +30,9 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 /* The picker shrink-wraps its label: a fixed 260px box with space-between strands the chevron
    a couple of hundred pixels from a short project name and reads as a separate control. */
 .project-search-picker { position: relative; min-width: 0; flex: 0 0 auto; max-width: 260px; }
-.project-search-trigger > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-picker-with-logo { display: flex; align-items: center; min-width: 0; flex: 0 0 auto; max-width: 260px; }
+.project-picker-with-logo > .project-search-picker { flex-shrink: 1; }
+.project-search-trigger > span:not(:last-child) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-search-trigger > span:last-child { color: var(--faint); font-size: 11px; }
 .project-search-meta { display: flex; align-items: center; justify-content: space-between; padding: 3px 4px 9px; color: var(--muted); font-size: 10px; }
 .project-search-meta strong { color: var(--ink); font-size: 11px; }
@@ -47,7 +49,9 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .project-search-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
 .project-search-option small { overflow: hidden; color: var(--muted); font: 9px/1.3 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .project-search-option i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--live-ink); font-style: normal; }
-.project-record-option { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; align-items: center; gap: 3px; }
+.project-record-option { display: grid; grid-template-columns: 32px minmax(0, 1fr) 28px 28px; align-items: center; gap: 3px; }
+.project-logo { width: 24px; height: 24px; flex: none; object-fit: contain; vertical-align: middle; }
+.project-logo-name { min-width: 0; display: inline-flex; align-items: center; gap: 7px; overflow-wrap: anywhere; }
 .project-search-empty { padding: 24px 12px; color: var(--muted); text-align: center; font-size: 11px; }
 /* One scoped native picker handles closed views and tabs clipped by the title bar. */
 .session-picker { flex: none; display: flex; align-items: center; gap: 4px; }
@@ -195,7 +199,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-machine-heading > div > span, .arena-machine-empty { color: var(--faint); font: 9px/1.4 var(--mono); text-transform: uppercase; }
 .arena-machine-empty { padding-top: 18px; }
 .arena-group { padding-top: 28px; }
-.arena-group > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.arena-group > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .arena-group > header > div { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; }
 .arena-group h3 { overflow-wrap: anywhere; }
 .arena-group h2, .arena-group h3, .arena-inbox h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
@@ -747,7 +751,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
   .app-header { gap: 10px; padding: 0 10px; }
   .brand strong, .health-pill { display: none; }
   .header-breadcrumbs { gap: 4px; }
-  .project-search-picker, .project-search-trigger { min-width: 0; max-width: 150px; }
+  .project-picker-with-logo, .project-search-picker, .project-search-trigger { min-width: 0; max-width: 150px; }
   .session-picker { gap: 3px; }
   .header-actions { margin-left: auto; }
   .spatial-room { grid-template-columns: minmax(0, 1fr) 210px; }
@@ -770,7 +774,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 @media (max-width: 620px) {
   .conversation-welcome .welcome-symbol, .conversation-starter small { display: none; }
   .conversation-welcome { padding-block: 16px; }
-  .project-search-picker, .project-search-trigger { max-width: 90px; }
+  .project-picker-with-logo, .project-search-picker, .project-search-trigger { max-width: 90px; }
   .new-session-label { display: none; }
   .canvas-titleblock { bottom: 58px; }
   .toast-region { top: 182px; }
@@ -912,6 +916,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .dock-capacity-0 .brand, .dock-capacity-0 .breadcrumb-separator { display: none; }
 .dock-capacity-0 .header-breadcrumbs { gap: 3px; }
 .dock-capacity-0 .project-search-picker { max-width: 90px; flex-shrink: 1; }
+.dock-capacity-0 .project-picker-with-logo { max-width: 90px; flex-shrink: 1; }
 .dock-capacity-0 .project-search-trigger { max-width: 90px; padding-inline: 6px; min-height: 40px; }
 .dock-capacity-0 .workspace-tabs { flex-basis: 80px; }
 .dock-capacity-0 .workspace-tab { min-height: 40px; }

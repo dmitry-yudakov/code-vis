@@ -35,6 +35,12 @@ Updated 2026-11-09. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 136](stories/STORY-20261109-project-logos.md) — click a project's logo or
+  placeholder to browse repository images with a preview; the same control edits the logo in Arena,
+  the project picker and open project/session headers. All 106 focused unit checks, 28 production-browser
+  cases, source TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
+  review pass.
+  The running app has not been rebuilt or restarted.
 - **In flight:** [Story 47](stories/STORY-20260905-vr-conversation-input.md) — local voice
   dictation/correction and shared conversation/agent controls are implemented in the
   [immersive workspace epic](stories/EPIC-20260905-immersive-workspace.md).

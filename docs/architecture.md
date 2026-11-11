@@ -413,6 +413,7 @@ session-store-v2/
   manifest.json       # version + durable host id/label
   writer.lock         # owner token, pid, hostname, heartbeat
   projects/<uuid>.json # one durable project per file
+  project-logos/<uuid>.json # optional repository-image choice + exact repository binding
   sessions/<uuid>.json # one complete private session per file
   archived-sessions/<uuid>.json # one recoverable archived session per file
 ```
@@ -443,6 +444,16 @@ identity fails closed; the whole `session-store-v2` directory is the backup/rest
 `session-store-v1` is copied forward once and then ignored; it is never modified (a direct
 `conversation-store-v1` upgrade also remains supported). Older
 `threads.json` and browser records are not imported or modified.
+
+Project logos are optional decoration stored separately from the strict version-1 project record,
+so the previous release can still open projects after a managed rollback. Logo-only changes compare
+the project revision and previous logo value under the store queue, atomically replace one sidecar,
+and notify workspace subscriptions without changing the base revision. Invalid or stale decoration
+is ignored. The image route resolves a current local project binding through the checkout registry,
+uses the file viewer's Linux path proof and checkout read ownership, and reads at most 2 MiB.
+SVGs are served as isolated image documents; attached-machine responses preserve that policy.
+The logo control opens a bounded folder picker using the existing file-list route. The image route
+also accepts a validated candidate repository binding and relative path for unsaved previews.
 
 Session records accept version 3 (implicit local execution), version 4 (required `execution:
 'local' | 'docker'`), version 5 (version 4 whose user messages may carry report evidence), version 6
