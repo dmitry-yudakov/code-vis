@@ -29,7 +29,7 @@ ambiguous remote, or an attached executor. The immersive repository panel remain
 
 - `src/server/repository/gitRepository.ts` retains upstream and unborn status in `GitWorkingTree`.
 - `src/server/repository/gitPush.ts` derives the advisory offer, rechecks it under checkout leases,
-  gates local configuration and metadata, and runs the fixed host push.
+  optionally gates local configuration, checks metadata, and runs the fixed host push.
 - `GET /api/repository/status` adds `pushTarget` and `publishes` to the tree when appropriate.
 - `POST /api/repository/push` accepts exactly `{ checkoutId, target }`, resolves the checkout on the
   server, and returns `{ target }` or `{ error }`. The target is compared, never used as a Git argument.
@@ -39,12 +39,14 @@ ambiguous remote, or an attached executor. The immersive repository panel remain
 ## Preserved contracts and failure paths
 
 This is the first CodeAI Git command that uses the owner's credentials and network. A worker can
-write `.git/config`, so host Git must not execute that configuration unchecked.
+write `.git/config`. Push trusts that configuration by default; installations can opt into the
+configuration allowlist with `CODEAI_GIT_PUSH_CONFIG_CHECKS=true` before host Git reads it.
 
-- **Configuration gate:** read the branch and local configuration through `runGitRead`, including
-  the credential-free Docker helper once provisioned. Read without includes and allowlist keys;
+- **Configuration gate:** read the branch through `runGitRead`, including the credential-free
+  Docker helper once provisioned. When enabled, read local configuration without includes and allowlist keys;
   unknown keys, including local credential helpers, transport commands, includes, and extensions,
-  refuse with the key named. Values and URL user info stay out of the refusal.
+  refuse with the key named. Values and URL user info stay out of the refusal. The allowlist is off
+  by default for both Local and Docker sessions; host Git can execute repository-configured helpers.
 - **Metadata containment:** ordinary repositories require a contained `.git` directory without
   symbolic links, external common directories, worktree configuration, or object alternates.
   Managed worktrees keep their journal-verified linkage. Reuse the existing bounded metadata walk
@@ -88,7 +90,8 @@ write `.git/config`, so host Git must not execute that configuration unchecked.
 - [x] Honor local/global push defaults and branch push remotes; refuse ambiguous destinations.
 - [x] Hide the action when there is nothing to send, no usable branch/remote, or an attached executor.
 - [x] Reject non-fast-forward updates without changing the remote and show useful remote refusals.
-- [x] Refuse unsafe configuration, transports, hooks, and external Git metadata without executing them.
+- [x] Refuse unsupported configuration when opted in; always refuse unsupported transports, hooks,
+  and external Git metadata without executing them.
 - [x] Exclude source/sibling writers and recovery until Git exits; release ownership on refusal/timeout.
 - [x] Preserve credential/SSH/proxy setup without forwarding server secrets or writable PATH entries.
 - [x] Reject stale destinations, wrong origins, unauthorized devices, and machine transport.
@@ -115,6 +118,25 @@ write `.git/config`, so host Git must not execute that configuration unchecked.
   managed session inherits its running application's older `CODEAI_DIST_DIR`.
 
 The running application has not been restarted.
+
+## Follow-up — November 11, 2026
+
+The repository-local configuration allowlist is now opt-in through
+`CODEAI_GIT_PUSH_CONFIG_CHECKS=true` (also accepting `1`, `yes`, and the `CODEAI_WEB2_` alias).
+Unset or false leaves the allowlist off, so local preferences such as `gitg.mainline` and custom
+SSH commands can be used. This applies to Push and Publish for both Local and Docker sessions;
+the push itself still runs on the host with the owner's credentials. Branch switching's shared
+allowlist, metadata containment, hook refusal, transport limits, destination validation, and
+checkout leases retain their existing behavior.
+
+All 290 focused checks across configuration, push/gate/route, branches, repository reads, and
+managed worktrees pass, as do `npm run lint` and `git diff --check`. New regressions failed before
+implementation and now verify successful default/explicit-off pushes with local Git preferences,
+enabled allowlist rejection before transport execution, and environment alias precedence.
+Checks run with inherited `CODEAI_*` settings removed from the test subprocess so installation
+settings cannot affect configuration defaults. Tests use disposable local repositories and a
+synthetic SSH transport; no external push or real Docker daemon was used for this follow-up.
+The running application has not been rebuilt or restarted.
 
 ## Out of scope
 

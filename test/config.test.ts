@@ -10,6 +10,7 @@ const MANAGED = [
   'CODEAI_REPOSITORIES_DEPTH', 'CODEAI_WEB2_REPOSITORIES_DEPTH',
   'CODEAI_PROJECTS_DEPTH', 'CODEAI_WEB2_PROJECTS_DEPTH',
   'CODEAI_CODEX_AGENT', 'CODEAI_WEB2_CODEX_AGENT',
+  'CODEAI_GIT_PUSH_CONFIG_CHECKS', 'CODEAI_WEB2_GIT_PUSH_CONFIG_CHECKS',
   'CODEAI_CLAUDE_BIN', 'CODEAI_WEB2_CLAUDE_BIN',
   'CODEAI_CLAUDE_MODEL', 'CODEAI_WEB2_CLAUDE_MODEL',
   'CODEAI_HOST_LABEL', 'CODEAI_WEB2_HOST_LABEL',
@@ -59,6 +60,23 @@ describe.sequential('config', () => {
     expect(getConfig().codexAgentEnabled).toBe(false);
     process.env.CODEAI_CODEX_AGENT = 'yes';
     expect(getConfig().codexAgentEnabled).toBe(true);
+  });
+
+  it('defaults push configuration checks off and accepts the legacy alias', () => {
+    delete process.env.CODEAI_GIT_PUSH_CONFIG_CHECKS;
+    delete process.env.CODEAI_WEB2_GIT_PUSH_CONFIG_CHECKS;
+    expect(getConfig().gitPushConfigChecks).toBe(false);
+    process.env.CODEAI_WEB2_GIT_PUSH_CONFIG_CHECKS = 'true';
+    expect(getConfig().gitPushConfigChecks).toBe(true);
+    process.env.CODEAI_GIT_PUSH_CONFIG_CHECKS = 'false';
+    expect(getConfig().gitPushConfigChecks).toBe(false);
+    process.env.CODEAI_GIT_PUSH_CONFIG_CHECKS = '';
+    expect(getConfig().gitPushConfigChecks).toBe(true);
+  });
+
+  it.each(['1', 'true', 'yes'])('enables push configuration checks with %s', value => {
+    process.env.CODEAI_GIT_PUSH_CONFIG_CHECKS = value;
+    expect(getConfig().gitPushConfigChecks).toBe(true);
   });
 
   it('accepts a neutral or legacy host label for first-store initialization', () => {

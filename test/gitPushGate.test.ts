@@ -29,7 +29,8 @@ afterEach(async () => {
 });
 
 // Once provisioned this read is the Docker helper, and a Git config on the host must not be asked first.
-it('takes the branch and the gate from the read path, not from host Git', async () => {
+it('takes the enabled configuration gate from the read path before host Git runs', async () => {
+  vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
   read.mockImplementation(async (_cwd: string, args: string[]) => args[0] === 'symbolic-ref' ? 'refs/heads/main\n' : 'core.sshcommand\nplanted\0');
   await expect(pushCurrentBranch(repository, 'origin/main')).rejects.toThrow('core.sshcommand');
   expect(read.mock.calls.map(([, args]) => args[0])).toEqual(['symbolic-ref', 'config']);

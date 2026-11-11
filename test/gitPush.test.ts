@@ -57,6 +57,8 @@ beforeEach(async () => {
   await Promise.all([mkdir(dataDir), mkdir(home), mkdir(repository)]);
   vi.stubEnv('CODEAI_DATA_DIR', dataDir);
   vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false');
+  vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', '');
+  vi.stubEnv('CODEAI_WEB2_GIT_PUSH_CONFIG_CHECKS', '');
   vi.stubEnv('HOME', home);
   vi.stubEnv('XDG_CONFIG_HOME', '');
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
@@ -210,6 +212,26 @@ describe('pushing the current branch', () => {
 });
 
 describe('a repository configuration a worker could have written', () => {
+  it.each(['', 'false'])('pushes with local Git preferences when configuration checks are off (%s)', async value => {
+    vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', value);
+    await git('config', '--local', 'gitg.mainline', 'refs/heads/main');
+    await git('config', '--local', 'core.sshCommand', path.join(home, 'fake-ssh'));
+    const head = await commit('second.txt');
+    await expect(pushCurrentBranch(repository, 'origin/main')).resolves.toBe('origin/main');
+    expect(await remoteRef('refs/heads/main')).toBe(head);
+    expect(await git('config', '--local', 'gitg.mainline')).toBe('refs/heads/main');
+  });
+
+  it('refuses unrecognized preferences when configuration checks are enabled', async () => {
+    vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
+    await git('config', '--local', 'gitg.mainline', 'refs/heads/main');
+    const head = await commit('second.txt');
+    await rm(path.join(scratch, 'ssh-started'));
+    await expect(pushCurrentBranch(repository, 'origin/main')).rejects.toThrow('gitg.mainline');
+    expect(await remoteRef('refs/heads/main')).not.toBe(head);
+    expect(await exists(path.join(scratch, 'ssh-started'))).toBe(false);
+  });
+
   it.each([
     ['core.sshCommand', 'core.sshCommand'],
     ['core.gitProxy', 'core.gitProxy'],
@@ -223,6 +245,7 @@ describe('a repository configuration a worker could have written', () => {
     ['alias.push', 'alias.push'],
     ['extensions.worktreeConfig', 'extensions.worktreeConfig'],
   ])('refuses %s, names it, and runs nothing', async (key) => {
+    vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
     const script = await runs('exit 1');
     await git('config', '--local', key, key === 'extensions.worktreeConfig' ? 'true' : key === 'include.path' ? path.join(scratch, 'absent') : script);
     const head = await commit('second.txt');
@@ -233,6 +256,7 @@ describe('a repository configuration a worker could have written', () => {
   });
 
   it('accepts the keys real repositories carry', async () => {
+    vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
     await git('config', '--local', 'branch.main.vscode-merge-base', 'origin/main');
     await git('config', '--local', 'branch.main.github-pr-base-branch', 'owner#repo#main');
     await git('config', '--local', 'remote.origin.gh-resolved', 'base');
@@ -319,6 +343,7 @@ describe('a repository configuration a worker could have written', () => {
   });
 
   it('keeps URL user info out of a refusal that names a key', async () => {
+    vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
     await git('config', '--local', 'url.https://user:p@ss-secret@example.invalid/.insteadOf', 'https://example.invalid/');
     await expect(pushCurrentBranch(repository, 'origin/main')).rejects.toThrow(/insteadof/);
     await expect(pushCurrentBranch(repository, 'origin/main')).rejects.not.toThrow(/secret/);
@@ -535,6 +560,7 @@ describe('exclusive checkout access', () => {
   });
 
   it('releases the checkout after a refusal', async () => {
+    vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
     await git('config', '--local', 'core.sshCommand', 'false');
     await expect(pushCurrentBranch(repository, 'origin/main')).rejects.toThrow(/core\.sshcommand/);
     const writer = runRegistry.acquireCheckoutWrite(repository);
@@ -608,6 +634,7 @@ describe('exclusive checkout access', () => {
     });
 
     it('reads the gate through the helper under its own leases once provisioned', async () => {
+      vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
       const record = await managed();
       await mkdir(path.join(dataDir, 'docker'));
       await writeFile(path.join(dataDir, 'docker', 'profile.json'), JSON.stringify({
@@ -632,6 +659,7 @@ describe('exclusive checkout access', () => {
   });
 
   it('runs no host Git for the gate once provisioned, and refuses when the helper cannot read', async () => {
+    vi.stubEnv('CODEAI_GIT_PUSH_CONFIG_CHECKS', 'true');
     await mkdir(path.join(dataDir, 'docker'));
     await writeFile(path.join(dataDir, 'docker', 'profile.json'), JSON.stringify({
       profile: DOCKER_PROFILE, image: `sha256:${'a'.repeat(64)}`, engineId: 'engine-original',

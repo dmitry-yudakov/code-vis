@@ -148,7 +148,9 @@ export async function pushCurrentBranch(cwd: string, target: string, timeoutMs =
     const stale = () => new Error('The current branch or push destination has changed. Refresh Changes and try again.');
     if (!head.startsWith('refs/heads/')) throw stale();
     const branch = head.slice('refs/heads/'.length);
-    gate(configuration(await read(['config', '--local', '--no-includes', '--list', '-z'])));
+    if (getConfig().gitPushConfigChecks) {
+      gate(configuration(await read(['config', '--local', '--no-includes', '--list', '-z'])));
+    }
     const metadata = path.join(source, '.git');
     const info = await lstat(metadata);
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('This repository links its Git metadata outside the checkout. Push from a terminal.');
@@ -158,7 +160,8 @@ export async function pushCurrentBranch(cwd: string, target: string, timeoutMs =
         if (await lstat(path.join(/* turbopackIgnore: true */ metadata, file)).catch(() => undefined)) throw new Error('External Git metadata');
       }
     } catch { throw new Error('This repository links its Git metadata outside the checkout or exceeds the inspection limit. Push from a terminal.'); }
-    // From here the configuration has passed the gate, so host Git may read it. A global hooks path counts too.
+    // Host Git uses the repository's configuration; the optional allowlist has run before this.
+    // A global hooks path counts too.
     const plan = pushPlan(configuration(await hostGit(cwd, [...GIT_READ_OPTIONS, 'config', '--list', '-z'], timeoutMs)), branch);
     if (!plan || plan.target !== target) throw stale();
     const prePush = await hostGit(cwd, ['-c', 'safe.bareRepository=explicit', '-c', 'core.fsmonitor=false', 'rev-parse', '--git-path', 'hooks/pre-push'], timeoutMs);

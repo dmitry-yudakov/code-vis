@@ -164,7 +164,8 @@ Updated 2026-11-11. When a story ships, change the line that names it; each stor
   The running app has not been restarted.
 - **Shipped:** [Story 121](stories/STORY-20261101-push-from-changes.md) — Push and Publish in Changes
   send the current branch with the user's credentials, guarded against a `.git/config` a worker could
-  have written. Details and the checks that passed are in the story. The running app has not been restarted.
+  have written when `CODEAI_GIT_PUSH_CONFIG_CHECKS=true`; the configuration allowlist is off by default.
+  Details and the checks that passed are in the story. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 122](stories/STORY-20261102-multiple-access-origins.md) — paired HTTPS accepts
   explicit additional origins for LAN and Tailscale addresses on the same port, retaining pairing
   and per-request same-origin checks. All 183 focused tests, TypeScript, an isolated production build,

@@ -37,6 +37,13 @@ existing nested checkouts. Projects are durable bodies of work you create in the
 may belong to a project or remain under **No project**, and may bind
 none, one, or several discovered repositories.
 
+Repository **Push** and **Publish** use host Git and your credentials, including for Docker
+sessions. They trust repository-local Git configuration by default. Set
+`CODEAI_GIT_PUSH_CONFIG_CHECKS=true` in the server environment to enable the local-configuration
+allowlist; it rejects unsupported keys before host Git runs. This setting only controls that
+allowlist: destination checks, checkout locks, metadata checks, HTTPS/SSH transport limits, and
+the refusal to run pre-push hooks still apply. Restart the server after changing the environment.
+
 Useful commands, all run from the repository root:
 
 ```sh

@@ -23,6 +23,8 @@ export interface AppConfig {
   codexModel?: string;
   codexAgentEnabled: boolean;
   dockerEnabled: boolean;
+  /** Opt-in allowlist for repository-local configuration before a host push. */
+  gitPushConfigChecks: boolean;
   /** Zero disables the Ask/Plan execution clock. */
   agentTimeoutMs: number;
   agentMaxTurns: number;
@@ -181,6 +183,7 @@ export function getConfig(): AppConfig {
     // gate until the real installed CLI passes the write/command/network parity matrix.
     codexAgentEnabled: flag('CODEX_AGENT'),
     dockerEnabled: dockerEnabled(dataDir),
+    gitPushConfigChecks: flag('GIT_PUSH_CONFIG_CHECKS'),
     // Answering is read-only, but a real question still spends several thinking-and-tool cycles on
     // repository research before the first word of the reply; five minutes cut those turns off
     // mid-investigation with nothing to show for them.
