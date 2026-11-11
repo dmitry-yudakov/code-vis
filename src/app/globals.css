@@ -228,15 +228,15 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-project-tiles { padding: 28px clamp(16px, 2vw, 32px) 48px; }
 .arena-project-tiles > .arena-heading, .arena-project-tiles > .arena-view-controls,
 .arena-project-tiles > .arena-refresh-error, .arena-project-tiles > .arena-groups { max-width: none; }
-.arena-tiles .arena-project-grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; padding-top: 20px; }
-.arena-tiles .arena-group { flex: 1 1 calc((100% - 32px) / 3); min-width: min(520px, 100%); max-width: 100%; padding: 16px; border-radius: 14px; background: var(--sheet); }
-.arena-tiles .arena-group-empty { flex: 0 0 100%; min-width: 0; padding-block: 10px; }
+.arena-tiles .arena-project-grid { display: flex; flex-wrap: wrap; align-items: stretch; gap: 16px; padding-top: 20px; }
+.arena-tiles .arena-group { flex: 1 1 calc((100% - 32px) / 3); min-width: min(520px, 100%); max-width: 100%; display: flex; flex-direction: column; padding: 16px; border-radius: 14px; background: var(--sheet); }
+.arena-tiles .arena-group-empty { flex-grow: 0; align-self: flex-start; padding-block: 10px; }
 .arena-tiles .arena-group > header { align-items: flex-start; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
 .arena-tiles .arena-group-empty > header { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
 .arena-tiles .arena-group > header > div { flex: 1; }
 .arena-tiles .arena-group > header > .MuiIconButton-root { flex-shrink: 0; }
-.arena-tiles .arena-card-grid { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; align-items: start; }
-.arena-tiles .arena-card { align-items: start; overflow: hidden; border-radius: 12px; }
+.arena-tiles .arena-card-grid { flex: 1; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; align-items: stretch; }
+.arena-tiles .arena-card { grid-template-rows: auto 1fr; align-items: stretch; overflow: hidden; border-radius: 12px; }
 .arena-tiles .arena-card-open { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 16px 12px; }
 .arena-tiles .arena-card-open > strong { min-width: 0; padding-right: 32px; line-height: 1.5; }
 .arena-card-status { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -246,13 +246,13 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tiles .arena-card-archive { grid-column: 2; grid-row: 1; align-self: start; margin-top: 12px; z-index: 1; }
 /* A disabled native button must still shield the session link underneath it. */
 .arena-tiles .arena-card-archive.Mui-disabled { pointer-events: auto; }
-.arena-tile-body { grid-column: 1 / -1; min-width: 0; padding: 0 16px 8px; display: grid; gap: 8px; }
+.arena-tile-body { grid-column: 1 / -1; min-width: 0; padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px; }
 .arena-tile-caption { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .arena-tile-preview { min-width: 0; padding-top: 12px; border-top: 1px solid var(--line); }
 .arena-tile-preview p { margin: 8px 0 0; min-height: 126px; color: var(--ink-2); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .arena-tile-preview p.expanded { display: block; max-height: 280px; overflow: auto; }
 .arena-tile-preview > .MuiButton-root { margin-top: 4px; padding-left: 0; }
-.arena-tile-reply { min-width: 0; display: grid; gap: 10px; margin-inline: -8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.arena-tile-reply { min-width: 0; display: grid; gap: 10px; margin-top: auto; margin-inline: -8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .arena-tile-reply-field .MuiInputBase-root { align-items: center; min-height: 32px; padding: 0; }
 .arena-tile-reply-field .MuiInputAdornment-root { height: auto; max-height: none; }
 .arena-tile-permission { min-width: 0; padding: 10px; border: 1px solid var(--wait-line-strong); border-radius: 8px; background: var(--wait-backdrop); }

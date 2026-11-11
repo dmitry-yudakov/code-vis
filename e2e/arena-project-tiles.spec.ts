@@ -21,7 +21,9 @@ async function projectFixture(request: APIRequestContext, sessionCounts = [3, 1,
   owner.sessions.forEach((session, index) => {
     session.title = `Session ${index + 1}`;
     session.updatedAt = new Date(Date.UTC(2026, 10, 8, 12, 0, 7 - index)).toISOString();
-    session.lastMessage = { role: 'assistant', author: 'Claude', text: 'Ready for the next instruction. The latest saved response is available here in Arena.', truncated: false };
+    session.lastMessage = { role: 'assistant', author: 'Claude', text: index === 0
+      ? 'A longer saved response with enough detail to expand.\n'.repeat(10)
+      : 'Ready for the next instruction. The latest saved response is available here in Arena.', truncated: false };
   });
   return { snapshot, owner, projects, sessions };
 }
@@ -41,6 +43,8 @@ for (const theme of ['light', 'dark']) test(`project tiles use desktop width and
   }));
   expect(Math.abs(wide[0].y - wide[1].y)).toBeLessThan(2);
   expect(Math.abs(wide[1].y - wide[2].y)).toBeLessThan(2);
+  expect(Math.abs(wide[0].height - wide[1].height)).toBeLessThan(2);
+  expect(Math.abs(wide[1].height - wide[2].height)).toBeLessThan(2);
   expect(wide[1].x).toBeGreaterThan(wide[0].x + wide[0].width);
   expect(wide[2].x).toBeGreaterThan(wide[1].x + wide[1].width);
   expect(wide[3].y).toBeGreaterThanOrEqual(wide[0].y + wide[0].height);
@@ -56,6 +60,7 @@ for (const theme of ['light', 'dark']) test(`project tiles use desktop width and
     const { x, y, width, height } = node.getBoundingClientRect(); return { x, y, width, height };
   }));
   expect(Math.abs(cards[0].y - cards[1].y)).toBeLessThan(2);
+  expect(Math.abs(cards[0].height - cards[1].height)).toBeLessThan(2);
   expect(cards[2].y).toBeGreaterThanOrEqual(cards[0].y + cards[0].height);
   for (const card of cards) {
     expect(card.x).toBeGreaterThan(wide[0].x);
@@ -64,6 +69,12 @@ for (const theme of ['light', 'dark']) test(`project tiles use desktop width and
   await expect(panels.last().getByRole('button', { name: `New session in ${projects[5].name}`, exact: true })).toBeEnabled();
   const input = first.getByRole('textbox').first();
   await input.fill('Keep this project draft');
+  const replyBottoms = await first.locator('.arena-tile-reply').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().bottom));
+  expect(Math.abs(replyBottoms[0] - replyBottoms[1])).toBeLessThan(2);
+  await first.getByRole('button', { name: 'Show more', exact: true }).click();
+  await expect(first.getByRole('button', { name: 'Show less', exact: true })).toBeVisible();
+  expect(await first.locator('.arena-card').evaluateAll(nodes => nodes.every(node => node.scrollHeight <= node.clientHeight))).toBe(true);
+  await first.getByRole('button', { name: 'Show less', exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath('projects-desktop.png'), fullPage: false });
   for (const [width, columns] of [[1440, 2], [1000, 1], [741, 1]] as const) {
     await page.setViewportSize({ width, height: 1000 });
@@ -93,30 +104,32 @@ for (const theme of ['light', 'dark']) test(`project tiles use desktop width and
   await expect(page.getByRole('dialog', { name: 'New session', exact: true })).toBeVisible();
 });
 
-for (const theme of ['light', 'dark']) test(`active projects fill spare row width and empty projects use compact rows: ${theme}`, async ({ page, request }, testInfo) => {
+for (const theme of ['light', 'dark']) test(`empty projects use compact columns alongside equal-height populated panels: ${theme}`, async ({ page, request }, testInfo) => {
   await page.setViewportSize({ width: 2560, height: 1440 });
   await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), theme);
-  const { snapshot, owner, projects } = await projectFixture(request, [1, 2, 2, 1, 1, 0, 0]);
+  const { snapshot, owner, projects } = await projectFixture(request, [1, 2, 2, 1, 1, 0, 0, 0]);
   await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
   await page.goto('/arena');
   await page.getByRole('button', { name: 'Tiles', exact: true }).click();
   const panels = page.locator('.arena-group');
-  await expect(panels).toHaveCount(7);
+  await expect(panels).toHaveCount(8);
   const boxes = await panels.evaluateAll(nodes => nodes.map(node => {
     const { x, y, width, height } = node.getBoundingClientRect(); return { x, y, width, height };
   }));
   expect(Math.abs(boxes[0].y - boxes[2].y)).toBeLessThan(2);
   expect(boxes[3].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
   expect(Math.abs(boxes[3].y - boxes[4].y)).toBeLessThan(2);
-  expect(boxes[3].width).toBeGreaterThan(boxes[0].width * 1.4);
-  expect(boxes[4].width).toBeGreaterThan(boxes[0].width * 1.4);
+  expect(Math.abs(boxes[0].height - boxes[1].height)).toBeLessThan(2);
+  expect(Math.abs(boxes[1].height - boxes[2].height)).toBeLessThan(2);
   const grid = (await page.locator('.arena-project-grid').boundingBox())!;
-  expect(Math.abs(boxes[4].x + boxes[4].width - grid.x - grid.width)).toBeLessThan(2);
+  expect(Math.abs(boxes[5].x + boxes[5].width - grid.x - grid.width)).toBeLessThan(2);
   for (const empty of boxes.slice(5)) {
-    expect(Math.abs(empty.width - grid.width)).toBeLessThan(2);
+    expect(Math.abs(empty.width - boxes[0].width)).toBeLessThan(2);
     expect(empty.height).toBeLessThan(boxes[4].height * .5);
-    expect(empty.y).toBeGreaterThanOrEqual(boxes[4].y + boxes[4].height);
   }
+  expect(Math.abs(boxes[5].y - boxes[4].y)).toBeLessThan(2);
+  expect(boxes[6].y).toBeGreaterThanOrEqual(boxes[4].y + boxes[4].height);
+  expect(Math.abs(boxes[6].y - boxes[7].y)).toBeLessThan(2);
   const initialNames = await panels.locator(':scope > header h3').allTextContents();
   expect(initialNames.slice(0, 5)).toEqual(projects.slice(0, 5).map(project => project.name));
   const firstInput = panels.first().getByRole('textbox').first();
@@ -130,6 +143,12 @@ for (const theme of ['light', 'dark']) test(`active projects fill spare row widt
   expect((await empty.boundingBox())!.width).toBeGreaterThanOrEqual(520);
   await expect(firstInput).toHaveValue('Keep my draft and focus while projects resize');
   await expect(firstInput).toBeFocused();
+  for (const width of [1440, 1000, 741]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await panels.evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth))).toBe(true);
+    await expect(firstInput).toHaveValue('Keep my draft and focus while projects resize');
+    await expect(firstInput).toBeFocused();
+  }
   await expect(panels.locator(':scope > header h3')).toHaveText(initialNames);
   owner.sessions.pop();
   await pushArenaSnapshot(page);

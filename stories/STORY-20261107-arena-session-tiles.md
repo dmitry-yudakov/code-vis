@@ -325,3 +325,28 @@ Caught network errors from controlled stream transitions appear in test logs; al
 
 The running installation has not been rebuilt or restarted. Signed-in providers, real attached
 executor transport and physical Quest use were not exercised.
+
+## Follow-up — compact empty panels and equal row heights (November 11)
+
+**Status: Shipped.** Empty projects use the same responsive column basis as populated
+projects, without expanding to fill an incomplete row. This replaces the full-width empty rows
+from November 8; an empty project may now share a row with populated projects. Existing DOM
+order, drafts and focus remain stable when sessions arrive or disappear.
+
+Where the code is: `src/app/globals.css:231` owns project and session tile sizing;
+`e2e/arena-project-tiles.spec.ts` covers the rendered layout and responsive transitions.
+
+- [x] Empty projects occupy one column (one third on a wide desktop), keep compact heights,
+      and wrap without overflow on narrower screens.
+- [x] Populated project panels match their row's height; session cards stretch within each
+      project's rows, with quick replies at the bottom and expandable content still accessible.
+- [x] Stable project order, drafts, focus, project actions, phone/List layouts and permission
+      controls remain usable. Verify both themes, focused browser checks and TypeScript.
+
+All **29 production-browser checks** pass in `arena-project-tiles`, `arena-tiles`,
+`arena-tile-headers` and `arena-order`, including image replies, delivery recovery and approvals.
+The modified geometry checks failed against the preceding production bundle before the CSS fix.
+`npm run lint`, `git diff --check`, both-theme desktop/phone screenshot inspection and independent
+read-only review pass. The isolated `.next-e2e/arena-sizing` bundle was built using the webpack
+compile/generate commands documented above; compilation needed network access outside the sandbox.
+The running installation has not been rebuilt or restarted.
