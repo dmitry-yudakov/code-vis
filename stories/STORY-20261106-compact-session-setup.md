@@ -11,8 +11,8 @@ expanded session settings, a separate report section, and an ambiguous Clear set
 - Keep the message, attachment chips and a shared-style **+ Attach** menu in one composer surface.
   Files/screenshots and eligible CodeAI reports are reached through that menu; paste/drop and
   preview/remove keep their existing contracts.
-- Keep project, provider and mode directly available. One initially closed **Settings** panel holds
-  machine/repository, checkout/worktree, execution, model/effort and global instructions.
+- Keep project, provider, mode and model/effort directly available. One initially closed **Settings**
+  panel holds machine/repository, checkout/worktree, execution and global instructions.
   Hide the machine selector when the only configured machine is online. Show the project once, with
   multi-machine and non-default execution/worktree context where relevant.
 - General setup remembers the machine used to create its last session in browser device
@@ -80,3 +80,39 @@ issues.
 
 The running application has not been rebuilt or restarted for this change. Physical device and
 real-provider acceptance are outside these fixture-based checks.
+
+## Visible model picker follow-up — November 13
+
+**Status:** Shipped
+
+Arena's new-session setup should expose the existing model/effort picker beside Provider and
+Mode, with Settings initially closed. Use the same launcher state and offered choices so first
+messages, empty sessions, remembered preferences and delivery recovery retain their contracts.
+
+- [x] Model/effort is selectable without opening Settings from general and project Arena launches.
+- [x] Desktop and phone layouts fit in light/dark themes, with one model picker even when Settings opens.
+- [x] Close/reopen preserves the choice; background messages send it, and empty sessions retain it
+      in their conversation and across reload.
+- [x] Rejected delivery permits model correction; uncertain creation keeps the picker disabled.
+- [x] Focused browser/unit checks, TypeScript, isolated build and independent review pass.
+
+Where the code is: `src/features/session-launch/SessionSetupDialog.tsx:126` owns the visible
+controls; `src/features/conversation/InstructionComposer.tsx:249` owns the shared `ModelMenu`.
+`e2e/compact-session-setup.spec.ts:4` and `e2e/session-setup.spec.ts:485` cover the user journeys.
+
+How to verify: run the compact setup and focused model/recovery browser cases, the existing
+`modelMenu`, `sessionLaunch`, `devicePreferences` unit suites, TypeScript and an isolated production
+build. Inspect the desktop/phone screenshots in both themes. Do not restart the running app.
+
+The visible-picker regression fails on the preceding production UI and passes on the updated
+isolated build. All 32 focused unit checks (`modelMenu`, `sessionLaunch`, `devicePreferences`),
+TypeScript, `CODEAI_DIST_DIR=.next-e2e npm run build` and 14 focused production-browser cases pass.
+The build needed network access for the existing Google Fonts downloads. Browser verification uses
+`CODEAI_DIST_DIR=.next-e2e CODEAI_E2E_PORT=3124 npx playwright test
+e2e/compact-session-setup.spec.ts e2e/session-setup.spec.ts e2e/queued-session-setup.spec.ts` with a
+focused title filter for compact setup, project changes, progress/recovery, remembered machines,
+model selection and Ctrl/Cmd+Enter queueing. Both-theme desktop/phone screenshots were inspected,
+including a selected model on phone and expanded Settings. Independent read-only review found no
+production issues. No provider execution or launch protocol changed.
+
+The running application has not been rebuilt or restarted; real-provider checks were not run.

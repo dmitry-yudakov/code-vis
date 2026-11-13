@@ -442,6 +442,7 @@ test('lost creation retries the same UUID and retained errors keep settings froz
   await dialog.getByRole('textbox').fill('Start once'); await dialog.getByRole('textbox').press('Enter');
   await expect(dialog.getByRole('alert')).toContainText('Creation status is unknown');
   await expect(dialog.getByLabel('Project', { exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: /Model and effort/ })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(dialog).not.toBeVisible(); expect(ids).toHaveLength(2); expect(ids[0]).toBe(ids[1]);
   const sessions = (await (await request.get(`/api/sessions?projectId=${target.id}`)).json()).sessions;
@@ -482,7 +483,7 @@ test('managed gear setup targets CodeAI while preserving the source task and its
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences')!).machineId)).toBe(lastMachine);
 });
 
-for (const width of [1280, 390]) test(`setup model and effort choices remain usable at ${width}px`, async ({ page, request }) => {
+for (const width of [1280, 390]) test(`setup selects model and effort with Settings closed and remembers empty-session choices at ${width}px`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 720 });
   const { project: target } = await project(request);
   await page.route('**/api/health', async (route) => {
@@ -492,8 +493,13 @@ for (const width of [1280, 390]) test(`setup model and effort choices remain usa
     Object.assign(health.executions.local.providers.claude, choices);
     await route.fulfill({ json: health });
   });
-  const dialog = await openSetup(page, target);
+  await page.goto('/arena');
+  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+  await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
+  await expect(dialog.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-expanded', 'false');
   const menu = dialog.locator('.model-menu');
+  await expect(menu.getByRole('button', { name: /Model and effort/ })).toBeVisible();
   await menu.getByRole('button', { name: /Model and effort/ }).click();
   await page.getByRole('radio', { name: 'Setup model', exact: true }).click();
   await page.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
@@ -502,8 +508,14 @@ for (const width of [1280, 390]) test(`setup model and effort choices remain usa
   await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeInViewport();
   await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
   await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
-  await expandSettings(dialog);
+  await expect(dialog.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-expanded', 'false');
   await expect(menu.getByRole('button', { name: /Model and effort/ })).toHaveText('Setup model · High');
+  await dialog.getByRole('button', { name: 'Create and open', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const conversationModel = page.locator('.instruction-composer').getByRole('button', { name: /Model and effort/ });
+  await expect(conversationModel).toHaveText('Setup model · High');
+  await page.reload();
+  await expect(conversationModel).toHaveText('Setup model · High');
 });
 
 test('empty completion after Close does not navigate and announces the created session', async ({ page, request }) => {

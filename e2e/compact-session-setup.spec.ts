@@ -18,6 +18,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(settings).toHaveAttribute('aria-expanded', 'false');
     await expect(dialog.getByLabel('Provider', { exact: true })).toBeVisible();
     await expect(dialog.getByLabel('Mode', { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /Model and effort/ })).toBeVisible();
     await expect(dialog.getByLabel('Project', { exact: true })).toBeVisible();
     await expect(dialog.getByLabel('Project', { exact: true })).toHaveCount(1);
     await expect(dialog.getByLabel('Project', { exact: true })).toHaveValue(target.id);
@@ -27,6 +28,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeInViewport();
     expect((await dialog.boundingBox())!.height).toBeLessThan(550);
     await settings.click();
+    await expect(dialog.getByRole('button', { name: /Model and effort/ })).toHaveCount(1);
     await expect(dialog.getByLabel('Machine', { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: 'Discard draft', exact: true })).toHaveCount(0);
     await settings.click();
@@ -86,6 +88,11 @@ for (const width of [1280, 390]) test(`global setup changes project without open
   await expect(dialog.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-expanded', 'false');
   await expect(dialog.getByRole('textbox')).toHaveValue('Work in the other project');
   await expect(dialog).toContainText('notes.txt');
+  await dialog.getByRole('button', { name: /Model and effort/ }).click();
+  await page.getByRole('radio', { name: 'Sonnet', exact: true }).click();
+  await page.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByRole('button', { name: /Model and effort/ })).toHaveText('Sonnet · High');
   expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('project-choice.png'), animations: 'disabled' });
   const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
@@ -96,7 +103,7 @@ for (const width of [1280, 390]) test(`global setup changes project without open
   await expect(dialog).toBeHidden();
   expect(session.projectId).toBe(projects[1].id);
   expect(session.repositories.map(binding => binding.checkoutId)).toEqual([catalog.checkouts.find(item => item.relativePath === 'beta')!.id]);
-  expect(submitted).toMatchObject({ sessionId: session.id, text: 'Work in the other project', fileAttachments: [{ name: 'notes.txt', text: 'Keep this evidence' }] });
+  expect(submitted).toMatchObject({ sessionId: session.id, text: 'Work in the other project', model: 'sonnet', effort: 'high', fileAttachments: [{ name: 'notes.txt', text: 'Keep this evidence' }] });
 });
 
 test('compact progress recovers a rejected message in the created session and retries once', async ({ page, request }) => {

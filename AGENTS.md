@@ -266,7 +266,10 @@ Updated 2026-11-13. When a story ships, change the line that names it; each stor
   launches remember their machine, and progress replaces the submitted form. Draft recovery and
   Discard draft remain explicit. All 40 focused unit checks, 89 distinct production-browser cases,
   TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review
-  pass. A wider tab-return focus failure also reproduces on the pre-change build and is recorded
+  pass. The November 13 follow-up exposes model/effort beside Provider and Mode with Settings closed;
+  all 32 focused unit checks, 14 production-browser cases, TypeScript, isolated build, both-theme
+  desktop/phone screenshot inspection and independent review pass.
+  A wider tab-return focus failure also reproduces on the pre-change build and is recorded
   in the story. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 127](stories/STORY-20261104-arena-project-actions.md) — Arena creates projects
   with an optional repository and starts sessions from each active project heading; empty projects

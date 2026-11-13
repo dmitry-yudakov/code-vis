@@ -135,6 +135,7 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
         <NativeSelect disableUnderline inputProps={{ 'aria-label': 'Mode' }} value={settings.mode} disabled={launcher.turnSettingsLocked} onChange={(event) => launcher.setSettings({ mode: event.target.value as SessionLaunchMode })}>
           {SESSION_LAUNCH_MODES.filter((mode) => mode !== 'auto' || launcher.modes.includes(mode)).map((mode) => <option key={mode} value={mode} disabled={!launcher.modes.includes(mode)}>{AGENT_MODE_LABELS[mode]}</option>)}
         </NativeSelect>
+        <ModelMenu choices={launcher.health} selection={settings.modelSelection} disabled={launcher.turnSettingsLocked} onChange={(modelSelection) => launcher.setSettings({ modelSelection })} />
         <Button sx={{ ml: 'auto' }} aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)}><span aria-hidden="true">⚙</span>&nbsp;Settings</Button>
       </Box>
       {settings.waitForCheckout && (launcher.error || launcher.frozen) && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
@@ -160,10 +161,6 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
             control={<Checkbox checked={Boolean(settings.allowAgentArchive)} disabled={locked}
               onChange={(_, checked) => launcher.setSettings({ allowAgentArchive: checked })} />} />
         </Tooltip>
-        {Boolean(launcher.health?.models?.length || launcher.health?.efforts?.length) && <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, my: 1 }}>
-          <span>Model and effort</span>
-          <ModelMenu choices={launcher.health} selection={settings.modelSelection} disabled={launcher.turnSettingsLocked} onChange={(modelSelection) => launcher.setSettings({ modelSelection })} />
-        </Box>}
         <label><span>Global instructions</span><NativeSelect inputProps={{ 'aria-label': 'Global instructions' }} value={launchInstructions(settings.instructions, settings.execution, settings.provider) ?? 'default'} disabled={locked} onChange={(event) => launcher.setSettings({ instructions: event.target.value === 'default' ? undefined : event.target.value as 'global' | 'isolated' })}>
           <option value="default">Default</option><option value="global">Use</option><option value="isolated" title={settings.execution === 'local' && settings.provider === 'codex' ? 'Local Codex always loads your global AGENTS.md. Use Docker for an isolated Codex.' : undefined} disabled={isolatesLocalCodex('isolated', settings.execution, settings.provider)}>Isolate{settings.execution === 'local' && settings.provider === 'codex' ? ' · Docker only for Codex' : ''}</option>
         </NativeSelect></label>
