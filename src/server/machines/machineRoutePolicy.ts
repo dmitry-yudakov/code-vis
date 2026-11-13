@@ -18,14 +18,14 @@ export function machineOperationAllowed(method: string, segments: readonly strin
     return normalizedMethod === 'GET';
   }
   if (segments.length === 2 && segments[0] === 'sessions' && UUID.test(segments[1])) {
-    return normalizedMethod === 'GET';
+    return ['GET', 'PATCH'].includes(normalizedMethod);
   }
   if (segments.length !== 3 || segments[0] !== 'sessions' || !UUID.test(segments[1])) return false;
   const operation = segments[2];
   if (operation === 'participants') return ['GET', 'POST', 'PATCH'].includes(normalizedMethod);
   if (['annotations', 'pins', 'repositories'].includes(operation)) return normalizedMethod === 'PUT';
   if (operation === 'sketches') return normalizedMethod === 'POST';
-  return ['archive', 'restore'].includes(operation) && normalizedMethod === 'POST';
+  return ['archive', 'restore', 'completion-check'].includes(operation) && normalizedMethod === 'POST';
 }
 
 export function machineRequestAllowed(request: Request): boolean {

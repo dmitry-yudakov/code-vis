@@ -18,7 +18,7 @@ import type { AgentMode, AgentProcessEvent } from '@/shared/types';
 const binary = path.resolve('test/fixtures/fake-codex.mjs');
 
 interface RunOptions {
-  titleOnly?: boolean;
+  backgroundTask?: 'title' | 'archive-check';
   action?: 'start' | 'resume';
   sessionId?: string;
   mode?: AgentMode;
@@ -60,7 +60,7 @@ describe.sequential('CodexProcessRunner', () => {
       ...(options.execution === 'docker' ? { transport: { spawn: (executable: string, args: string[]) => spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'] }) } } : {}),
     });
     const result = await runner.run({
-      titleOnly: options.titleOnly,
+      backgroundTask: options.backgroundTask,
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id: options.sessionId, action: options.action || 'start' },
@@ -85,12 +85,12 @@ describe.sequential('CodexProcessRunner', () => {
     ]);
   });
 
-  it('restricts a fresh ephemeral title request without repository tools or inherited instructions', async () => {
-    const { invocation } = await run({ titleOnly: true });
+  it.each(['title', 'archive-check'] as const)('restricts a fresh ephemeral %s request without repository tools or inherited instructions', async backgroundTask => {
+    const { invocation } = await run({ backgroundTask });
     const start = invocation.requests.find((request: RecordedRequest) => request.method === 'thread/start').params;
     expect(start).toMatchObject({ ephemeral: true, config: { project_doc_max_bytes: 0,
       features: { shell_tool: false, multi_agent: false, code_mode_host: false, memories: false } } });
-    expect(start.baseInstructions).toContain('title');
+    expect(start.baseInstructions).toContain(backgroundTask === 'archive-check' ? 'ARCHIVE or KEEP_OPEN' : 'title');
     expect(start.developerInstructions).not.toContain('built-in repository');
     const turn = invocation.requests.find((request: RecordedRequest) => request.method === 'turn/start').params;
     expect(turn.input).toHaveLength(1);

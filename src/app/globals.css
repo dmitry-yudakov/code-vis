@@ -840,6 +840,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .attachment-chip { flex: none; }
 .permission-card { margin: 0 18px 14px 0; }
 .composer-actions { flex-wrap: nowrap; }
+.composer-actions:has(.session-settings-options) { flex-wrap: wrap; }
 .model-menu { flex: 0 1 auto; }
 .model-menu > button { white-space: normal; overflow-wrap: anywhere; text-align: left; justify-content: flex-start; }
 .participant-add-form { display: grid; gap: 12px; }

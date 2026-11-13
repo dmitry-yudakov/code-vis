@@ -257,7 +257,15 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 14;
+export const MAX_READABLE_SESSION_VERSION = 15;
+export const AGENT_ARCHIVE_SESSION_VERSION = 15;
+
+export const agentArchiveCheckSchema = z.object({
+  id: z.string().uuid(), messageId: z.string().uuid(),
+  status: z.enum(['checking', 'kept-open', 'failed', 'archived']),
+  model: z.string().min(1).max(128).optional(),
+  effort: z.string().min(1).max(32).optional(),
+}).strict();
 export const CONTEXT_USAGE_SESSION_VERSION = 14;
 export const TURN_ACTIVITY_SESSION_VERSION = 13;
 export const SESSION_SETUP_VERSION = 12;
@@ -299,7 +307,10 @@ const sessionBase = {
     z.literal(INSTRUCTIONS_SESSION_VERSION), z.literal(IMAGE_ATTACHMENT_SESSION_VERSION), z.literal(NATIVE_MODE_SESSION_VERSION),
     z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION), z.literal(SESSION_SETUP_VERSION), z.literal(TURN_ACTIVITY_SESSION_VERSION),
     z.literal(CONTEXT_USAGE_SESSION_VERSION),
+    z.literal(AGENT_ARCHIVE_SESSION_VERSION),
   ]),
+  allowAgentArchive: z.boolean().optional(),
+  agentArchiveCheck: agentArchiveCheckSchema.optional(),
   worktree: sessionWorktreeSchema.optional(),
   execution: z.enum(['local', 'docker']).optional(),
   // Only a version 7 session may hold this; `validateSession` enforces that.
@@ -321,7 +332,9 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+    allowAgentArchive?: boolean;
+    agentArchiveCheck?: { messageId: string };
     creationReceipt?: unknown;
     worktree?: unknown;
     execution?: 'local' | 'docker';
@@ -340,6 +353,13 @@ function validateSession(
   },
   ctx: z.RefinementCtx,
 ): void {
+  if (value.version < AGENT_ARCHIVE_SESSION_VERSION && (value.allowAgentArchive !== undefined || value.agentArchiveCheck !== undefined)) {
+    ctx.addIssue({ code: 'custom', message: 'Agent archiving requires format 15.', path: ['allowAgentArchive'] });
+  }
+  if (value.agentArchiveCheck && (!value.allowAgentArchive || !value.messages.some(message =>
+    message.role === 'assistant' && message.id === value.agentArchiveCheck!.messageId))) {
+    ctx.addIssue({ code: 'custom', message: 'An archive check requires permission and a saved reply.', path: ['agentArchiveCheck'] });
+  }
   if (value.version < CONTEXT_USAGE_SESSION_VERSION && value.participants.some(participant => participant.contextUsage !== undefined)) {
     ctx.addIssue({ code: 'custom', message: 'Participant context usage requires format 14.', path: ['participants'] });
   }

@@ -161,6 +161,15 @@ export interface ServerAgentParticipant extends AgentParticipant {
 
 export type ServerParticipant = HumanParticipant | ServerAgentParticipant;
 
+export interface AgentArchiveCheck {
+  id: string;
+  messageId: string;
+  status: 'checking' | 'kept-open' | 'failed' | 'archived';
+  /** Retain the replying turn's explicit selection for a device-requested retry. */
+  model?: string;
+  effort?: string;
+}
+
 export interface DurableSession {
   /**
    * Version 5 is version 4 plus report evidence on user messages; version 6 is version 5 plus Auto
@@ -169,7 +178,9 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+  allowAgentArchive?: boolean;
+  agentArchiveCheck?: AgentArchiveCheck;
   /** Server-only receipt; never included in public sessions. */
   creationReceipt?: { requestId: string; fingerprint: string };
   worktree?: SessionWorktree;
@@ -528,7 +539,9 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+  allowAgentArchive?: boolean;
+  agentArchiveCheck?: AgentArchiveCheck;
   worktree?: SessionWorktree;
   /** Required from version 4; absent in version 3, whose execution is always local. */
   execution?: AgentExecution;
@@ -551,6 +564,8 @@ export interface PublicSession {
 
 /** Bounded host snapshot for Arena, including one short excerpt; never full transcripts or private handles. */
 export interface ArenaSessionSummary {
+  allowAgentArchive?: boolean;
+  agentArchiveCheck?: AgentArchiveCheck;
   worktree?: SessionWorktree;
   /** Added by the Arena client when flattening machine projections; never stored canonically. */
   machineId?: string;
@@ -581,7 +596,7 @@ export interface ArenaSessionSummary {
  * as session content and can be reconstructed after a refetch.
  */
 export interface SessionSnapshot extends PublicSession {
-  /** A title-only Arena update may be newer than this full snapshot's revision. Device memory only. */
+  /** An Arena title/permission/check update may be newer than this full snapshot. Device memory only. */
   titleRevision?: number;
   /** Executor selected by this browser view; never persisted in the canonical session. */
   machineId?: string;
@@ -801,7 +816,7 @@ export interface GlobalInstructions {
 export interface AgentProcessRun {
   contextUsage?: AgentContextUsage;
   /** Server-owned background metadata request; never resumed or exposed as conversation activity. */
-  titleOnly?: boolean;
+  backgroundTask?: 'title' | 'archive-check';
   runId: string;
   checkout: ServerCheckout;
   session: { id?: string; action: 'start' | 'resume' };

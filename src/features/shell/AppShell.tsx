@@ -500,7 +500,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (accepted?.role === 'user') pending!.accept(accepted.turn?.runId);
     const current = sessionsRef.current;
     const prior = current.find((item) => item.id === snapshot.id);
+    if (prior && prior.machineId === sourceMachineId && snapshot.revision < prior.revision) return prior;
     const hydrated = { ...hydrateSession(snapshot, prior, workspace.getView(snapshot.id)), machineId: sourceMachineId };
+    const archivedRevision = reconciledArchiveRevisions.current.get(JSON.stringify([sourceMachineId, snapshot.id]));
+    if (archivedRevision !== undefined && snapshot.revision <= archivedRevision) return hydrated;
     if (sourceMachineId !== machineIdRef.current || snapshot.projectId !== projectIdRef.current) return hydrated;
     const next = prior
       ? current.map((item) => item.id === snapshot.id ? hydrated : item)
@@ -831,7 +834,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       .then((snapshots) => {
         if (!current) return;
         const prior = new Map(sessionsRef.current.map((item) => [item.id, item]));
-        const hydrated = snapshots.map((snapshot) => ({
+        const hydrated = snapshots.filter(snapshot => snapshot.revision > (reconciledArchiveRevisions.current.get(
+          JSON.stringify([machineId, snapshot.id])) ?? -1)).map((snapshot) => ({
           ...hydrateSession(snapshot, prior.get(snapshot.id), workspace.getView(snapshot.id)),
           machineId,
         }));
@@ -872,8 +876,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           || reconciledRevision > archived.revision) continue;
         if (reconciledRevision === archived.revision && !loaded) continue;
         reconciledArchiveRevisions.current.set(key, archived.revision);
-        workspace.closeInProject(archived.projectId, archived.id,
+        const nextFocus = workspace.closeInProject(archived.projectId, archived.id,
           owner.machine.id === localMachineId ? undefined : owner.machine.id);
+        if (loaded && archived.agentArchiveCheck?.status === 'archived') {
+          notify({ key: `archive:${archived.id}`, tone: 'success', message: `Archived by agent: “${archived.title}”.`,
+            actions: [{ label: 'Restore', onSelect: () => void restoreSessionRef.current(owner.machine.id, archived) }] });
+          if (owner.machine.id === machineId && focusedSessionIdRef.current === archived.id && navigationKeyRef.current.startsWith('/?')) {
+            navigateWorkspace({ sessionId: nextFocus, projectId: archived.projectId, machineId: owner.machine.id }, true);
+          }
+        }
         if (owner.machine.id === machineId && archived.projectId === projectId && loaded) {
           const next = sessionsRef.current.filter((item) => item.id !== archived.id);
           sessionsRef.current = next;
@@ -885,7 +896,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         setRunOutcome(archived.id);
       }
     }
-  }, [arena.machines, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject, workspace.ready]);
+  }, [arena.machines, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject, workspace.ready, notify, navigateWorkspace]);
 
   useEffect(() => {
     const current = sessionsRef.current;
@@ -962,6 +973,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       projectId?: string; mode?: AgentMode; role?: AgentRole; modelSelection?: ModelSelection; fromArena?: boolean; machineId?: string; execution?: AgentExecution; checkoutId?: string; sourceSessionId?: string; initialComposer?: string;
       /** Named by a form that offers the choice; a continuation copies its source's on the server. */
       instructions?: LaunchInstructions;
+      allowAgentArchive?: boolean;
     } = {},
   ): Promise<boolean> => {
     if (creatingSessionRef.current) return false;
@@ -986,6 +998,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ...(options.creationRequestId ? { creationRequestId: options.creationRequestId } : {}),
           ...(options.role ? { role: options.role } : {}),
           ...(options.instructions && options.instructions !== 'default' ? { instructions: options.instructions } : {}),
+          ...(options.allowAgentArchive ? { allowAgentArchive: true } : {}),
           ...(options.sourceSessionId ? { sourceSessionId: options.sourceSessionId }
             : { ...(requestedProjectId ? { projectId: requestedProjectId } : {}), ...(options.checkoutId ? { checkoutId: options.checkoutId } : {}) }) }),
       });
@@ -3209,6 +3222,25 @@ export function AppShell({ children }: { children: ReactNode }) {
               onContinue={() => continueSession(continuationExecution)}
               onNewChat={() => void newChat()}
               onArchive={() => void archiveOpenSession()}
+              onArchiveAllowedChange={async (allowed) => {
+                const response = await fetch(apiPath(`/api/sessions/${session.id}`), {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ allowAgentArchive: allowed, expectedAllowAgentArchive: Boolean(session.allowAgentArchive) }),
+                });
+                const data = await response.json() as { session?: PublicSession; error?: string };
+                if (!response.ok || !data.session) {
+                  await refreshSession(session.id);
+                  throw new Error(data.error || 'Could not save archive permission. Try again.');
+                }
+                applyServerSnapshot(data.session, machineId);
+              }}
+              onCheckCompletion={async (messageId) => {
+                const response = await fetch(apiPath(`/api/sessions/${session.id}/completion-check`), {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId }),
+                });
+                const data = await response.json() as { error?: string };
+                if (!response.ok) throw new Error(data.error || 'Could not start the check. Try again.');
+              }}
               archiveDisabledReason={archiveSessionDisabledReason}
               sendBlocked={composerBlocked}
               securityLevel={securityLevel}

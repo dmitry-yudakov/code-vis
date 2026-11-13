@@ -12,6 +12,15 @@ const accepted = () => new Response('run data', { headers: { 'X-CodeAI-Run-Id': 
 const snapshot = (messageId?: string) => Response.json({ session: { ...session, messages: messageId ? [{ id: messageId, role: 'user' }] : [] } });
 
 describe('captured background session launch', () => {
+  it.each([false, true])('sends only explicitly checked archive permission at creation (checked: %s)', async checked => {
+    const setup = attempt(); setup.settings.allowAgentArchive = checked;
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ session })).mockResolvedValueOnce(accepted());
+    await launchSession(setup, 'home', request);
+    const creation = JSON.parse(String(request.mock.calls[0][1]?.body));
+    if (checked) expect(creation.allowAgentArchive).toBe(true);
+    else expect(creation).not.toHaveProperty('allowAgentArchive');
+    expect(JSON.parse(String(request.mock.calls[1][1]?.body))).not.toHaveProperty('allowAgentArchive');
+  });
   it.each(['edits', 'full'] as const)('keeps an existing session’s %s mode during background delivery', async mode => {
     const setup: LaunchAttempt<AgentMode> = attempt();
     setup.session = session; setup.settings.mode = mode;

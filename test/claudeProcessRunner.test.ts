@@ -15,7 +15,7 @@ const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
 interface RunOptions {
   contextUsage?: AgentContextUsage;
-  titleOnly?: boolean;
+  backgroundTask?: 'title' | 'archive-check';
   action?: 'start' | 'resume';
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -49,7 +49,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     const events: AgentProcessEvent[] = [];
     const result = await runner.run({
       contextUsage: options.contextUsage,
-      titleOnly: options.titleOnly,
+      backgroundTask: options.backgroundTask,
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id, action },
@@ -80,8 +80,8 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(events.find(event => event.type === 'context-usage')?.contextUsage).toEqual({ usedTokens: 150_000, model: 'root-model', contextWindow: 200_000 });
   });
 
-  it('runs title requests without tools, persisted sessions, or repository settings', async () => {
-    const { invocation } = await run({ titleOnly: true, model: 'haiku' });
+  it.each(['title', 'archive-check'] as const)('runs %s requests without tools, persisted sessions, or repository settings', async backgroundTask => {
+    const { invocation } = await run({ backgroundTask, model: 'haiku', prompt: backgroundTask === 'archive-check' ? 'data:\n[]' : 'Title data' });
     const args: string[] = invocation.args;
     expect(args[args.indexOf('--tools') + 1]).toBe('');
     expect(args).not.toContain('--allowedTools');
@@ -90,6 +90,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
     expect(args).toContain('--system-prompt');
     expect(args).not.toContain('--resume');
+    expect(args[args.indexOf('--system-prompt') + 1]).toContain(backgroundTask === 'archive-check' ? 'ARCHIVE or KEEP_OPEN' : 'title');
   });
 
   it('retains tool identities/results and root final identity without private provider fields', async () => {

@@ -355,8 +355,9 @@ export function Arena({
                         return (
                           <Paper component="article" className="arena-card archived" key={card.session.id}>
                             <div className="arena-card-content">
-                              <span className={`arena-state ${online ? 'state-archived' : 'state-offline'}`}><i aria-hidden="true" />{online ? 'Archived' : 'Offline'}</span>
+                              <span className={`arena-state ${online ? 'state-archived' : 'state-offline'}`}><i aria-hidden="true" />{online ? card.session.agentArchiveCheck?.status === 'archived' ? 'Archived by agent' : 'Archived' : 'Offline'}</span>
                               <SessionFacts session={card.session} checkouts={checkoutById} />
+                              {card.session.agentArchiveCheck?.status === 'archived' && card.session.lastMessage?.text && <p>{card.session.lastMessage.text}</p>}
                               <span className="arena-card-time">Archived {new Date(card.session.archivedAt || card.session.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
                             </div>
                             <div className="arena-card-restore"><Button type="button" disabled={!online || restoring === key} onClick={() => restore(machine.machine.id, card.session)}>{restoring === key ? 'Restoring…' : 'Restore'}</Button></div>

@@ -31,7 +31,7 @@ const recordSchema = z.object({
   state: z.enum(['intent', 'creating', 'materialized', 'ready', 'unavailable']),
   gitDirectory: identitySchema.optional(), checkoutDirectory: identitySchema.optional(), reason: z.string().max(500).optional(),
 }).strict().refine((record) => record.request.checkoutMode === 'worktree' && Boolean(record.request.creationRequestId)
-  && record.session.worktree !== undefined && (record.session.version === 10 || record.session.version === 11)
+  && record.session.worktree !== undefined && [10, 11, 15].includes(record.session.version)
   && record.session.repositories[0].checkoutId === record.checkoutId
   && record.session.worktree.branch === `codeai/session-${record.session.id}`
   && (record.state !== 'ready' || record.gitDirectory !== undefined && record.checkoutDirectory !== undefined), 'Invalid worktree intent identity.');

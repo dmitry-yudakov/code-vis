@@ -50,7 +50,7 @@ describe('background conversation titles', () => {
     const saved = await store.getSession(session.id);
     expect(saved).toEqual({ ...before, title: 'Improve conversation titles', revision: before.revision + 1 });
     const request = mocks.run.mock.lastCall![0] as AgentProcessRun;
-    expect(request).toMatchObject({ titleOnly: true, session: { action: 'start' }, model: provider === 'claude' ? 'haiku' : 'codex-mini',
+    expect(request).toMatchObject({ backgroundTask: 'title', session: { action: 'start' }, model: provider === 'claude' ? 'haiku' : 'codex-mini',
       policy: { level: 'guarded', mode: 'ask', tools: [], allowedTools: [], interactivePermissions: false, maxTurns: 1, timeoutMs: 30_000 } });
     expect(request.checkout.realPath).toBe(request.attachmentDirectory);
     expect(request.prompt).toContain('Could you help me improve our conversation titles?');

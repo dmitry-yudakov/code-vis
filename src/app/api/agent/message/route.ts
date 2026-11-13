@@ -21,6 +21,7 @@ import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { DOCKER_RECOVERY_MESSAGE, recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runConversation } from '@/server/conversation/conversationService';
 import { generateConversationTitle } from '@/server/conversation/conversationTitle';
+import { checkSessionCompletion } from '@/server/conversation/agentSessionArchive';
 import { agentEventStream } from '../eventStream';
 import { withBrowserRunBudget } from '@/server/workspace/browserStreamBudget';
 import { buildTranscriptDelta, canonicalTranscript } from '@/server/conversation/transcript';
@@ -371,7 +372,7 @@ export async function POST(request: Request): Promise<Response> {
         maxBytes: config.maxTranscriptBytes,
       }).text;
       providerInvoked = true;
-      await runConversation({
+      const reply = await runConversation({
         runId,
         request: parsed.data,
         checkout,
@@ -388,6 +389,8 @@ export async function POST(request: Request): Promise<Response> {
       });
       void generateConversationTitle({ session, participantId: participant.id, messageId: parsed.data.messageId,
         sessionStore: store, config, choices: providerHealth, model: parsed.data.model });
+      if (reply) void checkSessionCompletion({ sessionId: session.id, messageId: reply.id,
+        sessionStore: store, config, afterRunId: runId, model: parsed.data.model, effort: parsed.data.effort });
     } catch (error: unknown) {
       const known = error instanceof AgentRunError ? error : undefined;
       const delivery = known?.delivery || (providerInvoked && (abortController.signal.aborted || currentParticipant.session.started) ? 'possibly-sent' : 'not-sent');

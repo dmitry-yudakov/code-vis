@@ -15,6 +15,7 @@ export interface LaunchSettings {
   execution: AgentExecution;
   checkoutMode: 'current' | 'worktree';
   waitForCheckout?: boolean;
+  allowAgentArchive?: boolean;
   provider: AgentProvider;
   mode: SessionLaunchMode;
   /** Remember the device choice; filter unsupported choices only at the wire/UI boundary. */
@@ -69,9 +70,11 @@ export async function launchSession(attempt: LaunchAttempt<AgentMode>, localMach
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings.codeai ? {
           action: 'create', preparedContext: settings.codeai, provider: settings.provider, instructions,
+          ...(settings.allowAgentArchive ? { allowAgentArchive: true } : {}),
           checkoutMode: settings.checkoutMode, creationRequestId: attempt.creationRequestId,
         } : { projectId: settings.projectId, checkoutId: settings.projectId ? undefined : settings.checkoutId,
           provider: settings.provider, instructions, execution: settings.execution,
+          ...(settings.allowAgentArchive ? { allowAgentArchive: true } : {}),
           checkoutMode: settings.checkoutMode, creationRequestId: attempt.creationRequestId }),
       });
     } catch { throw new LaunchFailure('Creation status is unknown. Retry keeps this exact request.', false, true); }

@@ -9,14 +9,14 @@ import { z } from 'zod';
 import { MAX_ARENA_PREVIEW_CHARS, MAX_MESSAGE_TEXT_CHARS, MAX_SESSION_TEXT_FILE_BYTES } from '@/shared/limits';
 import { validateTextFiles } from '@/shared/textFiles';
 import type {
-  AgentContextUsage, AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
+  AgentArchiveCheck, AgentContextUsage, AgentExecution, AgentProvider, AgentRole, ArenaSessionSummary, AssistantMessage, DiagramAnnotation, DurableProject, DurableSession,
   ChatMessage, GlobalInstructionsChoice, Participant, PublicSession, RepositoryBinding, ServerAgentParticipant, SessionWorktree, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
   NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema, agentContextUsageSchema, CONTEXT_USAGE_SESSION_VERSION,
-  projectLogoSchema, repositoryBindingSchema,
+  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
@@ -78,6 +78,17 @@ export class SessionStoreError extends Error {
     super(message);
     this.name = 'SessionStoreError';
   }
+}
+
+/** A completion decision applies only to the latest fully delivered question/reply pair. */
+export function completedArchiveReply(session: DurableSession, messageId: string): AssistantMessage | undefined {
+  const reply = session.messages.at(-1);
+  const user = session.messages.findLast(message => message.role === 'user');
+  return reply?.role === 'assistant' && reply.id === messageId && reply.status === 'complete'
+    && !reply.planProposed && user?.role === 'user' && user.status === 'sent'
+    && user.addressedParticipantId === reply.authorId
+    && (!user.turn || user.turn.lifecycle === 'completed' && !user.turn.incomplete)
+    ? reply : undefined;
 }
 
 export interface SessionStoreOptions {
@@ -249,6 +260,8 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
   const runId = user?.role === 'user' ? user.turn?.runId : undefined;
   const preview = latest?.role === 'user' ? latest.text : latest?.blocks.flatMap(block => block.kind === 'markdown' ? [block.markdown] : []).join('\n\n');
   return {
+    ...(session.allowAgentArchive !== undefined ? { allowAgentArchive: session.allowAgentArchive } : {}),
+    ...(session.agentArchiveCheck ? { agentArchiveCheck: { ...session.agentArchiveCheck } } : {}),
     ...(session.worktree ? { worktree: session.worktree } : {}),
     execution: session.execution,
     id: session.id,
@@ -590,12 +603,18 @@ export class SessionStore {
     }
   }
 
-  async archiveSession(id: string, expectedRevision: number): Promise<DurableSession> {
+  async archiveSession(id: string, expectedRevision: number, agentCheckId?: string): Promise<DurableSession> {
     return this.enqueue(async () => {
       const session = await this.getSession(id);
       this.expectRevision(session, expectedRevision);
+      if (agentCheckId && (!session.allowAgentArchive || session.agentArchiveCheck?.id !== agentCheckId
+        || session.agentArchiveCheck.status !== 'checking' || !completedArchiveReply(session, session.agentArchiveCheck.messageId))) {
+        throw new SessionStoreError('conflict', 'This completion check is no longer current.');
+      }
       await this.expectNoSessionAt(this.archivedSessionPath(id), 'Archive already contains this session.');
       const archived = structuredClone(session);
+      if (agentCheckId) archived.agentArchiveCheck!.status = 'archived';
+      else delete archived.agentArchiveCheck;
       archived.archivedAt = this.now().toISOString();
       archived.updatedAt = archived.archivedAt;
       archived.revision += 1;
@@ -626,6 +645,7 @@ export class SessionStore {
       await this.expectNoSessionAt(this.sessionPath(id), 'Active sessions already contain this session.');
       const restored = structuredClone(session);
       delete restored.archivedAt;
+      delete restored.agentArchiveCheck;
       restored.updatedAt = this.now().toISOString();
       restored.revision += 1;
       durableSessionSchema.parse(restored);
@@ -669,6 +689,7 @@ export class SessionStore {
     provider: AgentProvider;
     role?: AgentRole;
     instructions?: GlobalInstructionsChoice;
+    allowAgentArchive?: boolean;
     /** Server-only preparation used by the recoverable worktree journal. */
     id?: string;
     worktree?: SessionWorktree;
@@ -736,7 +757,8 @@ export class SessionStore {
         throw new SessionStoreError('conflict', LOCAL_CODEX_ISOLATION_MESSAGE);
       }
       const session: DurableSession = {
-        version: input.creationReceipt ? SESSION_SETUP_VERSION : worktree ? input.execution === 'docker' ? 11 : 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        version: input.allowAgentArchive ? AGENT_ARCHIVE_SESSION_VERSION : input.creationReceipt ? SESSION_SETUP_VERSION : worktree ? input.execution === 'docker' ? 11 : 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        ...(input.allowAgentArchive ? { allowAgentArchive: true } : {}),
         ...(input.creationReceipt ? { creationReceipt: input.creationReceipt } : {}),
         ...(worktree ? { worktree } : {}),
         execution: input.execution || 'local',
@@ -841,6 +863,7 @@ export class SessionStore {
         throw new Error('The addressed participant is not an agent in this session');
       }
       upgradeForMessage(session, message);
+      delete session.agentArchiveCheck;
       session.messages.push(structuredClone(message));
       session.messages = boundSessionActivity(session.messages, message.turn?.runId);
       if (session.messages.length === 1) session.title = message.text.trim().slice(0, 56) || 'Sketch session';
@@ -942,6 +965,39 @@ export class SessionStore {
       if (session.title !== expectedTitle || session.messages.find(message => message.role === 'assistant')?.id !== firstReplyId
         || !title.trim() || title.length > 72 || session.title === title) return { result: false, changed: false };
       session.title = title;
+      return { result: true, changed: true, preserveUpdatedAt: true };
+    });
+  }
+
+  async setAgentArchiveAllowed(id: string, allowed: boolean, expectedAllowed: boolean): Promise<DurableSession> {
+    return this.mutate(id, session => {
+      if (Boolean(session.allowAgentArchive) !== expectedAllowed) {
+        throw new SessionStoreError('conflict', 'Archive permission changed on another device. Reload and try again.');
+      }
+      if (Boolean(session.allowAgentArchive) === allowed) return { result: session, changed: false };
+      if (session.version === 3) session.execution = 'local';
+      session.version = AGENT_ARCHIVE_SESSION_VERSION;
+      session.allowAgentArchive = allowed;
+      delete session.agentArchiveCheck;
+      return { result: session, changed: true };
+    });
+  }
+
+  async beginAgentArchiveCheck(id: string, check: AgentArchiveCheck): Promise<DurableSession> {
+    return this.mutate(id, session => {
+      if (!session.allowAgentArchive || !completedArchiveReply(session, check.messageId)) {
+        throw new SessionStoreError('conflict', 'Only the latest completed reply can be checked with archive permission.');
+      }
+      session.agentArchiveCheck = { ...check, status: 'checking' };
+      return { result: session, changed: true, preserveUpdatedAt: true };
+    });
+  }
+
+  async finishAgentArchiveCheck(id: string, checkId: string, status: 'kept-open' | 'failed'): Promise<boolean> {
+    return this.mutate(id, session => {
+      if (!session.allowAgentArchive || session.agentArchiveCheck?.id !== checkId
+        || !completedArchiveReply(session, session.agentArchiveCheck.messageId)) return { result: false, changed: false };
+      session.agentArchiveCheck.status = status;
       return { result: true, changed: true, preserveUpdatedAt: true };
     });
   }

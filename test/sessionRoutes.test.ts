@@ -80,7 +80,8 @@ vi.mock('@/server/agents/providerRegistry', () => {
 import { GET as GET_SESSIONS, POST as POST_SESSION } from '@/app/api/sessions/route';
 import { GET as GET_PROJECTS } from '@/app/api/projects/route';
 import { GET as GET_ARENA } from '@/app/api/arena/route';
-import { GET as GET_SESSION } from '@/app/api/sessions/[sessionId]/route';
+import { GET as GET_SESSION, PATCH as PATCH_SESSION } from '@/app/api/sessions/[sessionId]/route';
+import { POST as CHECK_COMPLETION } from '@/app/api/sessions/[sessionId]/completion-check/route';
 import { POST as POST_SKETCH } from '@/app/api/sessions/[sessionId]/sketches/route';
 import { PUT as PUT_ANNOTATION } from '@/app/api/sessions/[sessionId]/annotations/route';
 import { PUT as PUT_PINS } from '@/app/api/sessions/[sessionId]/pins/route';
@@ -149,6 +150,52 @@ describe('session snapshot and mutation routes', () => {
     routeState.runnersCreated = 0;
     routeState.adapterRequests = [];
     routeState.runInputs = [];
+  });
+
+  it('changes archive permission during reserved work without requiring a transcript revision', async () => {
+    const session = await createViaRoute('checkout-a');
+    const runId = crypto.randomUUID();
+    expect(runRegistry.reserve({ runId, sessionId: session.id, participantId: session.primaryAgentId,
+      providerKey: session.id, checkoutId: 'checkout-a', access: 'read', cancel() {} }).accepted).toBe(true);
+    const update = (body: unknown) => PATCH_SESSION(new Request('http://localhost', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }), context(session.id));
+    try {
+      expect((await update({ allowAgentArchive: 'true', expectedAllowAgentArchive: false })).status).toBe(400);
+      const enabled = await update({ allowAgentArchive: true, expectedAllowAgentArchive: false });
+      expect(enabled.status).toBe(200);
+      expect((await enabled.json()).session).toMatchObject({ allowAgentArchive: true, version: 15 });
+      expect((await update({ allowAgentArchive: false, expectedAllowAgentArchive: false })).status).toBe(409);
+      expect((await update({ allowAgentArchive: false, expectedAllowAgentArchive: true })).status).toBe(200);
+      expect(routeState.runnersCreated).toBe(0);
+    } finally { runRegistry.release(runId); }
+  });
+
+  it('persists explicit creation consent and refuses a retry with changed consent', async () => {
+    const body = { provider: 'claude', creationRequestId: crypto.randomUUID(), allowAgentArchive: true };
+    const create = (value: unknown) => POST_SESSION(new Request('http://localhost/api/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+    }));
+    const first = await create(body);
+    expect(first.status).toBe(201);
+    const saved = (await first.json()).session;
+    expect(saved.allowAgentArchive).toBe(true);
+    expect((await (await create(body)).json()).session.id).toBe(saved.id);
+    expect((await create({ ...body, allowAgentArchive: false })).status).toBe(409);
+    const child = await create({ provider: 'claude', sourceSessionId: saved.id, execution: 'local' });
+    expect(child.status).toBe(201);
+    expect((await child.json()).session.allowAgentArchive).not.toBe(true);
+  });
+
+  it('refuses completion requests without permission, a completed reply or a valid shape', async () => {
+    const session = await createViaRoute();
+    const check = (body: unknown) => CHECK_COMPLETION(new Request('http://localhost', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }), context(session.id));
+    expect((await check({ messageId: crypto.randomUUID() })).status).toBe(409);
+    expect((await check({ messageId: 'invalid' })).status).toBe(400);
+    expect((await check({ messageId: crypto.randomUUID(), allowAgentArchive: true })).status).toBe(400);
+    expect(routeState.runnersCreated).toBe(0);
   });
 
   it('replays one durable current-checkout creation after response loss, concurrent retries, archive, and unavailable checkout', async () => {

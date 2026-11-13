@@ -339,7 +339,10 @@ while (true) {
     turnSent = true;
     turnId = 'codex-turn-1';
     result(message.id, { turn: { id: turnId, items: [], itemsView: 'full', status: 'inProgress', error: null } });
-    if (threadConfigs.get(threadId)?.project_doc_max_bytes === 0) completeTurn('Improve conversation titles');
+    if (threadConfigs.get(threadId)?.project_doc_max_bytes === 0) {
+      const instructions = transcript.requests.find(request => request.method === 'thread/start')?.params.baseInstructions ?? '';
+      completeTurn(instructions.includes('ARCHIVE or KEEP_OPEN') ? 'KEEP_OPEN' : 'Improve conversation titles');
+    }
     else if (mode === 'context-usage') {
       const report = (tokens, extra = {}) => emit({ method: 'thread/tokenUsage/updated', params: {
         threadId, turnId, tokenUsage: { total: { inputTokens: 900_000, outputTokens: 100_000 }, last: { totalTokens: tokens }, modelContextWindow: 200_000 }, ...extra,

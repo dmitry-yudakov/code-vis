@@ -64,7 +64,7 @@ export async function generateConversationTitle(input: {
       input.model ?? (participant.provider === 'claude' ? config.claudeModel : config.codexModel));
     const result = await adapter.createRunner().run({
       runId: randomUUID(),
-      titleOnly: true,
+      backgroundTask: 'title',
       checkout: { id: 'title', name: 'Title', relativePath: '.', realPath: directory },
       session: { action: 'start', ...(participant.provider === 'claude' ? { id: randomUUID() } : {}) },
       attachmentDirectory: directory,

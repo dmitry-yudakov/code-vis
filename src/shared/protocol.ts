@@ -119,6 +119,7 @@ export const createSessionRequestSchema = z.object({
   role: agentRoleSchema.optional(),
   // Omitted means Default: each turn follows the executing machine's switch.
   instructions: globalInstructionsChoiceSchema.optional(),
+  allowAgentArchive: z.boolean().optional(),
 }).strict().refine((input) => input.sourceSessionId
   ? Boolean(input.execution && !input.checkoutId && !input.projectId && input.checkoutMode !== 'worktree' && !input.creationRequestId)
   : !(input.checkoutId && input.projectId) && (!input.expectedPrimaryCheckoutId || Boolean(input.projectId)), {
@@ -132,6 +133,12 @@ export const createSessionRequestSchema = z.object({
 export const sessionLifecycleRequestSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),
 }).strict();
+
+export const sessionArchivePermissionRequestSchema = z.object({
+  allowAgentArchive: z.boolean(), expectedAllowAgentArchive: z.boolean(),
+}).strict();
+
+export const sessionCompletionCheckRequestSchema = z.object({ messageId: z.string().uuid() }).strict();
 
 export const createProjectRequestSchema = z.object({
   name: z.string().trim().min(1).max(200),

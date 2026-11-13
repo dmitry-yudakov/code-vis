@@ -64,6 +64,9 @@ export function hydrateSession(
   const base = structuredClone(snapshot) as SessionSnapshot;
   if (prior?.titleRevision && prior.titleRevision > snapshot.revision) {
     base.title = prior.title;
+    base.allowAgentArchive = prior.allowAgentArchive;
+    base.agentArchiveCheck = prior.agentArchiveCheck;
+    if (prior.allowAgentArchive !== undefined) base.version = 15;
     base.titleRevision = prior.titleRevision;
   }
   if (prior) {
@@ -116,9 +119,13 @@ export function reconcileSessionTitles(sessions: SessionSnapshot[], machines: Ar
     const owner = machines.find(machine => machine.machine.id === (session.machineId ?? localMachineId));
     if (owner?.machine.state !== 'online' || owner.snapshotFresh === false) return session;
     const summary = owner.sessions.find(item => item.id === session.id);
-    if (!summary || summary.revision <= Math.max(session.revision, session.titleRevision ?? 0) || summary.title === session.title) return session;
+    if (!summary || summary.revision <= Math.max(session.revision, session.titleRevision ?? 0)
+      || summary.title === session.title && summary.allowAgentArchive === session.allowAgentArchive
+        && JSON.stringify(summary.agentArchiveCheck) === JSON.stringify(session.agentArchiveCheck)) return session;
     changed = true;
-    return { ...session, title: summary.title, titleRevision: summary.revision };
+    return { ...session, title: summary.title, titleRevision: summary.revision,
+      ...(summary.allowAgentArchive !== undefined ? { version: 15 as const } : {}),
+      allowAgentArchive: summary.allowAgentArchive, agentArchiveCheck: summary.agentArchiveCheck };
   });
   return changed ? next : sessions;
 }

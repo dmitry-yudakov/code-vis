@@ -5,6 +5,7 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import CircularProgress from '@mui/material/CircularProgress';
 import Collapse from '@mui/material/Collapse';
 import Dialog from '@mui/material/Dialog';
@@ -154,6 +155,11 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
           </NativeSelect></label>}
         </>}
         <CheckoutChoice value={settings.checkoutMode} choice={launcher.checkoutChoice} disabled={locked} onChange={(checkoutMode) => launcher.setSettings({ checkoutMode })} />
+        <Tooltip describeChild title="After each successful reply, a separate check may archive this session and release queued work. You can restore it later.">
+          <FormControlLabel sx={{ gridColumn: '1 / -1', '&&': { flexDirection: 'row', gap: 0, m: 0 } }} label="Allow agent to archive"
+            control={<Checkbox checked={Boolean(settings.allowAgentArchive)} disabled={locked}
+              onChange={(_, checked) => launcher.setSettings({ allowAgentArchive: checked })} />} />
+        </Tooltip>
         {Boolean(launcher.health?.models?.length || launcher.health?.efforts?.length) && <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, my: 1 }}>
           <span>Model and effort</span>
           <ModelMenu choices={launcher.health} selection={settings.modelSelection} disabled={launcher.turnSettingsLocked} onChange={(modelSelection) => launcher.setSettings({ modelSelection })} />

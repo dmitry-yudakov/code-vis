@@ -30,6 +30,7 @@ export function creationFingerprint(request: SessionCreationRequest): string {
     sourceSessionId: request.sourceSessionId, instructions: request.instructions,
     expectedProjectBindings: request.expectedProjectBindings,
     expectedPrimaryCheckoutId: request.expectedPrimaryCheckoutId,
+    ...(request.allowAgentArchive ? { allowAgentArchive: true } : {}),
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 }

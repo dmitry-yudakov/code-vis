@@ -4,6 +4,8 @@ import Alert from '@mui/material/Alert';
 
 import NativeSelect from '@mui/material/NativeSelect';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import { Disclosure } from '@/features/shell/Disclosure';
 
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
@@ -39,6 +41,7 @@ interface SessionCreationProps {
     execution: AgentExecution; checkoutId?: string;
     /** Absent only when the form had to set the choice aside. */
     instructions?: LaunchInstructions;
+    allowAgentArchive?: boolean;
   }): Promise<boolean>;
 }
 
@@ -52,6 +55,7 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
   const busyRef = useRef(false);
   const [failed, setFailed] = useState(false);
   const [chosenInstructions, setChosenInstructions] = useState(preferredInstructions);
+  const [allowAgentArchive, setAllowAgentArchive] = useState(false);
   const selectedHealth = execution === 'docker' ? executionHealth?.docker.providers : executionHealth?.local.providers || providerHealth;
   const providers = (['claude', 'codex'] as AgentProvider[]).filter((provider) => selectedHealth?.[provider].available && selectedHealth[provider].supportedModes.length);
   const provider = providers.includes(newProvider) ? newProvider : providers[0];
@@ -75,6 +79,7 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
       const options = {
         execution, checkoutMode, ...(!project && checkoutId ? { checkoutId } : {}),
         instructions: namedLaunchInstructions(chosenInstructions, execution, provider),
+        ...(allowAgentArchive ? { allowAgentArchive: true } : {}),
       };
       void onNew(provider, { ...options, ...(checkoutMode === 'worktree' ? {
         creationRequestId: requestId.forRequest(JSON.stringify({ provider, projectId: project?.id, ...options })),
@@ -111,7 +116,8 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
         </NativeSelect>
       </label>
       <Disclosure className="session-advanced-settings" title={<>Advanced settings</>}>
-
+        <FormControlLabel sx={{ '&&': { display: 'inline-flex', flexDirection: 'row', gap: 0, m: 0 } }} label="Allow agent to archive" control={<Checkbox checked={allowAgentArchive} disabled={creating}
+          onChange={(_, checked) => setAllowAgentArchive(checked)} />} />
         <label>
           <span>Global instructions</span>
           <NativeSelect value={instructions ?? 'default'} disabled={creating} onChange={(event) => (

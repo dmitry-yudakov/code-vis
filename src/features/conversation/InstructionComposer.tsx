@@ -289,12 +289,13 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  agentControl, draft, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
+  agentControl, settingsControl, draft, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
 }: {
   agentControl?: ReactNode;
+  settingsControl?: ReactNode;
   draft: DraftSource;
   execution?: AgentExecution;
   securityLevel?: SecurityLevel;
@@ -454,6 +455,7 @@ export function InstructionComposer({
         />
         <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={false} onChange={onModeChange} level={securityLevel} provider={provider} isolated={isolated} />
         <ModelMenu choices={modelChoices} selection={modelSelection} disabled={running} onChange={onModelSelectionChange} />
+        {settingsControl}
         <Button
           type="button"
           className={running ? 'cancel-button' : 'send-button'} variant="contained"

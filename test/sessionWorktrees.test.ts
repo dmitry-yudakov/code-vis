@@ -53,6 +53,17 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await store.close(); vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
 
 describe('managed session worktrees with real Git', () => {
+  it('creates and replays an opted-in worktree without losing its archive permission', async () => {
+    const input = request({ allowAgentArchive: true });
+    const session = await createManagedWorktree(input, getConfig());
+    expect(session).toMatchObject({ version: 15, allowAgentArchive: true, worktree: { originCheckoutId: checkoutId } });
+    const [record] = await readWorktreeRecords(getConfig().dataDir);
+    expect(record.state).toBe('ready');
+    expect((await createManagedWorktree(input, getConfig())).id).toBe(session.id);
+    expect((await store.getSession(session.id)).allowAgentArchive).toBe(true);
+    await expect(createManagedWorktree({ ...input, allowAgentArchive: false }, getConfig())).rejects.toThrow(/different choices/);
+  });
+
   it.each([['source', false], ['sibling', false], ['source', true], ['sibling', true]] as const)(
     'creates an independent worktree while a %s writing turn is running (Docker provisioned: %s)', async (location, provisioned) => {
     const first = location === 'sibling' ? await createManagedWorktree(request(), getConfig()) : undefined;

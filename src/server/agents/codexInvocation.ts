@@ -29,15 +29,15 @@ const TITLE_DISABLED_FEATURES = ['shell_tool', 'multi_agent', 'code_mode_host', 
  * overrides remove ambient executable integrations while leaving Codex's built-in repository
  * and shell tools available inside the per-turn sandbox.
  */
-export function buildCodexAppServerArgs(level: SecurityLevel = 'guarded', titleOnly = false): string[] {
+export function buildCodexAppServerArgs(level: SecurityLevel = 'guarded', backgroundTask = false): string[] {
   return [
     'app-server',
     '--stdio',
     '--strict-config',
     ...(level === 'native' ? [] : ['-c', 'mcp_servers={}', '-c', 'web_search="disabled"']),
-    ...(level === 'native' || titleOnly ? [] : ['--enable', 'multi_agent']),
+    ...(level === 'native' || backgroundTask ? [] : ['--enable', 'multi_agent']),
     ...(level === 'native' ? TURN_PERMISSION_FEATURES : CODEX_DISABLED_FEATURES).flatMap((feature) => ['--disable', feature]),
-    ...(titleOnly ? ['-c', 'project_doc_max_bytes=0', ...TITLE_DISABLED_FEATURES.flatMap(feature => ['--disable', feature])] : []),
+    ...(backgroundTask ? ['-c', 'project_doc_max_bytes=0', ...TITLE_DISABLED_FEATURES.flatMap(feature => ['--disable', feature])] : []),
   ];
 }
 
@@ -124,7 +124,7 @@ export function codexThreadConfig(
   disabledMcpServers: readonly string[] = [],
   security?: Pick<CodexTurnSecurity, 'permissionProfile'>,
   level: SecurityLevel = 'guarded',
-  titleOnly = false,
+  backgroundTask = false,
 ): Record<string, unknown> {
   if (level === 'native') return { features: Object.fromEntries(TURN_PERMISSION_FEATURES.map((feature) => [feature, false])) };
   const mcpServers: Record<string, { enabled: false }> = Object.create(null) as Record<string, { enabled: false }>;
@@ -133,8 +133,8 @@ export function codexThreadConfig(
     mcp_servers: mcpServers,
     web_search: 'disabled',
     features: { ...Object.fromEntries(CODEX_DISABLED_FEATURES.map((feature) => [feature, false])), multi_agent: true,
-      ...(titleOnly ? Object.fromEntries(TITLE_DISABLED_FEATURES.map(feature => [feature, false])) : {}) },
-    ...(titleOnly ? { project_doc_max_bytes: 0 } : {}),
+      ...(backgroundTask ? Object.fromEntries(TITLE_DISABLED_FEATURES.map(feature => [feature, false])) : {}) },
+    ...(backgroundTask ? { project_doc_max_bytes: 0 } : {}),
     ...(security?.permissionProfile ? {
       default_permissions: security.permissionProfile,
       permissions: { [security.permissionProfile]: CODEX_AUTO_PROFILE },

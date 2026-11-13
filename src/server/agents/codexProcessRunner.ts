@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { BACKGROUND_TASK_INSTRUCTIONS } from './backgroundTask';
 import { setTimeout as delay } from 'node:timers/promises';
 import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
@@ -166,11 +167,11 @@ export class CodexProcessRunner implements AgentProcessRunner {
     }
     // Canvas composites are PNG, report screenshots JPEG, and a message's images either; each was
     // validated and bounded when written.
-    const imagePaths = input.titleOnly ? [] : this.options.imagePaths ?? (await readdir(input.attachmentDirectory))
+    const imagePaths = input.backgroundTask ? [] : this.options.imagePaths ?? (await readdir(input.attachmentDirectory))
       .filter((name) => /\.(png|jpg)$/.test(name))
       .map((name) => path.join(input.attachmentDirectory, name));
     const startedAt = Date.now();
-    const args = buildCodexAppServerArgs(input.policy.level, input.titleOnly);
+    const args = buildCodexAppServerArgs(input.policy.level, Boolean(input.backgroundTask));
     const log = this.options.debug
       ? (message: string) => console.error(`[agent ${input.runId.slice(0, 8)} codex] +${((Date.now() - startedAt) / 1000).toFixed(1)}s ${message}`)
       : undefined;
@@ -1081,7 +1082,7 @@ export class CodexProcessRunner implements AgentProcessRunner {
               false,
             );
           }
-          const security = input.titleOnly ? codexTurnSecurity('ask', 'local', 'guarded')
+          const security = input.backgroundTask ? codexTurnSecurity('ask', 'local', 'guarded')
             : codexTurnSecurity(input.policy.mode, input.policy.execution, input.policy.level);
           if (!live()) return;
           const model = input.model ?? this.options.model;
@@ -1090,11 +1091,11 @@ export class CodexProcessRunner implements AgentProcessRunner {
             approvalPolicy: security.approvalPolicy,
             ...(security.sandbox ? { sandbox: security.sandbox } : {}),
             ...(security.approvalsReviewer ? { approvalsReviewer: security.approvalsReviewer } : {}),
-            config: codexThreadConfig(mcpServerNames, security, input.policy.level, input.titleOnly),
+            config: codexThreadConfig(mcpServerNames, security, input.policy.level, Boolean(input.backgroundTask)),
             // Docker only: local Codex loads its own global file, so it never gets the text twice.
-            developerInstructions: input.titleOnly ? 'Generate only a short conversation title. Do not use tools.' : codexDeveloperInstructions(input.policy.mode, input.policy.execution === 'docker'
+            developerInstructions: input.backgroundTask ? BACKGROUND_TASK_INSTRUCTIONS[input.backgroundTask] : codexDeveloperInstructions(input.policy.mode, input.policy.execution === 'docker'
               ? frameGlobalInstructions(input.globalInstructions, this.options.customizationsPath) : undefined, input.policy.level),
-            ...(input.titleOnly ? { ephemeral: true, baseInstructions: 'You generate concise conversation titles from supplied text. Return only the title.' } : {}),
+            ...(input.backgroundTask ? { ephemeral: true, baseInstructions: BACKGROUND_TASK_INSTRUCTIONS[input.backgroundTask] } : {}),
             ...(model ? { model } : {}),
           };
           const threadResult = record(await request(

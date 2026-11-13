@@ -15,12 +15,14 @@ function drawer(messages: ChatMessage[], overrides: Partial<Props> = {}) {
   return renderToStaticMarkup(createElement(ConversationDrawer, {
     open: true, session: { id: 'session', participants: [], messages, annotations: {}, sketches: [], pinnedDiagramIds: [] } as unknown as SessionSnapshot,
     theme: 'light', agents: [], healthyProviders: [], participantBusy: false, preview: '', toolActivity: [],
-    permissions: [], running: false, cancelReady: false, continuing: false, status: '', composer: '',
+    permissions: [], running: false, cancelReady: false, continuing: false, status: '',
+    composer: { getSnapshot: () => '', subscribe: () => () => {} },
     mode: 'ask', unsupportedModes: [], modelSelection: {}, attached: [], reports: [], images: [], markCounts: {},
     ...Object.fromEntries(['onSelectDiagram', 'onRetry', 'onComposer', 'onModeChange', 'onModelSelectionChange',
       'onSelectAgent', 'onMakePrimary', 'onAddAgent', 'onHandoff', 'onSend', 'onCancel', 'onRemoveAttachment',
       'onRemoveReport', 'onAddImages', 'onRemoveImage', 'onOpenImage', 'onDecidePermission', 'onExecutePlan',
-      'onContinue', 'onNewChat', 'onToggleAttachment', 'onOpenHistory', 'onNewSketch', 'onArchive'].map(key => [key, vi.fn()])),
+      'onContinue', 'onNewChat', 'onToggleAttachment', 'onOpenHistory', 'onNewSketch', 'onArchive',
+      'onArchiveAllowedChange', 'onCheckCompletion'].map(key => [key, vi.fn()])),
     ...overrides,
   } as Props)).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }

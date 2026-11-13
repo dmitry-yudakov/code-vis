@@ -142,7 +142,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       throw new AgentRunError('missing-session', 'The native Claude session id is missing. Continue in a new provider session.', 'not-sent');
     }
     const args = buildClaudeArgs({
-      titleOnly: input.titleOnly,
+      backgroundTask: input.backgroundTask,
       session: { ...input.session, id: providerSessionId },
       attachmentDirectory: input.attachmentDirectory,
       policy: input.policy,

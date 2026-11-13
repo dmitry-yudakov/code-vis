@@ -70,6 +70,17 @@ const record = (extra) => {
 record();
 
 if (args.includes('--no-session-persistence')) {
+  if (valueAfter('--system-prompt')?.includes('ARCHIVE or KEEP_OPEN')) {
+    const data = JSON.parse(prompt.slice(prompt.indexOf('\n[') + 1));
+    const text = data.findLast(message => message.role === 'user')?.text ?? '';
+    if (text.includes('[archive-check-delay]')) await new Promise(resolve => setTimeout(resolve, 2500));
+    if (text.includes('[archive-check-failure]')) process.exit(1);
+    const decision = text.includes('[archive-check-invalid]') ? 'MAYBE' : text.includes('[archive-complete]') ? 'ARCHIVE' : 'KEEP_OPEN';
+    emit({ type: 'system', subtype: 'init', session_id: sessionId });
+    emit({ type: 'assistant', message: { id: 'check', stop_reason: 'end_turn', content: [{ type: 'text', text: decision }] } });
+    emit({ type: 'result', subtype: 'success', result: decision, session_id: sessionId });
+    process.exit(0);
+  }
   if (prompt.includes('[title-pending]')) await new Promise(resolve => setTimeout(resolve, 5000));
   if (prompt.includes('[title-failure]')) process.exit(1);
   emit({ type: 'system', subtype: 'init', session_id: sessionId });

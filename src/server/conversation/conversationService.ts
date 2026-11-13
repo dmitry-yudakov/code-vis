@@ -62,7 +62,7 @@ export async function runConversation(input: {
   turnMode?: TurnMode;
   beforeAttempt?(mode: AgentMode): Promise<void>;
   modelStore?: RepositoryModelStore;
-}): Promise<void> {
+}): Promise<AssistantMessage> {
   const { runId, request, checkout, session, config, runner, sessionStore, transcriptDelta, signal, emit } = input;
   const startedAt = Date.now();
   const turnMode = input.turnMode ?? new TurnMode(request.mode || 'ask');
@@ -325,6 +325,7 @@ export async function runConversation(input: {
     }
     emit({ type: 'status', runId, phase: 'completed', label: 'Complete' });
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
+    return message;
   } catch (error) {
     turn = finishTurn(turn, signal.aborted || error instanceof AgentRunError && error.code === 'cancelled' ? 'cancelled' : 'failed');
     historyWriter.set(turn);

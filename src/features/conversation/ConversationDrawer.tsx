@@ -30,6 +30,7 @@ import { TurnActivity, StreamingMarkdown } from './TurnActivity';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 import { conversationNavigation } from './messageNavigation';
 import { MessageNavigation } from './MessageNavigation';
+import { SessionArchiveSettings } from './SessionArchiveSettings';
 
 const STARTER_PROMPTS = [
   { label: 'Explore the project', detail: 'Understand the code and how it fits together', icon: 'code', text: 'Explain the architecture of this project and the main parts of the code.' },
@@ -57,6 +58,7 @@ export function ConversationDrawer({
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan, onEditQueuedMessage,
+  onArchiveAllowedChange, onCheckCompletion,
   continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onArchive, archiveDisabledReason, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports, paneControl,
 }: {
   open: boolean;
@@ -124,6 +126,8 @@ export function ConversationDrawer({
   onContinue(): void;
   onNewChat(): void;
   onArchive(): void;
+  onArchiveAllowedChange(allowed: boolean): Promise<void>;
+  onCheckCompletion(messageId: string): Promise<void>;
   archiveDisabledReason?: string;
   onToggleAttachment(id: string): void;
   onOpenHistory(): void;
@@ -295,6 +299,8 @@ export function ConversationDrawer({
           reviewRequest={reviewRequest?.scope === `${key}:${turn?.runId || ""}` ? reviewRequest : undefined} onDecide={onDecidePermission} onStop={onCancel} onRefresh={onRefreshPermissions} />
         {!running && sendBlocked && <small className="composer-blocked" role="status">{sendBlocked}</small>}
         <InstructionComposer
+          settingsControl={session && <SessionArchiveSettings key={key} session={session} running={running}
+            onAllowedChange={onArchiveAllowedChange} onCheck={onCheckCompletion} />}
           agentControl={<ParticipantControls
             agents={agents}
             activeAgentId={activeAgent?.id}

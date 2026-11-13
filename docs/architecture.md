@@ -570,8 +570,22 @@ removes without attributing interrupted conversation delivery. At most two title
 with no queue or retries. The 30-second deadline and 1 KiB result bound are independent of foreground
 run ownership; provider/Docker teardown can outlast the deadline. Failure retains the placeholder.
 The conditional serialized title mutation preserves messages, provider cursors and `updatedAt`.
-Arena summaries reconcile title metadata only; the next revisioned edit fetches a complete snapshot
-first if the observed title revision is newer. The disposable title watermark is never exported.
+Arena summaries reconcile title and agent-archive permission/check metadata; the next revisioned
+edit fetches a complete snapshot first if the observed metadata revision is newer. The disposable
+title watermark is never exported.
+
+Story 138's `agentSessionArchive.ts` uses the same restricted background invocation with purpose
+`archive-check`, returning only ARCHIVE/KEEP_OPEN. Format 15 persists explicit per-session permission
+and check identity/status; new sessions and continuations default off. It waits for scheduler
+completion after a successful saved reply, then runs without a checkout/session execution slot.
+The checker receives complete saved conversation text up to 64 KiB (larger contexts remain open),
+has a 30-second timeout and 1 KiB output bound, and admits two inferences per process. One pending
+latest reply per session coalesces follow-ups. Failure/overflow remain active with explicit Retry.
+Archive obtains the existing session lease and checks permission, final-message/check identity and
+revision inside the store writer boundary before notifying queued successors. New messages,
+permission changes, manual archive and Restore invalidate pending decisions. Summaries carry
+attribution/status; loaded views reject pre-archive snapshots and offer Restore. The working prompt,
+provider conversation, transcript and activity have no completion-check instructions or replies.
 
 A request beginning with `/model` on its own line also opts into a bounded `codeai-model` JSON
 emission. `src/shared/softwareModel.ts` owns the vocabulary and source-based ids;

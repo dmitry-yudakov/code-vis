@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { MAX_ARENA_PREVIEW_CHARS, MAX_MODEL_EFFORTS, MAX_MODEL_LABEL_CHARS, MAX_PROVIDER_MODELS } from './limits';
 import { AGENT_MODES } from './agentModes';
 import { agentEffortSchema, agentModeSchema, agentModelIdSchema } from './protocol';
-import { agentContextUsageSchema, durableProjectSchema, sessionWorktreeSchema } from './sessionSchema';
+import { agentArchiveCheckSchema, agentContextUsageSchema, durableProjectSchema, sessionWorktreeSchema } from './sessionSchema';
 
 export const worktreeCapabilitySchema = z.object({
   available: z.boolean(), message: z.string().max(500).optional(), branch: z.string().max(500).optional(),
@@ -42,6 +42,8 @@ const checkoutSummarySchema = z.object({
 }).strict();
 
 const arenaSessionSummarySchema = z.object({
+  allowAgentArchive: z.boolean().optional(),
+  agentArchiveCheck: agentArchiveCheckSchema.optional(),
   worktree: sessionWorktreeSchema.optional(),
   execution: z.enum(['local', 'docker']).optional(),
   id: z.string().uuid(),

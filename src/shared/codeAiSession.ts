@@ -16,6 +16,7 @@ export const codeAiSessionRequestSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('create'), preparedContext: preparedCodeAiContextSchema,
     provider: agentProviderSchema, role: agentRoleSchema.optional(), instructions: globalInstructionsChoiceSchema.optional(),
+    allowAgentArchive: z.boolean().optional(),
     checkoutMode: z.enum(['current', 'worktree']).optional(), creationRequestId: z.string().uuid(),
   }).strict(),
 ]);
