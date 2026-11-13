@@ -936,12 +936,11 @@ test('archives and restores an idle session from the Arena', async ({ page, requ
   const archived = arena.getByRole('tab', { name: /Archived/ });
   await archived.click();
   await expect(page).toHaveURL(/\/arena\/archived$/);
-  const archivedProject = arena.getByRole('region', { name: projectName });
-  const archivedCard = archivedProject.locator('.arena-card');
+  const archivedCard = arena.locator('.arena-card.archived').filter({ hasText: projectName });
   await expect(archivedCard).toContainText('Archived');
   await expect(archivedCard).toContainText('Claude');
   await archivedCard.getByRole('button', { name: 'Restore' }).click();
-  await expect(archivedProject).toHaveCount(0);
+  await expect(archivedCard).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Undo archive' })).toHaveCount(0);
 
   await active.click();

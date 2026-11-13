@@ -32,7 +32,7 @@ test.beforeAll(async () => {
       CODEAI_REPOSITORIES_ROOT: checkout, CODEAI_DATA_DIR: path.join(directory, 'data'),
       CODEAI_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'), CODEAI_CODEX_BIN: path.resolve('test/fixtures/not-a-real-codex'),
       CLAUDE_CONFIG_DIR: path.resolve('test/fixtures/provider-homes/claude'), CODEX_HOME: path.resolve('test/fixtures/provider-homes/codex'),
-      CODEAI_DIST_DIR: '.next-e2e',
+      CODEAI_DIST_DIR: process.env.CODEAI_DIST_DIR || '.next-e2e',
     }, stdio: 'ignore',
   });
   await expect.poll(async () => {
@@ -104,9 +104,9 @@ test('workspace notifications archive old conversations, close their views, and 
   await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
   await arena.getByRole('tab', { name: /Archived/ }).click();
-  const archivedProject = arena.getByRole('region', { name: projectName });
-  await archivedProject.getByRole('button', { name: 'Restore', exact: true }).click();
-  await expect(archivedProject).toHaveCount(0);
+  const archivedCard = arena.locator('.arena-card.archived').filter({ hasText: projectName });
+  await archivedCard.getByRole('button', { name: 'Restore', exact: true }).click();
+  await expect(archivedCard).toHaveCount(0);
   await arena.getByRole('tab', { name: /Active/ }).click();
   await arena.getByRole('region', { name: projectName }).getByRole('link', { name: `Open ${original.title}`, exact: true }).click();
   await expect(openViews.getByRole('tab')).toHaveCount(1);

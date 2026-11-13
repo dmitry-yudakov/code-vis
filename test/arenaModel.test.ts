@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   acknowledgeAttention, arenaSessionState, buildArenaInbox, buildMultiMachineInbox, EMPTY_DEVICE_ARENA_STATE,
-  groupArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, unreadArenaAttention, viewedArenaCompletionIds, type ArenaActiveOrder,
+  groupArenaSessions, groupArchivedArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, unreadArenaAttention, viewedArenaCompletionIds, type ArenaActiveOrder,
 } from '@/features/arena/arenaModel';
 import type { ArenaMachineSnapshot, ArenaSessionSummary, AssistantMessage, DurableProject, RunDescriptor, RunDiscovery, UserMessage } from '@/shared/types';
 import { createTurn, finishTurn } from '@/shared/turnActivity';
@@ -12,6 +12,10 @@ const SESSION_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SESSION_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const SESSION_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const AGENT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const providers: ArenaMachineSnapshot['providers'] = {
+  claude: { available: false, authenticated: 'unknown', supportedModes: [] },
+  codex: { available: false, authenticated: 'unknown', supportedModes: [] },
+};
 
 function project(id: string, name: string, updatedAt: string): DurableProject {
   return { version: 1, revision: 0, id, name, repositories: [], createdAt: updatedAt, updatedAt };
@@ -254,6 +258,46 @@ describe('Arena presentation model', () => {
       { active: [], recent: [] },
     );
     expect(groups[0].sessions.map((card) => card.session.id)).toEqual([SESSION_B, SESSION_A]);
+  });
+
+  it('groups archives by local day in newest-first order across machines, projects and statuses', () => {
+    const at = (day: number, hour: number) => new Date(2026, 10, day, hour).toISOString();
+    const older = { ...session(SESSION_A, at(13, 15), PROJECT_A, 'failed'), archivedAt: at(11, 23) };
+    const newest = { ...session(SESSION_B, at(12, 12), PROJECT_B), archivedAt: at(13, 0) };
+    const sameDay = { ...session(SESSION_C, at(12, 8), PROJECT_A), archivedAt: at(12, 23) };
+    const legacy = session('legacy', at(12, 0));
+    const machines: ArenaMachineSnapshot[] = [
+      { machine: { id: 'local', label: 'Home', kind: 'local', state: 'online' }, checkouts: [], recentCheckoutIds: [], providers,
+        projects: [project(PROJECT_A, 'Alpha', at(1, 0))], sessions: [session('active', at(14, 0))],
+        archivedSessions: [older, sameDay], runs: { active: [], recent: [] } },
+      { machine: { id: 'remote', label: 'Laptop', kind: 'remote', state: 'offline' }, checkouts: [], recentCheckoutIds: [], providers,
+        projects: [project(PROJECT_B, 'Beta', at(1, 0))], sessions: [], archivedSessions: [legacy, newest],
+        runs: { active: [], recent: [] } },
+    ];
+    const groups = groupArchivedArenaSessions(machines);
+    expect(groups.map(group => group.date)).toEqual([13, 12, 11].map(day =>
+      new Date(2026, 10, day).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })));
+    expect(groups.map(group => group.sessions.map(entry => entry.session.id))).toEqual([[SESSION_B], [SESSION_C, 'legacy'], [SESSION_A]]);
+    expect(groups[0].sessions[0]).toMatchObject({ projectName: 'Beta', machine: { machine: { id: 'remote' } } });
+    expect(groups[1].sessions[1].projectName).toBe('No project');
+    expect(machines[0].archivedSessions.map(item => item.id)).toEqual([SESSION_A, SESSION_C]);
+  });
+
+  it('limits archives globally to 40 and reveals older work without dropping a partial date group', () => {
+    const archivedSessions = Array.from({ length: 85 }, (_, index) => ({
+      ...session(`archive-${index}`, '2026-11-13T00:00:00Z'),
+      archivedAt: new Date(2026, 10, 12, 0, index).toISOString(),
+    }));
+    const machine: ArenaMachineSnapshot = {
+      machine: { id: 'local', label: 'Home', kind: 'local', state: 'online' }, checkouts: [], recentCheckoutIds: [], providers, projects: [],
+      sessions: [], archivedSessions: archivedSessions.slice(0, 45), runs: { active: [], recent: [] },
+    };
+    const machines = [machine, { ...machine, machine: { ...machine.machine, id: 'other' }, archivedSessions: archivedSessions.slice(45) }];
+    const ids = (limit?: number) => groupArchivedArenaSessions(machines, limit).flatMap(group => group.sessions.map(entry => entry.session.id));
+    expect(ids()).toEqual(archivedSessions.slice(45).reverse().map(item => item.id));
+    expect(ids(80)).toEqual(archivedSessions.slice(5).reverse().map(item => item.id));
+    expect(ids(120)).toEqual([...archivedSessions].reverse().map(item => item.id));
+    expect(groupArchivedArenaSessions([])).toEqual([]);
   });
 
   it('orders permissions before failures before completions and never lets read state hide live approval', () => {

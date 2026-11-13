@@ -269,7 +269,9 @@ including the pre-activation interval hidden from normal discovery.
 The browser's `useArena` owner retains each machine's Active project and session positions from
 its first snapshot until page reload. Later snapshots append new identities and update current
 content in place; navigation, refresh and reconnect preserve positions, including returning sessions.
-Inbox priority and Archived/immersive grouping keep their existing ordering.
+Inbox priority and immersive grouping keep their existing ordering. Desktop Archived sorts across
+machines and projects by archive time, groups by the browser's local calendar day, and initially
+shows the latest 40 sessions. Show older sessions reveals another 40 without changing stored records.
 
 Active session status distinguishes blue Running, green Ready for one hour after a successful
 reply's `createdAt`, and neutral Idle afterward. A local minute clock and browser activation age

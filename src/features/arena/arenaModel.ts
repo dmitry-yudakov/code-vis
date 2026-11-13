@@ -31,6 +31,34 @@ export interface ArenaProjectGroup {
   updatedAt: string;
 }
 
+export const ARENA_ARCHIVE_PAGE_SIZE = 40;
+
+interface ArenaArchiveGroup {
+  date: string;
+  sessions: { machine: ArenaMachineSnapshot; session: ArenaSessionSummary; projectName: string }[];
+}
+
+/** Archive chronology is global, independent of Active's project and attention ordering. */
+export function groupArchivedArenaSessions(
+  machines: readonly ArenaMachineSnapshot[],
+  limit = ARENA_ARCHIVE_PAGE_SIZE,
+): ArenaArchiveGroup[] {
+  const entries = machines.flatMap(machine => {
+    const projects = new Map(machine.projects.map(project => [project.id, project.name]));
+    return machine.archivedSessions.map(session => ({ machine, session, projectName: projectNameFor(session, projects) }));
+  });
+  const archivedAt = (session: ArenaSessionSummary) => Date.parse(session.archivedAt || session.updatedAt);
+  entries.sort((left, right) => archivedAt(right.session) - archivedAt(left.session));
+  const groups = new Map<string, ArenaArchiveGroup>();
+  for (const entry of entries.slice(0, limit)) {
+    const date = new Date(archivedAt(entry.session)).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    const group = groups.get(date) || { date, sessions: [] };
+    group.sessions.push(entry);
+    groups.set(date, group);
+  }
+  return [...groups.values()];
+}
+
 /** In-memory positions for one machine's Active view, retained until the page reloads. */
 export type ArenaActiveOrder = Map<string, { index: number; sessions: Map<string, number> }>;
 

@@ -22,7 +22,7 @@ import type {
   DurableProject,
 } from '@/shared/types';
 import {
-  buildMultiMachineInbox, groupArenaSessions, unreadArenaAttention,
+  ARENA_ARCHIVE_PAGE_SIZE, buildMultiMachineInbox, groupArenaSessions, groupArchivedArenaSessions, unreadArenaAttention,
   type ArenaActiveOrder, type ArenaAttentionItem, type DeviceArenaState,
 } from './arenaModel';
 import { SecurityLevelNotice } from './SecurityLevelNotice';
@@ -131,6 +131,8 @@ export function Arena({
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
   const [restoring, setRestoring] = useState<string>();
+  const [archiveLimit, setArchiveLimit] = useState(ARENA_ARCHIVE_PAGE_SIZE);
+  const archiveGroups = useMemo(() => section === 'archived' ? groupArchivedArenaSessions(machines, archiveLimit) : [], [machines, archiveLimit, section]);
   const desktop = useMediaQuery('(min-width: 741px)');
   const [layout, setLayout] = useState<'list' | 'tiles'>('list');
   useEffect(() => { try { if (localStorage.getItem(LAYOUT_KEY) === 'tiles') setLayout('tiles'); } catch { /* optional device preference */ } }, []);
@@ -338,38 +340,34 @@ export function Arena({
       ) : (
         <div className="arena-groups" role="tabpanel">
           {!archivedSessions.length && <div className="arena-empty"><h2>No archived sessions</h2><p>Archived work stays recoverable here until permanent cleanup is added.</p></div>}
-          {machines.map((machine) => {
-            const online = machine.machine.state === 'online';
-            const groups = groupArenaSessions(machine.projects, machine.archivedSessions, { active: [], recent: [] }, online);
-            const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
-            if (!groups.length) return null;
-            return (
-              <section className={`arena-machine ${online ? 'online' : 'offline'} ${showMachines ? '' : 'solo'}`} aria-label={machine.machine.label} key={machine.machine.id}>
-                {showMachines && <header className="arena-machine-heading"><div><h2>{machine.machine.label}</h2><span>{machineTime(machine)}</span></div><Chip component="span" className="arena-machine-state" variant="outlined" color={online ? 'success' : 'default'} label={online ? 'Online' : 'Offline'} /></header>}
-                {groups.map((group) => (
-                  <section className="arena-group" aria-labelledby={`arena-archive-project-${machine.machine.id}-${group.id}`} key={group.id}>
-                    <header><div><h3 id={`arena-archive-project-${machine.machine.id}-${group.id}`}>{group.name}</h3><span>{group.sessions.length} archived</span></div></header>
-                    <div className="arena-card-grid">
-                      {group.sessions.map((card) => {
-                        const key = actionKey(machine.machine.id, card.session.id);
-                        return (
-                          <Paper component="article" className="arena-card archived" key={card.session.id}>
-                            <div className="arena-card-content">
-                              <span className={`arena-state ${online ? 'state-archived' : 'state-offline'}`}><i aria-hidden="true" />{online ? card.session.agentArchiveCheck?.status === 'archived' ? 'Archived by agent' : 'Archived' : 'Offline'}</span>
-                              <SessionFacts session={card.session} checkouts={checkoutById} />
-                              {card.session.agentArchiveCheck?.status === 'archived' && card.session.lastMessage?.text && <p>{card.session.lastMessage.text}</p>}
-                              <span className="arena-card-time">Archived {new Date(card.session.archivedAt || card.session.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                            </div>
-                            <div className="arena-card-restore"><Button type="button" disabled={!online || restoring === key} onClick={() => restore(machine.machine.id, card.session)}>{restoring === key ? 'Restoring…' : 'Restore'}</Button></div>
-                          </Paper>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-              </section>
-            );
-          })}
+          {archiveGroups.map((group, index) => (
+            <section className="arena-group" aria-labelledby={`arena-archive-date-${index}`} key={group.date}>
+              <header><div><h3 id={`arena-archive-date-${index}`}>{group.date}</h3><span>{group.sessions.length} archived</span></div></header>
+              <div className="arena-card-grid">
+                {group.sessions.map(({ machine, session, projectName }) => {
+                  const online = machine.machine.state === 'online';
+                  const key = actionKey(machine.machine.id, session.id);
+                  const checkoutById = new Map(machine.checkouts.map(checkout => [checkout.id, checkout]));
+                  return (
+                    <Paper component="article" className="arena-card archived" key={key} sx={{ '& .arena-card-content': { flexWrap: 'wrap' } }}>
+                      <div className="arena-card-content">
+                        <span className={`arena-state ${online ? 'state-archived' : 'state-offline'}`}><i aria-hidden="true" />{online ? session.agentArchiveCheck?.status === 'archived' ? 'Archived by agent' : 'Archived' : 'Offline'}</span>
+                        <SessionFacts session={session} checkouts={checkoutById} />
+                        <span className="arena-card-meta" title={projectName}>{projectName}</span>
+                        {showMachines && <span className="arena-card-meta" title={`${machine.machine.label} · ${machineTime(machine)}`}>{machine.machine.label}</span>}
+                        {session.agentArchiveCheck?.status === 'archived' && session.lastMessage?.text && <p>{session.lastMessage.text}</p>}
+                        <time className="arena-card-time" dateTime={session.archivedAt || session.updatedAt} title={new Date(session.archivedAt || session.updatedAt).toLocaleString()}>
+                          Archived {new Date(session.archivedAt || session.updatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                        </time>
+                      </div>
+                      <div className="arena-card-restore"><Button type="button" disabled={!online || restoring === key} onClick={() => restore(machine.machine.id, session)}>{restoring === key ? 'Restoring…' : 'Restore'}</Button></div>
+                    </Paper>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+          {archivedSessions.length > archiveLimit && <Button type="button" sx={{ mt: 2 }} onClick={() => setArchiveLimit(limit => limit + ARENA_ARCHIVE_PAGE_SIZE)}>Show older sessions</Button>}
         </div>
       )}
       {creatingProject && <NewProjectDialog machines={machines} onCreate={onCreateProject} onClose={() => setCreatingProject(false)} />}

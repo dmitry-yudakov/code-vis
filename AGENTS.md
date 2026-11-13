@@ -35,6 +35,12 @@ Updated 2026-11-13. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 39 follow-up](stories/STORY-20260903-archive-sessions.md) — Arena archives
+  show the latest 40 by closing date, newest first across projects/machines, grouped by local day,
+  with Show older sessions and preserved Restore. All 69 focused unit tests, ten production-browser
+  cases, source TypeScript, isolated build, both-theme desktop/phone screenshot inspection and review
+  pass. Two existing tab-return browser failures reproduce on the preceding build; the running
+  application has not been rebuilt or restarted.
 - **Shipped:** [Story 138](stories/STORY-20261112-agent-session-archive.md) — opt each session into
   a separate, tool-free completion check that can archive it and release queued work, with revocation,
   retry feedback and Restore. All 2,140 unit tests, 41 production-browser cases, TypeScript, isolated

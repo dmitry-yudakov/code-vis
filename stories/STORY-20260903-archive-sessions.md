@@ -108,6 +108,61 @@ remain absent from Arena responses.
   implicit side effect of archiving.
 - Opening or mutating an archived session before it is restored.
 
+## November 13 follow-up — recent archives by day
+
+**Status:** Shipped
+
+The Archived view currently reuses Active's machine/project grouping and attention ranking.
+Replace that presentation with calendar-day groups ordered by `archivedAt`, newest first across
+all machines and projects. Fall back to `updatedAt` for summaries without `archivedAt`; later
+metadata edits and failed-turn status must not change archive order. Show the latest 40 sessions
+initially and reveal 40 more with **Show older sessions**, keeping every archive recoverable.
+Day headings use the browser's local timezone and include the year. Cards retain project,
+repository, agent and machine context, archive attribution, and revisioned Restore actions.
+Offline cards remain visible with Restore disabled. Active/Inbox and immersive ordering stay intact.
+
+Where the code is: `src/features/arena/arenaModel.ts:43` owns archive presentation derivation;
+`src/features/arena/Arena.tsx:340` renders Archived. Existing `archivedAt` summary production,
+subscription delivery, storage and restore routes need no change.
+
+- [x] Sort across machines/projects by archive time, group by local calendar day, and preserve
+      the metadata-edit regression and missing-timestamp fallback.
+- [x] Show 40 initially, with older archives available in batches of 40; live updates and refresh
+      recovery preserve usable ordering and older-session access.
+- [x] Preserve project/machine details, agent attribution, offline protection and successful Restore.
+- [x] Focused unit/browser checks, TypeScript, isolated build, both-theme desktop/phone screenshot
+      inspection and independent review pass.
+
+Verification: exercise more than 40 archives spanning dates, projects, machines and statuses;
+expand older work, simulate a snapshot update and failed refresh/retry, and restore a real archive.
+
+Verification results: **69 focused unit tests** pass (`arenaModel`, `arenaSubscription`,
+`immersiveArena`, `autoArchiveSessions`, `arenaRoutes`, `agentSessionArchive`), with
+`CODEAI_MAX_CONCURRENT_RUNS=2` to match the scheduler fixture's expected capacity. The inherited
+machine setting otherwise makes its queued-run assertion fail. The two new model checks failed
+before implementation; the new browser regression failed against the preceding production bundle
+because all 45 archives were displayed.
+
+**10 distinct production-browser cases** pass: five in `arena-archive`, three in `arena-order`,
+and two in `arena-inbox`. These include cross-machine chronological order, a Los Angeles midnight
+boundary, 40-to-45 expansion, live insertion, refresh failure/retry, offline Restore guards,
+real storage-backed Restore, unchanged Active positions and Inbox navigation. Light/dark
+1440px desktop and 390px phone screenshots were inspected; card/page overflow assertions pass.
+Independent read-only review and `git diff --check` pass.
+
+The wider `autoArchive` and canvas archive/restore journeys reach successful Restore but fail on
+the later reopened-tab count (expected one, observed zero). Both failures also reproduce using
+unchanged HEAD tests and the preceding production bundle. This existing tab-return issue is
+outside this presentation change. The auto-archive fixture now honors `CODEAI_DIST_DIR`, so its
+separate server actually exercises the selected test build.
+
+The isolated `.next-e2e/arena-archive` bundle was built with webpack `compile`, then `generate`,
+using the existing fallback documented in Story 134. Source TypeScript passes before the build and
+after removing only generated `types/app` checks, whose existing optional-Request errors affect
+Arena, Checkouts and Projects routes. No build configuration or API route changed.
+The running application has not been rebuilt or restarted; real attached executors and physical
+devices were not exercised.
+
 ## How to verify
 
 1. Create idle and failed sessions, archive them from their cards, and confirm they disappear from
