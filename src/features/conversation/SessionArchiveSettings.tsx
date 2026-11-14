@@ -3,7 +3,6 @@
 import { useId, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
@@ -12,11 +11,9 @@ import Typography from '@mui/material/Typography';
 import type { PublicSession } from '@/shared/types';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 
-export function SessionArchiveSettings({ session, running, onAllowedChange, onCheck }: {
+export function SessionArchiveSettings({ session, onAllowedChange }: {
   session: PublicSession;
-  running: boolean;
   onAllowedChange(allowed: boolean): Promise<void>;
-  onCheck(messageId: string): Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const controlsId = useId();
@@ -32,8 +29,6 @@ export function SessionArchiveSettings({ session, running, onAllowedChange, onCh
     finally { setBusy(false); }
   };
   const check = session.agentArchiveCheck;
-  const reply = session.messages.at(-1);
-  const canCheck = session.allowAgentArchive && !running && reply?.role === 'assistant' && !reply.planProposed;
   return <Box sx={{ display: 'contents' }} onKeyDown={event => {
     if (event.key !== 'Escape' || !expanded) return;
     event.preventDefault();
@@ -56,17 +51,12 @@ export function SessionArchiveSettings({ session, running, onAllowedChange, onCh
               void perform(() => onAllowedChange(allowed)).finally(() => setPendingAllowed(undefined));
             }} />} />
       </Tooltip>
-      {session.allowAgentArchive && <>
-        {check && <Typography role="status" variant="caption" color="text.secondary">
-          {check.status === 'checking' ? 'Completion check pending.'
-            : check.status === 'kept-open' ? 'Agent kept this session open.'
-            : check.status === 'failed' ? 'Completion check unavailable. Session kept open.'
-            : 'Checks completion after the next successful reply.'}
-        </Typography>}
-        {canCheck && <Button size="small" disabled={busy} onClick={() => { void perform(() => onCheck(reply.id)); }}>
-          {check?.status === 'failed' || check?.status === 'checking' ? 'Retry check' : 'Check completion'}
-        </Button>}
-      </>}
+      {session.allowAgentArchive && check && <Typography role="status" variant="caption" color="text.secondary">
+        {check.status === 'checking' ? 'Completion check pending.'
+          : check.status === 'kept-open' ? 'Agent kept this session open.'
+          : check.status === 'failed' ? 'Completion check unavailable. Session kept open.'
+          : 'Checks completion after the next successful reply.'}
+      </Typography>}
       {error && <Alert severity="error">{error}</Alert>}
     </Box>}
   </Box>;

@@ -717,7 +717,8 @@ a separate completion check after each successful reply. It defaults off for eve
 working agent receives no extra instructions or hidden chat messages. A positive
 decision archives the conversation and releases eligible queued work; uncertainty or check failures
 keep it open. Turning the checkbox off prevents pending decisions. Session settings show the check
-status and offer retry; **Archived by agent** entries retain the final reply and existing Restore.
+status. Checks run automatically after successful replies; **Archived by agent** entries retain the
+final reply and existing Restore.
 Conversations automatically move to **Archived** after more than **48 hours without saved activity**.
 Messages, canvas changes, and other saved session changes restart that clock; viewing or keeping a
 tab open does not. The workspace subscription schedules the next archive deadline on its owning

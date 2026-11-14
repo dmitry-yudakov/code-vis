@@ -3234,13 +3234,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }
                 applyServerSnapshot(data.session, machineId);
               }}
-              onCheckCompletion={async (messageId) => {
-                const response = await fetch(apiPath(`/api/sessions/${session.id}/completion-check`), {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId }),
-                });
-                const data = await response.json() as { error?: string };
-                if (!response.ok) throw new Error(data.error || 'Could not start the check. Try again.');
-              }}
               archiveDisabledReason={archiveSessionDisabledReason}
               sendBlocked={composerBlocked}
               securityLevel={securityLevel}

@@ -22,7 +22,7 @@ function drawer(messages: ChatMessage[], overrides: Partial<Props> = {}) {
       'onSelectAgent', 'onMakePrimary', 'onAddAgent', 'onHandoff', 'onSend', 'onCancel', 'onRemoveAttachment',
       'onRemoveReport', 'onAddImages', 'onRemoveImage', 'onOpenImage', 'onDecidePermission', 'onExecutePlan',
       'onContinue', 'onNewChat', 'onToggleAttachment', 'onOpenHistory', 'onNewSketch', 'onArchive',
-      'onArchiveAllowedChange', 'onCheckCompletion'].map(key => [key, vi.fn()])),
+      'onArchiveAllowedChange'].map(key => [key, vi.fn()])),
     ...overrides,
   } as Props)).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }

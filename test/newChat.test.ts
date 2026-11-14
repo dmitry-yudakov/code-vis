@@ -20,7 +20,7 @@ function header(overrides: Partial<Props> = {}) {
     onRemoveReport: vi.fn(), onAddImages: vi.fn(), onRemoveImage: vi.fn(), onOpenImage: vi.fn(),
     onDecidePermission: vi.fn(), onExecutePlan: vi.fn(), onContinue: vi.fn(), onNewChat: vi.fn(), onArchive: vi.fn(),
     onToggleAttachment: vi.fn(), onOpenHistory: vi.fn(), onNewSketch: vi.fn(),
-    onArchiveAllowedChange: vi.fn(), onCheckCompletion: vi.fn(),
+    onArchiveAllowedChange: vi.fn(),
   };
   const props: Props = {
     ...actions,

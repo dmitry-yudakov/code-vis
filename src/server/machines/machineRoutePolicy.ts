@@ -25,7 +25,7 @@ export function machineOperationAllowed(method: string, segments: readonly strin
   if (operation === 'participants') return ['GET', 'POST', 'PATCH'].includes(normalizedMethod);
   if (['annotations', 'pins', 'repositories'].includes(operation)) return normalizedMethod === 'PUT';
   if (operation === 'sketches') return normalizedMethod === 'POST';
-  return ['archive', 'restore', 'completion-check'].includes(operation) && normalizedMethod === 'POST';
+  return ['archive', 'restore'].includes(operation) && normalizedMethod === 'POST';
 }
 
 export function machineRequestAllowed(request: Request): boolean {

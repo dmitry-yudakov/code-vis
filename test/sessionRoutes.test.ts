@@ -81,7 +81,6 @@ import { GET as GET_SESSIONS, POST as POST_SESSION } from '@/app/api/sessions/ro
 import { GET as GET_PROJECTS } from '@/app/api/projects/route';
 import { GET as GET_ARENA } from '@/app/api/arena/route';
 import { GET as GET_SESSION, PATCH as PATCH_SESSION } from '@/app/api/sessions/[sessionId]/route';
-import { POST as CHECK_COMPLETION } from '@/app/api/sessions/[sessionId]/completion-check/route';
 import { POST as POST_SKETCH } from '@/app/api/sessions/[sessionId]/sketches/route';
 import { PUT as PUT_ANNOTATION } from '@/app/api/sessions/[sessionId]/annotations/route';
 import { PUT as PUT_PINS } from '@/app/api/sessions/[sessionId]/pins/route';
@@ -185,17 +184,6 @@ describe('session snapshot and mutation routes', () => {
     const child = await create({ provider: 'claude', sourceSessionId: saved.id, execution: 'local' });
     expect(child.status).toBe(201);
     expect((await child.json()).session.allowAgentArchive).not.toBe(true);
-  });
-
-  it('refuses completion requests without permission, a completed reply or a valid shape', async () => {
-    const session = await createViaRoute();
-    const check = (body: unknown) => CHECK_COMPLETION(new Request('http://localhost', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }), context(session.id));
-    expect((await check({ messageId: crypto.randomUUID() })).status).toBe(409);
-    expect((await check({ messageId: 'invalid' })).status).toBe(400);
-    expect((await check({ messageId: crypto.randomUUID(), allowAgentArchive: true })).status).toBe(400);
-    expect(routeState.runnersCreated).toBe(0);
   });
 
   it('replays one durable current-checkout creation after response loss, concurrent retries, archive, and unavailable checkout', async () => {

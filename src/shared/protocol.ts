@@ -138,7 +138,6 @@ export const sessionArchivePermissionRequestSchema = z.object({
   allowAgentArchive: z.boolean(), expectedAllowAgentArchive: z.boolean(),
 }).strict();
 
-export const sessionCompletionCheckRequestSchema = z.object({ messageId: z.string().uuid() }).strict();
 
 export const createProjectRequestSchema = z.object({
   name: z.string().trim().min(1).max(200),

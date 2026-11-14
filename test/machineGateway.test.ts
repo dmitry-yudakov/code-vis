@@ -95,6 +95,9 @@ describe('machine API gateway', () => {
   it('denies arbitrary/auth paths and bounds request bodies before network work', async () => {
     const denied = await proxyMachineRequest(REMOTE_ID, ['auth', 'devices'], new Request('https://home.test', { method: 'GET' }));
     expect(denied.status).toBe(404);
+    const removed = await proxyMachineRequest(REMOTE_ID, ['sessions', REMOTE_ID, 'completion-check'],
+      new Request('https://home.test', { method: 'POST', body: '{}' }));
+    expect(removed.status).toBe(404);
     const oversized = await proxyMachineRequest(REMOTE_ID, ['agent', 'message'], new Request('https://home.test', {
       method: 'POST', headers: { 'Content-Length': '7000001' }, body: '{}',
     }));

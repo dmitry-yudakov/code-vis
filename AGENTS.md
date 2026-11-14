@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-13. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-14. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -43,12 +43,15 @@ Updated 2026-11-13. When a story ships, change the line that names it; each stor
   application has not been rebuilt or restarted.
 - **Shipped:** [Story 138](stories/STORY-20261112-agent-session-archive.md) — opt each session into
   a separate, tool-free completion check that can archive it and release queued work, with revocation,
-  retry feedback and Restore. All 2,140 unit tests, 41 production-browser cases, TypeScript, isolated
+  status feedback and Restore. All 2,140 unit tests, 41 production-browser cases, TypeScript, isolated
   build, both-theme desktop/phone screenshot inspection and independent review pass. The November 13
   follow-up reveals the checkbox inline after a horizontal three-dot button beside the composer's
   model selector, wrapping within the input on phones; 55 focused unit checks, 14 production-browser cases, TypeScript, isolated build,
-  both-theme desktop/phone screenshot inspection and independent review pass. Real-provider
-  decisions remain unverified; the running app has not been rebuilt or restarted.
+  both-theme desktop/phone screenshot inspection and independent review pass. The November 14
+  follow-up removes the manual Check completion/Retry check action and its API while preserving
+  automatic checks; 90 focused unit checks, 14 distinct production-browser cases, source TypeScript,
+  isolated build, both-theme desktop/phone screenshot inspection and independent review pass.
+  Real-provider decisions remain unverified; the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 137](stories/STORY-20261111-switch-repository-branches.md) — click the
   Repository branch name to search and switch existing local branches, with checkout locks,
   preserved local work, retry feedback and refreshed review/history. All 258 focused unit checks,

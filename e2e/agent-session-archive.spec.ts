@@ -132,6 +132,7 @@ test('KEEP_OPEN remains an ordinary usable conversation with no hidden chat mess
   await expect.poll(async () => (await saved(request, session.id)).agentArchiveCheck?.status).toBe('kept-open');
   await conversation.getByRole('button', { name: 'Session settings', exact: true }).click();
   await expect(page.getByText('Agent kept this session open.', { exact: true })).toBeVisible();
+  await expect(conversation.getByRole('button', { name: /^(Check completion|Retry check)$/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await send(page, 'Continue explaining.');
   await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(2);
@@ -175,7 +176,7 @@ test('a completed follow-up receives its own check while an older decision is pe
   await expect(page.getByRole('complementary', { name: 'Conversation', exact: true }).locator('.chat-message.assistant.complete')).toHaveCount(2);
 });
 
-for (const width of [1280, 390]) test(`failed decisions show retry feedback and preserve the final reply: ${width}`, async ({ page, request }) => {
+for (const width of [1280, 390]) test(`failed decisions preserve the reply and recheck automatically after a follow-up: ${width}`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 844 });
   const { session, conversation } = await open(page, request);
   await send(page, 'Review this [archive-check-invalid]');
@@ -186,9 +187,15 @@ for (const width of [1280, 390]) test(`failed decisions show retry feedback and 
   const composer = conversation.locator('.instruction-composer');
   expect(await composer.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await expect(composer.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
-  await page.getByRole('button', { name: 'Retry check', exact: true }).click();
-  await expect.poll(async () => (await saved(request, session.id)).agentArchiveCheck?.id).not.toBe(first.agentArchiveCheck!.id);
+  await expect(composer.getByRole('button', { name: /^(Check completion|Retry check)$/ })).toHaveCount(0);
   expect((await saved(request, session.id)).messages).toEqual(first.messages);
+  await send(page, 'Continue reviewing [archive-keep-open]');
+  await expect.poll(async () => (await saved(request, session.id)).agentArchiveCheck?.status).toBe('kept-open');
+  const current = await saved(request, session.id);
+  expect(current.agentArchiveCheck?.id).not.toBe(first.agentArchiveCheck!.id);
+  expect(current.messages.slice(0, first.messages.length)).toEqual(first.messages);
+  expect(current.messages).toHaveLength(4);
+  await expect(composer.getByRole('button', { name: /^(Check completion|Retry check)$/ })).toHaveCount(0);
 });
 
 test('a late pre-archive response cannot reopen the removed conversation', async ({ page, request }) => {
@@ -244,9 +251,9 @@ test('agent archive releases a queued idea and remains restorable with its final
   expect(accepted).toEqual({ status: 200, state: 'queued' });
   await expect.poll(async () => (await saved(request, next.id)).messages.at(-1)?.role, { timeout: 15_000 }).toBe('assistant');
   await page.goto('/arena/archived');
-  const group = page.locator('.arena-group').filter({ has: page.getByRole('heading', { name: target.project.name, exact: true }) });
-  await expect(group.getByText('Archived by agent', { exact: true })).toBeVisible();
-  await group.getByRole('button', { name: 'Restore', exact: true }).click();
+  const archivedCard = page.getByRole('article').filter({ hasText: target.project.name });
+  await expect(archivedCard.getByText('Archived by agent', { exact: true })).toBeVisible();
+  await archivedCard.getByRole('button', { name: 'Restore', exact: true }).click();
   await expect.poll(async () => (await request.get(`/api/sessions/${source.id}`)).status()).toBe(200);
   const restored = await saved(request, source.id);
   expect(restored.messages).toHaveLength(2);

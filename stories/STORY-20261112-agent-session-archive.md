@@ -29,8 +29,8 @@ It remains editable while a turn runs. Enabling during a turn allows its eventua
 invalidates any pending decision immediately after the preference save.
 
 After a successfully saved reply and confirmed execution cleanup, run one fresh temporary inference
-using the replying provider and the turn's explicit model/effort (retained with check metadata for
-retries), or the provider's configured defaults when absent, with tools/customizations/instructions disabled and no
+using the replying provider and the turn's explicit model/effort (retained with check metadata),
+or the provider's configured defaults when absent, with tools/customizations/instructions disabled and no
 provider-thread reuse. The main prompt, transcript and activity remain unchanged. Give the checker
 all saved user/assistant text, delivery/lifecycle state and attachment-presence information, framed
 as data. Ask for exactly `ARCHIVE` or `KEEP_OPEN`; required verification, unanswered questions,
@@ -39,7 +39,7 @@ Never silently truncate context: over 64 KiB of serialized context leaves the se
 
 Use a 30-second timeout, 1 KiB output bound and at most two background archive checks per process;
 overflow, malformed output, tools, authentication errors and timeouts leave the conversation open
-with concise retry feedback. No background check holds a checkout or session execution slot. The
+with concise failure feedback. No background check holds a checkout or session execution slot. The
 ordinary conversation remains usable while checking. A new message, permission change, restore,
 manual archive or newer check invalidates an old decision. Permission changes compare the previous
 permission value, so live transcript revisions do not prevent revocation.
@@ -50,8 +50,9 @@ content without changing the last-activity timestamp. A successful decision uses
 archive lease and revision-checked store move, with permission/check identity checked inside the
 same serialized mutation. Only a successful archive notifies `sessionArchived`; persist the final
 reply before advancing the queue. Restore clears the previous check, retains history/resources and
-does not undo any work a successor already performed. Failed checks/archives offer explicit retry;
-server restarts do not rerun decisions automatically. A retained checking state is retryable.
+does not undo any work a successor already performed. Failed checks/archives leave the session open;
+a later successful reply triggers a new check. Server restarts do not rerun decisions automatically.
+There is no manual completion-check action; ordinary manual Archive remains available.
 
 Show checking/kept-open/failure feedback with the permission control. Identify **Archived by agent**
 in Archived with the saved reply preview and existing Restore. Loaded conversations receive a toast
@@ -66,7 +67,7 @@ with Restore when automatically archived. Desktop and phone use shared MUI contr
 - [x] ARCHIVE saves a recoverable archive and advances queued work; KEEP_OPEN preserves follow-ups.
 - [x] Revocation (including off/on), new messages/runs, duplicate checks, manual archive/restore,
       failures, invalid output, overflow, long context and restart preserve ownership and history.
-- [x] Desktop/phone settings, state feedback, explicit retry, agent archive attribution and Restore
+- [x] Desktop/phone settings, state feedback, agent archive attribution and Restore
       work through canonical snapshots, including attached-executor route/schema contracts.
 - [x] Focused unit/route/provider/browser checks, TypeScript, isolated build, both-theme desktop/phone
       screenshot inspection and independent review pass. Record unverified real-provider/device cases.
@@ -82,7 +83,7 @@ First reproduce missing permission/check behavior with failing focused tests. Ex
 schema/store/creation, background classification and races, provider metadata isolation, message
 routes and queue promotion. In an isolated production browser, enable in setup and an existing
 conversation, observe completion followed by archive/queue advancement, revoke during checking,
-send a follow-up, test KEEP_OPEN/failure/retry, reload, and Restore with the final answer intact.
+send a follow-up, test KEEP_OPEN/failure and a new automatic check, reload, and Restore with the final answer intact.
 Inspect light/dark desktop/phone screenshots. Do not rebuild/restart the running installation.
 
 ## Verification — November 12, 2026
@@ -189,3 +190,37 @@ Source TypeScript, the isolated webpack compile/generate build and `git diff --c
 Read-only independent review found no concrete issue. The existing save/check/retry owner remains
 in place, and the floating wrapper was removed. The working application was not rebuilt, restarted,
 deployed, staged or committed.
+
+## Remove the manual completion check — November 14, 2026
+
+Remove the **Check completion** button, including its **Retry check** state. Keep the per-session
+**Allow agent to archive** checkbox, automatic checks after successful replies, status feedback,
+and Restore. Failed checks leave the conversation open; a later successful reply gets its own
+automatic check. Manual Archive remains available. Remove the unused callback, HTTP endpoint,
+request schema and attached-machine route permission.
+
+Where the code is: `src/features/conversation/SessionArchiveSettings.tsx:14` owns the permission
+control and status; `src/features/conversation/ConversationDrawer.tsx:301` and
+`src/features/shell/AppShell.tsx:3225` retain the permission callback. The dedicated
+`src/app/api/sessions/[sessionId]/completion-check/route.ts` endpoint was removed.
+`src/app/api/agent/message/route.ts:392` still owns automatic checks.
+
+- [x] Remove the manual control and its unused wiring while preserving the permission checkbox
+      and automatic-check feedback.
+- [x] Verify automatic archive/Restore, failure preservation and a new check after a follow-up;
+      ensure expanded settings have neither manual check label on desktop or phone.
+- [x] Run focused unit/browser checks, TypeScript and review; record the results below.
+
+All **90 focused unit checks** in `conversationArchive`, `newChat`, `sessionRoutes`,
+`agentSessionArchive` and `machineGateway` pass, along with source TypeScript and `git diff --check`.
+The isolated webpack compile/generate build passes. All **14 distinct production-browser cases**
+pass: 13 passed initially, and the archive/queue/Restore case passed after replacing its outdated
+project-heading selector with the archived session card in the current date-grouped layout.
+The new phone assertion failed against the preceding bundle because Retry check was still present.
+Desktop and phone failure cases now prove the old reply survives and the next successful reply
+receives a new automatic check, with neither manual action available.
+
+Both-theme desktop/phone conversation screenshots were inspected. Independent review found no
+code defects; its documentation corrections are included. Browser/provider checks use fixture CLIs;
+real-provider decisions were not rerun. The running app was not rebuilt, restarted or deployed,
+and no changes were staged or committed.

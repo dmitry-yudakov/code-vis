@@ -582,7 +582,8 @@ and check identity/status; new sessions and continuations default off. It waits 
 completion after a successful saved reply, then runs without a checkout/session execution slot.
 The checker receives complete saved conversation text up to 64 KiB (larger contexts remain open),
 has a 30-second timeout and 1 KiB output bound, and admits two inferences per process. One pending
-latest reply per session coalesces follow-ups. Failure/overflow remain active with explicit Retry.
+latest reply per session coalesces follow-ups. Failure/overflow leave the session open; a later
+successful reply triggers a new automatic check. There is no manual completion-check action.
 Archive obtains the existing session lease and checks permission, final-message/check identity and
 revision inside the store writer boundary before notifying queued successors. New messages,
 permission changes, manual archive and Restore invalidate pending decisions. Summaries carry
