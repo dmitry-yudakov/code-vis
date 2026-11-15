@@ -142,7 +142,7 @@ describe('side panel', () => {
       repositoryName: 'alpha', open: true, tab: 'files',
       manager: createElement('button', null, 'Choose repository'),
       files: createElement('p', null, 'File tree'),
-      history: 'History body', children: 'Changes body', inspector: 'Git inspector',
+      history: 'History body', children: 'Changes body',
     }));
     expect(markup).toContain('aria-label="Files"');
     expect(markup).toMatch(/<h2 class="side-panel-title">Files<\/h2>/);
@@ -164,6 +164,12 @@ describe('layout icons', () => {
     onToggleConversation: vi.fn(),
     ...props,
   }));
+
+  it('offers an independent File view toggle beside Canvas and Conversation', () => {
+    const markup = toggles({ filesShown: true, onToggleFiles: vi.fn() });
+    expect(controlNames(markup)).toEqual(['File view', 'Canvas', 'Conversation']);
+    expect(markup).toMatch(/aria-label="File view" aria-pressed="true"/);
+  });
 
   it('offers Canvas and Conversation as pressed toggles with tooltips', () => {
     const markup = toggles();

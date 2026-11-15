@@ -5,6 +5,7 @@ import {
   ACTIVITY_BAR_WIDTH,
   CANVAS_MIN_WIDTH,
   CONVERSATION_MIN_WIDTH,
+  FILE_VIEW_MIN_WIDTH,
   DEFAULT_PANEL_LAYOUT,
   PANEL_WIDTHS_STORAGE_KEY,
   PANE_GUTTER,
@@ -15,7 +16,6 @@ import {
   isCanvasHidden,
   initialSessionLayout,
   panelMaximumForWidth,
-  paneContentWidth,
   parsePanelWidths,
   parseViewPanelLayouts,
   reconcilePanelLayouts,
@@ -32,7 +32,9 @@ import {
   type SideTab,
 } from './panelLayout';
 
-type ResizePanel = 'repository' | 'conversation';
+type ResizePanel = 'repository' | 'conversation' | 'files';
+const WIDTH_KEYS = { repository: 'repositoryWidth', conversation: 'conversationWidth', files: 'filesWidth' } as const;
+const MIN_WIDTHS = { repository: REPOSITORY_MIN_WIDTH, conversation: CONVERSATION_MIN_WIDTH, files: FILE_VIEW_MIN_WIDTH };
 
 /** `width` is what the panels and the canvas share: the shell less its activity bar. */
 export function useDockCapacity(shellRef: RefObject<HTMLElement | null>): { capacity: DockCapacity; width: number } {
@@ -74,16 +76,13 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       return next === prior ? current : storePanelLayout(current, viewId, next);
     });
   }, [defaultLayout, viewId]);
-  const shown = visiblePanes(layout, dockCapacity);
+  const shown = visiblePanes(layout, dockCapacity, shellWidth);
   const sideShown = repositoryAvailable && shown.side;
   const conversationShown = shown.conversation;
-  const dockOpen = layout.conversationOpen;
-  const canvasHidden = isCanvasHidden(layout, dockCapacity);
-  // The diff inspector belongs to the changes; history never widens the panel.
-  const inspectorOpen = layout.inspectorOpen && layout.sideTab === 'changes';
-  const contentWidth = paneContentWidth(shellWidth,
-    sideShown,
-    !canvasHidden && conversationShown);
+  const filesShown = shown.files;
+  const canvasHidden = !shown.canvas;
+  const dockOpen = conversationShown;
+  const contentWidth = Math.max(0, shellWidth - Object.values(shown).filter(Boolean).length * PANE_GUTTER);
 
   useEffect(() => {
     try {
@@ -110,33 +109,26 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       localStorage.setItem(PANEL_WIDTHS_STORAGE_KEY, JSON.stringify({
         repositoryWidth: layout.repositoryWidth,
         conversationWidth: layout.conversationWidth,
+        filesWidth: layout.filesWidth,
       }));
     } catch {
       // Resizing remains usable when preference persistence is unavailable.
     }
-  }, [layout.conversationWidth, layout.repositoryWidth, layouts, storageReady]);
+  }, [layout.conversationWidth, layout.repositoryWidth, layout.filesWidth, layouts, storageReady]);
 
   // Without the canvas both panels fit in one dock's band, so neither has to give way.
   useEffect(() => {
-    if (layout.maximized || dockCapacity !== 1 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
+    if (layout.filesOpen || layout.maximized || dockCapacity !== 1 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
     setLayout((current) => current.lastOpened === 'dock'
       ? { ...current, repositoryOpen: false }
       : withoutConversation(current));
-  }, [layout.maximized, canvasHidden, dockCapacity, dockOpen, layout.repositoryOpen, repositoryAvailable, setLayout]);
-
-  useEffect(() => {
-    if (layout.maximized || !inspectorOpen || dockCapacity !== 2 || canvasHidden || !repositoryAvailable || !layout.repositoryOpen || !dockOpen) return;
-    const needed = layout.repositoryWidth * 2 + layout.conversationWidth + CANVAS_MIN_WIDTH;
-    if (needed > contentWidth) {
-      setLayout(withoutConversation);
-    }
-  }, [layout.maximized, canvasHidden, contentWidth, dockCapacity, dockOpen, layout.conversationWidth, inspectorOpen, layout.repositoryOpen, layout.repositoryWidth, repositoryAvailable, setLayout]);
+  }, [layout.filesOpen, layout.maximized, canvasHidden, dockCapacity, dockOpen, layout.repositoryOpen, repositoryAvailable, setLayout]);
 
   // Explicit navigation leaves maximize and reveals its destination.
   const openSide = useCallback((sideTab: SideTab) => {
     setLayout((current) => {
       const next: PanelLayout = { ...current, lastOpened: 'repository', repositoryOpen: true, sideTab, maximized: null };
-      return dockCapacity === 0 || dockCapacity === 1 && !isCanvasHidden(next, dockCapacity) ? withoutConversation(next) : next;
+      return !current.filesOpen && (dockCapacity === 0 || dockCapacity === 1 && !isCanvasHidden(next, dockCapacity)) ? withoutConversation(next) : next;
     });
   }, [dockCapacity, setLayout]);
   const closeRepository = useCallback(() => setLayout((current) => ({ ...current, repositoryOpen: false, maximized: null })), [setLayout]);
@@ -151,7 +143,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   const openConversation = useCallback(() => {
     setLayout((current) => {
       const next: PanelLayout = { ...current, lastOpened: 'dock', conversationOpen: true, maximized: null };
-      return dockCapacity === 0 || dockCapacity === 1 && !isCanvasHidden(next, dockCapacity) ? { ...next, repositoryOpen: false } : next;
+      return !current.filesOpen && (dockCapacity === 0 || dockCapacity === 1 && !isCanvasHidden(next, dockCapacity)) ? { ...next, repositoryOpen: false } : next;
     });
   }, [dockCapacity, setLayout]);
   const openConversationFor = useCallback((targetViewId: string, hasCanvasContent = false) => {
@@ -174,20 +166,20 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (conversationShown) closeConversation();
     else openConversation();
   }, [closeConversation, conversationShown, openConversation]);
-  // Beside a shown canvas at two docks, a diff inspector takes the conversation's room (see the
-  // inspector effect above); showing the canvas closes the side panel instead of the conversation.
-  const inspectorCrowdsCanvas = inspectorOpen && layout.repositoryWidth * 2 + layout.conversationWidth + CANVAS_MIN_WIDTH
-    > paneContentWidth(shellWidth, repositoryAvailable && layout.repositoryOpen, true);
-  const sideFitsBesideCanvas = dockCapacity === 2 && !(repositoryAvailable && inspectorCrowdsCanvas);
-  const toggleCanvas = useCallback(() => setLayout((current) => toggledCanvas(current, dockCapacity, sideFitsBesideCanvas)), [dockCapacity, setLayout, sideFitsBesideCanvas]);
-  // A flat action aimed at the canvas, such as opening a diagram or starting a sketch, shows it.
-  const showCanvas = useCallback(() => setLayout((current) => {
+  const openFiles = useCallback(() => setLayout(current => ({ ...current, filesOpen: true,
+    maximized: current.maximized === 'files' ? 'files' : null,
+    lastOpened: current.maximized === 'files' ? current.lastOpened : 'files' })), [setLayout]);
+  const closeFiles = useCallback(() => setLayout(current => ({ ...current, filesOpen: false, maximized: null })), [setLayout]);
+  const toggleFiles = useCallback(() => { if (filesShown) closeFiles(); else openFiles(); }, [filesShown, closeFiles, openFiles]);
+  const toggleCanvas = useCallback(() => setLayout(current => {
+    if (current.filesOpen) return { ...current, canvasOpen: canvasHidden, maximized: null, lastOpened: canvasHidden ? 'canvas' : current.lastOpened };
+    return toggledCanvas(current, dockCapacity);
+  }), [canvasHidden, dockCapacity, setLayout]);
+  const showCanvas = useCallback(() => setLayout(current => {
+    if (current.filesOpen) return { ...current, canvasOpen: true, maximized: null, lastOpened: 'canvas' };
     const next = { ...current, maximized: null };
-    return isCanvasHidden(next, dockCapacity) ? toggledCanvas(next, dockCapacity, sideFitsBesideCanvas) : next;
-  }), [dockCapacity, setLayout, sideFitsBesideCanvas]);
-  const setInspectorOpen = useCallback((inspectorOpen: boolean) => {
-    setLayout((current) => current.inspectorOpen === inspectorOpen ? current : { ...current, inspectorOpen });
-  }, [setLayout]);
+    return isCanvasHidden(next, dockCapacity) ? toggledCanvas(next, dockCapacity) : next;
+  }), [dockCapacity, setLayout]);
   const toggleMaximized = useCallback((pane: Pane) => setLayout((current) => toggledMaximized(current, pane)), [setLayout]);
   useEffect(() => {
     if (!layout.maximized) return;
@@ -207,30 +199,28 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     repositoryOpen: sideShown,
     dockOpen: conversationShown,
     canvasShown: !canvasHidden,
-    inspectorOpen,
+    filesOpen: filesShown,
     lastOpened,
     widths: layout,
-  }), [canvasHidden, dockCapacity, conversationShown, inspectorOpen, lastOpened, layout, sideShown, shellWidth]);
+  }), [canvasHidden, dockCapacity, conversationShown, filesShown, lastOpened, layout, sideShown, shellWidth]);
 
   const panelMaximum = useCallback((panel: ResizePanel) => {
-    const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
+    const minimum = MIN_WIDTHS[panel];
     const maximum = Math.max(minimum, panelMaximumForWidth(shellWidth));
     if (dockCapacity === 0 || !shellWidth) return maximum;
-    if (panel === 'repository') {
-      const dockMinimum = dockOpen ? CONVERSATION_MIN_WIDTH : 0;
-      const room = contentWidth - (canvasHidden ? 0 : CANVAS_MIN_WIDTH) - dockMinimum;
-      return Math.max(minimum, Math.floor(Math.min(maximum, room) / (inspectorOpen && dockCapacity === 2 ? 2 : 1)));
-    }
-    const repositoryMinimum = repositoryAvailable && layout.repositoryOpen ? REPOSITORY_MIN_WIDTH : 0;
-    return Math.max(minimum, Math.min(maximum, contentWidth - (canvasHidden ? 0 : CANVAS_MIN_WIDTH) - repositoryMinimum));
-  }, [layout.maximized, canvasHidden, contentWidth, dockCapacity, dockOpen, inspectorOpen, layout.repositoryOpen, repositoryAvailable, shellWidth]);
+    const others = (panel !== 'repository' && sideShown ? REPOSITORY_MIN_WIDTH : 0)
+      + (panel !== 'files' && filesShown ? FILE_VIEW_MIN_WIDTH : 0)
+      + (panel !== 'conversation' && conversationShown ? CONVERSATION_MIN_WIDTH : 0)
+      + (!canvasHidden ? CANVAS_MIN_WIDTH : 0);
+    return Math.max(minimum, Math.min(maximum, contentWidth - others));
+  }, [canvasHidden, contentWidth, conversationShown, dockCapacity, filesShown, sideShown, shellWidth]);
 
   const setPanelWidth = useCallback((panel: ResizePanel, width: number) => {
-    const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
+    const minimum = MIN_WIDTHS[panel];
     const maximum = panelMaximum(panel);
     setLayout((current) => ({
       ...current,
-      [panel === 'repository' ? 'repositoryWidth' : 'conversationWidth']: clamp(width, minimum, maximum),
+      [WIDTH_KEYS[panel]]: clamp(width, minimum, maximum),
     }));
   }, [panelMaximum, setLayout]);
 
@@ -238,7 +228,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (!resize) return;
     const move = (event: PointerEvent) => {
       const delta = event.clientX - resize.startX;
-      setPanelWidth(resize.panel, resize.startWidth + (resize.panel === 'repository' ? delta : -delta));
+      setPanelWidth(resize.panel, resize.startWidth + (resize.panel === 'conversation' ? -delta : delta));
     };
     const finish = () => setResize(undefined);
     window.addEventListener('pointermove', move);
@@ -261,26 +251,27 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     setResize({
       panel,
       startX: event.clientX,
-      startWidth: panel === 'repository' ? resolved.repositoryWidth : resolved.conversationWidth,
+      startWidth: resolved[WIDTH_KEYS[panel]],
     });
-  }, [resolved.conversationWidth, resolved.repositoryWidth]);
+  }, [resolved]);
 
   const resizeByKeyboard = useCallback((panel: ResizePanel, event: React.KeyboardEvent<HTMLElement>) => {
-    const minimum = panel === 'repository' ? REPOSITORY_MIN_WIDTH : CONVERSATION_MIN_WIDTH;
+    const minimum = MIN_WIDTHS[panel];
     const maximum = panelMaximum(panel);
-    const current = panel === 'repository' ? resolved.repositoryWidth : resolved.conversationWidth;
+    const current = resolved[WIDTH_KEYS[panel]];
     const step = event.shiftKey ? 24 : 8;
     let next: number | undefined;
     if (event.key === 'Home') next = minimum;
     if (event.key === 'End') next = maximum;
-    if (event.key === 'ArrowLeft') next = current + (panel === 'repository' ? -step : step);
-    if (event.key === 'ArrowRight') next = current + (panel === 'repository' ? step : -step);
+    if (event.key === 'ArrowLeft') next = current + (panel === 'conversation' ? step : -step);
+    if (event.key === 'ArrowRight') next = current + (panel === 'conversation' ? -step : step);
     if (next === undefined) return;
     event.preventDefault();
     setPanelWidth(panel, next);
-  }, [resolved.conversationWidth, resolved.repositoryWidth, panelMaximum, setPanelWidth]);
+  }, [resolved, panelMaximum, setPanelWidth]);
 
   const shellStyle = {
+    '--files-column-width': canvasHidden && !conversationShown && filesShown ? 'minmax(0, 1fr)' : `${resolved.filesColumnWidth}px`,
     '--pane-gutter': `${dockCapacity > 0 ? PANE_GUTTER : 0}px`,
     '--repository-width': `${resolved.repositoryWidth}px`,
     '--conversation-width': `${resolved.conversationWidth}px`,
@@ -288,6 +279,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     '--conversation-panel-width': `${resolved.conversationWidth}px`,
     '--repository-column-width': `${resolved.repositoryColumnWidth}px`,
     '--conversation-column-width': `${resolved.conversationColumnWidth}px`,
+    '--conversation-grid-column': canvasHidden && conversationShown ? 'minmax(0, 1fr)' : `${resolved.conversationColumnWidth}px`,
   } as CSSProperties;
 
   return {
@@ -298,6 +290,10 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     conversationPanelWidth: resolved.conversationWidth,
     repositoryMaximum: panelMaximum('repository'),
     conversationMaximum: panelMaximum('conversation'),
+    filesShown,
+    filesPanelWidth: resolved.filesWidth,
+    filesMaximum: panelMaximum('files'),
+    openFiles, closeFiles, toggleFiles,
     sideShown,
     canvasHidden,
     conversationShown,
@@ -312,9 +308,8 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     toggleCanvas,
     showCanvas,
     selectSideTab: openSide,
-    setInspectorOpen,
     toggleMaximized,
-    canMaximize: canMaximize(layout, dockCapacity),
+    canMaximize: canMaximize(layout, dockCapacity, shellWidth),
     beginResize,
     resizeByKeyboard,
   };

@@ -52,6 +52,7 @@ describe('panel layout geometry', () => {
     expect(parsePanelWidths('{"repositoryWidth":20,"conversationWidth":900}')).toEqual({
       repositoryWidth: 268,
       conversationWidth: 900,
+      filesWidth: 420,
     });
     expect(parsePanelWidths('not json')).toEqual(DEFAULT_PANEL_WIDTHS);
   });
@@ -66,11 +67,12 @@ describe('panel layout geometry', () => {
           conversationOpen: true,
           // Written before Story 62: history was a dock state, and is now a side-panel tab.
           historyOpen: true,
-          inspectorOpen: true,
+          filesOpen: true,
           focusMode: true,
           lastOpened: 'dock',
           repositoryWidth: 10,
           conversationWidth: 900,
+        filesWidth: 420,
         },
         invalid: { repositoryOpen: false },
       },
@@ -79,13 +81,14 @@ describe('panel layout geometry', () => {
         repositoryOpen: false,
         conversationOpen: true,
         sideTab: 'changes',
-        inspectorOpen: true,
+        filesOpen: true,
         maximized: 'canvas',
         lastOpened: 'dock',
         // Written before Story 72, when the canvas could not be hidden.
         canvasOpen: true,
         repositoryWidth: 268,
         conversationWidth: 900,
+        filesWidth: 420,
       },
     });
   });
@@ -149,9 +152,8 @@ describe('panel layout geometry', () => {
       capacity: 2,
       repositoryOpen: true,
       dockOpen: true,
-      inspectorOpen: false,
       lastOpened: 'dock',
-      widths: { repositoryWidth: 480, conversationWidth: 560 },
+      widths: { filesWidth: 420, repositoryWidth: 480, conversationWidth: 560 },
     });
     expect(resolved.repositoryColumnWidth + resolved.conversationColumnWidth).toBeLessThanOrEqual(960 - CANVAS_MIN_WIDTH);
     expect(resolved.conversationWidth).toBeGreaterThanOrEqual(320);
@@ -161,7 +163,7 @@ describe('panel layout geometry', () => {
   it('fits three framed panes and their gutters at the two-dock threshold', () => {
     const resolved = resolveDockWidths({
       shellWidth: 960, capacity: 2, repositoryOpen: true, dockOpen: true,
-      inspectorOpen: false, lastOpened: 'dock', widths: DEFAULT_PANEL_WIDTHS,
+      lastOpened: 'dock', widths: DEFAULT_PANEL_WIDTHS,
     });
     expect(resolved.repositoryWidth).toBe(268);
     expect(resolved.conversationWidth).toBe(320);
@@ -175,7 +177,7 @@ describe('panel layout geometry', () => {
     for (const repositoryOpen of [true, false]) {
       const resolved = resolveDockWidths({
         shellWidth: 692, capacity: 1, repositoryOpen, dockOpen: !repositoryOpen,
-        inspectorOpen: false, lastOpened: repositoryOpen ? 'repository' : 'dock',
+        lastOpened: repositoryOpen ? 'repository' : 'dock',
         widths: DEFAULT_PANEL_WIDTHS,
       });
       expect(repositoryOpen ? resolved.repositoryWidth : resolved.conversationWidth).toBeGreaterThanOrEqual(repositoryOpen ? 268 : 320);
@@ -184,11 +186,11 @@ describe('panel layout geometry', () => {
   });
 
   it('retains wide preferences and caps either dock at 80% of the window', () => {
-    const widths = { repositoryWidth: 2200, conversationWidth: 2200 };
+    const widths = { filesWidth: 420, repositoryWidth: 2200, conversationWidth: 2200 };
     expect(parsePanelWidths(JSON.stringify(widths))).toEqual(widths);
     const resolve = (repositoryOpen: boolean, shellWidth = 2352) => resolveDockWidths({
       shellWidth, capacity: 2, repositoryOpen, dockOpen: !repositoryOpen,
-      inspectorOpen: false, lastOpened: repositoryOpen ? 'repository' : 'dock', widths,
+      lastOpened: repositoryOpen ? 'repository' : 'dock', widths,
     });
     expect(resolve(true).repositoryWidth).toBe(1920);
     expect(resolve(false).conversationWidth).toBe(1920);
@@ -199,42 +201,38 @@ describe('panel layout geometry', () => {
     expect(resolve(true).repositoryWidth).toBe(1920);
   });
 
-  it('caps the combined changes and diff inspector at 80% with or without the canvas', () => {
-    for (const canvasShown of [true, false]) {
-      const resolved = resolveDockWidths({
-        shellWidth: 2352, capacity: 2, repositoryOpen: true, dockOpen: !canvasShown,
-        canvasShown, inspectorOpen: true, lastOpened: 'repository',
-        widths: { repositoryWidth: 2200, conversationWidth: 460 },
-      });
-      expect(resolved.repositoryColumnWidth).toBe(1924);
-      expect(resolved.repositoryWidth).toBe(960);
-    }
+  it('fits Files, file view, canvas and conversation together at their minimums', () => {
+    const layout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, filesOpen: true, lastOpened: 'files' as const };
+    const shown = visiblePanes(layout, 2, 1284);
+    expect(shown).toEqual({ side: true, files: true, canvas: true, conversation: true });
+    const resolved = resolveDockWidths({ shellWidth: 1284, capacity: 2, repositoryOpen: true, filesOpen: true,
+      dockOpen: true, lastOpened: 'files', widths: layout });
+    expect(resolved.repositoryWidth).toBe(268);
+    expect(resolved.filesWidth).toBe(320);
+    expect(resolved.conversationWidth).toBe(320);
+    expect(resolved.repositoryColumnWidth + resolved.filesColumnWidth + resolved.conversationColumnWidth + 364).toBe(1284);
   });
 
-  it('keeps the inspector resize value within its available half of the dock', () => {
-    for (const canvasShown of [true, false]) {
-      const resolved = resolveDockWidths({
-        shellWidth: 1392, capacity: 2, repositoryOpen: true, dockOpen: !canvasShown,
-        canvasShown, inspectorOpen: true, lastOpened: 'repository',
-        widths: { repositoryWidth: 1920, conversationWidth: 460 },
-      });
-      expect(resolved.repositoryWidth).toBe((1392 - 8 - (canvasShown ? CANVAS_MIN_WIDTH : CONVERSATION_MIN_WIDTH)) / 2);
-      expect(resolved.repositoryColumnWidth).toBe(resolved.repositoryWidth * 2 + 4);
-    }
+  it('prioritizes requested surfaces on narrow desktops without changing open preferences', () => {
+    const layout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, filesOpen: true, lastOpened: 'files' as const };
+    expect(visiblePanes(layout, 1, 752)).toEqual({ side: false, files: true, conversation: true, canvas: false });
+    expect(visiblePanes({ ...layout, lastOpened: 'repository' }, 1, 752)).toEqual({ side: true, files: true, conversation: false, canvas: false });
+    expect(visiblePanes({ ...layout, lastOpened: 'canvas' }, 1, 752)).toEqual({ side: false, files: true, conversation: false, canvas: true });
+    expect(layout).toMatchObject({ repositoryOpen: true, filesOpen: true, conversationOpen: true, canvasOpen: true });
   });
 
-  it('reduces the inspector pane after preserving the canvas minimum', () => {
-    const resolved = resolveDockWidths({
-      shellWidth: 960,
-      capacity: 2,
-      repositoryOpen: true,
-      dockOpen: false,
-      inspectorOpen: true,
-      lastOpened: 'repository',
-      widths: DEFAULT_PANEL_WIDTHS,
-    });
-    expect(resolved.repositoryColumnWidth).toBe(596);
-    expect(960 - resolved.repositoryColumnWidth - 4).toBe(CANVAS_MIN_WIDTH);
+  it('keeps every displayed pane above its minimum over responsive widths and preferences', () => {
+    for (let shellWidth = 692; shellWidth <= 2000; shellWidth += 17) for (const lastOpened of ['files', 'repository', 'dock', 'canvas'] as const) {
+      const layout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, filesOpen: true, lastOpened, repositoryWidth: 900, filesWidth: 1000, conversationWidth: 1200 };
+      const shown = visiblePanes(layout, 2, shellWidth);
+      const resolved = resolveDockWidths({ shellWidth, capacity: 2, repositoryOpen: shown.side, filesOpen: shown.files,
+        dockOpen: shown.conversation, canvasShown: shown.canvas, lastOpened, widths: layout });
+      if (shown.side) expect(resolved.repositoryWidth).toBeGreaterThanOrEqual(268);
+      if (shown.files) expect(resolved.filesWidth).toBeGreaterThanOrEqual(320);
+      if (shown.conversation) expect(resolved.conversationWidth).toBeGreaterThanOrEqual(320);
+      const fixed = resolved.repositoryColumnWidth + resolved.filesColumnWidth + resolved.conversationColumnWidth;
+      expect(fixed).toBeLessThanOrEqual(shellWidth - (shown.canvas ? 364 : shown.conversation || shown.files ? 324 : 272));
+    }
   });
 });
 
@@ -296,9 +294,8 @@ describe('hiding the canvas', () => {
       repositoryOpen: true,
       dockOpen: true,
       canvasShown: false,
-      inspectorOpen: false,
       lastOpened: 'dock',
-      widths: { repositoryWidth: 480, conversationWidth: 460 },
+      widths: { filesWidth: 420, repositoryWidth: 480, conversationWidth: 460 },
     });
     expect(resolved.repositoryWidth).toBe(480);
     expect(resolved.repositoryColumnWidth).toBe(484);
@@ -310,30 +307,35 @@ describe('hiding the canvas', () => {
       repositoryOpen: true,
       dockOpen: true,
       canvasShown: false,
-      inspectorOpen: false,
       lastOpened: 'dock',
-      widths: { repositoryWidth: 480, conversationWidth: 460 },
+      widths: { filesWidth: 420, repositoryWidth: 480, conversationWidth: 460 },
     });
     expect(narrow.repositoryColumnWidth).toBe(640 - CONVERSATION_MIN_WIDTH - 4);
   });
 });
 
 describe('maximized and narrow panes', () => {
+  it('selects Canvas explicitly on phones while keeping the file tabs and desktop flags', () => {
+    const layout = { ...DEFAULT_PANEL_LAYOUT, filesOpen: true, repositoryOpen: true, lastOpened: 'canvas' as const };
+    expect(visiblePanes(layout, 0)).toEqual({ side: false, files: false, conversation: false, canvas: true });
+    expect(visiblePanes({ ...layout, canvasOpen: false }, 0)).toEqual({ side: false, files: false, conversation: true, canvas: false });
+    expect(visiblePanes(layout, 2, 1600)).toEqual({ side: true, files: true, conversation: true, canvas: true });
+  });
   it('shows exactly one narrow module without rewriting the desktop flags', () => {
     for (const lastOpened of ['repository', 'dock'] as const) {
       const layout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, lastOpened };
-      expect(visiblePanes(layout, 0)).toEqual({ side: lastOpened === 'repository', conversation: lastOpened === 'dock', canvas: false });
-      expect(visiblePanes(layout, 2)).toEqual({ side: true, conversation: true, canvas: true });
+      expect(visiblePanes(layout, 0)).toEqual({ files: false, side: lastOpened === 'repository', conversation: lastOpened === 'dock', canvas: false });
+      expect(visiblePanes(layout, 2)).toEqual({ files: false, side: true, conversation: true, canvas: true });
     }
-    expect(visiblePanes({ ...DEFAULT_PANEL_LAYOUT, conversationOpen: false }, 0)).toEqual({ side: false, conversation: false, canvas: true });
+    expect(visiblePanes({ ...DEFAULT_PANEL_LAYOUT, conversationOpen: false }, 0)).toEqual({ files: false, side: false, conversation: false, canvas: true });
   });
 
   it('maximizes each pane temporarily, preserving open flags, widths and inspector for restore', () => {
-    const original: PanelLayout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, inspectorOpen: true, sideTab: 'history', repositoryWidth: 300 };
+    const original: PanelLayout = { ...DEFAULT_PANEL_LAYOUT, repositoryOpen: true, filesOpen: true, sideTab: 'history', repositoryWidth: 300 };
     for (const capacity of [0, 1, 2] as const) {
-      for (const pane of ['side', 'canvas', 'conversation'] as const) {
+      for (const pane of ['side', 'files', 'canvas', 'conversation'] as const) {
         const maximized = toggledMaximized(original, pane);
-        expect(visiblePanes(maximized, capacity)).toEqual({ side: pane === 'side', canvas: pane === 'canvas', conversation: pane === 'conversation' });
+        expect(visiblePanes(maximized, capacity)).toEqual({ files: pane === 'files', side: pane === 'side', canvas: pane === 'canvas', conversation: pane === 'conversation' });
         expect(toggledMaximized(maximized, pane)).toEqual(original);
       }
     }
@@ -356,9 +358,9 @@ describe('maximized and narrow panes', () => {
 
   it('roundtrips every maximized pane and rejects invalid values with explicit null overriding legacy focus', () => {
     const id = viewId(0);
-    for (const maximized of ['side', 'canvas', 'conversation', null, 'invalid', true]) {
+    for (const maximized of ['side', 'files', 'canvas', 'conversation', null, 'invalid', true]) {
       const parsed = parseViewPanelLayouts(JSON.stringify({ version: 1, layouts: { [id]: { ...DEFAULT_PANEL_LAYOUT, maximized, focusMode: true } } }))[id];
-      expect(parsed.maximized).toBe(['side', 'canvas', 'conversation'].includes(maximized as string) ? maximized : null);
+      expect(parsed.maximized).toBe(['side', 'files', 'canvas', 'conversation'].includes(maximized as string) ? maximized : null);
     }
   });
 });

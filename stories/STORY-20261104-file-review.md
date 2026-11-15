@@ -2,6 +2,9 @@
 
 **Status:** Shipped · **Type:** Full-stack · **Depends on:** Stories 118, 120
 
+[Story 140](STORY-20261115-tabbed-file-pane.md) moves review into independent file tabs and replaces
+the nested inspector/divider and modal with the shared file pane's resize and maximize controls.
+
 ## Motivation
 
 Long Markdown lines disappear beyond the narrow Changes inspector. Review needs wrapping,

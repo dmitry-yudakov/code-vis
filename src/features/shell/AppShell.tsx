@@ -74,6 +74,7 @@ import { lifecycleConfirmation } from '@/features/lifecycle/lifecycleFlow';
 import { takeRestartProject, useCodeAiLifecycle } from '@/features/lifecycle/useCodeAiLifecycle';
 import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
+import { RepositoryFilePane } from '@/features/repository/RepositoryFilePane';
 import { RepositoryFilesProvider } from '@/features/repository/RepositoryFilesProvider';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { DeviceMenu } from '@/features/devices/DeviceMenu';
@@ -2716,7 +2717,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [arenaOpen, openingWorkspace, resolvedNavigation, navigationKey, navigationError, panelLayout.conversationShown, session, machineId, location.kind, selectedDestinationLoaded, arenaInbox, arena.acknowledge]);
 
   return (
-    <RepositoryFilesProvider scope={session?.id || ''} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>
+    <RepositoryFilesProvider onOpen={panelLayout.openFiles} scope={session?.id || ''} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>
     <div
       ref={shellRef}
       className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${maximized ? `pane-maximized maximized-${maximized}` : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
@@ -2913,6 +2914,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {!compact && <DeviceMenu />}
             {!compact && !arenaOpen && session && (
               <LayoutToggles
+                filesShown={panelLayout.filesShown} onToggleFiles={panelLayout.toggleFiles}
                 canvasShown={!panelLayout.canvasHidden}
                 canvasToggleable={panelLayout.dockCapacity > 0}
                 conversationShown={panelLayout.conversationShown}
@@ -2941,6 +2943,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <ActivityBar
           compact={compact}
           workspace={compact && !arenaOpen && session ? <LayoutToggles compact
+            filesShown={panelLayout.filesShown} onToggleFiles={panelLayout.toggleFiles}
             canvasShown={!panelLayout.canvasHidden} canvasToggleable
             conversationShown={panelLayout.conversationShown}
             approvals={permissions.length} unread={unread}
@@ -3015,7 +3018,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             checkoutId={selectedCheckout?.id}
             repositoryName={selectedCheckout?.name || 'No repository'}
             changes={repositoryChanges}
-            diffState={repositoryDiff}
             onPush={repositoryChanges.push && (() => void pushRepositoryBranch(repositoryChanges.push!))}
             manager={(
               <RepositoryManager
@@ -3055,7 +3057,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             visible={panelLayout.sideShown && !immersiveActive}
             paneControl={paneControl('side', sideView === 'changes' ? 'Repository' : sideView[0].toUpperCase() + sideView.slice(1))}
             tab={panelLayout.sideTab}
-            onInspectorOpenChange={panelLayout.setInspectorOpen}
           />
           {panelLayout.sideShown && !maximized && !compact && (
             <div
@@ -3073,6 +3074,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </div>
       )}
+
+      {!loading && !arenaOpen && session && <div className="file-view-region" hidden={!panelLayout.filesShown}>
+        <RepositoryFilePane visible={panelLayout.filesShown} paneControl={paneControl('files', 'File view')} onHide={panelLayout.closeFiles} revision={repositoryChanges.revision} />
+        {panelLayout.filesShown && !maximized && !compact && (!panelLayout.canvasHidden || panelLayout.conversationShown) && <div
+          className="panel-resize-handle repository-resize-handle" role="separator" tabIndex={0}
+          aria-label="Resize file view" aria-orientation="vertical" aria-valuemin={320}
+          aria-valuemax={panelLayout.filesMaximum} aria-valuenow={Math.round(panelLayout.filesPanelWidth)}
+          onPointerDown={event => panelLayout.beginResize('files', event)} onKeyDown={event => panelLayout.resizeByKeyboard('files', event)} />}
+      </div>}
 
       <ToastStack toasts={shownToasts} className={toastPlacement} onRemove={dismissToast} />
       {projectLogoTarget && <ProjectLogoDialog key={`${projectLogoTarget.machineId}:${projectLogoTarget.project.id}`}

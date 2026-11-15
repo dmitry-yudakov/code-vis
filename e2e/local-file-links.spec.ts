@@ -12,7 +12,7 @@ async function openConversation(page: Page, request: APIRequestContext, count = 
     name: `Local links ${Date.now()}`, checkoutIds: ids.slice(0, count),
   } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json() as { session: PublicSession };
-  const text = '[Package file](package.json:2) [Line range](src/long.ts#L120-L123) '
+  const text = '[Package file](package.json:2) [Source anchor](package.json#metadata) [Line range](src/long.ts#L120-L123) '
     + `[Absolute file](${path.resolve('test/fixtures/projects/alpha/package.json')}:2) `
     + `[File URL](file://${path.resolve('test/fixtures/projects/alpha/package.json')}#L2) `
     + '[Document](docs/file-links.md#details) [Missing](missing.txt) [Docker file](/workspace/package.json:2) '
@@ -37,8 +37,22 @@ async function openConversation(page: Page, request: APIRequestContext, count = 
   return { ids, session };
 }
 
+const activeFile = (page: Page) => page.locator('.file-view-content:not([hidden])');
+const pane = (page: Page) => page.getByRole('region', { name: 'File view', exact: true });
+const tabs = (page: Page) => page.getByRole('tablist', { name: 'Open files', exact: true });
+async function showChat(page: Page) {
+  const compact = await page.locator('.app-shell').evaluate(node => node.classList.contains('dock-capacity-0'));
+  const button = (compact ? page.getByRole('navigation', { name: 'Views', exact: true }) : page.locator('.app-header'))
+    .getByRole('button', { name: compact ? 'Chat' : 'Conversation', exact: true });
+  if (await button.getAttribute('aria-pressed') !== 'true') await button.click();
+}
+async function closeFile(page: Page) {
+  await tabs(page).locator('[aria-selected="true"]').getByRole('button').click();
+  await showChat(page);
+}
+
 for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
-  test(`${theme} ${width}: chat and activity links open files at lines; Markdown and file browsing stay in the workspace`, async ({ page, request }, testInfo) => {
+  test(`${theme} ${width}: tabbed source, Markdown, maximize and file browsing preserve the workspace`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
     let imageRequests = 0;
@@ -52,27 +66,29 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await input.fill('Retain this draft');
     const initialUrl = page.url();
     for (const name of ['Package file', 'Absolute file', 'File URL', 'Activity file']) {
-      const link = page.getByRole('button', { name, exact: true });
-      await link.click();
-      const viewer = page.getByRole('dialog', { name: 'Repository file: package.json', exact: true });
-      await expect(viewer.getByLabel('File source')).toContainText('alpha');
-      await expect(viewer.locator('[data-file-line="2"]')).toBeInViewport();
-      await page.keyboard.press('Escape');
-      await expect(viewer).toBeHidden();
-      await expect(link).toBeFocused();
+      await showChat(page);
+      await page.getByRole('button', { name, exact: true }).click();
+      await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+      await expect(activeFile(page).locator('[data-file-line="2"]')).toBeInViewport();
+      await expect(tabs(page).getByRole('tab')).toHaveCount(1);
     }
+    await showChat(page);
     await page.getByRole('button', { name: 'Line range', exact: true }).click();
-    const source = page.getByRole('dialog', { name: 'Repository file: src/long.ts', exact: true });
+    const source = activeFile(page);
     await expect(source.locator('[data-file-line="120"]')).toContainText('line123');
     await expect(source.locator('[data-file-line="120"]')).toBeInViewport();
     expect(await source.locator('.diff-inspector-scroll').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await source.getByRole('button', { name: 'Wrap text', exact: true }).click();
-    await expect(source.getByRole('button', { name: 'Wrap text', exact: true })).toHaveAttribute('aria-pressed', 'false');
     expect(await source.locator('.diff-inspector-scroll').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true);
+    await source.locator('.diff-inspector-scroll').evaluate(node => { node.scrollTop = 500; });
+    await tabs(page).getByRole('tab', { name: 'package.json', exact: true }).click();
+    await tabs(page).getByRole('tab', { name: 'long.ts', exact: true }).click();
+    await expect(source.getByRole('button', { name: 'Wrap text' })).toHaveAttribute('aria-pressed', 'false');
+    expect(await source.locator('.diff-inspector-scroll').evaluate(node => node.scrollTop)).toBe(500);
     await page.screenshot({ path: testInfo.outputPath('file-source.png') });
-    await source.getByRole('button', { name: 'Close file', exact: true }).click();
+    await showChat(page);
     await page.getByRole('button', { name: 'Document', exact: true }).click();
-    const document = page.getByRole('dialog', { name: 'Repository file: docs/file-links.md', exact: true });
+    const document = activeFile(page);
     await expect(document.getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
     await expect(document.locator('img, script')).toHaveCount(0);
     expect(imageRequests).toBe(0);
@@ -81,32 +97,37 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await expect(document.getByLabel('File source')).toContainText('# File links');
     await document.getByRole('button', { name: 'Preview', exact: true }).click();
     await page.screenshot({ path: testInfo.outputPath('file-markdown.png') });
-    await document.getByRole('button', { name: 'Package source', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'Repository file: package.json', exact: true }).locator('[data-file-line="2"]')).toBeVisible();
+    const before = await page.locator('.app-shell').getAttribute('style');
+    await pane(page).getByRole('button', { name: 'Maximize File view', exact: true }).click();
+    await expect(page.getByRole('navigation', { name: 'Views', exact: true })).toBeVisible();
+    const box = (await pane(page).boundingBox())!;
+    expect(box.width).toBeGreaterThan(width - 60);
+    await page.screenshot({ path: testInfo.outputPath('maximized-file.png') });
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: 'Document', exact: true })).toBeFocused();
+    await expect(pane(page).getByRole('button', { name: 'Maximize File view', exact: true })).toBeFocused();
+    expect(await page.locator('.app-shell').getAttribute('style')).toBe(before);
+    await document.getByRole('button', { name: 'Package source', exact: true }).click();
+    await expect(activeFile(page).locator('[data-file-line="2"]')).toBeVisible();
+    await expect(tabs(page).getByRole('tab')).toHaveCount(3);
+    await pane(page).getByRole('button', { name: 'Hide file view', exact: true }).click();
+    await showChat(page);
     await expect(input).toHaveValue('Retain this draft');
     expect(page.url()).toBe(initialUrl);
     await expect(page.getByRole('link', { name: 'External', exact: true })).toHaveAttribute('target', '_blank');
     await expect(page.getByRole('link', { name: 'Unsafe', exact: true })).toHaveCount(0);
     const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'Files', exact: true });
     await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('complementary', { name: 'Files', exact: true }).getByRole('tab')).toHaveCount(0);
     const files = page.getByRole('list', { name: 'Repository files', exact: true });
     const docs = files.getByRole('button', { name: 'docs', exact: true });
-    await expect(docs).toHaveAttribute('aria-expanded', 'false');
     await docs.click();
-    await expect(docs).toHaveAttribute('aria-expanded', 'true');
-    await expect(files.getByRole('button', { name: 'package.json', exact: true })).toBeVisible();
     await files.getByRole('button', { name: 'nested', exact: true }).click();
     await expect(files.getByRole('button', { name: 'details.md', exact: true })).toBeVisible();
     await files.getByRole('button', { name: 'file-links.md', exact: true }).click();
-    await expect(page.getByRole('dialog').getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
-    await page.keyboard.press('Escape');
+    await expect(activeFile(page).getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
+    await expect(tabs(page).getByRole('tab')).toHaveCount(3);
+    if (width === 390) await toggle.click();
     await docs.click();
     await expect(files.getByRole('button', { name: 'details.md', exact: true })).toHaveCount(0);
-    await expect(docs).toHaveAttribute('aria-expanded', 'false');
     await expect(files.getByRole('button', { name: 'package.json', exact: true })).toBeVisible();
     await docs.focus();
     await page.keyboard.press('Space');
@@ -115,24 +136,23 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
   });
 }
 
-test('missing file recovery and outside paths retain the conversation; late reads cannot replace a new selection', async ({ page, request }) => {
+test('missing file recovery and outside paths retain tabs; late reads cannot replace a new selection', async ({ page, request }) => {
   await openConversation(page, request);
   await page.getByRole('button', { name: 'Outside', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('outside');
-  await expect(page.getByLabel('File source')).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  await expect(activeFile(page).getByRole('alert')).toContainText('outside');
+  await closeFile(page);
   let recovered = false;
-  await page.route('**/api/repository/file?*', async route => {
+  await page.route('**/api/repository/file?*', route => {
     if (new URL(route.request().url()).searchParams.get('path') !== 'missing.txt') return route.fallback();
-    if (!recovered) return route.fulfill({ status: 404, json: { error: 'That file no longer exists.' } });
-    return route.fulfill({ json: { file: { path: 'missing.txt', text: 'Recovered content' } } });
+    return route.fulfill(recovered ? { json: { file: { path: 'missing.txt', text: 'Recovered content' } } }
+      : { status: 404, json: { error: 'That file no longer exists.' } });
   });
   await page.getByRole('button', { name: 'Missing', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('no longer exists');
+  await expect(activeFile(page).getByRole('alert')).toContainText('no longer exists');
   recovered = true;
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
-  await expect(page.getByLabel('File source')).toContainText('Recovered content');
-  await page.keyboard.press('Escape');
+  await activeFile(page).getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('Recovered content');
+  await closeFile(page);
   let release!: () => void;
   await page.route('**/api/repository/file?*', async route => {
     if (new URL(route.request().url()).searchParams.get('path') !== 'missing.txt') return route.fallback();
@@ -140,45 +160,49 @@ test('missing file recovery and outside paths retain the conversation; late read
     await route.fulfill({ json: { file: { path: 'missing.txt', text: 'Late stale content' } } }).catch(() => {});
   });
   await page.getByRole('button', { name: 'Missing', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Reading file');
-  await page.keyboard.press('Escape');
+  await expect(activeFile(page).getByRole('status')).toContainText('Reading file');
+  await closeFile(page);
   await page.getByRole('button', { name: 'Package file', exact: true }).click();
-  await expect(page.getByLabel('File source')).toContainText('alpha');
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
   release();
-  await expect(page.getByLabel('File source')).not.toContainText('Late stale content');
+  await expect(activeFile(page).getByLabel('File source')).not.toContainText('Late stale content');
 });
 
-test('relative chat links use the primary repository; absolute links can open a second attached repository', async ({ page, request }) => {
+test('relative links use the primary repository; absolute links can open a second repository', async ({ page, request }) => {
   const { ids } = await openConversation(page, request, 2);
-  const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ });
-  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
   await page.getByRole('combobox', { name: 'Current repository', exact: true }).selectOption(ids[1]);
   await page.getByRole('button', { name: 'Package file', exact: true }).click();
-  await expect(page.getByLabel('File source')).toContainText('alpha');
-  await page.keyboard.press('Escape');
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
   await page.getByRole('button', { name: 'Other repository', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Repository file: pyproject.toml', exact: true }).getByLabel('File source')).toContainText('beta');
+  await expect(activeFile(page).getByLabel('File source')).toContainText('beta');
+  await expect(tabs(page).getByRole('tab')).toHaveCount(2);
 });
 
-test('leaving and returning to a conversation closes its old file viewer', async ({ page, request }) => {
+test('leaving and returning to a conversation clears file tabs and cancels stale reads', async ({ page, request }) => {
   const { session } = await openConversation(page, request);
   const { session: other } = await (await request.post('/api/sessions', { data: { projectId: session.projectId, provider: 'claude' } })).json();
+  let release!: () => void;
+  await page.route('**/api/repository/file?*', async route => {
+    await new Promise<void>(resolve => { release = resolve; });
+    await route.fulfill({ json: { file: { path: 'package.json', text: 'Wrong session content' } } }).catch(() => {});
+  });
   await page.getByRole('button', { name: 'Package file', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(activeFile(page).getByRole('status')).toContainText('Reading file');
   await page.evaluate(id => window.history.pushState(null, '', `/?session=${id}`), other.id);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Package file', exact: true })).toHaveCount(0);
+  release();
   await page.evaluate(id => window.history.pushState(null, '', `/?session=${id}`), session.id);
   await expect(page.getByRole('button', { name: 'Package file', exact: true })).toBeVisible();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(tabs(page)).toHaveCount(0);
+  await expect(page.getByText('Wrong session content')).toHaveCount(0);
 });
 
 test('Docker workspace links resolve in the bound host checkout', async ({ page, request }) => {
   await openConversation(page, request, 1, true);
   await page.getByRole('button', { name: 'Docker file', exact: true }).click();
-  const viewer = page.getByRole('dialog', { name: 'Repository file: package.json', exact: true });
-  await expect(viewer.getByLabel('File source')).toContainText('alpha');
-  await expect(viewer.locator('[data-file-line="2"]')).toBeVisible();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+  await expect(activeFile(page).locator('[data-file-line="2"]')).toBeVisible();
 });
 
 test('folder failures expose retry without affecting Changes and History', async ({ page, request }) => {
@@ -286,4 +310,112 @@ test('Files switches checkout scopes without stale rows and Repository retains i
   await page.getByRole('combobox', { name: 'Current repository', exact: true }).selectOption(ids[1]);
   await expect(files.getByRole('button', { name: 'pyproject.toml', exact: true })).toBeVisible();
   await expect(files.getByRole('button', { name: 'file-links.md', exact: true })).toHaveCount(0);
+});
+
+test('all four panes, mixed source/diff tabs, independent toggles and responsive return', async ({ page, request }, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: {
+    isRepository: true, branch: 'main', files: [{ path: 'package.json', status: 'modified', staged: false, unstaged: true }],
+  } } }));
+  await page.route('**/api/repository/diff?*', route => route.fulfill({ json: { diff: { path: 'package.json', unstaged: '+package changes' } } }));
+  await openConversation(page, request);
+  const navigation = page.getByRole('navigation', { name: 'Views', exact: true });
+  await page.getByRole('button', { name: 'Package file', exact: true }).click();
+  await navigation.getByRole('button', { name: /^Repository/ }).click();
+  await page.locator('.repository-file').click();
+  await expect(activeFile(page).getByLabel('Unified diff')).toContainText('package changes');
+  await expect(tabs(page).getByRole('tab')).toHaveCount(2);
+  await page.locator('.app-header').getByRole('button', { name: 'Canvas', exact: true }).click();
+  const regions = ['.activity-bar', '.repository-region', '.file-view-region', '.canvas-workspace', '.conversation-region'];
+  const boxes = [];
+  for (const selector of regions) {
+    const region = page.locator(selector);
+    await expect(region).toBeVisible();
+    boxes.push((await region.boundingBox())!);
+  }
+  for (let index = 1; index < boxes.length; index++) expect(boxes[index].x).toBeGreaterThanOrEqual(boxes[index - 1].x + boxes[index - 1].width);
+  await page.screenshot({ path: testInfo.outputPath('all-workspace-panes.png') });
+  const before = await page.locator('.app-shell').getAttribute('style');
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(pane(page)).toBeVisible();
+  expect(await page.locator('.app-shell').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  expect(await page.locator('.app-shell').getAttribute('style')).toBe(before);
+  await tabs(page).getByRole('tab', { name: 'package.json', exact: true }).click();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+  await navigation.getByRole('button', { name: 'Files', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Repository files', exact: true })).toBeVisible();
+  await pane(page).getByRole('button', { name: 'Hide file view', exact: true }).click();
+  await expect(page.locator('.file-view-region')).toBeHidden();
+  await expect(page.locator('.repository-region')).toBeVisible();
+  await page.locator('.app-header').getByRole('button', { name: 'File view', exact: true }).click();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+  await expect(tabs(page).getByRole('tab')).toHaveCount(2);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await navigation.getByRole('button', { name: 'Canvas', exact: true }).click();
+  await expect(page.locator('.canvas-workspace')).toBeVisible();
+  await navigation.getByRole('button', { name: 'File view', exact: true }).click();
+  await expect(pane(page)).toBeVisible();
+  await expect(tabs(page).getByRole('tab')).toHaveCount(2);
+});
+
+test('a slow line-targeted read waits for the phone pane to return; document links retain maximize', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await openConversation(page, request);
+  let release!: () => void;
+  await page.route('**/api/repository/file?*', async route => {
+    if (new URL(route.request().url()).searchParams.get('path') !== 'src/long.ts') return route.fallback();
+    await new Promise<void>(resolve => { release = resolve; });
+    await route.fulfill({ json: { file: { path: 'src/long.ts', text: Array.from({ length: 300 }, (_, index) => `line ${index + 1}`).join('\n') } } });
+  });
+  await page.getByRole('button', { name: 'Line range', exact: true }).click();
+  await expect(activeFile(page).getByRole('status')).toContainText('Reading file');
+  await showChat(page);
+  release();
+  await expect(page.locator('.repository-file-source')).toContainText('line 300');
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'File view', exact: true }).click();
+  await expect(activeFile(page).locator('[data-file-line="120"]')).toBeInViewport();
+  await showChat(page);
+  await page.getByRole('button', { name: 'Document', exact: true }).click();
+  await expect(activeFile(page).getByRole('button', { name: 'Package source', exact: true })).toBeVisible();
+  await pane(page).getByRole('button', { name: 'Maximize File view', exact: true }).click();
+  await activeFile(page).getByRole('button', { name: 'Package source', exact: true }).click();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+  await expect(pane(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
+});
+
+test('source anchors remain source; hidden-canvas toasts use a numeric offset', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openConversation(page, request);
+  await page.getByRole('button', { name: 'Source anchor', exact: true }).click();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+  await expect(activeFile(page).getByRole('article', { name: 'Markdown preview' })).toHaveCount(0);
+  await page.route('**/api/agent/message', route => route.fulfill({ status: 503, json: { error: 'File pane toast placement check' } }));
+  await page.getByRole('textbox', { name: 'Instruction', exact: true }).fill('Show recovery feedback');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const toast = page.getByRole('region', { name: 'Notifications', exact: true });
+  await expect(toast).toContainText('Delivery is unconfirmed.');
+  await expect(toast).toHaveCSS('right', '16px');
+});
+
+test('reopening an absolute chat file from the tree preserves its reading position without another read', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  let fileReads = 0;
+  await page.route('**/api/repository/file?*', route => {
+    if (!new URL(route.request().url()).searchParams.get('path')?.endsWith('package.json')) return route.fallback();
+    fileReads++;
+    return route.fulfill({ json: { file: { path: 'package.json', text: Array.from({ length: 250 }, (_, index) => `line ${index + 1}`).join('\n') } } });
+  });
+  await openConversation(page, request);
+  await page.getByRole('button', { name: 'Absolute file', exact: true }).click();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('line 250');
+  await activeFile(page).locator('.diff-inspector-scroll').evaluate(node => { node.scrollTop = 500; });
+  await page.getByRole('button', { name: 'Document', exact: true }).click();
+  await expect(activeFile(page).getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'Files', exact: true }).click();
+  await page.getByRole('list', { name: 'Repository files', exact: true }).getByRole('button', { name: 'package.json', exact: true }).click();
+  await expect(activeFile(page).getByLabel('File source')).toContainText('line 250');
+  expect(await activeFile(page).locator('.diff-inspector-scroll').evaluate(node => node.scrollTop)).toBe(500);
+  expect(fileReads).toBe(1);
+  await expect(tabs(page).getByRole('tab')).toHaveCount(2);
 });

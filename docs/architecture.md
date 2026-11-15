@@ -667,6 +667,12 @@ read allowlist. A command matching no rule is auto-denied and shown as a denial 
 
 ## Repository access
 
+`RepositoryFilesProvider` owns disposable source/diff tabs for the focused conversation and
+executing machine. `RepositoryFilePane` renders them independently of repository navigation;
+the shell owns pane visibility, width and maximize. Scope changes clear tabs and abort reads.
+Source reads retain the existing bounded, authorized file routes; diff tabs use the same Git
+diff route and refresh revision as repository review. Contents and tabs are not durable records.
+
 `src/server/repository/gitRepository.ts` runs a fixed set of read-only git invocations without a
 shell, in the selected repository checkout, with bounded output
 (`CODEAI_MAX_GIT_CONTEXT_BYTES`). It backs the repository sidebar (status, changed files, diffs)

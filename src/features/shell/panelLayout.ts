@@ -2,6 +2,7 @@ export const PANEL_WIDTHS_STORAGE_KEY = 'code-ai:panel-widths';
 export const VIEW_PANEL_LAYOUTS_STORAGE_KEY = 'code-ai:device:v1:view-panel-layouts';
 export const REPOSITORY_MIN_WIDTH = 268;
 export const CONVERSATION_MIN_WIDTH = 320;
+export const FILE_VIEW_MIN_WIDTH = 320;
 export const CANVAS_MIN_WIDTH = 360;
 export const PANEL_HANDLE_ALLOWANCE = 12;
 export const PANE_GUTTER = 4;
@@ -12,19 +13,21 @@ export const MAX_VIEW_PANEL_LAYOUTS = 200;
 export interface PanelWidths {
   repositoryWidth: number;
   conversationWidth: number;
+  filesWidth: number;
 }
 
 export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   repositoryWidth: 340,
   conversationWidth: 460,
+  filesWidth: 420,
 };
 
 export type DockCapacity = 0 | 1 | 2;
-export type LastOpenedPanel = 'repository' | 'dock';
+export type LastOpenedPanel = 'repository' | 'dock' | 'files' | 'canvas';
 /** What the side panel shows. Its open state keeps the stored name `repositoryOpen`. */
 export type SideTab = 'files' | 'changes' | 'history' | 'reports';
 const SIDE_TABS: readonly SideTab[] = ['files', 'changes', 'history', 'reports'];
-export type Pane = 'conversation' | 'canvas' | 'side';
+export type Pane = 'conversation' | 'canvas' | 'side' | 'files';
 
 export interface PanelLayout extends PanelWidths {
   repositoryOpen: boolean;
@@ -32,7 +35,7 @@ export interface PanelLayout extends PanelWidths {
   /** False while the user has hidden the canvas; see `isCanvasHidden` for when that holds. */
   canvasOpen: boolean;
   sideTab: SideTab;
-  inspectorOpen: boolean;
+  filesOpen: boolean;
   maximized: Pane | null;
   lastOpened: LastOpenedPanel;
 }
@@ -43,7 +46,7 @@ export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
   conversationOpen: true,
   canvasOpen: true,
   sideTab: 'changes',
-  inspectorOpen: false,
+  filesOpen: false,
   maximized: null,
   lastOpened: 'dock',
   ...DEFAULT_PANEL_WIDTHS,
@@ -63,14 +66,13 @@ export function panelMaximumForWidth(shellWidth: number): number {
   return Math.floor((shellWidth + ACTIVITY_BAR_WIDTH) * 0.8);
 }
 
-/** Each docked surface has a right gutter, including the final surface's outer inset. */
-export function paneContentWidth(shellWidth: number, repositoryOpen: boolean, conversationBesideCanvas: boolean): number {
-  return Math.max(0, shellWidth - PANE_GUTTER * (1 + Number(repositoryOpen) + Number(conversationBesideCanvas)));
-}
-
 // Persist the preference without a screen-dependent cap; resolve it against the live window.
 export function clampPanelWidths(value: Partial<PanelWidths> | undefined, maximum = Number.MAX_SAFE_INTEGER): PanelWidths {
   return {
+    filesWidth: clamp(
+      Number.isFinite(value?.filesWidth) ? value!.filesWidth! : DEFAULT_PANEL_WIDTHS.filesWidth,
+      FILE_VIEW_MIN_WIDTH, Math.max(FILE_VIEW_MIN_WIDTH, maximum),
+    ),
     repositoryWidth: clamp(
       Number.isFinite(value?.repositoryWidth) ? value!.repositoryWidth! : DEFAULT_PANEL_WIDTHS.repositoryWidth,
       REPOSITORY_MIN_WIDTH,
@@ -109,10 +111,10 @@ export function parseViewPanelLayouts(value: string | null): Record<string, Pane
         // A layout that closed the conversation has nothing to give the canvas's width to.
         canvasOpen: candidate.canvasOpen !== false || candidate.conversationOpen !== true,
         sideTab: SIDE_TABS.includes(candidate.sideTab as SideTab) ? candidate.sideTab as SideTab : 'changes',
-        inspectorOpen: candidate.inspectorOpen === true,
-        maximized: candidate.maximized === 'canvas' || candidate.maximized === 'conversation' || candidate.maximized === 'side'
+        filesOpen: candidate.filesOpen === true,
+        maximized: candidate.maximized === 'canvas' || candidate.maximized === 'conversation' || candidate.maximized === 'side' || candidate.maximized === 'files'
           ? candidate.maximized : candidate.maximized === undefined && candidate.focusMode === true ? 'canvas' : null,
-        lastOpened: candidate.lastOpened === 'dock' ? 'dock' : 'repository',
+        lastOpened: candidate.lastOpened === 'dock' || candidate.lastOpened === 'files' || candidate.lastOpened === 'canvas' ? candidate.lastOpened : 'repository',
         ...clampPanelWidths(candidate),
       };
     }
@@ -159,29 +161,45 @@ export function dockCapacityForWidth(shellWidth: number): DockCapacity {
 }
 
 /** Resolve temporary maximize and the narrow module without changing the saved desktop layout. */
-export function visiblePanes(layout: PanelLayout, capacity: DockCapacity) {
+export function visiblePanes(layout: PanelLayout, capacity: DockCapacity, shellWidth = Infinity) {
   if (layout.maximized) return {
-    side: layout.maximized === 'side', conversation: layout.maximized === 'conversation', canvas: layout.maximized === 'canvas',
+    side: layout.maximized === 'side', files: layout.maximized === 'files',
+    conversation: layout.maximized === 'conversation', canvas: layout.maximized === 'canvas',
   };
   if (capacity === 0) {
-    const side = layout.repositoryOpen && (layout.lastOpened === 'repository' || !layout.conversationOpen);
-    const conversation = layout.conversationOpen && !side;
-    return { side, conversation, canvas: !side && !conversation };
+    if (layout.lastOpened === 'canvas' && layout.canvasOpen) return { side: false, files: false, conversation: false, canvas: true };
+    const files = layout.filesOpen && layout.lastOpened === 'files';
+    const side = !files && layout.repositoryOpen && (layout.lastOpened === 'repository' || !layout.conversationOpen);
+    const conversation = !files && layout.conversationOpen && !side;
+    return { side, files, conversation, canvas: !files && !side && !conversation };
   }
-  return { side: layout.repositoryOpen, conversation: layout.conversationOpen, canvas: layout.canvasOpen || !layout.conversationOpen };
+  const shown = { side: layout.repositoryOpen, files: layout.filesOpen,
+    conversation: layout.conversationOpen, canvas: layout.canvasOpen || !layout.conversationOpen && !layout.filesOpen };
+  if (shown.files) {
+    const minimums = { side: REPOSITORY_MIN_WIDTH, files: FILE_VIEW_MIN_WIDTH, conversation: CONVERSATION_MIN_WIDTH, canvas: CANVAS_MIN_WIDTH };
+    const order: Pane[] = layout.lastOpened === 'repository' ? ['canvas', 'conversation', 'files']
+      : layout.lastOpened === 'dock' ? ['canvas', 'side', 'files']
+      : layout.lastOpened === 'canvas' ? ['side', 'conversation', 'files'] : ['canvas', 'side', 'conversation'];
+    const needed = () => Object.entries(shown).reduce((sum, [pane, open]) => sum + (open ? minimums[pane as Pane] + PANE_GUTTER : 0), 0);
+    for (const pane of order) {
+      if (needed() <= shellWidth) break;
+      shown[pane] = false;
+    }
+  }
+  return shown;
 }
 
 export function toggledMaximized(layout: PanelLayout, pane: Pane): PanelLayout {
   return { ...layout, maximized: layout.maximized === pane ? null : pane };
 }
 
-/** A docked pane alone already has the room. A narrow module can still hide the shell's navigation. */
-export function canMaximize(layout: PanelLayout, capacity: DockCapacity): boolean {
-  return capacity === 0 || Object.values(visiblePanes(layout, capacity)).filter(Boolean).length > 1;
+/** A docked pane alone already has the room; narrow modules keep consistent maximize controls. */
+export function canMaximize(layout: PanelLayout, capacity: DockCapacity, shellWidth = Infinity): boolean {
+  return capacity === 0 || Object.values(visiblePanes(layout, capacity, shellWidth)).filter(Boolean).length > 1;
 }
 
-export function isCanvasHidden(layout: PanelLayout, capacity: DockCapacity): boolean {
-  return !visiblePanes(layout, capacity).canvas;
+export function isCanvasHidden(layout: PanelLayout, capacity: DockCapacity, shellWidth = Infinity): boolean {
+  return !visiblePanes(layout, capacity, shellWidth).canvas;
 }
 
 /** Closing the conversation shows the canvas, and keeps it shown when the conversation returns. */
@@ -191,11 +209,10 @@ export function withoutConversation(layout: PanelLayout): PanelLayout {
 
 /**
  * Hiding the canvas opens the conversation to take its width. Showing it again keeps the
- * conversation and closes the side panel where the side panel no longer fits beside the two: where
- * only one dock fits, or where a diff inspector would need the conversation's room (`sideFits`).
+ * conversation and closes the side panel where it no longer fits beside the two.
  */
 export function toggledCanvas(layout: PanelLayout, capacity: DockCapacity, sideFits = capacity === 2): PanelLayout {
-  if (capacity === 0) return { ...layout, maximized: null, canvasOpen: true, conversationOpen: false, repositoryOpen: false };
+  if (capacity === 0) return { ...layout, maximized: null, canvasOpen: true, conversationOpen: false, repositoryOpen: false, filesOpen: false, lastOpened: 'canvas' };
   if (isCanvasHidden(layout, capacity)) {
     return { ...layout, maximized: null, canvasOpen: true, ...(capacity === 1 || !sideFits ? { repositoryOpen: false } : {}) };
   }
@@ -205,95 +222,41 @@ export function toggledCanvas(layout: PanelLayout, capacity: DockCapacity, sideF
 export interface ResolvedDockWidths extends PanelWidths {
   repositoryColumnWidth: number;
   conversationColumnWidth: number;
+  filesColumnWidth: number;
 }
 
-/**
- * Resolve persisted preferences against the current shell without ever stealing the canvas
- * minimum. Preferences stay untouched, so widening the window restores the requested widths.
- */
-export function resolveDockWidths({
-  shellWidth,
-  capacity,
-  repositoryOpen,
-  dockOpen,
-  canvasShown = true,
-  inspectorOpen,
-  lastOpened,
-  widths,
-}: {
-  shellWidth: number;
-  capacity: DockCapacity;
-  repositoryOpen: boolean;
-  dockOpen: boolean;
-  canvasShown?: boolean;
-  inspectorOpen: boolean;
-  lastOpened: LastOpenedPanel;
-  widths: PanelWidths;
+/** Resolve all four surfaces together, keeping preferred widths for when the window widens. */
+export function resolveDockWidths({ shellWidth, capacity, repositoryOpen, dockOpen, filesOpen = false,
+  canvasShown = true, lastOpened, widths }: {
+  shellWidth: number; capacity: DockCapacity; repositoryOpen: boolean; dockOpen: boolean;
+  filesOpen?: boolean; canvasShown?: boolean; lastOpened: LastOpenedPanel; widths: PanelWidths;
 }): ResolvedDockWidths {
-  const maximum = panelMaximumForWidth(shellWidth);
-  let { repositoryWidth, conversationWidth } = clampPanelWidths(widths, maximum);
-  if (inspectorOpen && capacity === 2) repositoryWidth = Math.min(repositoryWidth, Math.floor(maximum / 2));
-  if (capacity === 0) {
-    return { repositoryWidth, conversationWidth, repositoryColumnWidth: 0, conversationColumnWidth: 0 };
+  const preferred = clampPanelWidths(widths, panelMaximumForWidth(shellWidth));
+  if (capacity === 0) return { ...preferred, repositoryColumnWidth: 0, conversationColumnWidth: 0, filesColumnWidth: 0 };
+  const open = { side: repositoryOpen, files: filesOpen, conversation: dockOpen, canvas: canvasShown };
+  const minimum = { side: REPOSITORY_MIN_WIDTH, files: FILE_VIEW_MIN_WIDTH, conversation: CONVERSATION_MIN_WIDTH, canvas: CANVAS_MIN_WIDTH };
+  const size = { side: preferred.repositoryWidth, files: preferred.filesWidth, conversation: preferred.conversationWidth, canvas: CANVAS_MIN_WIDTH };
+  const flex: Pane = canvasShown ? 'canvas' : dockOpen ? 'conversation' : filesOpen ? 'files' : 'side';
+  const panes = (Object.keys(open) as Pane[]).filter(pane => open[pane]);
+  const available = Math.max(0, shellWidth - panes.length * PANE_GUTTER);
+  size[flex] = minimum[flex];
+  let overflow = Math.max(0, panes.reduce((sum, pane) => sum + size[pane], 0) - available);
+  const priority = lastOpened === 'repository' ? 'side' : lastOpened === 'dock' ? 'conversation' : lastOpened;
+  const fixed = panes.filter(pane => pane !== flex).sort((a, b) => Number(a === priority) - Number(b === priority));
+  for (const pane of fixed) {
+    const shrink = Math.min(overflow, Math.max(0, size[pane] - minimum[pane]));
+    size[pane] -= shrink;
+    overflow -= shrink;
   }
-  const contentWidth = paneContentWidth(shellWidth, repositoryOpen, canvasShown && dockOpen);
-  if (!canvasShown) {
-    // The conversation takes whatever the side panel leaves, and keeps at least its minimum.
-    const room = Math.max(0, contentWidth - CONVERSATION_MIN_WIDTH);
-    if (inspectorOpen && capacity === 2) repositoryWidth = Math.min(repositoryWidth, Math.floor(room / 2));
-    const wanted = inspectorOpen && capacity === 2 ? repositoryWidth * 2 : repositoryWidth;
-    return {
-      repositoryWidth: Math.min(repositoryWidth, room),
-      conversationWidth,
-      repositoryColumnWidth: repositoryOpen ? Math.min(wanted, room) + PANE_GUTTER : 0,
-      conversationColumnWidth: 0,
-    };
+  // The responsive visibility resolver normally prevents this; keep first measurement safe too.
+  for (const pane of fixed) {
+    const shrink = Math.min(overflow, size[pane]);
+    size[pane] -= shrink;
+    overflow -= shrink;
   }
-
-  const repositoryVisible = repositoryOpen;
-  const dockVisible = dockOpen;
-  const available = Math.max(0, contentWidth - CANVAS_MIN_WIDTH);
-
-  if (repositoryVisible && dockVisible) {
-    let overflow = Math.max(0, repositoryWidth + conversationWidth - available);
-    const shrinkRepository = () => {
-      const amount = Math.min(overflow, repositoryWidth - REPOSITORY_MIN_WIDTH);
-      repositoryWidth -= amount;
-      overflow -= amount;
-    };
-    const shrinkConversation = () => {
-      const amount = Math.min(overflow, conversationWidth - CONVERSATION_MIN_WIDTH);
-      conversationWidth -= amount;
-      overflow -= amount;
-    };
-    // Preserve the most recently opened surface where possible.
-    if (lastOpened === 'dock') {
-      shrinkRepository();
-      shrinkConversation();
-    } else {
-      shrinkConversation();
-      shrinkRepository();
-    }
-  } else if (repositoryVisible) {
-    repositoryWidth = Math.min(repositoryWidth, available);
-  } else if (dockVisible) {
-    conversationWidth = Math.min(conversationWidth, available);
-  }
-
-  const conversationColumnWidth = dockVisible ? conversationWidth : 0;
-  const repositoryRoom = Math.max(0, available - conversationColumnWidth);
-  if (inspectorOpen && capacity === 2) {
-    repositoryWidth = Math.min(repositoryWidth, Math.max(REPOSITORY_MIN_WIDTH, Math.floor(repositoryRoom / 2)));
-  }
-  const repositoryColumnWidth = repositoryVisible
-    ? inspectorOpen && capacity === 2
-      ? Math.min(repositoryWidth * 2, repositoryRoom)
-      : Math.min(repositoryWidth, repositoryRoom)
-    : 0;
-
+  const column = (pane: Pane) => open[pane] && pane !== flex ? size[pane] + PANE_GUTTER : 0;
   return {
-    repositoryWidth, conversationWidth,
-    repositoryColumnWidth: repositoryVisible ? repositoryColumnWidth + PANE_GUTTER : 0,
-    conversationColumnWidth: dockVisible ? conversationColumnWidth + PANE_GUTTER : 0,
+    repositoryWidth: size.side, conversationWidth: size.conversation, filesWidth: size.files,
+    repositoryColumnWidth: column('side'), conversationColumnWidth: column('conversation'), filesColumnWidth: column('files'),
   };
 }

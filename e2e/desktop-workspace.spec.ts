@@ -97,7 +97,7 @@ for (const appearance of ['light', 'dark']) {
     await page.screenshot({ path: testInfo.outputPath('narrow-conversation.png'), animations: 'disabled' });
   });
 
-  test(`diff inspector reserves gutters before admitting three panes: ${appearance}`, async ({ page, request }, testInfo) => {
+  test(`tabbed file review fits beside Repository, canvas and conversation: ${appearance}`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width: 1560, height: 900 });
     await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), appearance);
     await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: {
@@ -115,20 +115,19 @@ for (const appearance of ['light', 'dark']) {
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
     const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
     await repository.locator('.repository-file').click();
-    await expect(repository).toHaveClass(/has-inspector/);
     await expect(page.getByLabel('Unified diff')).toContainText('+new value');
-    await expect(repository).toHaveCSS('width', '680px');
+    const filePane = page.getByRole('region', { name: 'File view', exact: true });
+    await expect(filePane).toBeVisible();
     await expect(conversation).toBeVisible();
-    await expect(page.locator('.canvas-workspace')).toHaveCSS('width', '360px');
+    expect((await page.locator('.canvas-workspace').boundingBox())!.width).toBeGreaterThanOrEqual(360);
+    expect((await repository.boundingBox())!.width).toBeGreaterThanOrEqual(268);
+    expect((await filePane.boundingBox())!.width).toBeGreaterThanOrEqual(320);
     await page.screenshot({ path: testInfo.outputPath('diff-inspector.png'), animations: 'disabled' });
-    await page.setViewportSize({ width: 1559, height: 900 });
-    await expect(conversation).toBeHidden();
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await expect(filePane).toBeVisible();
+    expect(await page.locator('.app-shell').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 1560, height: 900 });
     await expect(repository).toBeVisible();
-    await canvasToggle.click();
-    await expect(conversation).toBeVisible();
-    await expect(repository).toBeVisible();
-    await canvasToggle.click();
-    await expect(repository).toBeHidden();
     await expect(conversation).toBeVisible();
     await expect(page.locator('.canvas-workspace')).toBeVisible();
   });

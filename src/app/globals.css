@@ -19,7 +19,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .device-access-card label { display: grid; gap: 6px; color: var(--muted); font: 600 9px/1 var(--mono); letter-spacing: .07em; text-transform: uppercase; }
 .device-access-error { margin: 0; color: var(--stop-ink); font-size: 11px; line-height: 1.45; }
 
-.app-shell { height: 100dvh; display: grid; grid-template-rows: 48px minmax(0, 1fr); grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] minmax(min(360px, calc(100vw - 48px)), 1fr) [dock] var(--conversation-column-width, 0); grid-template-areas: "header header header header" "activity rail canvas dock"; background: var(--shell); }
+.app-shell { height: 100dvh; display: grid; grid-template-rows: 48px minmax(0, 1fr); grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [files] var(--files-column-width, 0) [canvas] minmax(min(360px, calc(100vw - 48px)), 1fr) [dock] var(--conversation-column-width, 0); grid-template-areas: "header header header header header" "activity rail files canvas dock"; background: var(--shell); }
 .app-header { grid-area: header; display: flex; align-items: center; gap: 14px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--line); background: var(--raised); z-index: 20; }
 .brand { flex: none; display: flex; align-items: center; gap: 7px; font-family: var(--display); font-stretch: 112%; }
 .brand strong { font-size: 13px; line-height: 1; letter-spacing: -.01em; }
@@ -107,7 +107,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .workspace-tab .queue-badge { display: grid; place-items: center; padding: 0 4px; border-radius: 999px; color: var(--muted); background: var(--control-wash); font-family: var(--mono); }
 
 /* With the canvas hidden the conversation takes the row, and reads in a centred column. */
-.app-shell.canvas-hidden { grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [canvas] 0 [dock] minmax(0, 1fr); }
+.app-shell.canvas-hidden { grid-template-columns: [activity] 48px [rail] var(--repository-column-width, 0) [files] var(--files-column-width, 0) [canvas] 0 [dock] var(--conversation-grid-column, 0); }
 .canvas-workspace[hidden] { display: none; }
 /* Its neighbour, the activity bar or the side panel, already draws the dividing line. */
 .canvas-hidden .conversation-drawer { border-left: 0; box-shadow: none; }
@@ -602,9 +602,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .app-loading .brand-mark { width: 48px; height: 48px; font-size: 24px; }
 
 .repository-region { grid-area: rail; position: relative; min-width: 0; min-height: 0; margin: var(--pane-gutter, 0px) var(--pane-gutter, 0px) var(--pane-gutter, 0px) 0; z-index: 15; }
-.repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, var(--repository-panel-width)); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: var(--sidebar-shadow); }
-.repository-sidebar.has-inspector { --review-split: clamp(180px, var(--repository-summary-width, var(--repository-panel-width)), calc(100% - 220px)); grid-template-columns: minmax(0, var(--review-split)) minmax(0, 1fr); box-shadow: var(--sidebar-inspector-shadow); }
-.repository-inspector-resize { left: calc(var(--review-split) - 4px); }
+.repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: var(--sidebar-shadow); }
 .repository-panel-body { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .repository-view-content { min-height: 0; min-width: 0; display: grid; }
 .repository-panel-body[hidden], .repository-view-content[hidden] { display: none; }
@@ -618,17 +616,9 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .conversation-resize-handle { left: calc(-4px - var(--pane-gutter, 0px) / 2); }
 /* Insets belong to the grid's width budget; the frames never clip the resize handles.
    An inset outline gives every surface a quiet edge without reducing its content width. */
-.app-shell:not(.dock-capacity-0) :is(.activity-bar, .canvas-workspace, .repository-sidebar, .conversation-drawer) { border: 0; border-radius: 8px; outline: 1px solid var(--line); outline-offset: -1px; background-color: var(--sheet); box-shadow: none; }
+.app-shell:not(.dock-capacity-0) :is(.activity-bar, .canvas-workspace, .repository-sidebar, .repository-file-pane, .conversation-drawer) { border: 0; border-radius: 8px; outline: 1px solid var(--line); outline-offset: -1px; background-color: var(--sheet); box-shadow: none; }
 .panel-resizing, .panel-resizing * { cursor: col-resize !important; user-select: none !important; }
 
-/* At one-column capacity an inspector replaces the file list. Only a two-panel-capacity shell
-   has enough room to show the repository summary and inspector side by side. */
-.dock-capacity-0 .repository-sidebar.has-inspector,
-.dock-capacity-1 .repository-sidebar.has-inspector { grid-template-columns: minmax(0, 1fr); }
-:is(.dock-capacity-0, .dock-capacity-1) .repository-sidebar.has-inspector { grid-template-rows: auto minmax(0, 1fr); }
-:is(.dock-capacity-0, .dock-capacity-1) .has-inspector .repository-summary-panel { display: contents; }
-:is(.dock-capacity-0, .dock-capacity-1) .has-inspector .repository-panel-body { display: none; }
-:is(.dock-capacity-0, .dock-capacity-1) .repository-inspector-resize { display: none; }
 
 .repository-panel-header, .diff-inspector-header { min-width: 0; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--sheet); }
 .diff-inspector-header > div { min-width: 0; display: grid; gap: 5px; }
@@ -900,19 +890,32 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .conversation-drawer header > .pane-header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
 .pane-maximize { position: relative; width: 32px; height: 32px; flex: none; }
 .pane-maximize .shell-icon { width: 16px; height: 16px; }
-.repository-region[hidden], .conversation-region[hidden] { display: none; }
-.app-shell.pane-maximized { grid-template-columns: [activity] 48px [rail] 0 [canvas] minmax(0, 1fr) [dock] 0; }
-.pane-maximized :is(.canvas-workspace, .repository-region, .conversation-region) { grid-column: rail / -1; }
+/* Repository browsing and file contents are independent workspace surfaces. */
+.file-view-region { grid-area: files; position: relative; min-width: 0; min-height: 0; margin: var(--pane-gutter, 0px) var(--pane-gutter, 0px) var(--pane-gutter, 0px) 0; }
+.repository-file-pane { position: absolute; inset: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--sheet); }
+.file-view-tabs { flex-shrink: 0; min-height: 36px; border-bottom: 1px solid var(--line); }
+.file-view-tabs .MuiTab-root { min-height: 36px; min-width: 100px; max-width: 240px; padding: 0 4px 0 10px; text-transform: none; }
+.file-view-tab-label { display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%; font-size: 12px; }
+.file-view-tab-label > .shell-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.file-view-tab-label > span:not(.MuiIconButton-root) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-view-tab-label .MuiIconButton-root { width: 28px; height: 32px; margin-left: auto; font-size: 16px; }
+.file-view-content { flex: 1; min-width: 0; min-height: 0; display: grid; }
+.file-view-content[hidden] { display: none; }
+.dock-capacity-0 .file-view-tabs .MuiTab-root { min-height: 40px; }
+.dock-capacity-0 .file-view-tab-label .MuiIconButton-root { width: 40px; height: 40px; }
+
+.repository-region[hidden], .conversation-region[hidden], .file-view-region[hidden] { display: none; }
+.app-shell.pane-maximized { grid-template-columns: [activity] 48px [rail] 0 [files] 0 [canvas] minmax(0, 1fr) [dock] 0; }
+.pane-maximized :is(.canvas-workspace, .repository-region, .file-view-region, .conversation-region) { grid-column: rail / -1; }
 .pane-maximized .repository-sidebar { grid-template-columns: minmax(0, 1fr); }
-.pane-maximized.dock-capacity-2 .repository-sidebar.has-inspector { --review-split: clamp(180px, var(--repository-summary-width, max(268px, 33.333333%)), calc(100% - 220px)); grid-template-columns: minmax(0, var(--review-split)) minmax(0, 1fr); }
 .maximized-conversation .conversation-drawer > header { padding-inline: max(12px, calc((100% - 760px) / 2)); }
 .maximized-conversation .conversation-scroll { padding-inline: max(14px, calc((100% - 760px) / 2)); }
 .maximized-conversation .drawer-composer { padding-inline: max(10px, calc((100% - 760px) / 2)); }
 .composer-layout, .composer-agent { display: contents; }
 
 /* The existing zero-dock band selects one full-width module above a bottom navigation bar. */
-.app-shell.dock-capacity-0 { grid-template-columns: [activity rail canvas dock] minmax(0, 1fr); grid-template-rows: 44px minmax(0, 1fr) auto; grid-template-areas: "header" "canvas" "activity"; }
-.dock-capacity-0 :is(.canvas-workspace, .repository-region, .conversation-region) { grid-column: 1; grid-row: 2; position: relative; inset: auto; width: auto; margin: 0; min-width: 0; }
+.app-shell.dock-capacity-0 { grid-template-columns: [activity rail files canvas dock] minmax(0, 1fr); grid-template-rows: 44px minmax(0, 1fr) auto; grid-template-areas: "header" "canvas" "activity"; }
+.dock-capacity-0 :is(.canvas-workspace, .repository-region, .file-view-region, .conversation-region) { grid-column: 1; grid-row: 2; position: relative; inset: auto; width: auto; margin: 0; min-width: 0; }
 .dock-capacity-0 :is(.repository-sidebar, .conversation-drawer) { border: 0; border-radius: 0; box-shadow: none; }
 .dock-capacity-0 .repository-sidebar { grid-template-columns: minmax(0, 1fr); }
 .dock-capacity-0 .app-header { flex-wrap: nowrap; gap: 4px; padding: 0 6px; }
@@ -960,7 +963,3 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .dock-capacity-0 .execution-menu > button { min-height: 40px; padding-inline: 4px; }
 .dock-capacity-0 .execution-hint:not(.is-busy), .dock-capacity-0 .execution-hint-separator, .dock-capacity-0 .instructions-part { display: none; }
 /* A maximized phone module owns the viewport; its own restore control remains in reach. */
-.app-shell.dock-capacity-0.pane-maximized { grid-template-rows: minmax(0, 1fr); grid-template-areas: "canvas"; }
-.dock-capacity-0.pane-maximized > :is(.app-header, .activity-bar) { display: none; }
-.dock-capacity-0.pane-maximized :is(.canvas-workspace, .repository-region, .conversation-region) { grid-row: 1; }
-.dock-capacity-0.pane-maximized .toast-region { top: 50px; }

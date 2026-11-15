@@ -1381,16 +1381,16 @@ The canvas supports pan, wheel/buttons zoom, fit/reset, pen, rectangle, arrow, t
 export. Focus mode fills the application viewport while retaining tools, status, and the
 instruction composer.
 
-The activity bar at the left edge picks the side panel's view: **Repository** (with the working
+The activity bar at the left edge picks the side panel's view: **Files**, **Repository** (with the working
 tree's change count), **History** for canvases, and, in CodeAI's own project, **Reports**. Pressing the shown
 view closes the panel. **Arena** and **Inbox** follow, and the gear at the bottom holds **More**:
 the theme, Export session, Archive session, and Build & restart where offered. The header ends with
-two layout icons. **Conversation** opens and closes the conversation and, while it is closed,
+three layout icons. **File view** shows the open file tabs. **Conversation** opens and closes the conversation and, while it is closed,
 carries pending approvals or unread replies as a badge. **Canvas** hides the canvas so the
 conversation takes the width, centred for reading; closing the conversation brings the canvas
-back, so the two are never hidden together. The choice is per session view on this device.
-Opening a diagram or starting a sketch from the conversation shows the canvas again. Below 688px
-the panels overlay a canvas that always shows.
+back. The choice is per session view on this device. Opening a diagram or starting a sketch from
+the conversation shows the canvas again. Below 740px, one pane fills the width above bottom
+navigation. Navigation stays available when a pane is maximized.
 
 **Repository** shows the current checkout and a compact branch row. Click the branch name to search
 and switch to an existing local branch. All sessions using that checkout follow the switch. Compatible
@@ -1406,14 +1406,21 @@ shows the add form directly. Switch between **Changes** and **History** with the
 lists the latest 100 commits reachable from HEAD, with author, date and hash; it loads on demand
 and offers Retry or Refresh after a failure. Staging and committing are not offered.
 
+Files opened from **Files**, conversation links, or **Changes** appear as closable tabs in
+**File view**, between the repository browser and canvas. Source and diff tabs are separate;
+reopening a file selects its tab, and line links jump to the referenced lines. Tabs retain their
+view choices and reading positions. Arrow keys move between tabs, Enter selects, and Delete closes.
+The header's File view, Canvas and Conversation controls toggle each pane independently. Drag or
+keyboard-resize the pane dividers. **Maximize File view** expands the pane; Restore or Escape returns
+to the arrangement with navigation still available. Narrow windows show the requested panes first;
+phones keep one pane above their bottom navigation. Tabs clear when leaving the conversation.
+
 In **Changes**, select a file to review its staged and working-tree diffs. **Wrap** starts enabled;
-turn it off for horizontal scrolling. Drag the divider between the file list and review, or focus
-it and use the arrow keys, to adjust their widths. The review's full-screen button shows the file
-alone; Restore or Escape returns to the layout and reading position. Markdown files also offer
+turn it off for horizontal scrolling. Markdown files also offer
 **Preview** of the complete current working-tree document. Preview supports UTF-8 files up to
 512 KiB and currently requires Linux for safe file verification; unavailable previews keep the
 diff accessible. Images appear as placeholders, and repository-relative links remain text.
-Switching to Git History and back retains the selected file and its review choices and position.
+Git History and Files navigation leave open review tabs available. Files are read only.
 
 Once a diagram or sketch exists, **Flat / Spatial** switches between two projections of the same
 session artifacts. Spatial lazily loads a local WebGL room containing the active canvas plus the

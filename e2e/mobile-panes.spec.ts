@@ -91,9 +91,9 @@ for (const theme of ['light', 'dark']) {
     for (const [view, label, pane] of [['Chat', 'Conversation', conversation(page)], ['Canvas', 'Canvas', canvas(page)], ['History', 'History', side(page)]] as const) {
       await views(page).getByRole('button', { name: view, exact: true }).click();
       await pane.getByRole('button', { name: `Maximize ${label}`, exact: true }).click();
-      await expect(page.locator('.app-header')).toBeHidden();
-      await expect(views(page)).toBeHidden();
-      expect(await pane.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
+      await expect(page.locator('.app-header')).toBeVisible();
+      await expect(views(page)).toBeVisible();
+      expect(await pane.boundingBox()).toEqual({ x: 0, y: 44, width: 390, height: 751 });
       const restore = (await pane.getByRole('button', { name: 'Restore layout', exact: true }).boundingBox())!;
       expect(restore.x).toBeGreaterThanOrEqual(0);
       expect(restore.x + restore.width).toBeLessThanOrEqual(390);
@@ -187,7 +187,7 @@ test('phone approvals stay reachable while another pane is maximized', async ({ 
   await expect(conversation(page).getByRole('button', { name: 'Send', exact: true })).toBeVisible();
 });
 
-test('maximized Changes keeps its diff and does not reconcile away the underlying conversation', async ({ page, request }) => {
+test('maximized file review retains its diff and underlying conversation through resize', async ({ page, request }) => {
   await page.setViewportSize({ width: 1560, height: 900 });
   await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: { isRepository: true, files: [{ path: 'example.ts', status: 'modified', staged: false, unstaged: true }] } } }));
   await page.route('**/api/repository/diff?*', route => route.fulfill({ json: { diff: { path: 'example.ts', unstaged: '@@ -1 +1 @@\n-old\n+new' } } }));
@@ -197,24 +197,21 @@ test('maximized Changes keeps its diff and does not reconcile away the underlyin
   await side(page).locator('.repository-file').click();
   await expect(page.getByLabel('Unified diff')).toContainText('+new');
   const before = (await layouts(page))[session.id];
-  await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
-  await expect(page.getByLabel('Unified diff')).toBeVisible();
+  const filePane = page.getByRole('region', { name: 'File view', exact: true });
+  await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
   await page.setViewportSize({ width: 1000, height: 900 });
-  await expect(side(page)).toBeVisible();
+  await expect(filePane).toBeVisible();
   await page.setViewportSize({ width: 1560, height: 900 });
-  await side(page).getByRole('button', { name: 'Restore layout', exact: true }).click();
+  await filePane.getByRole('button', { name: 'Restore layout', exact: true }).click();
   await expect.poll(async () => (await layouts(page))[session.id]).toEqual(before);
   await expect(conversation(page)).toBeVisible();
   await expect(page.getByLabel('Unified diff')).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('.app-shell')).toHaveClass(/dock-capacity-0/);
-  await expect(side(page)).toBeVisible();
+  await expect(filePane).toBeVisible();
+  await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
+  await expect(views(page)).toBeVisible();
   await expect(page.getByLabel('Unified diff')).toBeVisible();
-  await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
-  await expect(side(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Unified diff')).toBeVisible();
-  await side(page).getByRole('button', { name: 'Close file changes', exact: true }).click();
-  await side(page).getByRole('button', { name: 'Restore layout', exact: true }).click();
+  await filePane.getByRole('button', { name: 'Restore layout', exact: true }).click();
 });
 
 test('phone Changes keeps long file lists and patches scrollable with Restore and Back in reach', async ({ page, request }, testInfo) => {
@@ -228,19 +225,22 @@ test('phone Changes keeps long file lists and patches scrollable with Restore an
   const list = side(page).getByRole('tabpanel').locator('.repository-summary-scroll');
   expect(await list.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
   await side(page).locator('.repository-file').last().click();
-  const patch = side(page).locator('.diff-inspector-scroll');
+  const filePane = page.getByRole('region', { name: 'File view', exact: true });
+  await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
+  const patch = filePane.locator('.diff-inspector-scroll');
   await expect(patch).toBeVisible();
-  const toolbar = (await side(page).locator('.diff-inspector-toolbar').boundingBox())!;
+  const toolbar = (await filePane.locator('.diff-inspector-toolbar').boundingBox())!;
   expect((await patch.boundingBox())!.y).toBe(toolbar.y + toolbar.height);
   expect((await patch.boundingBox())!.height).toBeGreaterThan(500);
   expect(await patch.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
   await patch.evaluate(node => { node.scrollTop = node.scrollHeight; });
   await expect.poll(() => patch.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2);
-  await expect(side(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeInViewport();
-  await expect(side(page).getByRole('button', { name: 'Close file changes', exact: true })).toBeInViewport();
+  await expect(filePane.getByRole('button', { name: 'Restore layout', exact: true })).toBeInViewport();
+  await expect(filePane.getByRole('button', { name: 'Close file changes', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('phone-long-diff.png') });
-  await side(page).getByRole('button', { name: 'Close file changes', exact: true }).click();
+  await filePane.getByRole('button', { name: 'Close file changes', exact: true }).click();
+  await filePane.getByRole('button', { name: 'Restore layout', exact: true }).click();
+  await views(page).getByRole('button', { name: /^Repository/ }).click();
   await expect(list).toBeVisible();
-  await side(page).getByRole('button', { name: 'Restore layout', exact: true }).click();
   await expect(views(page)).toBeVisible();
 });

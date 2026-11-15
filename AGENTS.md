@@ -35,6 +35,12 @@ Updated 2026-11-15. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 140](stories/STORY-20261115-tabbed-file-pane.md) — repository files, chat
+  file links and Changes open in a separate tabbed File view beside the browser, canvas and chat,
+  with retained reading positions, independent toggles/resizing and maximize with navigation.
+  All 120 focused unit checks, 67 distinct production-browser cases, TypeScript, isolated build,
+  both-theme desktop/phone screenshot inspection and independent review pass.
+  The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 139](stories/STORY-20261115-offline-production-build.md) — the normal production
   build works offline with bundled fonts and valid required-request route signatures. TypeScript,
   46 focused unit tests, four production-browser font checks, light/dark desktop/phone screenshot

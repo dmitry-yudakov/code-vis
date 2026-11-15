@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import { ShellIcon } from './ShellIcon';
@@ -13,12 +14,18 @@ export function PaneMaximizeButton({ label, maximized, approvals = 0, unread = 0
   onToggle(): void;
   onOpenConversation?(): void;
 }) {
+  const button = useRef<HTMLButtonElement>(null);
+  const wasMaximized = useRef(maximized);
+  useEffect(() => {
+    if (wasMaximized.current && !maximized) button.current?.focus();
+    wasMaximized.current = maximized;
+  }, [maximized]);
   const badge = maximized ? approvals || unread : 0;
   const attention = badge ? approvals ? `${approvals} action${approvals === 1 ? '' : 's'} waiting for your approval` : `${unread} unread replies` : undefined;
   const action = maximized ? 'Restore layout' : `Maximize ${label}`;
   return <>
     {maximized && approvals > 0 && onOpenConversation && <Button className="pane-review" color="warning" onClick={onOpenConversation} aria-label={`Review ${attention}`}>Review</Button>}
-    <IconButton className="pane-maximize" aria-label={action} aria-description={attention} title={attention ? `${action} · ${attention}` : action} onClick={onToggle}>
+    <IconButton ref={button} className="pane-maximize" aria-label={action} aria-description={attention} title={attention ? `${action} · ${attention}` : action} onClick={onToggle}>
       <ShellIcon name={maximized ? 'restore' : 'maximize'} />
       {badge > 0 && <span className={`layout-badge ${approvals ? 'attention' : ''}`} aria-hidden="true">{badge > 99 ? '99+' : badge}</span>}
     </IconButton>

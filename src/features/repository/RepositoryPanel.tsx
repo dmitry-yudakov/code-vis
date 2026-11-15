@@ -6,37 +6,34 @@ import Button from '@mui/material/Button';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 
 import { RepositoryChangesView, pushOffer } from './RepositoryChangesView';
 import { RepositoryHistoryView } from './RepositoryHistoryView';
 import { useRepositoryHistory } from './useRepositoryHistory';
 import { ShellIcon } from '@/features/shell/ShellIcon';
-import { RepositoryDiffInspector } from './RepositoryDiffInspector';
+import { useRepositoryFiles } from './RepositoryFilesProvider';
 import { RepositorySidebar } from './RepositorySidebar';
 import type { SideTab } from '@/features/shell/panelLayout';
 import type { useRepositoryChanges } from './useRepositoryChanges';
-import type { RepositoryDiffState } from './useRepositoryDiff';
 import { RepositoryFilesView } from './RepositoryFilesView';
 import { RepositoryBranchPicker } from './RepositoryBranchPicker';
 
 /**
  * Repository-view composition point; each view owns its data controller.
  */
-export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, diffState, open, visible = open, tab, onInspectorOpenChange, onPush, paneControl, apiBase = '/api' }: {
+export function RepositoryPanel({ checkoutId, repositoryName, manager, history, reports, changes, open, visible = open, tab, onPush, paneControl, apiBase = '/api' }: {
   checkoutId?: string;
   repositoryName: string;
   manager?: ReactNode;
   history: ReactNode;
   reports?: ReactNode;
   changes: ReturnType<typeof useRepositoryChanges>;
-  diffState: RepositoryDiffState;
   open: boolean;
   visible?: boolean;
   tab: SideTab;
   paneControl?: ReactNode;
   apiBase?: string;
-  onInspectorOpenChange(open: boolean): void;
   onPush?(): void;
 }) {
   const [view, setView] = useState<'changes' | 'history'>('changes');
@@ -46,11 +43,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
   const repositoryShown = tab === 'changes' || (tab === 'reports' && !reports);
   const gitHistory = useRepositoryHistory(checkoutId || '', visible && repositoryShown && view === 'history', changes.revision, apiBase);
   const offer = changes.tree && !changes.error && onPush ? pushOffer(changes.tree) : undefined;
-  const inspectorOpen = repositoryShown && view === 'changes' && Boolean(changes.selectedFile);
-
-  useEffect(() => {
-    onInspectorOpenChange(inspectorOpen);
-  }, [inspectorOpen, onInspectorOpenChange]);
+  const fileTabs = useRepositoryFiles();
 
   return (
     <RepositorySidebar
@@ -67,17 +60,7 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
       actions={tab === 'files'
         ? <IconButton type="button" aria-label="Refresh files" title="Refresh files" onClick={() => setFilesRevision(value => value + 1)}><ShellIcon name="refresh" /></IconButton>
         : <IconButton className="repository-refresh-button" type="button" aria-label="Refresh Git status" title="Refresh repository" disabled={changes.loading || gitHistory.loading} onClick={changes.refresh}><ShellIcon name="refresh" /></IconButton>}
-      inspectorVisible={inspectorOpen}
-      inspector={checkoutId && changes.selectedFile ? (
-        <RepositoryDiffInspector
-          hidden={!inspectorOpen}
-          key={`${checkoutId}:${changes.selectedFile.path}`}
-          file={changes.selectedFile}
-          state={diffState}
-          onClose={changes.closeInspector}
-          onRetry={changes.refresh}
-        />
-      ) : undefined}
+
     >
       {checkoutId ? (
         <div className="repository-git-view">
@@ -102,7 +85,11 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
                 loading={changes.loading}
                 error={changes.error}
                 selectedPath={changes.selectedPath}
-                onSelect={changes.selectPath}
+                onSelect={path => {
+                  changes.selectPath(path);
+                  const file = changes.tree?.files.find(item => item.path === path);
+                  if (file && checkoutId) fileTabs?.openDiff(checkoutId, file);
+                }}
                 onRetry={changes.refresh}
               />
             )}

@@ -8,8 +8,10 @@ import { ShellIcon } from './ShellIcon';
  * and the conversation. A closed conversation carries what it holds: approvals first, else unread
  * replies.
  */
-export function LayoutToggles({ canvasShown, canvasToggleable, conversationShown, approvals, unread, onToggleCanvas, onToggleConversation, compact = false }: {
+export function LayoutToggles({ filesShown = false, onToggleFiles, canvasShown, canvasToggleable, conversationShown, approvals, unread, onToggleCanvas, onToggleConversation, compact = false }: {
   compact?: boolean;
+  filesShown?: boolean;
+  onToggleFiles?(): void;
   canvasShown: boolean;
   /** Desktop hides this control when another navigation surface owns canvas selection. */
   canvasToggleable: boolean;
@@ -36,6 +38,8 @@ export function LayoutToggles({ canvasShown, canvasToggleable, conversationShown
   );
   return (
     <div className="layout-toggles" role="group" aria-label="Layout">
+      {onToggleFiles && <IconButton type="button" className="layout-toggle" aria-label="File view" aria-pressed={filesShown}
+        title={filesShown ? 'Hide file view' : 'Show file view'} onClick={onToggleFiles}><ShellIcon name="file" />{compact && <span className="activity-label">View</span>}</IconButton>}
       {!compact && canvas}
       <IconButton
         type="button"

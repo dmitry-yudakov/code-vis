@@ -1,11 +1,10 @@
 'use client';
 
 import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
 import IconButton from '@mui/material/IconButton';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -32,40 +31,29 @@ function Patch({ source }: { source?: string }) {
   );
 }
 
-export function RepositoryDiffInspector({ file, state, onClose, onRetry, hidden = false }: {
+export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
   file: GitChangedFile;
   state: RepositoryDiffState;
   onClose(): void;
   onRetry(): void;
-  hidden?: boolean;
 }) {
   const { diff, loading, error } = state;
   const [wrap, setWrap] = useState(true);
-  const [fullscreen, setFullscreen] = useState(false);
   const [view, setView] = useState<'diff' | 'preview'>('diff');
   const preview = diff?.preview;
   const showPreview = view === 'preview' && preview;
-  const fullscreenAction = fullscreen ? 'Restore file review' : 'Full screen file review';
-  const fullscreenButton = useRef<HTMLButtonElement>(null);
-  const wasFullscreen = useRef(false);
   const scrollPositions = useRef({ diff: 0, preview: 0 });
   const shownView = showPreview ? 'preview' : 'diff';
-  useEffect(() => {
-    if (wasFullscreen.current && !fullscreen) fullscreenButton.current?.focus();
-    wasFullscreen.current = fullscreen;
-  }, [fullscreen]);
   const restoreScroll = useCallback((element: HTMLDivElement | null) => {
     if (element) element.scrollTop = scrollPositions.current[shownView];
   }, [shownView]);
 
   const content = (
-    <section hidden={hidden} className={`repository-inspector diff-inspector ${wrap ? 'wrap-lines' : ''}`} aria-label={`Changes in ${file.path}`}>
+    <section className={`repository-inspector diff-inspector ${wrap ? 'wrap-lines' : ''}`} aria-label={`Changes in ${file.path}`}>
       <header className="diff-inspector-header">
-        <IconButton type="button" aria-label="Close file changes" title="Back to changed files" onClick={onClose}>←</IconButton>
+        <IconButton type="button" aria-label="Close file changes" title="Close diff tab" onClick={onClose}>×</IconButton>
         <div><span className="eyebrow">{file.status} · read only</span><strong title={file.path}>{file.path}</strong></div>
-        <IconButton ref={fullscreenButton} aria-label={fullscreenAction} title={fullscreenAction} onClick={() => setFullscreen(!fullscreen)}>
-          <ShellIcon name={fullscreen ? 'restore' : 'maximize'} />
-        </IconButton>
+        <IconButton aria-label="Refresh file changes" disabled={loading} onClick={onRetry}><ShellIcon name="refresh" /></IconButton>
       </header>
       <div className="diff-inspector-toolbar">
         {preview && <ToggleButtonGroup size="small" exclusive value={view} aria-label="File review view" onChange={(_, value) => { if (value) setView(value); }}>
@@ -98,8 +86,5 @@ export function RepositoryDiffInspector({ file, state, onClose, onRetry, hidden 
     </section>
   );
 
-  return fullscreen ? <Dialog open fullScreen transitionDuration={0} slotProps={{ paper: { 'aria-label': `File review: ${file.path}` } }} onClose={() => setFullscreen(false)}
-    onKeyDown={event => { if (event.key !== 'Escape') event.stopPropagation(); }}>
-    {content}
-  </Dialog> : content;
+  return content;
 }

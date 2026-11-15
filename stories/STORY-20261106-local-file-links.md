@@ -2,6 +2,9 @@
 
 **Status:** Shipped · **Type:** Full-stack · **Depends on:** Stories 124, 125, 128
 
+The full-screen viewer presentation is superseded by [Story 140](STORY-20261115-tabbed-file-pane.md),
+which retains these file-access and navigation contracts in a tabbed workspace pane.
+
 ## Motivation
 
 Agent replies often refer to local source files and documents, but the conversation deliberately

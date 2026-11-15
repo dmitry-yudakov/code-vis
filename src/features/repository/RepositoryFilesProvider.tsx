@@ -1,8 +1,7 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
 import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import ToggleButton from '@mui/material/ToggleButton';
@@ -10,41 +9,64 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ShellIcon } from '@/features/shell/ShellIcon';
+import type { GitChangedFile } from '@/shared/types';
+import { openTab, closeTab, resolveTab, type FileTabs } from './repositoryFileTabs';
 import type { RepositoryFile } from '@/shared/repositoryFiles';
 import { localFileLink, type LocalFileLink } from './localFileLinks';
 
 type OpenFile = (link: LocalFileLink, checkoutId?: string) => void;
-const FilesContext = createContext<OpenFile | undefined>(undefined);
-export const useOpenRepositoryFile = () => useContext(FilesContext);
+interface FilesContextValue extends FileTabs {
+  repositories: { id: string; name: string }[];
+  apiBase: string;
+  openFile: OpenFile;
+  openDiff(checkoutId: string, file: GitChangedFile): void;
+  select(id: number): void;
+  close(id: number): void;
+  resolved(id: number, checkoutId: string, path: string): void;
+}
+const FilesContext = createContext<FilesContextValue | undefined>(undefined);
+export const useRepositoryFiles = () => useContext(FilesContext);
+export const useOpenRepositoryFile = () => {
+  const context = useRepositoryFiles();
+  return context?.repositories.length ? context.openFile : undefined;
+};
 
-/** Keep file actions scoped to the focused conversation and executing machine. */
-export function RepositoryFilesProvider({ scope, repositories, apiBase, docker = false, children }: {
+/** Tabs and requests belong to the focused conversation and executing machine. */
+export function RepositoryFilesProvider({ scope, repositories, apiBase, docker = false, onOpen, children }: {
   scope: string;
   repositories: { id: string; name: string }[];
   apiBase: string;
   docker?: boolean;
+  onOpen(): void;
   children: ReactNode;
 }) {
   const identity = JSON.stringify([scope, apiBase, docker, repositories.map(item => item.id)]);
-  const [selection, setSelection] = useState<{ identity: string; link: LocalFileLink; checkoutId?: string; sequence: number }>();
-  const titleId = useId();
+  const [state, setState] = useState<FileTabs & { identity: string }>({ identity, tabs: [] });
   const sequence = useRef(0);
-  useEffect(() => setSelection(undefined), [identity]);
+  // Reset before rendering children so no old-machine content appears for even one frame.
+  if (state.identity !== identity) setState({ identity, tabs: [] });
+  const current = state.identity === identity ? state : { identity, tabs: [] };
   const openFile = useCallback<OpenFile>((link, checkoutId) => {
     const target = docker && !checkoutId && link.path.startsWith('/workspace/')
       ? { ...link, path: link.path.slice('/workspace/'.length) } : link;
-    setSelection({ identity, link: target, checkoutId, sequence: ++sequence.current });
-  }, [identity, docker]);
-  return <FilesContext.Provider value={repositories.length ? openFile : undefined}>
-    {children}
-    {selection?.identity === identity && <Dialog open fullScreen transitionDuration={0} onClose={() => setSelection(undefined)}
-      slotProps={{ paper: { 'aria-labelledby': titleId } }}
-      onKeyDown={event => { if (event.key !== 'Escape') event.stopPropagation(); }}>
-      <RepositoryFileViewer key={selection.sequence} titleId={titleId}
-        link={selection.link} checkoutId={selection.checkoutId} repositories={repositories} apiBase={apiBase}
-        onClose={() => setSelection(undefined)} />
-    </Dialog>}
-  </FilesContext.Provider>;
+    const bound = checkoutId || (!target.path.startsWith('/') ? repositories[0]?.id : undefined);
+    const navigation = ++sequence.current;
+    setState(value => ({ identity, ...openTab(value.identity === identity ? value : { tabs: [] },
+      { kind: 'file', link: target, checkoutId: bound }, navigation) }));
+    onOpen();
+  }, [identity, docker, repositories, onOpen]);
+  const resolved = useCallback((id: number, checkoutId: string, path: string) => {
+    setState(value => value.identity === identity ? { identity, ...resolveTab(value, id, checkoutId, path) } : value);
+  }, [identity]);
+  return <FilesContext.Provider value={{ ...current, repositories, apiBase, openFile, resolved,
+    openDiff: (checkoutId, file) => {
+      const navigation = ++sequence.current;
+      setState(value => ({ identity, ...openTab(value.identity === identity ? value : { tabs: [] }, { kind: 'diff', checkoutId, file }, navigation) }));
+      onOpen();
+    },
+    select: activeId => setState(value => ({ ...value, activeId })),
+    close: id => setState(value => ({ identity, ...closeTab(value, id) })),
+  }}>{children}</FilesContext.Provider>;
 }
 
 /** The default Markdown URL filter drops file: URLs; preserve only parsed local references. */
@@ -63,8 +85,9 @@ export function RepositoryLink({ href, children, documentPath, checkoutId }: {
   return <span title={local ? 'Attach a repository to open this file.' : href}>{children}</span>;
 }
 
-function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, titleId, onClose }: {
-  link: LocalFileLink; checkoutId?: string; repositories: { id: string; name: string }[]; apiBase: string; titleId: string; onClose(): void;
+export function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, active, navigation, onResolved }: {
+  link: LocalFileLink; checkoutId?: string; repositories: { id: string; name: string }[]; apiBase: string;
+  active: boolean; navigation: number; onResolved(checkoutId: string, path: string): void;
 }) {
   const [result, setResult] = useState<{ file: RepositoryFile; checkoutId: string }>();
   const [error, setError] = useState<string>();
@@ -73,10 +96,9 @@ function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, titleId
   const [source, setSource] = useState(Boolean(link.line) || !/\.(md|markdown)$/i.test(link.path));
   const [wrap, setWrap] = useState(true);
   const content = useRef<HTMLDivElement>(null);
-  const frame = useRef<HTMLElement>(null);
-  // Following a Markdown link replaces the content inside the same dialog. Keep keyboard
-  // focus inside it after the originating link is removed, so Escape and Tab still work.
-  useEffect(() => { frame.current?.focus(); }, []);
+  const resolvedCallback = useRef(onResolved);
+  resolvedCallback.current = onResolved;
+  const lastNavigation = useRef<number>(undefined);
   const candidateIds = JSON.stringify((checkoutId ? repositories.filter(item => item.id === checkoutId)
     : link.path.startsWith('/') ? repositories : repositories.slice(0, 1)).map(item => item.id));
   useEffect(() => {
@@ -93,7 +115,10 @@ function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, titleId
         const data = await response.json() as { file?: RepositoryFile; error?: string };
         if (response.status === 404 && candidates.length > 1) continue;
         if (!response.ok || !data.file) throw new Error(data.error || 'Could not open this file.');
-        if (!controller.signal.aborted) setResult({ file: data.file, checkoutId: candidate });
+        if (!controller.signal.aborted) {
+          setResult({ file: data.file, checkoutId: candidate });
+          resolvedCallback.current(candidate, data.file.path);
+        }
         return;
       }
       throw new Error('File not found in this conversation’s repositories.');
@@ -107,18 +132,22 @@ function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, titleId
   const lineExists = Boolean(link.line && link.line <= lines.length);
   const markdown = /\.(md|markdown)$/i.test(file?.path || link.path);
   useEffect(() => {
-    if (!file || error || loading) return;
+    if (!active || !file || error || loading || lastNavigation.current === navigation || link.line && !source || markdown && link.anchor && source) return;
+    lastNavigation.current = navigation;
     const target = source ? content.current?.querySelector('[data-file-line]')
       : Array.from(content.current?.querySelectorAll('h1,h2,h3,h4,h5,h6') || []).find(element =>
         element.textContent?.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-') === link.anchor);
     if (target) target.scrollIntoView({ block: 'center' });
     else if (content.current) content.current.scrollTop = 0;
-  }, [file, error, loading, source, link.anchor]);
-  return <section ref={frame} tabIndex={-1} className="repository-inspector diff-inspector repository-file-viewer">
+  }, [file, error, loading, source, link.anchor, link.line, active, navigation, markdown]);
+  useEffect(() => {
+    if (link.line) setSource(true);
+    else if (link.anchor && markdown) setSource(false);
+  }, [navigation, link.line, link.anchor, markdown]);
+  return <section className="repository-inspector diff-inspector repository-file-viewer">
       <header className="diff-inspector-header">
-        <div><span className="eyebrow">{repositories.find(item => item.id === result?.checkoutId)?.name || 'Repository'} · read only</span><strong id={titleId} title={file?.path || link.path}>Repository file: {file?.path || link.path}</strong></div>
+        <div><span className="eyebrow">{repositories.find(item => item.id === result?.checkoutId)?.name || 'Repository'} · read only</span><strong title={file?.path || link.path}>Repository file: {file?.path || link.path}</strong></div>
         <IconButton aria-label="Refresh file" disabled={loading} onClick={() => setRevision(value => value + 1)}><ShellIcon name="refresh" /></IconButton>
-        <IconButton aria-label="Close file" onClick={onClose}>×</IconButton>
       </header>
       <div className="diff-inspector-toolbar">
         {markdown && <ToggleButtonGroup size="small" exclusive value={source ? 'source' : 'preview'} aria-label="File view"

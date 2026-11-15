@@ -122,7 +122,7 @@ test('retains selected-file review across History and Changes', async ({ page, r
   await inspector.getByRole('button', { name: 'Wrap text', exact: true }).click();
   await inspector.locator('.diff-inspector-scroll').evaluate(node => { node.scrollTop = 300; });
   await historyTab(page).click();
-  await expect(inspector).toBeHidden();
+  await expect(inspector).toBeVisible();
   await expect(page.getByRole('list', { name: 'Recent commits' })).toBeVisible();
   await panel(page).getByRole('tab', { name: /^Changes/ }).click();
   await expect(inspector).toBeVisible();
@@ -189,7 +189,8 @@ test('automatic refresh keeps the open diff, wrapping and scroll while reading u
   await expect(page.locator('.repository-file')).toHaveAttribute('aria-pressed', 'true');
   await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: { isRepository: true, branch: 'main', files: [] } } }));
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(inspector).toHaveCount(0);
+  await expect(inspector).toBeVisible();
+  await expect(page.getByRole('tablist', { name: 'Open files' }).getByRole('tab')).toHaveCount(1);
   await expect(panel(page)).toContainText('Nothing to review');
 });
 
