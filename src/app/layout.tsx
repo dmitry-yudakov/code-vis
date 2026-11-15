@@ -1,36 +1,49 @@
 import type { Metadata, Viewport } from 'next';
-import { Archivo, Geist, Geist_Mono, Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
 import { DesktopThemeProvider } from '@/features/shell/DesktopThemeProvider';
 import { appearanceScript } from '@/shared/design/appearance';
 import './globals.css';
 
-const geist = Geist({
-  subsets: ['latin'],
+// Generated local(Arial) fallback faces reject document.fonts.load on hosts without Arial.
+// Keep the explicit fallback stacks used by desktop and immersive font loading.
+const geist = localFont({
+  src: './fonts/Geist.woff2',
+  weight: '100 900',
+  style: 'normal',
   display: 'swap',
+  adjustFontFallback: false,
   variable: '--font-geist',
   fallback: ['system-ui', 'Arial'],
 });
 
-const geistMono = Geist_Mono({
-  subsets: ['latin'],
+const geistMono = localFont({
+  src: './fonts/GeistMono.woff2',
+  weight: '100 900',
+  style: 'normal',
   display: 'swap',
+  adjustFontFallback: false,
   variable: '--font-geist-mono',
   fallback: ['ui-monospace', 'SFMono-Regular', 'Consolas'],
 });
 
-const archivo = Archivo({
-  subsets: ['latin'],
-  axes: ['wdth'],
+const archivo = localFont({
+  src: './fonts/Archivo.woff2',
+  weight: '100 900',
+  style: 'normal',
+  declarations: [{ prop: 'font-stretch', value: '62% 125%' }],
   display: 'swap',
+  adjustFontFallback: false,
   variable: '--font-archivo',
   fallback: ['Arial', 'system-ui'],
 });
 
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '600'],
+const inter = localFont({
+  src: './fonts/Inter.woff2',
+  weight: '400 600',
+  style: 'normal',
   display: 'swap',
+  adjustFontFallback: false,
   preload: false,
   variable: '--font-inter',
   fallback: ['system-ui', 'Arial'],

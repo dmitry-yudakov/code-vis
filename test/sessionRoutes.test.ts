@@ -214,11 +214,11 @@ describe('session snapshot and mutation routes', () => {
     // Use the durable snapshot, which includes private provider continuation fields.
     const durable = JSON.parse(await readFile(file, 'utf8'));
     await writeFile(file, JSON.stringify({ ...durable, updatedAt }));
-    const response = route === 'arena' ? await GET_ARENA() : await GET_SESSIONS(new Request('http://localhost/api/sessions'));
+    const response = route === 'arena' ? await GET_ARENA(new Request('http://localhost/api/arena')) : await GET_SESSIONS(new Request('http://localhost/api/sessions'));
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(route === 'arena' ? data.machines[0].sessions : data.sessions).toEqual([]);
-    const arena = (await (await GET_ARENA()).json()).machines[0];
+    const arena = (await (await GET_ARENA(new Request('http://localhost/api/arena'))).json()).machines[0];
     expect(arena.archivedSessions).toEqual([expect.objectContaining({ id: session.id, revision: session.revision + 1, archivedAt: expect.any(String) })]);
     expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(404);
     const restored = await RESTORE_SESSION(new Request('http://localhost', {
@@ -255,7 +255,7 @@ describe('session snapshot and mutation routes', () => {
     expect(session.participants.some((participant) => 'session' in participant)).toBe(false);
     expect(JSON.stringify(session)).not.toMatch(/lastObserved/);
 
-    const projects = await GET_PROJECTS();
+    const projects = await GET_PROJECTS(new Request('http://localhost/api/projects'));
     expect(projects.status).toBe(200);
     expect((await projects.json()).projects).toEqual([expect.objectContaining({ id: session.projectId })]);
     const list = await GET_SESSIONS(new Request(`http://localhost/api/sessions?projectId=${session.projectId}`));
@@ -266,7 +266,7 @@ describe('session snapshot and mutation routes', () => {
     expect((await ambiguous.json()).error).toContain('either a project or loose sessions');
     const hydrated = await GET_SESSION(new Request(`http://localhost/api/sessions/${session.id}`), context(session.id));
     expect((await hydrated.json()).session).toEqual(session);
-    const arena = await GET_ARENA();
+    const arena = await GET_ARENA(new Request('http://localhost/api/arena'));
     const arenaBody = await arena.json();
     expect(arena.status).toBe(200);
     expect(arenaBody.machines).toHaveLength(1);
@@ -444,7 +444,7 @@ describe('session snapshot and mutation routes', () => {
     expect(JSON.stringify(archived)).not.toContain('provider-session');
     expect((await GET_SESSION(new Request('http://localhost'), context(session.id))).status).toBe(404);
     expect((await (await GET_SESSIONS(new Request('http://localhost/api/sessions'))).json()).sessions).toEqual([]);
-    const arena = await (await GET_ARENA()).json();
+    const arena = await (await GET_ARENA(new Request('http://localhost/api/arena'))).json();
     expect(arena.machines[0].sessions).toEqual([]);
     expect(arena.machines[0].archivedSessions).toEqual([expect.objectContaining({ id: session.id, revision: 1 })]);
 
@@ -476,7 +476,7 @@ describe('session snapshot and mutation routes', () => {
 
     const list = await GET_SESSIONS(new Request(`http://localhost/api/sessions?projectId=${readable.projectId}`));
     expect((await list.json()).sessions).toEqual([readable]);
-    const arena = (await (await GET_ARENA()).json()).machines[0];
+    const arena = (await (await GET_ARENA(new Request('http://localhost/api/arena'))).json()).machines[0];
     expect(arena.sessions.map((session: { id: string }) => session.id)).toEqual([readable.id]);
     expect(arena.archivedSessions).toEqual([]);
 

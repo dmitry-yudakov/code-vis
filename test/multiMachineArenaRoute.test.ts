@@ -57,7 +57,7 @@ describe('multi-machine Arena snapshot', () => {
   });
 
   it('lists local and reachable executors and records a successful observation', async () => {
-    const response = await GET_ARENA();
+    const response = await GET_ARENA(new Request('http://localhost/api/arena'));
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.machines.map((entry: { machine: { id: string; kind: string; state: string } }) => entry.machine))
@@ -81,7 +81,7 @@ describe('multi-machine Arena snapshot', () => {
       pendingPermissionCount: 0, pendingPermissions: [],
     }];
     arenaState.connection.cachedSnapshot = arenaState.remote;
-    const body = await (await GET_ARENA()).json();
+    const body = await (await GET_ARENA(new Request('http://localhost/api/arena'))).json();
     const remote = body.machines[1];
     expect(remote.machine).toMatchObject({ id: REMOTE_ID, state: 'offline', lastSeenAt: '2026-09-04T10:00:00.000Z' });
     expect(remote.sessions).toEqual([expect.objectContaining({ title: 'Cached work' })]);

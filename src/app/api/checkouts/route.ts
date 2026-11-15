@@ -8,7 +8,7 @@ import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request = new Request('http://localhost/api/checkouts')): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const denied = await authorizeDeviceRequest(request);
   if (denied) return denied;
   try {

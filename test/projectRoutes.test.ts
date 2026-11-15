@@ -61,7 +61,7 @@ describe('project and checkout routes', () => {
     expect(project).toMatchObject({ version: 1, revision: 0, name: 'Body of work' });
     expect(project.repositories.map((item: { checkoutId: string }) => item.checkoutId)).toEqual(['a', 'b']);
     expect(routeState.validatedBatches).toEqual([['a', 'b']]);
-    expect((await (await GET()).json()).projects).toEqual([project]);
+    expect((await (await GET(new Request('http://localhost/api/projects'))).json()).projects).toEqual([project]);
 
     const store = getSessionStore(routeState.dataDir, 'Route host');
     const session = await store.createSession({ projectId: project.id, provider: 'claude' });
@@ -87,14 +87,14 @@ describe('project and checkout routes', () => {
     }), context(project.id));
     expect(await deleted.json()).toEqual({ detachedSessionCount: 1 });
     expect((await store.getSession(session.id)).projectId).toBeUndefined();
-    expect((await (await GET()).json()).projects).toEqual([]);
+    expect((await (await GET(new Request('http://localhost/api/projects'))).json()).projects).toEqual([]);
   });
 
   it('returns checkout discovery separately with host-local recency', async () => {
     const store = getSessionStore(routeState.dataDir, 'Route host');
     const project = await store.createProject('Work', ['b']);
     await store.createSession({ projectId: project.id, provider: 'claude' });
-    const response = await GET_CHECKOUTS();
+    const response = await GET_CHECKOUTS(new Request('http://localhost/api/checkouts'));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       checkouts: routeState.checkouts,

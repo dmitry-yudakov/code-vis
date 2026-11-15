@@ -24,7 +24,7 @@ async function observeRemote(connection: MachineConnection): Promise<ArenaMachin
 }
 
 /** A bounded, no-cache overview of this machine and its explicitly attached executors. */
-export async function GET(request: Request = new Request('http://localhost/api/arena')): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const denied = await authorizePersonalDeviceRequest(request);
   if (denied) return denied;
   try {

@@ -29,12 +29,16 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-14. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-15. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 139](stories/STORY-20261115-offline-production-build.md) — the normal production
+  build works offline with bundled fonts and valid required-request route signatures. TypeScript,
+  46 focused unit tests, four production-browser font checks, light/dark desktop/phone screenshot
+  inspection and independent review pass. The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 39 follow-up](stories/STORY-20260903-archive-sessions.md) — Arena archives
   show the latest 40 by closing date, newest first across projects/machines, grouped by local day,
   with Show older sessions and preserved Restore. All 69 focused unit tests, ten production-browser
