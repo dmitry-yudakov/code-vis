@@ -93,7 +93,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .layout-badge { position: absolute; right: -3px; top: -4px; min-width: 15px; height: 15px; padding: 0 4px; display: grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--plot); font: 700 9px/1 var(--mono); }
 .layout-badge.attention { background: var(--wait); }
 
-.workspace-tabs { min-width: 0; flex: 1 1 180px; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
+.workspace-tabs { min-width: 0; flex: 1 1 360px; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
 .workspace-tablist { min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; padding: 2px; }
 .workspace-tab:focus-visible { outline-offset: -3px; }
 .workspace-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -843,7 +843,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .desktop-more-content { display: grid; gap: 6px; }
 .desktop-more-content > button { width: 100%; justify-content: flex-start; text-align: left; }
 .desktop-more-content p { margin: 0; overflow-wrap: anywhere; }
-.workspace-tab { flex-direction: row; width: 180px; flex: 0 0 180px; max-width: 100%; display: flex; justify-content: flex-start; align-items: center; gap: 6px; overflow: hidden; }
+.workspace-tab { display: flex; justify-content: flex-start; align-items: center; gap: 6px; overflow: hidden; }
 .device-access-card { width: min(460px, 100%); display: grid; gap: 16px; }
 .arena-card-open { color: inherit; }
 
@@ -930,6 +930,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .dock-capacity-0 .workspace-tab { min-height: 40px; }
 .dock-capacity-0 .session-picker { gap: 0; }
 .dock-capacity-0 .all-sessions-picker { height: 40px; padding-inline: 6px; }
+.dock-capacity-0 .session-archive-menu > button { width: 40px; height: 40px; }
 .dock-capacity-0 .new-session-label { display: none; }
 .dock-capacity-0 .new-session-menu > button { min-width: 40px; min-height: 40px; padding-inline: 6px; }
 /* Keep the capability-based VR entry. Routine health/device details live in More. */

@@ -74,6 +74,65 @@ No wire, server, session-store, or browser-storage schema changes.
 - Physical Quest acceptance and Q2's real-data/provider verification. The immersive workspace keeps
   its existing session controls.
 
+## November 16 follow-up — flexible tabs and project archive
+
+**Status:** Shipped
+
+The header truncates even a single session to 180px and scrolls tabs before using the available
+space. Let each open tab grow to 360px and shrink to 120px before scrolling; when the entire
+viewport is narrower than 120px, one tab fits that viewport. Keep the selected tab visible,
+All sessions accessible, and existing keyboard, archive, draft and saved-layout behavior.
+
+Add a compact archive icon beside All sessions. Its popover lists only the selected machine's
+current project archives (including No project), newest archive first, with archive dates and
+Restore actions. Restore uses the existing revisioned route and returns that conversation to
+the bench immediately. Pending restores cannot be duplicated, offline restores are disabled,
+and failures keep the archive available for retry. A delayed restore must not navigate away
+from a newer destination. Arena's separate Restore behavior stays unchanged.
+
+Where the code is: `src/features/conversation/WorkspaceTabs.tsx:109` owns tab sizing;
+`src/features/conversation/SessionPicker.tsx:145` owns header session controls;
+`src/features/shell/AppShell.tsx:2305` owns restoration and archive revision reconciliation;
+`src/features/shell/AppShell.tsx:2766` mounts those controls. The existing Arena subscription
+supplies project archives and refresh errors; no new store, endpoint or persistence schema.
+This extends the arena's device workspace in [vision.md](../docs/vision.md#sequence).
+
+- [x] Sparse tabs are wider; more tabs shrink to fit before scrolling, with selected tabs visible
+      through selection, closing, title/count changes and resizing, including 390px phones.
+- [x] The compact archive control lists only this project/machine's archives in archive order,
+      exposes empty/offline/refresh failure states, and supports keyboard access.
+- [x] Restore opens the complete conversation immediately and retains its draft through reload;
+      failed and pending requests are safe to retry and late results respect newer navigation.
+- [x] Focused unit/browser checks, TypeScript, isolated build, both-theme desktop/phone screenshot
+      inspection and independent review pass. The running application is not restarted.
+
+Verification: extend `e2e/title-bar-tabs.spec.ts` for responsive geometry, project-scoped archives,
+real Restore/failure/retry, pending guards and navigation races. Run it with existing focused
+workspace-tab/view/archive unit checks and Arena Restore/browser regressions; inspect both themes
+at desktop/phone widths and review the diff independently. Record actual results below.
+
+Verification: the new sizing and archive-control regressions both fail against the preceding
+`.next-e2e/restore-session` build (176px lone tab and missing archive control). All **162 focused
+unit checks** pass across `workspaceTabs`, `workspaceViews`, `conversationArchive`, `panelLayout`,
+`arenaModel`, `arenaSubscription`, `sessionRoutes`, `autoArchiveSessions` and `agentSessionArchive`.
+Archive scheduler fixtures require `CODEAI_MAX_CONCURRENT_RUNS=2`; the inherited local setting
+otherwise makes one queued-run assertion fail, as already recorded in Story 39.
+
+All **23 production-browser cases** pass in `title-bar-tabs` and `arena-archive`. They cover sparse
+and six-tab sizing, crowded scrolling and keyboard focus, all project/machine and No project
+archive filters, newest-first dates, offline protection, failed refresh/retry, real storage-backed
+Restore/retry, retained drafts after reload, duplicate request guards, and late Restore preserving
+a newer conversation and composer focus. First ArrowDown focuses the first cached archive;
+when the opening refresh delivers a new row later, another ArrowDown reaches it.
+
+Three old empty-view assertions now expect Story 141's Files workspace. The old 32-control limit
+already failed on the preceding build with 35; its updated 36 limit accounts for the one archive
+control. TypeScript, the normal isolated production build into `.next-e2e/flexible-tabs`,
+`git diff --check`, light/dark desktop/phone screenshot inspection and independent read-only review
+pass. Generated test-build additions to `tsconfig.json` were removed. Browser checks use fake
+providers; real attached executors and physical devices were not exercised. The running
+application has not been rebuilt or restarted.
+
 ## How to verify
 
 1. Run `npm run lint` and the focused workspace-tab, workspace-view, panel-layout, and token unit tests.

@@ -106,7 +106,7 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   expect(canvas.y).toBe(52);
   expect(canvas.height).toBe(844);
   const count = await visibleControls(page);
-  expect(count).toBeLessThanOrEqual(32); // Includes the three empty-conversation starters and header Archive.
+  expect(count).toBeLessThanOrEqual(36); // Current workspace baseline: 35 controls, plus the project archive.
   await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await page.locator('.more-menu > button').click();
@@ -188,13 +188,153 @@ test('title-bar tabs keep overflow selection visible, wrap arrows and reopen clo
   while (await tabs.count()) await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
   await expect(picker).toBeFocused();
   await expect(picker).toHaveValue('');
-  await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
   await expect(tabs).toHaveCount(0);
   await picker.selectOption(sessions[0].id);
   await expect(tabs).toHaveCount(1);
   await expectSelectedInView(page);
+});
+
+test('session tabs grow into free space and shrink to show every open view before scrolling', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const { sessions } = await openProject(page, request, 6);
+  const tabs = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab');
+  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
+  while (await tabs.count() > 1) await tabs.last().press('Delete');
+  const wide = (await tabs.first().boundingBox())!.width;
+  expect(wide).toBeGreaterThanOrEqual(300);
+  for (const session of sessions.slice(1)) await picker.selectOption(session.id);
+  await expect(tabs).toHaveCount(6);
+  expect((await tabs.first().boundingBox())!.width).toBeLessThan(wide);
+  expect(await page.locator('.workspace-tablist .MuiTabs-scroller').evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await expectSelectedInView(page);
+  for (const width of [1000, 390, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectSelectedInView(page);
+    const box = (await picker.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+  }
+});
+
+test('project archive restores a session directly to the bench with retry and retained draft', async ({ page, request }) => {
+  const { project, sessions } = await openProject(page, request, 2);
+  const { project: otherProject } = await (await request.post('/api/projects', { data: { name: `Other archive ${Date.now()}` } })).json();
+  const { session: other } = await (await request.post('/api/sessions', { data: { projectId: otherProject.id, provider: 'claude' } })).json();
+  expect((await request.post(`/api/sessions/${other.id}/archive`, { data: { expectedRevision: other.revision } })).ok()).toBe(true);
+  const composer = page.getByRole('complementary', { name: 'Conversation', exact: true }).locator('textarea');
+  await composer.fill('Draft survives project archive');
+  await page.getByRole('button', { name: `Archive this session: ${sessions[1].title}`, exact: true }).click();
+  const archive = page.getByRole('button', { name: 'Archived sessions', exact: true });
+  await archive.press('ArrowDown');
+  const panel = page.getByRole('region', { name: 'Project archive', exact: true });
+  await expect(panel).toContainText(sessions[1].title);
+  await expect(panel).not.toContainText(other.title);
+  const restore = panel.getByRole('button', { name: `Restore ${sessions[1].title}`, exact: true });
+  // The opening refresh may deliver the newly archived row after the initial ArrowDown.
+  await archive.press('ArrowDown');
+  await expect(restore).toBeFocused();
+  await page.route(`**/api/sessions/${sessions[1].id}/restore`, route => route.fulfill({ status: 503, json: { error: 'Restore temporarily unavailable.' } }), { times: 1 });
+  await restore.click();
+  await expect(page.getByRole('region', { name: 'Notifications', exact: true }).getByRole('alert')).toContainText('Restore temporarily unavailable.');
+  await expect(restore).toBeEnabled();
+  expect((await request.get(`/api/sessions/${sessions[1].id}`)).status()).toBe(404);
+  await restore.click();
+  await expect(page).toHaveURL(new RegExp(`\\?session=${sessions[1].id}$`));
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(sessions[1].title);
+  await expect(composer).toHaveValue('Draft survives project archive');
+  await page.reload();
+  await expect(composer).toHaveValue('Draft survives project archive');
+  await archive.click();
+  await expect(panel).toContainText('No archived sessions');
+  await archive.press('Escape');
+  await expect(archive).toBeFocused();
+  expect((await (await request.get(`/api/sessions/${sessions[1].id}`)).json()).session.projectId).toBe(project.id);
+});
+
+for (const theme of ['Light', 'Dark']) for (const width of [1440, 390]) {
+  test(`project archive scopes and recovers its list in ${theme} at ${width}px`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const { project, sessions } = await openProject(page, request, 1);
+    const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
+    const owner = snapshot.machines.find(machine => machine.sessions.some(item => item.id === sessions[0].id))!;
+    const base = owner.sessions.find(item => item.id === sessions[0].id)!;
+    const archive = (title: string, projectId: string | undefined, archivedAt: string) => ({ ...base,
+      id: crypto.randomUUID(), title, projectId, archivedAt, updatedAt: '2026-11-16T12:00:00Z' });
+    owner.archivedSessions = [archive('Older project work', project.id, '2026-11-14T12:00:00Z'),
+      archive('Loose work', undefined, '2026-11-16T12:00:00Z'),
+      archive('Newer project work', project.id, '2026-11-15T12:00:00Z')];
+    snapshot.machines.push({ ...owner, machine: { ...owner.machine, id: crypto.randomUUID(), kind: 'remote', label: 'Other machine' },
+      sessions: [], archivedSessions: [archive('Other machine work', project.id, '2026-11-16T12:00:00Z')] });
+    let unavailable = false;
+    await page.route('**/api/arena', route => fulfillArenaSnapshot(route, unavailable
+      ? { status: 503, json: { error: 'Archive refresh unavailable.' } } : { json: snapshot }));
+    await page.reload();
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: theme, exact: true }).click();
+    await page.locator('.more-menu > button').click();
+    const trigger = page.getByRole('button', { name: 'Archived sessions', exact: true });
+    await trigger.press('ArrowDown');
+    const panel = page.getByRole('region', { name: 'Project archive', exact: true });
+    await expect(panel.locator('li .MuiListItemText-primary')).toHaveText(['Newer project work', 'Older project work']);
+    await expect(panel.getByRole('button', { name: 'Restore Newer project work', exact: true })).toBeFocused();
+    expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const triggerBox = (await trigger.boundingBox())!;
+    expect(triggerBox.x + triggerBox.width).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: testInfo.outputPath('project-archive.png'), animations: 'disabled' });
+    await page.locator('.app-header').screenshot({ path: testInfo.outputPath('header.png'), animations: 'disabled' });
+
+    owner.machine.state = 'offline';
+    await pushArenaSnapshot(page);
+    await expect(panel).toContainText('This machine is offline.');
+    for (const restore of await panel.getByRole('button', { name: /^Restore / }).all()) await expect(restore).toBeDisabled();
+    unavailable = true;
+    await trigger.click();
+    await trigger.click();
+    await expect(panel.getByRole('alert')).toBeVisible();
+    await expect(panel.locator('li')).toHaveCount(2);
+    unavailable = false;
+    owner.machine.state = 'online';
+    await panel.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+    for (const restore of await panel.getByRole('button', { name: /^Restore / }).all()) await expect(restore).toBeEnabled();
+    await page.goto('/?project=none');
+    await trigger.click();
+    await expect(panel.locator('li .MuiListItemText-primary')).toHaveText(['Loose work']);
+  });
+}
+
+test('pending project restore is submitted once and respects a newer session and composer focus', async ({ page, request }) => {
+  const { sessions } = await openProject(page, request, 3);
+  await page.getByRole('button', { name: `Archive this session: ${sessions[2].title}`, exact: true }).click();
+  await page.getByRole('button', { name: 'Archived sessions', exact: true }).click();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let requests = 0;
+  await page.route(`**/api/sessions/${sessions[2].id}/restore`, async route => {
+    requests++;
+    await held;
+    await route.continue();
+  });
+  const restore = page.getByRole('button', { name: `Restore ${sessions[2].title}`, exact: true });
+  await restore.click();
+  await expect(restore).toBeDisabled();
+  await expect(restore).toHaveText('Restoring…');
+  await page.getByRole('tab', { name: sessions[0].title, exact: true }).click();
+  const composer = page.getByRole('complementary', { name: 'Conversation', exact: true }).locator('textarea');
+  await composer.fill('Keep typing while restore finishes');
+  const response = page.waitForResponse(response => response.url().endsWith(`/api/sessions/${sessions[2].id}/restore`));
+  release();
+  expect((await response).ok()).toBe(true);
+  // Wait for the restore orchestrator's refresh, then allow its focus callback to run.
+  await expect(page.getByRole('region', { name: 'Notifications', exact: true }).getByRole('status')).toContainText(`Restored “${sessions[2].title}”.`);
+  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true }).locator(`option[value="${sessions[2].id}"]`)).toHaveCount(1);
+  await expect(page).toHaveURL(new RegExp(`\\?session=${sessions[0].id}$`));
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue('Keep typing while restore finishes');
+  expect(requests).toBe(1);
 });
 
 test('archiving a background tab keeps the current session, Git status and keyboard focus', async ({ page, request }) => {
@@ -328,7 +468,7 @@ test('phone tab archive persists after reload and header session actions fit in 
   const { sessions } = await openProject(page, request, 1);
   const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
   await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
-  await expect(page.getByRole('heading', { name: 'No open sessions' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
   await expect(picker).toBeFocused();
   await page.reload();
   await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(0);

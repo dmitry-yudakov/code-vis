@@ -185,6 +185,10 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
   title bar; All sessions opens closed and overflow views, with keyboard navigation, neighbour focus,
   and stored layouts preserved. TypeScript, build, unit/browser checks and review passed; three
   additional spatial/VR browser checks remain unverified because Chrome could not create WebGL contexts.
+  The November 16 follow-up widens tabs and shrinks them to fit, and adds a project archive picker
+  with Restore to the bench. All 162 focused unit checks, 23 production-browser cases, TypeScript,
+  isolated build, both-theme desktop/phone screenshot inspection and independent review pass.
+  The running application has not been rebuilt or restarted.
 - **Next shell story:** Story 74, status-bar — planned in the workbench shell epic. The development
   queue's next implementation item is Q5, Story 7's persistent repository model.
 - **Shipped:** [Story 109](stories/STORY-20261016-session-header-actions.md) — clarified session

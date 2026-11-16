@@ -47,6 +47,7 @@ import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { ProjectLogoDialog } from '@/features/projects/ProjectLogoDialog';
 import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
+import { SessionArchivePicker } from '@/features/conversation/SessionArchivePicker';
 import { useSessionLauncher } from '@/features/session-launch/useSessionLauncher';
 import { SessionSetupDialog } from '@/features/session-launch/SessionSetupDialog';
 import type { LaunchSettings } from '@/features/session-launch/sessionLaunch';
@@ -2764,6 +2765,17 @@ export function AppShell({ children }: { children: ReactNode }) {
                   archiveDisabledReasons={archiveSessionDisabledReasons}
                 />
                 <SessionPicker
+                  archiveControl={<SessionArchivePicker key={projectScope}
+                    sessions={immersiveMachine?.archivedSessions.filter(item => item.projectId === projectId) ?? []}
+                    online={immersiveMachine?.machine.state === 'online'} refreshError={arena.refreshError} onRefresh={arena.refresh}
+                    onRestore={async target => {
+                      if (!machineId) return false;
+                      const restored = await restoreArenaSession(machineId, target);
+                      // A late Restore must not take the user away from a newer destination.
+                      if (!restored || navigationKeyRef.current !== navigationKey) return false;
+                      focusSession(target.id);
+                      return true;
+                    }} />}
                   onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
                   worktrees={health?.worktrees}
                   sessions={sessions}

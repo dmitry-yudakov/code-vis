@@ -9,7 +9,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import { Disclosure } from '@/features/shell/Disclosure';
 
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   AgentExecution, AgentProvider, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
   SessionSnapshot, WorktreeCapability,
@@ -142,10 +142,11 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
   );
 }
 
-export function SessionPicker({ sessions, value, onChange, ...creation }: SessionCreationProps & {
+export function SessionPicker({ sessions, value, onChange, archiveControl, ...creation }: SessionCreationProps & {
   sessions: SessionSnapshot[];
   value?: string;
   onChange(value: string): void;
+  archiveControl?: ReactNode;
 }) {
   return (
     <div className="session-picker">
@@ -167,6 +168,7 @@ export function SessionPicker({ sessions, value, onChange, ...creation }: Sessio
           ))}
         </NativeSelect>
       </label>
+      {archiveControl}
       <DesktopPopover keepMounted className="new-session-menu" label="New session" summary={<><span aria-hidden="true">＋</span><span className="new-session-label">New</span></>} placement="bottom-end">
         {(close) => <div>
           <SessionCreationForm {...creation}

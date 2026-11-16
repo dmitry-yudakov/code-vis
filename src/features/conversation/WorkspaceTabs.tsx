@@ -107,9 +107,12 @@ export function WorkspaceTabs({
   if (!openSessions.length) return null;
 
   return (
-    <div className="workspace-tabs" style={{ maxWidth: openSessions.length * 180 }}>
+    <div className="workspace-tabs" style={{ maxWidth: openSessions.length * 360 }}>
       <Tabs className="workspace-tablist" aria-label="Open session views" value={focusedSessionId ?? false}
-        variant="scrollable" scrollButtons={false} slotProps={{ scroller: { ref: tablistRef, style: { containerType: 'inline-size' } } }}
+        variant="scrollable" scrollButtons={false} slotProps={{
+          scroller: { ref: tablistRef, style: { containerType: 'inline-size' } },
+          list: { sx: { width: '100%' } },
+        }}
         onChange={(_, id: string) => onFocus(id)}>
         {openSessions.map((session, index) => {
           const selected = session.id === focusedSessionId;
@@ -122,7 +125,7 @@ export function WorkspaceTabs({
           const unread = unreadBySession[session.id] || 0;
           return (
             <Tab component="div"
-              sx={{ width: 180, maxWidth: 'min(180px, 100cqw)', flex: '0 0 180px', flexDirection: 'row' }}
+              sx={{ minWidth: 'min(120px, 100cqw)', maxWidth: 'min(360px, 100cqw)', flex: '1 1 360px', flexDirection: 'row' }}
               value={session.id}
               className={`workspace-tab ${selected ? 'active' : ''} ${running ? 'working' : ''} ${queued ? 'queued' : ''} ${needsYou ? 'awaiting-approval' : ''}`.trim()}
               key={session.id}
