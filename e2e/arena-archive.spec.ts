@@ -79,23 +79,50 @@ for (const appearance of ['light', 'dark'] as const) for (const width of [1440, 
   });
 }
 
-test('restores a real archived session from its date group', async ({ page, request }) => {
-  const created = await request.post('/api/sessions', { data: { provider: 'claude' } });
+for (const scope of ['current project', 'another project']) test(`restores and opens a real archived session in ${scope}`, async ({ page, request }) => {
+  const { project } = await (await request.post('/api/projects', { data: { name: `Restore ${scope} ${Date.now()}` } })).json();
+  const currentProject = scope === 'current project' ? project
+    : (await (await request.post('/api/projects', { data: { name: `Initial project ${Date.now()}` } })).json()).project;
+  const created = await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } });
   expect(created.status()).toBe(201);
   const { session } = await created.json() as { session: PublicSession };
   const archived = await request.post(`/api/sessions/${session.id}/archive`, { data: { expectedRevision: session.revision } });
   expect(archived.status()).toBe(200);
   const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
   const summary = snapshot.machines.flatMap(machine => machine.archivedSessions).find(item => item.id === session.id)!;
-  await page.goto('/arena/archived');
+  await page.goto(`/?project=${currentProject.id}`);
+  await expect(page.locator('.project-search-trigger')).toContainText(currentProject.name);
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena', exact: true });
+  await arena.getByRole('tab', { name: /^Archived/ }).click();
   const card = arena.locator('.arena-card.archived').filter({ has: page.getByText(summary.title, { exact: true }) });
   await expect(card).toBeVisible();
+  if (scope === 'current project') {
+    await page.route(`**/api/sessions/${session.id}/restore`, route => route.fulfill({ status: 503, json: { error: 'Restore temporarily unavailable.' } }), { times: 1 });
+    await card.getByRole('button', { name: 'Restore', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Notifications', exact: true }).getByRole('alert')).toContainText('Restore temporarily unavailable.');
+    await expect(card.getByRole('button', { name: 'Restore', exact: true })).toBeEnabled();
+    expect((await request.get(`/api/sessions/${session.id}`)).status()).toBe(404);
+  }
   await card.getByRole('button', { name: 'Restore', exact: true }).click();
   await expect(card).toHaveCount(0);
   const restored = await request.get(`/api/sessions/${session.id}`);
   expect(restored.status()).toBe(200);
-  expect((await restored.json()).session.archivedAt).toBeUndefined();
+  const saved = (await restored.json()).session as PublicSession;
+  expect(saved.archivedAt).toBeUndefined();
+  // Restore does not open a view until the user chooses the conversation.
+  await expect(page).toHaveURL(/\/arena\/archived$/);
   await arena.getByRole('tab', { name: /^Active/ }).click();
-  await expect(arena.getByRole('link', { name: `Open ${summary.title}`, exact: true })).toBeVisible();
+  await arena.getByRole('region', { name: project.name, exact: true }).getByRole('link', { name: `Open ${summary.title}`, exact: true }).click();
+  const tabs = page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab');
+  const composer = page.getByRole('complementary', { name: 'Conversation', exact: true }).locator('textarea');
+  await expect(page).toHaveURL(new RegExp(`\\?session=${session.id}$`));
+  await expect(tabs).toHaveCount(1);
+  await expect(composer).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Workspace unavailable', exact: true })).toHaveCount(0);
+  expect((await (await request.get(`/api/sessions/${session.id}`)).json()).session.revision).toBe(saved.revision);
+  await composer.fill('Draft in the restored conversation');
+  await page.reload();
+  await expect(tabs).toHaveCount(1);
+  await expect(composer).toHaveValue('Draft in the restored conversation');
 });

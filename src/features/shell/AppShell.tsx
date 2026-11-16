@@ -512,7 +512,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (prior && prior.machineId === sourceMachineId && snapshot.revision < prior.revision) return prior;
     const hydrated = { ...hydrateSession(snapshot, prior, workspace.getView(snapshot.id)), machineId: sourceMachineId };
     const archivedRevision = reconciledArchiveRevisions.current.get(JSON.stringify([sourceMachineId, snapshot.id]));
-    if (archivedRevision !== undefined && snapshot.revision <= archivedRevision) return hydrated;
+    // Restore also records its revision here: an active snapshot at that revision is current.
+    if (archivedRevision !== undefined && snapshot.revision < archivedRevision) return hydrated;
     if (sourceMachineId !== machineIdRef.current || snapshot.projectId !== projectIdRef.current) return hydrated;
     const next = prior
       ? current.map((item) => item.id === snapshot.id ? hydrated : item)
@@ -843,7 +844,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       .then((snapshots) => {
         if (!current) return;
         const prior = new Map(sessionsRef.current.map((item) => [item.id, item]));
-        const hydrated = snapshots.filter(snapshot => snapshot.revision > (reconciledArchiveRevisions.current.get(
+        const hydrated = snapshots.filter(snapshot => snapshot.revision >= (reconciledArchiveRevisions.current.get(
           JSON.stringify([machineId, snapshot.id])) ?? -1)).map((snapshot) => ({
           ...hydrateSession(snapshot, prior.get(snapshot.id), workspace.getView(snapshot.id)),
           machineId,

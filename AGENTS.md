@@ -56,7 +56,9 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
   show the latest 40 by closing date, newest first across projects/machines, grouped by local day,
   with Show older sessions and preserved Restore. All 69 focused unit tests, ten production-browser
   cases, source TypeScript, isolated build, both-theme desktop/phone screenshot inspection and review
-  pass. Two existing tab-return browser failures reproduce on the preceding build; the running
+  pass. The November 16 follow-up fixes reopening restored conversations at Restore's exact revision;
+  107 focused unit tests, 11 distinct production-browser checks, TypeScript, isolated build and
+  independent review pass. The running
   application has not been rebuilt or restarted.
 - **Shipped:** [Story 138](stories/STORY-20261112-agent-session-archive.md) — opt each session into
   a separate, tool-free completion check that can archive it and release queued work, with revocation,

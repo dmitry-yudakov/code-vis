@@ -163,6 +163,48 @@ Arena, Checkouts and Projects routes. No build configuration or API route change
 The running application has not been rebuilt or restarted; real attached executors and physical
 devices were not exercised.
 
+## November 16 fix — open restored conversations
+
+**Status:** Shipped
+
+BookingGood-Next's restored conversation remained valid in active storage, but opening it in the
+same browser session showed Workspace unavailable. The browser records the Restore response's
+revision to reject delayed archive notifications, then also rejects active snapshots at that
+exact revision. Restore must make the conversation immediately usable without another write.
+This repairs the tab-return failures recorded in the November 13 verification above, within the
+[Arena vision](../docs/vision.md#sequence).
+
+Where the code is: `src/features/shell/AppShell.tsx:514` filters individual snapshots,
+`:846` filters project listings, `:882` rejects stale archive notifications, and `:2316` records
+successful restores. `e2e/arena-archive.spec.ts:82` covers storage-backed restoration;
+`e2e/autoArchive.spec.ts:51` covers retained history and delayed/offline archive projections.
+
+- [x] Open a restored session immediately from Active in both the current project and another
+      project; show its tab and composer, and retain it through reload without another write.
+- [x] Preserve automatic archive recovery, retained history, Undo archive, and protection against
+      older active snapshots and delayed/offline archive notifications. Failed Restore stays retryable.
+- [x] Reproduce the failure before the fix; pass focused unit/browser checks, TypeScript, isolated
+      production build and independent review.
+
+Verification: both new storage-backed Restore/open cases failed against the preceding
+`.next-e2e/project-workspace` production bundle with zero open tabs after successful Restore.
+Both pass with the fix, including a failed Restore/retry, no revision change when opening, and
+draft retention through reload. **11 distinct production-browser checks** pass across
+`arena-archive` (six), `autoArchive` (one), `canvas` (two archive/Undo journeys), and
+`conversation-urls` (two archived-link/activation recoveries). The automatic-archive journey
+also proves retained transcript/participants and rejects delayed online and offline archive
+projections. Active GET/list producers exclude archived records, and archive increments revision,
+so older active responses still fall below the cutoff while Restore's exact revision is accepted.
+
+All **107 focused unit tests** pass across `sessionStore`, `sessionRoutes`, `autoArchiveSessions`,
+`agentSessionArchive`, `arenaRoutes`, `creationReceipt`, and `sessionSummaries`, with
+`CODEAI_MAX_CONCURRENT_RUNS=2` for scheduler fixtures. `npm run lint`, the normal isolated
+Turbopack production build (`CODEAI_DIST_DIR=.next-e2e/restore-session npm run build`),
+`git diff --check`, and independent read-only review pass. Next's generated additions to
+`tsconfig.json` were removed after the build. The real BookingGood-Next record passed durable
+and public session validation with all five messages intact; it was only read. The running
+application has not been rebuilt or restarted, and real session files were not changed.
+
 ## How to verify
 
 1. Create idle and failed sessions, archive them from their cards, and confirm they disappear from
