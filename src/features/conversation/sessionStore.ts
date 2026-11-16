@@ -66,7 +66,7 @@ export function hydrateSession(
     base.title = prior.title;
     base.allowAgentArchive = prior.allowAgentArchive;
     base.agentArchiveCheck = prior.agentArchiveCheck;
-    if (prior.allowAgentArchive !== undefined) base.version = 15;
+    if (prior.allowAgentArchive !== undefined && base.version < 15) base.version = 15;
     base.titleRevision = prior.titleRevision;
   }
   if (prior) {
@@ -124,7 +124,7 @@ export function reconcileSessionTitles(sessions: SessionSnapshot[], machines: Ar
         && JSON.stringify(summary.agentArchiveCheck) === JSON.stringify(session.agentArchiveCheck)) return session;
     changed = true;
     return { ...session, title: summary.title, titleRevision: summary.revision,
-      ...(summary.allowAgentArchive !== undefined ? { version: 15 as const } : {}),
+      ...(summary.allowAgentArchive !== undefined && session.version < 15 ? { version: 15 as const } : {}),
       allowAgentArchive: summary.allowAgentArchive, agentArchiveCheck: summary.agentArchiveCheck };
   });
   return changed ? next : sessions;

@@ -106,7 +106,7 @@ export function ConversationDrawer({
   onRemoveFile?(index: number): void;
   markCounts: Record<string, number>;
   onSelectDiagram(id: string): void;
-  onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
+  onRetry(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean, activeFile?: import('@/shared/activeFileContext').ActiveFileContext): void;
   onComposer(value: string): void;
   onModeChange(mode: AgentMode): void;
   onModelSelectionChange(selection: ModelSelection): void;

@@ -41,7 +41,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
   liveState?: 'queued' | 'running' | 'needs-you';
   executePlanBlocked?: string;
   onSelectDiagram(id: string): void;
-  onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean): void;
+  onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean, activeFile?: import('@/shared/activeFileContext').ActiveFileContext): void;
   onExecutePlan?(participantId: string): void;
   onEditQueuedMessage?(messageId: string, text: string, expectedText: string): Promise<void>;
   navigation?: ReactNode;
@@ -95,7 +95,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
             <span>{liveState === 'queued' ? 'Queued' : liveState === 'needs-you' ? 'Needs approval' : liveState ? 'Working' : message.status === 'sending' ? 'Checking delivery' : message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
             {liveState === 'queued' && onEditQueuedMessage && !edit && <Button type="button" onClick={() => { setEdit({ text: message.text, original: message.text }); setEditError(undefined); }}>Edit message</Button>}
             {onRetry && !running && !liveState && message.status !== 'sending' && <Button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
-              message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent')}>Retry</Button>}
+              message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent', message.activeFile)}>Retry</Button>}
           </div>
         )}
       </article>

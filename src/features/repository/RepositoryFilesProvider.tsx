@@ -10,7 +10,8 @@ import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 import type { GitChangedFile } from '@/shared/types';
-import { openTab, closeTab, resolveTab, type FileTabs } from './repositoryFileTabs';
+import { openTab, closeTab, resolveTab, tabFileContext, type FileTabs } from './repositoryFileTabs';
+import type { ActiveFileContext } from '@/shared/activeFileContext';
 import type { RepositoryFile } from '@/shared/repositoryFiles';
 import { localFileLink, type LocalFileLink } from './localFileLinks';
 
@@ -23,34 +24,56 @@ interface FilesContextValue extends FileTabs {
   select(id: number): void;
   close(id: number): void;
   resolved(id: number, checkoutId: string, path: string): void;
+  contextCandidate?: ActiveFileContext;
+  activeFile?: ActiveFileContext;
+  setContextIncluded(included: boolean): void;
+  restoreContext(context?: ActiveFileContext): void;
 }
 const FilesContext = createContext<FilesContextValue | undefined>(undefined);
+const EMPTY_TABS: FileTabs = { tabs: [] };
 export const useRepositoryFiles = () => useContext(FilesContext);
 export const useOpenRepositoryFile = () => {
   const context = useRepositoryFiles();
   return context?.repositories.length ? context.openFile : undefined;
 };
 
-/** Retain tab metadata per workspace; only the focused workspace mounts file readers. */
-export function RepositoryFilesProvider({ scope, repositories, apiBase, docker = false, onOpen, children }: {
+/** Retain tab metadata per workspace; Send and the file pane share this synchronous owner. */
+export function useRepositoryFileWorkspace({ scope, parentScope, repositories, apiBase, docker = false, onOpen }: {
   scope: string;
+  parentScope?: string;
   repositories: { id: string; name: string }[];
   apiBase: string;
   docker?: boolean;
   onOpen(): void;
-  children: ReactNode;
-}) {
-  const identity = JSON.stringify([scope, apiBase, docker, repositories.map(item => item.id)]);
+}): FilesContextValue {
+  const workspaceKey = (key: string, container: boolean) => JSON.stringify([key, apiBase, container, repositories.map(item => item.id)]);
+  const identity = workspaceKey(scope, docker);
   const [workspaces, setWorkspaces] = useState<Record<string, FileTabs>>({});
   const sequence = useRef(0);
-  const current = workspaces[identity] || { tabs: [] };
+  const parent = parentScope ? workspaces[workspaceKey(parentScope, false)] : undefined;
+  const parentTab = parent?.tabs.find(tab => tab.id === parent.activeId);
+  const stored = workspaces[identity];
+  const primaryId = repositories[0]?.id;
+  const inherited = useMemo<FileTabs | undefined>(() => {
+    const context = tabFileContext(parentTab);
+    if (stored || !parentTab || !context || docker && context.checkoutId !== primaryId) return;
+    // Viewer keys must be unique across workspaces, so their reads and view choices stay separate.
+    const id = ++sequence.current;
+    const tab = { ...parentTab, id, navigation: id };
+    return { tabs: [tab.kind === 'file' ? { ...tab, checkoutId: context.checkoutId, link: { path: context.path } } : tab], activeId: id };
+  }, [stored, parentTab, docker, primaryId, identity]);
+  const current = stored || inherited || EMPTY_TABS;
+  useEffect(() => {
+    // Seed once; returning to a conversation (even one whose tabs were closed) keeps its own state.
+    if (inherited) setWorkspaces(value => value[identity] ? value : { ...value, [identity]: inherited });
+  }, [identity, inherited]);
   const updateTabs = useCallback((update: (tabs: FileTabs) => FileTabs) => {
     setWorkspaces(value => {
-      const prior = value[identity] || { tabs: [] };
+      const prior = value[identity] || current;
       const next = update(prior);
       return next === prior ? value : { ...value, [identity]: next };
     });
-  }, [identity]);
+  }, [identity, current]);
   const openFile = useCallback<OpenFile>((link, checkoutId) => {
     const target = docker && !checkoutId && link.path.startsWith('/workspace/')
       ? { ...link, path: link.path.slice('/workspace/'.length) } : link;
@@ -62,7 +85,26 @@ export function RepositoryFilesProvider({ scope, repositories, apiBase, docker =
   const resolved = useCallback((id: number, checkoutId: string, path: string) => {
     updateTabs(value => resolveTab(value, id, checkoutId, path));
   }, [updateTabs]);
-  return <FilesContext.Provider value={{ ...current, repositories, apiBase, openFile, resolved,
+  const activeTab = current.tabs.find(tab => tab.id === current.activeId);
+  const candidate = tabFileContext(activeTab);
+  const contextCandidate = candidate && repositories.some(repository => repository.id === candidate.checkoutId)
+    && (!docker || candidate.checkoutId === repositories[0]?.id) ? candidate : undefined;
+  return { ...current, repositories, apiBase, openFile, resolved, contextCandidate,
+    activeFile: activeTab?.contextExcluded ? undefined : contextCandidate,
+    setContextIncluded: included => updateTabs(value => ({ ...value,
+      tabs: value.tabs.map(tab => tab.id === value.activeId ? { ...tab, contextExcluded: !included } : tab),
+    })),
+    restoreContext: context => {
+      const navigation = ++sequence.current;
+      updateTabs(value => {
+        if (!context) return { ...value, tabs: value.tabs.map(tab => tab.id === value.activeId ? { ...tab, contextExcluded: true } : tab) };
+        let next = openTab(value, context.view === 'diff'
+          ? { kind: 'diff', checkoutId: context.checkoutId, file: { path: context.path, status: 'modified', staged: false, unstaged: true } }
+          : { kind: 'file', checkoutId: context.checkoutId, link: { path: context.path } }, navigation);
+        if (context.view === 'file') next = resolveTab(next, next.activeId!, context.checkoutId, context.path);
+        return { ...next, tabs: next.tabs.map(tab => tab.id === next.activeId ? { ...tab, contextExcluded: false } : tab) };
+      });
+    },
     openDiff: (checkoutId, file) => {
       const navigation = ++sequence.current;
       updateTabs(value => openTab(value, { kind: 'diff', checkoutId, file }, navigation));
@@ -70,7 +112,11 @@ export function RepositoryFilesProvider({ scope, repositories, apiBase, docker =
     },
     select: activeId => updateTabs(value => ({ ...value, activeId })),
     close: id => updateTabs(value => closeTab(value, id)),
-  }}>{children}</FilesContext.Provider>;
+  };
+}
+
+export function RepositoryFilesProvider({ value, children }: { value: FilesContextValue; children: ReactNode }) {
+  return <FilesContext.Provider value={value}>{children}</FilesContext.Provider>;
 }
 
 /** The default Markdown URL filter drops file: URLs; preserve only parsed local references. */

@@ -231,6 +231,17 @@ until requested. Its transient pane layout and file tabs reset together when the
 scope changes; conversation layouts and drafts keep their existing owners. Clicking the logo or
 placeholder edits its image; the title and logo remain separate controls.
 
+`useRepositoryFileWorkspace` owns file tabs and their context exclusions above the composer and
+Send. A conversation with no file workspace can seed the project's active tab once, using a fresh
+viewer identity; subsequent navigation retains independent tabs and re-reads content. Send captures
+one optional `activeFile` reference before asynchronous evidence preparation. Its strict shared
+schema carries only checkout id, canonical relative path and file/diff view. The message route
+checks session/host bindings (Docker permits only its mounted primary repository), and format 16
+persists the reference for exact replay and historical context. Prompt construction resolves local
+repository roots server-side and supplies a conditional-read hint, or explicit absence, without
+reading or copying the active file. A missing reference target does not prevent a turn. Removing
+context affects later sends; it cannot erase information from earlier provider turns.
+
 `useWorkspaceViews` restores the tab's `sessionStorage` workspace first. Its existing `localStorage`
 record remains a migration/new-tab seed and best-effort mirror; mounted tabs never reread another
 tab's workspace. Tab drafts therefore survive ordinary reload without competing browser-tab writes.

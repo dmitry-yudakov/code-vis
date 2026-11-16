@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AGENT_MODES } from './agentModes';
 import { textFileSchema } from './textFiles';
+import { activeFileContextSchema } from './activeFileContext';
 import { MAX_TEXT_FILES_PER_MESSAGE } from './limits';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_MESSAGE_TEXT_CHARS, MODEL_EFFORT_PATTERN, MODEL_ID_PATTERN } from './limits';
@@ -65,6 +66,7 @@ export const agentMessageRequestSchema = z.object({
   // The route enforces the per-message count and each image's bounds with a clear message.
   imageAttachments: z.array(imageAttachmentSchema).max(32).default([]),
   fileAttachments: z.array(textFileSchema).max(MAX_TEXT_FILES_PER_MESSAGE).default([]),
+  activeFile: activeFileContextSchema.optional(),
   mode: agentModeSchema.optional(),
   // Scheduling only; the selected mode still owns provider permissions.
   waitForCheckout: z.boolean().optional(),

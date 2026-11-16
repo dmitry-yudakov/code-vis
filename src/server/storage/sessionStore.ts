@@ -16,7 +16,7 @@ import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
   NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema, agentContextUsageSchema, CONTEXT_USAGE_SESSION_VERSION,
-  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION,
+  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION, ACTIVE_FILE_SESSION_VERSION,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
@@ -44,7 +44,7 @@ const projectLogoRecordSchema = z.object({ logo: projectLogoSchema, repository: 
   .refine(record => record.logo.repositoryId === record.repository.id);
 
 function upgradeForMessage(session: DurableSession, message: ChatMessage): void {
-  const needed = message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
+  const needed = message.role === 'user' && message.activeFile ? ACTIVE_FILE_SESSION_VERSION : message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
     : message.role === 'user' && message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
     : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
     : message.role === 'user' && message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
@@ -846,7 +846,8 @@ export class SessionStore {
           && same(prior.diagramAttachments, message.diagramAttachments)
           && same(prior.reportAttachments ?? [], message.reportAttachments ?? [])
           && same(prior.imageAttachments ?? [], message.imageAttachments ?? [])
-          && same(prior.fileAttachments ?? [], message.fileAttachments ?? []);
+          && same(prior.fileAttachments ?? [], message.fileAttachments ?? [])
+          && same(prior.activeFile ?? null, message.activeFile ?? null);
         if (!sameLogicalRequest) throw new Error('Message id was already used with different content');
         return { result: { session, appended: false }, changed: false };
       }
@@ -976,7 +977,7 @@ export class SessionStore {
       }
       if (Boolean(session.allowAgentArchive) === allowed) return { result: session, changed: false };
       if (session.version === 3) session.execution = 'local';
-      session.version = AGENT_ARCHIVE_SESSION_VERSION;
+      if (session.version < AGENT_ARCHIVE_SESSION_VERSION) session.version = AGENT_ARCHIVE_SESSION_VERSION;
       session.allowAgentArchive = allowed;
       delete session.agentArchiveCheck;
       return { result: session, changed: true };

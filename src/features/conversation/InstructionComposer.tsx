@@ -5,6 +5,7 @@ import Paper from '@mui/material/Paper';
 import ListItemButton from '@mui/material/ListItemButton';
 import Alert from '@mui/material/Alert';
 import { AttachmentChip } from './AttachmentChip';
+import { useRepositoryFiles } from '@/features/repository/RepositoryFilesProvider';
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react';
 import type { DraftSource } from './draftLifecycle';
@@ -350,6 +351,8 @@ export function InstructionComposer({
   onOpenReports?(): void;
 }) {
   const value = useSyncExternalStore(draft.subscribe, draft.getSnapshot, draft.getSnapshot);
+  const repositoryFiles = useRepositoryFiles();
+  const activeFile = repositoryFiles?.activeFile;
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [dropTarget, setDropTarget] = useState(false);
@@ -439,6 +442,13 @@ export function InstructionComposer({
     <div className="composer-layout">
     {agentControl && <div className="composer-agent">{agentControl}</div>}
     <Paper sx={{ p: 1.5, borderRadius: '14px' }} className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
+      {repositoryFiles?.contextCandidate && <div className="attachment-chips" aria-label="File context">
+        {activeFile ? <AttachmentChip removeLabel="Remove active file from context" onRemove={() => repositoryFiles.setContextIncluded(false)}>
+          <span title="Only the file reference is sent. The agent can read it if relevant.">
+            {repositoryFiles.repositories.find(repository => repository.id === activeFile.checkoutId)?.name} · {activeFile.path}{activeFile.view === 'diff' ? ' · Diff' : ''}
+          </span>
+        </AttachmentChip> : <Button size="small" onClick={() => repositoryFiles.setContextIncluded(true)}>Add active file to context</Button>}
+      </div>}
       {attached.length + reports.length + images.length + files.length > 0 && (
         <div className="attachment-chips" aria-label="Attachments">
           {attached.map((canvas) => {

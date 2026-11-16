@@ -1,10 +1,17 @@
 import type { GitChangedFile } from '@/shared/types';
 import type { LocalFileLink } from './localFileLinks';
+import { activeFileContextSchema, type ActiveFileContext } from '@/shared/activeFileContext';
 
 export type FileTarget = { kind: 'file'; link: LocalFileLink; checkoutId?: string }
   | { kind: 'diff'; checkoutId: string; file: GitChangedFile };
-export type FileTab = FileTarget & { id: number; navigation: number; resolved?: { checkoutId: string; path: string } };
+export type FileTab = FileTarget & { id: number; navigation: number; resolved?: { checkoutId: string; path: string }; contextExcluded?: boolean };
 export interface FileTabs { tabs: FileTab[]; activeId?: number }
+
+export function tabFileContext(tab?: FileTab): ActiveFileContext | undefined {
+  const target = tab?.kind === 'diff' ? { checkoutId: tab.checkoutId, path: tab.file.path } : tab?.resolved;
+  const parsed = target && activeFileContextSchema.safeParse({ ...target, view: tab!.kind });
+  return parsed?.success ? parsed.data : undefined;
+}
 
 export function openTab(state: FileTabs, target: FileTarget, navigation: number): FileTabs {
   const path = target.kind === 'file' ? target.link.path : target.file.path;

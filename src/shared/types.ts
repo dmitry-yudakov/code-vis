@@ -191,7 +191,7 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
   allowAgentArchive?: boolean;
   agentArchiveCheck?: AgentArchiveCheck;
   /** Server-only receipt; never included in public sessions. */
@@ -522,6 +522,7 @@ export interface UserMessage {
   /** Present only on messages that carried images, which only a version 8 session holds. */
   imageAttachments?: ImageAttachmentRecord[];
   fileAttachments?: import('./textFiles').TextFileRecord[];
+  activeFile?: import('./activeFileContext').ActiveFileContext;
   mode?: AgentMode;
   /** Native Agent/Auto need a level; the two Native-only modes identify themselves. */
   level?: 'native';
@@ -552,7 +553,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
   allowAgentArchive?: boolean;
   agentArchiveCheck?: AgentArchiveCheck;
   worktree?: SessionWorktree;
@@ -750,6 +751,7 @@ export interface AgentMessageRequest {
   /** Pasted or dropped images for this turn only; the protocol parser defaults absence to `[]`. */
   imageAttachments?: ImageAttachmentRequest[];
   fileAttachments?: import('./textFiles').TextFile[];
+  activeFile?: import('./activeFileContext').ActiveFileContext;
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;
   /** Omitted means Default. Must be an `id` in the addressed provider's `models`, or 400. */

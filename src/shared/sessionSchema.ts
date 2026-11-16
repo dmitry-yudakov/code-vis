@@ -5,6 +5,7 @@ import { AGENT_MODES, isNativeMessage, LAUNCH_MODES } from './agentModes';
 import { IMMERSIVE_REPORT_ID } from './immersiveReport';
 import { MAX_REPORTS_PER_MESSAGE, MAX_TEXT_FILES_PER_MESSAGE } from './limits';
 import { textFileRecordSchema } from './textFiles';
+import { activeFileContextSchema } from './activeFileContext';
 
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 const dateTime = z.string().datetime();
@@ -232,6 +233,7 @@ export const userMessageSchema = z.object({
   // Only a version 8 session may hold these; `validateSession` enforces that.
   imageAttachments: z.array(imageAttachmentRecordSchema).min(1).max(16).optional(),
   fileAttachments: z.array(textFileRecordSchema).min(1).max(MAX_TEXT_FILES_PER_MESSAGE).optional(),
+  activeFile: activeFileContextSchema.optional(),
   // `auto` needs a version 6 session; `validateSession` enforces that for both roles.
   mode: agentMode.optional(),
   level: z.literal('native').optional(),
@@ -257,7 +259,8 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 15;
+export const MAX_READABLE_SESSION_VERSION = 16;
+export const ACTIVE_FILE_SESSION_VERSION = 16;
 export const AGENT_ARCHIVE_SESSION_VERSION = 15;
 
 export const agentArchiveCheckSchema = z.object({
@@ -308,6 +311,7 @@ const sessionBase = {
     z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION), z.literal(SESSION_SETUP_VERSION), z.literal(TURN_ACTIVITY_SESSION_VERSION),
     z.literal(CONTEXT_USAGE_SESSION_VERSION),
     z.literal(AGENT_ARCHIVE_SESSION_VERSION),
+    z.literal(ACTIVE_FILE_SESSION_VERSION),
   ]),
   allowAgentArchive: z.boolean().optional(),
   agentArchiveCheck: agentArchiveCheckSchema.optional(),
@@ -332,7 +336,7 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
     allowAgentArchive?: boolean;
     agentArchiveCheck?: { messageId: string };
     creationReceipt?: unknown;
@@ -345,7 +349,7 @@ function validateSession(
     primaryAgentId: string;
     messages: Array<{
       id: string; role: string; authorId: string; addressedParticipantId?: string;
-      turn?: TurnRecord; reportAttachments?: unknown; imageAttachments?: unknown; fileAttachments?: unknown; mode?: string; level?: string;
+      turn?: TurnRecord; reportAttachments?: unknown; imageAttachments?: unknown; fileAttachments?: unknown; activeFile?: unknown; mode?: string; level?: string;
     }>;
     pinnedDiagramIds: string[];
     annotations: Record<string, { diagramId: string }>;
@@ -385,6 +389,9 @@ function validateSession(
     ctx.addIssue({ code: 'custom', message: 'Session activity exceeds byte limit.', path: ['messages'] });
   }
   value.messages.forEach((message, index) => {
+    if (message.activeFile !== undefined && value.version < ACTIVE_FILE_SESSION_VERSION) {
+      ctx.addIssue({ code: 'custom', message: 'Active-file context requires format 16.', path: ['messages', index, 'activeFile'] });
+    }
     if (message.turn && (value.version < TURN_ACTIVITY_SESSION_VERSION || message.role !== 'user'
       || message.turn.userMessageId !== message.id || message.turn.participantId !== message.addressedParticipantId)) {
       ctx.addIssue({ code: 'custom', message: 'Turn activity requires format 13 and its owning user message.', path: ['messages', index, 'turn'] });

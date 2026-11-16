@@ -35,6 +35,13 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 144](stories/STORY-20261116-active-file-context.md) — the conversation composer
+  follows the active file/diff with a removable reference, carrying project files into new file
+  workspaces and preserving exact sends, retries and independent views. Contents stay out of the
+  prompt; the agent can read them when relevant. All 191 focused unit checks, 40 production-browser cases, TypeScript,
+  isolated build, light/dark desktop/phone screenshot inspection and independent review pass.
+  One existing full-suite Google-font assertion is recorded in the story. Selected text is deferred;
+  the running application has not been rebuilt or restarted.
 - **Shipped:** [Story 143](stories/STORY-20261116-workspace-shortcuts.md) — Shift+Esc maximizes/
   restores the active pane, and Ctrl/Cmd+P opens fuzzy project file search with keyboard selection,
   retained tabs/drafts, retry and attached-machine routing. All 112 focused unit checks,

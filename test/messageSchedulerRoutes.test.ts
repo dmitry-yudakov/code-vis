@@ -8,6 +8,7 @@ const routeState = vi.hoisted(() => ({
   runnersCreated: 0,
   started: [] as string[],
   texts: new Map<string, string>(),
+  contexts: new Map<string, unknown>(),
   resolvers: new Map<string, () => void>(),
 }));
 
@@ -63,11 +64,12 @@ vi.mock('@/server/agents/providerRegistry', () => ({
 vi.mock('@/server/conversation/conversationService', () => ({
   runConversation: vi.fn(async (input: {
     runId: string;
-    request: { sessionId: string; messageId: string; participantId: string; text: string };
+    request: { sessionId: string; messageId: string; participantId: string; text: string; activeFile?: unknown };
     emit(event: unknown): void;
   }) => {
     routeState.started.push(input.runId);
     routeState.texts.set(input.runId, input.request.text);
+    routeState.contexts.set(input.runId, input.request.activeFile);
     input.emit({
       type: 'run-started',
       runId: input.runId,
@@ -135,6 +137,7 @@ describe('message route scheduler integration', () => {
     routeState.started = [];
     routeState.resolvers.clear();
     routeState.texts.clear();
+    routeState.contexts.clear();
   });
 
   afterEach(async () => {
@@ -153,7 +156,8 @@ describe('message route scheduler integration', () => {
     const [current, next] = await createSessions(2);
     const active = await POST_MESSAGE(messageRequest(current));
     await vi.waitFor(() => expect(routeState.started).toHaveLength(1));
-    const response = await POST_MESSAGE(messageRequest(next, { waitForCheckout: true, mode: 'plan', fileAttachments: [{ name: 'idea.txt', text: 'Evidence' }] }));
+    const activeFile = { checkoutId: 'checkout-a', path: 'missing.ts', view: 'diff' };
+    const response = await POST_MESSAGE(messageRequest(next, { waitForCheckout: true, mode: 'plan', fileAttachments: [{ name: 'idea.txt', text: 'Evidence' }], activeFile }));
     expect(response.status).toBe(200);
     expect(response.headers.get('X-CodeAI-Run-State')).toBe('queued');
     const runId = response.headers.get('X-CodeAI-Run-Id')!;
@@ -170,7 +174,7 @@ describe('message route scheduler integration', () => {
     expect((await edit('Stale device overwrite')).status).toBe(409);
     expect((await edit('')).status).toBe(400);
     const saved = (await store.getSession(next.id)).messages.at(-1)!;
-    expect(saved).toMatchObject({ text: 'Revised idea', mode: 'plan', fileAttachments: [{ name: 'idea.txt', text: 'Evidence' }], turn: { runId } });
+    expect(saved).toMatchObject({ text: 'Revised idea', mode: 'plan', fileAttachments: [{ name: 'idea.txt', text: 'Evidence' }], activeFile, turn: { runId } });
     const originalSave = store.editQueuedMessage.bind(store);
     const failSave = vi.spyOn(store, 'editQueuedMessage').mockRejectedValueOnce(new SessionStoreError('corrupt', 'disk full'));
     expect((await edit('Failed edit', 'Revised idea')).status).toBe(500);
@@ -193,12 +197,49 @@ describe('message route scheduler integration', () => {
     expect((await archiveRequest()).status).toBe(200);
     await vi.waitFor(() => expect(routeState.started).toContain(runId));
     expect(routeState.texts.get(runId)).toBe('Canonical edit after uncertain save');
+    expect(routeState.contexts.get(runId)).toEqual(activeFile);
     expect((await edit('Too late', 'Canonical edit after uncertain save')).status).toBe(409);
     expect(routeState.runnersCreated).toBe(2);
     routeState.resolvers.get(runId)?.();
     await vi.waitFor(() => expect(runRegistry.list().active).toEqual([]));
     await active.body?.cancel();
     await store.close();
+  });
+
+  it('checks file bindings and compares accepted references before admitting a duplicate turn', async () => {
+    const [session] = await createSessions(1);
+    const activeFile = { checkoutId: 'checkout-a', path: 'src/main.ts', view: 'file' };
+    const store = getSessionStore(routeState.dataDir, 'Scheduler route host');
+    try {
+      for (const invalid of [{ ...activeFile, checkoutId: 'unbound' }, { ...activeFile, path: '../secret' }, { ...activeFile, text: 'contents' }]) {
+        expect((await POST_MESSAGE(messageRequest(session, { activeFile: invalid }))).status).toBe(400);
+      }
+      expect(routeState.runnersCreated).toBe(0);
+      const messageId = crypto.randomUUID();
+      const response = await POST_MESSAGE(messageRequest(session, { activeFile, messageId }));
+      expect(response.status).toBe(200);
+      const runId = response.headers.get('X-CodeAI-Run-Id')!;
+      await vi.waitFor(() => expect(routeState.contexts.get(runId)).toEqual(activeFile));
+      expect((await POST_MESSAGE(messageRequest(session, { activeFile, messageId }))).status).toBe(409);
+      expect((await POST_MESSAGE(messageRequest(session, { activeFile: { ...activeFile, view: 'diff' }, messageId }))).status).toBe(400);
+      expect((await POST_MESSAGE(messageRequest(session, { messageId }))).status).toBe(400);
+      expect((await store.getSession(session.id)).messages).toHaveLength(1);
+      routeState.resolvers.get(runId)?.();
+      await vi.waitFor(() => expect(runRegistry.list().active).toEqual([]));
+      await response.body?.cancel();
+    } finally { await store.close(); }
+  });
+
+  it('rejects Docker context outside its mounted primary repository before reserving a turn', async () => {
+    const store = getSessionStore(routeState.dataDir, 'Scheduler route host');
+    try {
+      const project = await store.createProject('Docker context', ['checkout-a']);
+      const session = await store.createSession({ provider: 'claude', projectId: project.id, execution: 'docker' });
+      const response = await POST_MESSAGE(messageRequest(session, { activeFile: { checkoutId: 'checkout-b', path: 'file.ts', view: 'file' } }));
+      expect(response.status).toBe(400);
+      expect(routeState.runnersCreated).toBe(0);
+      expect((await store.getSession(session.id)).messages).toEqual([]);
+    } finally { await store.close(); }
   });
 
   it('finds idle predecessor conversations even after their run descriptor expires', async () => {

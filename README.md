@@ -1413,6 +1413,11 @@ Files opened from **Files**, conversation links, or **Changes** appear as closab
 **File view**, between the repository browser and canvas. Source and diff tabs are separate;
 reopening a file selects its tab, and line links jump to the referenced lines. Tabs retain their
 view choices and reading positions. Arrow keys move between tabs, Enter selects, and Delete closes.
+The open conversation's composer shows the active file as removable context. Only its repository,
+path and file/diff view are sent; the agent can read it when relevant. Use × to exclude that tab,
+or **Add active file to context** to include it again. Hiding the pane keeps its reference.
+New conversations can carry over the project's active file; each conversation keeps its own tabs. Docker context
+uses its mounted primary repository. Selected text is not included.
 **Ctrl/Cmd+P** opens a fuzzy file picker for the current project's repositories. Type a file name
 or path, use Up/Down to choose, Enter to open, and Escape to cancel. Git projects include tracked
 and untracked files while honoring ignore rules. Plain folders skip common generated directories.

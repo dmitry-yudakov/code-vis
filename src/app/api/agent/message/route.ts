@@ -100,6 +100,11 @@ export async function POST(request: Request): Promise<Response> {
       error: `This session's primary repository belongs to another host (${repository.hostId}) and is unavailable here.`,
     }, { status: 409 });
   }
+  const activeFile = parsed.data.activeFile;
+  if (activeFile && !session.repositories.some(binding => binding.checkoutId === activeFile.checkoutId && binding.hostId === host.id
+    && (session.execution !== 'docker' || binding.id === repository.id))) {
+    return safeJsonResponse({ error: 'The active file must belong to a repository available in this conversation. Remove it from context and try again.' }, { status: 400 });
+  }
   if (participant.session.started && participant.session.hostId !== host.id) {
     return safeJsonResponse({
       error: `This provider session belongs to another host (${participant.session.hostId}) and cannot be resumed here.`,
@@ -146,7 +151,8 @@ export async function POST(request: Request): Promise<Response> {
       && JSON.stringify(priorRequest.diagramAttachments) === JSON.stringify(messageAttachments)
       && JSON.stringify(priorRequest.reportAttachments?.map((item) => item.reportId) ?? []) === JSON.stringify(reportIds)
       && JSON.stringify(priorRequest.imageAttachments ?? []) === JSON.stringify(imageRecords)
-      && JSON.stringify(priorRequest.fileAttachments ?? []) === JSON.stringify(fileRecords);
+      && JSON.stringify(priorRequest.fileAttachments ?? []) === JSON.stringify(fileRecords)
+      && JSON.stringify(priorRequest.activeFile ?? null) === JSON.stringify(activeFile ?? null);
     return safeJsonResponse({
       error: sameRequest
         ? 'This message request was already accepted. Reload the session to see its durable state.'
@@ -304,6 +310,7 @@ export async function POST(request: Request): Promise<Response> {
     ...(reportEvidence.length ? { reportAttachments: reportEvidence.map((item) => item.record) } : {}),
     ...(imageRecords.length ? { imageAttachments: imageRecords } : {}),
     ...(fileRecords.length ? { fileAttachments: fileRecords } : {}),
+    ...(activeFile ? { activeFile } : {}),
     mode,
     ...(nativeMessageLevel(mode, policy.level) ? { level: 'native' as const } : {}),
   };

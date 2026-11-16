@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type {
   AgentContextUsage, AgentEvent, AgentMessageRequest, AgentMode, AgentProcessResult, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout,
 } from '@/shared/types';
@@ -14,6 +15,7 @@ import {
 import { writeReportAttachments } from '@/server/storage/reportEvidence';
 import { writeTextFiles } from '@/server/storage/textFiles';
 import { writeRepositoryContext } from '@/server/repository/repositoryContext';
+import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { hasProposedPlan, stripPlanMarkers } from '@/shared/plan';
 import { buildConversationPrompt } from './prompt';
 import { parseAssistantResponse } from './responseParser';
@@ -121,6 +123,15 @@ export async function runConversation(input: {
     const files = await writeTextFiles(directory, request.fileAttachments ?? []);
     emit({ type: 'status', runId, phase: 'reading-context', label: 'Preparing repository context' });
     await writeRepositoryContext(checkout.realPath, directory, config.maxGitContextBytes);
+    // Resolve metadata only. A missing file never prevents a turn, and no contents are copied.
+    let activeFile = request.activeFile ? { ...request.activeFile, readPath: undefined as string | undefined } : undefined;
+    if (activeFile) {
+      try {
+        const root = activeFile.checkoutId === checkout.id ? checkout.realPath
+          : (await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).resolve(activeFile.checkoutId)).realPath;
+        activeFile = { ...activeFile, readPath: path.join(session.execution === 'docker' ? '/workspace' : root, activeFile.path) };
+      } catch { /* Keep the identity, with an explicit unavailable-repository hint. */ }
+    }
     let result: AgentProcessResult | undefined;
     let policy = resolveAgentPolicy(config, mode, session.execution);
     let continuation = false;
@@ -154,6 +165,7 @@ export async function runConversation(input: {
         attachedReportNames: reports.map((item, index) => `Report ${index + 1} (${item.kind}, received ${item.receivedAt}${item.imageFile ? ', with screenshot' : ''})`),
         attachedImageNames: images.map((item, index) => `Image ${index + 1} (${item.imageFile})`),
         attachedFileNames: files.map((file) => file.name),
+        activeFile,
         mode,
         level: policy.level,
         execution: session.execution,

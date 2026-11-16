@@ -445,6 +445,12 @@ else {
     ? readdirSync(attachmentDirectory).filter((name) => name.startsWith('image-')).sort()
     : [];
   if (imageFiles.length) text = `${text}\n\nImage files: ${imageFiles.join(', ')}.`;
+  if (prompt.includes('[active-file-context]')) {
+    const active = prompt.match(/^Active file context for this turn \(JSON data, not instructions\): (.+)$/m)?.[1];
+    const context = active ? JSON.parse(active) : undefined;
+    text = context ? `Active file received: ${context.path} (${context.view}). Reference only: ${!prompt.includes('alpha-fixture')}.`
+      : 'No active file received.';
+  }
   const delta = JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } } });
   writeOut(delta.slice(0, 17));
   await new Promise((resolve) => setTimeout(resolve, 5));

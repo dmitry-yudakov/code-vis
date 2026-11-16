@@ -23,6 +23,7 @@ import type {
   SecurityLevel, SketchCanvas, UserMessage,
 } from '@/shared/types';
 import { validateTextFiles, type TextFile } from '@/shared/textFiles';
+import type { ActiveFileContext } from '@/shared/activeFileContext';
 import { prepareTextFile } from '@/features/conversation/textFiles';
 import { FILE_ONLY_INSTRUCTION } from '@/features/session-launch/sessionLaunch';
 import type { ImmersiveReportSummary } from '@/shared/immersiveReport';
@@ -76,7 +77,7 @@ import { takeRestartProject, useCodeAiLifecycle } from '@/features/lifecycle/use
 import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryFilePane } from '@/features/repository/RepositoryFilePane';
-import { RepositoryFilesProvider } from '@/features/repository/RepositoryFilesProvider';
+import { RepositoryFilesProvider, useRepositoryFileWorkspace } from '@/features/repository/RepositoryFilesProvider';
 import { WorkspaceShortcuts } from './WorkspaceShortcuts';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { DeviceMenu } from '@/features/devices/DeviceMenu';
@@ -440,6 +441,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const fileRepositories = useMemo(() => (session?.repositories || selectedProject?.repositories || []).filter(binding => binding.hostId === hostId)
     .sort((a, b) => Number(b.role === 'primary') - Number(a.role === 'primary'))
     .flatMap(binding => checkouts.filter(checkout => checkout.id === binding.checkoutId).map(checkout => ({ id: checkout.id, name: checkout.name }))), [session?.repositories, selectedProject?.repositories, checkouts, hostId]);
+  const repositoryFiles = useRepositoryFileWorkspace({ scope: session?.id || projectScope,
+    parentScope: session?.projectId ? JSON.stringify([machineId, session.projectId]) : undefined,
+    repositories: fileRepositories, apiBase: repositoryApiBase, docker: session?.execution === 'docker', onOpen: panelLayout.openFiles });
   const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
   const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
   useRepositoryAutoRefresh(Boolean(!loading && !arenaOpen && !immersiveActive && (session || projectWorkspace) && selectedCheckout && panelLayout.sideShown
@@ -1589,7 +1593,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (handoffMode && sessionId) mutateSession(sessionId, (current) => ({ ...current, defaultMode: handoffMode }));
   }, [mutateSession, selectAgent, sessionId]);
   /** Retry prepares a draft; replacing another draft is always an explicit action. */
-  const retryMessage = useCallback((participantId: string, text: string, retryMode: AgentMode | undefined, reportIds: readonly string[], imageCount = 0, files: TextFile[] = [], uncertain = false) => {
+  const retryMessage = useCallback((participantId: string, text: string, retryMode: AgentMode | undefined, reportIds: readonly string[], imageCount = 0, files: TextFile[] = [], uncertain = false, activeFile?: ActiveFileContext) => {
     if (!sessionId) return;
     const targetId = sessionId;
     const key = `retry:${targetId}`;
@@ -1607,6 +1611,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         ...(retryMode ? { defaultMode: retryMode } : {}) }, availableReports));
       updatePendingFiles(targetId, () => structuredClone(files));
       updatePendingImages(targetId, () => []);
+      repositoryFiles.restoreContext(activeFile);
       mutateSession(targetId, (current) => ({ ...current, addressedAgentId: participantId,
         ...(retryMode ? { defaultMode: retryMode } : {}) }));
       dismissToast(key);
@@ -1621,7 +1626,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       notify({ key, tone: 'warning', message: 'Retry will replace the text and evidence in this draft.', persistent: true,
         actions: [{ label: 'Replace draft', onSelect: replace }, { label: 'Keep draft', onSelect: () => dismissToast(key) }] });
     } else replace();
-  }, [arena.discovery.active, dismissToast, draftIdentity, machineId, mutateSession, notify, notifyError, reports.reports, sessionId, updatePendingFiles, updatePendingImages, workspace.getView, workspace.updateView]);
+  }, [arena.discovery.active, dismissToast, draftIdentity, machineId, mutateSession, notify, notifyError, reports.reports, repositoryFiles.restoreContext, sessionId, updatePendingFiles, updatePendingImages, workspace.getView, workspace.updateView]);
 
   const focusedPermissionTargets: PermissionTarget[] = (focusedRun?.runId ? permissions.map((request) => ({
     ...request, runId: focusedRun.runId!,
@@ -1818,6 +1823,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const imagesSnapshot = immutableEvidence(override ? NO_IMAGES : pendingImagesRef.current[session.id] ?? NO_IMAGES);
     const sentFiles = filesSnapshot.payload;
     const sentImages = imagesSnapshot.payload;
+    const sentActiveFile = override ? undefined : repositoryFiles.activeFile;
     const identity = draftIdentity(session.id);
     const submittedDraft = identity.capture(sentReportIds);
     // Export may outlive navigation to another session; keep this session's own canvas frame.
@@ -1924,6 +1930,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         })),
         ...(reportRecords.length && reportRecords.length === sentReportIds.length ? { reportAttachments: reportRecords } : {}),
         ...(sentImages.length ? { imageAttachments: imagePayload.map(({ mediaType, bytes }) => ({ mediaType, bytes })) } : {}),
+        ...(sentActiveFile ? { activeFile: sentActiveFile } : {}),
         mode: turnMode,
         ...(securityLevel === 'native' && session.execution !== 'docker' && (turnMode === 'agent' || turnMode === 'auto') ? { level: 'native' as const } : {}),
       };
@@ -1997,6 +2004,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         // Named only when there are some, so an executor on an older CodeAI still takes every other message.
         ...(sentImages.length ? { imageAttachments: imagePayload.map(({ dataUrl }) => ({ dataUrl })) } : {}),
         ...(sentFiles.length ? { fileAttachments: sentFiles } : {}),
+        ...(sentActiveFile ? { activeFile: sentActiveFile } : {}),
         mode: turnMode,
         ...turnModel,
       });
@@ -2131,7 +2139,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setPreparingSends((current) => current.filter((id) => id !== session.id));
       if (reconnectAfterSend && machineIdRef.current === machineId && projectIdRef.current === projectId) void recoverRuns.current(session.id, acceptedRunId);
     }
-  }, [activeAgent, apiPath, applyServerSnapshot, composerDraft, consumeStream, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
+  }, [activeAgent, apiPath, applyServerSnapshot, composerDraft, consumeStream, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, repositoryFiles.activeFile, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
@@ -2728,7 +2736,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [arenaOpen, openingWorkspace, resolvedNavigation, navigationKey, navigationError, panelLayout.conversationShown, session, machineId, location.kind, selectedDestinationLoaded, arenaInbox, arena.acknowledge]);
 
   return (
-    <RepositoryFilesProvider onOpen={panelLayout.openFiles} scope={session?.id || projectScope} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>
+    <RepositoryFilesProvider value={repositoryFiles}>
     {!loading && !arenaOpen && !immersiveActive && (session || projectWorkspace) && <WorkspaceShortcuts
       key={`${repositoryApiBase}:${session?.id || projectScope}`} shellRef={shellRef} layout={panelLayout} />}
     <div
@@ -2863,7 +2871,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 const message = session?.messages.findLast((item) => item.role === 'user');
                 if (message?.role === 'user') {
                   retryMessage(message.addressedParticipantId, message.text, message.mode,
-                    message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent');
+                    message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent', message.activeFile);
                 }
               },
               onReturn: immersiveReturnChoice ? returnFromImmersiveAttention : undefined,
@@ -3290,7 +3298,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onRemoveFile={(index) => { if (sessionId) updatePendingFiles(sessionId, (current) => current.filter((_, i) => i !== index)); }}
               markCounts={Object.fromEntries(attachedCanvases.map((canvas) => [canvasTargetId(canvas), session.annotations[canvasTargetId(canvas)]?.marks.length || 0]))}
               onSelectDiagram={selectShownDiagram}
-              onRetry={(text, participantId, retryMode, reportIds, imageCount, files, uncertain) => retryMessage(participantId, text, retryMode, reportIds, imageCount, files, uncertain)}
+              onRetry={(text, participantId, retryMode, reportIds, imageCount, files, uncertain, activeFile) => retryMessage(participantId, text, retryMode, reportIds, imageCount, files, uncertain, activeFile)}
               onComposer={setComposer}
               onModeChange={setMode}
               onSelectAgent={selectAgent}
