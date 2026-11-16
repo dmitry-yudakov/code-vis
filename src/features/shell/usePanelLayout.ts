@@ -194,7 +194,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   useEffect(() => {
     if (!layout.maximized) return;
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey
         || [...document.querySelectorAll('[role="dialog"]')].some(element => element.getClientRects().length > 0
           && getComputedStyle(element).visibility !== 'hidden')) return;
       setLayout((current) => ({ ...current, maximized: null }));

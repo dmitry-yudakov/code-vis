@@ -77,6 +77,7 @@ import { immersiveViewKey } from './immersive/workspaceLayout';
 import { RepositoryPanel } from '@/features/repository/RepositoryPanel';
 import { RepositoryFilePane } from '@/features/repository/RepositoryFilePane';
 import { RepositoryFilesProvider } from '@/features/repository/RepositoryFilesProvider';
+import { WorkspaceShortcuts } from './WorkspaceShortcuts';
 import { RepositoryManager } from '@/features/repository/RepositoryManager';
 import { DeviceMenu } from '@/features/devices/DeviceMenu';
 import { useDeviceAccess } from '@/features/devices/DeviceAccess';
@@ -2728,6 +2729,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <RepositoryFilesProvider onOpen={panelLayout.openFiles} scope={session?.id || projectScope} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>
+    {!loading && !arenaOpen && !immersiveActive && (session || projectWorkspace) && <WorkspaceShortcuts
+      key={`${repositoryApiBase}:${session?.id || projectScope}`} shellRef={shellRef} layout={panelLayout} />}
     <div
       ref={shellRef}
       className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${projectWorkspace && !arenaOpen ? 'project-workspace' : ''} ${maximized ? `pane-maximized maximized-${maximized}` : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}

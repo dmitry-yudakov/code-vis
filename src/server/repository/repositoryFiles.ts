@@ -3,7 +3,8 @@ import { open, opendir, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { namesOpenFiles, readBoundedTextFile } from '@/server/boundedTextFile';
 import { runRegistry } from '@/server/runs/runRegistry';
-import type { RepositoryDirectory, RepositoryFile } from '@/shared/repositoryFiles';
+import type { RepositoryDirectory, RepositoryFile, RepositoryFileList } from '@/shared/repositoryFiles';
+import { isNotRepositoryOutput, runGitRead } from './gitRead';
 
 export class RepositoryFileError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -102,5 +103,51 @@ export async function listRepositoryDirectory(root: string, requested: string): 
       entries.sort((a, b) => Number(b.kind === 'directory') - Number(a.kind === 'directory') || a.name.localeCompare(b.name));
       return { path: relative, entries };
     } finally { await handle.close(); }
+  });
+}
+
+const FILE_SEARCH_LIMIT = 50000;
+const FILE_SEARCH_BYTES = 5 * 1024 * 1024;
+const GENERATED_DIRECTORIES = new Set(['node_modules', 'dist', 'build', 'coverage', '.next', '.next-e2e', 'out', 'target']);
+
+/** Names only: contents still go through the file viewer's independent path proof. */
+export async function listRepositoryFiles(root: string): Promise<RepositoryFileList> {
+  return withRepositoryPath(root, '', async () => {
+    let paths: string[];
+    try {
+      const output = await runGitRead(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.'],
+        { maxBuffer: FILE_SEARCH_BYTES, timeout: 10000 });
+      paths = [...new Set(output.split('\0').filter(file => file && file.length <= 4096
+        && !/[\u0000-\u001f\u007f\\]/.test(file) && !path.isAbsolute(file)
+        && !file.split('/').some(part => part === '.git' || part === '..')))];
+    } catch (error) {
+      const failure = error as { code?: number | string; stderr?: string };
+      if (failure.code !== 128 || !isNotRepositoryOutput(failure.stderr)) {
+        throw new RepositoryFileError('Could not list project files within the search limits (5 MiB, 10 seconds). Try again or use Files.');
+      }
+      // Projects can be plain folders. Reuse verified directory reads without following links.
+      paths = [];
+      let bytes = 0;
+      const folders = [''];
+      const deadline = Date.now() + 10000;
+      for (let index = 0; index < folders.length; index++) {
+        if (index >= 2000 || Date.now() > deadline) throw new RepositoryFileError('This project is too large to search. Use Files to browse a folder.');
+        const directory = await listRepositoryDirectory(root, folders[index]);
+        for (const entry of directory.entries) {
+          const target = directory.path ? `${directory.path}/${entry.name}` : entry.name;
+          if (entry.kind === 'directory') {
+            if (!GENERATED_DIRECTORIES.has(entry.name)) folders.push(target);
+          } else {
+            bytes += Buffer.byteLength(target, 'utf8') + 1;
+            if (bytes > FILE_SEARCH_BYTES) throw new RepositoryFileError('Project file paths exceed the 5 MiB search limit. Use Files to browse a folder.');
+            paths.push(target);
+          }
+        }
+        if (folders.length > 2000) throw new RepositoryFileError('This project is too large to search. Use Files to browse a folder.');
+        if (paths.length > FILE_SEARCH_LIMIT) break;
+      }
+    }
+    if (paths.length > FILE_SEARCH_LIMIT) throw new RepositoryFileError('This project has more than 50,000 files. Use Files to browse a folder.');
+    return { paths: paths.sort((a, b) => a.localeCompare(b)) };
   });
 }

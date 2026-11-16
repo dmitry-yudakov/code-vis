@@ -1,0 +1,194 @@
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import type { CheckoutsResponse, PublicSession } from '../src/shared/types';
+
+async function openWorkspace(page: Page, request: APIRequestContext, session = true, count = 1) {
+  const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+  const ids = ['alpha', 'beta'].slice(0, count).map(name => checkouts.find(item => item.name === name)!.id);
+  const { project } = await (await request.post('/api/projects', { data: { name: `Shortcuts ${Date.now()}`, checkoutIds: ids } })).json();
+  if (session) {
+    const { session: created } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json() as { session: PublicSession };
+    await page.goto(`/?session=${created.id}`);
+    await expect(page.getByRole('textbox', { name: 'Instruction', exact: true })).toBeVisible();
+  } else {
+    await page.goto(`/?project=${project.id}`);
+    await expect(page.getByRole('list', { name: 'Repository files', exact: true })).toBeVisible();
+  }
+  return ids;
+}
+
+const picker = (page: Page) => page.getByRole('dialog', { name: 'Open file', exact: true });
+const search = (page: Page) => picker(page).getByRole('combobox', { name: 'File name or path', exact: true });
+const source = (page: Page) => page.locator('.file-view-content:not([hidden])').getByLabel('File source');
+
+for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+  test(`${theme} ${width}: fuzzy file opening and Shift+Esc preserve drafts and tab state`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    await openWorkspace(page, request);
+    const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+    await input.fill('Keep my draft');
+    const url = page.url();
+    await input.press('Control+p');
+    await expect(search(page)).toBeFocused();
+    await search(page).fill('flnk');
+    await expect(picker(page).getByRole('option')).toHaveCount(1);
+    await expect(picker(page).getByRole('option')).toContainText('docs/file-links.md');
+    await page.screenshot({ path: testInfo.outputPath('file-picker.png'), animations: 'disabled' });
+    await page.keyboard.press('Enter');
+    await expect(picker(page)).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'file-links.md', exact: true })).toBeFocused();
+    const fileView = page.getByRole('region', { name: 'File view', exact: true });
+    await fileView.getByRole('button', { name: 'Source', exact: true }).click();
+    await expect(source(page)).toContainText('# File links');
+    const before = await page.locator('.app-shell').getAttribute('style');
+    await page.keyboard.press('Shift+Escape');
+    await expect(page.locator('.app-shell')).toHaveClass(/maximized-files/);
+    await page.keyboard.press('Shift+Escape');
+    await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+    expect(await page.locator('.app-shell').getAttribute('style')).toBe(before);
+    // Capture shortcuts even inside file tabs, which stop ordinary keyboard bubbling.
+    await page.getByRole('tab', { name: 'file-links.md', exact: true }).focus();
+    await page.keyboard.press('Meta+p');
+    await search(page).fill('pckjs');
+    await expect(picker(page).getByRole('option')).toHaveCount(1);
+    await page.keyboard.press('Enter');
+    await expect(source(page)).toContainText('alpha');
+    await expect(page.getByRole('tablist', { name: 'Open files' }).getByRole('tab')).toHaveCount(2);
+    // One Escape closes the picker; it must leave a maximized file view alone.
+    await page.keyboard.press('Shift+Escape');
+    await expect(page.locator('.app-shell')).toHaveClass(/maximized-files/);
+    await page.keyboard.press('Control+p');
+    await expect(search(page)).toBeFocused();
+    await page.keyboard.press('Control+p');
+    await expect(picker(page)).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(picker(page)).toHaveCount(0);
+    await expect(page.locator('.app-shell')).toHaveClass(/maximized-files/);
+    await page.keyboard.press('Shift+Escape');
+    await fileView.getByRole('button', { name: 'Hide file view', exact: true }).click();
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'Chat', exact: true }).click();
+    await expect(input).toHaveValue('Keep my draft');
+    expect(page.url()).toBe(url);
+    await input.focus();
+    await page.keyboard.press('Shift+Escape');
+    await expect(page.locator('.app-shell')).toHaveClass(/maximized-conversation/);
+    await page.keyboard.press('Shift+Escape');
+    await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+  });
+}
+
+test('pointer activity selects Canvas even while the composer retains DOM focus; hidden panes are excluded', async ({ page, request }) => {
+  await openWorkspace(page, request);
+  await page.locator('.app-header').getByRole('button', { name: 'Canvas', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+  await input.focus();
+  await page.locator('.canvas-workspace .empty-canvas-content h1').click();
+  await page.keyboard.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).toHaveClass(/maximized-canvas/);
+  await page.keyboard.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Files/ }).click();
+  await page.getByRole('list', { name: 'Repository files', exact: true }).getByRole('button', { name: 'docs', exact: true }).focus();
+  await page.keyboard.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).toHaveClass(/maximized-side/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+});
+
+test('project workspaces search all bound repositories and reopen existing tabs', async ({ page, request }) => {
+  await openWorkspace(page, request, false, 2);
+  await page.keyboard.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).toHaveClass(/maximized-side/);
+  await page.keyboard.press('Shift+Escape');
+  await page.keyboard.press('Control+p');
+  await search(page).fill('pypj');
+  await expect(picker(page).getByRole('option')).toContainText('beta');
+  await page.keyboard.press('Enter');
+  await expect(source(page)).toContainText('beta');
+  await page.keyboard.press('Control+p');
+  await search(page).fill('pypj');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tablist', { name: 'Open files' }).getByRole('tab')).toHaveCount(1);
+  await page.keyboard.press('Control+p');
+  await search(page).fill('docsmd');
+  await expect(picker(page).getByRole('option')).toHaveCount(2);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'details.md', exact: true })).toBeFocused();
+});
+
+test('empty results, loading failure and retry retain the query and support cancellation', async ({ page, request }) => {
+  await openWorkspace(page, request);
+  let attempts = 0;
+  await page.route('**/api/repository/file-search?*', async route => {
+    if (++attempts === 1) return route.fulfill({ status: 409, json: { error: 'Repository busy. Try again.' } });
+    return route.fallback();
+  });
+  const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+  await input.press('Control+p');
+  await expect(picker(page).getByRole('alert')).toContainText('Repository busy');
+  await search(page).fill('pckjs');
+  await picker(page).getByRole('button', { name: 'Try again' }).click();
+  await expect(picker(page).getByRole('option')).toHaveCount(1);
+  await expect(search(page)).toHaveValue('pckjs');
+  await search(page).fill('no-such-file-xyz');
+  await expect(picker(page)).toContainText('No matching files');
+  await page.keyboard.press('Escape');
+  await expect(input).toBeFocused();
+});
+
+test('workspace navigation closes the picker and ignores a late response', async ({ page, request }) => {
+  await openWorkspace(page, request);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/repository/file-search?*', async route => {
+    await pending;
+    await route.fulfill({ json: { files: { paths: ['stale-file.txt'] } } });
+  });
+  await page.keyboard.press('Control+p');
+  await expect(picker(page)).toContainText('Reading project files…');
+  // Browser navigation is available even while a modal is open.
+  await page.goto('/arena');
+  release();
+  await expect(picker(page)).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Arena', exact: true })).toBeVisible();
+});
+
+test('an unavailable repository leaves results from other project repositories usable', async ({ page, request }) => {
+  const ids = await openWorkspace(page, request, true, 2);
+  await page.route('**/api/repository/file-search?*', route => new URL(route.request().url()).searchParams.get('checkoutId') === ids[1]
+    ? route.fulfill({ status: 409, json: { error: 'Repository busy.' } }) : route.fallback());
+  await page.keyboard.press('Control+p');
+  await search(page).fill('pckjs');
+  await expect(picker(page).getByRole('alert')).toContainText('beta: Repository busy.');
+  await expect(picker(page).getByRole('option')).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(source(page)).toContainText('alpha');
+});
+
+test('other dialogs and composition keep their keyboard handling', async ({ page, request }) => {
+  await openWorkspace(page, request);
+  const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+  await input.evaluate(node => node.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, isComposing: true, bubbles: true, cancelable: true })));
+  await expect(picker(page)).toHaveCount(0);
+  await input.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).toHaveClass(/maximized-conversation/);
+  for (const modifiers of [{ shiftKey: true, isComposing: true }, { isComposing: true }, { shiftKey: true, repeat: true }]) {
+    await input.evaluate((node, modifiers) => node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', ...modifiers, bubbles: true, cancelable: true })), modifiers);
+    await expect(page.locator('.app-shell')).toHaveClass(/maximized-conversation/);
+  }
+  await input.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await expect(page.getByRole('form', { name: 'Create project session' })).toBeVisible();
+  await page.keyboard.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+  await expect(page.getByRole('button', { name: 'New session', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: /^Project logo for Shortcuts/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Project logo', exact: true })).toBeVisible();
+  await page.keyboard.press('Control+p');
+  await expect(page.getByRole('dialog', { name: 'Project logo', exact: true })).toBeVisible();
+  await expect(picker(page)).toHaveCount(0);
+  await page.keyboard.press('Shift+Escape');
+  await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+});

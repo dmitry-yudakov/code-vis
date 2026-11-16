@@ -35,6 +35,11 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 143](stories/STORY-20261116-workspace-shortcuts.md) — Shift+Esc maximizes/
+  restores the active pane, and Ctrl/Cmd+P opens fuzzy project file search with keyboard selection,
+  retained tabs/drafts, retry and attached-machine routing. All 112 focused unit checks,
+  48 distinct production-browser cases, TypeScript, isolated build, both-theme desktop/phone
+  screenshot inspection and independent review pass. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 142](stories/STORY-20261116-git-stage-commit-details.md) — Changes stages/
   unstages files individually or in bulk and commits the reviewed index with retained drafts;
   History expands full commit metadata, changed files and committed patches. One status snapshot

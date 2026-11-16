@@ -188,6 +188,7 @@ test('an attached project routes files to its executor and offline projects cann
   await page.route(`**/api/machines/${remoteId}/repository/**`, async route => {
     const url = new URL(route.request().url());
     remoteRequests.push(url.pathname);
+    if (url.pathname.endsWith('/file-search')) return route.fulfill({ json: { files: { paths: ['remote.txt'] } } });
     if (url.pathname.endsWith('/files')) return route.fulfill({ json: { directory: { path: '', entries: [{ name: 'remote.txt', kind: 'file' }] } } });
     if (url.pathname.endsWith('/file')) return route.fulfill({ json: { file: { path: 'remote.txt', text: 'From the project executor', size: 25 } } });
     return route.fulfill({ json: { tree: { isRepository: true, branch: 'remote-project', files: [] } } });
@@ -200,6 +201,13 @@ test('an attached project routes files to its executor and offline projects cann
   await expect(page.getByLabel('File source', { exact: true })).toContainText('From the project executor');
   expect(remoteRequests.some(item => item.endsWith('/files'))).toBe(true);
   expect(remoteRequests.some(item => item.endsWith('/file'))).toBe(true);
+  await page.keyboard.press('Control+p');
+  const fileSearch = page.getByRole('dialog', { name: 'Open file', exact: true });
+  await fileSearch.getByRole('combobox', { name: 'File name or path', exact: true }).fill('rmt');
+  await expect(fileSearch.getByRole('option')).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('File source', { exact: true })).toContainText('From the project executor');
+  expect(remoteRequests.some(item => item.endsWith('/file-search'))).toBe(true);
   await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'New session', exact: true });

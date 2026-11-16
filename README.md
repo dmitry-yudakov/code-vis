@@ -1413,9 +1413,16 @@ Files opened from **Files**, conversation links, or **Changes** appear as closab
 **File view**, between the repository browser and canvas. Source and diff tabs are separate;
 reopening a file selects its tab, and line links jump to the referenced lines. Tabs retain their
 view choices and reading positions. Arrow keys move between tabs, Enter selects, and Delete closes.
+**Ctrl/Cmd+P** opens a fuzzy file picker for the current project's repositories. Type a file name
+or path, use Up/Down to choose, Enter to open, and Escape to cancel. Git projects include tracked
+and untracked files while honoring ignore rules. Plain folders skip common generated directories.
+Search supports up to 50,000 paths and 5 MiB of path names per repository; larger projects can
+still be browsed through **Files**.
 The header's File view, Canvas and Conversation controls toggle each pane independently. Drag or
 keyboard-resize the pane dividers. **Maximize File view** expands the pane; Restore or Escape returns
-to the arrangement with navigation still available. Narrow windows show the requested panes first;
+to the arrangement with navigation still available. **Shift+Esc** maximizes or restores the pane
+last clicked or focused, including Conversation, File view, Canvas and the repository side panel.
+Narrow windows show the requested panes first;
 phones keep one pane above their bottom navigation. Tabs clear when leaving the conversation.
 
 In **Changes**, select a file to review its staged and working-tree diffs. **Wrap** starts enabled;
