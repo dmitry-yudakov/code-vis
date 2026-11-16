@@ -2791,6 +2791,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   newProvider={newProvider}
                   preferredInstructions={preferences.instructions}
                   onChange={focusSession}
+                  onQueueSetup={machineId && selectedProject ? () => launcher.openForProject(machineId, selectedProject.id) : undefined}
                   onNewProvider={chooseNewProvider}
                   onNew={createSession}
                 />

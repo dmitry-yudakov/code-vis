@@ -142,10 +142,11 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
   );
 }
 
-export function SessionPicker({ sessions, value, onChange, archiveControl, ...creation }: SessionCreationProps & {
+export function SessionPicker({ sessions, value, onChange, onQueueSetup, archiveControl, ...creation }: SessionCreationProps & {
   sessions: SessionSnapshot[];
   value?: string;
   onChange(value: string): void;
+  onQueueSetup?(): void;
   archiveControl?: ReactNode;
 }) {
   return (
@@ -171,6 +172,8 @@ export function SessionPicker({ sessions, value, onChange, archiveControl, ...cr
       {archiveControl}
       <DesktopPopover keepMounted className="new-session-menu" label="New session" summary={<><span aria-hidden="true">＋</span><span className="new-session-label">New</span></>} placement="bottom-end">
         {(close) => <div>
+          {onQueueSetup && <Button variant="outlined" fullWidth sx={{ mb: 1.5 }} disabled={creation.creating}
+            onClick={() => { close(); onQueueSetup(); }}>Queue session…</Button>}
           <SessionCreationForm {...creation}
             onOpenMachineSettings={creation.onOpenMachineSettings ? () => { close(); creation.onOpenMachineSettings?.(); } : undefined} key={`${creation.project?.id || 'loose'}:${value || 'empty'}`}
             onNew={async (provider, options) => {

@@ -1,6 +1,43 @@
 import { expect, test, fulfillArenaSnapshot, pushArenaSnapshot, type APIRequestContext } from './arena-stream';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession, RunDiscovery } from '../src/shared/types';
 
+for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+  test(`queue setup opens inside a project and retains its draft: ${theme} ${width}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+    const project = (await (await request.post('/api/projects', { data: { name: `Open project queue ${theme} ${width} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    await page.goto(`/?project=${project.id}`);
+    const newSession = page.locator('.app-header').getByRole('button', { name: 'New session', exact: true });
+    await newSession.click();
+    const menu = page.locator('.desktop-picker-paper:visible');
+    await expect(menu.getByRole('button', { name: 'Start session', exact: true })).toBeEnabled();
+    const queueSetup = menu.getByRole('button', { name: 'Queue session…', exact: true });
+    await expect(queueSetup).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath('project-queue-menu.png'), animations: 'disabled' });
+    await queueSetup.click();
+    const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Project', { exact: true })).toHaveValue(project.id);
+    const input = dialog.getByRole('textbox', { name: 'First message (optional)' });
+    await expect(input).toBeFocused();
+    const queue = dialog.getByRole('button', { name: 'Queue session', exact: true });
+    await expect(queue).toBeDisabled();
+    await input.fill('Work on this project next');
+    await expect(queue).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath('project-queue-setup.png'), animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(newSession).toBeFocused();
+    await newSession.click();
+    await queueSetup.click();
+    await expect(input).toHaveValue('Work on this project next');
+    await expect(page).toHaveURL(`/?project=${project.id}`);
+    expect((await (await request.get(`/api/sessions?projectId=${project.id}`)).json()).sessions).toHaveLength(0);
+  });
+}
+
 for (const modifier of ['Control', 'Meta']) {
   test(`${modifier}+Enter queues only when the queue action is available`, async ({ page, request }) => {
     const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
@@ -181,9 +218,10 @@ for (const recovery of ['rejected', 'uncertain', 'edit-and-send'] as const) {
       return recovery === 'uncertain' ? route.abort('failed')
         : route.fulfill({ status: 429, json: { error: 'The machine queue is full. Your draft is kept.' } });
     });
-    await page.goto('/arena');
-    const shortcut = page.getByRole('button', { name: `New session in ${project.name}`, exact: true });
+    await page.goto(`/?project=${project.id}`);
+    const shortcut = page.locator('.app-header').getByRole('button', { name: 'New session', exact: true });
     await shortcut.click();
+    await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
     const message = dialog.getByRole('textbox', { name: 'First message (optional)' });
     await message.fill('Queue this task');
@@ -195,6 +233,7 @@ for (const recovery of ['rejected', 'uncertain', 'edit-and-send'] as const) {
     if (recovery === 'uncertain') await expect(message).toBeDisabled();
     await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
     await shortcut.click();
+    await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
     await expect(message).toHaveValue('Queue this task');
     reconciliationUnavailable = false;
     if (recovery === 'edit-and-send') {
@@ -218,7 +257,7 @@ for (const recovery of ['rejected', 'uncertain', 'edit-and-send'] as const) {
   });
 }
 
-test('a queued project task remains idle across reload and follow-ups, then runs after archive', async ({ page, request }) => {
+test('a task queued inside an open conversation remains idle across reload and follow-ups, then runs after archive', async ({ page, request }) => {
   const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
   const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
   await archiveEarlierFixtureSessions(request, checkout.id);
@@ -226,7 +265,9 @@ test('a queued project task remains idle across reload and follow-ups, then runs
   const current = (await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json()).session as PublicSession;
   const activeRunIds: string[] = [];
   try {
-    await page.goto('/arena');
+    await page.goto(`/?session=${current.id}`);
+    const composer = page.getByRole('complementary', { name: 'Conversation', exact: true }).getByRole('textbox', { name: 'Instruction', exact: true });
+    await composer.fill('Keep this conversation draft');
     // Fetch only acceptance headers: cancelling this response detaches the browser, not the turn.
     const started = await page.evaluate(async session => {
       const response = await fetch('/api/agent/message', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -237,7 +278,8 @@ test('a queued project task remains idle across reload and follow-ups, then runs
       return { status: response.status, runId };
     }, current);
     expect(started.status).toBe(200); activeRunIds.push(started.runId!);
-    await page.getByRole('button', { name: `New session in ${project.name}`, exact: true }).click();
+    await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
+    await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
     await dialog.getByRole('textbox').fill('Plan the next task after current work');
     await dialog.locator('input[type=file]').setInputFiles({ name: 'next.txt', mimeType: 'text/plain', buffer: Buffer.from('Evidence for the next task') });
@@ -251,7 +293,11 @@ test('a queued project task remains idle across reload and follow-ups, then runs
     activeRunIds.push((await response.headerValue('X-CodeAI-Run-Id'))!);
     await expect(dialog).toBeHidden();
     await expect(page.getByText('Session queued. It will start after earlier sessions are archived.', { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(`/?session=${current.id}`);
+    await expect(composer).toHaveValue('Keep this conversation draft');
     await page.reload();
+    await expect(composer).toHaveValue('Keep this conversation draft');
+    await page.goto('/arena');
     const tile = page.locator('.arena-card').filter({ has: page.locator(`a[href*="session=${body.sessionId}"]`) });
     await expect(tile).toContainText('Queued');
     const snapshot = (await (await request.get(`/api/sessions/${body.sessionId}`)).json()).session as PublicSession;

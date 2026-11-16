@@ -200,6 +200,13 @@ test('an attached project routes files to its executor and offline projects cann
   await expect(page.getByLabel('File source', { exact: true })).toContainText('From the project executor');
   expect(remoteRequests.some(item => item.endsWith('/files'))).toBe(true);
   expect(remoteRequests.some(item => item.endsWith('/file'))).toBe(true);
+  await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
+  await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
+  const setup = page.getByRole('dialog', { name: 'New session', exact: true });
+  await expect(setup.getByLabel('Project', { exact: true })).toHaveValue(remoteProject.id);
+  await setup.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(setup.getByLabel('Machine', { exact: true })).toHaveValue(remoteId);
+  await setup.getByRole('button', { name: 'Close setup', exact: true }).click();
   await page.reload();
   await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
   remote.machine.state = 'offline';

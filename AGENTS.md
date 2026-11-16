@@ -270,6 +270,9 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
   New-session setup also queues with Ctrl/Cmd+Enter and shows a compact count of active sessions
   in the selected project beside launch actions; 30 focused unit checks, 26 distinct browser cases, source
   TypeScript, isolated build, both-theme screenshot inspection and independent review pass.
+  The November 16 follow-up adds Queue session… to the open project's New menu, reusing message
+  setup without leaving the current conversation; 32 focused unit checks, 33 production-browser
+  cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and review pass.
   Queued turns require the server to stay running; the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 134](stories/STORY-20261107-arena-session-tiles.md) — desktop Arena offers
   project-grouped session tiles with saved-message previews, quick replies and approvals; drafts and

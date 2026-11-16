@@ -222,3 +222,20 @@ The standard lint command remains blocked by the previously recorded generated r
 optional `Request` parameters in Arena, checkouts and projects. The new tooltip tests use actual
 keyboard navigation and wait for MUI transitions. Verification uses fixture providers; physical
 devices and real-provider turns were not rerun. The running installation has not been restarted.
+
+## Open-project queue action — November 16, 2026
+
+The header's **New** menu now offers **Queue session…** inside an open project, including while
+reading a conversation. It opens the existing message setup for that project's executing machine.
+The existing empty-session form stays available. Closing setup keeps its draft and restores focus
+to New; submitting a queued idea leaves the source conversation and its composer draft in place.
+Shared launch handling retains attachment, archive-gating and exact retry behavior.
+
+Verified with **32 focused unit checks** (`sessionLaunch`, `devicePreferences`, `sessionQueue`),
+**33 production-browser cases** (`queued-session-setup`, `project-workspace`), TypeScript, the isolated
+`.next-e2e/project-workspace` production build, both-theme desktop/phone screenshot inspection and
+independent read-only review. The new menu regression fails on the preceding build. Browser coverage
+includes attached-machine targeting, retained setup/source drafts, rejected and uncertain retries,
+and a queued task starting after archive. Providers and attached-machine routing use fixtures;
+physical devices and real provider/remote transport were not exercised. The running installation
+was not rebuilt or restarted.
