@@ -31,8 +31,9 @@ while switching; close selects a neighbour. Keyboard tab navigation and Delete w
 hiding the pane leaves the conversation draft and URL intact. Maximize/Restore and Escape retain
 the tab and underlying arrangement.
 
-The provider owns tab metadata for the focused conversation. Session, machine or repository-binding
-changes clear tabs and cancel reads. Contents are fetched through the existing authorized routes;
+The provider owns tab metadata separately for each project/conversation, machine and repository
+binding set. Workspace changes cancel reads; returning restores its tabs and re-reads contents, as
+specified in Story 141's November 16 follow-up. Contents are fetched through the existing authorized routes;
 no new filesystem access or durable session format. Retry, safe Markdown, source/preview, wrapping,
 Docker path mapping and primary-repository resolution preserve Story 131's contracts. Refreshing
 repository state refreshes open diffs, including a clear unavailable state for vanished changes.

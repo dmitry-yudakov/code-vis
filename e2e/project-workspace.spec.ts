@@ -129,27 +129,47 @@ test('project file and status errors retain navigation and offer recovery', asyn
   await expect(filePane.getByLabel('File source', { exact: true })).toContainText('alpha');
 });
 
-test('client navigation between projects resets file panes and maximize on phones', async ({ page, request }) => {
-  await page.setViewportSize({ width: 390, height: 900 });
-  const first = await projectFixture(request, 1), second = await projectFixture(request, 1);
-  await page.goto(`/?project=${first.project.id}`);
-  await page.getByRole('complementary', { name: 'Files', exact: true }).getByRole('button', { name: 'package.json', exact: true }).click();
-  const filePane = page.getByRole('region', { name: 'File view', exact: true });
-  await expect(filePane.getByLabel('File source', { exact: true })).toContainText('alpha');
-  await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
-  await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await page.getByRole('link', { name: `Open project ${second.project.name}`, exact: true }).click();
-  await expect(page).toHaveURL(`/?project=${second.project.id}`);
-  await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
-  await expect(filePane).toBeHidden();
-  await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
-  // Merely visiting B must discard A's old file layout before returning to A.
-  await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await page.getByRole('link', { name: `Open project ${first.project.name}`, exact: true }).click();
-  await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
-  await expect(filePane).toBeHidden();
-  await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
-});
+for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+  test(`${theme} ${width}: returning through Arena restores each project's files and maximize`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const first = await projectFixture(request, 1), second = await projectFixture(request, 1);
+    await page.goto(`/?project=${first.project.id}`);
+    const files = page.getByRole('complementary', { name: 'Files', exact: true });
+    await files.getByRole('button', { name: 'package.json', exact: true }).click();
+    const filePane = page.getByRole('region', { name: 'File view', exact: true });
+    await expect(filePane.getByLabel('File source', { exact: true })).toContainText('alpha');
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'Files', exact: true }).click();
+    await files.getByRole('button', { name: 'docs', exact: true }).click();
+    await files.getByRole('button', { name: 'file-links.md', exact: true }).click();
+    await expect(filePane.getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
+    await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('link', { name: `Open project ${second.project.name}`, exact: true }).click();
+    await expect(page).toHaveURL(`/?project=${second.project.id}`);
+    await expect(files).toBeVisible();
+    await expect(filePane).toBeHidden();
+    await expect(page.locator('.app-shell')).not.toHaveClass(/pane-maximized/);
+    await files.getByRole('button', { name: 'package.json', exact: true }).click();
+    await expect(filePane.getByLabel('File source', { exact: true })).toContainText('alpha');
+    await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('link', { name: `Open project ${first.project.name}`, exact: true }).click();
+    await expect(filePane.getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
+    await expect(filePane.getByRole('tab')).toHaveCount(2);
+    await expect(filePane.getByRole('tab', { name: 'file-links.md', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(filePane.getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('restored-project-document.png') });
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('link', { name: `Open project ${second.project.name}`, exact: true }).click();
+    await expect(filePane.getByLabel('File source', { exact: true })).toContainText('alpha');
+    await expect(filePane.getByRole('tab')).toHaveCount(1);
+    await expect(filePane.getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
+  });
+}
 
 test('an attached project routes files to its executor and offline projects cannot open', async ({ page, request }) => {
   const { project } = await projectFixture(request, 1);

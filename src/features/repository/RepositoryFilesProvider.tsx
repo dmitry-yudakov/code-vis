@@ -31,7 +31,7 @@ export const useOpenRepositoryFile = () => {
   return context?.repositories.length ? context.openFile : undefined;
 };
 
-/** Tabs and requests belong to the focused conversation and executing machine. */
+/** Retain tab metadata per workspace; only the focused workspace mounts file readers. */
 export function RepositoryFilesProvider({ scope, repositories, apiBase, docker = false, onOpen, children }: {
   scope: string;
   repositories: { id: string; name: string }[];
@@ -41,31 +41,35 @@ export function RepositoryFilesProvider({ scope, repositories, apiBase, docker =
   children: ReactNode;
 }) {
   const identity = JSON.stringify([scope, apiBase, docker, repositories.map(item => item.id)]);
-  const [state, setState] = useState<FileTabs & { identity: string }>({ identity, tabs: [] });
+  const [workspaces, setWorkspaces] = useState<Record<string, FileTabs>>({});
   const sequence = useRef(0);
-  // Reset before rendering children so no old-machine content appears for even one frame.
-  if (state.identity !== identity) setState({ identity, tabs: [] });
-  const current = state.identity === identity ? state : { identity, tabs: [] };
+  const current = workspaces[identity] || { tabs: [] };
+  const updateTabs = useCallback((update: (tabs: FileTabs) => FileTabs) => {
+    setWorkspaces(value => {
+      const prior = value[identity] || { tabs: [] };
+      const next = update(prior);
+      return next === prior ? value : { ...value, [identity]: next };
+    });
+  }, [identity]);
   const openFile = useCallback<OpenFile>((link, checkoutId) => {
     const target = docker && !checkoutId && link.path.startsWith('/workspace/')
       ? { ...link, path: link.path.slice('/workspace/'.length) } : link;
     const bound = checkoutId || (!target.path.startsWith('/') ? repositories[0]?.id : undefined);
     const navigation = ++sequence.current;
-    setState(value => ({ identity, ...openTab(value.identity === identity ? value : { tabs: [] },
-      { kind: 'file', link: target, checkoutId: bound }, navigation) }));
+    updateTabs(value => openTab(value, { kind: 'file', link: target, checkoutId: bound }, navigation));
     onOpen();
-  }, [identity, docker, repositories, onOpen]);
+  }, [updateTabs, docker, repositories, onOpen]);
   const resolved = useCallback((id: number, checkoutId: string, path: string) => {
-    setState(value => value.identity === identity ? { identity, ...resolveTab(value, id, checkoutId, path) } : value);
-  }, [identity]);
+    updateTabs(value => resolveTab(value, id, checkoutId, path));
+  }, [updateTabs]);
   return <FilesContext.Provider value={{ ...current, repositories, apiBase, openFile, resolved,
     openDiff: (checkoutId, file) => {
       const navigation = ++sequence.current;
-      setState(value => ({ identity, ...openTab(value.identity === identity ? value : { tabs: [] }, { kind: 'diff', checkoutId, file }, navigation) }));
+      updateTabs(value => openTab(value, { kind: 'diff', checkoutId, file }, navigation));
       onOpen();
     },
-    select: activeId => setState(value => ({ ...value, activeId })),
-    close: id => setState(value => ({ identity, ...closeTab(value, id) })),
+    select: activeId => updateTabs(value => ({ ...value, activeId })),
+    close: id => updateTabs(value => closeTab(value, id)),
   }}>{children}</FilesContext.Provider>;
 }
 

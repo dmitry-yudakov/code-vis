@@ -47,7 +47,10 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
   the logo itself edits its image with no duplicate right-side control.
   Files fill the available workspace, with independent project/session pane state. All 106 focused
   unit checks, 67 distinct production-browser cases, TypeScript, isolated build, both-theme
-  desktop/phone screenshot inspection and independent review pass. Two pre-existing phone session
+  desktop/phone screenshot inspection and independent review pass. The November 16 follow-up restores
+  each workspace's tabs and full-screen document after Arena/project navigation; 85 focused unit
+  checks, 30 production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
+  inspection and independent review pass. Two pre-existing phone session
   toolbar overflow assertions are recorded in the story. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 140](stories/STORY-20261115-tabbed-file-pane.md) — repository files, chat
   file links and Changes open in a separate tabbed File view beside the browser, canvas and chat,

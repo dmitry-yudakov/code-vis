@@ -61,19 +61,17 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
   const { capacity: dockCapacity, width: shellWidth } = useDockCapacity(shellRef);
   const [layouts, setLayouts] = useState<Record<string, PanelLayout>>({});
   const [defaultLayout, setDefaultLayout] = useState(DEFAULT_PANEL_LAYOUT);
-  const [projectState, setProjectState] = useState<{ scope?: string; layout: PanelLayout }>();
-  const projectLayout = useMemo<PanelLayout>(() => projectState?.scope === projectScope && projectState ? projectState.layout : {
+  const [projectLayouts, setProjectLayouts] = useState<Record<string, PanelLayout>>({});
+  const projectLayout = useMemo<PanelLayout>(() => projectScope && projectLayouts[projectScope] || {
     ...defaultLayout, repositoryOpen: true, conversationOpen: false, canvasOpen: true,
-    filesOpen: false, maximized: null, sideTab: 'files', lastOpened: 'repository' }, [defaultLayout, projectScope, projectState]);
-  // File tabs reset on scope changes too; an old layout must not reopen an empty, maximized pane.
-  if (projectState?.scope !== projectScope) setProjectState(projectScope ? { scope: projectScope, layout: projectLayout } : undefined);
+    filesOpen: false, maximized: null, sideTab: 'files', lastOpened: 'repository' }, [defaultLayout, projectScope, projectLayouts]);
   const [resize, setResize] = useState<{ panel: ResizePanel; startX: number; startWidth: number }>();
   const [storageReady, setStorageReady] = useState(false);
   const layout = projectScope ? projectLayout : viewId ? layouts[viewId] || defaultLayout : defaultLayout;
   const lastOpened = layout.lastOpened;
   const setLayout = useCallback((update: (current: PanelLayout) => PanelLayout) => {
     if (projectScope) {
-      setProjectState(current => ({ scope: projectScope, layout: update(current?.scope === projectScope ? current.layout : projectLayout) }));
+      setProjectLayouts(current => ({ ...current, [projectScope]: update(current[projectScope] || projectLayout) }));
       return;
     }
     if (!viewId) {

@@ -179,11 +179,14 @@ test('relative links use the primary repository; absolute links can open a secon
   await expect(tabs(page).getByRole('tab')).toHaveCount(2);
 });
 
-test('leaving and returning to a conversation clears file tabs and cancels stale reads', async ({ page, request }) => {
+test('leaving a conversation cancels stale reads and returning restores its tabs with fresh content', async ({ page, request }) => {
   const { session } = await openConversation(page, request);
   const { session: other } = await (await request.post('/api/sessions', { data: { projectId: session.projectId, provider: 'claude' } })).json();
   let release!: () => void;
+  let delayed = true;
   await page.route('**/api/repository/file?*', async route => {
+    if (!delayed) return route.fallback();
+    delayed = false;
     await new Promise<void>(resolve => { release = resolve; });
     await route.fulfill({ json: { file: { path: 'package.json', text: 'Wrong session content' } } }).catch(() => {});
   });
@@ -194,8 +197,63 @@ test('leaving and returning to a conversation clears file tabs and cancels stale
   release();
   await page.evaluate(id => window.history.pushState(null, '', `/?session=${id}`), session.id);
   await expect(page.getByRole('button', { name: 'Package file', exact: true })).toBeVisible();
-  await expect(tabs(page)).toHaveCount(0);
+  await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+  await expect(tabs(page).getByRole('tab')).toHaveCount(1);
   await expect(page.getByText('Wrong session content')).toHaveCount(0);
+});
+
+for (const width of [1440, 390]) {
+  test(`${width}: a full-screen conversation document returns after visiting another project`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const { session } = await openConversation(page, request);
+    await page.getByRole('textbox', { name: 'Instruction', exact: true }).fill('Keep my conversation draft');
+    await page.getByRole('button', { name: 'Document', exact: true }).click();
+    await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeVisible();
+    await pane(page).getByRole('button', { name: 'Maximize File view', exact: true }).click();
+    const { project: other } = await (await request.post('/api/projects', { data: {
+      name: `Other file workspace ${Date.now()}`, checkoutIds: session.repositories.map(item => item.checkoutId),
+    } })).json();
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.getByRole('link', { name: `Open project ${other.name}`, exact: true }).click();
+    await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
+    await expect(pane(page)).toBeHidden();
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.locator(`a[href="/?session=${session.id}"]`).click();
+    await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
+    await expect(pane(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
+    // The project's session-free view must not borrow the conversation's tabs or maximize state.
+    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    await page.locator(`a[href="/?project=${session.projectId}"]`).click();
+    await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
+    await expect(pane(page)).toBeHidden();
+    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+    await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
+    await expect(pane(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await showChat(page);
+    await expect(page.getByRole('textbox', { name: 'Instruction', exact: true })).toHaveValue('Keep my conversation draft');
+  });
+}
+
+test('returning to an unavailable document retains its tab and full-screen retry', async ({ page, request }) => {
+  const { session } = await openConversation(page, request);
+  await page.getByRole('button', { name: 'Document', exact: true }).click();
+  await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeVisible();
+  await pane(page).getByRole('button', { name: 'Maximize File view', exact: true }).click();
+  await page.getByRole('link', { name: 'Arena', exact: true }).click();
+  let unavailable = true;
+  await page.route('**/api/repository/file?*', route => unavailable
+    ? route.fulfill({ status: 404, json: { error: 'Document was removed while away.' } }) : route.fallback());
+  await page.locator(`a[href="/?session=${session.id}"]`).click();
+  await expect(activeFile(page).getByRole('alert')).toContainText('Document was removed while away.');
+  await expect(tabs(page).getByRole('tab', { name: 'file-links.md', exact: true })).toHaveCount(1);
+  await expect(pane(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
+  unavailable = false;
+  await activeFile(page).getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
 });
 
 test('Docker workspace links resolve in the bound host checkout', async ({ page, request }) => {
@@ -340,7 +398,7 @@ test('all four panes, mixed source/diff tabs, independent toggles and responsive
   await expect(pane(page)).toBeVisible();
   expect(await page.locator('.app-shell').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 1600, height: 1000 });
-  expect(await page.locator('.app-shell').getAttribute('style')).toBe(before);
+  await expect(page.locator('.app-shell')).toHaveAttribute('style', before!);
   await tabs(page).getByRole('tab', { name: 'package.json', exact: true }).click();
   await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
   await navigation.getByRole('button', { name: 'Files', exact: true }).click();

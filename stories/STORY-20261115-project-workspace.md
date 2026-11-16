@@ -20,7 +20,7 @@ surface. The project header's actions stay grouped at the right edge in List and
 - A project URL stays session-free after reload even when conversations exist; All sessions can
   explicitly reopen them. Session drafts and layouts stay independent of project browsing.
 - Repository selection is limited to the project's bindings on its machine. File tabs and transient
-  pane state reset together when the machine/project changes, including A → B → A navigation.
+  pane state stay isolated per workspace; returning through Arena restores that workspace's files.
 - Offline Arena projects disable opening and session creation. Repository-free projects remain
   openable and can create their first conversation. File/status failures retain Retry and navigation.
 - No rebuild or restart of the running application or deployment. Commit only when requested.
@@ -60,3 +60,51 @@ November 16 logo-control follow-up:
   **106 focused unit checks**, both-theme desktop/phone header screenshot inspection,
   `git diff --check` and independent read-only review pass.
 - The user requested committing the complete Story 141 change. The running app was not restarted.
+
+## November 16 file restoration follow-up
+
+**Status:** Shipped
+
+Returning from Arena after visiting another project must restore the original workspace's open
+document and full-screen file view. The file provider currently discards tabs on scope changes,
+while conversation layouts can retain a maximized file pane. Project-only layouts also discard
+their previous arrangement. Retain tab metadata and project layouts in the mounted shell, scoped
+by workspace, executing machine and repository bindings. Re-read file contents when returning;
+leave file contents, reading positions across workspace changes and reload persistence out of scope.
+
+Where the code is:
+
+- `src/features/repository/RepositoryFilesProvider.tsx:35` owns scoped tabs and cancellable reads.
+- `src/features/shell/usePanelLayout.ts:60` owns project and conversation pane arrangements.
+- `e2e/project-workspace.spec.ts:132` covers project navigation through Arena.
+- `e2e/local-file-links.spec.ts:182` covers conversation scope changes and stale reads.
+
+Acceptance criteria:
+
+- [x] Project A → Arena → project B → Arena → A restores A's tabs, active document and maximize
+      state on desktop and phones; B retains its own independent file view.
+- [x] Conversation documents and drafts survive the same journey; project-only browsing stays
+      separate from conversations, including when repositories overlap.
+- [x] Leaving still cancels pending reads. Returning re-reads the file; unavailable files retain
+      their tab and Retry, and stale content cannot appear in another workspace.
+- [x] Focused unit/browser checks, TypeScript, isolated build, both-theme desktop/phone screenshot
+      inspection and independent read-only review pass. Do not restart the running application.
+
+How to verify: run focused file-tab, panel-layout, local-link and workspace URL unit tests; build
+into `.next-e2e/project-workspace`; run the project-workspace and local-file-links browser suites.
+
+Verified November 16, 2026:
+
+- All **85 focused unit checks**, **30 production-browser cases**, source TypeScript and the
+  isolated production build pass. The updated conversation-return regression fails on the preceding
+  `.next-e2e` build because the file tabs disappear, then passes with retained workspace metadata.
+- Browser coverage includes independent project tabs and active selection, conversation full-screen
+  return and drafts, project/conversation isolation with overlapping repositories, fresh reads,
+  late-read cancellation and removed-document Retry. Both-theme desktop/phone restored-document
+  screenshots were inspected. The existing responsive-return assertion now waits for ResizeObserver
+  through Playwright's retrying attribute check.
+- Independent read-only review and `git diff --check` pass. File contents and inactive readers are
+  not cached; only tab metadata and project layouts remain in shell memory. Reload persistence,
+  physical devices and real attached-executor transport were not exercised. No dependency or server
+  contract changes. The user requested committing this follow-up; the running application was not
+  rebuilt or restarted.
