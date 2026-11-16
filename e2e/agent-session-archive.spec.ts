@@ -106,6 +106,155 @@ test('unchecked permission overrides a conversational archive request', async ({
   expect(current.messages).toHaveLength(2);
 });
 
+for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+  test(`auto-close commands save permission without an agent turn: ${theme} ${width}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const { session, conversation } = await open(page, request, false);
+    let turns = 0;
+    page.on('request', request => { if (request.url().endsWith('/api/agent/message')) turns += 1; });
+    const composer = conversation.locator('.instruction-composer');
+    const input = composer.getByRole('textbox', { name: 'Instruction', exact: true });
+    await input.fill('/autoclose');
+    await input.press('Enter');
+    await expect(composer.getByRole('status')).toHaveText('Auto-close enabled.');
+    await expect(input).toBeEmpty();
+    await expect(input).toBeFocused();
+    expect((await saved(request, session.id)).allowAgentArchive).toBe(true);
+    await composer.getByRole('button', { name: 'Session settings', exact: true }).click();
+    await expect(composer.getByRole('checkbox', { name: 'Allow agent to archive', exact: true })).toBeChecked();
+    await page.screenshot({ path: testInfo.outputPath('autoclose-enabled.png'), animations: 'disabled' });
+    expect(await composer.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.reload();
+    await conversation.getByRole('button', { name: 'Session settings', exact: true }).click();
+    await expect(composer.getByRole('checkbox', { name: 'Allow agent to archive', exact: true })).toBeChecked();
+    await input.fill('/autoclose off');
+    await composer.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(composer.getByRole('status')).toHaveText('Auto-close disabled.');
+    await expect(input).toBeFocused();
+    await expect(composer.getByRole('checkbox', { name: 'Allow agent to archive', exact: true })).not.toBeChecked();
+    await input.fill(' /AUTOCLOSE on ');
+    await input.press('Enter');
+    await expect(composer.getByRole('status')).toHaveText('Auto-close enabled.');
+    expect((await saved(request, session.id)).messages).toHaveLength(0);
+    expect(turns).toBe(0);
+    await page.reload();
+    expect((await saved(request, session.id)).allowAgentArchive).toBe(true);
+  });
+}
+
+test('failed auto-close commands keep the draft for keyboard retry', async ({ page, request }) => {
+  const { session, conversation } = await open(page, request, false);
+  let fail = true;
+  await page.route(`**/api/sessions/${session.id}`, route => {
+    if (route.request().method() === 'PATCH' && fail) {
+      fail = false;
+      return route.fulfill({ status: 503, json: { error: 'Permission could not be saved. Try again.' } });
+    }
+    return route.continue();
+  });
+  const input = conversation.getByRole('textbox', { name: 'Instruction', exact: true });
+  await input.fill('/autoclose');
+  await input.press('Enter');
+  await expect(conversation.getByRole('alert')).toHaveText('Permission could not be saved. Try again.');
+  await expect(input).toHaveValue('/autoclose');
+  expect((await saved(request, session.id)).allowAgentArchive).not.toBe(true);
+  await input.press('Enter');
+  await expect(conversation.locator('.instruction-composer').getByRole('status')).toHaveText('Auto-close enabled.');
+  await expect(input).toBeEmpty();
+  expect((await saved(request, session.id)).messages).toHaveLength(0);
+});
+
+test('invalid auto-close arguments show usage while ordinary mentions still reach the agent', async ({ page, request }) => {
+  const { session, conversation } = await open(page, request, false);
+  const input = conversation.getByRole('textbox', { name: 'Instruction', exact: true });
+  for (const text of ['/autoclose later', '/autoclose\nAlso do some work']) {
+    await input.fill(text);
+    await input.press('Enter');
+    await expect(conversation.getByRole('alert')).toHaveText('Use /autoclose, /autoclose on or /autoclose off.');
+    await expect(input).toHaveValue(text);
+    expect((await saved(request, session.id)).messages).toHaveLength(0);
+  }
+  await send(page, 'Explain /autoclose without enabling it.');
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+  expect((await saved(request, session.id)).allowAgentArchive).not.toBe(true);
+});
+
+test('a delayed command saves once and preserves newer text and attachments', async ({ page, request }) => {
+  const { session, conversation } = await open(page, request, false);
+  const composer = conversation.locator('.instruction-composer');
+  const input = composer.getByRole('textbox', { name: 'Instruction', exact: true });
+  await composer.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this evidence') });
+  const attachment = composer.getByRole('button', { name: 'Remove file notes.txt', exact: true });
+  await expect(attachment).toBeVisible();
+  let patches = 0;
+  let release!: () => void;
+  const resume = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/sessions/${session.id}`, async route => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    patches += 1;
+    await resume;
+    await route.continue();
+  });
+  try {
+    await input.fill('/autoclose');
+    await input.press('Enter');
+    await expect.poll(() => patches).toBe(1);
+    await input.press('Enter');
+    await input.fill('Keep this new draft.');
+  } finally { release(); }
+  await expect(composer.getByRole('status')).toHaveText('Auto-close enabled.');
+  await expect(input).toHaveValue('Keep this new draft.');
+  await expect(attachment).toBeVisible();
+  expect(patches).toBe(1);
+  expect((await saved(request, session.id)).messages).toHaveLength(0);
+  await input.fill('/autoclose off');
+  await input.press('Enter');
+  await expect(composer.getByRole('status')).toHaveText('Auto-close disabled.');
+  await expect(input).toBeEmpty();
+  await expect(attachment).toBeVisible();
+});
+
+for (const revisit of [false, true]) test(`a pending command stays with its session after switching conversations: revisit ${revisit}`, async ({ page, request }) => {
+  const { session, conversation, project } = await open(page, request, false);
+  const sibling = (await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json()).session as PublicSession;
+  await page.reload();
+  let held = false;
+  let release!: () => void;
+  const resume = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/sessions/${session.id}`, async route => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    held = true;
+    await resume;
+    await route.continue();
+  });
+  const input = conversation.getByRole('textbox', { name: 'Instruction', exact: true });
+  try {
+    await input.fill('/autoclose');
+    await input.press('Enter');
+    await expect.poll(() => held).toBe(true);
+    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sibling.id);
+    await input.fill('Draft for the other conversation.');
+    if (revisit) {
+      await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+      await input.fill('Edited after returning.');
+      await input.fill('/autoclose');
+      await conversation.getByRole('button', { name: 'Session settings', exact: true }).click();
+    }
+  } finally { release(); }
+  await expect.poll(async () => (await saved(request, session.id)).allowAgentArchive).toBe(true);
+  if (revisit) {
+    await expect(conversation.getByRole('checkbox', { name: 'Allow agent to archive', exact: true })).toBeChecked();
+    await expect(input).toHaveValue('/autoclose');
+  } else {
+    await expect(input).toHaveValue('Draft for the other conversation.');
+    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+    await expect(input).toBeEmpty();
+  }
+  await expect(conversation.locator('.instruction-composer').getByRole('status')).toHaveCount(0);
+  expect((await saved(request, sibling.id)).allowAgentArchive).not.toBe(true);
+});
+
 test('failed permission saves roll back visibly and remain retryable', async ({ page, request }) => {
   const { session, conversation } = await open(page, request, false);
   let fail = true;
@@ -142,8 +291,11 @@ test('KEEP_OPEN remains an ordinary usable conversation with no hidden chat mess
 test('permission can be enabled during a coding turn', async ({ page, request }) => {
   const { session, conversation } = await open(page, request, false);
   await send(page, 'Finish the task [archive-complete] [archive-check-delay]');
-  await conversation.getByRole('button', { name: 'Session settings', exact: true }).click();
-  await page.getByRole('checkbox', { name: 'Allow agent to archive', exact: true }).check();
+  const input = conversation.getByRole('textbox', { name: 'Instruction', exact: true });
+  await expect(conversation.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await input.fill('/autoclose');
+  await input.press('Enter');
+  await expect(conversation.locator('.instruction-composer').getByRole('status')).toHaveText('Auto-close enabled.');
   await expect(page.getByText(/^Archived by agent:/)).toBeVisible({ timeout: 15_000 });
   const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
   expect(snapshot.machines.flatMap(machine => machine.archivedSessions).find(item => item.id === session.id)?.agentArchiveCheck?.status).toBe('archived');
@@ -153,8 +305,9 @@ test('revoking during a delayed check prevents its archive decision', async ({ p
   const { session, conversation } = await open(page, request);
   await send(page, 'Finish the task [archive-complete] [archive-check-delay]');
   await expect.poll(async () => (await saved(request, session.id)).agentArchiveCheck?.status).toBe('checking');
-  await conversation.getByRole('button', { name: 'Session settings', exact: true }).click();
-  await page.getByRole('checkbox', { name: 'Allow agent to archive', exact: true }).uncheck();
+  const input = conversation.getByRole('textbox', { name: 'Instruction', exact: true });
+  await input.fill('/autoclose off');
+  await input.press('Enter');
   await expect.poll(async () => (await saved(request, session.id)).allowAgentArchive).toBe(false);
   // The fixture returns its stale ARCHIVE decision after 2.5 seconds.
   await page.waitForTimeout(2800);

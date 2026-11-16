@@ -714,7 +714,10 @@ archived.
 **Allow agent to archive** in new-session **Settings** or **Session settings** (the horizontal
 three-dot button beside the chat input's model selector, which reveals the checkbox inline) enables
 a separate completion check after each successful reply. It defaults off for every session. The
-working agent receives no extra instructions or hidden chat messages. A positive
+chat input also accepts `/autoclose` or `/autoclose on` to enable it, and `/autoclose off` to disable
+it. Type the command on its own and press Enter, including while a reply is running. Commands save
+the same session setting without sending an agent message or consuming attachments.
+The working agent receives no extra instructions or hidden chat messages. A positive
 decision archives the conversation and releases eligible queued work; uncertainty or check failures
 keep it open. Turning the checkbox off prevents pending decisions. Session settings show the check
 status. Checks run automatically after successful replies; **Archived by agent** entries retain the

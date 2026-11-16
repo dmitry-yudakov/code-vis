@@ -80,6 +80,10 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
   follow-up removes the manual Check completion/Retry check action and its API while preserving
   automatic checks; 90 focused unit checks, 14 distinct production-browser cases, source TypeScript,
   isolated build, both-theme desktop/phone screenshot inspection and independent review pass.
+  The November 16 follow-up adds `/autoclose` (`on`/`off`) in the chat input, including during
+  replies, with retained drafts/attachments and save recovery. All 109 focused unit checks,
+  50 production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
+  inspection and independent review pass.
   Real-provider decisions remain unverified; the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 137](stories/STORY-20261111-switch-repository-branches.md) — click the
   Repository branch name to search and switch existing local branches, with checkout locks,

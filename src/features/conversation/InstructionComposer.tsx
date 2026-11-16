@@ -3,6 +3,7 @@
 import TextField from '@mui/material/TextField';
 import Paper from '@mui/material/Paper';
 import ListItemButton from '@mui/material/ListItemButton';
+import Alert from '@mui/material/Alert';
 import { AttachmentChip } from './AttachmentChip';
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react';
@@ -290,7 +291,7 @@ export interface PendingReportChip {
 
 export function InstructionComposer({
   agentControl, settingsControl, draft, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
-  modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel,
+  modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onArchiveAllowedChange,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
 }: {
@@ -333,6 +334,8 @@ export function InstructionComposer({
   onModelSelectionChange(selection: ModelSelection): void;
   onSend(): void;
   onCancel(): void;
+  /** Existing sessions handle standalone /autoclose commands without starting an agent turn. */
+  onArchiveAllowedChange?(allowed: boolean): Promise<void>;
   onRemoveAttachment(id: string): void;
   onRemoveReport?(id: string): void;
   /** Files pasted into the field, which are all images, or dropped on the composer, which may be anything. */
@@ -350,8 +353,44 @@ export function InstructionComposer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [dropTarget, setDropTarget] = useState(false);
+  const commandBusy = useRef(false);
+  const [commandPending, setCommandPending] = useState(false);
+  const [commandFeedback, setCommandFeedback] = useState<{ severity: 'success' | 'error'; text: string }>();
+  const archiveCommand = Boolean(onArchiveAllowedChange && /^\/autoclose(?:\s|$)/i.test(value.trim()));
   // A drawing, a report, or an image is an instruction in itself, so such a turn does not need typed text.
   const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0 || files.length > 0;
+  const submit = async () => {
+    if (commandBusy.current) return;
+    if (!archiveCommand || !onArchiveAllowedChange) {
+      if (canSend && !running && !sendBlocked) onSend();
+      return;
+    }
+    const submitted = draft.getSnapshot();
+    const command = /^\/autoclose(?:[ \t]+(on|off))?$/i.exec(submitted.trim());
+    if (!command) {
+      setCommandFeedback({ severity: 'error', text: 'Use /autoclose, /autoclose on or /autoclose off.' });
+      return;
+    }
+    const allowed = command[1]?.toLowerCase() !== 'off';
+    // Keep observing this session's draft even if navigation remounts the composer during the save.
+    let edited = false;
+    const unsubscribe = draft.subscribe(() => { if (draft.getSnapshot() !== submitted) edited = true; });
+    commandBusy.current = true;
+    setCommandPending(true);
+    setCommandFeedback(undefined);
+    try {
+      await onArchiveAllowedChange(allowed);
+      if (!edited && draft.getSnapshot() === submitted) onChange('');
+      setCommandFeedback({ severity: 'success', text: `Auto-close ${allowed ? 'enabled' : 'disabled'}.` });
+    } catch (cause) {
+      setCommandFeedback({ severity: 'error', text: cause instanceof Error ? cause.message : 'Could not save archive permission. Try again.' });
+    } finally {
+      unsubscribe();
+      commandBusy.current = false;
+      setCommandPending(false);
+      ref.current?.focus();
+    }
+  };
   const takesDrop = Boolean(onAddImages);
   // A dragged file is always taken here: left to the browser, a drop would replace the page with the file.
   const dragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -431,15 +470,20 @@ export function InstructionComposer({
           : reports.length ? 'Explain what the report shows, or just send it…'
           : images.length ? 'Say what to do with the image, or just send it…'
           : attached.length ? 'Ask about or revise the attached diagram…' : 'Ask anything about this project…'}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          setCommandFeedback(undefined);
+          onChange(event.target.value);
+        }}
         onPaste={paste}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) {
             event.preventDefault();
-            if (canSend && !running && !sendBlocked) onSend();
+            void submit();
           }
         }}
       />
+      {commandPending && <Alert severity="info" role="status">Saving auto-close…</Alert>}
+      {commandFeedback && <Alert severity={commandFeedback.severity} role={commandFeedback.severity === 'error' ? 'alert' : 'status'}>{commandFeedback.text}</Alert>}
       <input ref={fileInput} type="file" multiple hidden onChange={(event) => { onAddImages?.(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
       <div className="composer-actions">
         <AttachMenu
@@ -460,9 +504,9 @@ export function InstructionComposer({
           type="button"
           className={running ? 'cancel-button' : 'send-button'} variant="contained"
           aria-label={running ? 'Cancel' : 'Send'}
-          title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : sendBlocked || 'Send'}
-          disabled={running ? !cancelReady : Boolean(sendBlocked) || !canSend}
-          onClick={running ? onCancel : onSend}
+          title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : archiveCommand ? 'Save auto-close setting' : sendBlocked || 'Send'}
+          disabled={running ? !cancelReady : commandPending || (!archiveCommand && Boolean(sendBlocked)) || !canSend}
+          onClick={running ? onCancel : () => void submit()}
         >
           <span aria-hidden="true">{running ? '■' : '↑'}</span>
         </Button>

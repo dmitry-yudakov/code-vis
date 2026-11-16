@@ -24,7 +24,8 @@ decision, following [the Arena work loop](../docs/vision.md#the-arena).
 An unchecked-by-default **Allow agent to archive** checkbox belongs to each session. Offer it in
 new-session settings and the open conversation's session settings. Persist it on the executing
 machine; do not remember it as a device default or inherit it into New chat/continuations. The
-checkbox alone authorizes this behavior. Natural-language requests and model output cannot enable it.
+checkbox or an explicit composer command authorizes this behavior. Natural-language requests and
+model output cannot enable it.
 It remains editable while a turn runs. Enabling during a turn allows its eventual check; disabling
 invalidates any pending decision immediately after the preference save.
 
@@ -224,3 +225,47 @@ Both-theme desktop/phone conversation screenshots were inspected. Independent re
 code defects; its documentation corrections are included. Browser/provider checks use fixture CLIs;
 real-provider decisions were not rerun. The running app was not rebuilt, restarted or deployed,
 and no changes were staged or committed.
+
+## Keyboard command follow-up — November 16, 2026
+
+**Status:** Shipped
+
+Type `/autoclose` (or `/autoclose on`) and press Enter in an open conversation to enable
+**Allow agent to archive**; `/autoclose off` revokes it. These standalone commands use the existing
+permission save and conflict handling, including during a running turn or completion check. They
+do not send an agent turn, append a chat message or consume pending attachments. Invalid arguments
+show usage locally. A failed save keeps the command for retry; a successful save clears only the
+submitted text, preserving edits made during the save. Show concise accessible feedback and keep
+the keyboard in the composer. Other text, including mentions of the command, stays ordinary chat.
+
+Where the code is: `src/features/conversation/InstructionComposer.tsx:292` owns submission and
+keyboard handling; `src/features/conversation/ConversationDrawer.tsx:300` supplies the existing
+permission callback; `src/features/shell/AppShell.tsx:3261` owns canonical permission saves.
+
+- [x] Standalone on/off commands persist the existing session preference without agent messages,
+      preserve attachments and synchronize with the checkbox across reloads.
+- [x] Commands work during turns/checks; validation, failed saves, repeated Enter, edits during
+      saving and session navigation preserve drafts and session ownership.
+- [x] Focused regressions fail before implementation, then pass with TypeScript, an isolated
+      production build, desktop/phone browser checks, screenshot inspection and independent review.
+
+How to verify: run the composer/archive unit suites and `e2e/agent-session-archive.spec.ts` against
+an isolated build. Exercise keyboard-only enable/revoke, save failure/retry and delayed saves;
+inspect light/dark desktop/phone feedback. Do not rebuild or restart the running installation.
+
+All **109 focused unit checks** pass in `composerMenus`, `conversationArchive`, `newChat`,
+`agentSessionArchive`, `sessionRoutes` and `draftLifecycle`. Source TypeScript, `git diff --check`
+and the normal production build into `.next-e2e/autoclose` pass. Next added that isolated build's
+generated-type entries to `tsconfig.json` using its normal configuration update.
+
+All **50 production-browser cases** pass across `agent-session-archive`, `chronological-drafts`
+and `new-chat`. The initial command regression failed against the previous bundle because it
+sent an agent turn. Independent review found an identical-text draft race after switching away
+and back during a save; its regression failed before the pending-save draft subscription fix and
+now passes. Final review found no further concrete issues. Both-theme desktop/phone feedback
+screenshots were inspected. Tests cover commands during replies/checks, failure/retry, validation,
+reload, checkbox synchronization, attachment retention, repeated Enter and navigation, alongside
+ordinary Send, IME/Shift+Enter, draft performance and delivery/recovery regressions.
+
+Browser/provider checks use fixture CLIs; real-provider completion decisions were not rerun.
+The running application was not rebuilt, restarted or deployed. No files were staged or committed.

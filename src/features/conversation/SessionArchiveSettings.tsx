@@ -36,7 +36,7 @@ export function SessionArchiveSettings({ session, onAllowedChange }: {
     setExpanded(false);
     trigger.current?.focus();
   }}>
-    <IconButton ref={trigger} type="button" aria-label="Session settings" title="Session settings"
+    <IconButton ref={trigger} type="button" aria-label="Session settings" title="Session settings · Type /autoclose to enable or /autoclose off to disable"
       aria-expanded={expanded} aria-controls={expanded ? controlsId : undefined}
       onClick={() => setExpanded(current => !current)}>
       <ShellIcon name="ellipsis" />

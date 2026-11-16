@@ -298,8 +298,10 @@ export function ConversationDrawer({
           reviewRequest={reviewRequest?.scope === `${key}:${turn?.runId || ""}` ? reviewRequest : undefined} onDecide={onDecidePermission} onStop={onCancel} onRefresh={onRefreshPermissions} />
         {!running && sendBlocked && <small className="composer-blocked" role="status">{sendBlocked}</small>}
         <InstructionComposer
+          key={key}
           settingsControl={session && <SessionArchiveSettings key={key} session={session}
             onAllowedChange={onArchiveAllowedChange} />}
+          onArchiveAllowedChange={session ? onArchiveAllowedChange : undefined}
           agentControl={<ParticipantControls
             agents={agents}
             activeAgentId={activeAgent?.id}
