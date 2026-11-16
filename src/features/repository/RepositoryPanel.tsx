@@ -67,11 +67,11 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
           {changes.tree?.isRepository && <div className="git-branch-summary" aria-label="Current branch">
             <ShellIcon name="changes" />
             {apiBase === '/api' ? <RepositoryBranchPicker key={`${apiBase}:${checkoutId}`} checkoutId={checkoutId}
-              repositoryName={repositoryName} branch={changes.tree.branch} disabled={changes.pushing || changes.loading || Boolean(changes.error)}
+              repositoryName={repositoryName} branch={changes.tree.branch} disabled={switching || changes.mutating || changes.pushing || changes.loading || Boolean(changes.error)}
               onRefresh={changes.refresh} onBusyChange={setSwitching} />
               : <strong title={changes.tree.branch}>{changes.tree.branch || 'Unknown branch'}</strong>}
             {(changes.tree.ahead || changes.tree.behind) ? <em aria-label={`${changes.tree.ahead || 0} commits ahead, ${changes.tree.behind || 0} behind`}>{changes.tree.ahead ? `↑${changes.tree.ahead}` : ''}{changes.tree.ahead && changes.tree.behind ? ' ' : ''}{changes.tree.behind ? `↓${changes.tree.behind}` : ''}</em> : null}
-            {offer && <Button type="button" variant="outlined" title={offer.description} aria-label={offer.description} disabled={switching || changes.pushing || changes.loading} onClick={onPush}>{changes.pushing ? `${offer.label}ing…` : offer.label}</Button>}
+            {offer && <Button type="button" variant="outlined" title={offer.description} aria-label={offer.description} disabled={switching || changes.mutating || changes.pushing || changes.loading} onClick={onPush}>{changes.pushing ? `${offer.label}ing…` : offer.label}</Button>}
           </div>}
           <Tabs value={view} onChange={(_, value: 'changes' | 'history') => setView(value)} aria-label="Repository views" className="repository-view-tabs">
             <Tab value="changes" label={changes.tree?.files.length ? `Changes (${changes.tree.files.length})` : 'Changes'} id={`${id}-changes`} aria-controls={`${id}-panel`} />
@@ -79,8 +79,11 @@ export function RepositoryPanel({ checkoutId, repositoryName, manager, history, 
           </Tabs>
           {view === 'history' && changes.error && <Alert severity="warning" sx={{ mx: 1.5, my: 1 }}>Git status unavailable: {changes.error}</Alert>}
           <div className="repository-tab-panel" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${view}`} tabIndex={0}>
-            {view === 'history' ? <RepositoryHistoryView {...gitHistory} onRetry={changes.refresh} /> : (
-              <RepositoryChangesView
+            {view === 'history' ? <RepositoryHistoryView key={`${apiBase}:${checkoutId}`} {...gitHistory} checkoutId={checkoutId} apiBase={apiBase} onRetry={changes.refresh} /> : (
+              <RepositoryChangesView key={`${apiBase}:${checkoutId}`}
+                busy={switching || changes.mutating || changes.pushing}
+                onStage={changes.stage} onUnstage={changes.unstage} onCommit={changes.commit}
+                message={changes.commitMessage} onMessageChange={changes.setCommitMessage}
                 tree={changes.tree}
                 loading={changes.loading}
                 error={changes.error}

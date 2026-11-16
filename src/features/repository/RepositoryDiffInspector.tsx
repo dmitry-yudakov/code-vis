@@ -20,7 +20,7 @@ function patchLineClass(line: string): string {
   return '';
 }
 
-function Patch({ source }: { source?: string }) {
+export function Patch({ source }: { source?: string }) {
   if (!source) return <div className="diff-empty">No textual patch is available for this part of the change.</div>;
   return (
     <pre className="diff-patch" aria-label="Unified diff">

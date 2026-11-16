@@ -705,6 +705,17 @@ host switch disables hooks, filters, credentials, network and submodule recursio
 stashes, or overwrites ignored files. The existing repository revision refreshes review/history/files.
 See [Story 137](../stories/STORY-20261111-switch-repository-branches.md).
 
+[Story 142](../stories/STORY-20261116-git-stage-commit-details.md) adds explicit Stage/Unstage and
+Commit staged controls. `gitIndex.ts` derives the displayed status and staged comparison token from
+one porcelain-v2 read, including HEAD, branch, staged paths/modes/blobs while excluding working edits.
+Output scales with changed paths. `gitChanges.ts` checks that token under `gitMutation.ts`'s shared
+checkout-family ownership and host-configuration proof (also used by branch switching). Mutations
+are exact-origin, device-authorized and local-only; they never implicitly stage or discard working
+files. Commits use the owner's configured identity with hooks/signing disabled. Drafts survive failed
+requests and History navigation. Immutable commit details and exact-file patches use the bounded
+credential-free read transport and remain available through the attached-machine gateway. Merge
+patches compare with the first parent; root patches use the empty tree.
+
 ## Diagrams
 
 Mermaid source is the canonical stored artifact. Diagrams are immutable: a revision is a new

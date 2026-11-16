@@ -1,9 +1,15 @@
 'use client';
 
+import { useState } from 'react';
+import ListItemButton from '@mui/material/ListItemButton';
+import Box from '@mui/material/Box';
+import { ShellIcon } from '@/features/shell/ShellIcon';
+import { RepositoryCommitDetails } from './RepositoryCommitDetails';
 import Button from '@mui/material/Button';
 import type { useRepositoryHistory } from './useRepositoryHistory';
 
-export function RepositoryHistoryView({ history, error, loading, onRetry }: ReturnType<typeof useRepositoryHistory> & { onRetry(): void }) {
+export function RepositoryHistoryView({ history, error, loading, onRetry, checkoutId, apiBase }: ReturnType<typeof useRepositoryHistory> & { onRetry(): void; checkoutId: string; apiBase: string }) {
+  const [selected, setSelected] = useState<string>();
   return <div className="repository-summary-scroll">
     {loading && !history ? <div className="repository-state" role="status"><span className="pulse-dot" /><p>Reading Git history…</p></div>
       : error ? <div className="repository-state error" role="alert"><strong>History unavailable</strong><p>{error}</p><Button onClick={onRetry}>Try again</Button></div>
@@ -12,9 +18,13 @@ export function RepositoryHistoryView({ history, error, loading, onRetry }: Retu
       : history ? <>
         <ol className="repository-commit-list" aria-label="Recent commits">
           {history.commits.map(commit => <li key={commit.hash}>
+            <ListItemButton component="button" aria-expanded={selected === commit.hash} onClick={() => setSelected(value => value === commit.hash ? undefined : commit.hash)} sx={{ display: 'block', width: '100%', textAlign: 'left', p: 0.5 }}>
+            <Box sx={{ float: 'right', transform: selected === commit.hash ? 'rotate(90deg)' : undefined }}><ShellIcon name="chevronRight" /></Box>
             <strong>{commit.subject || 'Untitled commit'}</strong>
             <div className="repository-commit-meta"><span>{commit.author}</span><time dateTime={commit.date} title={new Date(commit.date).toLocaleString()}>{new Date(commit.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time></div>
             <code title={commit.hash}>{commit.hash.slice(0, 8)}</code>
+            </ListItemButton>
+            {selected === commit.hash && <RepositoryCommitDetails key={commit.hash} checkoutId={checkoutId} hash={commit.hash} apiBase={apiBase} />}
           </li>)}
         </ol>
         {history.truncated && <p className="repository-history-limit">Showing the latest 100 commits on this branch.</p>}

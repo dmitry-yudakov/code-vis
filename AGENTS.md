@@ -35,6 +35,13 @@ Updated 2026-11-16. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 142](stories/STORY-20261116-git-stage-commit-details.md) — Changes stages/
+  unstages files individually or in bulk and commits the reviewed index with retained drafts;
+  History expands full commit metadata, changed files and committed patches. One status snapshot
+  supplies the file list and staged comparison token, with shared checkout-family mutation guards.
+  All 256 focused unit checks, 53 distinct production-browser cases, TypeScript, isolated build,
+  both-theme desktop/phone screenshot inspection and independent review pass.
+  The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 141](stories/STORY-20261115-project-workspace.md) — aligned Arena project
   headers; project titles open Files, Changes and New session even without conversations, while
   the logo itself edits its image with no duplicate right-side control.

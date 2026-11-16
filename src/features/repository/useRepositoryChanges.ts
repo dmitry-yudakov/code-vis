@@ -13,6 +13,9 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
   const [pushingIdentity, setPushingIdentity] = useState<string>();
+  const [mutatingIdentity, setMutatingIdentity] = useState<string>();
+  const [commitDraft, setCommitDraft] = useState<{ identity: string; text: string }>();
+  const operation = useRef<string | undefined>(undefined);
   const requestRefresh = useRef<() => void>(() => undefined);
   const refresh = useCallback(() => requestRefresh.current(), []);
 
@@ -85,6 +88,28 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
       refresh();
     }
   }, [apiBase, checkoutId, identity, refresh, target]);
+  const mutate = useCallback(async (action: 'stage' | 'unstage' | 'commit', value: string[] | string): Promise<string | undefined> => {
+    if (operation.current) throw new Error('Wait for the current Git operation to finish.');
+    const indexState = current && !error ? tree?.indexState : undefined;
+    if (!indexState) throw new Error('Refresh Changes before continuing.');
+    operation.current = identity;
+    setMutatingIdentity(identity);
+    try {
+      const committing = action === 'commit';
+      const response = await fetch(`${apiBase}/repository/${committing ? 'commit' : 'index'}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkoutId, indexState, ...(committing ? { message: value } : { action, paths: value }) }),
+      });
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; hash?: string; error?: string };
+      if (!response.ok || (committing ? !data.hash : !data.ok)) throw new Error(data.error || 'Git operation could not be confirmed. Refresh Changes before retrying.');
+      if (committing) setCommitDraft(held => held?.identity === identity ? undefined : held);
+      return data.hash;
+    } finally {
+      operation.current = undefined;
+      setMutatingIdentity(held => held === identity ? undefined : held);
+      refresh();
+    }
+  }, [apiBase, checkoutId, current, error, identity, refresh, tree?.indexState]);
   return {
     tree: current ? tree : undefined,
     selectedPath: current ? selectedPath : undefined,
@@ -95,6 +120,12 @@ export function useRepositoryChanges(checkoutId: string, onTreeChange: (tree?: G
     refresh,
     selectPath: setSelectedPath,
     closeInspector: () => setSelectedPath(undefined),
+    commitMessage: commitDraft?.identity === identity ? commitDraft.text : '',
+    setCommitMessage: (text: string) => setCommitDraft({ identity, text }),
+    mutating: mutatingIdentity === identity,
+    stage: apiBase === '/api' ? (paths: string[]) => mutate('stage', paths) : undefined,
+    unstage: apiBase === '/api' ? (paths: string[]) => mutate('unstage', paths) : undefined,
+    commit: apiBase === '/api' ? (message: string) => mutate('commit', message) : undefined,
     pushing: pushingIdentity === identity,
     /** An attached machine's credentials are not this machine's to spend, so it offers no push. */
     push: apiBase === '/api' ? push : undefined,

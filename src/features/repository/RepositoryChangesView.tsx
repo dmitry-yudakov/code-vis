@@ -1,6 +1,11 @@
 'use client';
 
+import { useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
+import LinearProgress from '@mui/material/LinearProgress';
 import ListItemButton from '@mui/material/ListItemButton';
 
 import type { GitChangedFile, GitFileStatus, GitWorkingTree } from '@/shared/types';
@@ -30,7 +35,7 @@ function FileRow({ file, selected, onSelect }: {
   const parts = pathParts(file.path);
   return (
     <ListItemButton component="button" selected={selected}
-      type="button" className={`repository-file ${selected ? 'selected' : ''}`} aria-pressed={selected} onClick={onSelect}
+      type="button" title={file.path} className={`repository-file ${selected ? 'selected' : ''}`} aria-pressed={selected} onClick={onSelect}
     >
       <span className={`git-status-mark status-${file.status}`} aria-label={file.status}>{STATUS_MARK[file.status]}</span>
       <span className="repository-file-path">
@@ -57,7 +62,13 @@ export function pushOffer({ pushTarget, publishes, ahead, upstream }: GitWorking
   return { label: 'Push', description: ahead && upstream === pushTarget ? `Push ${ahead} ${ahead === 1 ? 'commit' : 'commits'} to ${pushTarget}` : `Push to ${pushTarget}` };
 }
 
-export function RepositoryChangesView({ tree, loading, error, selectedPath, onSelect, onRetry }: {
+export function RepositoryChangesView({ tree, loading, error, selectedPath, onSelect, onRetry, busy, onStage, onUnstage, onCommit, message = '', onMessageChange }: {
+  message?: string;
+  onMessageChange?(message: string): void;
+  busy?: boolean;
+  onStage?(paths: string[]): Promise<unknown>;
+  onUnstage?(paths: string[]): Promise<unknown>;
+  onCommit?(message: string): Promise<string | undefined>;
   tree?: GitWorkingTree;
   loading: boolean;
   error?: string;
@@ -65,6 +76,15 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
   onSelect(path: string): void;
   onRetry(): void;
 }) {
+  const [feedback, setFeedback] = useState<{ error?: string; success?: string }>();
+  const disabled = busy || loading || !tree?.indexState;
+  const perform = async (action: () => Promise<unknown>, committing = false) => {
+    setFeedback(undefined);
+    try {
+      const result = await action();
+      if (committing) { setFeedback({ success: `Committed ${String(result).slice(0, 8)}` }); }
+    } catch (reason) { setFeedback({ error: reason instanceof Error ? reason.message : 'Git operation failed. Refresh and retry.' }); }
+  };
   const staged = tree?.files.filter((file) => file.staged).length || 0;
   const working = tree?.files.filter((file) => file.unstaged && file.status !== 'untracked').length || 0;
   const untracked = tree?.files.filter((file) => file.status === 'untracked').length || 0;
@@ -89,10 +109,29 @@ export function RepositoryChangesView({ tree, loading, error, selectedPath, onSe
               </div>
             )}
           </div>
+          {busy && <LinearProgress aria-label="Updating Git" sx={{ mx: 1, mb: 1 }} />}
+          {feedback && <Alert severity={feedback.error ? 'error' : 'success'} sx={{ mx: 1, mb: 1 }} onClose={() => setFeedback(undefined)}>{feedback.error || feedback.success}</Alert>}
+          {onCommit && <Box component="form" sx={{ px: 1, pb: 1.5, display: 'grid', gap: 1 }} onSubmit={event => { event.preventDefault(); if (!disabled && staged && message.trim()) void perform(() => onCommit(message), true); }}>
+            <TextField label="Commit message" size="small" multiline minRows={2} maxRows={5} value={message}
+              disabled={busy} onChange={event => onMessageChange?.(event.target.value)} slotProps={{ htmlInput: { maxLength: 16_000 } }} />
+            <Button type="submit" variant="contained" title="Commit staged changes without hooks or signing" disabled={disabled || !staged || !message.trim() || tree.files.some(file => file.status === 'conflicted')}>Commit staged{staged ? ` (${staged})` : ''}</Button>
+          </Box>}
           {tree.files.length ? (
-            <div className="repository-file-list">
-              {tree.files.map((file) => <FileRow key={file.path} file={file} selected={file.path === selectedPath} onSelect={() => onSelect(file.path)} />)}
-            </div>
+            <>
+              {(onStage || onUnstage) && <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, px: 1, pb: 1 }}>
+                {onStage && <Button size="small" disabled={disabled || !tree.files.some(file => file.unstaged || file.status === 'untracked')} onClick={() => void perform(() => onStage(tree.files.filter(file => file.unstaged || file.status === 'untracked').map(file => file.path)))}>Stage all</Button>}
+                {onUnstage && <Button size="small" disabled={disabled || !staged} onClick={() => void perform(() => onUnstage(tree.files.filter(file => file.staged).map(file => file.path)))}>Unstage all</Button>}
+              </Box>}
+              <div className="repository-file-list">
+                {tree.files.map(file => <Box key={file.path} sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                  <FileRow file={file} selected={file.path === selectedPath} onSelect={() => onSelect(file.path)} />
+                  {(onStage || onUnstage) && <Box sx={{ display: 'flex', flexShrink: 0, gap: 0.5 }}>
+                    {onStage && (file.unstaged || file.status === 'untracked') && <Button size="small" disabled={disabled} aria-label={`Stage ${file.path}`} onClick={() => void perform(() => onStage([file.path]))}>Stage</Button>}
+                    {onUnstage && file.staged && <Button size="small" disabled={disabled} aria-label={`Unstage ${file.path}`} onClick={() => void perform(() => onUnstage([file.path]))}>Unstage</Button>}
+                  </Box>}
+                </Box>)}
+              </div>
+            </>
           ) : (
             <div className="repository-state compact"><span className="repository-state-mark clean">✓</span><strong>Nothing to review</strong><p>No uncommitted changes.</p></div>
           )}

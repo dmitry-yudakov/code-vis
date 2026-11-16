@@ -62,7 +62,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await filePane.getByRole('button', { name: 'Hide file view', exact: true }).click();
     await views.getByRole('button', { name: /^Repository(?:,|$)/ }).click();
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
-    await repository.getByRole('button', { name: /package.json/ }).click();
+    await repository.locator('.repository-file').filter({ hasText: 'package.json' }).click();
     await expect(filePane.getByLabel('Unified diff').last()).toContainText('+new project');
     await page.screenshot({ path: testInfo.outputPath('project-changes.png') });
     await filePane.getByRole('button', { name: 'Hide file view', exact: true }).click();

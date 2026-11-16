@@ -1,13 +1,8 @@
 import { execFile } from 'node:child_process';
-import { lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { getConfig } from '@/server/config';
-import { runRegistry } from '@/server/runs/runRegistry';
 import type { GitBranches } from '@/shared/types';
-import { configuration, unsupportedLocalGitKey } from './gitLocalConfiguration';
-import { GIT_READ_OPTIONS, gitReadEnvironment, runGitRead, withGitReadLease } from './gitRead';
-import { containedMetadata, readWorktreeRecords, resolveManagedWorktree, sourceMetadata, validateManagedPath } from './managedWorktrees';
-import { getCheckoutRegistry } from './checkoutRegistry';
+import { GIT_READ_OPTIONS, gitReadEnvironment, runGitRead } from './gitRead';
+import { withGitMutation } from './gitMutation';
 
 const MAX_BRANCHES = 1000;
 
@@ -54,61 +49,8 @@ export async function switchGitBranch(cwd: string, branch: string, expectedHead:
   if (!branch || branch.length > 512 || branch.startsWith('-') || /[\s\x00-\x1f\x7f~^:?*\[\\]|@\{|\.\./.test(branch)) {
     throw new Error('Choose an existing local branch.');
   }
-  const managed = await validateManagedPath(cwd);
-  const source = managed?.originPath || cwd;
-  const writer = runRegistry.acquireCheckoutWrite(cwd);
-  if (!writer) throw new Error('An agent turn or another Git operation is using this checkout. Retry after it finishes.');
-  const releases: (() => void)[] = [writer];
-  const held = new Set([cwd]);
-  return withGitReadLease(() => { for (const release of releases.reverse()) release(); }, async () => {
-    const hold = (location: string) => {
-      // Registry markers can describe a package inside the checkout, or an enclosing project.
-      // Existing admission already excludes their overlapping writers; do not conflict with ourselves.
-      if ([...held].some(root => location === root || location.startsWith(`${root}${path.sep}`) || root.startsWith(`${location}${path.sep}`))) return;
-      const exclusive = runRegistry.acquireCheckoutWrite(location);
-      if (!exclusive) throw new Error('An agent turn or another Git operation is using this checkout. Retry after it finishes.');
-      try { releases.push(runRegistry.acquireCheckoutRead(location, exclusive.token)!); held.add(location); }
-      finally { exclusive(); }
-    };
-    hold(source);
-    const family = (await readWorktreeRecords(getConfig().dataDir)).filter(record => record.originPath === source);
-    for (const record of family) hold(record.destination);
-    // A discovered Local checkout can redirect .git without a reverse worktree entry. As with
-    // worktree creation, only a proved independent repository may keep a concurrent writer.
-    const config = getConfig();
-    for (const checkout of await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).refresh()) {
-      if (checkout.worktree || held.has(checkout.realPath)) continue;
-      try { await sourceMetadata(checkout); }
-      catch { hold(checkout.realPath); }
-    }
-    const metadata = path.join(source, '.git');
-    const linked: string[] = await readdir(path.join(metadata, 'worktrees')).catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw error;
-    });
-    // Ordinary linked worktrees can run Local agents too. Their shared-configuration writers
-    // have no durable lease identity, so they cannot participate in this host-mutation proof.
-    if (linked.some(name => !family.some(record => record.gitDirectory?.path === path.join(metadata, 'worktrees', name)))) {
-      throw new Error('This repository has worktrees outside CodeAI management. Switch from a terminal.');
-    }
-    // A moved worktree retains its metadata name. Prove that each entry still points to the
-    // exact destination we leased, rather than trusting the journal's old display path.
-    for (const record of family) if (linked.includes(path.basename(record.gitDirectory?.path || ''))) {
-      await resolveManagedWorktree(record, getConfig(), writer.token);
-    }
-    const local = configuration(await runGitRead(cwd, ['config', '--local', '--no-includes', '--list', '-z'], { checkoutWriteLease: writer.token }));
-    if (unsupportedLocalGitKey(local) || local.get('core.bare')?.some(value => value !== 'false')) {
-      throw new Error('This repository uses Git configuration that CodeAI cannot safely switch under. Switch from a terminal.');
-    }
-    const info = await lstat(metadata);
-    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Linked Git metadata is unsupported. Switch from a terminal.');
-    await containedMetadata(metadata);
-    for (const file of ['commondir', 'config.worktree', 'objects/info/alternates', 'objects/info/http-alternates']) {
-      if (await lstat(path.join(/* turbopackIgnore: true */ metadata, file)).catch(() => undefined)) {
-        throw new Error('External Git metadata is unsupported. Switch from a terminal.');
-      }
-    }
-    const snapshot = await listGitBranches(cwd, writer.token);
+  return withGitMutation(cwd, async lease => {
+    const snapshot = await listGitBranches(cwd, lease);
     const target = snapshot.branches.find(item => item.name === branch);
     if (!target) throw new Error('This local branch is no longer available. Refresh the branch list.');
     if (snapshot.current === branch) return branch; // A lost response can be retried safely.

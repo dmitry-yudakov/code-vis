@@ -107,6 +107,16 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
       }], truncated: false } } });
       return;
     }
+    if (route.request().method() === 'GET' && pathname === '/repository/commit') {
+      expect(url.searchParams.get('checkoutId')).toBe('remote-checkout');
+      expect(url.searchParams.get('hash')).toBe('a'.repeat(40));
+      expect(url.pathname).toBe(`/api/machines/${MACHINE_ID}/repository/commit`);
+      await route.fulfill({ json: url.searchParams.has('path') ? { patch: '@@ -1 +1 @@\n-before\n+Remote committed content' } : { details: {
+        hash: 'a'.repeat(40), author: 'Remote owner', email: 'remote@example.invalid', date: NOW,
+        message: 'Committed on the laptop\n\nRemote full message', parents: [], files: [{ path: 'remote.txt', status: 'M' }],
+      } } });
+      return;
+    }
     if (route.request().method() === 'POST' && pathname === '/agent/message') {
       remoteMessagePath = url.pathname;
       const input = route.request().postDataJSON() as AgentMessageRequest;
@@ -191,9 +201,14 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   await expect(page.locator('.git-branch-summary')).toContainText('↑1');
   await expect(page.locator('.git-branch-summary').getByRole('button')).toHaveCount(0);
   const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
+  await expect(repository.getByRole('textbox', { name: 'Commit message' })).toHaveCount(0);
   await repository.getByRole('tab', { name: 'History', exact: true }).click();
   await expect(repository).toContainText('Committed on the laptop');
   expect(remoteHistoryPath).toBe(`/api/machines/${MACHINE_ID}/repository/history`);
+  await repository.getByRole('button', { name: /Committed on the laptop/ }).click();
+  await expect(repository).toContainText('Remote full message');
+  await repository.getByRole('button', { name: 'M remote.txt', exact: true }).click();
+  await expect(repository.getByLabel('Unified diff')).toContainText('+Remote committed content');
 
   // Home settings remain reachable here without admitting Docker on this executor.
   const ready = { available: true, authenticated: 'unknown', supportedModes: ['ask', 'plan', 'agent'] };

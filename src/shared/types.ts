@@ -58,6 +58,8 @@ export interface GitChangedFile {
 
 export interface GitWorkingTree {
   isRepository: boolean;
+  /** Comparison token for the displayed HEAD and staged index. */
+  indexState?: string;
   branch?: string;
   upstream?: string;
   /** The branch has no commits yet. */
@@ -76,6 +78,17 @@ export interface GitHistory {
   commits: { hash: string; subject: string; author: string; date: string }[];
   /** Only the latest 100 commits reachable from HEAD are included. */
   truncated: boolean;
+}
+
+export interface GitCommitDetails {
+  hash: string;
+  author: string;
+  email: string;
+  date: string;
+  message: string;
+  parents: string[];
+  /** Merge changes are compared with the first parent; root commits with the empty tree. */
+  files: { path: string; previousPath?: string; status: string }[];
 }
 
 export interface GitBranches {
