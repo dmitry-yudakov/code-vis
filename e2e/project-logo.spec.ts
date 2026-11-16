@@ -23,6 +23,8 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     const group = page.getByRole('region', { name: project.name, exact: true });
     const open = group.getByRole('button', { name: `Project logo for ${project.name}`, exact: true });
     const heading = group.getByRole('heading', { name: project.name, exact: true });
+    await expect(open).toHaveCount(1);
+    await expect(group.getByRole('link', { name: `Open project ${project.name}`, exact: true })).toBeVisible();
     expect((await open.boundingBox())!.x).toBeLessThan((await heading.boundingBox())!.x);
     await open.click();
     const dialog = page.getByRole('dialog', { name: 'Project logo', exact: true });

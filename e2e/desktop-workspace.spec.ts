@@ -264,23 +264,17 @@ for (const appearance of ['light', 'dark']) {
     });
   }
 
-  test(`welcome uses the workspace width and can start a session: ${appearance}`, async ({ page, request }) => {
+  test(`project workspace keeps browsing and session creation reachable: ${appearance}`, async ({ page, request }) => {
     await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), appearance);
     await openWorkspace(page, request, false);
-    const welcome = page.locator('.welcome-screen');
     for (const width of [1440, 1000, 900, 360]) {
       await page.setViewportSize({ width, height: 900 });
-      await expect(welcome.getByRole('heading', { name: 'Good ideas start here.' })).toBeVisible();
-      await expect.poll(async () => {
-        const box = (await welcome.boundingBox())!;
-        return box.x + box.width;
-      }).toBe(width);
-      expect(await welcome.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-      const create = welcome.getByRole('button', { name: 'Create and open', exact: true });
-      await create.scrollIntoViewIfNeeded();
-      await expect(create).toBeVisible();
+      await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
+      await expect(page.locator('.app-header').getByRole('button', { name: 'New session', exact: true })).toBeVisible();
+      await expect.poll(() => page.locator('body').evaluate(node => node.scrollWidth)).toBeLessThanOrEqual(width);
     }
-    await welcome.getByRole('button', { name: 'Create and open', exact: true }).click();
+    await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
+    await page.getByRole('button', { name: 'Start session', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Instruction' })).toBeFocused();
     await expect(page.getByRole('region', { name: 'Get started' })).toBeVisible();
   });

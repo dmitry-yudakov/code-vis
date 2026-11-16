@@ -49,7 +49,9 @@
     ".next-e2e/inset-panes/types/**/*.ts",
     ".next-e2e/inset-panes/dev/types/**/*.ts",
     ".next-e2e/arena-archive/types/**/*.ts",
-    ".next-e2e/arena-archive/dev/types/**/*.ts"
+    ".next-e2e/arena-archive/dev/types/**/*.ts",
+    ".next-e2e/project-workspace/types/**/*.ts",
+    ".next-e2e/project-workspace/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

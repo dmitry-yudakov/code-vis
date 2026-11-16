@@ -57,15 +57,25 @@ export function useDockCapacity(shellRef: RefObject<HTMLElement | null>): { capa
   return measurement;
 }
 
-export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean, viewId?: string, hasCanvasContent?: boolean) {
+export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean, viewId?: string, hasCanvasContent?: boolean, projectScope?: string) {
   const { capacity: dockCapacity, width: shellWidth } = useDockCapacity(shellRef);
   const [layouts, setLayouts] = useState<Record<string, PanelLayout>>({});
   const [defaultLayout, setDefaultLayout] = useState(DEFAULT_PANEL_LAYOUT);
+  const [projectState, setProjectState] = useState<{ scope?: string; layout: PanelLayout }>();
+  const projectLayout = useMemo<PanelLayout>(() => projectState?.scope === projectScope && projectState ? projectState.layout : {
+    ...defaultLayout, repositoryOpen: true, conversationOpen: false, canvasOpen: true,
+    filesOpen: false, maximized: null, sideTab: 'files', lastOpened: 'repository' }, [defaultLayout, projectScope, projectState]);
+  // File tabs reset on scope changes too; an old layout must not reopen an empty, maximized pane.
+  if (projectState?.scope !== projectScope) setProjectState(projectScope ? { scope: projectScope, layout: projectLayout } : undefined);
   const [resize, setResize] = useState<{ panel: ResizePanel; startX: number; startWidth: number }>();
   const [storageReady, setStorageReady] = useState(false);
-  const layout = viewId ? layouts[viewId] || defaultLayout : defaultLayout;
+  const layout = projectScope ? projectLayout : viewId ? layouts[viewId] || defaultLayout : defaultLayout;
   const lastOpened = layout.lastOpened;
   const setLayout = useCallback((update: (current: PanelLayout) => PanelLayout) => {
+    if (projectScope) {
+      setProjectState(current => ({ scope: projectScope, layout: update(current?.scope === projectScope ? current.layout : projectLayout) }));
+      return;
+    }
     if (!viewId) {
       setDefaultLayout(update);
       return;
@@ -75,7 +85,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       const next = update(prior);
       return next === prior ? current : storePanelLayout(current, viewId, next);
     });
-  }, [defaultLayout, viewId]);
+  }, [defaultLayout, projectLayout, projectScope, viewId]);
   const shown = visiblePanes(layout, dockCapacity, shellWidth);
   const sideShown = repositoryAvailable && shown.side;
   const conversationShown = shown.conversation;
@@ -167,9 +177,11 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     else openConversation();
   }, [closeConversation, conversationShown, openConversation]);
   const openFiles = useCallback(() => setLayout(current => ({ ...current, filesOpen: true,
+    canvasOpen: projectScope ? false : current.canvasOpen,
     maximized: current.maximized === 'files' ? 'files' : null,
-    lastOpened: current.maximized === 'files' ? current.lastOpened : 'files' })), [setLayout]);
-  const closeFiles = useCallback(() => setLayout(current => ({ ...current, filesOpen: false, maximized: null })), [setLayout]);
+    lastOpened: current.maximized === 'files' ? current.lastOpened : 'files' })), [projectScope, setLayout]);
+  const closeFiles = useCallback(() => setLayout(current => ({ ...current, filesOpen: false,
+    canvasOpen: projectScope ? true : current.canvasOpen, maximized: null })), [projectScope, setLayout]);
   const toggleFiles = useCallback(() => { if (filesShown) closeFiles(); else openFiles(); }, [filesShown, closeFiles, openFiles]);
   const toggleCanvas = useCallback(() => setLayout(current => {
     if (current.filesOpen) return { ...current, canvasOpen: canvasHidden, maximized: null, lastOpened: canvasHidden ? 'canvas' : current.lastOpened };

@@ -203,8 +203,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sessionId = !arenaOpen && location.kind === 'project' ? undefined : workspace.scope.focusedSessionId;
   const view = sessionId ? workspace.scope.views[sessionId] : undefined;
   const session = useMemo(() => sessions.find((item) => item.id === sessionId), [sessions, sessionId]);
-  const panelLayout = usePanelLayout(shellRef, Boolean(sessionId), sessionId,
-    session ? getArtifacts(session).length + getSketches(session).length > 0 : undefined);
+  const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
+  const projectWorkspace = !sessionId && Boolean(selectedProject);
+  const projectScope = JSON.stringify([machineId, projectId]);
+  const panelLayout = usePanelLayout(shellRef, Boolean(sessionId) || projectWorkspace, sessionId,
+    session ? getArtifacts(session).length + getSketches(session).length > 0 : undefined, projectWorkspace ? projectScope : undefined);
+  const [projectCheckout, setProjectCheckout] = useState<{ scope: string; id: string }>();
+  const projectCheckouts = useMemo(() => (selectedProject?.repositories || [])
+    .filter(binding => binding.hostId === hostId)
+    .sort((a, b) => Number(b.role === 'primary') - Number(a.role === 'primary'))
+    .flatMap(binding => checkouts.filter(checkout => checkout.id === binding.checkoutId)), [selectedProject, hostId, checkouts]);
   const [vrUnavailable, setVrUnavailable] = useState<string>();
   // The creation forms fall back to an available provider when this one is not.
   const newProvider = preferences.provider ?? 'claude';
@@ -329,7 +337,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     ?? (sessions.find((item) => item.id === sessionId)?.activeDiagramId
       ? [sessions.find((item) => item.id === sessionId)!.activeDiagramId!]
       : []);
-  const selectedCheckoutId = view?.selectedCheckoutId;
+  const selectedCheckoutId = sessionId ? view?.selectedCheckoutId
+    : projectCheckouts.find(checkout => projectCheckout?.scope === projectScope && checkout.id === projectCheckout.id)?.id || projectCheckouts[0]?.id;
   // Reports are this home machine's; a remote executor's project is never CodeAI's own checkout here.
   const reports = useImmersiveReports(workspaceMachineId ? undefined : projectId);
   // Build & restart always operates the home installation, including from an executor's chat or Arena.
@@ -366,9 +375,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [draftIdentity, sessionId, workspace.updateView]);
   const setSelectedCheckoutId = useCallback((value?: string) => {
-    if (!sessionId) return;
+    if (!sessionId) { setProjectCheckout(value ? { scope: projectScope, id: value } : undefined); return; }
     workspace.updateView(sessionId, (current) => ({ ...current, selectedCheckoutId: value }));
-  }, [sessionId, workspace.updateView]);
+  }, [projectScope, sessionId, workspace.updateView]);
 
   // The headset adds reports while the flat shell is open; showing the tab reads the latest list.
   const reportsShown = panelLayout.repositoryOpen && panelLayout.sideTab === 'reports';
@@ -409,7 +418,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     })];
     return result?.pending || result?.retryable;
   })?.requestId;
-  const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const [projectLogoTarget, setProjectLogoTarget] = useState<{ machineId: string; project: DurableProject }>();
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
@@ -427,12 +435,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     const checkout = checkouts.find((item) => item.id === binding.checkoutId);
     return checkout ? [{ id: checkout.id, name: checkout.name }] : [];
   }) || [], [checkouts, session?.repositories]);
-  const fileRepositories = useMemo(() => (session?.repositories || []).filter(binding => binding.hostId === hostId)
+  const fileRepositories = useMemo(() => (session?.repositories || selectedProject?.repositories || []).filter(binding => binding.hostId === hostId)
     .sort((a, b) => Number(b.role === 'primary') - Number(a.role === 'primary'))
-    .flatMap(binding => sessionCheckouts.filter(checkout => checkout.id === binding.checkoutId)), [session?.repositories, sessionCheckouts, hostId]);
+    .flatMap(binding => checkouts.filter(checkout => checkout.id === binding.checkoutId).map(checkout => ({ id: checkout.id, name: checkout.name }))), [session?.repositories, selectedProject?.repositories, checkouts, hostId]);
   const repositoryChanges = useRepositoryChanges(loading ? '' : selectedCheckout?.id || '', setRepositoryTree, repositoryApiBase);
   const repositoryDiff = useRepositoryDiff(loading ? '' : selectedCheckout?.id || '', repositoryChanges.selectedPath, repositoryChanges.revision, repositoryApiBase);
-  useRepositoryAutoRefresh(Boolean(!loading && !arenaOpen && !immersiveActive && session && selectedCheckout && panelLayout.sideShown
+  useRepositoryAutoRefresh(Boolean(!loading && !arenaOpen && !immersiveActive && (session || projectWorkspace) && selectedCheckout && panelLayout.sideShown
     && (panelLayout.sideTab === 'changes' || panelLayout.sideTab === 'reports' && !(reports.available && reports.projectId))), repositoryChanges.refresh);
   const repositoryRefreshRef = useRef({ checkoutId: selectedCheckout?.id, apiBase: repositoryApiBase, refresh: repositoryChanges.refresh });
   repositoryRefreshRef.current = { checkoutId: selectedCheckout?.id, apiBase: repositoryApiBase, refresh: repositoryChanges.refresh };
@@ -2640,7 +2648,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   };
   // Only the session workspace has a canvas to hide; the Arena and the welcome screen keep the frame.
-  const canvasHidden = !loading && !arenaOpen && Boolean(session) && panelLayout.canvasHidden;
+  const canvasHidden = !loading && !arenaOpen && Boolean(session || projectWorkspace) && panelLayout.canvasHidden;
   const reportsOffered = Boolean(reports.available && reports.projectId);
   // The side panel shows Changes where a remembered Reports view is unavailable; the bar marks what it shows.
   const sideView: SideTab = panelLayout.sideTab === 'reports' && !reportsOffered ? 'changes' : panelLayout.sideTab;
@@ -2651,7 +2659,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // above the explanation for hidden sessions.
   const blockingRun = focusedRunOutcome?.blockingRun;
   const compact = panelLayout.dockCapacity === 0;
-  const maximized = !arenaOpen && session ? panelLayout.maximized : null;
+  const maximized = !arenaOpen && (session || projectWorkspace) ? panelLayout.maximized : null;
   const paneControl = (pane: Pane, label: string) => maximized === pane || panelLayout.canMaximize ? <PaneMaximizeButton
     label={label} maximized={maximized === pane}
     approvals={pane === 'conversation' ? 0 : permissions.length}
@@ -2717,10 +2725,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [arenaOpen, openingWorkspace, resolvedNavigation, navigationKey, navigationError, panelLayout.conversationShown, session, machineId, location.kind, selectedDestinationLoaded, arenaInbox, arena.acknowledge]);
 
   return (
-    <RepositoryFilesProvider onOpen={panelLayout.openFiles} scope={session?.id || ''} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>
+    <RepositoryFilesProvider onOpen={panelLayout.openFiles} scope={session?.id || projectScope} repositories={fileRepositories} apiBase={repositoryApiBase} docker={session?.execution === 'docker'}>
     <div
       ref={shellRef}
-      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${maximized ? `pane-maximized maximized-${maximized}` : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
+      className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${projectWorkspace && !arenaOpen ? 'project-workspace' : ''} ${maximized ? `pane-maximized maximized-${maximized}` : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
       style={panelLayout.shellStyle}
     >
       <header className="app-header">
@@ -2949,7 +2957,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             approvals={permissions.length} unread={unread}
             onToggleCanvas={panelLayout.showCanvas} onToggleConversation={panelLayout.openConversation}
           /> : undefined}
-          views={!arenaOpen && session ? ['files', 'changes', 'history', ...(!compact && reportsOffered ? ['reports' as const] : [])] : []}
+          views={!arenaOpen && session ? ['files', 'changes', 'history', ...(!compact && reportsOffered ? ['reports' as const] : [])] : !arenaOpen && projectWorkspace ? ['files', 'changes'] : []}
           shownView={panelLayout.sideShown ? sideView : undefined}
           changeCount={repositoryTree?.files.length}
           arenaSection={arenaSection}
@@ -3011,7 +3019,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       )}
 
-      {!loading && !arenaOpen && session && (
+      {!loading && !arenaOpen && (session || projectWorkspace) && (
         <div className="repository-region" hidden={!panelLayout.sideShown}>
           <RepositoryPanel
             apiBase={repositoryApiBase}
@@ -3019,7 +3027,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             repositoryName={selectedCheckout?.name || 'No repository'}
             changes={repositoryChanges}
             onPush={repositoryChanges.push && (() => void pushRepositoryBranch(repositoryChanges.push!))}
-            manager={(
+            manager={session ? (
               <RepositoryManager
                 key={session.id}
                 repositories={session.repositories}
@@ -3031,8 +3039,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onSelect={selectCheckout}
                 onChange={updateRepositories}
               />
-            )}
-            history={(
+            ) : projectCheckouts.length ? <NativeSelect value={selectedCheckoutId || ''} onChange={event => selectCheckout(event.target.value)}
+              inputProps={{ 'aria-label': 'Repository' }} sx={{ mx: 1.5, maxWidth: 'calc(100% - 24px)' }}>
+              {projectCheckouts.map(checkout => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
+            </NativeSelect> : undefined}
+            history={session ? (
               <DiagramNavigator
                 session={session}
                 theme={theme}
@@ -3043,7 +3054,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onPin={togglePin}
                 onToggleAttachment={toggleAttachment}
               />
-            )}
+            ) : null}
             reports={reports.available && reports.projectId ? (
               <ReportsPanel
                 owner={{ ...reports, projectId: reports.projectId }}
@@ -3075,7 +3086,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      {!loading && !arenaOpen && session && <div className="file-view-region" hidden={!panelLayout.filesShown}>
+      {!loading && !arenaOpen && (session || projectWorkspace) && <div className="file-view-region" hidden={!panelLayout.filesShown}>
         <RepositoryFilePane visible={panelLayout.filesShown} paneControl={paneControl('files', 'File view')} onHide={panelLayout.closeFiles} revision={repositoryChanges.revision} />
         {panelLayout.filesShown && !maximized && !compact && (!panelLayout.canvasHidden || panelLayout.conversationShown) && <div
           className="panel-resize-handle repository-resize-handle" role="separator" tabIndex={0}
@@ -3129,7 +3140,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       ) : !session ? (
-        <div className="welcome-screen">
+        <div className="welcome-screen" hidden={projectWorkspace && (canvasHidden || Boolean(maximized))}>
           <div className="welcome-intro">
             <div className="brand-mark" aria-hidden="true">C</div>
             <span className="eyebrow">Your local workspace</span>
@@ -3137,8 +3148,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p>{sessions.length
               ? 'Reopen a conversation from All sessions, or start something new.'
               : `Explore, plan, and build${selectedProject ? ` in ${selectedProject.name}` : ' with your agents'}. Choose your setup to get started.`}</p>
+            {selectedProject && <Button variant="contained" onClick={() => launcher.openForProject(machineId!, selectedProject.id)}>New session</Button>}
           </div>
-          {!sessions.length && <SessionCreationForm
+          {!sessions.length && !selectedProject && <SessionCreationForm
             onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
             worktrees={health?.worktrees}
             key={projectId || 'loose'}

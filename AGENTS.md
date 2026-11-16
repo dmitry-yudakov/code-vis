@@ -29,12 +29,19 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-15. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-16. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 141](stories/STORY-20261115-project-workspace.md) — aligned Arena project
+  headers; project titles open Files, Changes and New session even without conversations, while
+  the logo itself edits its image with no duplicate right-side control.
+  Files fill the available workspace, with independent project/session pane state. All 106 focused
+  unit checks, 67 distinct production-browser cases, TypeScript, isolated build, both-theme
+  desktop/phone screenshot inspection and independent review pass. Two pre-existing phone session
+  toolbar overflow assertions are recorded in the story. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 140](stories/STORY-20261115-tabbed-file-pane.md) — repository files, chat
   file links and Changes open in a separate tabbed File view beside the browser, canvas and chat,
   with retained reading positions, independent toggles/resizing and maximize with navigation.
@@ -67,8 +74,8 @@ Updated 2026-11-15. When a story ships, change the line that names it; each stor
   preserved local work, retry feedback and refreshed review/history. All 258 focused unit checks,
   37 production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
   inspection and independent review pass. The running app has not been rebuilt or restarted.
-- **Shipped:** [Story 136](stories/STORY-20261109-project-logos.md) — click a project's logo or
-  placeholder to browse repository images with a preview; the same control edits the logo in Arena,
+- **Shipped:** [Story 136](stories/STORY-20261109-project-logos.md) — browse repository images with
+  a preview to edit project logos in Arena,
   the project picker and open project/session headers. All 106 focused unit checks, 28 production-browser
   cases, source TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
   review pass.

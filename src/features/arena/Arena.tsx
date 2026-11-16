@@ -1,6 +1,7 @@
 'use client';
 
 import Button from '@mui/material/Button';
+import ButtonBase from '@mui/material/ButtonBase';
 import IconButton from '@mui/material/IconButton';
 import Alert from '@mui/material/Alert';
 
@@ -229,12 +230,20 @@ export function Arena({
                       <div><div className="project-logo-name">
                         {project && <ProjectLogoButton project={project} apiBase={machineApiBase(machine.machine.id, localMachine?.machine.id)}
                           disabled={!online} onClick={() => onProjectLogo(machine.machine.id, project)} />}
-                        <h3 id={`arena-project-${machine.machine.id}-${group.id}`}>{group.name}</h3></div><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
+                        <h3 id={`arena-project-${machine.machine.id}-${group.id}`} aria-label={group.name}>
+                        {project ? <ButtonBase component={Link} aria-label={`Open project ${group.name}`}
+                          href={workspaceHref({ projectId: project.id, machineId: machine.machine.id }, localMachine?.machine.id)}
+                          disabled={!online} sx={{ font: 'inherit', textAlign: 'left', borderRadius: 1 }}>
+                          {group.name}
+                        </ButtonBase> : group.name}
+                        </h3></div><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
                         {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById)}</span>}
                       </div>
-                      {(group.id === 'none' || machine.projects.some(project => project.id === group.id)) && <IconButton type="button" disabled={!online}
+                      <div className="arena-project-actions">
+                      {(group.id === 'none' || project) && <IconButton type="button" disabled={!online}
                         aria-label={`New session in ${group.name}`} title={`New session in ${group.name}`}
                         onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}><ShellIcon name="newChat" /></IconButton>}
+                      </div>
                     </header>
                     <div className="arena-card-grid">
                       {group.sessions.map((card) => {

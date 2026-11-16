@@ -224,6 +224,13 @@ replaces the destination with its surviving neighbour or empty project. Unqualif
 old fallback once, then replaces itself with the resolved identity. No draft or geometry enters URLs.
 Query-only changes use Next's integrated native history API; pathname transitions use client routing.
 
+Arena project names link to the explicit project workspace, including projects with no
+sessions. That workspace browses the project's bound repositories through the same Files, Git
+changes/history and tabbed file views as conversations. It selects no conversation and creates none
+until requested. Its transient pane layout and file tabs reset together when the machine/project
+scope changes; conversation layouts and drafts keep their existing owners. Clicking the logo or
+placeholder edits its image; the title and logo remain separate controls.
+
 `useWorkspaceViews` restores the tab's `sessionStorage` workspace first. Its existing `localStorage`
 record remains a migration/new-tab seed and best-effort mirror; mounted tabs never reread another
 tab's workspace. Tab drafts therefore survive ordinary reload without competing browser-tab writes.

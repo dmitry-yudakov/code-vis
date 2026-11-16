@@ -200,7 +200,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-machine-empty { padding-top: 18px; }
 .arena-group { padding-top: 28px; }
 .arena-group > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.arena-group > header > div { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; }
+.arena-group > header > div { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.arena-group > header > .arena-project-actions { flex: none; flex-wrap: nowrap; gap: 0; }
 .arena-group h3 { overflow-wrap: anywhere; }
 .arena-group h2, .arena-group h3, .arena-inbox h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
 .arena-group > header span { color: var(--faint); font: 9px/1 var(--mono); text-transform: uppercase; }
@@ -233,8 +234,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tiles .arena-group-empty { flex-grow: 0; align-self: flex-start; padding-block: 10px; }
 .arena-tiles .arena-group > header { align-items: flex-start; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
 .arena-tiles .arena-group-empty > header { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
-.arena-tiles .arena-group > header > div { flex: 1; }
-.arena-tiles .arena-group > header > .MuiIconButton-root { flex-shrink: 0; }
+.arena-tiles .arena-group > header > div:first-child { flex: 1; }
 .arena-tiles .arena-card-grid { flex: 1; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; align-items: stretch; }
 .arena-tiles .arena-card { grid-template-rows: auto 1fr; align-items: stretch; overflow: hidden; border-radius: 12px; }
 .arena-tiles .arena-card-open { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 16px 12px; }
@@ -591,6 +591,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 
 .welcome-screen, .fatal-empty, .app-loading { grid-area: canvas; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 35px; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
 .welcome-screen { grid-column: rail / -1; overflow-y: auto; flex-direction: row; justify-content: safe center; gap: clamp(32px, 6vw, 96px); text-align: left; background: var(--shell); }
+.project-workspace .welcome-screen { grid-column: canvas / -1; }
+.project-workspace .welcome-screen[hidden] { display: none; }
 .welcome-intro { width: min(400px, 100%); }
 .welcome-intro > .brand-mark { width: 44px; height: 44px; margin-bottom: 24px; font-size: 24px; border-radius: 12px; }
 .welcome-intro .eyebrow { display: block; }

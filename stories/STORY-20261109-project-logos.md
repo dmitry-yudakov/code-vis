@@ -4,6 +4,9 @@
 
 ## Outcome
 
+Story 141 follow-up: Arena's project title opens its workspace. The logo/placeholder remains the
+single in-place logo editor, as in the picker and open workspace header.
+
 Click the logo beside a project name in Arena, the project picker, or the open project/session
 header. An image placeholder occupies the same clickable position before a logo is chosen.
 Browse repository folders and select an image to preview it before saving. A relative image
