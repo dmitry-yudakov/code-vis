@@ -174,10 +174,24 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
     if (conversationShown) closeConversation();
     else openConversation();
   }, [closeConversation, conversationShown, openConversation]);
-  const openFiles = useCallback(() => setLayout(current => ({ ...current, filesOpen: true,
-    canvasOpen: projectScope ? false : current.canvasOpen,
-    maximized: current.maximized === 'files' ? 'files' : null,
-    lastOpened: current.maximized === 'files' ? current.lastOpened : 'files' })), [projectScope, setLayout]);
+  const openFiles = useCallback((emptyPane = false) => setLayout(current => {
+    const next: PanelLayout = { ...current, filesOpen: true,
+      canvasOpen: projectScope ? false : current.canvasOpen,
+      maximized: current.maximized === 'files' ? 'files' : null,
+      lastOpened: current.maximized === 'files' ? current.lastOpened : 'files' };
+    // Revealing a file should give it reading room; subsequent tabs keep a manual resize.
+    if (dockCapacity > 0 && shellWidth > 0 && (emptyPane || !visiblePanes(current, dockCapacity, shellWidth).files)) {
+      const panes = visiblePanes(next, dockCapacity, shellWidth);
+      const share = repositoryAvailable && panes.side && panes.conversation ? .35 : .5;
+      next.filesWidth = Math.max(current.filesWidth, Math.ceil(shellWidth * share));
+      // Without canvas/chat the file is flexible, so make its room in the fixed side column.
+      if (repositoryAvailable && panes.side && !panes.conversation && !panes.canvas) {
+        next.repositoryWidth = Math.min(current.repositoryWidth,
+          Math.max(REPOSITORY_MIN_WIDTH, shellWidth - next.filesWidth - 2 * PANE_GUTTER));
+      }
+    }
+    return next;
+  }), [dockCapacity, projectScope, repositoryAvailable, setLayout, shellWidth]);
   const closeFiles = useCallback(() => setLayout(current => ({ ...current, filesOpen: false,
     canvasOpen: projectScope ? true : current.canvasOpen, maximized: null })), [projectScope, setLayout]);
   const toggleFiles = useCallback(() => { if (filesShown) closeFiles(); else openFiles(); }, [filesShown, closeFiles, openFiles]);

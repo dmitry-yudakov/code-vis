@@ -90,6 +90,20 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
   });
 }
 
+test('opening a project file leaves it at least half the workspace beside a wide Files panel', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('code-ai:panel-widths', JSON.stringify({ repositoryWidth: 900, filesWidth: 320 })));
+  const { project } = await projectFixture(request, 1);
+  await page.goto(`/?project=${project.id}`);
+  const files = page.getByRole('complementary', { name: 'Files', exact: true });
+  await expect(files).toHaveCSS('width', '900px');
+  await files.getByRole('button', { name: 'package.json', exact: true }).click();
+  const filePane = page.getByRole('region', { name: 'File view', exact: true });
+  await expect(filePane.getByLabel('File source')).toContainText('alpha');
+  expect((await filePane.boundingBox())!.width).toBeGreaterThanOrEqual((1440 - 48) * .5);
+  expect(await page.locator('.app-shell').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+});
+
 test('a repository-free project opens and can create its first session', async ({ page, request }) => {
   const { project } = await projectFixture(request, 0);
   await page.goto('/arena');

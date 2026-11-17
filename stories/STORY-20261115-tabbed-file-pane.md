@@ -86,3 +86,56 @@ Verified November 15, 2026:
 File contents/tabs remain transient and read only. Physical phone/headset use, real attached-machine
 transport and real provider turns were not rerun. No server filesystem contracts or dependencies
 changed. Nothing was staged, committed, deployed, or rebuilt/restarted in the running application.
+
+## November 17 opening-width follow-up
+
+**Status:** Shipped
+
+The fixed 420px file-view preference leaves source and diffs too narrow on larger screens.
+When revealing the pane, prefer at least 35% of the workspace width (excluding the activity bar)
+with both conversation and Files/Changes visible, or 50% with one. Keep wider preferences.
+The existing width resolver still protects the minimum widths of other visible panes, including
+the canvas, when the requested share cannot fit. Project-only files keep filling the remaining
+workspace. Phones keep their full-width module and saved desktop width.
+The first document in an empty pane also gets this preference after reload. When files fill
+the row beside only Files/Changes, reduce that side column if needed to make the requested room.
+
+Where the code is:
+
+- `src/features/shell/usePanelLayout.ts:177` reveals the shared file/diff pane.
+- `src/features/repository/RepositoryFilesProvider.tsx:77` identifies the first document in a pane.
+- `src/features/shell/panelLayout.ts:229` resolves preferred widths against live pane minimums.
+- `e2e/local-file-links.spec.ts:55` and `e2e/file-review.spec.ts:55` exercise source/diff navigation.
+
+Acceptance criteria:
+
+- [x] Revealing source and diff panes uses the proportional opening preference with both or one
+      companion panel; existing narrow stored widths receive the same improvement.
+- [x] Opening another tab in an already visible pane preserves manual resizing; wider preferences,
+      maximize/restore, narrow-screen minimums, phone navigation and project-only filling still work.
+- [x] Focused layout/browser checks, TypeScript, an isolated production build, both-theme desktop/
+      phone screenshot inspection and independent review pass. Do not restart the running app.
+
+How to verify: run panel-layout unit tests and the local-file-links, file-review, desktop-workspace
+and project-workspace browser suites against an isolated production build.
+
+Verified November 17, 2026:
+
+- All **75 focused unit checks** pass across panel layouts, file tabs, local file links and the
+  workbench frame. TypeScript, `git diff --check` and the normal production build isolated in
+  `.next-e2e/file-width` pass.
+- All **69 distinct production-browser cases** pass on the final code across the four suites
+  above. The combined run was terminated with exit 143 after 57 passing cases and no assertion
+  failures; the full 26-case project-workspace suite then passed separately.
+- Three opening-width assertions first failed against the preceding production build (420px
+  rather than the requested shares, and a saved 320px width). Independent review found restored
+  empty panes and wide project sidebars could still retain narrow file views; both new regressions
+  failed before their fixes (320px and 484px respectively), then passed on the final build.
+- Coverage includes 35%/50% opening, saved preferences, first documents after reload, manual
+  resizing across tabs, wider preferences, project-only filling, all four panes, responsive return,
+  maximize, retry and navigation. Both-theme desktop/phone source and diff screenshots were inspected;
+  final independent review reports no remaining material findings.
+
+No dependencies, server contracts or persistence formats changed. Physical devices and real
+attached-executor transport were not exercised. The user requested committing this follow-up;
+the running application was not rebuilt or restarted, and nothing was deployed.

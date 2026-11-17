@@ -44,7 +44,7 @@ export function useRepositoryFileWorkspace({ scope, parentScope, repositories, a
   repositories: { id: string; name: string }[];
   apiBase: string;
   docker?: boolean;
-  onOpen(): void;
+  onOpen(emptyPane: boolean): void;
 }): FilesContextValue {
   const workspaceKey = (key: string, container: boolean) => JSON.stringify([key, apiBase, container, repositories.map(item => item.id)]);
   const identity = workspaceKey(scope, docker);
@@ -80,8 +80,8 @@ export function useRepositoryFileWorkspace({ scope, parentScope, repositories, a
     const bound = checkoutId || (!target.path.startsWith('/') ? repositories[0]?.id : undefined);
     const navigation = ++sequence.current;
     updateTabs(value => openTab(value, { kind: 'file', link: target, checkoutId: bound }, navigation));
-    onOpen();
-  }, [updateTabs, docker, repositories, onOpen]);
+    onOpen(current.tabs.length === 0);
+  }, [updateTabs, docker, repositories, onOpen, current.tabs.length]);
   const resolved = useCallback((id: number, checkoutId: string, path: string) => {
     updateTabs(value => resolveTab(value, id, checkoutId, path));
   }, [updateTabs]);
@@ -108,7 +108,7 @@ export function useRepositoryFileWorkspace({ scope, parentScope, repositories, a
     openDiff: (checkoutId, file) => {
       const navigation = ++sequence.current;
       updateTabs(value => openTab(value, { kind: 'diff', checkoutId, file }, navigation));
-      onOpen();
+      onOpen(current.tabs.length === 0);
     },
     select: activeId => updateTabs(value => ({ ...value, activeId })),
     close: id => updateTabs(value => closeTab(value, id)),

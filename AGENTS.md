@@ -81,6 +81,10 @@ Updated 2026-11-17. When a story ships, change the line that names it; each stor
   with retained reading positions, independent toggles/resizing and maximize with navigation.
   All 120 focused unit checks, 67 distinct production-browser cases, TypeScript, isolated build,
   both-theme desktop/phone screenshot inspection and independent review pass.
+  The November 17 follow-up opens file/diff views at 35% with both companion panels or 50% with
+  one, within responsive pane minimums, and preserves manual resizing between tabs. All 75 focused
+  unit checks, 69 distinct production-browser cases, TypeScript, isolated build, both-theme
+  desktop/phone screenshot inspection and independent review pass.
   The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 139](stories/STORY-20261115-offline-production-build.md) — the normal production
   build works offline with bundled fonts and valid required-request route signatures. TypeScript,

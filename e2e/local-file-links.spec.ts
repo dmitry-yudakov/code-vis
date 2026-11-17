@@ -69,6 +69,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
       await showChat(page);
       await page.getByRole('button', { name, exact: true }).click();
       await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
+      if (width === 1440) expect((await pane(page).boundingBox())!.width).toBeGreaterThanOrEqual((width - 48) * .5);
       await expect(activeFile(page).locator('[data-file-line="2"]')).toBeInViewport();
       await expect(tabs(page).getByRole('tab')).toHaveCount(1);
     }
@@ -166,6 +167,50 @@ test('missing file recovery and outside paths retain tabs; late reads cannot rep
   await expect(activeFile(page).getByLabel('File source')).toContainText('alpha');
   release();
   await expect(activeFile(page).getByLabel('File source')).not.toContainText('Late stale content');
+});
+
+test('revealing a file widens an old preference while subsequent tabs preserve manual resizing', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('code-ai:panel-widths', JSON.stringify({ filesWidth: 320 })));
+  await openConversation(page, request);
+  const navigation = page.getByRole('navigation', { name: 'Views', exact: true });
+  await navigation.getByRole('button', { name: 'Files', exact: true }).click();
+  await page.getByRole('button', { name: 'Package file', exact: true }).click();
+  await expect(pane(page).getByLabel('File source')).toContainText('alpha');
+  expect((await pane(page).boundingBox())!.width).toBeGreaterThanOrEqual((1920 - 48) * .35);
+  const divider = page.getByRole('separator', { name: 'Resize file view', exact: true });
+  await divider.focus();
+  await page.keyboard.press('Home');
+  await expect(pane(page)).toHaveCSS('width', '320px');
+  await page.getByRole('button', { name: 'Document', exact: true }).click();
+  await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeVisible();
+  await expect(pane(page)).toHaveCSS('width', '320px');
+  await pane(page).getByRole('button', { name: 'Hide file view', exact: true }).click();
+  await page.getByRole('button', { name: 'Package file', exact: true }).click();
+  expect((await pane(page).boundingBox())!.width).toBeGreaterThanOrEqual((1920 - 48) * .35);
+});
+
+test('the first document in a restored empty pane gets the wider default and keeps wider preferences', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openConversation(page, request);
+  await page.getByRole('button', { name: 'Package file', exact: true }).click();
+  const divider = page.getByRole('separator', { name: 'Resize file view', exact: true });
+  await divider.focus();
+  await page.keyboard.press('Home');
+  await expect(pane(page)).toHaveCSS('width', '320px');
+  await page.reload();
+  await expect(pane(page).getByText('No open files', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Package file', exact: true }).click();
+  await expect(pane(page).getByLabel('File source')).toContainText('alpha');
+  expect((await pane(page).boundingBox())!.width).toBeGreaterThanOrEqual((1440 - 48) * .5);
+  await divider.focus();
+  await page.keyboard.press('End');
+  const wide = (await pane(page).boundingBox())!.width;
+  await page.reload();
+  await expect(pane(page).getByText('No open files', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Package file', exact: true }).click();
+  await expect(pane(page).getByLabel('File source')).toContainText('alpha');
+  expect((await pane(page).boundingBox())!.width).toBe(wide);
 });
 
 test('relative links use the primary repository; absolute links can open a second repository', async ({ page, request }) => {

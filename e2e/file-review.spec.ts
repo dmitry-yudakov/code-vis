@@ -53,6 +53,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     const imageRequests: string[] = [];
     page.on('request', req => { if (req.url().includes('should-not-load')) imageRequests.push(req.url()); });
     const input = await openReview(page, request);
+    if (width === 1440) expect((await filePane(page).boundingBox())!.width).toBeGreaterThanOrEqual((width - 48) * .35);
     const inspector = activeReview(page);
     const wrap = inspector.getByRole('button', { name: 'Wrap text', exact: true });
     const patch = inspector.getByLabel('Unified diff').last();
