@@ -1222,6 +1222,33 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [apiPath, enqueueSessionMutation, refreshProjects, selectedCheckoutId, session, sessionRunning]);
 
+  const updateProjectRepositories = async (update: (current: RepositoryBinding[]) => RepositoryBinding[]) => {
+    if (!selectedProject) return;
+    const project = selectedProject;
+    const targetMachineId = machineId;
+    const url = apiPath(`/api/projects/${encodeURIComponent(project.id)}`);
+    const applyProject = (updated: DurableProject) => {
+      if (machineIdRef.current === targetMachineId) {
+        setProjects(current => current.map(item => item.id === updated.id && item.revision <= updated.revision ? updated : item));
+      }
+    };
+    const response = await fetch(url, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: project.revision, repositories: update(project.repositories) }),
+    });
+    const data = await response.json() as { project?: DurableProject; error?: string };
+    if (!response.ok || !data.project) {
+      if (response.status === 409) {
+        const latest = await fetch(url, { cache: 'no-store' }).then(result => result.ok ? result.json() : undefined)
+          .catch(() => undefined) as { project?: DurableProject } | undefined;
+        if (latest?.project) applyProject(latest.project);
+      }
+      throw new Error(data.error || 'Could not update project repositories.');
+    }
+    applyProject(data.project);
+    void arena.refresh();
+  };
+
   const [activeImageIdsBySession, setActiveImageIdsBySession] = useState<Record<string, string | undefined>>({});
   const closeImage = useCallback(() => {
     if (sessionId) setActiveImageIdsBySession((current) => ({ ...current, [sessionId]: undefined }));
@@ -3064,10 +3091,16 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onSelect={selectCheckout}
                 onChange={updateRepositories}
               />
-            ) : projectCheckouts.length ? <NativeSelect value={selectedCheckoutId || ''} onChange={event => selectCheckout(event.target.value)}
-              inputProps={{ 'aria-label': 'Repository' }} sx={{ mx: 1.5, maxWidth: 'calc(100% - 24px)' }}>
-              {projectCheckouts.map(checkout => <option key={checkout.id} value={checkout.id}>{checkout.name}</option>)}
-            </NativeSelect> : undefined}
+            ) : selectedProject ? <RepositoryManager
+              key={projectScope}
+              scope="project"
+              repositories={selectedProject.repositories}
+              checkouts={orderedCheckouts}
+              hostId={hostId}
+              selectedCheckoutId={selectedCheckoutId}
+              onSelect={selectCheckout}
+              onChange={updateProjectRepositories}
+            /> : undefined}
             history={session ? (
               <DiagramNavigator
                 session={session}

@@ -29,12 +29,17 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-16. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-17. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 145](stories/STORY-20261117-attach-project-repository.md) — projects created
+  without repositories can attach and manage them from Files or Changes, with persistent bindings,
+  new-session inheritance, save retry and conflict recovery. All 97 focused unit checks, 46
+  production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
+  inspection and independent review pass. The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 144](stories/STORY-20261116-active-file-context.md) — the conversation composer
   follows the active file/diff with a removable reference, carrying project files into new file
   workspaces and preserving exact sends, retries and independent views. Contents stay out of the

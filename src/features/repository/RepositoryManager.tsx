@@ -5,9 +5,10 @@ import ButtonBase from '@mui/material/ButtonBase';
 import Paper from '@mui/material/Paper';
 import IconButton from '@mui/material/IconButton';
 import NativeSelect from '@mui/material/NativeSelect';
+import Alert from '@mui/material/Alert';
 
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CheckoutSummary, RepositoryBinding } from '@/shared/types';
 import { createUuid } from '@/shared/uuid';
 import { WORKTREE_FIXED_BINDING } from '@/features/conversation/worktreeChoice';
@@ -16,8 +17,9 @@ export function RepositoryManager({
   repositories,
   checkouts,
   hostId,
+  scope = 'session',
   selectedCheckoutId,
-  disabled,
+  disabled: externallyDisabled,
   fixedWorktree,
   onSelect,
   onChange,
@@ -25,12 +27,43 @@ export function RepositoryManager({
   repositories: RepositoryBinding[];
   checkouts: CheckoutSummary[];
   hostId?: string;
+  scope?: 'session' | 'project';
   selectedCheckoutId?: string;
   disabled?: boolean;
   fixedWorktree?: boolean;
   onSelect(checkoutId: string): void;
-  onChange(update: (current: RepositoryBinding[]) => RepositoryBinding[]): void;
+  onChange(update: (current: RepositoryBinding[]) => RepositoryBinding[]): void | Promise<void>;
 }) {
+  const savingRef = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const disabled = externallyDisabled || saving;
+  const change = async (update: (current: RepositoryBinding[]) => RepositoryBinding[], onSaved?: () => void) => {
+    // Session edits already serialize against the latest snapshot; keep rapid relative edits queued.
+    if (scope === 'session') {
+      void onChange(update);
+      onSaved?.();
+      return;
+    }
+    if (disabled || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(undefined);
+    try {
+      await onChange(update);
+      if (mounted.current) onSaved?.();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not update repositories.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
   const available = useMemo(() => {
     const bound = new Set(repositories.filter((item) => item.hostId === hostId).map((item) => item.checkoutId));
     return checkouts.filter((checkout) => !checkout.worktree && !bound.has(checkout.id));
@@ -42,7 +75,7 @@ export function RepositoryManager({
     : 'Repository on another host';
 
   const move = (repositoryId: string, direction: -1 | 1) => {
-    onChange((current) => {
+    void change((current) => {
       const index = current.findIndex((repository) => repository.id === repositoryId);
       const target = index + direction;
       if (index < 0 || target < 0 || target >= current.length) return current;
@@ -53,7 +86,7 @@ export function RepositoryManager({
   };
 
   const form = (
-    <section className="repository-manager" aria-label="Session repositories">
+    <section className="repository-manager" aria-label={scope === 'project' ? 'Project repositories' : 'Session repositories'} aria-busy={saving}>
       {fixedWorktree && <p>{WORKTREE_FIXED_BINDING}</p>}
       <strong className="repository-manager-heading">Repositories</strong>
       {repositories.length ? (
@@ -69,11 +102,11 @@ export function RepositoryManager({
                 <div className="repository-binding-actions">
                   <IconButton type="button" title="Move up" aria-label={`Move ${name} up`} disabled={disabled || index === 0} onClick={() => move(repository.id, -1)}>↑</IconButton>
                   <IconButton type="button" title="Move down" aria-label={`Move ${name} down`} disabled={disabled || index === repositories.length - 1} onClick={() => move(repository.id, 1)}>↓</IconButton>
-                  <IconButton type="button" title="Make primary" aria-label={`Make ${name} primary`} disabled={disabled || repository.role === 'primary'} onClick={() => onChange((current) => current.map((item) => ({
+                  <IconButton type="button" title="Make primary" aria-label={`Make ${name} primary`} disabled={disabled || repository.role === 'primary'} onClick={() => void change((current) => current.map((item) => ({
                     ...item,
                     role: item.id === repository.id ? 'primary' : 'reference',
                   })))}>★</IconButton>
-                  <IconButton type="button" title="Remove" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => onChange((current) => current.filter((item) => item.id !== repository.id))}>×</IconButton>
+                  <IconButton type="button" title="Remove" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => void change((current) => current.filter((item) => item.id !== repository.id))}>×</IconButton>
                 </div>
               </Paper>
             );
@@ -82,6 +115,7 @@ export function RepositoryManager({
       ) : (
         <p className="repository-manager-empty">Attach a repository to enable agent turns and working-tree views.</p>
       )}
+      {!repositories.length && error && <Alert severity="error">{error}</Alert>}
       <div className="repository-add-row">
         <NativeSelect value={checkoutToAdd} disabled={disabled || !hostId || !available.length} onChange={(event) => setCheckoutToAdd(event.target.value)} inputProps={{ "aria-label": "Repository to add" }}>
           <option value="">{available.length ? 'Choose repository…' : 'No more repositories'}</option>
@@ -95,7 +129,7 @@ export function RepositoryManager({
             checkoutId,
             role: 'reference',
           };
-          onChange((current) => current.some((repository) => (
+          void change((current) => current.some((repository) => (
             repository.hostId === binding.hostId && repository.checkoutId === binding.checkoutId
           )) ? current : [
             ...current,
@@ -103,9 +137,10 @@ export function RepositoryManager({
               ...binding,
               role: current.some((repository) => repository.role === 'primary') ? 'reference' : 'primary',
             },
-          ]);
-          onSelect(checkoutId);
-          setCheckoutToAdd('');
+          ], () => {
+            onSelect(checkoutId);
+            setCheckoutToAdd('');
+          });
         }}>Add</Button>
       </div>
     </section>
@@ -114,9 +149,9 @@ export function RepositoryManager({
   if (!repositories.length) return form;
   const selected = repositories.find(repository => repository.hostId === hostId && repository.checkoutId === selectedCheckoutId);
   const selectedName = selected ? repositoryName(selected) : 'No repository selected';
-  return <div className="repository-context-row">
+  return <><div className="repository-context-row">
     {repositories.length > 1 ? <NativeSelect value={selectedCheckoutId || ''}
-      onChange={event => onSelect(event.target.value)} inputProps={{ 'aria-label': 'Current repository' }}>
+      onChange={event => onSelect(event.target.value)} inputProps={{ 'aria-label': scope === 'project' ? 'Repository' : 'Current repository' }}>
       {repositories.map(repository => <option key={repository.id} value={repository.checkoutId}
         disabled={repository.hostId !== hostId || !checkoutById.has(repository.checkoutId)}>
         {repositoryName(repository)}{repository.role === 'primary' ? ' (primary)' : ''}
@@ -126,5 +161,5 @@ export function RepositoryManager({
       icon placement="bottom-end" width={360}>
       {() => form}
     </DesktopPopover>
-  </div>;
+  </div>{error && <Alert severity="error" sx={{ mx: 1.5 }}>{error}</Alert>}</>;
 }
