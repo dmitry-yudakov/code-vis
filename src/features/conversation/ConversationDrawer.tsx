@@ -124,8 +124,8 @@ export function ConversationDrawer({
   onDecidePermission(requestId: string, decision: 'allow' | 'deny'): void;
   onExecutePlan(participantId: string): void;
   onContinue(): void;
-  onNewChat(): void;
-  onArchive(): void;
+  onNewChat(): Promise<boolean> | void;
+  onArchive(): Promise<boolean> | void;
   onArchiveAllowedChange(allowed: boolean): Promise<void>;
   archiveDisabledReason?: string;
   onToggleAttachment(id: string): void;
@@ -302,6 +302,11 @@ export function ConversationDrawer({
           settingsControl={session && <SessionArchiveSettings key={key} session={session}
             onAllowedChange={onArchiveAllowedChange} />}
           onArchiveAllowedChange={session ? onArchiveAllowedChange : undefined}
+          onNewChat={async () => (await onNewChat()) !== false}
+          onArchive={async () => (await onArchive()) !== false}
+          newChatDisabledReason={!activeAgent ? 'Choose an agent first.' : continuing ? 'Creating a session…'
+            : participantBusy ? 'Wait for agent changes to finish.' : recovery?.busy ? 'Wait for Undo to finish.' : undefined}
+          archiveDisabledReason={archiveDisabledReason}
           agentControl={<ParticipantControls
             agents={agents}
             activeAgentId={activeAgent?.id}

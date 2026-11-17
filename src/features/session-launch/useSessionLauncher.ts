@@ -18,7 +18,7 @@ import { launchChoice, launchModes, type DevicePreferences } from '@/features/sh
 import { LaunchFailure, launchSession, launchText, type LaunchAttempt, type LaunchResult, type LaunchSettings } from './sessionLaunch';
 
 interface Draft { settings: LaunchSettings; text: string; images: PendingImage[]; files: TextFile[]; reportIds: string[] }
-interface SetupState { open: boolean; draft?: Draft; busy: boolean; preparing: boolean; voicePending: boolean; error?: string; targetNotice?: string; frozen: boolean; outcome?: LaunchResult & { settings: LaunchSettings } }
+interface SetupState { open: boolean; inline?: boolean; inlineOrigin?: string; draft?: Draft; busy: boolean; preparing: boolean; voicePending: boolean; error?: string; targetNotice?: string; frozen: boolean; outcome?: LaunchResult & { settings: LaunchSettings } }
 export interface LauncherOptions {
   authorized: boolean; localMachineId?: string; machines: ArenaMachineSnapshot[]; executions?: ExecutionHealth;
   preferences: DevicePreferences; currentMachineId?: string; currentProjectId?: string; origin: string;
@@ -28,7 +28,7 @@ export interface LauncherOptions {
   onOpen(session: PublicSession, settings: LaunchSettings): void;
 }
 
-/** One private, memory-only draft, shared by the desktop dialog and immersive setup. */
+/** One private, memory-only draft, shared by inline, dialog and immersive setup. */
 export function useSessionLauncher(options: LauncherOptions) {
   const [state, setState] = useState<SetupState>({ open: false, busy: false, preparing: false, voicePending: false, frozen: false });
   const current = useRef(state); current.current = state;
@@ -72,6 +72,9 @@ export function useSessionLauncher(options: LauncherOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.authorized]);
   useEffect(() => () => { generation.current++; availabilityRequest.current++; }, []);
+  useEffect(() => {
+    if (current.current.inline && current.current.open && current.current.inlineOrigin !== options.origin) patch({ open: false });
+  }, [options.origin]);
 
   const defaults = (target?: ArenaMachineSnapshot, projectId?: string): LaunchSettings | undefined => {
     if (!target) return;
@@ -82,20 +85,21 @@ export function useSessionLauncher(options: LauncherOptions) {
       instructions: props.current.preferences.instructions,
       modelSelection: offeredModelSelection(props.current.preferences.models?.[choice.provider], providers?.[choice.provider]) };
   };
-  const openSetup = (requested?: { machineId: string; projectId?: string }) => {
+  const openSetup = (requested?: { machineId: string; projectId?: string; inline?: boolean }) => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (!props.current.authorized) return;
+    const presentation = { inline: requested?.inline, inlineOrigin: requested?.inline ? props.current.origin : undefined };
     if (current.current.draft) {
       const settings = current.current.draft.settings;
       const differentTarget = requested && (settings.machineId !== requested.machineId || settings.projectId !== requested.projectId || settings.codeai);
-      patch({ open: true, targetNotice: differentTarget
+      patch({ open: true, ...presentation, targetNotice: differentTarget
         ? current.current.frozen || current.current.busy
           ? 'A setup draft is already pending for another target. Finish or recover that setup first.'
           : 'A setup draft is already pending for another target. Discard draft before starting a session here.'
         : undefined });
       return;
     }
-    if (current.current.preparing) { patch({ open: true }); return; }
+    if (current.current.preparing) { patch({ open: true, ...presentation }); return; }
     const machineId = requested?.machineId ?? props.current.preferences.machineId ?? props.current.currentMachineId;
     const target = props.current.machines.find((entry) => entry.machine.id === machineId)
       ?? (!machineId ? props.current.machines.find((entry) => entry.machine.state === 'online') : undefined);
@@ -106,12 +110,13 @@ export function useSessionLauncher(options: LauncherOptions) {
     if (settings) {
       if (machineId) settings.machineId = machineId;
       initialSettings.current = structuredClone(settings);
-      captureGeneration.current++; patch({ open: true, error: undefined, targetNotice: undefined, frozen: false, draft: { settings, text: '', images: [], files: [], reportIds: [] } });
+      captureGeneration.current++; patch({ open: true, ...presentation, error: undefined, targetNotice: undefined, frozen: false, draft: { settings, text: '', images: [], files: [], reportIds: [] } });
     }
   };
   const open = () => openSetup();
-  const openForProject = (machineId: string, projectId?: string) => openSetup({ machineId, projectId });
+  const openForProject = (machineId: string, projectId?: string, inline = false) => openSetup({ machineId, projectId, inline });
   const openCodeAi = async (source?: HTMLElement | null) => {
+    patch({ inline: false });
     opener.current = source ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     if (!props.current.authorized) return;
     if (current.current.preparing && !current.current.draft) { patch({ open: true }); return; }
@@ -226,7 +231,7 @@ export function useSessionLauncher(options: LauncherOptions) {
     try {
       const result = await launchSession(attempt.current, props.current.localMachineId, fetch, (session) => { if (generation.current === serial) props.current.onCreated(session, draft.settings); });
       if (generation.current !== serial) return;
-      const autoOpen = !result.started && current.current.open && props.current.origin === origin;
+      const autoOpen = (!result.started || current.current.inline === true) && current.current.open && props.current.origin === origin;
       props.current.onResult(result, draft.settings, autoOpen);
       attempt.current = undefined; generation.current++; captureGeneration.current++;
       patch({ open: false, busy: false, preparing: false, voicePending: false, frozen: false, draft: undefined, targetNotice: undefined, outcome: { ...result, settings: draft.settings } });

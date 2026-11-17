@@ -35,6 +35,13 @@ Updated 2026-11-17. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 146](stories/STORY-20261117-chat-commands.md) — `/` opens keyboard-selectable
+  chat commands for `/autoclose` (on by default), `/new`, `/archive` and `/close`.
+  Archiving the project's final active conversation opens inline setup with focus, preserving
+  retries, Undo and navigation ownership. All 162 focused unit checks, 88 distinct production-browser
+  cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
+  review pass. Three unchanged-head focus failures are recorded in the story.
+  The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 145](stories/STORY-20261117-attach-project-repository.md) — projects created
   without repositories can attach and manage them from Files or Changes, with persistent bindings,
   new-session inheritance, save retry and conflict recovery. All 97 focused unit checks, 46

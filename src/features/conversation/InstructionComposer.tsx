@@ -4,6 +4,8 @@ import TextField from '@mui/material/TextField';
 import Paper from '@mui/material/Paper';
 import ListItemButton from '@mui/material/ListItemButton';
 import Alert from '@mui/material/Alert';
+import List from '@mui/material/List';
+import ListItemText from '@mui/material/ListItemText';
 import { AttachmentChip } from './AttachmentChip';
 import { useRepositoryFiles } from '@/features/repository/RepositoryFilesProvider';
 
@@ -22,6 +24,7 @@ import Button from '@mui/material/Button';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import type { TextFile } from '@/shared/textFiles';
 import { carriesFiles, pastedImageFiles, pendingImageDetail, type PendingImage } from './imageAttachments';
+import { chatCommand, commandSuggestions } from './chatCommands';
 
 const ICON_PATHS = {
   plus: 'M12 5v14M5 12h14',
@@ -293,6 +296,7 @@ export interface PendingReportChip {
 export function InstructionComposer({
   agentControl, settingsControl, draft, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onArchiveAllowedChange,
+  onNewChat, onArchive, newChatDisabledReason, archiveDisabledReason,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
 }: {
@@ -335,8 +339,12 @@ export function InstructionComposer({
   onModelSelectionChange(selection: ModelSelection): void;
   onSend(): void;
   onCancel(): void;
-  /** Existing sessions handle standalone /autoclose commands without starting an agent turn. */
+  /** Existing sessions handle /autoclose (on by default) without an agent turn. */
   onArchiveAllowedChange?(allowed: boolean): Promise<void>;
+  onNewChat?(): Promise<boolean>;
+  onArchive?(): Promise<boolean>;
+  newChatDisabledReason?: string;
+  archiveDisabledReason?: string;
   onRemoveAttachment(id: string): void;
   onRemoveReport?(id: string): void;
   /** Files pasted into the field, which are all images, or dropped on the composer, which may be anything. */
@@ -359,22 +367,38 @@ export function InstructionComposer({
   const commandBusy = useRef(false);
   const [commandPending, setCommandPending] = useState(false);
   const [commandFeedback, setCommandFeedback] = useState<{ severity: 'success' | 'error'; text: string }>();
-  const archiveCommand = Boolean(onArchiveAllowedChange && /^\/autoclose(?:\s|$)/i.test(value.trim()));
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const listId = useId();
+  const localCommands = Boolean(onArchiveAllowedChange);
+  const suggestions = localCommands && inputFocused && !suggestionsDismissed && !commandPending ? commandSuggestions(value) : [];
+  const selectedIndex = Math.min(selectedSuggestion, Math.max(0, suggestions.length - 1));
+  const localCommand = localCommands ? chatCommand(value) : undefined;
+  const completeCommand = (text: string) => {
+    onChange(text);
+    setSuggestionsDismissed(true);
+    setCommandFeedback(undefined);
+    ref.current?.focus();
+  };
   // A drawing, a report, or an image is an instruction in itself, so such a turn does not need typed text.
   const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0 || files.length > 0;
   const submit = async () => {
     if (commandBusy.current) return;
-    if (!archiveCommand || !onArchiveAllowedChange) {
+    const submitted = draft.getSnapshot();
+    const command = localCommands ? chatCommand(submitted) : undefined;
+    if (!command) {
       if (canSend && !running && !sendBlocked) onSend();
       return;
     }
-    const submitted = draft.getSnapshot();
-    const command = /^\/autoclose(?:[ \t]+(on|off))?$/i.exec(submitted.trim());
-    if (!command) {
-      setCommandFeedback({ severity: 'error', text: 'Use /autoclose, /autoclose on or /autoclose off.' });
+    setSuggestionsDismissed(true);
+    if (command.kind === 'invalid') {
+      setCommandFeedback({ severity: 'error', text: command.usage });
       return;
     }
-    const allowed = command[1]?.toLowerCase() !== 'off';
+    const blocked = command.kind !== 'autoclose' && running ? 'Wait for this turn to finish.'
+      : command.kind === 'archive' ? archiveDisabledReason : command.kind === 'new' ? newChatDisabledReason : undefined;
+    if (blocked) { setCommandFeedback({ severity: 'error', text: blocked }); return; }
     // Keep observing this session's draft even if navigation remounts the composer during the save.
     let edited = false;
     const unsubscribe = draft.subscribe(() => { if (draft.getSnapshot() !== submitted) edited = true; });
@@ -382,11 +406,15 @@ export function InstructionComposer({
     setCommandPending(true);
     setCommandFeedback(undefined);
     try {
-      await onArchiveAllowedChange(allowed);
+      if (command.kind === 'autoclose') await onArchiveAllowedChange!(command.allowed);
+      else {
+        const succeeded = await (command.kind === 'new' ? onNewChat?.() : onArchive?.());
+        if (!succeeded) throw new Error(command.kind === 'new' ? 'Could not create the session. Try again.' : 'Could not archive the session. Try again.');
+      }
       if (!edited && draft.getSnapshot() === submitted) onChange('');
-      setCommandFeedback({ severity: 'success', text: `Auto-close ${allowed ? 'enabled' : 'disabled'}.` });
+      if (command.kind === 'autoclose') setCommandFeedback({ severity: 'success', text: `Auto-close ${command.allowed ? 'enabled' : 'disabled'}.` });
     } catch (cause) {
-      setCommandFeedback({ severity: 'error', text: cause instanceof Error ? cause.message : 'Could not save archive permission. Try again.' });
+      setCommandFeedback({ severity: 'error', text: cause instanceof Error ? cause.message : 'Could not run the command. Try again.' });
     } finally {
       unsubscribe();
       commandBusy.current = false;
@@ -421,6 +449,9 @@ export function InstructionComposer({
   useEffect(() => { if (autoFocus) ref.current?.focus(); }, [autoFocus]);
   useEffect(() => { if (focusRequest && ref.current) { ref.current.focus(); onFocusRequestHandled?.(); } }, [focusRequest, onFocusRequestHandled]);
   useEffect(() => {
+    if (suggestions.length) document.getElementById(`${listId}-${selectedIndex}`)?.scrollIntoView({ block: 'nearest' });
+  }, [listId, selectedIndex, suggestions.length]);
+  useEffect(() => {
     const field = ref.current;
     if (!field) return;
     const fit = () => {
@@ -442,6 +473,15 @@ export function InstructionComposer({
     <div className="composer-layout">
     {agentControl && <div className="composer-agent">{agentControl}</div>}
     <Paper sx={{ p: 1.5, borderRadius: '14px' }} className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
+      {suggestions.length > 0 && <Paper variant="outlined" sx={{ position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 2, maxHeight: 'min(320px, 45dvh)', overflow: 'auto' }}>
+        <List id={listId} role="listbox" aria-label="Chat commands" dense disablePadding>
+          {suggestions.map((suggestion, index) => <ListItemButton key={suggestion.text} id={`${listId}-${index}`}
+            component="li" role="option" aria-selected={index === selectedIndex} selected={index === selectedIndex} tabIndex={-1}
+            onMouseDown={event => event.preventDefault()} onClick={() => completeCommand(suggestion.text)}>
+            <ListItemText primary={suggestion.text} secondary={suggestion.description} />
+          </ListItemButton>)}
+        </List>
+      </Paper>}
       {repositoryFiles?.contextCandidate && <div className="attachment-chips" aria-label="File context">
         {activeFile ? <AttachmentChip removeLabel="Remove active file from context" onRemove={() => repositoryFiles.setContextIncluded(false)}>
           <span title="Only the file reference is sent. The agent can read it if relevant.">
@@ -474,7 +514,12 @@ export function InstructionComposer({
         multiline inputRef={ref}
         value={value}
         rows={1}
-        slotProps={{ htmlInput: { maxLength: 8_000, 'aria-label': 'Instruction' }, input: { inputComponent: 'textarea', disableUnderline: true } }}
+        slotProps={{ htmlInput: { maxLength: 8_000, 'aria-label': 'Instruction',
+          'aria-autocomplete': localCommands ? 'list' : undefined,
+          'aria-expanded': localCommands ? suggestions.length > 0 : undefined,
+          'aria-controls': suggestions.length ? listId : undefined,
+          'aria-activedescendant': suggestions.length ? `${listId}-${selectedIndex}` : undefined,
+        }, input: { inputComponent: 'textarea', disableUnderline: true } }}
         placeholder={attached.some((canvas) => canvas.kind === 'sketch')
           ? 'Describe what you drew, or just send the sketch…'
           : reports.length ? 'Explain what the report shows, or just send it…'
@@ -482,17 +527,35 @@ export function InstructionComposer({
           : attached.length ? 'Ask about or revise the attached diagram…' : 'Ask anything about this project…'}
         onChange={(event) => {
           setCommandFeedback(undefined);
+          setSuggestionsDismissed(false);
+          setSelectedSuggestion(0);
           onChange(event.target.value);
         }}
+        onFocus={() => setInputFocused(true)}
+        onBlur={() => setInputFocused(false)}
         onPaste={paste}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (suggestions.length && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setSuggestionsDismissed(true); return; }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              event.preventDefault();
+              setSelectedSuggestion((selectedIndex + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length);
+              return;
+            }
+            if (!event.repeat && (event.key === 'Tab' || (event.key === 'Enter' && value.trim().toLowerCase() !== suggestions[selectedIndex].text))) {
+              event.preventDefault();
+              completeCommand(suggestions[selectedIndex].text);
+              return;
+            }
+          }
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) {
             event.preventDefault();
             void submit();
           }
         }}
       />
-      {commandPending && <Alert severity="info" role="status">Saving auto-close…</Alert>}
+      {commandPending && <Alert severity="info" role="status">{localCommand?.kind === 'autoclose' ? 'Saving auto-close…' : 'Running command…'}</Alert>}
       {commandFeedback && <Alert severity={commandFeedback.severity} role={commandFeedback.severity === 'error' ? 'alert' : 'status'}>{commandFeedback.text}</Alert>}
       <input ref={fileInput} type="file" multiple hidden onChange={(event) => { onAddImages?.(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
       <div className="composer-actions">
@@ -514,8 +577,8 @@ export function InstructionComposer({
           type="button"
           className={running ? 'cancel-button' : 'send-button'} variant="contained"
           aria-label={running ? 'Cancel' : 'Send'}
-          title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : archiveCommand ? 'Save auto-close setting' : sendBlocked || 'Send'}
-          disabled={running ? !cancelReady : commandPending || (!archiveCommand && Boolean(sendBlocked)) || !canSend}
+          title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : localCommand ? 'Run command' : sendBlocked || 'Send'}
+          disabled={running ? !cancelReady : commandPending || (!localCommand && Boolean(sendBlocked)) || !canSend}
           onClick={running ? onCancel : () => void submit()}
         >
           <span aria-hidden="true">{running ? '■' : '↑'}</span>

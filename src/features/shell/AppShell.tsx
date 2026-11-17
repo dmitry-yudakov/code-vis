@@ -238,6 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [newerFormatSessions, setNewerFormatSessions] = useState(0);
   const [newerFormatNoticeDismissed, setNewerFormatNoticeDismissed] = useState(false);
   const [archivingSessionIds, setArchivingSessionIds] = useState<string[]>([]);
+  const [inlineSetupRequest, setInlineSetupRequest] = useState<{ machineId: string; projectId: string; sessionId: string }>();
   const reconciledArchiveRevisions = useRef(new Map<string, number>());
   const [participantBusy, setParticipantBusy] = useState(false);
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
@@ -880,6 +881,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!localMachineId || !workspace.ready) return;
+    let archivedFocus: { machineId: string; projectId?: string; sessionId: string } | undefined;
     for (const owner of arena.machines) {
       // Offline projections are cached evidence and cannot confirm a conversation is still archived.
       if (owner.machine.state !== 'online') continue;
@@ -892,14 +894,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           || reconciledRevision > archived.revision) continue;
         if (reconciledRevision === archived.revision && !loaded) continue;
         reconciledArchiveRevisions.current.set(key, archived.revision);
-        const nextFocus = workspace.closeInProject(archived.projectId, archived.id,
+        workspace.closeInProject(archived.projectId, archived.id,
           owner.machine.id === localMachineId ? undefined : owner.machine.id);
         if (loaded && archived.agentArchiveCheck?.status === 'archived') {
           notify({ key: `archive:${archived.id}`, tone: 'success', message: `Archived by agent: “${archived.title}”.`,
             actions: [{ label: 'Restore', onSelect: () => void restoreSessionRef.current(owner.machine.id, archived) }] });
-          if (owner.machine.id === machineId && focusedSessionIdRef.current === archived.id && navigationKeyRef.current.startsWith('/?')) {
-            navigateWorkspace({ sessionId: nextFocus, projectId: archived.projectId, machineId: owner.machine.id }, true);
-          }
+        }
+        if (loaded && owner.machine.id === machineId && focusedSessionIdRef.current === archived.id && navigationKeyRef.current.startsWith('/?')) {
+          archivedFocus = { machineId: owner.machine.id, projectId: archived.projectId, sessionId: archived.id };
         }
         if (owner.machine.id === machineId && archived.projectId === projectId && loaded) {
           const next = sessionsRef.current.filter((item) => item.id !== archived.id);
@@ -912,7 +914,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         setRunOutcome(archived.id);
       }
     }
-  }, [arena.machines, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject, workspace.ready, notify, navigateWorkspace]);
+    if (archivedFocus) {
+      // One snapshot can archive several tabs; choose focus only after reconciling all of them.
+      const nextFocus = workspace.getScopeInProject(archivedFocus.projectId,
+        archivedFocus.machineId === localMachineId ? undefined : archivedFocus.machineId)?.focusedSessionId;
+      navigateWorkspace({ sessionId: nextFocus, projectId: archivedFocus.projectId, machineId: archivedFocus.machineId }, true);
+      if (archivedFocus.projectId && !sessionsRef.current.length) setInlineSetupRequest({ ...archivedFocus, projectId: archivedFocus.projectId });
+    }
+  }, [arena.machines, localMachineId, machineId, projectId, removeRun, setRunOutcome, workspace.closeInProject, workspace.getScopeInProject, workspace.ready, notify, navigateWorkspace]);
 
   useEffect(() => {
     const current = sessionsRef.current;
@@ -1080,11 +1089,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [createSession, updatePreferences]);
 
   const newChat = async () => {
-    if (!session || !activeAgent || sessionRunning || creatingSession || participantBusy || recovery.busy) return;
+    if (!session || !activeAgent || sessionRunning || creatingSession || participantBusy || recovery.busy) return false;
     const created = await createSession(activeAgent.provider, {
       execution: session.execution || 'local', sourceSessionId: session.id, role: activeAgent.role, mode, modelSelection,
     });
     if (created) workspace.closeInProject(session.projectId, session.id, workspaceMachineId);
+    return created;
   };
 
   const continueSession = (execution: AgentExecution) => {
@@ -2272,10 +2282,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       machineId: settings.codeai ? current.machineId : settings.machineId,
       models: { ...current.models, [settings.provider]: settings.modelSelection } }));
   };
+  const launchOrigin = JSON.stringify([pathname, machineId, projectId, sessionId]);
   const launcher = useSessionLauncher({
     authorized: deviceAccess.authenticated, localMachineId, machines: arena.machines, executions: localExecutionHealth,
     preferences, currentMachineId: machineId, currentProjectId: projectId,
-    origin: JSON.stringify([pathname, machineId, projectId, sessionId]),
+    origin: launchOrigin,
     // Pin the origin before awaiting creation, and the current task before remembering defaults.
     onSubmit: preserveCurrentChoices,
     onCreated: (created, settings) => {
@@ -2295,6 +2306,22 @@ export function AppShell({ children }: { children: ReactNode }) {
     onOpen: (created, settings) => { void openLaunchedSession(created, settings); },
   });
 
+  useEffect(() => {
+    if (!inlineSetupRequest) return;
+    const owner = arena.machines.find(entry => entry.machine.id === inlineSetupRequest.machineId);
+    const hasSibling = owner?.sessions.some(item => item.projectId === inlineSetupRequest.projectId && item.id !== inlineSetupRequest.sessionId);
+    if (arenaOpen || inlineSetupRequest.machineId !== machineId || inlineSetupRequest.projectId !== projectId) {
+      setInlineSetupRequest(undefined);
+    } else if (hasSibling || sessions.length) {
+      setInlineSetupRequest(undefined);
+    } else if (!loading && !sessionId && selectedProject && owner?.machine.state === 'online' && owner.snapshotFresh !== false
+      && owner.archivedSessions.some(item => item.id === inlineSetupRequest.sessionId)) {
+      panelLayout.showCanvas();
+      launcher.openForProject(inlineSetupRequest.machineId, inlineSetupRequest.projectId, true);
+      setInlineSetupRequest(undefined);
+    }
+  }, [arena.machines, arenaOpen, inlineSetupRequest, launcher.openForProject, loading, machineId, panelLayout.showCanvas, projectId, selectedProject, sessionId, sessions.length]);
+
   const handleImmersiveActive = useCallback((active: boolean) => { if (!active) launcher.invalidateCapture(); setImmersiveActive(active); }, [launcher.invalidateCapture]);
 
   const archiveArenaSession = useCallback(async (
@@ -2311,13 +2338,22 @@ export function AppShell({ children }: { children: ReactNode }) {
         await arena.refresh();
         throw new Error(data.error || 'Could not archive the session.');
       }
+      const archiveKey = JSON.stringify([targetMachineId, target.id]);
+      const latestRevision = Math.max(reconciledArchiveRevisions.current.get(archiveKey) ?? 0,
+        sessionsRef.current.find(item => item.machineId === targetMachineId && item.id === target.id)?.revision ?? 0);
+      // A Restore on another view may already have superseded a delayed archive response.
+      if (data.session.revision < latestRevision) { await arena.refresh(); return true; }
+      reconciledArchiveRevisions.current.set(archiveKey, data.session.revision);
       const targetWorkspaceMachineId = targetMachineId !== localMachineId ? targetMachineId : undefined;
       const nextFocus = workspace.closeInProject(target.projectId, target.id, targetWorkspaceMachineId);
       if (targetMachineId === machineIdRef.current && target.id === focusedSessionIdRef.current && navigationKeyRef.current.startsWith('/?')) {
         navigateWorkspace({ sessionId: nextFocus, projectId: target.projectId, machineId: targetMachineId }, true);
       }
-      if (targetMachineId === machineId && target.projectId === projectId) {
+      if (targetMachineId === machineIdRef.current && target.projectId === projectIdRef.current) {
         const next = sessionsRef.current.filter((item) => item.id !== target.id);
+        if (!next.length && target.projectId && focusedSessionIdRef.current === target.id && navigationKeyRef.current.startsWith('/?')) {
+          setInlineSetupRequest({ machineId: targetMachineId, projectId: target.projectId, sessionId: target.id });
+        }
         sessionsRef.current = next;
         setSessions(next);
         if (focusedSessionIdRef.current === target.id) setRepositoryTree(undefined);
@@ -2988,7 +3024,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />
+      {!launcher.inline && <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />}
       {!loading && !immersiveActive && <CodeAiLifecycleDialog lifecycle={lifecycle} />}
       {!loading && <MachineSettingsDialog
         open={machineSettingsOpen}
@@ -3197,6 +3233,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Button component={Link} href="/arena/archived">Archive</Button>
           </div>
         </div>
+      ) : !session && launcher.isOpen && launcher.inline && launcher.inlineOrigin === launchOrigin ? (
+        <div className="welcome-screen" hidden={projectWorkspace && (canvasHidden || Boolean(maximized))}>
+          <SessionSetupDialog launcher={launcher} immersive={immersiveActive} inline />
+        </div>
       ) : !session ? (
         <div className="welcome-screen" hidden={projectWorkspace && (canvasHidden || Boolean(maximized))}>
           <div className="welcome-intro">
@@ -3300,8 +3340,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               continuationUnavailable={continuationUnavailable}
               instructions={instructionsChoice}
               onContinue={() => continueSession(continuationExecution)}
-              onNewChat={() => void newChat()}
-              onArchive={() => void archiveOpenSession()}
+              onNewChat={newChat}
+              onArchive={() => archiveOpenSession()}
               onArchiveAllowedChange={async (allowed) => {
                 const response = await fetch(apiPath(`/api/sessions/${session.id}`), {
                   method: 'PATCH', headers: { 'Content-Type': 'application/json' },

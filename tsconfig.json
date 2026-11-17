@@ -53,7 +53,9 @@
     ".next-e2e/project-workspace/types/**/*.ts",
     ".next-e2e/project-workspace/dev/types/**/*.ts",
     ".next-e2e/autoclose/types/**/*.ts",
-    ".next-e2e/autoclose/dev/types/**/*.ts"
+    ".next-e2e/autoclose/dev/types/**/*.ts",
+    ".next-e2e/chat-commands/types/**/*.ts",
+    ".next-e2e/chat-commands/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -506,7 +506,8 @@ test('phone tab archive persists after reload and header session actions fit in 
   await expect(page.getByRole('button', { name: 'Undo archive' })).toBeVisible();
   await expect(picker.locator(`option[value="${sessions[0].id}"]`)).toHaveCount(0);
   await expect(picker).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'New session', exact: true })
+    .getByRole('textbox', { name: 'First message (optional)', exact: true })).toBeFocused();
   await page.reload();
   await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(0);
   await expect(picker.locator(`option[value="${sessions[0].id}"]`)).toHaveCount(0);

@@ -34,21 +34,23 @@ import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { launchText } from './sessionLaunch';
 import type { SessionLauncher } from './useSessionLauncher';
 
-export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionLauncher; immersive: boolean }) {
+export function SessionSetupDialog({ launcher, immersive, inline = false }: { launcher: SessionLauncher; immersive: boolean; inline?: boolean }) {
   const [preview, setPreview] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const settingsId = useId();
   const input = useRef<HTMLTextAreaElement>(null);
+  const submitButton = useRef<HTMLButtonElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const focusedDraft = useRef(false);
   const open = launcher.isOpen && !immersive;
-  const restoreFocus = useDialogFocus(open, '.more-menu > button', launcher.opener.current);
+  const restoreFocus = useDialogFocus(open && !inline, '.more-menu > button', launcher.opener.current);
   useEffect(() => {
     if (!open) { setPreview(undefined); setSettingsOpen(false); setReportsOpen(false); }
     if (!open || launcher.busy) focusedDraft.current = false;
-    if (open && !launcher.busy && launcher.draft && !focusedDraft.current && input.current) { input.current.focus(); focusedDraft.current = true; }
-  }, [open, launcher.busy, Boolean(launcher.draft)]);
+    const target = launcher.frozen ? submitButton.current : input.current;
+    if (open && !launcher.busy && launcher.draft && !focusedDraft.current && target) { target.focus(); focusedDraft.current = true; }
+  }, [open, launcher.busy, launcher.frozen, Boolean(launcher.draft)]);
   const draft = launcher.draft;
   const settings = draft?.settings;
   const locked = launcher.settingsLocked;
@@ -69,12 +71,7 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
   const activeProjectSessions = launcher.selectedProject && launcher.machine?.machine.state === 'online' && launcher.machine.snapshotFresh !== false
     ? launcher.machine.sessions.filter((session) => session.projectId === launcher.selectedProject?.id
       && !session.archivedAt && session.id !== launcher.createdSession?.id).length : 0;
-  return <Dialog open={open} keepMounted disableRestoreFocus fullWidth maxWidth="sm" aria-labelledby="session-setup-title"
-    onClose={(_, reason) => { if (reason === 'escapeKeyDown') { if (preview) setPreview(undefined); else launcher.close(); } }}
-    slotProps={{ paper: { className: 'session-setup-dialog' }, transition: {
-      onEntered: () => { if (!focusedDraft.current && input.current) { input.current.focus(); focusedDraft.current = true; } },
-      onExited: () => { if (!immersive) restoreFocus(); },
-    } }}>
+  const content = <>
     <DialogTitle component="header" id="session-setup-header"><h2 id="session-setup-title">{settings?.codeai ? 'New CodeAI session' : 'New session'}</h2>
       <IconButton type="button" aria-label="Close setup" title="Close and keep draft" onClick={launcher.close}>×</IconButton></DialogTitle>
     <DialogContent className="session-setup-body">
@@ -206,10 +203,21 @@ export function SessionSetupDialog({ launcher, immersive }: { launcher: SessionL
           <span><Button variant="outlined" disabled={!canQueue} aria-keyshortcuts="Control+Enter Meta+Enter"
             onClick={() => void launcher.submit({ waitForCheckout: true })}>Queue session</Button></span>
         </Tooltip>}
-        <Button variant="contained" disabled={!launcher.canSubmit} onClick={() => void launcher.submit()}>
-          {launcher.error ? 'Retry' : launcher.hasContent ? 'Start in background' : 'Create and open'}
+        <Button ref={submitButton} variant="contained" disabled={!launcher.canSubmit} onClick={() => void launcher.submit()}>
+          {launcher.error ? 'Retry' : launcher.hasContent ? inline ? 'Start session' : 'Start in background' : 'Create and open'}
         </Button>
       </>}
     </DialogActions>
-  </Dialog>;
+  </>;
+  if (inline) return open ? <Paper component="section" variant="outlined" aria-label="New session" className="session-setup-dialog"
+    sx={{ width: '100%', maxWidth: 600, minWidth: 0, flexShrink: 1, my: 'auto' }}>{content}</Paper> : null;
+  return <Dialog open={open} keepMounted disableRestoreFocus fullWidth maxWidth="sm" aria-labelledby="session-setup-title"
+    onClose={(_, reason) => { if (reason === 'escapeKeyDown') { if (preview) setPreview(undefined); else launcher.close(); } }}
+    slotProps={{ paper: { className: 'session-setup-dialog' }, transition: {
+      onEntered: () => {
+        const target = launcher.frozen ? submitButton.current : input.current;
+        if (!focusedDraft.current && target) { target.focus(); focusedDraft.current = true; }
+      },
+      onExited: () => { if (!immersive) restoreFocus(); },
+    } }}>{content}</Dialog>;
 }

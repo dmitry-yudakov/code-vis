@@ -688,11 +688,17 @@ tabs that do not fit. Choosing one opens its view. Each tab has an **×** labell
 session**; it archives that conversation and offers Undo. The conversation header's **Archive**
 action does the same, on desktop and phones alike. Archiving a background tab keeps the current
 session selected; archiving the selected tab focuses its neighbour, or **All sessions** when no
-tabs remain (**+ New** if there are no active sessions). A live turn or offline execution machine
+tabs remain. Archiving the project's final active session shows inline new-session setup with the
+first message focused. Enter starts and opens the next conversation. A live turn or offline execution machine
 disables archiving. Restore archived conversations from Undo or the Arena archive; their history
 and device drafts are preserved.
 Delete closes the selected tab while keeping its session in All sessions. Closing the last tab
 shows **No open sessions**, including after reload. **+ New** starts a session.
+
+Type `/` in the conversation input to browse commands. Arrow keys select; Tab or Enter completes a
+partial command, and Enter runs the complete command. Escape dismisses suggestions.
+`/new` starts a fresh chat with the same project and settings; `/archive` and `/close` archive the
+current session with the same guards and Undo as the buttons.
 
 New conversations show the beginning of the first prompt as a temporary title. After the first
 complete reply, a separate background request uses the same provider and login to generate a short
@@ -714,8 +720,9 @@ archived.
 **Allow agent to archive** in new-session **Settings** or **Session settings** (the horizontal
 three-dot button beside the chat input's model selector, which reveals the checkbox inline) enables
 a separate completion check after each successful reply. It defaults off for every session. The
-chat input also accepts `/autoclose` or `/autoclose on` to enable it, and `/autoclose off` to disable
-it. Type the command on its own and press Enter, including while a reply is running. Commands save
+chat input also accepts `/autoclose` or `/autoclose on` to enable it, and `/autoclose off` to
+disable it. Omitting the argument defaults to on. Type the command on its own and
+press Enter, including while a reply is running. Commands save
 the same session setting without sending an agent message or consuming attachments.
 The working agent receives no extra instructions or hidden chat messages. A positive
 decision archives the conversation and releases eligible queued work; uncertainty or check failures
