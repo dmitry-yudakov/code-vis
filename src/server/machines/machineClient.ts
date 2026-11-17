@@ -5,23 +5,33 @@ import type { MachineConnection } from './machineRegistry';
 const SNAPSHOT_TIMEOUT_MS = 1_500;
 const MAX_SNAPSHOT_BYTES = 8_000_000;
 
-export async function boundedResponseText(response: Response, maximumBytes: number): Promise<string> {
+export async function boundedResponseText(response: Response, maximumBytes: number, signal?: AbortSignal): Promise<string> {
   const declared = Number(response.headers.get('content-length') || 0);
-  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error('Remote response is too large.');
+  if (Number.isFinite(declared) && declared > maximumBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error('Remote response is too large.');
+  }
+  if (signal?.aborted) { await response.body?.cancel().catch(() => undefined); signal.throwIfAborted(); }
   if (!response.body) return '';
   const reader = response.body.getReader();
+  const abort = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener('abort', abort, { once: true });
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maximumBytes) {
-      await reader.cancel().catch(() => undefined);
-      throw new Error('Remote response is too large.');
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error('Remote response is too large.');
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
-  }
+  } finally { signal?.removeEventListener('abort', abort); reader.releaseLock(); }
   const bytes = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {

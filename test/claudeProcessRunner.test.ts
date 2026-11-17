@@ -15,7 +15,7 @@ const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
 interface RunOptions {
   contextUsage?: AgentContextUsage;
-  backgroundTask?: 'title' | 'archive-check';
+  backgroundTask?: 'title' | 'archive-check' | 'observer';
   action?: 'start' | 'resume';
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -80,8 +80,9 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(events.find(event => event.type === 'context-usage')?.contextUsage).toEqual({ usedTokens: 150_000, model: 'root-model', contextWindow: 200_000 });
   });
 
-  it.each(['title', 'archive-check'] as const)('runs %s requests without tools, persisted sessions, or repository settings', async backgroundTask => {
-    const { invocation } = await run({ backgroundTask, model: 'haiku', prompt: backgroundTask === 'archive-check' ? 'data:\n[]' : 'Title data' });
+  it.each(['title', 'archive-check', 'observer'] as const)('runs %s requests without tools, persisted sessions, or repository settings', async backgroundTask => {
+    const { invocation } = await run({ backgroundTask, model: 'haiku', prompt: backgroundTask === 'archive-check' ? 'data:\n[]'
+      : backgroundTask === 'observer' ? 'data:\n{"context":{"rows":[],"total":0},"currentQuestion":"Status"}' : 'Title data' });
     const args: string[] = invocation.args;
     expect(args[args.indexOf('--tools') + 1]).toBe('');
     expect(args).not.toContain('--allowedTools');
@@ -90,7 +91,7 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
     expect(args).toContain('--system-prompt');
     expect(args).not.toContain('--resume');
-    expect(args[args.indexOf('--system-prompt') + 1]).toContain(backgroundTask === 'archive-check' ? 'ARCHIVE or KEEP_OPEN' : 'title');
+    expect(args[args.indexOf('--system-prompt') + 1]).toContain(backgroundTask === 'archive-check' ? 'ARCHIVE or KEEP_OPEN' : backgroundTask === 'observer' ? 'workspace Observer' : 'title');
   });
 
   it('retains tool identities/results and root final identity without private provider fields', async () => {

@@ -18,7 +18,7 @@ import type { AgentMode, AgentProcessEvent } from '@/shared/types';
 const binary = path.resolve('test/fixtures/fake-codex.mjs');
 
 interface RunOptions {
-  backgroundTask?: 'title' | 'archive-check';
+  backgroundTask?: 'title' | 'archive-check' | 'observer';
   action?: 'start' | 'resume';
   sessionId?: string;
   mode?: AgentMode;
@@ -85,12 +85,12 @@ describe.sequential('CodexProcessRunner', () => {
     ]);
   });
 
-  it.each(['title', 'archive-check'] as const)('restricts a fresh ephemeral %s request without repository tools or inherited instructions', async backgroundTask => {
+  it.each(['title', 'archive-check', 'observer'] as const)('restricts a fresh ephemeral %s request without repository tools or inherited instructions', async backgroundTask => {
     const { invocation } = await run({ backgroundTask });
     const start = invocation.requests.find((request: RecordedRequest) => request.method === 'thread/start').params;
     expect(start).toMatchObject({ ephemeral: true, config: { project_doc_max_bytes: 0,
       features: { shell_tool: false, multi_agent: false, code_mode_host: false, memories: false } } });
-    expect(start.baseInstructions).toContain(backgroundTask === 'archive-check' ? 'ARCHIVE or KEEP_OPEN' : 'title');
+    expect(start.baseInstructions).toContain(backgroundTask === 'archive-check' ? 'ARCHIVE or KEEP_OPEN' : backgroundTask === 'observer' ? 'workspace Observer' : 'title');
     expect(start.developerInstructions).not.toContain('built-in repository');
     const turn = invocation.requests.find((request: RecordedRequest) => request.method === 'turn/start').params;
     expect(turn.input).toHaveLength(1);

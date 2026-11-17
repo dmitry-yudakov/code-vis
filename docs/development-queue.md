@@ -47,6 +47,10 @@ feature has shipped. The order is priority, not a new dependency chain.
 
 ## Additional work
 
+- [Story 147 — Global text and voice observer](../stories/STORY-20261117-global-observer.md)
+  implements cross-session briefings and confirmed follow-ups, including foreground conversational
+  voice. Automated verification and a real Codex inference pass; physical phone/Whisper acceptance
+  remains pending. No queue priority was changed.
 - [Story 107 — Chronological chat and reachable approvals](../stories/STORY-20261013-chronological-chat.md)
   is shipped with accepted-send clearing, persistent ordered tool activity, reachable approvals, and
   conversation layout/readability improvements. Verification is recorded in the story; no queue

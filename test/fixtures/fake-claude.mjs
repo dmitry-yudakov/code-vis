@@ -70,6 +70,23 @@ const record = (extra) => {
 record();
 
 if (args.includes('--no-session-persistence')) {
+  if (valueAfter('--system-prompt')?.includes("CodeAI's workspace Observer")) {
+    const data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1));
+    const row = data.context.rows.find(row => data.currentQuestion.includes(row.sessionId)) ?? data.context.rows[0];
+    const target = row && { machineId: row.machineId, sessionId: row.sessionId };
+    const result = data.currentQuestion.includes('[observer-invalid]') ? 'invalid'
+      : JSON.stringify(data.currentQuestion.toLowerCase().includes('tell') && target
+        ? { answer: 'I can send this follow-up.', proposal: { ...target, text: 'Use the existing library and continue.' }, mentions: [target] }
+        : data.currentQuestion.toLowerCase().includes('what did') && target && !data.detail
+          ? { answer: 'Reading the saved reply.', inspect: target }
+          : { answer: data.detail ? (data.detail.text.includes('Use the existing library and continue.')
+            ? 'Recent saved text includes the existing library follow-up.' : 'The saved session reply is available for review.')
+            : `${data.context.total} active sessions. Review the sessions that need attention.`, mentions: target ? [target] : [] });
+    emit({ type: 'system', subtype: 'init', session_id: sessionId });
+    emit({ type: 'assistant', message: { id: 'observer', stop_reason: 'end_turn', content: [{ type: 'text', text: result }] } });
+    emit({ type: 'result', subtype: 'success', result, session_id: sessionId });
+    process.exit(0);
+  }
   if (valueAfter('--system-prompt')?.includes('ARCHIVE or KEEP_OPEN')) {
     const data = JSON.parse(prompt.slice(prompt.indexOf('\n[') + 1));
     const text = data.findLast(message => message.role === 'user')?.text ?? '';

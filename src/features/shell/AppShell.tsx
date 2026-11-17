@@ -54,6 +54,7 @@ import { SessionSetupDialog } from '@/features/session-launch/SessionSetupDialog
 import type { LaunchSettings } from '@/features/session-launch/sessionLaunch';
 import { Arena } from '@/features/arena/Arena';
 import { MachineSettingsDialog } from '@/features/arena/MachineSettingsDialog';
+import { ObserverDialog } from '@/features/observer/ObserverDialog';
 import { buildMultiMachineInbox, unreadArenaAttention, viewedArenaCompletionIds, type ArenaAttentionItem } from '@/features/arena/arenaModel';
 import { arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
@@ -190,6 +191,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const shellRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<DesktopPopoverHandle>(null);
   const [machineSettingsOpen, setMachineSettingsOpen] = useState(false);
+  const [observerOpen, setObserverOpen] = useState(false);
   const [providerUpdateCount, setProviderUpdateCount] = useState(0);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const workspaceMachineId = machineId && localMachineId && machineId !== localMachineId ? machineId : undefined;
@@ -2191,8 +2193,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const arenaInbox = buildMultiMachineInbox(arena.machines, arena.deviceState);
   const arenaUnread = unreadArenaAttention(arenaInbox);
   const arenaReplies = useArenaReplies(localMachineId, lifecycle.busy ? 'CodeAI is restarting. Your draft is kept.' : undefined);
-  const arenaReplyOptions = (machine: ArenaMachineSnapshot, target: ArenaSessionSummary): ArenaReplyOptions => {
-    const recipientId = arenaReplies.get(machine.machine.id, target.id).delivery?.participantId ?? target.primaryAgentId;
+  const replyOptionsFor = (machine: ArenaMachineSnapshot, target: ArenaSessionSummary, recipientId = target.primaryAgentId): ArenaReplyOptions => {
     const agent = target.agents.find(agent => agent.id === recipientId);
     const providers = machine.machine.kind === 'local'
       ? (target.execution === 'docker' ? localExecutionHealth?.docker.providers : localExecutionHealth?.local.providers) ?? machine.providers
@@ -2207,6 +2208,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         : !provider?.available ? { unavailableReason: provider?.message || 'This provider is unavailable.' } : {}),
       modelSelection: offeredModelSelection(agentModelSelection(saved, preferences, agent), provider) };
   };
+  const arenaReplyOptions = (machine: ArenaMachineSnapshot, target: ArenaSessionSummary) =>
+    replyOptionsFor(machine, target, arenaReplies.get(machine.machine.id, target.id).delivery?.participantId);
+  const observerProviders = localExecutionHealth?.local.providers ?? arena.machines.find(m => m.machine.kind === 'local')?.providers;
+  const observerProvider = preferences.provider ?? (observerProviders?.claude.available ? 'claude' : 'codex');
   const availableProviderUpdateCount = localExecutionHealth?.docker.enabled && localExecutionHealth.docker.providers.claude.available
     ? providerUpdateCount : 0;
 
@@ -3026,6 +3031,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {!launcher.inline && <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />}
       {!loading && !immersiveActive && <CodeAiLifecycleDialog lifecycle={lifecycle} />}
+      <ObserverDialog open={observerOpen && !immersiveActive} compact={compact} location={`${pathname}?${searchParams}`}
+        machines={arena.machines} localMachineId={localMachineId} options={replyOptionsFor}
+        provider={observerProvider} providers={observerProviders}
+        selection={offeredModelSelection(preferences.models?.[observerProvider], observerProviders?.[observerProvider])}
+        onProvider={provider => updatePreferences(current => ({ ...current, provider }))}
+        blockedReason={lifecycle.busy ? 'CodeAI is restarting. The message is kept.' : undefined}
+        onClose={() => setObserverOpen(false)} />
       {!loading && <MachineSettingsDialog
         open={machineSettingsOpen}
         securityLevel={arena.machines.find((entry) => entry.machine.kind === 'local')?.securityLevel || 'guarded'}
@@ -3055,6 +3067,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onMoreToggle={(open) => { if (open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
           onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
           more={<>
+            <Button onClick={() => { moreMenuRef.current?.close(); setObserverOpen(true); }}>Observer</Button>
             {compact && <>
               {!arenaOpen && session && <>
                 <Button component={Link} href="/arena" onClick={() => moreMenuRef.current?.close()}>Arena</Button>

@@ -831,7 +831,7 @@ export interface GlobalInstructions {
 export interface AgentProcessRun {
   contextUsage?: AgentContextUsage;
   /** Server-owned background metadata request; never resumed or exposed as conversation activity. */
-  backgroundTask?: 'title' | 'archive-check';
+  backgroundTask?: 'title' | 'archive-check' | 'observer';
   runId: string;
   checkout: ServerCheckout;
   session: { id?: string; action: 'start' | 'resume' };

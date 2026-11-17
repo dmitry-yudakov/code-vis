@@ -3,7 +3,7 @@ import { changesCheckout } from '@/shared/agentModes';
 import { BACKGROUND_TASK_INSTRUCTIONS } from './backgroundTask';
 
 export function buildClaudeArgs(input: {
-  backgroundTask?: 'title' | 'archive-check';
+  backgroundTask?: 'title' | 'archive-check' | 'observer';
   session: { id: string; action: 'start' | 'resume' };
   attachmentDirectory: string;
   policy: ResolvedAgentPolicy;

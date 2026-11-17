@@ -324,6 +324,32 @@ images; rejection or uncertain delivery retains them. Frozen delivery persists o
 after reload, canonical acceptance can still be checked, but a missing image prevents retransmission
 with incomplete evidence.
 
+Story 147 adds a shell-owned Observer dialog under More. Live counts reuse Arena observations and
+its aging clock. The personal-device-only `POST /api/observer` takes a question and bounded
+disposable history, obtains authoritative shared snapshots server-side, and runs isolated, tool-free
+Local provider inference with purpose `observer`. One process slot admits up to two sequential
+inferences within a 60-second deadline: the first can request one validated session read, then the
+second answers from bounded recent saved text. Context is bounded below 64 KiB UTF-8, excluding
+the 8,000-character question and fixed instructions; structured output is bounded to 8 KiB.
+Exact counts cover all active sessions before paging detail; named title/project/id matches are
+prioritized before limits. Each row retains at most three short permission summaries plus its total.
+
+The model proposes follow-ups but never sends them. `observerDelivery.ts` captures the canonical
+target, recipient, revision, mode/model and one message UUID for user confirmation, reusing the
+Arena's choice resolution and `launchSession` transport with independent draft storage. An absent
+history snapshot cannot unfreeze an uncertain UUID: the original POST might still be appending.
+Read-only questions remain available during that uncertainty. Observer history retains the latest
+100 messages in tab memory; only its draft and frozen delivery enter tab storage. No new canonical
+session format or permission owner is introduced.
+
+Observer voice owns a reusable `VoiceInput` context/stream for one explicit foreground start,
+with bounded individual clips. Listening enables microphone tracks; transcription, inference and
+speech-synthesis playback disable them. Silence ends an utterance, and 15 seconds without initial
+speech pauses the loop. Closing, navigation, hiding the page, interruption or microphone loss
+releases audio; late answers cannot restart it. The existing one-clip VR capture/review defaults
+remain unchanged. Device speech voices may use a service; their locality is shown rather than
+assumed. Physical phone voice acceptance remains pending.
+
 Committed store writes, Arena-visible run changes, and attachment changes invalidate shared
 snapshots. Fifty-millisecond coalescing and a dirty-during-load flag absorb bursts without losing
 the next update. Narrow filesystem watches detect external edits and directory replacements in

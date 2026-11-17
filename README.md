@@ -670,6 +670,22 @@ stored data. `next dev` and `next build` now use Turbopack, and `next dev` write
 
 ## Arena and Inbox
 
+**More → Observer** opens one text/voice conversation across active sessions on the home machine
+and its directly attached executors. Ask **“What needs me?”**, ask about a named session, or ask
+it to relay a follow-up. It shows the target, exact message and execution choices before **Send
+follow-up**; in voice mode say **“Send it”** or **“Cancel”**. Session excerpts go to the selected
+home provider using your existing login. It can read recent saved messages but cannot decide
+permissions or perform other session actions.
+
+**Voice** starts foreground conversation: speak, pause, hear the answer, then speak again.
+Input uses the [local Whisper setup](#local-voice-input-in-vr); output uses an available device
+speech voice, whose name/service appears while active. Remote use requires trusted HTTPS and
+microphone permission. **Stop voice**, closing the Observer, navigation or hiding the page releases
+audio. Background/locked-phone audio is outside this version; real-phone acceptance remains pending.
+The latest 100 Observer messages stay in this tab's memory. Its current draft and exact pending
+delivery survive reload. **Check delivery** and **Retry send** retain an uncertain message's UUID;
+briefings remain usable while its delivery is unresolved.
+
 Conversation URLs use `/?session=<id>` on the machine serving the page. Only a conversation on an
 attached executor adds `&machine=<id>`; its project comes from the saved conversation. An empty
 workspace uses `/?project=<id>` or `/?project=none`. The Arena's destinations remain `/arena`,

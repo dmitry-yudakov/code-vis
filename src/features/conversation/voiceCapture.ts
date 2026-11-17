@@ -1,15 +1,38 @@
 import { encodeVoiceWav, MAX_VOICE_SECONDS, VOICE_SAMPLE_RATE } from '@/shared/voice';
 
 export interface VoiceCapture { stop(): Promise<ArrayBuffer>; }
+export interface VoiceInput { context: AudioContext; stream: MediaStream }
+
+/** One deliberate gesture can own repeated clips. Existing dictation still owns one clip. */
+export async function openVoiceInput(signal: AbortSignal): Promise<VoiceInput> {
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
+    throw new Error('Microphone capture is unavailable. Use trusted HTTPS and retry.');
+  }
+  signal.throwIfAborted();
+  const context = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
+  let stream: MediaStream | undefined;
+  const close = () => { stream?.getTracks().forEach(track => { track.onended = null; track.stop(); }); void context.close().catch(() => undefined); };
+  signal.addEventListener('abort', close, { once: true });
+  try {
+    const resumed = context.resume();
+    void resumed.catch(() => undefined);
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true }, video: false });
+    signal.throwIfAborted(); await resumed;
+    await context.audioWorklet.addModule('/voice-capture.js');
+    signal.throwIfAborted();
+    stream.getTracks().forEach(track => { track.enabled = false; });
+    return { context, stream };
+  } catch (error) { close(); signal.removeEventListener('abort', close); throw error; }
+}
 
 /** The caller owns an abort signal from the moment microphone permission is requested. */
 export async function startVoiceCapture(signal: AbortSignal, onLimit: (error?: string) => void,
-  onActivity?: (level: number, seconds: number) => void): Promise<VoiceCapture> {
+  onActivity?: (level: number, seconds: number) => void, input?: VoiceInput): Promise<VoiceCapture> {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
     throw new Error('Microphone capture is unavailable in this browser. Use trusted HTTPS and retry.');
   }
   signal.throwIfAborted();
-  const context = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
+  const context = input?.context ?? new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
   let stream: MediaStream | undefined;
   let node: AudioWorkletNode | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
@@ -21,10 +44,10 @@ export async function startVoiceCapture(signal: AbortSignal, onLimit: (error?: s
   const cleanup = () => {
     clearTimeout(timer);
     context.onstatechange = null;
-    stream?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+    stream?.getTracks().forEach((track) => { track.onended = null; if (input) track.enabled = false; else track.stop(); });
     source?.disconnect();
     if (node) { node.onprocessorerror = null; node.port.onmessage = null; node.port.close(); node.disconnect(); }
-    void context.close().catch(() => undefined);
+    if (!input) void context.close().catch(() => undefined);
     signal.removeEventListener('abort', abort);
   };
   const abort = () => { stopped = true; chunks = []; cleanup(); flush?.(); };
@@ -33,10 +56,10 @@ export async function startVoiceCapture(signal: AbortSignal, onLimit: (error?: s
     const resumed = context.resume();
     void resumed.catch(() => undefined); // Permission can be denied before the resume is awaited.
     // Keep getUserMedia in the controller gesture. Release any late permission grant on abort.
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true }, video: false });
+    stream = input?.stream ?? await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true }, video: false });
     signal.throwIfAborted();
     await resumed;
-    await context.audioWorklet.addModule('/voice-capture.js');
+    if (!input) await context.audioWorklet.addModule('/voice-capture.js');
     signal.throwIfAborted();
     if (context.sampleRate !== VOICE_SAMPLE_RATE) throw new Error('This browser cannot capture voice at 16 kHz.');
     node = new AudioWorkletNode(context, 'codeai-voice-capture');
@@ -55,6 +78,7 @@ export async function startVoiceCapture(signal: AbortSignal, onLimit: (error?: s
       if (context.state !== 'running' && !stopped && !signal.aborted) onLimit('Microphone paused. Resume the browser and retry dictation.');
     };
     source = context.createMediaStreamSource(stream);
+    stream.getTracks().forEach(track => { track.enabled = true; });
     source.connect(node).connect(context.destination);
     timer = setTimeout(onLimit, MAX_VOICE_SECONDS * 1000);
     return {

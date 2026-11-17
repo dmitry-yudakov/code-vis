@@ -35,6 +35,11 @@ Updated 2026-11-17. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **In flight:** [Story 147](stories/STORY-20261117-global-observer.md) — More → Observer adds global
+  text/voice briefings and confirmed follow-ups, with independent drafts and exact-send recovery.
+  Production-browser journeys, both-theme desktop/phone screenshots, isolated build, TypeScript,
+  independent review and a real Codex inference pass. Physical phone/Whisper acceptance remains
+  pending; the running application has not been rebuilt or restarted.
 - **Shipped:** [Story 146](stories/STORY-20261117-chat-commands.md) — `/` opens keyboard-selectable
   chat commands for `/autoclose` (on by default), `/new`, `/archive` and `/close`.
   Archiving the project's final active conversation opens inline setup with focus, preserving

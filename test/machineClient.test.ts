@@ -33,6 +33,27 @@ describe('execution machine client', () => {
     await expect(boundedResponseText(new Response('12345'), 4)).rejects.toThrow('too large');
   });
 
+  it('cancels a stalled session response when its observer deadline expires', async () => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const stream = new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } });
+    const reading = boundedResponseText(new Response(stream), 100, controller.signal);
+    const failed = expect(reading).rejects.toBeDefined();
+    controller.abort();
+    await failed;
+    expect(cancelled).toBe(true);
+  });
+
+  it('also cancels responses rejected by declared length or an already expired deadline', async () => {
+    for (const expired of [false, true]) {
+      const cancel = vi.fn();
+      const controller = new AbortController(); if (expired) controller.abort();
+      const response = new Response(new ReadableStream({ cancel }), { headers: expired ? {} : { 'Content-Length': '200' } });
+      await expect(boundedResponseText(response, 100, controller.signal)).rejects.toBeDefined();
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+  });
+
   it('accepts saved completion run ids and older executor summaries without them', async () => {
     const session: ArenaSessionSummary = { id: crypto.randomUUID(), revision: 0, title: 'Completed', repositoryCheckoutIds: [], agents: [],
       updatedAt: '2026-11-09T10:00:00Z', lastActivity: { messageId: crypto.randomUUID(), runId: crypto.randomUUID(), createdAt: '2026-11-09T10:00:00Z', status: 'complete' } };
