@@ -107,7 +107,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(meterBounds!.x + meterBounds!.width).toBeLessThanOrEqual(providerBounds!.x + providerBounds!.width + 1);
       expect(await arena.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       await page.screenshot({ path: `test-results/arena-context-${theme}-${width}.png` });
-      await arena.getByRole('heading', { name: 'Arena', exact: true }).hover();
+      await page.getByRole('heading', { name: 'Arena', exact: true }).hover();
       await link.focus();
       await page.keyboard.press('Shift+Tab');
       await page.keyboard.press('Tab');

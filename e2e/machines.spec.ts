@@ -158,7 +158,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
   delayedHomeReadiness = new Promise<void>((resolve) => { releaseReadiness = resolve; });
   const refreshedHome = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/health');
   const refreshRequest = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/health');
-  await arena.getByRole('button', { name: 'Refresh' }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'Refresh' }).click();
   await refreshRequest;
   await remoteMachine.getByRole('link', { name: 'Open Work on the laptop' }).click();
   await expect(page).toHaveURL(/\/\?(?:session|project)=/);
@@ -230,7 +230,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
 
   // Refreshing home readiness must not replace the open executor's level or capabilities.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await arena.getByRole('button', { name: 'Refresh' }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'Refresh' }).click();
   await page.goBack();
   if (securityLevel === 'native') {
     await expect(conversation.locator('.execution-line')).toContainText('Native');
@@ -241,7 +241,7 @@ test(`opens a ${securityLevel} executor session, streams, and preserves its offl
 
   online = false;
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await arena.getByRole('button', { name: 'Refresh' }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'Refresh' }).click();
   await expect(remoteMachine).toContainText('Offline');
   await expect(remoteMachine.getByRole('button', { name: 'Open Work on the laptop' })).toBeDisabled();
 });

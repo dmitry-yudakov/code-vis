@@ -350,3 +350,53 @@ The modified geometry checks failed against the preceding production bundle befo
 read-only review pass. The isolated `.next-e2e/arena-sizing` bundle was built using the webpack
 compile/generate commands documented above; compilation needed network access outside the sandbox.
 The running installation has not been rebuilt or restarted.
+
+## Follow-up — compact Arena header (November 17)
+
+**Status: Shipped.** Use the existing top navbar for Arena's title, Refresh, New project and
+New session. Leave only Active/Inbox/Archived and the desktop List/Tiles switch above the projects;
+remove the Archived total and reclaim the large introduction and its vertical spacing. This refines
+the Arena overview in [the Arena vision](../docs/vision.md#the-arena).
+
+Where the code is: `src/features/shell/AppShell.tsx:2822` owns the shared navbar;
+`src/features/arena/Arena.tsx:156` owns Arena controls and overview;
+`src/app/globals.css:145` owns overview spacing; `e2e/arena-header.spec.ts` covers the compact frame.
+
+- [x] The navbar owns the Arena heading and actions across Active, Inbox and Archived; project
+      tiles begin close below the filter row, and Archived has no session count.
+- [x] Creation, cancel/focus return, refresh/retry and offline guards retain their behavior;
+      phone controls stay accessible and the navbar does not overflow.
+- [x] Focused browser regressions, TypeScript, isolated build, both-theme desktop/phone screenshot
+      inspection and independent review pass. Do not rebuild or restart the running installation.
+
+The compact desktop frame places project tiles at 128px from the viewport top. Phones use the same
+actions as accessible icons. Refresh and its inline retry share the shell's pending state; project
+creation retains the existing modal, retry and focus return, and leaving Arena clears its open state.
+Machine headings still identify online/offline groups. No API, persistence or dependency changed.
+
+All **31 focused unit checks** pass (`arenaModel`, `arenaReplyDrafts`, `arenaSubscription`), along
+with `npm run lint -- --incremental false`, the normal isolated Turbopack build
+(`CODEAI_DIST_DIR=.next-e2e npm run build`), `git diff --check`, both-theme desktop/phone screenshot
+inspection and independent read-only review. The new navbar browser regression failed against
+the preceding production build before implementation. The older project-grid offline assertion
+now checks the existing disabled project link separately from absent session links.
+
+**110 distinct production-browser cases pass:** 65 across `arena-header`, `arena-archive`,
+`arena-inbox`, `arena-order`, `arena-project-tiles`, `arena-projects`, `arena-tiles`,
+`arena-tile-headers`, `context-usage` and `machine-settings`; 39 across `session-setup`,
+`compact-session-setup` and `workspace-subscriptions`; six selected device-choice, instructions,
+executor and worktree journeys in `canvas`, `global-instructions`, `machines` and `session-worktrees`.
+Browser assertions cover creation/reload, modal focus, retained setup/evidence, delivery retries,
+drafts, approvals, archive/restore, offline targets, refresh recovery, subscriptions and responsive
+geometry. Use `CODEAI_DIST_DIR=.next-e2e npx playwright test` with those spec files; the existing
+saved-Codex context tests require the default `test-results/server-data` fixture directory.
+
+Two wider assertions fail identically on this change and an untouched HEAD exported to `/tmp`
+and built separately with webpack: `canvas.spec.ts:862` expects Idle immediately after a successful
+reply, while the existing one-hour rule shows Ready; `session-setup.spec.ts:569` expects the selected
+title tab to retain keyboard focus after ArrowLeft. These status/tab-focus behaviors are unchanged.
+The baseline screenshots/traces are in `/tmp/codeai-arena-header-head-results`; working-tree browser
+artifacts are in `test-results/arena-header-final-{a,b,c-retry,d,e}`.
+
+The running installation has not been rebuilt or restarted; physical devices and signed-in
+providers were not exercised.

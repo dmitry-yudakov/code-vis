@@ -28,7 +28,6 @@ import {
 } from './arenaModel';
 import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
-import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { ProjectLogoButton } from '@/features/projects/ProjectLogo';
 import { machineApiBase } from '@/features/machines/routes';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
@@ -90,11 +89,10 @@ export function Arena({
   deviceState,
   section,
   refreshError,
+  refreshing,
   onRefresh,
   onOpenSession,
-  onNewSession,
   onNewProjectSession,
-  onCreateProject,
   onProjectLogo,
   onArchiveSession,
   onRestoreSession,
@@ -108,11 +106,10 @@ export function Arena({
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
+  refreshing: boolean;
   onRefresh(): Promise<void>;
   onOpenSession(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): void;
-  onNewSession(): void;
   onNewProjectSession(machineId: string, projectId?: string): void;
-  onCreateProject(machineId: string, name: string, checkoutIds: string[]): Promise<void>;
   onProjectLogo(machineId: string, project: DurableProject): void;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
@@ -126,8 +123,6 @@ export function Arena({
   const sessions = machines.flatMap((machine) => machine.sessions);
   const archivedSessions = machines.flatMap((machine) => machine.archivedSessions);
   const onlineMachines = machines.filter((machine) => machine.machine.state === 'online');
-  const [refreshing, setRefreshing] = useState(false);
-  const [creatingProject, setCreatingProject] = useState(false);
   const localMachine = machines.find((machine) => machine.machine.kind === 'local');
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
@@ -146,11 +141,6 @@ export function Arena({
   const terminalUnreadIds = unread.filter((item) => item.kind !== 'permission').map((item) => item.id);
   const actionKey = (targetMachineId: string, sessionId: string) => `${targetMachineId}:${sessionId}`;
 
-  const refresh = () => {
-    setRefreshing(true);
-    void onRefresh().finally(() => setRefreshing(false));
-  };
-
   const archive = (targetMachineId: string, session: ArenaSessionSummary) => {
     const key = actionKey(targetMachineId, session.id);
     setArchiving(key);
@@ -165,34 +155,18 @@ export function Arena({
 
   return (
     <main className={`arena${tiles && section === 'sessions' ? ' arena-project-tiles' : ''}`} aria-label="Arena">
-      <header className="arena-heading">
-        <div className="arena-heading-copy">
-          <span className="eyebrow">Your workspace</span>
-          <h1>Arena</h1>
-          <p>All your sessions. One place to keep things moving.</p>
-          {showMachines && <span>{machines.length} machines{offlineMachines ? `, ${offlineMachines} offline` : ''}</span>}
-        </div>
-        <div className="arena-heading-actions">
-          <Button type="button" variant="text" color="inherit" startIcon={<ShellIcon name="refresh" />} disabled={refreshing} onClick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</Button>
-          <Button type="button" variant="outlined" disabled={!onlineMachines.length} onClick={() => setCreatingProject(true)}>New project</Button>
-          <Button type="button" className="arena-primary" variant="contained" startIcon={<ShellIcon name="newChat" />} disabled={!onlineMachines.length} onClick={onNewSession}>
-            New session
-          </Button>
-        </div>
-      </header>
-
       {localMachine && <SecurityLevelNotice key={`${localMachine.machine.id}:${localMachine.securityLevel}`}
         machineId={localMachine.machine.id} level={localMachine.securityLevel || 'guarded'} />}
 
       {refreshError && (
-        <Alert className="arena-refresh-error" severity="warning" role="status" action={<Button type="button" disabled={refreshing} onClick={refresh}>Try again</Button>}>{refreshError} Showing the last good overview.</Alert>
+        <Alert className="arena-refresh-error" severity="warning" role="status" action={<Button type="button" disabled={refreshing} onClick={() => { void onRefresh(); }}>Try again</Button>}>{refreshError} Showing the last good overview.</Alert>
       )}
 
       <div className="arena-view-controls">
       <Tabs className="arena-sections" value={section} aria-label="Arena views" variant="scrollable" scrollButtons={false}>
         <Tab component={Link} href={ARENA_SECTION_PATHS.sessions} scroll={false} value="sessions" label={`Active (${sessions.length})`} />
         <Tab component={Link} href={ARENA_SECTION_PATHS.inbox} scroll={false} value="inbox" label={unread.length ? `Inbox (${unread.length})` : 'Inbox'} />
-        <Tab component={Link} href={ARENA_SECTION_PATHS.archived} scroll={false} value="archived" label={`Archived (${archivedSessions.length})`} />
+        <Tab component={Link} href={ARENA_SECTION_PATHS.archived} scroll={false} value="archived" label="Archived" />
       </Tabs>
       {desktop && section === 'sessions' && <ToggleButtonGroup exclusive value={layout} aria-label="Session arrangement" onChange={(_, value: 'list' | 'tiles' | null) => {
         if (!value) return;
@@ -379,7 +353,6 @@ export function Arena({
           {archivedSessions.length > archiveLimit && <Button type="button" sx={{ mt: 2 }} onClick={() => setArchiveLimit(limit => limit + ARENA_ARCHIVE_PAGE_SIZE)}>Show older sessions</Button>}
         </div>
       )}
-      {creatingProject && <NewProjectDialog machines={machines} onCreate={onCreateProject} onClose={() => setCreatingProject(false)} />}
     </main>
   );
 }

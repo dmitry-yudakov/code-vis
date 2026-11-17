@@ -52,7 +52,7 @@ for (const theme of ['light', 'dark']) test(`project tiles use desktop width and
   expect(Math.abs(wide[3].x - wide[0].x)).toBeLessThan(2);
   const grid = (await page.locator('.arena-groups').boundingBox())!;
   expect(grid.width).toBeGreaterThan(1800);
-  const heading = (await arena.locator('.arena-heading').boundingBox())!;
+  const heading = (await arena.locator('.arena-view-controls').boundingBox())!;
   expect(Math.abs(heading.x - grid.x)).toBeLessThan(2);
   expect(Math.abs(heading.width - grid.width)).toBeLessThan(2);
   const first = page.getByRole('region', { name: projects[0].name, exact: true });
@@ -185,6 +185,7 @@ test('project panels contain long names and keep machine boundaries and offline 
   await expect(remotePanel.getByRole('button', { name: /^New session in/ })).toBeDisabled();
   await expect(remotePanel.getByRole('textbox').first()).toBeDisabled();
   await expect(remotePanel.getByRole('button', { name: 'Archive session', exact: true }).first()).toBeDisabled();
-  await expect(remotePanel.getByRole('link')).toHaveCount(0);
+  await expect(remotePanel.getByRole('link', { name: /^Open project/ })).toBeDisabled();
+  await expect(remotePanel.getByRole('link', { name: /^Open Session/ })).toHaveCount(0);
   await localRegion.locator('.arena-group').first().screenshot({ path: testInfo.outputPath('long-project-names.png') });
 });

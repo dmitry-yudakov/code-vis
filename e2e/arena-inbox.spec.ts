@@ -30,7 +30,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     await expect(item).not.toHaveClass(/read/);
 
     owner.machine.state = 'online';
-    await arena.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.locator('.app-header').getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect(open).toBeEnabled();
     expect(await arena.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await open.hover();

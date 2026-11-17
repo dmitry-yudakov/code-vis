@@ -337,6 +337,8 @@ Updated 2026-11-17. When a story ships, change the line that names it; each stor
   review pass. The November 11 follow-up puts empty projects in compact columns and equalizes
   populated panel/session row heights; all 29 focused production-browser checks, TypeScript,
   isolated build, both-theme screenshot inspection and independent review pass.
+  The November 17 follow-up moves Arena actions into the navbar, removes the introduction and
+  Archived count, and reclaims project space; verification and wider-test limits are in the story.
   The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 133](stories/STORY-20261107-responsive-chat-drafts.md) — desktop typing
   updates the composer directly, with coalesced draft saves and synchronous latest-text sending.

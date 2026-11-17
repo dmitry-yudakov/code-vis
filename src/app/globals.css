@@ -114,7 +114,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .canvas-hidden .conversation-drawer > header { padding-inline: max(18px, calc((100% - 760px) / 2)); }
 .canvas-hidden .conversation-scroll { padding-inline: max(14px, calc((100% - 760px) / 2)); }
 .canvas-hidden .drawer-composer { padding-inline: max(10px, calc((100% - 760px) / 2)); }
-.arena-breadcrumb { color: var(--ink-2); font: 600 12px/1 var(--mono); }
+.arena-breadcrumb { margin: 0; color: var(--ink-2); font: 600 12px/1 var(--mono); }
 
 /* Session views stay at the top; the divider anchors Arena, Inbox, and More at the bottom. */
 /* No z-index: More's menu has to rise above the panel overlays, so the bar opens no stacking context. */
@@ -142,13 +142,9 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .session-advanced-settings { margin-top: 12px; }
 .session-advanced-settings label { margin-top: 10px; }
 
-.arena { grid-column: rail / -1; grid-row: 2; min-width: 0; min-height: 0; overflow: auto; padding: 44px clamp(20px, 5vw, 72px) 72px; background: var(--shell); }
-.arena-heading { max-width: 1440px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 30px; }
-.arena-heading h1 { margin: 0; font: 650 32px/1.2 var(--sans); letter-spacing: -.035em; }
-.arena-heading > div:first-child { display: grid; gap: 8px; }
-.arena-heading > div:first-child > span { color: var(--muted); font-size: 12px; }
-.arena-heading-copy p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
-.arena-heading-actions { flex: none; display: flex; flex-wrap: wrap; gap: 7px; }
+.arena { grid-column: rail / -1; grid-row: 2; min-width: 0; min-height: 0; overflow: auto; padding: 16px clamp(20px, 5vw, 72px) 72px; background: var(--shell); }
+.arena-navbar-actions { display: flex; align-items: center; gap: 7px; }
+.arena-navbar-actions .MuiButton-root { white-space: nowrap; }
 .arena-docker-setting, .arena-docker-setting > div { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .arena-docker-setting { justify-content: space-between; }
 .arena-docker-setting span, .arena-docker-settings p { color: var(--muted); }
@@ -176,7 +172,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-docker-version-status { display: flex; align-items: center; gap: 8px; }
 .arena-docker-version-footer p { margin: 0; }
 .arena-refresh-error { max-width: 1440px; margin: 20px auto 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px 10px 15px; }
-.arena-view-controls { max-width: 1440px; margin: 28px auto 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
+.arena-view-controls { max-width: 1440px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
 .arena-sections { min-width: 0; display: flex; gap: 4px; }
 .arena-view-controls > .MuiToggleButtonGroup-root { flex: none; margin-bottom: 6px; }
 .arena-view-controls .MuiToggleButton-root { gap: 6px; }
@@ -226,8 +222,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-card-time { flex: none; margin-left: auto; color: var(--faint); font: 10px/1 var(--mono); }
 .arena-card-attention { padding: 4px 6px; border-radius: 999px; color: var(--wait-ink-strong); background: var(--wait-wash); font-weight: 700; }
 
-.arena-project-tiles { padding: 28px clamp(16px, 2vw, 32px) 48px; }
-.arena-project-tiles > .arena-heading, .arena-project-tiles > .arena-view-controls,
+.arena-project-tiles { padding: 16px clamp(16px, 2vw, 32px) 48px; }
+.arena-project-tiles > .arena-view-controls,
 .arena-project-tiles > .arena-refresh-error, .arena-project-tiles > .arena-groups { max-width: none; }
 .arena-tiles .arena-project-grid { display: flex; flex-wrap: wrap; align-items: stretch; gap: 16px; padding-top: 20px; }
 .arena-tiles .arena-group { flex: 1 1 calc((100% - 32px) / 3); min-width: min(520px, 100%); max-width: 100%; display: flex; flex-direction: column; padding: 16px; border-radius: 14px; background: var(--sheet); }
@@ -715,6 +711,9 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .repository-file-source code { font: inherit; }
 .repository-file-source mark { color: inherit; background: var(--hunk-wash); outline: 1px solid var(--hunk); }
 @media (max-width: 739px) {
+  .arena-navbar-actions .MuiButton-root { min-width: 32px; padding: 6px; }
+  .arena-navbar-actions .MuiButton-startIcon { margin: 0; }
+  .arena-navbar-actions .arena-action-label { display: none; }
   .repository-tree-entry.MuiListItemButton-root { min-height: 40px; }
   .repository-context-row .MuiIconButton-root, .repository-view-tabs .MuiTab-root { min-width: 40px; min-height: 40px; }
   .diff-inspector :is(.MuiIconButton-root, .MuiToggleButton-root) { min-width: 40px; min-height: 40px; }
@@ -753,8 +752,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
   .quick-prompts { grid-template-columns: 1fr; }
   .drawing-toolbar { right: 10px; left: 10px; top: 10px; flex-wrap: wrap; width: fit-content; max-width: calc(100% - 20px); }
   .canvas-controls { right: 10px; bottom: 10px; max-width: calc(100% - 20px); overflow-x: auto; }
-  .arena { padding: 24px 14px 50px; }
-  .arena-heading { align-items: flex-start; }
+  .arena { padding: 12px 14px 50px; }
   .arena-create { grid-template-columns: 1fr 1fr; }
   .arena-create fieldset { grid-column: 1 / -1; }
   .arena-inbox-item { grid-template-columns: minmax(0, 1fr); }
@@ -777,8 +775,6 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
   .canvas-topbar { gap: 6px; padding: 0 7px; }
   .spatial-room { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 1fr) minmax(150px, 36%); }
   .spatial-controls { border-left: 0; border-top: 1px solid var(--line); }
-  .arena-heading { display: grid; gap: 20px; }
-  .arena-heading-actions { justify-self: stretch; }
   .arena-create { grid-template-columns: 1fr; }
   .arena-create > * { grid-column: 1 !important; }
   .arena-card-open, .arena-card-content { gap: 10px; padding: 12px; }

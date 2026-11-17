@@ -11,7 +11,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     const name = `Arena project ${appearance} ${Date.now()}`;
     await page.goto('/arena');
     const arena = page.getByRole('main', { name: 'Arena', exact: true });
-    const newProject = arena.getByRole('button', { name: 'New project', exact: true });
+    const newProject = page.locator('.app-header').getByRole('button', { name: 'New project', exact: true });
     await newProject.click();
     const projectDialog = page.getByRole('dialog', { name: 'New project', exact: true });
     await expect(projectDialog.getByRole('textbox', { name: 'Project name', exact: true })).toBeFocused();
@@ -139,7 +139,7 @@ test('project actions route to the selected machine, reset its repository, and d
   });
   await page.goto('/arena');
   const arena = page.getByRole('main', { name: 'Arena', exact: true });
-  await arena.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Repository', { exact: true }).selectOption(local.checkouts[0].id);
   await dialog.getByLabel('Machine', { exact: true }).selectOption(remoteId);
@@ -166,15 +166,15 @@ test('project actions route to the selected machine, reset its repository, and d
   await expect(setup.getByLabel('Project', { exact: true })).toHaveValue(remote.projects[0].id);
   await setup.getByRole('button', { name: 'Close setup', exact: true }).click();
   remote.machine.state = 'offline';
-  await arena.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(shortcut).toBeDisabled();
   await page.setViewportSize({ width: 360, height: 800 });
   await expect(shortcut).toBeVisible();
   expect(await arena.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   local.machine.state = 'offline';
-  await arena.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(arena.getByRole('button', { name: 'New project', exact: true })).toBeDisabled();
-  await expect(arena.getByRole('button', { name: 'New session', exact: true })).toBeDisabled();
+  await page.locator('.app-header').getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.locator('.app-header').getByRole('button', { name: 'New project', exact: true })).toBeDisabled();
+  await expect(page.locator('.app-header').getByRole('button', { name: 'New session', exact: true })).toBeDisabled();
   await page.unrouteAll({ behavior: 'wait' });
 });
 

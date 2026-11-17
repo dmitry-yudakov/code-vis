@@ -71,7 +71,7 @@ test('an idle Arena keeps one subscription through heartbeats without polling', 
     if (new URL(request.url()).pathname === '/api/arena') requests.push(request.headers().accept ?? 'application/json');
   });
   await page.goto('/arena');
-  await expect(arena(page).getByRole('button', { name: 'Refresh', exact: true })).toBeVisible();
+  await expect(page.locator('.app-header').getByRole('button', { name: 'Refresh', exact: true })).toBeVisible();
   await expect.poll(() => requests.includes('application/x-ndjson')).toBe(true);
   // Settle initial activation, then cover two heartbeat intervals and five former poll intervals.
   await page.waitForTimeout(400);

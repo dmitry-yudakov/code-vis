@@ -78,7 +78,7 @@ for (const width of [1280, 390]) test(`global setup changes project without open
   await expect(page.locator('.project-search-trigger')).toContainText(projects[0].name);
   if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^More/ }).click();
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
-  await page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   const project = dialog.getByLabel('Project', { exact: true });
   await expect(project).toHaveValue(projects[0].id);
@@ -158,7 +158,7 @@ test('general setup remembers its machine and keeps an offline remembered target
     await held; return route.fulfill({ response });
   });
   await page.goto('/arena');
-  const newSession = page.getByRole('main', { name: 'Arena', exact: true }).getByRole('button', { name: 'New session', exact: true });
+  const newSession = page.locator('.app-header').getByRole('button', { name: 'New session', exact: true });
   await newSession.click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   const settings = dialog.getByRole('button', { name: 'Settings', exact: true });

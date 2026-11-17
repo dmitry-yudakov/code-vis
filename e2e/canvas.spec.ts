@@ -872,7 +872,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
       await route.continue();
     }
   });
-  await arena.getByRole('button', { name: 'Refresh' }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'Refresh' }).click();
   await expect(arena.getByText(/Showing the last good overview/)).toBeVisible();
   await expect(alphaCard).toBeVisible();
   failArenaRefresh = false;
@@ -882,7 +882,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
 
   // Starting from the overview chooses project/provider/mode, opens the resulting view, and does
   // not itself start a provider run.
-  await arena.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await create.getByLabel('Project').selectOption({ label: betaProject });
   await create.getByLabel('Provider').selectOption('claude');
@@ -1709,7 +1709,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   // The Arena's form opens at the last mode, and what it creates with becomes the last choice.
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
-  await arena.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(create.getByLabel('Mode', { exact: true })).toHaveValue('plan');
   await create.getByLabel('Mode', { exact: true }).selectOption('agent');
@@ -1777,7 +1777,7 @@ test('offers Auto only where the provider advertises it and remembers it for new
   await chooseMode(conversation, 'Auto');
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   const arena = page.getByRole('main', { name: 'Arena' });
-  await arena.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(create.getByLabel('Mode', { exact: true }).locator('option')).toHaveCount(4);
   await expect(create.getByLabel('Mode', { exact: true }).locator('option[value=auto]')).toHaveCount(1);

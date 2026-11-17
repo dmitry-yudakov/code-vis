@@ -10,7 +10,7 @@ test('security can be dismissed across reloads and remains available from settin
   await notice.getByRole('button', { name: 'Dismiss security notice' }).click();
   await expect(notice).toHaveCount(0);
   await page.reload();
-  await expect(arena.getByRole('heading', { name: 'Arena', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Arena', exact: true })).toBeVisible();
   await expect(notice).toHaveCount(0);
   await expect(arena.getByRole('region', { name: 'Docker execution' })).toHaveCount(0);
   await expect(arena.getByRole('region', { name: 'Global instructions' })).toHaveCount(0);
@@ -76,7 +76,7 @@ for (const theme of ['Light', 'Dark']) {
 
 test('new-session forms hide global instructions in their settings', async ({ page }) => {
   await page.goto('/arena');
-  await page.getByRole('main', { name: 'Arena' }).getByRole('button', { name: 'New session' }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'New session' }).click();
   const setup = page.getByRole('dialog', { name: 'New session', exact: true });
   await expect(setup.getByLabel('Global instructions')).toBeHidden();
   await setup.getByRole('button', { name: 'Settings', exact: true }).click();

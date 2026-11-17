@@ -45,6 +45,7 @@ import {
   loadSelectedCheckoutId, saveSelectedCheckoutId, mergeTurnActivity, reconcileSessionTitles,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
+import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { ProjectLogoDialog } from '@/features/projects/ProjectLogoDialog';
 import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
@@ -91,6 +92,7 @@ import { useTheme, type ThemePreference } from './useTheme';
 import { LIGHT_THEMES, type LightThemeName } from '@/shared/design/tokens';
 import { usePanelLayout } from './usePanelLayout';
 import { ActivityBar } from './ActivityBar';
+import { ShellIcon } from './ShellIcon';
 import { LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import { parseWorkspaceLocation, workspaceHref, type WorkspaceTarget } from './workspaceLocation';
@@ -198,6 +200,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const workspace = useWorkspaceViews(projectId, workspaceMachineId);
   const { preferences, update: updatePreferences } = useDevicePreferences();
   const arena = useArena();
+  const [refreshingArena, setRefreshingArena] = useState(false);
+  const [creatingArenaProject, setCreatingArenaProject] = useState(false);
+  useEffect(() => { if (!arenaOpen) setCreatingArenaProject(false); }, [arenaOpen]);
   const arenaMachinesRef = useRef(arena.machines);
   arenaMachinesRef.current = arena.machines;
   const apiPath = useCallback(
@@ -680,6 +685,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   const refreshArena = async () => {
+    setRefreshingArena(true);
     try {
       const [response] = await Promise.all([
         fetch('/api/health', { cache: 'no-store' }),
@@ -694,6 +700,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       setLocalInstructions(next.instructions);
     } catch (error) {
       notifyError(error, 'Could not refresh machine readiness.');
+    } finally {
+      setRefreshingArena(false);
     }
   };
 
@@ -2817,7 +2825,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav className="header-breadcrumbs" aria-label="Current project and session">
           {!loading && <>
             <span className="breadcrumb-separator" aria-hidden="true">/</span>
-            {arenaOpen ? <strong className="arena-breadcrumb">Arena</strong> : (
+            {arenaOpen ? <h1 className="arena-breadcrumb">Arena</h1> : (
               <>
                 <ProjectPicker
                   projects={projects}
@@ -2880,6 +2888,21 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
         {/* VR entry, then readiness and paired devices, then the layout icons at the end. */}
         <div className="header-actions">
+          {!openingWorkspace && arenaOpen && health && <div className="arena-navbar-actions">
+            <Button type="button" variant="text" color="inherit" startIcon={<ShellIcon name="refresh" />}
+              aria-label={refreshingArena ? 'Refreshing…' : 'Refresh'} title={compact ? 'Refresh' : undefined}
+              disabled={refreshingArena} onClick={() => { void refreshArena(); }}>
+              <span className="arena-action-label">{refreshingArena ? 'Refreshing…' : 'Refresh'}</span>
+            </Button>
+            <Button type="button" variant="outlined" startIcon={<ShellIcon name="folder" />}
+              aria-label="New project" title={compact ? 'New project' : undefined}
+              disabled={!arena.machines.some(machine => machine.machine.state === 'online')}
+              onClick={() => setCreatingArenaProject(true)}><span className="arena-action-label">New project</span></Button>
+            <Button type="button" variant="contained" startIcon={<ShellIcon name="newChat" />}
+              aria-label="New session" title={compact ? 'New session' : undefined}
+              disabled={!arena.machines.some(machine => machine.machine.state === 'online')}
+              onClick={launcher.open}><span className="arena-action-label">New session</span></Button>
+          </div>}
           <ImmersiveBoundary
             canvasReview={!loading && session ? {
               attachmentIds: pendingAttachmentIds,
@@ -3030,6 +3053,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
 
       {!launcher.inline && <SessionSetupDialog launcher={launcher} immersive={immersiveActive} />}
+      {arenaOpen && creatingArenaProject && <NewProjectDialog machines={arena.machines}
+        onCreate={async (machineId, name, checkoutIds) => {
+          await createProject(machineId, name, checkoutIds);
+          if (arenaSection !== 'sessions') router.push('/arena', { scroll: false });
+        }} onClose={() => setCreatingArenaProject(false)} />}
       {!loading && !immersiveActive && <CodeAiLifecycleDialog lifecycle={lifecycle} />}
       <ObserverDialog open={observerOpen && !immersiveActive} compact={compact} location={`${pathname}?${searchParams}`}
         machines={arena.machines} localMachineId={localMachineId} options={replyOptionsFor}
@@ -3220,14 +3248,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}
+          refreshing={refreshingArena}
           onRefresh={refreshArena}
           onOpenSession={openArenaSession}
-          onNewSession={launcher.open}
           onNewProjectSession={launcher.openForProject}
-          onCreateProject={async (machineId, name, checkoutIds) => {
-            await createProject(machineId, name, checkoutIds);
-            if (arenaSection !== 'sessions') router.push('/arena', { scroll: false });
-          }}
           onProjectLogo={(machineId, project) => setProjectLogoTarget({ machineId, project })}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}

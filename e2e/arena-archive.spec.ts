@@ -69,7 +69,7 @@ for (const appearance of ['light', 'dark'] as const) for (const width of [1440, 
     await expect(cards.first().getByRole('button', { name: 'Restore', exact: true })).toBeEnabled();
 
     unavailable = true;
-    await arena.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.locator('.app-header').getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect(arena.locator('.arena-refresh-error')).toBeVisible();
     await expect(cards).toHaveCount(46);
     unavailable = false;

@@ -240,7 +240,7 @@ test('retries a lost creation response with the same identity and exposes manage
 test('Arena creates an independent worktree and labels its source and live branch', async ({ page }) => {
   await page.goto(`${origin}/arena`);
   const arena = page.getByRole('main', { name: 'Arena' });
-  await arena.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   const creation = page.getByRole('dialog', { name: 'New session', exact: true });
   await creation.getByRole('button', { name: 'Settings', exact: true }).click();
   await creation.getByRole('combobox', { name: 'Project', exact: true }).selectOption('');
