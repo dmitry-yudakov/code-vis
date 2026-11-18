@@ -49,6 +49,10 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
   The November 18 follow-up fixes restored queue dependency cycles and autoclose skipped by shortened
   activity history; 213 focused unit checks, five production-browser journeys, TypeScript, isolated
   build and independent review pass.
+  The durable-queue follow-up saves waiting requests at acceptance and restores them through ordinary
+  process restarts without blocking builds; 209 focused unit checks, 34 production-browser cases,
+  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review pass.
+  Wider-suite limits are recorded in the story.
   The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 148](stories/STORY-20261118-observer-session-actions.md) — Observer acts as
   the user's assistant across sessions, with editable follow-ups, exact approval/denial previews,
@@ -335,7 +339,7 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
   The November 16 follow-up adds Queue session… to the open project's New menu, reusing message
   setup without leaving the current conversation; 32 focused unit checks, 33 production-browser
   cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and review pass.
-  Queued turns require the server to stay running; the running app has not been rebuilt or restarted.
+  Queued turns now survive process restart through Story 149; the running app has not been rebuilt or restarted.
 - **Shipped:** [Story 134](stories/STORY-20261107-arena-session-tiles.md) — desktop Arena offers
   project-grouped session tiles with saved-message previews, quick replies and approvals; drafts and
   exact delivery retries survive reload. All 93 focused unit checks, 27 production-browser checks,

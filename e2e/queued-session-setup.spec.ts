@@ -176,7 +176,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(queue).toBeEnabled();
     await expect(dialog.getByRole('button', { name: 'Start in background', exact: true })).toBeEnabled();
     await queue.hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Ctrl/Cmd+Enter. Starts after earlier sessions on this repository are archived. Keep CodeAI running.');
+    await expect(page.getByRole('tooltip')).toHaveText('Ctrl/Cmd+Enter. Starts after earlier sessions on this repository are archived.');
     await message.focus();
     await message.fill('');
     await expect(queue).toBeDisabled();
@@ -242,7 +242,7 @@ for (const recovery of ['rejected', 'uncertain', 'edit-and-send'] as const) {
       await expect(dialog.getByRole('button', { name: 'Queue session', exact: true })).toBeDisabled();
       await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeEnabled();
       await message.fill('Start the edited task now');
-      await expect(dialog.getByText('Starts after earlier sessions on this repository are archived. Keep CodeAI running.', { exact: true })).toHaveCount(0);
+      await expect(dialog.getByText('Starts after earlier sessions on this repository are archived.', { exact: true })).toHaveCount(0);
       await expect(dialog.getByRole('button', { name: 'Start in background', exact: true })).toBeEnabled();
       await message.press('Enter');
     } else await dialog.getByRole('button', { name: 'Retry', exact: true }).click();

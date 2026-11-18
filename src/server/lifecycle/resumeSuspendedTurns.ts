@@ -1,7 +1,8 @@
 import { getConfig, type AppConfig } from '@/server/config';
 import { getSessionStore } from '@/server/storage/sessionStore';
 import { submitMessage } from '@/server/conversation/submitMessage';
-import { SuspendedTurns } from './suspendedTurns';
+import { runRegistry } from '@/server/runs/runRegistry';
+import { SuspendedTurns, type SuspendedTurn } from './suspendedTurns';
 
 const scope = globalThis as typeof globalThis & { __codeAiRestartRecovery?: Map<string, Promise<void>> };
 
@@ -20,6 +21,16 @@ async function resume(config: AppConfig): Promise<void> {
   const journal = new SuspendedTurns(config.dataDir);
   const records = await journal.list();
   if (!records.length) return;
+  const admission = runRegistry.holdStartupRecovery();
+  if (admission === 'live-runs') throw new Error('Restart recovery requires an idle scheduler.');
+  try {
+    await restore(records, journal, config);
+  } finally {
+    if (admission === 'acquired') runRegistry.releaseMaintenance();
+  }
+}
+
+async function restore(records: SuspendedTurn[], journal: SuspendedTurns, config: AppConfig): Promise<void> {
   const store = getSessionStore(config.dataDir, config.hostLabel);
   await store.host(); // Acquire the canonical store's process-wide writer lock before claiming work.
   // Later ideas already have saved messages now, but were not predecessors at original admission.

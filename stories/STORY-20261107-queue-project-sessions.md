@@ -8,6 +8,9 @@ Add another task to a busy project without creating a worktree or remembering to
 This extends the Arena's work orchestration in [the vision](../docs/vision.md#the-arena).
 A session remains an ongoing conversation. Since the November 9 follow-up, queued ideas wait until
 earlier conversations are archived, allowing additional work after each reply.
+The November 18 durable-queue follow-up in [Story 149](STORY-20261118-restart-session-continuity.md#durable-waiting-turns-follow-up--november-18-2026)
+supersedes the original server-lifetime limit: waiting requests now survive process restart and
+Build & restart.
 
 ## Current behavior (where the code is)
 

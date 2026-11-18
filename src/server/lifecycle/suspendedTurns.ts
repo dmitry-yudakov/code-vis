@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { agentMessageRequestSchema } from '@/shared/protocol';
-import { atomicWrite, syncDirectory } from '@/server/storage/sessionStore';
+import { atomicWrite, syncDirectory } from '@/server/storage/atomicWrite';
 
 const progressSchema = z.object({
   attempt: z.number().int().nonnegative(), spentMs: z.number().nonnegative(),

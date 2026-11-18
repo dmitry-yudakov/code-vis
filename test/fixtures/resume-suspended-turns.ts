@@ -8,7 +8,15 @@ async function main() {
   const serverLifetime = setInterval(() => undefined, 1_000);
   try {
     await resumeSuspendedTurns();
-    await Promise.all(runRegistry.currentRuns.map(run => runRegistry.wait(run.runId)));
+    for (const sessionId of (process.env.CODEAI_TEST_ARCHIVE_SESSIONS ?? '').split(',').filter(Boolean)) {
+      const store = getSessionStore(getConfig().dataDir);
+      const session = await store.getSession(sessionId);
+      await store.archiveSession(sessionId, session.revision);
+      runRegistry.sessionArchived(sessionId);
+    }
+    if (process.env.CODEAI_TEST_LEAVE_QUEUED !== '1') {
+      await Promise.all(runRegistry.currentRuns.map(run => runRegistry.wait(run.runId)));
+    }
     await getSessionStore(getConfig().dataDir).close();
   } finally { clearInterval(serverLifetime); }
 }

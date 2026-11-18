@@ -589,8 +589,9 @@ stored copy and no route that serves one.
    turn does not advance this idea queue. Ordinary follow-ups, Push, Undo and worktree creation can
    proceed while ideas wait. A successful manual or inactivity archive releases successors; they
    then take exclusive checkout access even in Ask/Plan, retaining it through mode changes. Provider
-   permissions still follow the mode. The same bounded in-memory queue owns cancellation and browser
-   reconnection; it requires the executing server to remain running. Acceptance headers report the
+   permissions still follow the mode. The bounded scheduler owns cancellation and browser
+   reconnection; accepted waiting requests are also journaled on disk and restored after process
+   restart, with execution claimed before provider/checkpoint effects. Acceptance headers report the
    run id and current state. `POST /api/agent/queued-message` compares and saves queued message text
    under a promotion guard, retaining evidence, mode and identity; cancellation waits for this save.
 4. When the scheduler starts the turn, build the historical prompt delta from the current canonical
@@ -979,9 +980,9 @@ those need their own feasibility and interaction scope.
 These are real and deliberate, and they bound what can be built next:
 
 - one queued or executing turn per session and per concrete provider session;
-- a bounded in-memory queue and 1–8 execution slots on each machine; planned managed restarts save
-  cleanly suspended turns and queued requests for startup continuation. Arbitrary process crashes
-  and uncertain deliveries are not automatically replayed;
+- a bounded queue backed by durable waiting requests and 1–8 execution slots on each machine;
+  waiting turns survive process restart, and planned managed restarts also save cleanly suspended
+  running turns. Uncertain executions and deliveries are not automatically replayed;
 - one Arena across the home and up to eight direct attached executors, while the focused shell uses
   one machine catalog and several machine-qualified device-local tabbed views;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows

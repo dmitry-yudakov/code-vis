@@ -21,6 +21,9 @@ import {
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
 import { boundSessionActivity, finishTurn, type TurnRecord } from '@/shared/turnActivity';
+import { atomicWrite, syncDirectory } from './atomicWrite';
+export { atomicWrite, syncDirectory } from './atomicWrite';
+import { SuspendedTurns } from '@/server/lifecycle/suspendedTurns';
 import { repairClaudeActivity } from './claudeActivityRepair';
 import { workspaceChanged } from '@/server/workspace/workspaceChanges';
 import {
@@ -188,42 +191,6 @@ function localProcessIsAlive(pid: number): boolean {
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
-
-export async function syncDirectory(directory: string): Promise<void> {
-  const handle = await open(directory, 'r').catch(() => undefined);
-  if (!handle) return;
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
-export async function atomicWrite(
-  targetPath: string,
-  value: unknown,
-  beforeRename?: SessionStoreOptions['beforeRename'],
-  compact = false,
-): Promise<void> {
-  const directory = path.dirname(targetPath);
-  const temporaryPath = path.join(directory, `.${path.basename(targetPath)}-${randomUUID()}.tmp`);
-  let handle: FileHandle | undefined;
-  try {
-    handle = await open(temporaryPath, 'wx', 0o600);
-    await handle.writeFile(compact ? `${JSON.stringify(value)}\n` : json(value), 'utf8');
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    await beforeRename?.(targetPath, temporaryPath);
-    await rename(temporaryPath, targetPath);
-    await chmod(targetPath, 0o600);
-    await syncDirectory(directory);
-  } catch (error) {
-    await handle?.close().catch(() => undefined);
-    await unlink(temporaryPath).catch(() => undefined);
-    throw error;
   }
 }
 
@@ -1540,15 +1507,21 @@ export class SessionStore {
     await chmod(this.archivedSessionsDirectory, 0o700);
     await chmod(this.projectsDirectory, 0o700);
     await this.finishInterruptedSessionTransitions();
-    // A process restart has no live provider/permission owner. Keep evidence, never resume work.
+    // Only a waiting request with a durable, unclaimed journal can safely survive process exit.
+    const journal = new SuspendedTurns(this.dataDirectory);
     for (const name of await this.sessionFileNames(this.sessionsDirectory)) {
       const session = await this.readSessionFile(path.join(this.sessionsDirectory, name)).catch(skipNewerFormat);
       if (!session) continue;
       let changed = false;
       for (const message of session.messages) {
         if (message.role !== 'user' || !message.turn || !['queued', 'running'].includes(message.turn.lifecycle)) continue;
-        message.turn = { ...finishTurn(message.turn, 'interrupted'), history: 'saved' };
-        message.status = 'failed'; message.delivery = 'possibly-sent'; changed = true;
+        const pending = message.turn.lifecycle === 'queued' ? await journal.get(message.turn.runId) : undefined;
+        const waiting = pending?.state === 'ready' && pending.request.sessionId === session.id
+          && pending.request.messageId === message.id;
+        message.turn = { ...finishTurn(message.turn, waiting ? 'suspended' : 'interrupted'), history: 'saved' };
+        if (waiting) upgradeForMessage(session, message);
+        else { message.status = 'failed'; message.delivery = 'possibly-sent'; }
+        changed = true;
       }
       if (changed) { session.revision += 1; session.messages = boundSessionActivity(session.messages); await this.writeSession(session); }
     }

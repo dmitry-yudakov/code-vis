@@ -141,7 +141,7 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
         <Button sx={{ ml: 'auto' }} aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)}><span aria-hidden="true">⚙</span>&nbsp;Settings</Button>
       </Box>
       {settings.waitForCheckout && (launcher.error || launcher.frozen) && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        Starts after earlier sessions on this repository are archived. Keep CodeAI running.
+        Starts after earlier sessions on this repository are archived.
       </Typography>}
       <Collapse in={settingsOpen} id={settingsId}>
         <div className="session-setup-fields">
@@ -204,7 +204,7 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
           </Typography>
         </Tooltip>}
         {queueOffered && <Tooltip describeChild
-          title="Ctrl/Cmd+Enter. Starts after earlier sessions on this repository are archived. Keep CodeAI running.">
+          title="Ctrl/Cmd+Enter. Starts after earlier sessions on this repository are archived.">
           <span><Button variant="outlined" disabled={!canQueue} aria-keyshortcuts="Control+Enter Meta+Enter"
             onClick={() => void launcher.submit({ waitForCheckout: true })}>Queue session</Button></span>
         </Tooltip>}

@@ -318,7 +318,8 @@ describe.sequential('images as part of a message', () => {
       bytes: Buffer.byteLength(file.text), digest: message.fileAttachments![0].digest }]);
     expect(run.prompt).toContain('file-attachments.json');
     expect(run.prompt).toContain('untrusted attachment data');
-    expect(await readdir(path.join(dataDir, 'run-attachments'))).toEqual([]);
+    // The independent title task can still be removing its temporary directory after delivery.
+    await vi.waitFor(async () => expect(await readdir(path.join(dataDir, 'run-attachments'))).toEqual([]));
   });
 
   it('gives the run the images, records only what they were, and upgrades only that session', async () => {

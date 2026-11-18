@@ -426,6 +426,10 @@ agent writes can press it: an agent may suggest a restart, but only you confirm 
   its original attachments are saved on disk. Work that finishes naturally stays complete. The
   build starts after all turns and checkout helpers have stopped. A turn this home runs on an
   attached executor keeps running there, and the page finds it again after the reload.
+- **Queued work survives restart.** Accepted waiting requests and their attachments are saved on
+  disk immediately. They survive ordinary process restarts and Build & restart with the same data
+  directory, keeping edits, mode and archive dependencies. Waiting requests do not need to execute
+  or have their predecessors archived before a build can start.
 - **Suspended work survives a failed build.** The old release keeps serving, while suspended tasks
   stay paused. Fix the checkout from the console and retry Build & restart, or rebuild and start
   CodeAI manually with the same data directory and provider homes. Startup continues cleanly
@@ -1701,7 +1705,7 @@ not inspect environment values or provider credential files.
   delete that history.
 - Participant removal, session transfer, editable custom-role instructions, simultaneous turns in
   one session, and autonomous multi-agent relay are not implemented.
-- Queues and provider processes are machine-memory state; a server restart leaves canonical
-  transcript recovery intact but does not resume queued or executing processes.
+- Waiting requests are durable and resume after a server restart. Running provider processes are
+  replaced only through clean planned suspension; an uncertain interrupted execution is not replayed.
 - The real-agent experiment matrix is manual and is tracked in
   [docs/experiment-log.md](docs/experiment-log.md).

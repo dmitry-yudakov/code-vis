@@ -115,6 +115,178 @@ describe.sequential('planned restart recovery', () => {
     expect(response.status, await response.clone().text()).toBe(200);
   }
 
+  it('persists acceptance and restores edited waiting work across two ordinary process restarts', async () => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    const queued = await send({ waitForCheckout: true, fileAttachments: [{ name: 'idea.txt', text: 'Saved evidence' }] });
+    const journal = new SuspendedTurns(dataDir);
+    expect(await journal.get(queued.runId)).toMatchObject({ state: 'ready', request: { imageAttachments: [image] } });
+    await runRegistry.editQueuedMessage(queued.runId, 'Edited before a process restart', queued.request.text);
+    expect(await runRegistry.changeMode(queued.runId, 'plan')).toEqual({ ok: true });
+    runRegistry.finish(queued.runId); // Discard only volatile scheduler state, as process exit does.
+    await getSessionStore(dataDir).close();
+    scope.__codeAiSessionStores?.delete(dataDir);
+    const child = (extra: Record<string, string>) => promisify(execFile)(process.execPath,
+      ['--import', 'tsx', 'test/fixtures/resume-suspended-turns.ts'], {
+        cwd: process.cwd(), env: { ...process.env, CODEAI_CLAUDE_BIN: path.resolve('test/fixtures/fake-claude.mjs'),
+          CODEAI_CODEX_BIN: path.resolve('test/fixtures/not-a-real-codex'), ...extra }, timeout: 15_000,
+      });
+    await child({ CODEAI_TEST_LEAVE_QUEUED: '1' });
+    expect(await journal.get(queued.runId)).toMatchObject({ state: 'ready' });
+    await child({ CODEAI_TEST_ARCHIVE_SESSIONS: first.session.id });
+    const saved = await getSessionStore(dataDir).getSession(queued.session.id);
+    expect(saved.messages).toHaveLength(2);
+    expect(saved.messages[0]).toMatchObject({ id: queued.request.messageId, text: 'Edited before a process restart',
+      imageAttachments: [{ mediaType: 'image/png' }], fileAttachments: [{ name: 'idea.txt', text: 'Saved evidence' }],
+      turn: { runId: queued.runId, lifecycle: 'completed' } });
+    expect(saved.messages[1].mode).toBe('plan');
+    expect(await journal.list()).toEqual([]);
+  }, 35_000);
+
+  it('rejects admission when the full waiting request cannot be saved', async () => {
+    vi.spyOn(SuspendedTurns.prototype, 'save').mockRejectedValueOnce(new Error('Disk unavailable'));
+    const session = await getSessionStore(dataDir).createSession({ provider: 'claude', checkoutId });
+    const response = await submitMessage(new Request('http://localhost/message', { method: 'POST', body: JSON.stringify({
+      sessionId: session.id, participantId: session.primaryAgentId, messageId: crypto.randomUUID(),
+      text: 'Persist this first', diagramAttachments: [], waitForCheckout: true,
+    }) }));
+    expect(response.status).toBe(503);
+    expect(provider.jobs).toHaveLength(0);
+    expect(runRegistry.currentRuns).toEqual([]);
+    expect((await getSessionStore(dataDir).getSession(session.id)).messages).toEqual([]);
+  });
+
+  it('builds with only waiting sessions and retains them through a failed build', async () => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    const queued = await send({ waitForCheckout: true });
+    const managed = lifecycle();
+    expect(managed.instance.start()).toMatchObject({ accepted: true });
+    await vi.waitFor(() => expect(managed.sent).toHaveLength(1));
+    expect(provider.jobs).toHaveLength(1);
+    const request = managed.sent[0];
+    if (request.type !== 'lifecycle-request') throw new Error('Expected a build request');
+    managed.deliver({ type: 'lifecycle-state', snapshot: { available: true, phase: 'idle', releaseId: 'old-release',
+      lastOperation: { operationId: request.operationId, outcome: 'build-failed', finishedAt: new Date().toISOString() } } });
+    managed.deliver({ type: 'lifecycle-lease', request: 'release' });
+    expect(managed.instance.snapshot().phase).toBe('paused');
+    expect(await new SuspendedTurns(dataDir).get(queued.runId)).toMatchObject({ state: 'ready' });
+    await coldStart();
+    expect(provider.jobs).toHaveLength(1);
+    await archive(first.session.id);
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(2));
+    provider.jobs[1].finish();
+    await runRegistry.wait(queued.runId);
+  });
+
+  it('claims execution before starting a provider and never replays an uncertain attempt', async () => {
+    const sent = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    const journal = new SuspendedTurns(dataDir);
+    expect(await journal.get(sent.runId)).toMatchObject({ state: 'resuming' });
+    runRegistry.finish(sent.runId);
+    // Discard the old provider owner without completing its canonical message.
+    provider.jobs = [];
+    await coldStart();
+    expect(provider.jobs).toHaveLength(0);
+    expect((await getSessionStore(dataDir).getSession(sent.session.id)).messages[0]).toMatchObject({
+      status: 'failed', delivery: 'possibly-sent', turn: { lifecycle: 'interrupted' },
+    });
+    expect(await journal.get(sent.runId)).toMatchObject({ state: 'resuming' });
+  });
+
+  it('keeps never-started requests replayable if maintenance stops before saving the suspended lifecycle', async () => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    const queued = await send({ waitForCheckout: true });
+    const stopped = vi.spyOn(getSessionStore(dataDir), 'suspendUserMessage').mockRejectedValueOnce(new Error('Process stopped'));
+    const managed = lifecycle();
+    managed.instance.start();
+    await vi.waitFor(() => expect(managed.instance.snapshot().phase).toBe('paused'));
+    expect(managed.sent).toEqual([]);
+    expect(await new SuspendedTurns(dataDir).get(queued.runId)).toMatchObject({ state: 'ready' });
+    stopped.mockRestore();
+    runRegistry.finish(queued.runId);
+    await coldStart();
+    await archive(first.session.id);
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(2));
+    expect(provider.jobs[1].input.runId).toBe(queued.runId);
+    provider.jobs[1].finish();
+    await runRegistry.wait(queued.runId);
+  });
+
+  it('does not resurrect cancelled queued work after an ordinary restart', async () => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    const queued = await send({ waitForCheckout: true });
+    expect(await runRegistry.cancel(queued.runId)).toBe('accepted');
+    expect(await new SuspendedTurns(dataDir).get(queued.runId)).toBeUndefined();
+    await coldStart();
+    await archive(first.session.id);
+    expect(provider.jobs).toHaveLength(1);
+    expect((await getSessionStore(dataDir).getSession(queued.session.id)).messages[0].status).toBe('cancelled');
+  });
+
+  it.each([false, true])('settles a queued mode save before promotion or cancellation (cancel: %s)', async cancel => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    const queued = await send({ waitForCheckout: true });
+    const save = SuspendedTurns.prototype.save;
+    let release!: () => void;
+    let writing = false;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(SuspendedTurns.prototype, 'save').mockImplementation(async function (this: SuspendedTurns, turn) {
+      if (turn.runId === queued.runId && turn.state === 'ready' && turn.request.mode === 'plan') {
+        writing = true;
+        await gate;
+      }
+      return save.call(this, turn);
+    });
+    const changing = runRegistry.changeMode(queued.runId, 'plan');
+    await vi.waitFor(() => expect(writing).toBe(true));
+    await archive(first.session.id);
+    expect(provider.jobs).toHaveLength(1);
+    const cancelling = cancel ? runRegistry.cancel(queued.runId) : undefined;
+    release();
+    await changing;
+    if (cancelling) {
+      expect(await cancelling).toBe('accepted');
+      expect(provider.jobs).toHaveLength(1);
+    } else {
+      await vi.waitFor(() => expect(provider.jobs).toHaveLength(2));
+      expect(provider.jobs[1].input.policy.mode).toBe('plan');
+      provider.jobs[1].finish();
+      await runRegistry.wait(queued.runId);
+    }
+    expect(await new SuspendedTurns(dataDir).get(queued.runId)).toBeUndefined();
+  });
+
+  it('restores execution slots and a full waiting queue before releasing dispatch on an unmanaged startup', async () => {
+    await send();
+    await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(2));
+    const queued = [];
+    for (let i = 0; i < 32; i++) queued.push(await send({ waitForCheckout: true }));
+    const managed = lifecycle();
+    managed.instance.start();
+    await vi.waitFor(async () => expect((await new SuspendedTurns(dataDir).list()).filter(turn => turn.state === 'preparing')).toHaveLength(2));
+    for (const job of provider.jobs) job.input.emit({ type: 'response-boundary', responseFinal: false });
+    await vi.waitFor(() => expect(managed.sent).toHaveLength(1));
+    await coldStart();
+    expect(runRegistry.currentRuns).toHaveLength(34);
+    expect(queued.every(turn => runRegistry.currentRuns.some(run => run.runId === turn.runId && run.state === 'queued'))).toBe(true);
+  }, 20_000);
+
   it.each([false, true])('releases restored ideas in order after archive (predecessor archived offline: %s)', async archivedOffline => {
     const first = await send();
     await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
@@ -395,7 +567,7 @@ describe.sequential('planned restart recovery', () => {
     let writing = false;
     const gate = new Promise<void>(resolve => { release = resolve; });
     vi.spyOn(SuspendedTurns.prototype, 'save').mockImplementation(async function (this: SuspendedTurns, turn) {
-      if (turn.runId === queued.runId && turn.state === 'preparing') { writing = true; await gate; }
+      if (turn.runId === queued.runId && turn.state === 'ready') { writing = true; await gate; }
       return save.call(this, turn);
     });
     const managed = lifecycle();

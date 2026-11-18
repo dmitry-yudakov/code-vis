@@ -9,6 +9,7 @@ waits for observed provider response/tool boundaries, and saves unfinished tasks
 A failed build keeps tasks suspended while the current release serves the UI. Repairing the
 checkout and starting CodeAI again with the same data directory/provider homes continues those
 tasks without requiring the original supervisor or a browser.
+Accepted waiting requests are saved immediately and also survive ordinary process restarts.
 
 ## Contracts and implementation
 
@@ -30,8 +31,8 @@ tasks without requiring the original supervisor or a browser.
   content fields and explicit omission markers. Approval previews are omitted; decisions remain.
   A real Claude probe showed that native history alone can miss the last completed read result.
   Both Native Claude and Codex probes retain the result when this saved activity is supplied.
-- Format 17 adds the public `suspended` turn lifecycle. Ordinary crash recovery continues to fail
-  queued/running work conservatively. Startup leaves planned suspensions intact. Attempts retain
+- Format 17 adds the public `suspended` turn lifecycle. Ordinary crash recovery restores unclaimed
+  waiting requests and fails running/uncertain work conservatively. Startup leaves planned suspensions intact. Attempts retain
   their namespaces and remaining budgets; pending approvals close without approval, with explicit
   denials still binding. Temporary attachment directories are reconstructed from saved evidence.
 - Each resumed writing segment captures a fresh Undo baseline, preserving any console repairs.
@@ -127,3 +128,62 @@ its regression now passes and final review has no remaining findings.
 The checks use fake providers and temporary session data. No UI was changed; physical devices,
 real-provider completion decisions and a managed restart of this installation were not rerun.
 The running application and the user's queued messages were not modified or restarted.
+
+## Durable waiting turns follow-up — November 18, 2026
+
+**Status:** Shipped.
+
+Queued sessions must survive an ordinary process restart as well as Build & restart, without
+waiting for their predecessors to finish. This extends the Arena orchestration contract in
+[the vision](../docs/vision.md#the-arena). Reuse the private restart journal: persist the full
+validated request before acknowledging acceptance, leave waiting requests replayable, and claim
+them durably before execution. Canonical session text remains authoritative for queued edits.
+Running or uncertain deliveries keep conservative crash recovery.
+
+Where the code is: `src/server/conversation/submitMessage.ts:346` persists requests before acceptance;
+`src/server/storage/sessionStore.ts:1510` reconciles interrupted work;
+`src/server/lifecycle/resumeSuspendedTurns.ts:20` restores journal entries;
+`src/server/runs/runRegistry.ts:297` drains work before maintenance.
+
+- [x] Accepted waiting requests and original evidence exist on disk before a successful response;
+      persistence failure admits no executable work.
+- [x] Ordinary process restarts restore waiting turns with original identities, edits, mode and
+      evidence, including a second restart while they still wait. Earlier-session archive gating
+      and checkout scheduling remain intact.
+- [x] A queued-only Build & restart proceeds without running waiting requests; failed builds
+      retain them. Completed and cancelled requests are never resurrected.
+- [x] A durable claim precedes execution; interrupted or uncertain running work is not replayed.
+- [x] Focused regressions, TypeScript, isolated build and independent review pass.
+
+How to verify: run restart recovery/startup, suspended journal, scheduler, message scheduler,
+session store and lifecycle tests, then TypeScript and an isolated production build. Use temporary
+stores and fake providers; do not restart the running installation.
+
+Implementation reuses `<dataDir>/suspended-turns/` and its existing bounds and request schema.
+Ready requests remain ready during queue restoration and maintenance; execution first claims them
+as `resuming`. Startup converts matching unclaimed queued messages into recoverable suspensions,
+then restores all scheduler ownership before dispatch, including unmanaged startup with a full
+32-entry waiting queue. Durable queued mode changes settle before promotion or cancellation.
+Canonical saved text supplies edits; original evidence is reconstructed only at execution time.
+Shared atomic-write helpers moved to `storage/atomicWrite.ts` so store startup can inspect the
+journal without a circular module dependency. Setup no longer tells users to keep CodeAI running.
+
+Verification: **209 focused unit checks** across 15 suites, **34 production-browser cases**
+(`queued-session-setup`, `lifecycle`), TypeScript, `git diff --check`, the isolated
+`.next-e2e/durable-queue` production build and independent review pass. Desktop/phone setup
+screenshots were inspected in light and dark themes. Regression tests exercise two fresh server
+processes without a managed parent, a full queue, edits/evidence/mode retention, failed builds,
+interrupted maintenance preparation, cancellation and durable mode-save races. Acceptance and
+maintenance-preparation regressions failed before their respective fixes.
+
+The full clean-environment run passes **2,317 of 2,319 checks**. The unchanged Google-font assertion
+in `visualLanguage.test.ts:15` also fails on archived HEAD. One Codex approval-event ordering
+assertion failed in the full run; all **117 `codexProcessRunner` checks pass** on isolated rerun.
+The attachment cleanup test now waits for the independent background title task to remove its
+temporary directory, instead of assuming foreground completion means title cleanup has finished.
+Initial sandbox/deployment-environment failures were resolved by running offline checks with
+deployment variables cleared and the required local fixture/server permissions.
+
+All checks use temporary data and fixture providers. Physical devices, real-provider turns and a
+managed restart of this installation were not rerun. The running application and the user's
+queued messages were not modified or restarted.

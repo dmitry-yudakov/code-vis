@@ -245,6 +245,7 @@ export async function submitMessage(
   let checkpointId: string | undefined;
   let suspendedProgress: ContinuationProgress | undefined;
   let suspensionRecord: SuspendedTurn | undefined;
+  let pendingRequest: SuspendedTurn;
   let preparationError: unknown;
   const abortController = new AbortController();
   const turnMode = new TurnMode(mode);
@@ -276,7 +277,15 @@ export async function submitMessage(
         const issue = await autoDataDirectoryIssue(config.dataDir, checkout.realPath);
         if (issue) return { ok: false, status: 409, error: issue };
       }
-      if (abortController.signal.aborted || !turnMode.change(next)) {
+      if (abortController.signal.aborted) {
+        return { ok: false, status: 409, error: 'That turn can no longer change mode.' };
+      }
+      if (!executing) {
+        const updated = { ...pendingRequest, request: { ...pendingRequest.request, mode: next } };
+        await journal.save(updated);
+        pendingRequest = updated;
+      }
+      if (!turnMode.change(next)) {
         return { ok: false, status: 409, error: 'That turn can no longer change mode.' };
       }
       return { ok: true };
@@ -334,16 +343,23 @@ export async function submitMessage(
     mode,
     ...(nativeMessageLevel(mode, policy.level) ? { level: 'native' as const } : {}),
   };
+  pendingRequest = recovery ?? {
+    version: 1, runId, hostId: host.id, checkoutPath: checkout.realPath, execution,
+    providerSessionId: participant.session.sessionId, state: 'ready', acceptedAt: userMessage.turn!.acceptedAt,
+    request: { ...data, mode }, progress: { attempt: 0, spentMs: 0, usedTurns: 0, continuation: false },
+  };
   let promotionFailed = false;
+  let requestSaveFailed = false;
   try {
     // Promote only after all message validation, inside the same writer boundary as file capacity.
     if (recovery) {
-      await journal.save({ ...recovery, state: 'resuming' });
       session = await store.resumeSuspendedMessage(session.id, data.messageId, runId);
     } else {
       const accepted = await store.appendUserMessage(session.id, userMessage, async () => {
         try { await promoteReportEvidence(config.dataDir, session.id, reportEvidence); }
         catch (error) { promotionFailed = true; throw error; }
+        try { await journal.save(pendingRequest); }
+        catch (error) { requestSaveFailed = true; throw error; }
       });
       session = accepted.session;
       if (!accepted.appended) {
@@ -355,9 +371,10 @@ export async function submitMessage(
     }
   } catch (error) {
     runRegistry.release(runId);
-    return safeJsonResponse({ error: promotionFailed
-      ? 'The attached report could not be saved on this machine. Your draft is preserved.' : publicError(error) },
-    { status: promotionFailed ? 503 : sessionStoreStatus(error) });
+    return safeJsonResponse({ error: requestSaveFailed
+      ? 'The request could not be saved on this machine. Your draft is preserved.' : promotionFailed
+        ? 'The attached report could not be saved on this machine. Your draft is preserved.' : publicError(error) },
+    { status: requestSaveFailed || promotionFailed ? 503 : sessionStoreStatus(error) });
   }
   // Every event goes through the registry so it is buffered for replay, then out to this stream.
   let doneEvent: Extract<AgentEvent, { type: 'done' }> | undefined;
@@ -374,7 +391,8 @@ export async function submitMessage(
     data.text = message.text;
     const record: SuspendedTurn = {
       version: 1, runId, hostId: host.id, checkoutPath: checkout.realPath, execution,
-      acceptedAt: message.turn!.acceptedAt, state: 'preparing',
+      acceptedAt: message.turn!.acceptedAt, state: executing ? 'preparing' : 'ready',
+      providerSessionId: serverAgent(current, participant!.id)?.session.sessionId, checkpointId,
       request: { ...data, mode: turnMode.mode },
       progress: recovery?.progress ?? { attempt: 0, spentMs: 0, usedTurns: 0, continuation: false },
     };
@@ -384,8 +402,6 @@ export async function submitMessage(
     if (!executing) {
       try {
         await store.suspendUserMessage(session.id, data.messageId);
-        await journal.save({ ...record, state: 'ready', providerSessionId: serverAgent(current, participant!.id)?.session.sessionId,
-          checkpointId });
         runRegistry.record(runId, { type: 'turn-activity', runId, turn: (await store.getSession(session.id)).messages
           .flatMap(item => item.role === 'user' && item.id === data.messageId && item.turn ? [item.turn] : [])[0] });
         runRegistry.record(runId, { type: 'done', runId, durationMs: 0, cancelled: false, suspended: true });
@@ -446,6 +462,9 @@ export async function submitMessage(
       const canonicalMessage = session.messages.find(message => message.id === data.messageId);
       if (!canonicalMessage || canonicalMessage.role !== 'user') throw new AgentRunError('internal', 'The queued message is unavailable.', 'not-sent');
       data.text = canonicalMessage.text;
+      // Claim before any execution side effects. Waiting restored turns remain ready so another
+      // process restart can restore them again; a started/uncertain attempt must never be replayed.
+      await journal.save({ ...pendingRequest, state: 'resuming', request: { ...data, mode: turnMode.mode } });
       await validateManagedPath(checkout.realPath, config);
       currentParticipant = serverAgent(session, participant.id) || currentParticipant;
       await beforeAttempt(turnMode.mode);

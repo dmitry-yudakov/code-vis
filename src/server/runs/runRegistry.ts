@@ -471,8 +471,14 @@ export class RunRegistry implements MaintenanceLease {
       return result;
     });
     // An unexpected validation failure must not poison later attempts.
-    run.modeChange = operation.catch(() => unavailable);
-    return operation;
+    const changing = operation.catch(() => unavailable);
+    run.modeChange = changing;
+    try {
+      return await changing;
+    } finally {
+      if (run.modeChange === changing) run.modeChange = undefined;
+      this.schedule();
+    }
   }
 
   /** Called only after the read-only provider has stopped. Writing access is kept until finish. */
@@ -595,9 +601,9 @@ export class RunRegistry implements MaintenanceLease {
     const run = this.liveByRunId.get(runId);
     if (!run) return 'unknown-run';
     if (run.cancelPromise) return run.cancelPromise;
-    if (run.editing) {
+    if (run.editing || run.startedAt === undefined && run.modeChange) {
       run.cancelling = true;
-      const cancellation = run.editing.catch(() => undefined).then(() => {
+      const cancellation = Promise.allSettled([run.editing, run.modeChange]).then(() => {
         run.cancelPromise = undefined;
         run.cancelling = false;
         return this.cancel(runId);
@@ -759,7 +765,7 @@ export class RunRegistry implements MaintenanceLease {
     while (this.runningCount() < this.maxConcurrentRuns) {
       const index = this.queue.findIndex((runId) => {
         const run = this.liveByRunId.get(runId);
-        return Boolean(run?.activated && !run.cancelling && !run.cancelBlocked && !run.editing && run.execute && this.eligible(run));
+        return Boolean(run?.activated && !run.cancelling && !run.cancelBlocked && !run.editing && !run.modeChange && run.execute && this.eligible(run));
       });
       if (index < 0) break;
       const [runId] = this.queue.splice(index, 1);
