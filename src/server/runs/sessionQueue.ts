@@ -9,6 +9,7 @@ export async function sessionQueueBlockers(
   session: DurableSession,
   checkout: ServerCheckout,
   registry: Pick<ReturnType<typeof getCheckoutRegistry>, 'refresh'>,
+  acceptedAt?: string,
 ): Promise<string[]> {
   const primary = primaryRepository(session)!;
   let paths: Map<string, string> | undefined;
@@ -16,6 +17,9 @@ export async function sessionQueueBlockers(
   for (const earlier of sessions) {
     const repository = primaryRepository(earlier);
     if (earlier.id === session.id || !earlier.lastActivity || repository?.hostId !== primary.hostId) continue;
+    // Recovery sees later saved conversations too. A newer follow-up in an earlier conversation
+    // still blocks; a conversation's first accepted message determines whether it preceded us.
+    if (acceptedAt && earlier.firstAcceptedAt && earlier.firstAcceptedAt > acceptedAt) continue;
     if (repository.checkoutId === checkout.id) { blockers.push(earlier.id); continue; }
     paths ??= new Map((await registry.refresh()).filter(item => !item.unavailableReason).map(item => [item.id, item.realPath]));
     const otherPath = paths.get(repository.checkoutId);

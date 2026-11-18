@@ -4,9 +4,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkSessionCompletion, completionContext } from '@/server/conversation/agentSessionArchive';
 import { getConfig } from '@/server/config';
-import { publicSession, arenaSessionSummary, SessionStore } from '@/server/storage/sessionStore';
+import { publicSession, arenaSessionSummary, completedArchiveReply, SessionStore } from '@/server/storage/sessionStore';
 import { RunRegistry } from '@/server/runs/runRegistry';
 import { durableSessionSchema } from '@/shared/sessionSchema';
+import { createTurn, finishTurn, updateActivity } from '@/shared/turnActivity';
 import { hydrateSession, reconcileSessionTitles } from '@/features/conversation/sessionStore';
 import type { AgentProcessRun, AgentProvider, ArenaMachineSnapshot, AssistantMessage } from '@/shared/types';
 
@@ -53,6 +54,37 @@ async function fixture(provider: AgentProvider = 'claude', allowed = true) {
 }
 
 describe('agent session archive permission', () => {
+  it('checks a completed canonical reply even when activity history was shortened', async () => {
+    const { store, session, user, reply, input } = await fixture();
+    const followup = { ...user, id: crypto.randomUUID(), text: 'Commit the verified changes.' };
+    const turn = updateActivity(createTurn(crypto.randomUUID(), followup.id, session.primaryAgentId,
+      new Date().toISOString()), 1, { kind: 'gap', key: 'retained-history', reason: 'Older activity was omitted.' });
+    expect(turn.incomplete).toBe(true);
+    await store.appendUserMessage(session.id, { ...followup, turn });
+    const final = { ...reply, id: crypto.randomUUID(), rawMarkdown: 'Committed. Working tree is clean.' };
+    const saved = await store.completeAssistantMessage(session.id, session.primaryAgentId, followup.id, final,
+      finishTurn(turn, 'completed'));
+    await checkSessionCompletion({ ...input, messageId: final.id });
+    expect(mocks.run).toHaveBeenCalledOnce();
+    expect((await store.getArchivedSession(session.id)).messages).toEqual(saved.messages);
+  });
+
+  it('requires a completed, delivered current reply independently of activity retention', async () => {
+    const { session, user, reply } = await fixture();
+    const turn = createTurn(crypto.randomUUID(), user.id, session.primaryAgentId, user.createdAt);
+    const sent = { ...user, status: 'sent' as const, turn: finishTurn(turn, 'completed') };
+    const current = { ...session, messages: [sent, reply] };
+    expect(completedArchiveReply(current, reply.id)).toEqual(reply);
+    for (const lifecycle of ['queued', 'running', 'suspended', 'interrupted', 'failed', 'cancelled'] as const) {
+      expect(completedArchiveReply({ ...current, messages: [{ ...sent, turn: { ...sent.turn, lifecycle } }, reply] }, reply.id)).toBeUndefined();
+    }
+    for (const status of ['sending', 'failed', 'cancelled'] as const) {
+      expect(completedArchiveReply({ ...current, messages: [{ ...sent, status }, reply] }, reply.id)).toBeUndefined();
+    }
+    expect(completedArchiveReply({ ...current, messages: [sent, { ...reply, planProposed: true }] }, reply.id)).toBeUndefined();
+    expect(completedArchiveReply(current, crypto.randomUUID())).toBeUndefined();
+  });
+
   it('defaults off, upgrades only opted-in records and projects permission publicly', async () => {
     const { store, session } = await fixture('claude', false);
     expect(session.allowAgentArchive).not.toBe(true);

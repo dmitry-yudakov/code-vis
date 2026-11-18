@@ -46,6 +46,9 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
   Verification: 2,297 unit checks, 15 production-browser cases, TypeScript, isolated build,
   light/dark desktop/phone screenshot inspection, real Claude/Codex read-only suspension probes
   and independent review pass; one unchanged Google-font assertion is recorded in the story.
+  The November 18 follow-up fixes restored queue dependency cycles and autoclose skipped by shortened
+  activity history; 213 focused unit checks, five production-browser journeys, TypeScript, isolated
+  build and independent review pass.
   The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 148](stories/STORY-20261118-observer-session-actions.md) — Observer acts as
   the user's assistant across sessions, with editable follow-ups, exact approval/denial previews,

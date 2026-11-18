@@ -40,7 +40,9 @@ import type {
   AgentMode, CanvasKind, DiagramArtifact, DurableSession, ImageAttachmentRecord, SketchCanvas, UserMessage, ServerCheckout,
 } from '@/shared/types';
 
-export async function submitMessage(request: Request, recovery?: SuspendedTurn): Promise<Response> {
+export async function submitMessage(
+  request: Request, recovery?: SuspendedTurn, laterQueuedSessions: ReadonlySet<string> = new Set(),
+): Promise<Response> {
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (contentLength > 6_000_000) return safeJsonResponse({ error: 'Request body is too large.' }, { status: 413 });
 
@@ -286,7 +288,9 @@ export async function submitMessage(request: Request, recovery?: SuspendedTurn):
   try {
     reservation = data.waitForCheckout
       ? await store.withActiveSessionSnapshot(async sessions => reserve(await sessionQueueBlockers(
-        sessions, session, checkout, getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth),
+        sessions.filter(item => !recovery || !laterQueuedSessions.has(item.id)),
+        session, checkout, getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth),
+        recovery?.acceptedAt,
       )))
       : reserve();
   } catch (error) {

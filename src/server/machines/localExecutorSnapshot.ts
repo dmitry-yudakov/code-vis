@@ -28,8 +28,8 @@ export async function localExecutorSnapshot(config = getConfig()): Promise<Execu
     checkouts,
     recentCheckoutIds: recentCheckoutIds(checkouts, sessions, machine.id),
     providers,
-    sessions: sessions.map(({ repositories, ...summary }) => summary),
-    archivedSessions: archivedSessions.map(({ repositories, ...summary }) => summary),
+    sessions: sessions.map(({ repositories, firstAcceptedAt, ...summary }) => summary),
+    archivedSessions: archivedSessions.map(({ repositories, firstAcceptedAt, ...summary }) => summary),
     runs: runRegistry.list(),
   };
 }

@@ -17,6 +17,33 @@ function message(session: DurableSession): UserMessage {
 }
 
 describe('queued session storage and scope', () => {
+  it('rebuilds predecessors from first acceptance, retaining newer follow-ups and conservative timestamp ties', async () => {
+    const store = new SessionStore(await mkdtemp(path.join(os.tmpdir(), 'codeai-queue-order-')));
+    try {
+      const project = await store.createProject('Main', ['main']);
+      const target = await store.createSession({ projectId: project.id, provider: 'claude' });
+      const earlier = await store.createSession({ projectId: project.id, provider: 'claude' });
+      const sameTime = await store.createSession({ projectId: project.id, provider: 'claude' });
+      const later = await store.createSession({ projectId: project.id, provider: 'claude' });
+      const cutoff = '2026-11-18T12:00:01.000Z';
+      for (const [session, acceptedAt] of [[earlier, '2026-11-18T12:00:00.000Z'], [sameTime, cutoff],
+        [later, '2026-11-18T12:00:02.000Z']] as const) {
+        // Legacy canonical messages have only createdAt, without a TurnRecord.
+        const original = { ...message(session), createdAt: acceptedAt, turn: undefined };
+        await store.appendUserMessage(session.id, original);
+      }
+      const followup = { ...message(earlier), createdAt: '2026-11-18T12:00:03.000Z' };
+      await store.appendUserMessage(earlier.id, followup);
+      const sessions = await store.listSessionSummaries();
+      expect(sessions.find(session => session.id === earlier.id)?.firstAcceptedAt).toBe('2026-11-18T12:00:00.000Z');
+      const checkout = { id: 'main', name: 'Main', relativePath: 'main', realPath: '/repos/main' };
+      const registry = { refresh: async () => [] };
+      expect((await sessionQueueBlockers(sessions, target, checkout, registry, cutoff)).sort()).toEqual([earlier.id, sameTime.id].sort());
+      // Ordinary admission still uses every currently saved conversation.
+      expect(await sessionQueueBlockers(sessions, target, checkout, registry)).toHaveLength(3);
+    } finally { await store.close(); }
+  });
+
   it('keeps canonical identity and evidence while rejecting stale, invalid, or cancelled edits', async () => {
     const store = new SessionStore(await mkdtemp(path.join(os.tmpdir(), 'codeai-queue-edit-')));
     try {

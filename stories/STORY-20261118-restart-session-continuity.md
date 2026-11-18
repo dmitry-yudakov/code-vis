@@ -70,3 +70,60 @@ the resumed inference recovers the previous random file token without reading th
 Independent review passes after fixing persistence, cleanup, capacity and Undo edge cases.
 The running application has not been rebuilt or restarted; a complete managed restart with
 mutating signed-in providers and physical Quest acceptance remain unverified.
+
+## Queue release and completion-check follow-up — November 18, 2026
+
+**Status:** Shipped.
+
+Two restored queued ideas can each acquire the other as an archive blocker: recovery repeats
+admission against a snapshot that now contains later accepted messages. Archiving the original
+working session then releases neither idea. Separately, a successfully completed reply can skip
+autoclose because its bounded activity history was shortened; history completeness does not describe
+whether the task finished. This follow-up preserves the Arena orchestration contract in
+[the vision](../docs/vision.md#the-arena).
+
+Where the code is: `src/server/lifecycle/resumeSuspendedTurns.ts:24` restores in accepted order;
+`src/server/conversation/submitMessage.ts:288` rebuilds archive blockers from canonical sessions;
+`src/server/runs/sessionQueue.ts:22` excludes conversations first accepted after a recovered idea;
+`src/server/storage/sessionStore.ts:84` decides whether a delivered reply can receive a completion
+check. `test/restartRecovery.test.ts:53` exercises real suspension, storage and provider dispatch.
+
+Recovery must exclude later conversations from an earlier entry's archive blockers, including
+restored queue entries whose preflight fails and later ordinary sessions already idle. Derive
+first acceptance from the first user message's turn, falling back to its creation time for legacy
+records; keep this metadata server-only. Equal-time ordinary sessions remain blockers conservatively,
+since legacy storage cannot establish their order; journal order distinguishes restored queued ties.
+Keep earlier idle conversations and normal follow-ups as blockers; retain exclusive checkout
+scheduling, evidence, edits, identity and conservative handling
+of uncertain journals. Completed canonical question/reply pairs remain eligible for the existing
+tool-free completion decision when activity detail was omitted. Interrupted, failed, cancelled,
+pending and plan-only replies stay ineligible. No live session data is edited for this repair.
+
+- [x] After a working turn and two queued ideas survive restart, archiving the working conversation
+      starts only the first idea. Its reply alone does not release the second; its archive does.
+- [x] Recovery also advances when the predecessor was archived while offline, and a later queue
+      entry that cannot resume does not block earlier work. Saved edits/evidence and message/run
+      identities survive; earlier idle conversations and normal follow-ups still block. Later ordinary
+      conversations, including old empty shells first used later, do not become predecessors.
+- [x] Autoclose checks a fully delivered completed reply with shortened activity history, while
+      unfinished, stale, declined and plan-only cases retain their existing guards.
+- [x] Regressions fail before the fix; focused tests, TypeScript, isolated build and independent
+      review pass. Record any wider verification limits.
+
+How to verify: run `restartRecovery`, `restartStartup`, `sessionQueue`, `runScheduler`,
+`messageSchedulerRoutes`, `agentSessionArchive`, `sessionStore`, `localExecutorSnapshot`,
+`workspaceFeed` and `turnHistoryConversation` tests;
+typecheck and build into an isolated output directory. Use fixture providers and temporary stores
+for recovery tests, and run the existing queue/autoclose production-browser journeys.
+
+Verification: all **213 focused unit checks** across 17 suites pass, as do `npm run lint`,
+`git diff --check` and the isolated `.next-e2e/restart-queue-fix` production build. Five existing
+production-browser journeys pass against the final bundle: archive releases a queued idea,
+reload/follow-up archive gating, KEEP_OPEN, enabling permission during execution, and checking a
+newer completed follow-up. The new queue-cycle, later-idle/shell and shortened-history regressions
+failed before their respective fixes. Independent read-only review found the later-idle case;
+its regression now passes and final review has no remaining findings.
+
+The checks use fake providers and temporary session data. No UI was changed; physical devices,
+real-provider completion decisions and a managed restart of this installation were not rerun.
+The running application and the user's queued messages were not modified or restarted.

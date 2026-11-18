@@ -22,7 +22,11 @@ async function resume(config: AppConfig): Promise<void> {
   if (!records.length) return;
   const store = getSessionStore(config.dataDir, config.hostLabel);
   await store.host(); // Acquire the canonical store's process-wide writer lock before claiming work.
+  // Later ideas already have saved messages now, but were not predecessors at original admission.
+  // Include unresumable records too: their preflight failure must not prevent earlier work.
+  const laterQueuedSessions = new Set(records.filter(turn => turn.request.waitForCheckout).map(turn => turn.request.sessionId));
   for (const turn of records) {
+    laterQueuedSessions.delete(turn.request.sessionId);
     try {
       const session = await store.getSession(turn.request.sessionId);
       const message = session.messages.find(item => item.id === turn.request.messageId);
@@ -36,7 +40,7 @@ async function resume(config: AppConfig): Promise<void> {
       }
       const response = await submitMessage(new Request('http://codeai.internal/resume', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(turn.request),
-      }), turn);
+      }), turn, laterQueuedSessions);
       if (response.status !== 202) console.error(`CodeAI restart recovery: ${turn.runId} remains suspended (${response.status}).`);
     } catch {
       console.error(`CodeAI restart recovery: ${turn.runId} could not resume. Its saved request was retained.`);

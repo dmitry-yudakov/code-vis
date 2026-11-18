@@ -87,7 +87,8 @@ export function completedArchiveReply(session: DurableSession, messageId: string
   return reply?.role === 'assistant' && reply.id === messageId && reply.status === 'complete'
     && !reply.planProposed && user?.role === 'user' && user.status === 'sent'
     && user.addressedParticipantId === reply.authorId
-    && (!user.turn || user.turn.lifecycle === 'completed' && !user.turn.incomplete)
+    // Activity retention gaps do not undo a successfully committed question/reply pair.
+    && (!user.turn || user.turn.lifecycle === 'completed')
     ? reply : undefined;
 }
 
@@ -298,7 +299,7 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
 }
 
 /** Repository bindings stay server-local for recent-checkout ordering. Only the bounded excerpt is retained. */
-type StoredSessionSummary = ArenaSessionSummary & Pick<DurableSession, 'repositories'>;
+type StoredSessionSummary = ArenaSessionSummary & Pick<DurableSession, 'repositories'> & { firstAcceptedAt?: string };
 
 export function serverAgent(
   session: DurableSession,
@@ -544,9 +545,11 @@ export class SessionStore {
         const stamp = `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeNs}:${metadata.ctimeNs}`;
         let cached = this.sessionSummaries.get(file);
         if (cached?.stamp !== stamp) {
-          const value = this.readSessionFile(file).then(session => ({
-            ...arenaSessionSummary(session), repositories: session.repositories,
-          })).catch(skipNewerFormat).catch(error => {
+          const value = this.readSessionFile(file).then(session => {
+            const first = session.messages.find(message => message.role === 'user');
+            return { ...arenaSessionSummary(session), repositories: session.repositories,
+              firstAcceptedAt: first?.turn?.acceptedAt ?? first?.createdAt };
+          }).catch(skipNewerFormat).catch(error => {
             // Do not let one failed read poison retries, or evict a newer in-flight version.
             if (this.sessionSummaries.get(file)?.value === value) this.sessionSummaries.delete(file);
             throw error;

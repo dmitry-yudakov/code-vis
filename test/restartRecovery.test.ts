@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentErrorCode, AgentProcessRun, AgentProcessResult } from '@/shared/types';
+import type { AgentErrorCode, AgentProcessRun, AgentProcessResult, DurableSession } from '@/shared/types';
 
 const provider = vi.hoisted(() => ({
   jobs: [] as Array<{ input: AgentProcessRun; finish(): void }>,
@@ -44,6 +44,7 @@ import { CodeAiLifecycle } from '@/server/lifecycle/codeAiLifecycle';
 import { SuspendedTurns } from '@/server/lifecycle/suspendedTurns';
 import { resumeSuspendedTurns } from '@/server/lifecycle/resumeSuspendedTurns';
 import { getTurnCheckpoints } from '@/server/repository/turnCheckpoints';
+import { POST as archiveSession } from '@/app/api/sessions/[sessionId]/archive/route';
 import type { ManagedBridge } from '@/server/lifecycle/managedBridge';
 import type { ServerLifecycleMessage } from '@/shared/codeAiLifecycle';
 
@@ -69,6 +70,7 @@ describe.sequential('planned restart recovery', () => {
   });
   afterEach(async () => {
     runRegistry.releaseMaintenance();
+    await Promise.all(runRegistry.currentRuns.filter(run => run.startedAt === undefined).map(run => runRegistry.cancel(run.runId)));
     for (const job of provider.jobs) job.finish();
     await Promise.all(runRegistry.currentRuns.map(run => runRegistry.wait(run.runId)));
     await getSessionStore(dataDir).close();
@@ -78,9 +80,9 @@ describe.sequential('planned restart recovery', () => {
     vi.unstubAllEnvs();
   });
 
-  async function send(extra: Record<string, unknown> = {}) {
+  async function send(extra: Record<string, unknown> = {}, existingSession?: DurableSession) {
     const store = getSessionStore(dataDir);
-    const session = await store.createSession({ provider: 'claude', checkoutId });
+    const session = existingSession ?? await store.createSession({ provider: 'claude', checkoutId });
     const request = { sessionId: session.id, participantId: session.primaryAgentId, messageId: crypto.randomUUID(),
       text: 'Continue implementing the requested work.', diagramAttachments: [], imageAttachments: [image], mode: 'ask', ...extra };
     const response = await submitMessage(new Request('http://localhost/message', { method: 'POST', body: JSON.stringify(request) }));
@@ -104,6 +106,129 @@ describe.sequential('planned restart recovery', () => {
     runRegistry.releaseMaintenance(); // Simulates the old process's in-memory ownership ending.
     await resumeSuspendedTurns(getConfig());
   }
+
+  async function archive(sessionId: string) {
+    const session = await getSessionStore(dataDir).getSession(sessionId);
+    const response = await archiveSession(new Request('http://localhost/archive', {
+      method: 'POST', body: JSON.stringify({ expectedRevision: session.revision }),
+    }), { params: Promise.resolve({ sessionId }) });
+    expect(response.status, await response.clone().text()).toBe(200);
+  }
+
+  it.each([false, true])('releases restored ideas in order after archive (predecessor archived offline: %s)', async archivedOffline => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    const queued = await send({ waitForCheckout: true });
+    const later = await send({ waitForCheckout: true });
+    await runRegistry.editQueuedMessage(queued.runId, 'Edited queued work', queued.request.text);
+    const managed = lifecycle();
+    managed.instance.start();
+    await vi.waitFor(async () => expect((await new SuspendedTurns(dataDir).list()).filter(turn => turn.state === 'ready')).toHaveLength(2));
+    if (archivedOffline) provider.jobs[0].finish();
+    else provider.jobs[0].input.emit({ type: 'response-boundary', responseFinal: false });
+    await vi.waitFor(() => expect(managed.sent).toHaveLength(1));
+    if (archivedOffline) {
+      const store = getSessionStore(dataDir);
+      const session = await store.getSession(first.session.id);
+      await store.archiveSession(session.id, session.revision);
+    }
+    await coldStart();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(2));
+    if (!archivedOffline) {
+      expect(provider.jobs[1].input.runId).toBe(first.runId);
+      provider.jobs[1].finish();
+      await runRegistry.wait(first.runId);
+      expect(runRegistry.currentRuns.find(run => run.runId === queued.runId)?.state).toBe('queued');
+      await archive(first.session.id);
+      await vi.waitFor(() => expect(provider.jobs).toHaveLength(3));
+    }
+    const job = provider.jobs.at(-1)!;
+    expect(job.input.runId).toBe(queued.runId);
+    expect(job.input.prompt).toContain('Edited queued work');
+    expect(runRegistry.currentRuns.find(run => run.runId === later.runId)?.state).toBe('queued');
+    job.finish();
+    await runRegistry.wait(queued.runId);
+    const saved = await getSessionStore(dataDir).getSession(queued.session.id);
+    expect(saved.messages).toHaveLength(2);
+    expect(saved.messages[0]).toMatchObject({ id: queued.request.messageId, text: 'Edited queued work',
+      imageAttachments: [{ mediaType: 'image/png' }], turn: { runId: queued.runId, lifecycle: 'completed' } });
+    expect(runRegistry.currentRuns.find(run => run.runId === later.runId)?.state).toBe('queued');
+    await archive(queued.session.id);
+    await vi.waitFor(() => expect(provider.jobs.at(-1)?.input.runId).toBe(later.runId));
+    provider.jobs.at(-1)!.finish();
+    await runRegistry.wait(later.runId);
+    expect((await getSessionStore(dataDir).getSession(later.session.id)).messages).toHaveLength(2);
+    expect(await new SuspendedTurns(dataDir).list()).toEqual([]);
+  });
+
+  it('retains earlier idle/follow-up blockers without letting an unresumable later idea block them', async () => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    const queued = await send({ waitForCheckout: true });
+    const later = await send({ waitForCheckout: true });
+    const response = await submitMessage(new Request('http://localhost/message', { method: 'POST',
+      body: JSON.stringify({ ...first.request, messageId: crypto.randomUUID(), text: 'A normal follow-up.' }) }));
+    expect(response.status).toBe(202);
+    const followupRunId = response.headers.get('X-CodeAI-Run-Id')!;
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(2));
+    const managed = lifecycle();
+    managed.instance.start();
+    await vi.waitFor(async () => expect((await new SuspendedTurns(dataDir).list()).filter(turn => turn.state === 'ready')).toHaveLength(2));
+    provider.jobs[1].input.emit({ type: 'response-boundary', responseFinal: false });
+    await vi.waitFor(() => expect(managed.sent).toHaveLength(1));
+    const journal = new SuspendedTurns(dataDir);
+    // Current host validation rejects the later idea and preserves it for recovery.
+    await journal.save({ ...(await journal.get(later.runId))!, hostId: crypto.randomUUID() });
+    await getSessionStore(dataDir).close();
+    scope.__codeAiSessionStores?.delete(dataDir);
+    runRegistry.releaseMaintenance();
+    expect(runRegistry.holdStartupRecovery()).toBe('acquired');
+    await resumeSuspendedTurns(getConfig());
+    expect(provider.jobs).toHaveLength(2);
+    runRegistry.releaseMaintenance();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(3));
+    expect(provider.jobs[2].input.runId).toBe(followupRunId);
+    provider.jobs[2].finish();
+    await runRegistry.wait(followupRunId);
+    expect(runRegistry.currentRuns.find(run => run.runId === queued.runId)?.state).toBe('queued');
+    await archive(first.session.id);
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(4));
+    expect(provider.jobs[3].input.runId).toBe(queued.runId);
+    provider.jobs[3].finish();
+    await runRegistry.wait(queued.runId);
+    expect((await journal.list()).map(turn => turn.runId)).toEqual([later.runId]);
+    expect((await getSessionStore(dataDir).getSession(later.session.id)).messages[0]).toMatchObject({
+      status: 'sending', turn: { lifecycle: 'suspended' },
+    });
+  });
+
+  it.each([false, true])('does not add a later idle conversation as a restored idea\'s predecessor (shell created earlier: %s)', async earlierShell => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    const shell = earlierShell ? await getSessionStore(dataDir).createSession({ provider: 'claude', checkoutId }) : undefined;
+    const queued = await send({ waitForCheckout: true });
+    const later = await send({}, shell);
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(2));
+    provider.jobs[1].finish();
+    await runRegistry.wait(later.runId);
+    const managed = lifecycle();
+    managed.instance.start();
+    await vi.waitFor(async () => expect((await new SuspendedTurns(dataDir).list()).some(turn => turn.runId === queued.runId && turn.state === 'ready')).toBe(true));
+    provider.jobs[0].input.emit({ type: 'response-boundary', responseFinal: false });
+    await vi.waitFor(() => expect(managed.sent).toHaveLength(1));
+    await coldStart();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(3));
+    provider.jobs[2].finish();
+    await runRegistry.wait(first.runId);
+    await archive(first.session.id);
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(4));
+    expect(provider.jobs[3].input.runId).toBe(queued.runId);
+    provider.jobs[3].finish();
+    await runRegistry.wait(queued.runId);
+    expect((await getSessionStore(dataDir).getSession(later.session.id)).archivedAt).toBeUndefined();
+  });
 
   it('waits for response and cleanup, retains failed-build suspensions, then resumes on a manual cold start', async () => {
     const sent = await send();
