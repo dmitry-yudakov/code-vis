@@ -191,6 +191,10 @@ phone run; a mocked speech API is insufficient. Background/locked-phone operatio
 
 ## Out of scope
 
+The original action restrictions below are extended by
+[Story 148](STORY-20261118-observer-session-actions.md): confirmed permission decisions, queued
+corrections, run cancellation and the existing Build & restart confirmation are now available.
+
 Autonomous follow-ups, scheduled model scans, proactive spoken announcements, rules, session
 creation/archive/cancel controls, bulk actions, permission approvals, direct repository edits,
 durable Observer history, archived-history search, wake words, background/locked-phone audio,

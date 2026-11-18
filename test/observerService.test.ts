@@ -30,6 +30,24 @@ async function setup() {
 }
 
 describe('Observer inference', () => {
+  it('returns validated actions and treats pending previews as bounded data for corrections', async () => {
+    const { config, input, arena } = await setup();
+    const runId = crypto.randomUUID(), requestId = crypto.randomUUID();
+    arena.machines[0].runs.active = [{ runId, sessionId, state: 'needs-you', pendingPermissionCount: 1,
+      pendingPermissions: [{ requestId, tool: 'Bash', detail: 'npm test' }] } as never];
+    const action = { kind: 'permission', machineId, sessionId, runId, requestId, decision: 'allow' };
+    mocks.run.mockResolvedValueOnce({ finalText: JSON.stringify({ answer: 'Review this request.', action }) });
+    await expect(askObserver({ ...input, pending: { machineId, sessionId, text: '界'.repeat(8000) } }, new AbortController().signal, config)).resolves.toMatchObject({ action });
+    const request = mocks.run.mock.calls[0][0] as AgentProcessRun;
+    const data = JSON.parse(request.prompt.slice(request.prompt.indexOf('\n') + 1));
+    expect(data.context.rows[0]).toMatchObject({ runId, pending: [{ requestId }] });
+    expect(new TextEncoder().encode(data.pending.text).length).toBeLessThanOrEqual(1800);
+    expect(data.pendingMayBeTruncated).toBe(true);
+    expect(request.policy).toMatchObject({ tools: [], interactivePermissions: false });
+    await askObserver({ ...input, pending: { machineId, sessionId, text: '\u0000'.repeat(8000) } }, new AbortController().signal, config);
+    const escaped = JSON.parse(mocks.run.mock.calls[1][0].prompt.split('\n').slice(1).join('\n'));
+    expect(new TextEncoder().encode(JSON.stringify(escaped.pending)).length).toBeLessThanOrEqual(2048);
+  });
   it('uses fresh isolated tool-free inference and shared authoritative observations', async () => {
     const { config, input } = await setup();
     const result = await askObserver(input, new AbortController().signal, config);

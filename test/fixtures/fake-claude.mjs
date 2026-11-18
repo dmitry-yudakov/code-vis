@@ -74,8 +74,17 @@ if (args.includes('--no-session-persistence')) {
     const data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1));
     const row = data.context.rows.find(row => data.currentQuestion.includes(row.sessionId)) ?? data.context.rows[0];
     const target = row && { machineId: row.machineId, sessionId: row.sessionId };
+    const question = data.currentQuestion.toLowerCase();
+    const management = question.includes('build and restart') ? { kind: 'build-and-restart' }
+      : target && row.runId && (question.includes('approve session') || question.includes('deny session')) && row.pending?.[0]
+        ? { kind: 'permission', ...target, runId: row.runId, requestId: row.pending[0].requestId,
+          decision: question.includes('deny session') ? 'deny' : 'allow' }
+        : target && row.runId && question.includes('cancel turn') ? { kind: 'cancel-turn', ...target, runId: row.runId } : undefined;
     const result = data.currentQuestion.includes('[observer-invalid]') ? 'invalid'
-      : JSON.stringify(data.currentQuestion.toLowerCase().includes('tell') && target
+      : JSON.stringify(management ? { answer: 'Review this action before confirming.', action: management, mentions: target ? [target] : [] }
+        : question.includes('change that message') && data.pending
+          ? { answer: 'Here is the corrected message.', proposal: { ...data.pending, text: 'Run focused tests before continuing.' } }
+        : data.currentQuestion.toLowerCase().includes('tell') && target
         ? { answer: 'I can send this follow-up.', proposal: { ...target, text: 'Use the existing library and continue.' }, mentions: [target] }
         : data.currentQuestion.toLowerCase().includes('what did') && target && !data.detail
           ? { answer: 'Reading the saved reply.', inspect: target }

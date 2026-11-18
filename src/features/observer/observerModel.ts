@@ -10,10 +10,10 @@ export function observerContext(machines: ArenaMachineSnapshot[], offset = 0, qu
     counts[state] = (counts[state] ?? 0) + 1;
     return { machineId: machine.machine.id, sessionId: session.id, machine: machine.machine.label.slice(0, 100),
       title: session.title.slice(0, 200), project: machine.projects.find(project => project.id === session.projectId)?.name.slice(0, 200) ?? 'No project',
-      state, revision: session.revision, lastSeenAt: machine.machine.lastSeenAt,
+      state, runId: run?.runId, revision: session.revision, lastSeenAt: machine.machine.lastSeenAt,
       lastMessage: session.lastMessage && { ...session.lastMessage, author: session.lastMessage.author.slice(0, 100), text: session.lastMessage.text.slice(0, 600) },
       pendingCount: run?.pendingPermissionCount ?? 0,
-      pending: run?.pendingPermissions.slice(0, 3).map(p => ({ tool: p.tool.slice(0, 120), detail: p.detail?.slice(0, 240) })) };
+      pending: run?.pendingPermissions.slice(0, 3).map(p => ({ requestId: p.requestId, tool: p.tool.slice(0, 120), detail: p.detail?.slice(0, 240) })) };
   }));
   const normalized = (text: string) => ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
   const query = normalized(question);
@@ -33,9 +33,13 @@ export function observerContext(machines: ArenaMachineSnapshot[], offset = 0, qu
 }
 
 /** Only these exact utterances can confirm the currently displayed preview. */
-export function observerCommand(text: string): 'send' | 'cancel' | 'stop' | 'more' | 'check' | undefined {
+export function observerCommand(text: string): 'send' | 'approve' | 'deny' | 'correct' | 'cancel-turn' | 'cancel' | 'stop' | 'more' | 'check' | undefined {
   const normalized = text.trim().toLowerCase().replace(/[.!?]+$/, '');
   if (['send it', 'yes, send it', 'yes send it', 'confirm send'].includes(normalized)) return 'send';
+  if (['approve it', 'confirm approval'].includes(normalized)) return 'approve';
+  if (['deny it', 'confirm denial'].includes(normalized)) return 'deny';
+  if (['save correction', 'confirm correction'].includes(normalized)) return 'correct';
+  if (['confirm cancel turn', 'stop that turn'].includes(normalized)) return 'cancel-turn';
   if (['cancel', 'cancel that', 'discard'].includes(normalized)) return 'cancel';
   if (['stop listening', 'stop voice'].includes(normalized)) return 'stop';
   if (['more', 'show more'].includes(normalized)) return 'more';

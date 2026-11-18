@@ -3065,6 +3065,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         selection={offeredModelSelection(preferences.models?.[observerProvider], observerProviders?.[observerProvider])}
         onProvider={provider => updatePreferences(current => ({ ...current, provider }))}
         blockedReason={lifecycle.busy ? 'CodeAI is restarting. The message is kept.' : undefined}
+        canBuildRestart={lifecycle.canRequest}
+        onBuildRestart={() => {
+          if (!lifecycle.canRequest) throw new Error(lifecycle.status || 'Build & restart requires CodeAI to be running with npm run start:managed on the home machine.');
+          setObserverOpen(false); lifecycle.ask();
+        }}
         onClose={() => setObserverOpen(false)} />
       {!loading && <MachineSettingsDialog
         open={machineSettingsOpen}

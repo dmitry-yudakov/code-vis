@@ -29,12 +29,18 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-17. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-18. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 148](stories/STORY-20261118-observer-session-actions.md) — Observer acts as
+  the user's assistant across sessions, with editable follow-ups, exact approval/denial previews,
+  run cancellation, queued corrections and the existing home Build & restart flow. All 228 focused
+  unit checks, 25 production-browser cases, TypeScript, isolated build, both-theme desktop/phone
+  screenshot inspection and independent review pass; a transient provider-test failure is recorded
+  in the story. The running application has not been rebuilt or restarted.
 - **In flight:** [Story 147](stories/STORY-20261117-global-observer.md) — More → Observer adds global
   text/voice briefings and confirmed follow-ups, with independent drafts and exact-send recovery.
   Production-browser journeys, both-theme desktop/phone screenshots, isolated build, TypeScript,

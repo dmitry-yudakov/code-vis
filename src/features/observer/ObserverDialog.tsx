@@ -19,14 +19,16 @@ import { observerContext } from './observerModel';
 import { useObserver } from './useObserver';
 import { runObserverVoice } from './observerVoice';
 import type { ReplyOptions } from './observerDelivery';
+import { observerActionLabel } from './observerActions';
 
 export function ObserverDialog(props: {
   open: boolean; compact: boolean; location: string; machines: ArenaMachineSnapshot[]; localMachineId?: string;
   provider: AgentProvider; providers?: Record<AgentProvider, ProviderHealth>; selection: ModelSelection;
   onProvider(provider: AgentProvider): void; options: ReplyOptions; blockedReason?: string; onClose(): void;
+  canBuildRestart: boolean; onBuildRestart(): void;
 }) {
   const observer = useObserver({ open: props.open, machines: props.machines, localMachineId: props.localMachineId,
-    options: props.options, blockedReason: props.blockedReason });
+    options: props.options, blockedReason: props.blockedReason, onBuildRestart: () => { props.onBuildRestart(); stopVoice(); } });
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState('');
   const [voiceName, setVoiceName] = useState('');
@@ -56,7 +58,7 @@ export function ObserverDialog(props: {
     document.addEventListener('visibilitychange', hidden);
     return () => { document.removeEventListener('visibilitychange', hidden); voice.current?.abort(); voice.current = undefined; };
   }, [props.open, props.location]);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [observer.messages.length, observer.delivery]);
+  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [observer.messages.length, observer.delivery, observer.actionPreview]);
   const close = () => { stopVoice(); props.onClose(); };
   const ask = () => { void observer.ask(observer.draft, props.provider, props.selection); };
   return <Dialog open={props.open} onClose={close} fullWidth maxWidth="sm" fullScreen={props.compact}
@@ -77,7 +79,7 @@ export function ObserverDialog(props: {
       <Typography variant="caption" color="text.secondary">Session excerpts are shared with {props.provider === 'claude' ? 'Claude' : 'Codex'} on the home machine, including attached machines.</Typography>
       {voiceStatus && <Typography role="status" variant="body2">{voiceStatus}{voiceName ? ` · ${voiceName}` : ''}</Typography>}
       <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 80 }} aria-label="Observer conversation" tabIndex={0}>
-        {!observer.messages.length && <Typography color="text.secondary" sx={{ mb: 2 }}>Ask “What needs me?” or ask about a session.</Typography>}
+        {!observer.messages.length && <Typography color="text.secondary" sx={{ mb: 2 }}>Your assistant for managing all sessions. Ask for a briefing, send a message, review an approval, or make a correction.</Typography>}
         {observer.messages.map((message, index) => <Box key={index} sx={{ mb: 2 }}>
           <Typography variant="caption" color="text.secondary">{message.role === 'user' ? 'You' : 'Observer'}</Typography>
           <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</Typography>
@@ -98,13 +100,35 @@ export function ObserverDialog(props: {
       {observer.delivery && <Alert severity="info" icon={false} sx={{ flexShrink: 0, maxHeight: '35dvh', overflowY: 'auto' }}>
         <Typography variant="subtitle2">{observer.delivery.title}</Typography>
         <Typography variant="caption">{observer.delivery.mode} · {observer.delivery.modelSelection.model ?? 'Default model'}{observer.delivery.modelSelection.effort ? ` · ${observer.delivery.modelSelection.effort}` : ''}</Typography>
-        <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', my: 1 }}>{observer.delivery.text}</Typography>
+        {observer.delivery.attempted
+          ? <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', my: 1 }}>{observer.delivery.text}</Typography>
+          : <TextField label="Message to session" multiline fullWidth size="small" maxRows={5} sx={{ my: 1 }}
+            value={observer.delivery.text} disabled={observer.busy || voiceActive}
+            slotProps={{ htmlInput: { maxLength: 8000 } }} onChange={event => observer.editDelivery(event.target.value)} />}
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-          <Button disabled={observer.busy || voiceActive} variant="contained" onClick={() => void observer.confirm()}>{observer.delivery.attempted ? 'Retry send' : 'Send follow-up'}</Button>
+          <Button disabled={observer.busy || voiceActive || !observer.delivery.text.trim()} variant="contained" onClick={() => void observer.confirm()}>{observer.delivery.attempted ? 'Retry send' : 'Send follow-up'}</Button>
           {observer.delivery.attempted
             ? <Button disabled={observer.busy || voiceActive} onClick={() => void observer.check()}>Check delivery</Button>
             : <Button disabled={observer.busy || voiceActive} onClick={() => { observer.cancel(); }}>Cancel message</Button>}
           <Button component={Link} href={workspaceHref(observer.delivery, props.localMachineId)} onClick={close}>Open session</Button>
+        </Stack>
+      </Alert>}
+      {observer.actionPreview && <Alert severity="warning" icon={false} sx={{ flexShrink: 0, maxHeight: '40dvh', overflowY: 'auto' }}>
+        <Typography variant="subtitle2">{observer.actionPreview.title}</Typography>
+        <Typography variant="subtitle2">{observerActionLabel(observer.actionPreview)}</Typography>
+        {observer.actionPreview.permission && <>
+          <Typography>{observer.actionPreview.permission.tool}</Typography>
+          <Typography component="pre" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace' }}>{observer.actionPreview.permission.detail}</Typography>
+        </>}
+        {observer.actionPreview.action.kind === 'edit-queued' && <>
+          <Box component="details"><Box component="summary">Original message</Box><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{observer.actionPreview.original?.text}</Typography></Box>
+          <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', my: 1 }}>{observer.actionPreview.action.text}</Typography>
+        </>}
+        {observer.actionPreview.action.kind === 'cancel-turn' && <Typography>Stop this running or queued turn. Changes already made are kept.</Typography>}
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+          <Button variant="contained" disabled={observer.busy} onClick={() => { stopVoice(); void observer.confirmAction(); }}>{observerActionLabel(observer.actionPreview)}</Button>
+          <Button disabled={observer.busy || voiceActive} onClick={() => { observer.cancel(); }}>Discard preview</Button>
+          <Button component={Link} href={workspaceHref(observer.actionPreview.action, props.localMachineId)} onClick={close}>Open session</Button>
         </Stack>
       </Alert>}
       {observer.error && <Alert severity="error">{observer.error}</Alert>}
@@ -122,6 +146,9 @@ export function ObserverDialog(props: {
         </Stack>
       </Box>
     </DialogContent>
-    <DialogActions><Button onClick={close}>Close</Button></DialogActions>
+    <DialogActions>
+      {props.canBuildRestart && <Button disabled={observer.busy} onClick={() => { stopVoice(); props.onBuildRestart(); }}>Build &amp; restart CodeAI</Button>}
+      <Button onClick={close}>Close</Button>
+    </DialogActions>
   </Dialog>;
 }

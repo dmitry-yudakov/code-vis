@@ -60,4 +60,24 @@ describe('Observer context and contract', () => {
     expect(observerRequestSchema.safeParse({ text: 'Status?', provider: 'claude', machines: [] }).success).toBe(false);
     expect(observerRequestSchema.safeParse({ text: 'Status?', provider: 'claude', history: Array(7).fill({ role: 'user', text: 'Hi' }) }).success).toBe(false);
   });
+
+  it('binds management actions to the observed run and permission and permits only one operation', () => {
+    const home = machine();
+    const runId = '40000000-0000-4000-8000-000000000001';
+    const requestId = '50000000-0000-4000-8000-000000000001';
+    home.runs.active = [{ runId, sessionId, state: 'needs-you', pendingPermissionCount: 1,
+      pendingPermissions: [{ requestId, tool: 'Bash', detail: 'npm test' }] } as never];
+    const context = observerContext([home]);
+    const action = { kind: 'permission', machineId, sessionId, runId, requestId, decision: 'allow' };
+    const parse = (value: unknown) => parseObserverAnswer(JSON.stringify(value), context);
+    expect(parse({ answer: 'Review this approval.', action })).toMatchObject({ action });
+    expect(parse({ answer: 'Wrong request', action: { ...action, requestId: runId } })).toBeUndefined();
+    expect(parse({ answer: 'Wrong run', action: { ...action, runId: requestId } })).toBeUndefined();
+    expect(parse({ answer: 'Two actions', action, proposal: { machineId, sessionId, text: 'Continue' } })).toBeUndefined();
+    expect(parse({ answer: 'Read first', action, inspect: { machineId, sessionId } })).toBeUndefined();
+    expect(parse({ answer: 'Review restart', action: { kind: 'build-and-restart' } })).toMatchObject({ action: { kind: 'build-and-restart' } });
+    expect(parse({ answer: 'Already running', action: { kind: 'edit-queued', machineId, sessionId, runId, text: 'Correction' } })).toBeUndefined();
+    home.runs.active[0].state = 'queued';
+    expect(parseObserverAnswer(JSON.stringify({ answer: 'Correct it', action: { kind: 'edit-queued', machineId, sessionId, runId, text: 'Correction' } }), observerContext([home]))).toBeDefined();
+  });
 });
