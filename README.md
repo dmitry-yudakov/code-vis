@@ -807,7 +807,11 @@ profiles can share this limit; the pre-existing six-run-response HTTP/1 ceiling 
 
 ## Participants, roles, and manual handoffs
 
-A new session starts with one main `coder`. The main designation is only the default
+A new session starts with one main agent, initially a `coder`. Provider chips keep Claude and Codex
+visible in session setup and Add participant. An explicit role choice is remembered on this device
+for later sessions and participants; existing agents keep their roles. Without a remembered choice,
+Add participant starts at Reviewer. The agent menu separates **Next message to** from **Draft a
+message** shortcuts, which only prefill an editable message. The main designation is only the default
 recipient: select any `@participant` for the next message or make that participant main without
 moving its provider session. Add Claude or Codex participants with one of five transparent prompt
 presets: `orchestrator`, `coder`, `reviewer`, `tester`, or `custom`. Provider and role are
@@ -1326,8 +1330,9 @@ environment of whoever starts CodeAI.**
   identifies the conversation independently. The browser writes no
   transcript, canvas, roster, annotation, project, or repository-binding content there. Reloading
   or a second browser context sees committed host content after refetch, with its own layout.
-- A second device record, `code-ai:device:v1:preferences`, keeps the last mode, the last provider
-  and Global instructions choice for a new session, and the last model and effort for each provider. Execution is not remembered:
+- A second device record, `code-ai:device:v1:preferences`, keeps the last mode, provider and role
+  for new sessions/participants, the Global instructions choice for a new session, and the last model
+  and effort for each provider. Execution is not remembered:
   Docker Agent edits without individual approvals, so Docker stays an explicit choice for each new
   session. New Local sessions inherit Ask, Plan, Agent, or Auto where supported; a Docker session
   never inherits Agent or Auto as its mode.

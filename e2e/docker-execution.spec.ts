@@ -225,7 +225,7 @@ test('project creation offers Docker without a host provider and keeps the selec
   readiness.dockerReady = true;
   await page.reload();
   await welcome.getByRole('combobox', { name: 'Execution', exact: true }).selectOption('docker');
-  await expect(welcome.getByRole('combobox', { name: 'New session provider' })).toHaveValue('claude');
+  await expect(welcome.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await welcome.getByRole('button', { name: 'Create and open' }).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation', exact: true });
   await expect(execution(conversation)).toHaveText('Docker');

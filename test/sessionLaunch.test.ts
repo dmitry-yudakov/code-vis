@@ -12,6 +12,14 @@ const accepted = () => new Response('run data', { headers: { 'X-CodeAI-Run-Id': 
 const snapshot = (messageId?: string) => Response.json({ session: { ...session, messages: messageId ? [{ id: messageId, role: 'user' }] : [] } });
 
 describe('captured background session launch', () => {
+  it.each([false, true])('sends the chosen role when creating a session (CodeAI: %s)', async codeai => {
+    const setup = attempt(); setup.settings.role = 'tester';
+    if (codeai) setup.settings.codeai = { projectId: crypto.randomUUID(), checkoutId: 'installation', bindingsFingerprint: 'a'.repeat(64) };
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ session })).mockResolvedValueOnce(accepted());
+    await launchSession(setup, 'home', request);
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toMatchObject({ role: 'tester' });
+    expect(JSON.parse(String(request.mock.calls[1][1]?.body))).not.toHaveProperty('role');
+  });
   it.each([false, true])('sends only explicitly checked archive permission at creation (checked: %s)', async checked => {
     const setup = attempt(); setup.settings.allowAgentArchive = checked;
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ session })).mockResolvedValueOnce(accepted());

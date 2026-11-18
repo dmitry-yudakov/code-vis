@@ -1571,6 +1571,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     updatePreferences((current) => ({ ...current, provider }));
   }, [updatePreferences]);
 
+  const chooseNewRole = useCallback((role: AgentRole) => {
+    updatePreferences((current) => ({ ...current, role }));
+  }, [updatePreferences]);
+
   const selectAgent = useCallback((participantId: string) => {
     if (!sessionId || sessionRunning) return;
     mutateSession(sessionId, (current) => {
@@ -2296,7 +2300,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     preserveCurrentChoices();
     workspace.updateViewInProject(created.projectId, created.id, (current) => ({ ...current, defaultMode: settings.mode,
       modelSelections: { [created.primaryAgentId]: settings.modelSelection } }), settings.machineId === localMachineId ? undefined : settings.machineId);
-    updatePreferences((current) => ({ ...current, provider: settings.provider, mode: settings.mode, instructions: settings.instructions,
+    updatePreferences((current) => ({ ...current, provider: settings.provider, role: settings.role ?? current.role, mode: settings.mode, instructions: settings.instructions,
       machineId: settings.codeai ? current.machineId : settings.machineId,
       models: { ...current.models, [settings.provider]: settings.modelSelection } }));
   };
@@ -2882,6 +2886,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                   creating={creatingSession}
                   error={sessionCreateError}
                   newProvider={newProvider}
+                  preferredRole={preferences.role}
+                  onNewRole={chooseNewRole}
                   preferredInstructions={preferences.instructions}
                   onChange={focusSession}
                   onQueueSetup={machineId && selectedProject ? () => launcher.openForProject(machineId, selectedProject.id) : undefined}
@@ -3307,6 +3313,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             checkouts={orderedCheckouts}
             hostId={hostId}
             newProvider={newProvider}
+            preferredRole={preferences.role}
+            onNewRole={chooseNewRole}
             preferredInstructions={preferences.instructions}
             creating={creatingSession}
             error={sessionCreateError}
@@ -3347,6 +3355,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
           <div className="conversation-region" hidden={!panelLayout.conversationShown}>
             <ConversationDrawer
+              agentChoice={preferences}
+              onAgentChoiceChange={(change) => updatePreferences((current) => ({ ...current, ...change }))}
               repositoryContext={repositoryContext}
               focusRequest={launchFocus?.sessionId === session?.id ? launchFocus.request : undefined}
               onFocusRequestHandled={() => setLaunchFocus(undefined)}

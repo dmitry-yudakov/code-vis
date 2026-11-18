@@ -34,7 +34,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     const created = projects.find(item => item.name === name)!;
     await expect(setup.getByLabel('Project', { exact: true })).toHaveValue(created.id);
     await expect(setup.getByLabel('Machine', { exact: true })).toHaveCount(0);
-    await setup.getByLabel('Provider', { exact: true }).selectOption('claude');
+    await setup.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
     await setup.getByRole('button', { name: 'Create and open', exact: true }).click();
     await expect(setup).not.toBeVisible();
     await expect(page).toHaveURL(/\/\?(?:session|project)=/);
@@ -195,7 +195,7 @@ test('a shortcut preserves frozen creation identity and its recovery error', asy
   await shortcut(0).click();
   const setup = page.getByRole('dialog', { name: 'New session', exact: true });
   await setup.getByRole('button', { name: 'Settings', exact: true }).click();
-  await setup.getByLabel('Provider', { exact: true }).selectOption('claude');
+  await setup.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
   await setup.getByRole('button', { name: 'Create and open', exact: true }).click();
   await expect(setup.getByRole('alert')).toContainText('Creation status is unknown. Retry keeps this exact request.');
   await setup.getByRole('button', { name: 'Close setup', exact: true }).click();

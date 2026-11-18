@@ -20,7 +20,7 @@ async function openSetup(page: Page, target: DurableProject) {
   await expect(dialog).toBeVisible();
   await expandSettings(dialog);
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
-  await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+  await dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
   await dialog.getByRole('textbox').focus();
   return dialog;
 }
@@ -114,7 +114,7 @@ test('same-project Arena card opens a background turn that completed before acce
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   await expandSettings(dialog);
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
-  await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+  await dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
   await dialog.getByLabel('Mode', { exact: true }).selectOption('ask');
   await dialog.getByRole('textbox').fill('Background Arena completion');
   const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
@@ -144,7 +144,7 @@ test('same-project background approvals and replies stay connected while another
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
     await expandSettings(dialog);
     await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
-    await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+    await dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
     await dialog.getByLabel('Mode', { exact: true }).selectOption(mode);
     await dialog.getByRole('textbox').fill(text);
     const created = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
@@ -207,7 +207,7 @@ for (const scope of ['same-project', 'other-project']) test(`${scope} background
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
   await expandSettings(dialog);
   await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
-  await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+  await dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
   await dialog.getByRole('textbox').fill('Background failed connection');
   await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
   await expect(dialog).not.toBeVisible();
@@ -238,7 +238,7 @@ test('same-project background stream reconnects after a failed attachment when i
     const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
     await expandSettings(dialog);
     await dialog.getByLabel('Project', { exact: true }).selectOption(target.id);
-    await dialog.getByLabel('Provider', { exact: true }).selectOption('claude');
+    await dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
     await dialog.getByLabel('Mode', { exact: true }).selectOption('agent');
     await dialog.getByRole('textbox').fill('Background stream retry');
     const created = page.waitForResponse((response) => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
@@ -343,7 +343,7 @@ test('a rejected first turn can change mode and model while retaining its create
   await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('no longer offered');
   await expect(dialog.getByLabel('Project', { exact: true })).toBeDisabled();
-  await expect(dialog.getByLabel('Provider', { exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true })).toBeDisabled();
   await dialog.getByLabel('Mode', { exact: true }).selectOption('plan');
   const menu = dialog.locator('.model-menu'); await menu.getByRole('button', { name: /Model and effort/ }).click();
   await page.getByRole('radio', { name: 'Replacement model', exact: true }).click();

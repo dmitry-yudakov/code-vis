@@ -6,17 +6,18 @@ import NativeSelect from '@mui/material/NativeSelect';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import { ProviderChips } from '@/features/agents/ProviderChips';
 import { Disclosure } from '@/features/shell/Disclosure';
 
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
-  AgentExecution, AgentProvider, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
+  AgentExecution, AgentProvider, AgentRole, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
   SessionSnapshot, WorktreeCapability,
 } from '@/shared/types';
 import { launchInstructions, namedLaunchInstructions, type LaunchInstructions } from '@/features/shell/devicePreferences';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
-import { findAgentParticipant, PROVIDER_LABELS } from '@/shared/participants';
+import { AGENT_ROLES, AGENT_ROLE_LABELS, findAgentParticipant } from '@/shared/participants';
 import { CheckoutChoice, useCreationRequestId } from './CheckoutChoice';
 import { worktreeChoice } from './worktreeChoice';
 
@@ -29,6 +30,8 @@ interface SessionCreationProps {
   checkouts: CheckoutSummary[];
   hostId?: string;
   newProvider: AgentProvider;
+  preferredRole?: AgentRole;
+  onNewRole(role: AgentRole): void;
   /** This device's last Global instructions choice; absent is Default. */
   preferredInstructions?: GlobalInstructionsChoice;
   creating: boolean;
@@ -37,6 +40,7 @@ interface SessionCreationProps {
   onNewProvider(value: AgentProvider): void;
   onOpenMachineSettings?(): void;
   onNew(provider: AgentProvider, options: {
+    role?: AgentRole;
     checkoutMode?: 'current' | 'worktree'; creationRequestId?: string;
     execution: AgentExecution; checkoutId?: string;
     /** Absent only when the form had to set the choice aside. */
@@ -46,7 +50,7 @@ interface SessionCreationProps {
 }
 
 export function SessionCreationForm({ initialExecution = 'local', executionHealth, providerHealth, project, checkouts, hostId, worktrees,
-  newProvider, preferredInstructions, creating, submitLabel = 'Start session', error, onNewProvider, onNew, onOpenMachineSettings }: SessionCreationProps) {
+  newProvider, preferredRole, onNewRole, preferredInstructions, creating, submitLabel = 'Start session', error, onNewProvider, onNew, onOpenMachineSettings }: SessionCreationProps) {
   const dockerEnabled = Boolean(executionHealth?.docker.enabled);
   const [execution, setExecution] = useState<AgentExecution>(initialExecution === 'docker' && dockerEnabled ? 'docker' : 'local');
   const [checkoutId, setCheckoutId] = useState(initialExecution === 'docker' ? checkouts[0]?.id || '' : '');
@@ -77,7 +81,7 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
       busyRef.current = true;
       setFailed(false);
       const options = {
-        execution, checkoutMode, ...(!project && checkoutId ? { checkoutId } : {}),
+        execution, checkoutMode, role: preferredRole, ...(!project && checkoutId ? { checkoutId } : {}),
         instructions: namedLaunchInstructions(chosenInstructions, execution, provider),
         ...(allowAgentArchive ? { allowAgentArchive: true } : {}),
       };
@@ -108,11 +112,13 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
       )}
       <CheckoutChoice value={checkoutMode} choice={choice} disabled={creating} onChange={setCheckoutMode} />
       {invalidBinding && <p role="status">Docker requires exactly one primary repository on this machine. {project ? 'Update this project’s repositories to continue.' : 'Choose a repository to continue.'}</p>}
+      <div>
+        <ProviderChips value={provider} available={providers} disabled={creating} onChange={onNewProvider} />
+      </div>
       <label>
-        <span>New session with</span>
-        <NativeSelect value={provider || ''} disabled={creating || !providers.length} onChange={(event) => onNewProvider(event.target.value as AgentProvider)} inputProps={{ "aria-label": "New session provider" }}>
-          {!providers.length && <option value="">No provider available</option>}
-          {providers.map((value) => <option value={value} key={value}>{PROVIDER_LABELS[value]}</option>)}
+        <span>Role</span>
+        <NativeSelect inputProps={{ 'aria-label': 'Role' }} value={preferredRole ?? 'coder'} disabled={creating} onChange={event => onNewRole(event.target.value as AgentRole)}>
+          {AGENT_ROLES.map(role => <option key={role} value={role}>{AGENT_ROLE_LABELS[role]}</option>)}
         </NativeSelect>
       </label>
       <Disclosure className="session-advanced-settings" title={<>Advanced settings</>}>

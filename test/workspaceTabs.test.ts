@@ -69,7 +69,7 @@ describe('All sessions picker', () => {
       sessions: [{ id: SESSION_A, title: 'Closed view', participants: [] },
         { id: SESSION_B, title: 'Overflow view', participants: [] }] as unknown as SessionSnapshot[],
       newProvider: 'claude', creating: false, checkouts: [], onChange: vi.fn(),
-      onNewProvider: vi.fn(), onNew: vi.fn(),
+      onNewProvider: vi.fn(), onNewRole: vi.fn(), onNew: vi.fn(),
     }));
     expect(markup).toMatch(/<select(?=[^>]*id="all-sessions")(?=[^>]*aria-label="All sessions")(?=[^>]*title="All sessions")[^>]*>/);
     expect(markup).toContain('<option value="" disabled="" selected="">Choose a session</option>');

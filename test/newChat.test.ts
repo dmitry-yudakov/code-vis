@@ -25,6 +25,7 @@ function header(overrides: Partial<Props> = {}) {
   const props: Props = {
     ...actions,
     open: true, session, theme: 'light', agents: [agent], activeAgent: agent, healthyProviders: ['codex'],
+    agentChoice: {}, onAgentChoiceChange: vi.fn(),
     participantBusy: false, preview: '', toolActivity: [], permissions: [], running: false,
     cancelReady: false, continuing: false, status: '', composer: { getSnapshot: () => '', subscribe: () => () => {} }, mode: 'plan', unsupportedModes: [],
     modelSelection: {}, attached: [], reports: [], images: [], markCounts: {}, ...overrides,

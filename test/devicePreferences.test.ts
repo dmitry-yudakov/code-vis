@@ -10,6 +10,14 @@ const AGENT_A = '12121212-1212-4121-8121-121212121212';
 const AGENT_B = '34343434-3434-4343-8343-343434343434';
 
 describe('device preferences', () => {
+  it('remembers a chosen participant role and ignores invalid or missing roles', () => {
+    for (const role of ['orchestrator', 'coder', 'reviewer', 'tester', 'custom'] as const) {
+      expect(parseDevicePreferences(serializeDevicePreferences({ role }))).toEqual({ role });
+    }
+    for (const role of [undefined, 'Reviewer', 'admin', null, {}, 1]) {
+      expect(parseDevicePreferences(JSON.stringify({ version: 1, provider: 'codex', role }))).toEqual({ provider: 'codex' });
+    }
+  });
   it('remembers a new-session machine without accepting malformed choices', () => {
     const machineId = '99999999-9999-4999-8999-999999999999';
     expect(parseDevicePreferences(serializeDevicePreferences({ machineId }))).toEqual({ machineId });

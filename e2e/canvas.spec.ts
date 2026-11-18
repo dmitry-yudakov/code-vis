@@ -60,7 +60,7 @@ async function selectAgent(page: Page, role: string) {
 
 async function reviewerHandoff(page: Page) {
   await sessionAgents(page).click();
-  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: /@Claude Reviewer · Review this/ }).click();
+  await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: /Review this → @Claude Reviewer/ }).click();
 }
 
 async function expectSelectedMain(page: Page) {
@@ -885,7 +885,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
   await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New session', exact: true });
   await create.getByLabel('Project').selectOption({ label: betaProject });
-  await create.getByLabel('Provider').selectOption('claude');
+  await create.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
   await create.getByLabel('Mode', { exact: true }).selectOption('plan');
   await create.getByRole('button', { name: 'Create and open' }).click();
   await expect(page).toHaveURL(/\/\?(?:session|project)=/);

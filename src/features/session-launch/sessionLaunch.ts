@@ -1,4 +1,4 @@
-import type { AgentExecution, AgentMode, AgentProvider, GlobalInstructionsChoice, ModelSelection, PublicSession } from '@/shared/types';
+import type { AgentExecution, AgentMode, AgentProvider, AgentRole, GlobalInstructionsChoice, ModelSelection, PublicSession } from '@/shared/types';
 import type { SessionLaunchMode } from '@/shared/agentModes';
 import type { PreparedCodeAiContext } from '@/shared/codeAiSession';
 import type { TextFile } from '@/shared/textFiles';
@@ -17,6 +17,7 @@ export interface LaunchSettings {
   waitForCheckout?: boolean;
   allowAgentArchive?: boolean;
   provider: AgentProvider;
+  role?: AgentRole;
   mode: SessionLaunchMode;
   /** Remember the device choice; filter unsupported choices only at the wire/UI boundary. */
   instructions?: GlobalInstructionsChoice;
@@ -69,11 +70,11 @@ export async function launchSession(attempt: LaunchAttempt<AgentMode>, localMach
       response = await request(settings.codeai ? '/api/codeai-session' : api('/api/sessions'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings.codeai ? {
-          action: 'create', preparedContext: settings.codeai, provider: settings.provider, instructions,
+          action: 'create', preparedContext: settings.codeai, provider: settings.provider, role: settings.role, instructions,
           ...(settings.allowAgentArchive ? { allowAgentArchive: true } : {}),
           checkoutMode: settings.checkoutMode, creationRequestId: attempt.creationRequestId,
         } : { projectId: settings.projectId, checkoutId: settings.projectId ? undefined : settings.checkoutId,
-          provider: settings.provider, instructions, execution: settings.execution,
+          provider: settings.provider, role: settings.role, instructions, execution: settings.execution,
           ...(settings.allowAgentArchive ? { allowAgentArchive: true } : {}),
           checkoutMode: settings.checkoutMode, creationRequestId: attempt.creationRequestId }),
       });

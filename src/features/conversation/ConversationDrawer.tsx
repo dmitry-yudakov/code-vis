@@ -21,6 +21,7 @@ import type { PendingImage } from './imageAttachments';
 import { recentCanvases } from './recentCanvases';
 import { displayedTurn } from './runPresentation';
 import { ParticipantControls } from '@/features/agents/ParticipantControls';
+import type { DevicePreferences } from '@/features/shell/devicePreferences';
 import { nativeClaudeIsolationIssue } from '@/shared/globalInstructions';
 import { TurnCheckpoint } from './TurnCheckpoint';
 import type { TurnCheckpointControls } from './useTurnCheckpoint';
@@ -56,7 +57,7 @@ export function ConversationDrawer({
   open, visible = open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   turn, liveMessageId, liveState, permissionFeedback, onRefreshPermissions, retryBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
-  onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
+  agentChoice, onAgentChoiceChange, onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan, onEditQueuedMessage,
   onArchiveAllowedChange,
   continuing, continuationUnavailable, instructions, repositoryContext, securityLevel, recovery, onContinue, onNewChat, onArchive, archiveDisabledReason, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports, paneControl,
@@ -79,6 +80,8 @@ export function ConversationDrawer({
   activeAgent?: AgentParticipant;
   healthyProviders: AgentProvider[];
   participantBusy: boolean;
+  agentChoice: Pick<DevicePreferences, 'provider' | 'role'>;
+  onAgentChoiceChange(change: Pick<DevicePreferences, 'provider' | 'role'>): void;
   preview: string;
   toolActivity: ToolActivityEntry[];
   permissions: PendingPermission[];
@@ -308,6 +311,8 @@ export function ConversationDrawer({
             : participantBusy ? 'Wait for agent changes to finish.' : recovery?.busy ? 'Wait for Undo to finish.' : undefined}
           archiveDisabledReason={archiveDisabledReason}
           agentControl={<ParticipantControls
+            choice={agentChoice}
+            onChoiceChange={onAgentChoiceChange}
             agents={agents}
             activeAgentId={activeAgent?.id}
             primaryAgentId={session?.primaryAgentId}

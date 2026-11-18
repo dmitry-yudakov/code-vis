@@ -113,7 +113,7 @@ describe('the conversation\'s New session form', () => {
   function form(newProvider: AgentProvider, initialExecution: AgentExecution, preferredInstructions?: GlobalInstructionsChoice) {
     const markup = renderToStaticMarkup(createElement(SessionCreationForm, {
       initialExecution, executionHealth: health, checkouts: [{ id: 'checkout-a', name: 'alpha', relativePath: 'alpha' }], hostId: 'host',
-      newProvider, preferredInstructions, creating: false, onNewProvider: vi.fn(), onNew: vi.fn(),
+      newProvider, preferredInstructions, creating: false, onNewProvider: vi.fn(), onNewRole: vi.fn(), onNew: vi.fn(),
     }));
     const [, options] = markup.match(/<span>Global instructions<\/span>[\s\S]*?<select[^>]*>([\s\S]*?)<\/select>/)!;
     return [...options.matchAll(/<option([^>]*)>([^<]*)<\/option>/g)].map(([, attributes, text]) => (

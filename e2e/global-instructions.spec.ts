@@ -144,7 +144,7 @@ test('shows the global instructions in Machine settings, switches them, and isol
   await create.getByRole('button', { name: 'Settings', exact: true }).click();
   await create.getByLabel('Project').selectOption({ label: projectName });
   await expect(create.getByLabel('Global instructions')).toHaveValue('isolated');
-  await create.getByLabel('Provider').selectOption({ label: 'Codex' });
+  await create.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Codex', exact: true }).click();
   await expect(create.getByLabel('Global instructions')).toHaveValue('default');
   const isolate = create.getByLabel('Global instructions').locator('option[value="isolated"]');
   await expect(isolate).toHaveJSProperty('disabled', true);
@@ -157,7 +157,7 @@ test('shows the global instructions in Machine settings, switches them, and isol
   // Local Codex always loads its own file, and the device still remembers Isolate for the next form.
   await expect(line).toHaveText('global instructions');
   await page.locator('.new-session-menu > button').click();
-  await page.locator('.desktop-picker-paper:visible').getByLabel('New session provider').selectOption({ label: 'Claude' });
+  await page.locator('.desktop-picker-paper:visible').getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
   await expect(page.locator('.desktop-picker-paper:visible').getByLabel('Global instructions')).toHaveValue('isolated');
   await page.locator('.new-session-menu > button').click();
 

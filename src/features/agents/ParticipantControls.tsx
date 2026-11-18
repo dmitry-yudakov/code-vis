@@ -1,13 +1,18 @@
 'use client';
 
 import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Divider from '@mui/material/Divider';
 import NativeSelect from '@mui/material/NativeSelect';
+import Typography from '@mui/material/Typography';
 
-import { useMemo, useState } from 'react';
 import type { AgentMode, AgentParticipant, AgentProvider, AgentRole } from '@/shared/types';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
-import { AGENT_ROLES, AGENT_ROLE_LABELS, PROVIDER_LABELS } from '@/shared/participants';
+import type { DevicePreferences } from '@/features/shell/devicePreferences';
+import { AGENT_ROLES, AGENT_ROLE_LABELS } from '@/shared/participants';
 import { ContextUsage } from './ContextUsage';
+import { ProviderChips } from './ProviderChips';
 
 const HANDOFF_PROMPTS: Record<AgentRole, string> = {
   orchestrator: 'Synthesize the conversation above into a concrete next-step plan. Call out unresolved decisions, dependencies, and risks.',
@@ -19,7 +24,7 @@ const HANDOFF_PROMPTS: Record<AgentRole, string> = {
 
 export function ParticipantControls({
   agents, activeAgentId, primaryAgentId, providers, disabled, busy,
-  onSelect, onMakePrimary, onAdd, onHandoff,
+  choice, onChoiceChange, onSelect, onMakePrimary, onAdd, onHandoff,
 }: {
   agents: AgentParticipant[];
   activeAgentId?: string;
@@ -27,45 +32,56 @@ export function ParticipantControls({
   providers: AgentProvider[];
   disabled?: boolean;
   busy?: boolean;
+  choice: Pick<DevicePreferences, 'provider' | 'role'>;
+  onChoiceChange(change: Pick<DevicePreferences, 'provider' | 'role'>): void;
   onSelect(participantId: string): void;
   onMakePrimary(participantId: string): void;
   onAdd(provider: AgentProvider, role: AgentRole): void;
   onHandoff(participantId: string, text: string, mode: AgentMode): void;
 }) {
-  const [provider, setProvider] = useState<AgentProvider>(providers[0] || 'claude');
-  const [role, setRole] = useState<AgentRole>('reviewer');
+  const role = choice.role ?? 'reviewer';
   const selected = agents.find((agent) => agent.id === activeAgentId) || agents[0];
-  const quickAgents = useMemo(() => agents.filter((agent) => agent.id !== selected?.id), [agents, selected?.id]);
-  const safeProvider = providers.includes(provider) ? provider : providers[0];
-
-
-  const addParticipant = () => {
-    if (!safeProvider) return;
-    onAdd(safeProvider, role);
-  };
+  const quickAgents = agents.filter((agent) => agent.id !== selected?.id);
+  const safeProvider = choice.provider && providers.includes(choice.provider) ? choice.provider : providers[0];
 
   return <div className="participant-controls">
     <DesktopPopover className="agent-menu" label="Session agents" summary={`@${selected?.displayName || 'Agent'} ▾`} disabled={disabled || busy}>
       {(close) => <div className="participant-menu">
-        <div className="participant-row" aria-label="Session agents">
-          {agents.map(agent => <Button key={agent.id} aria-pressed={agent.id === selected?.id}
-            onClick={() => { onSelect(agent.id); close(); }}>
-            @{agent.displayName} · {AGENT_ROLE_LABELS[agent.role]}{agent.id === primaryAgentId ? ' · Main' : ''}
-          </Button>)}
-        </div>
-        {selected && selected.id !== primaryAgentId && <Button onClick={() => { onMakePrimary(selected.id); close(); }}>Make @{selected.displayName} the main agent</Button>}
-        {quickAgents.map(agent => <Button key={agent.id} title="Prefill only — edit before sending" onClick={() => { onHandoff(agent.id, HANDOFF_PROMPTS[agent.role], agent.defaultMode); close(); }}>
-          @{agent.displayName} · {agent.role === 'reviewer' ? 'Review this' : agent.role === 'tester' ? 'Verify this' : 'What next?'}
-        </Button>)}
-        <div className="participant-add-form" aria-label="Add agent">
-          <label>Provider<NativeSelect value={safeProvider} disabled={!providers.length} onChange={event => setProvider(event.target.value as AgentProvider)}>
-            {providers.map(item => <option key={item} value={item}>{PROVIDER_LABELS[item]}</option>)}
-          </NativeSelect></label>
-          <label>Role<NativeSelect value={role} onChange={event => setRole(event.target.value as AgentRole)}>
+        <Box component="section" aria-label="Next message to">
+          <Typography variant="caption" color="text.secondary">Next message to</Typography>
+          <div className="participant-row">
+            {agents.map(agent => <Button key={agent.id} aria-pressed={agent.id === selected?.id}
+              variant={agent.id === selected?.id ? 'contained' : 'text'}
+              sx={{ justifyContent: 'flex-start', textAlign: 'left', gap: 1 }}
+              onClick={() => { onSelect(agent.id); close(); }}>
+              <Box component="span" sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+                @{agent.displayName}<Typography component="span" variant="caption" sx={{ display: 'block', opacity: 0.8 }}>{AGENT_ROLE_LABELS[agent.role]}</Typography>
+              </Box>
+              {agent.id === primaryAgentId && <Chip component="span" label="Main" sx={{ color: 'inherit' }} />}
+              {agent.id === selected?.id && <span aria-hidden="true">✓</span>}
+            </Button>)}
+          </div>
+          {selected && selected.id !== primaryAgentId && <Button variant="text" onClick={() => { onMakePrimary(selected.id); close(); }}>Make @{selected.displayName} the main agent</Button>}
+        </Box>
+        {quickAgents.length > 0 && <>
+          <Divider />
+          <Box component="section" aria-label="Draft a message">
+            <Typography variant="caption" color="text.secondary">Draft a message</Typography>
+            {quickAgents.map(agent => <Button key={agent.id} variant="text" sx={{ justifyContent: 'flex-start', textAlign: 'left', width: '100%' }}
+              title="Prefill only — edit before sending" onClick={() => { onHandoff(agent.id, HANDOFF_PROMPTS[agent.role], agent.defaultMode); close(); }}>
+              {agent.role === 'reviewer' ? 'Review this' : agent.role === 'tester' ? 'Verify this' : 'What next?'} → @{agent.displayName}
+            </Button>)}
+          </Box>
+        </>}
+        <Divider />
+        <Box component="section" className="participant-add-form" aria-label="Add participant">
+          <Typography variant="caption" color="text.secondary">Add participant</Typography>
+          <ProviderChips value={safeProvider} available={providers} onChange={provider => onChoiceChange({ provider })} />
+          <label>Role<NativeSelect inputProps={{ 'aria-label': 'Role' }} value={role} onChange={event => onChoiceChange({ role: event.target.value as AgentRole })}>
             {AGENT_ROLES.map(item => <option key={item} value={item}>{AGENT_ROLE_LABELS[item]}</option>)}
           </NativeSelect></label>
-          <Button disabled={!safeProvider} onClick={() => { addParticipant(); close(); }}>Add agent</Button>
-        </div>
+          <Button variant="contained" disabled={!safeProvider} onClick={() => { if (safeProvider) onAdd(safeProvider, role); close(); }}>Add agent</Button>
+        </Box>
       </div>}
     </DesktopPopover>
     {selected && <ContextUsage name={selected.displayName} usage={selected.contextUsage} />}

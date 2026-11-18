@@ -35,6 +35,11 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 150](stories/STORY-20261118-participant-controls.md) — Session agents separates
+  recipients, message drafts and participant creation; desktop setup uses Claude/Codex chips and
+  remembers provider/role choices. Focused units, TypeScript, isolated build, production-browser
+  journeys, both-theme desktop/phone screenshot inspection and independent review pass. Wider
+  existing failures are recorded in the story. The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 149](stories/STORY-20261118-restart-session-continuity.md) — Build & restart
   suspends active and queued work, retains it through failed builds, and continues it on startup
   with original evidence, saved progress and fresh Undo baselines that preserve console repairs.

@@ -182,6 +182,9 @@ choices are a fixed alias list (Docker Claude included), Codex's come from App S
 `docker/versions.json`, or else what the machine's local Codex lists. The choice is device state kept per agent in the device
 workspace, like mode. A new session and a new agent start at the device's last mode and its last
 choice for their provider (`code-ai:device:v1:preferences`) and keep them as their own.
+The same device record remembers the provider and explicit role choice for later participants and
+session setup. New-session drafts capture that role and send it through the existing creation
+contract, including exact retries and CodeAI setup. Existing participants' roles remain server-owned.
 Local sessions can inherit Auto when the provider advertises it, and a Docker session never
 inherits Agent or Auto. Accept edits and Full access stay within their session. The server still
 validates whatever the browser sends. Default sends no override, so the provider session keeps whatever model and

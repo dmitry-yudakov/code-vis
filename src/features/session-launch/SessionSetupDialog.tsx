@@ -28,7 +28,9 @@ import { immersiveReportPath } from '@/features/reports/useImmersiveReports';
 import { pastedImageFiles } from '@/features/conversation/imageAttachments';
 import { launchInstructions } from '@/features/shell/devicePreferences';
 import { AGENT_MODE_LABELS } from '@/features/agents/toolActivity';
-import { PROVIDER_LABELS } from '@/shared/participants';
+import { ProviderChips } from '@/features/agents/ProviderChips';
+import { AGENT_ROLES, AGENT_ROLE_LABELS } from '@/shared/participants';
+import type { AgentRole } from '@/shared/types';
 import { SESSION_LAUNCH_MODES, type SessionLaunchMode } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { launchText } from './sessionLaunch';
@@ -126,8 +128,11 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
         </DesktopPopover>
       </Paper>
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-        <NativeSelect disableUnderline inputProps={{ 'aria-label': 'Provider' }} value={settings.provider} disabled={locked} onChange={(event) => launcher.setSettings({ provider: event.target.value as 'claude' | 'codex' })}>
-          {(['claude', 'codex'] as const).map((provider) => <option key={provider} value={provider} disabled={!launcher.providers?.[provider]?.available}>{PROVIDER_LABELS[provider]}</option>)}
+        <ProviderChips value={settings.provider} available={(['claude', 'codex'] as const).filter(provider => launcher.providers?.[provider]?.available)}
+          disabled={locked} onChange={provider => launcher.setSettings({ provider })} />
+        <NativeSelect disableUnderline inputProps={{ 'aria-label': 'Role' }} value={settings.role ?? 'coder'} disabled={locked}
+          onChange={event => launcher.setSettings({ role: event.target.value as AgentRole })}>
+          {AGENT_ROLES.map(role => <option key={role} value={role}>{AGENT_ROLE_LABELS[role]}</option>)}
         </NativeSelect>
         <NativeSelect disableUnderline inputProps={{ 'aria-label': 'Mode' }} value={settings.mode} disabled={launcher.turnSettingsLocked} onChange={(event) => launcher.setSettings({ mode: event.target.value as SessionLaunchMode })}>
           {SESSION_LAUNCH_MODES.filter((mode) => mode !== 'auto' || launcher.modes.includes(mode)).map((mode) => <option key={mode} value={mode} disabled={!launcher.modes.includes(mode)}>{AGENT_MODE_LABELS[mode]}</option>)}

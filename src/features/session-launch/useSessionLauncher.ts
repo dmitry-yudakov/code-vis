@@ -82,6 +82,7 @@ export function useSessionLauncher(options: LauncherOptions) {
     const fallback = Object.entries(providers ?? {}).find(([, value]) => value.available && launchModes(value.supportedModes).length)?.[0] as LaunchSettings['provider'] | undefined;
     const choice = launchChoice(props.current.preferences, providers, { provider: fallback ?? 'claude', mode: 'ask' });
     return { machineId: target.machine.id, projectId, execution: 'local', checkoutMode: 'current', ...choice,
+      role: props.current.preferences.role,
       instructions: props.current.preferences.instructions,
       modelSelection: offeredModelSelection(props.current.preferences.models?.[choice.provider], providers?.[choice.provider]) };
   };

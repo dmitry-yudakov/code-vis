@@ -93,6 +93,8 @@ for (const width of [1280, 390]) test(`global setup changes project without open
   await page.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio', { name: 'High', exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(dialog.getByRole('button', { name: /Model and effort/ })).toHaveText('Sonnet · High');
+  await dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: /Model and effort/ })).toHaveText('Sonnet · High');
   expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('project-choice.png'), animations: 'disabled' });
   const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');

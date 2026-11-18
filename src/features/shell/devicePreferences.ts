@@ -1,6 +1,7 @@
 import type {
-  AgentExecution, AgentMode, AgentParticipant, AgentProvider, GlobalInstructionsChoice, ModelSelection, ProviderHealth,
+  AgentExecution, AgentMode, AgentParticipant, AgentProvider, AgentRole, GlobalInstructionsChoice, ModelSelection, ProviderHealth,
 } from '@/shared/types';
+import { AGENT_ROLES } from '@/shared/participants';
 import { SESSION_LAUNCH_MODES, isAgentMode, isLaunchMode, type SessionLaunchMode } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { parseModelSelection, type DeviceViewState } from './workspaceViews';
@@ -18,8 +19,10 @@ export interface DevicePreferences {
   /** Machine for general New session launches; the CodeAI shortcut always uses home. */
   machineId?: string;
   mode?: AgentMode;
-  /** Provider for a new session. */
+  /** Provider for new sessions and participants. */
   provider?: AgentProvider;
+  /** Last explicitly chosen role for a new session or participant. */
+  role?: AgentRole;
   /** Model and effort for an agent of each provider. An empty selection is Default. */
   models?: Partial<Record<AgentProvider, ModelSelection>>;
   /** Global instructions for a new session. Absent is Default: follow the machine's switch. */
@@ -40,6 +43,7 @@ export function parseDevicePreferences(value: string | null): DevicePreferences 
       ...(typeof parsed.machineId === 'string' && parsed.machineId.length > 0 ? { machineId: parsed.machineId } : {}),
       ...(isAgentMode(parsed.mode) ? { mode: parsed.mode } : {}),
       ...(AGENT_PROVIDERS.includes(parsed.provider as AgentProvider) ? { provider: parsed.provider as AgentProvider } : {}),
+      ...(AGENT_ROLES.includes(parsed.role as AgentRole) ? { role: parsed.role as AgentRole } : {}),
       ...(Object.keys(models).length ? { models } : {}),
       ...(INSTRUCTION_CHOICES.includes(parsed.instructions as GlobalInstructionsChoice)
         ? { instructions: parsed.instructions as GlobalInstructionsChoice } : {}),

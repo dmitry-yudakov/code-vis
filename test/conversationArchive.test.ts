@@ -15,6 +15,7 @@ function drawer(messages: ChatMessage[], overrides: Partial<Props> = {}) {
   return renderToStaticMarkup(createElement(ConversationDrawer, {
     open: true, session: { id: 'session', participants: [], messages, annotations: {}, sketches: [], pinnedDiagramIds: [] } as unknown as SessionSnapshot,
     theme: 'light', agents: [], healthyProviders: [], participantBusy: false, preview: '', toolActivity: [],
+    agentChoice: {}, onAgentChoiceChange: vi.fn(),
     permissions: [], running: false, cancelReady: false, continuing: false, status: '',
     composer: { getSnapshot: () => '', subscribe: () => () => {} },
     mode: 'ask', unsupportedModes: [], modelSelection: {}, attached: [], reports: [], images: [], markCounts: {},
