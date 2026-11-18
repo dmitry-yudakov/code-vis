@@ -976,8 +976,9 @@ those need their own feasibility and interaction scope.
 These are real and deliberate, and they bound what can be built next:
 
 - one queued or executing turn per session and per concrete provider session;
-- a bounded in-memory queue and 1–8 execution slots on each machine; no durable process/queue
-  recovery across a server restart;
+- a bounded in-memory queue and 1–8 execution slots on each machine; planned managed restarts save
+  cleanly suspended turns and queued requests for startup continuation. Arbitrary process crashes
+  and uncertain deliveries are not automatically replayed;
 - one Arena across the home and up to eight direct attached executors, while the focused shell uses
   one machine catalog and several machine-qualified device-local tabbed views;
 - a session may be loose and may bind zero or several repositories; the repository sidebar follows

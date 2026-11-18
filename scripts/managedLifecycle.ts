@@ -197,6 +197,7 @@ export class ManagedServer {
       return false;
     }
     this.server = server;
+    this.publish(); // Startup recovery may begin only after this release passes readiness.
     this.announce();
     return true;
   }

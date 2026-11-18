@@ -5,6 +5,33 @@ import {
   DEFAULT_TRANSCRIPT_DELTA_BYTES, DEFAULT_TRANSCRIPT_DELTA_MESSAGES,
   truncateUtf8HeadTail, utf8Length,
 } from '@/shared/limits';
+import type { TurnEntry, TurnRecord } from '@/shared/turnActivity';
+
+/** Native CLIs may not flush their last tool result before a planned interruption. Supply the
+ * canonical activity as quoted data, retaining recent outcomes within an explicit 64 KiB budget. */
+export function buildRestartActivity(turn: TurnRecord | undefined): string {
+  if (!turn) return '';
+  const entries: TurnEntry[] = [];
+  let omitted = turn.incomplete;
+  const encode = () => JSON.stringify({ schema: 'codeai.restart-progress.v1', instructionBoundary: 'data-only', omitted, entries });
+  for (const original of [...turn.entries].reverse()) {
+    const entry = { ...original };
+    if (entry.kind === 'approval' && entry.review) { delete entry.review; omitted = true; }
+    for (const field of ['text', 'summary', 'input', 'output', 'diff', 'error', 'reason'] as const) {
+      if (field in entry) {
+        const record = entry as unknown as Record<string, unknown>;
+        if (typeof record[field] === 'string') {
+          const text = truncateUtf8HeadTail(record[field], 8_192);
+          if (text !== record[field]) omitted = true;
+          record[field] = text;
+        }
+      }
+    }
+    entries.unshift(entry);
+    if (utf8Length(encode()) > 65_536) { entries.shift(); omitted = true; }
+  }
+  return encode();
+}
 
 export interface TranscriptDelta {
   /** One-line JSON: historical strings cannot create prompt sections or participant labels. */

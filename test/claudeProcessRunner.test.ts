@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,7 @@ import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
 import type { AgentContextUsage, AgentMode, AgentProcessEvent } from '@/shared/types';
 import { createTurn, updateActivity, finishTurn } from '@/shared/turnActivity';
+import { MAINTENANCE_SUSPENSION } from '@/server/runs/turnSuspension';
 
 const binary = path.resolve('test/fixtures/fake-claude.mjs');
 
@@ -108,6 +109,40 @@ describe.sequential('ClaudeProcessRunner', () => {
     expect(text.find(entry => entry.text === 'Child reply.')?.actor?.parentToolId).toBe('delegation');
     expect(JSON.stringify(history)).not.toContain('SECRET-HEADER');
     expect(JSON.stringify(history)).not.toContain('\\u001b');
+  });
+
+  it('reports whole response boundaries without treating text blocks or child messages as responses', async () => {
+    process.env.CODEAI_FAKE_MODE = 'chronological-block-snapshots';
+    const { events } = await run();
+    expect(events.filter(event => event.type === 'response-boundary')).toEqual([
+      { type: 'response-boundary', responseFinal: false }, { type: 'response-boundary', responseFinal: true },
+    ]);
+    const first = events.findIndex(event => event.type === 'response-boundary');
+    expect(events.slice(0, first).some(event => event.type === 'history' && event.activity?.kind === 'tool')).toBe(true);
+  });
+
+  it.skipIf(process.platform !== 'linux')('confirms workers stop for maintenance without running a launcher replacement handler', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'codeai-maintenance-worker-'));
+    const pidFile = path.join(directory, 'worker');
+    process.env.CODEAI_FAKE_MODE = 'maintenance-worker';
+    process.env.CODEAI_FAKE_WORKER_FILE = pidFile;
+    const controller = new AbortController();
+    try {
+      await expect(run({ signal: controller.signal, onEvent(event) {
+        if (event.type === 'response-boundary') controller.abort(MAINTENANCE_SUSPENSION);
+      } })).rejects.toMatchObject({ code: 'cancelled' });
+      const pid = Number(await readFile(pidFile, 'utf8'));
+      const stat = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '');
+      expect(!stat || ['Z', 'X'].includes(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0])).toBe(true);
+      expect(await readFile(`${pidFile}.replacement`, 'utf8').catch(() => '')).toBe('');
+    } finally {
+      for (const file of [pidFile, `${pidFile}.replacement`]) {
+        const pid = Number(await readFile(file, 'utf8').catch(() => ''));
+        if (pid) try { process.kill(pid, 'SIGKILL'); } catch { /* Already stopped. */ }
+      }
+      delete process.env.CODEAI_FAKE_WORKER_FILE;
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it.each(['chronological-stream', 'chronological-stream-null-snapshot'])('reconciles %s boundaries and multiple final blocks without exposing tool JSON or image bytes', async mode => {

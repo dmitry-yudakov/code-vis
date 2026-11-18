@@ -567,6 +567,10 @@ while (true) {
     }
     else {
       emit({ method: 'future/notification', params: { additive: true } });
+      if (mode === 'maintenance-plan') {
+        emit({ method: 'item/started', params: { threadId, turnId, item: { type: 'plan', id: 'plan-maintenance', text: '' } } });
+        emit({ method: 'item/completed', params: { threadId, turnId, item: { type: 'plan', id: 'plan-maintenance', text: 'Completed plan item.' } } });
+      }
       const command = {
         type: 'commandExecution', id: 'command-read', command: `sed -n 1,20p ${process.cwd()}/README.md`,
         cwd: process.cwd(), processId: null, source: 'agent', status: 'completed', commandActions: [],

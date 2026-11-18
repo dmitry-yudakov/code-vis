@@ -50,6 +50,22 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }); });
 
 describe('turn checkpoints in a real checkout', () => {
+  it('prunes finished restart segments sharing a live run id within the record limit', async () => {
+    const owner = identity();
+    expect(runRegistry.start({ ...owner, participantId: 'agent', cancel: () => undefined })).toBe(true);
+    try {
+      for (let segment = 0; segment < 12; segment++) {
+        now++;
+        const id = await checkpoints.capture(owner);
+        await writeFile(path.join(checkout, 'a.txt'), `segment ${segment}`);
+        await checkpoints.finish(id);
+      }
+      const files = (await readdir(path.join(state.dataDir, 'turn-checkpoints'))).filter(file => file.endsWith('.json'));
+      expect(files).toHaveLength(10);
+      expect((await checkpoints.latest(sessionId))?.state).toBe('ready');
+    } finally { runRegistry.finish(owner.runId); }
+  });
+
   it('captures without touching index or files, then restores staged, unstaged, deleted and untracked work', async () => {
     await writeFile(path.join(checkout, 'a.txt'), 'staged a'); await git('add', 'a.txt');
     await writeFile(path.join(checkout, 'a.txt'), 'unstaged a');

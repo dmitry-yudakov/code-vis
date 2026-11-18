@@ -191,7 +191,7 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17;
   allowAgentArchive?: boolean;
   agentArchiveCheck?: AgentArchiveCheck;
   /** Server-only receipt; never included in public sessions. */
@@ -553,7 +553,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17;
   allowAgentArchive?: boolean;
   agentArchiveCheck?: AgentArchiveCheck;
   worktree?: SessionWorktree;
@@ -672,7 +672,7 @@ export type AgentEvent =
       retryable: boolean;
       delivery: 'not-sent' | 'possibly-sent';
     }
-  | { type: 'done'; runId: string; durationMs: number; cancelled: boolean };
+  | { type: 'done'; runId: string; durationMs: number; cancelled: boolean; suspended?: boolean };
 
 /** Public, host-local identity for a live or briefly retained agent run. */
 export type RunState = 'queued' | 'running' | 'needs-you' | 'finished';
@@ -684,7 +684,7 @@ export interface RunPermissionSummary {
   detail: string;
 }
 
-export type RunOutcome = 'completed' | 'failed' | 'cancelled';
+export type RunOutcome = 'completed' | 'failed' | 'cancelled' | 'suspended';
 
 export interface RunDescriptor {
   /** Added by the Arena client when flattening machine projections; never stored by a run registry. */
@@ -806,7 +806,8 @@ export interface PermissionGate {
 }
 
 export interface AgentProcessEvent {
-  type: 'session-started' | 'turn-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved' | 'history' | 'context-usage';
+  type: 'session-started' | 'turn-started' | 'text-delta' | 'activity' | 'phase' | 'permission-request' | 'permission-resolved' | 'history' | 'context-usage' | 'response-boundary';
+  responseFinal?: boolean;
   contextUsage?: AgentContextUsage;
   activity?: import('./turnActivity').ProcessActivity;
   review?: import('./turnActivity').ApprovalReview;

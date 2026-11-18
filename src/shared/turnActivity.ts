@@ -23,7 +23,7 @@ export type TurnEntry = EntryBase & (
   | { kind: 'approval'; requestId: string; tool: string; summary: string; toolId?: string; state: 'pending' | 'resolved'; decision?: 'allow' | 'deny' | 'timeout' | 'cancelled'; review?: ApprovalReview }
   | { kind: 'gap'; reason: string; count: number }
 );
-export type TurnLifecycle = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+export type TurnLifecycle = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'suspended';
 export interface TurnRecord {
   version: 1; runId: string; userMessageId: string; participantId: string; acceptedAt: string;
   lifecycle: TurnLifecycle; sequence: number; entries: TurnEntry[]; incomplete: boolean;

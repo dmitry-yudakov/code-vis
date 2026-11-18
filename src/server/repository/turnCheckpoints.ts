@@ -348,13 +348,21 @@ export class TurnCheckpoints {
       const record: CheckpointRecord = { version: 2, id: randomUUID(), ...identity, createdAt: new Date(this.now()).toISOString(), state: 'capturing', before };
       const existing = await this.records();
       const activeRunIds = new Set(runRegistry.currentRuns.map((run) => run.runId));
+      const protectedRuns = new Set([identity.runId]);
+      const activeCheckpointIds = new Set<string>();
+      // Restart continuations share a run id but have separate Undo baselines. Protect only the
+      // latest segment of other live runs; this new capture replaces our own execution baseline.
+      for (const item of existing) if (activeRunIds.has(item.runId) && !protectedRuns.has(item.runId)) {
+        protectedRuns.add(item.runId);
+        activeCheckpointIds.add(item.summary.id);
+      }
       // Reserve active backups first; keep completed records newest first within what remains.
-      existing.sort((a, b) => Number(activeRunIds.has(b.runId)) - Number(activeRunIds.has(a.runId)));
+      existing.sort((a, b) => Number(activeCheckpointIds.has(b.summary.id)) - Number(activeCheckpointIds.has(a.summary.id)));
       let total = Buffer.byteLength(JSON.stringify(record, null, 2)) + MAX_FILES * 400; // Reserve terminal metadata space now.
       const kept: CheckpointHeader[] = [];
       for (const item of existing) {
         const size = (await lstat(this.file(item.summary.id))).size;
-        const active = activeRunIds.has(item.runId);
+        const active = activeCheckpointIds.has(item.summary.id);
         if (!active && (this.now() - Date.parse(item.summary.createdAt) > RETENTION_MS || kept.length >= MAX_RECORDS - 1 || total + size > MAX_STORAGE_BYTES)) {
           await unlink(this.file(item.summary.id)); await unlink(`${this.file(item.summary.id)}.summary`).catch(() => undefined);
         }

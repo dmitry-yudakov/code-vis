@@ -31,6 +31,8 @@ async function sweep(store: SessionStore, config: AppConfig, now: number): Promi
     const release = runRegistry.acquireSessionArchive(session.id);
     if (!release) continue;
     try {
+      const current = await store.getSession(session.id);
+      if (current.messages.some(message => message.role === 'user' && message.turn?.lifecycle === 'suspended')) continue;
       await store.archiveSession(session.id, session.revision);
       runRegistry.sessionArchived(session.id);
     } catch (error) {

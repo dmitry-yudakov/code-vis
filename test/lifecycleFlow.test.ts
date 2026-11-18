@@ -152,6 +152,15 @@ describe('the build-and-restart sequence', () => {
     expect(lifecycleView(run([seen(idle)], away), 0).status).toBe('Serving release release-a.');
   });
 
+  it('shows suspension progress and keeps failed-build recovery retryable without reloading', () => {
+    const preparing = { ...building, phase: 'suspending' as const };
+    let flow = run([seen(idle), seen(preparing)]);
+    expect(lifecycleView(flow, 0)).toMatchObject({ busy: true, canRequest: false, badge: expect.stringContaining('Preparing restart') });
+    flow = run([seen({ ...idle, phase: 'paused', detail: 'Build failed. Sessions remain suspended.' })], flow);
+    expect(flow).toMatchObject({ reload: false, watch: undefined, error: 'Build failed. Sessions remain suspended.' });
+    expect(lifecycleView(flow, 0)).toMatchObject({ busy: false, canRequest: true });
+  });
+
   it('names the checkout, the local execution, and the end of a VR session in its confirmation', () => {
     const text = lifecycleConfirmation();
     expect(text).toContain('installed CodeAI checkout');

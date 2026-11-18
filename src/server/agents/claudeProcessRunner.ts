@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { ProviderProcessTree } from './processDescendants';
+import { MAINTENANCE_SUSPENSION } from '@/server/runs/turnSuspension';
 import { claudeContextUsage } from './contextUsage';
 import type {
   AgentProcessResult, AgentProcessRun, AgentProcessRunner, PermissionResolution,
@@ -165,6 +167,12 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      const processTree = process.platform === 'linux' && input.policy.execution !== 'docker'
+        ? new ProviderProcessTree(child.pid, () => input.emit({ type: 'activity', tool: 'Stopping Claude',
+          detail: 'Waiting to confirm delegated commands stopped. The checkout remains locked.' })) : undefined;
+      const processReady = processTree?.start() ?? Promise.resolve();
+      let processCleanup: Promise<void> | undefined;
+      child.once('exit', () => { processCleanup = processTree?.stop(); });
       let stdoutBuffer = '';
       let stderr = '';
       let outputBytes = 0;
@@ -279,8 +287,14 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         // left blocked on a request that can no longer be answered.
         input.permissions?.cancelAll();
         closeChildInput();
-        child.kill('SIGTERM');
-        killTimer = setTimeout(() => child.kill('SIGKILL'), this.options.killGraceMs ?? 1_500);
+        const maintenance = processTree && input.signal.reason === MAINTENANCE_SUSPENSION;
+        // Freeze the launcher before the final inventory, then use KILL so its TERM handler
+        // cannot spawn an unobserved replacement. The response/tool boundary was awaited above.
+        if (maintenance) child.kill('SIGSTOP');
+        void (processTree?.capture() ?? Promise.resolve()).catch(() => undefined).then(() => {
+          child.kill(maintenance ? 'SIGKILL' : 'SIGTERM');
+          killTimer = setTimeout(() => child.kill('SIGKILL'), this.options.killGraceMs ?? 1_500);
+        });
       };
 
       const abort = () => terminate('cancelled');
@@ -426,6 +440,7 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
             // An empty append closes a block without replacing streamed text.
             input.emit({ type: 'history', activity: { kind: 'assistant', key, actor: actorFor(parent), text: '', append: true, complete: true } });
           }
+          if (!parent && stream?.type === 'message_stop') input.emit({ type: 'response-boundary', responseFinal: rootFinalPhase });
           return;
         }
         if (event.type === 'assistant') {
@@ -544,7 +559,8 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
         if (Buffer.byteLength(stderr) < 65_536) stderr += chunk.toString('utf8').slice(0, 65_536);
       });
 
-      child.once('close', (code) => {
+      child.once('close', async (code) => {
+        await (processCleanup ?? processTree?.stop());
         log?.(`exit code=${code}${termination ? ` after ${termination}` : ''} (stdout ${outputBytes}B, ${textDeltaCount} text deltas ${textDeltaBytes}B${stderr.trim() ? `, stderr: ${stderr.trim().slice(0, 200).replaceAll(/\s+/g, ' ')}` : ''})`);
         input.permissions?.cancelAll();
         if (settled) return;
@@ -594,17 +610,20 @@ export class ClaudeProcessRunner implements AgentProcessRunner {
       });
 
       child.stdin.once('error', () => undefined);
-      if (input.policy.interactivePermissions) {
-        // Streaming input: one user message now, stdin held open for permission responses.
-        child.stdin.write(`${JSON.stringify({
-          type: 'user',
-          message: { role: 'user', content: [{ type: 'text', text: input.prompt }] },
-          parent_tool_use_id: null,
-          session_id: providerSessionId,
-        })}\n`);
-      } else {
-        child.stdin.end(input.prompt, 'utf8');
-      }
+      void processReady.then(() => {
+        if (settled || termination) return;
+        if (input.policy.interactivePermissions) {
+          // Streaming input: one user message now, stdin held open for permission responses.
+          child.stdin.write(`${JSON.stringify({
+            type: 'user',
+            message: { role: 'user', content: [{ type: 'text', text: input.prompt }] },
+            parent_tool_use_id: null,
+            session_id: providerSessionId,
+          })}\n`);
+        } else {
+          child.stdin.end(input.prompt, 'utf8');
+        }
+      }).catch(error => { fatalStreamError = error; terminate('cancelled'); });
       if (input.signal.aborted) abort();
     });
   }

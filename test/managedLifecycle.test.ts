@@ -162,9 +162,11 @@ describe('the start:managed parent', { timeout: 20_000 }, () => {
     expect(await managed.start()).toBe(true);
     expect(managed.serving.active.directory).toBe('.next-managed-b');
     expect(managed.serving.fallback?.directory).toBe('.next');
+    await waitFor(() => expect(events(root).some(line => line.startsWith('state .next-managed-b idle'))).toBe(true));
     expect(events(root)).toEqual([
       expect.stringMatching(/^start \.next-managed-b pid=\d+ marked=true node_env=production root_override=- fail_flag=-$/),
       `init .next-managed-b .next-managed-b managed root=true last=-`,
+      'state .next-managed-b idle managed candidate=- last=-:-',
     ]);
     expect(lines).toContain(`To return to the previous release without the UI, run: kill -USR2 ${process.pid}`);
   });

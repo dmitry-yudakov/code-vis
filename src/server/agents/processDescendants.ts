@@ -109,3 +109,52 @@ export async function stopDescendantProcesses(owned: readonly ProcessIdentity[])
   } while (Date.now() < until);
   if ((await alive()).length) throw signalError || new Error('Provider descendants did not stop');
 }
+
+/** Retains child identities before a launcher exits/reparents them. Used by Claude's stdio runner;
+ * Codex also has its SDK-specific cleanup barrier. An unproved inventory never releases ownership. */
+export class ProviderProcessTree {
+  private readonly root: Promise<ProcessIdentity | undefined>;
+  private owned: ProcessIdentity[] = [];
+  private pending = Promise.resolve();
+  private incomplete = false;
+  private timer?: ReturnType<typeof setInterval>;
+  private stopped = false;
+  constructor(pid: number | undefined, private readonly report: () => void) { this.root = readProcessIdentity(pid); }
+
+  async start(): Promise<void> {
+    await this.capture();
+    if (this.stopped) return;
+    this.timer = setInterval(() => { void this.capture().catch(() => this.report()); }, 100);
+    this.timer.unref();
+  }
+
+  capture(): Promise<void> {
+    const capture = this.pending.then(async () => {
+      try {
+        const root = await this.root;
+        this.owned = await captureDescendantProcesses(root, this.owned);
+        if (root && (await readProcessIdentity(root.pid))?.started === root.started) this.incomplete = false;
+      } catch (error) {
+        this.incomplete = true;
+        if (error instanceof ProcessCaptureError) this.owned = error.observed;
+        throw error;
+      }
+    });
+    this.pending = capture.catch(() => undefined);
+    return capture;
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+    for (;;) {
+      await this.capture().catch(() => undefined);
+      try {
+        await stopDescendantProcesses(this.owned);
+        if (!this.incomplete) return;
+      } catch { /* Keep ownership until every captured worker is confirmed stopped. */ }
+      this.report();
+      await delay(1_000);
+    }
+  }
+}

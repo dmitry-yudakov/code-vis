@@ -21,7 +21,7 @@ export const turnEntrySchema = z.discriminatedUnion('kind', [
 ]);
 export const turnRecordSchema = z.object({
   version: z.literal(1), runId: identity, userMessageId: identity, participantId: identity, acceptedAt: z.string().datetime(),
-  lifecycle: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted']),
+  lifecycle: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted', 'suspended']),
   sequence, entries: z.array(turnEntrySchema).max(ACTIVITY_LIMITS.entries), incomplete: z.boolean(), history: z.enum(['saved', 'unsaved']),
   evicted: z.string().length(8192).regex(/^[0-9a-f]+$/).optional(),
 }).strict().superRefine((turn, ctx) => {

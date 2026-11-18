@@ -10,11 +10,13 @@ export type LifecycleStart =
 /**
  * This server's side of the managed build-and-restart. The parent owns the operation; this mirrors
  * its status for the browser, holds the scheduler's maintenance lease while a build may end this
- * process, and answers the parent's lease requests. Nothing here is durable: a new server starts
- * with an empty scheduler, no lease, and the last outcome its parent hands it.
+ * process, and answers the parent's lease requests. Planned continuations live in the separate
+ * suspended-turn journal; this status mirror is reconstructed from the parent on startup.
  */
 export class CodeAiLifecycle {
   private state: AvailableLifecycleSnapshot;
+  private suspended = false;
+  private drained = false;
 
   constructor(private readonly bridge: ManagedBridge, private readonly lease: MaintenanceLease) {
     const { releaseId, lastOperation } = bridge.init;
@@ -41,7 +43,25 @@ export class CodeAiLifecycle {
    */
   start(): LifecycleStart {
     if (!this.managed) return { accepted: false, reason: 'not-managed' };
-    const admission = this.lease.acquireMaintenance();
+    if (this.state.phase === 'paused' && !this.drained) return { accepted: false, reason: 'busy' };
+    if (this.state.phase !== 'idle' && this.state.phase !== 'paused') return { accepted: false, reason: 'busy' };
+    const admission = this.state.phase === 'paused' && this.suspended ? 'acquired' : this.lease.acquireMaintenance();
+    if (admission === 'live-runs' && this.lease.beginDrain && this.lease.drain) {
+      const drain = this.lease.beginDrain();
+      if (drain !== 'acquired') return { accepted: false, reason: drain === 'held' ? 'busy' : 'live-runs' };
+      this.suspended = true;
+      const operationId = randomUUID();
+      this.state = { ...this.state, phase: 'suspending', operationId, startedAt: new Date().toISOString(), detail: undefined, retryable: undefined };
+      void this.lease.drain().then(() => {
+        this.drained = true;
+        this.state = { ...this.state, phase: 'building' };
+        this.bridge.send({ type: 'lifecycle-request', operationId, action: 'build-and-restart' });
+      }).catch(() => {
+        this.state = { ...this.state, phase: 'paused', retryable: false, detail: 'Restart preparation stopped. Work remains paused; check the server terminal before restarting.' };
+        console.error('CodeAI could not finish saving suspended turns. No build was started. Restart recovery records were retained.');
+      });
+      return { accepted: true, snapshot: this.state };
+    }
     if (admission !== 'acquired') return { accepted: false, reason: admission === 'held' ? 'busy' : 'live-runs' };
     const idle = this.state;
     const operationId = randomUUID();
@@ -53,7 +73,8 @@ export class CodeAiLifecycle {
       this.bridge.send({ type: 'lifecycle-request', operationId, action: 'build-and-restart' });
     } catch {
       this.state = idle;
-      this.lease.releaseMaintenance();
+      if (!this.suspended) this.lease.releaseMaintenance();
+      else this.state = { ...idle, phase: 'paused', detail: 'The build could not start. Sessions remain suspended until CodeAI restarts.' };
       return { accepted: false, reason: 'not-managed' };
     }
     return { accepted: true, snapshot: this.state };
@@ -63,8 +84,14 @@ export class CodeAiLifecycle {
     const parsed = parentLifecycleMessageSchema.safeParse(raw);
     if (!parsed.success) return;
     const message = parsed.data;
-    if (message.type === 'lifecycle-state') this.state = message.snapshot;
-    else if (message.type === 'lifecycle-lease' && message.request === 'release') this.lease.releaseMaintenance();
+    if (message.type === 'lifecycle-state') {
+      this.state = this.suspended && message.snapshot.phase === 'idle' && message.snapshot.lastOperation?.outcome === 'build-failed'
+        ? { ...message.snapshot, phase: 'paused', detail: 'The build failed. Sessions remain suspended; fix the build and retry or restart CodeAI from the terminal.' }
+        : message.snapshot;
+    }
+    else if (message.type === 'lifecycle-lease' && message.request === 'release') {
+      if (!this.suspended) this.lease.releaseMaintenance();
+    }
     else if (message.type === 'lifecycle-lease') {
       // `kill -USR2`: the parent may stop this server only if no run is live and nothing else holds the lease.
       this.bridge.send({ type: 'lifecycle-lease', request: 'acquire', granted: this.lease.acquireMaintenance() === 'acquired' });

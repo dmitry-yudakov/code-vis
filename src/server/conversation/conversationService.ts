@@ -8,6 +8,7 @@ import type { SessionStore } from '@/server/storage/sessionStore';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { TurnMode } from '@/server/runs/turnMode';
+import { TurnSuspended, type TurnSuspension, type ContinuationProgress } from '@/server/runs/turnSuspension';
 import { AgentRunError } from '@/server/agents/agentRunError';
 import {
   createRunDirectory, removeRunDirectory, writeDiagramAttachments, writeImageAttachments,
@@ -28,6 +29,7 @@ import { readModelEmission } from '@/server/model/agentEmission';
 import { repositoryModels, type RepositoryModelStore } from '@/server/model/repositoryModelStore';
 import { createTurn, updateActivity, finishTurn, type ProcessActivity, type TurnRecord } from '@/shared/turnActivity';
 import { TurnHistoryWriter } from './turnHistoryWriter';
+import { buildRestartActivity } from './transcript';
 
 export async function publishCompletedAssistant(input: {
   runId: string;
@@ -62,6 +64,8 @@ export async function runConversation(input: {
   emit(event: AgentEvent): void;
   onPermissionBroker?(broker: PermissionBroker | undefined): void;
   turnMode?: TurnMode;
+  suspension?: TurnSuspension;
+  continuationProgress?: ContinuationProgress;
   beforeAttempt?(mode: AgentMode): Promise<void>;
   modelStore?: RepositoryModelStore;
 }): Promise<AssistantMessage> {
@@ -78,7 +82,9 @@ export async function runConversation(input: {
   let latestContextUsage = participant.contextUsage;
   const user = session.messages.find(message => message.id === request.messageId);
   let turn: TurnRecord = { ...(user?.role === 'user' && user.turn || createTurn(runId, request.messageId, participant.id, new Date().toISOString())), lifecycle: 'running' };
-  let attemptNumber = 0;
+  let attemptNumber = input.continuationProgress?.attempt ?? 0;
+  let spentMs = input.continuationProgress?.spentMs ?? 0;
+  let usedTurns = input.continuationProgress?.usedTurns ?? 0;
   let sawHistory = false;
   const historyWriter = new TurnHistoryWriter(record => sessionStore.saveTurnActivity(session.id, record), record => {
     if (record.sequence !== turn.sequence) return;
@@ -135,14 +141,18 @@ export async function runConversation(input: {
     let result: AgentProcessResult | undefined;
     let policy = resolveAgentPolicy(config, mode, session.execution);
     let continuation = false;
-    let spentMs = 0;
-    let usedTurns = 0;
     for (;;) {
       signal.throwIfAborted();
+      input.suspension?.betweenAttempts();
+      if (input.suspension?.requested) throw new TurnSuspended({ attempt: attemptNumber, spentMs, usedTurns, continuation: resuming });
       const attempt = turnMode.begin();
       attemptNumber += 1;
       mode = attempt.mode;
-      await input.beforeAttempt?.(mode);
+      try { await input.beforeAttempt?.(mode); }
+      catch (error) {
+        if (error instanceof TurnSuspended) throw new TurnSuspended({ attempt: attemptNumber, spentMs, usedTurns, continuation: resuming });
+        throw error;
+      }
       if (attempt.signal.aborted) continue;
       signal.throwIfAborted();
       policy = resolveAgentPolicy(config, mode, session.execution);
@@ -173,6 +183,8 @@ export async function runConversation(input: {
         roleContract: roleContract(participant.role),
         transcriptDelta,
         modeContinuation: continuation,
+        restartContinuation: input.continuationProgress?.continuation,
+        restartActivity: input.continuationProgress?.continuation ? buildRestartActivity(user?.role === 'user' ? user.turn : undefined) : undefined,
       });
       // Resolved for every turn: a switch made in the Arena reaches the next one.
       const instructions = policy.level === 'native' && participant.provider === 'claude' ? {} : await turnGlobalInstructions(config, {
@@ -180,6 +192,8 @@ export async function runConversation(input: {
       });
       try {
         if (attempt.signal.aborted) continue;
+        if (input.suspension?.requested) throw new TurnSuspended({ attempt: attemptNumber, spentMs, usedTurns, continuation: resuming });
+        input.suspension?.running();
         result = await runner.run({
           contextUsage: latestContextUsage,
           runId,
@@ -194,7 +208,7 @@ export async function runConversation(input: {
           attachmentDirectory: directory,
           policy,
           permissions,
-          signal: AbortSignal.any([signal, attempt.signal]),
+          signal: AbortSignal.any([signal, attempt.signal, ...(input.suspension ? [input.suspension.signal] : [])]),
           model: request.model,
           effort: request.effort,
           ...instructions,
@@ -251,11 +265,20 @@ export async function runConversation(input: {
                 label: event.phase === 'thinking' ? 'Thinking…' : 'Writing response…',
               });
             }
+            // Outside Linux the local Claude launcher cannot prove descendant cleanup. Let that
+            // provider attempt finish naturally; preparation/queued work can still suspend.
+            if (participant.provider !== 'claude' || session.execution === 'docker' || process.platform === 'linux') input.suspension?.observe(event);
           },
         });
         inputPossiblySent = true;
       } catch (error) {
         if (error instanceof AgentRunError && error.delivery === 'possibly-sent') inputPossiblySent = true;
+        if (input.suspension?.signal.aborted && !signal.aborted && error instanceof AgentRunError && error.code === 'cancelled') {
+          // The runner has finished process/descendant cleanup. Never publish this as cancellation.
+          await sessionMark;
+          if (sessionMarkError) throw sessionMarkError;
+          throw new TurnSuspended({ attempt: attemptNumber, spentMs: spentMs + (pending.size ? 0 : Date.now() - workingSince), usedTurns, continuation: resuming });
+        }
         // Only our mode interruption may resume. A provider error/denial must remain an error.
         if (!attempt.signal.aborted || signal.aborted
           || !(error instanceof AgentRunError) || error.code !== 'cancelled') throw error;
@@ -339,7 +362,8 @@ export async function runConversation(input: {
     emit({ type: 'done', runId, durationMs: Date.now() - startedAt, cancelled: false });
     return message;
   } catch (error) {
-    turn = finishTurn(turn, signal.aborted || error instanceof AgentRunError && error.code === 'cancelled' ? 'cancelled' : 'failed');
+    turn = finishTurn(turn, error instanceof TurnSuspended ? 'suspended'
+      : signal.aborted || error instanceof AgentRunError && error.code === 'cancelled' ? 'cancelled' : 'failed');
     historyWriter.set(turn);
     await historyWriter.flush();
     // A saved message spans mode attempts, including input sent before a provider acknowledged it.

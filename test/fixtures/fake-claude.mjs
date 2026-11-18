@@ -2,6 +2,7 @@
 
 import { readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
 const valueAfter = (flag) => {
@@ -113,6 +114,22 @@ if (args.includes('--no-session-persistence')) {
   const title = 'Improve conversation titles';
   emit({ type: 'assistant', message: { id: 'title', stop_reason: 'end_turn', content: [{ type: 'text', text: title }] } });
   emit({ type: 'result', subtype: 'success', result: title, session_id: sessionId });
+}
+else if (mode === 'maintenance-worker') {
+  const pidFile = process.env.CODEAI_FAKE_WORKER_FILE;
+  const worker = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+  const child = worker(); child.unref();
+  writeFileSync(pidFile, String(child.pid));
+  process.on('SIGTERM', () => {
+    const replacement = worker(); replacement.unref();
+    writeFileSync(`${pidFile}.replacement`, String(replacement.pid));
+    process.exit(0);
+  });
+  emit({ type: 'system', subtype: 'init', session_id: sessionId });
+  emit({ type: 'stream_event', event: { type: 'message_start', message: { id: 'maintenance-response' } } });
+  emit({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'tool_use' } } });
+  emit({ type: 'stream_event', event: { type: 'message_stop' } });
+  setInterval(() => {}, 1000);
 }
 else if (mode.startsWith('context-usage') || prompt.includes('[context-usage]')) {
   emit({ type: 'system', subtype: 'init', session_id: sessionId });

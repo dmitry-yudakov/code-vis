@@ -14,7 +14,7 @@ export const MAX_LIFECYCLE_DETAIL_CHARS = 300;
 const releaseIdSchema = z.string().regex(RELEASE_ID_PATTERN);
 const operationIdSchema = z.string().uuid();
 
-export const codeAiLifecyclePhaseSchema = z.enum(['idle', 'building', 'restarting']);
+export const codeAiLifecyclePhaseSchema = z.enum(['idle', 'suspending', 'building', 'restarting', 'paused']);
 export type CodeAiLifecyclePhase = z.infer<typeof codeAiLifecyclePhaseSchema>;
 
 export const codeAiLifecycleOperationSchema = z.object({
@@ -35,6 +35,8 @@ export const availableLifecycleSnapshotSchema = z.object({
   startedAt: z.string().datetime().optional(),
   /** Known once the build has produced it. */
   candidateReleaseId: releaseIdSchema.optional(),
+  detail: z.string().max(MAX_LIFECYCLE_DETAIL_CHARS).optional(),
+  retryable: z.boolean().optional(),
   /** Carried to the next server by the parent. */
   lastOperation: codeAiLifecycleOperationSchema.optional(),
 }).strict();

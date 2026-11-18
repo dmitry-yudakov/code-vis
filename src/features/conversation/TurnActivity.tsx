@@ -27,6 +27,7 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
 }) {
   const renderedFinal = new Set<string>();
   return <div className="turn-activity" aria-label="Turn activity">
+    {turn.lifecycle === 'suspended' && <p role="status">Suspended for CodeAI restart. Work continues after restart.</p>}
     {turn.entries.map(entry => {
       const name = entry.actor?.name || agentName;
       if (entry.kind === 'assistant') {

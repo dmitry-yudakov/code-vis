@@ -93,7 +93,7 @@ const runDescriptorSchema = z.object({
   pendingPermissionCount: z.number().int().nonnegative(),
   pendingPermissions: z.array(runPermissionSchema).max(32),
   status: z.string().max(1_000).optional(),
-  outcome: z.enum(['completed', 'failed', 'cancelled']).optional(),
+  outcome: z.enum(['completed', 'failed', 'cancelled', 'suspended']).optional(),
 }).strict();
 
 export const executorSnapshotSchema = z.object({

@@ -16,7 +16,7 @@ import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
   NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema, agentContextUsageSchema, CONTEXT_USAGE_SESSION_VERSION,
-  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION, ACTIVE_FILE_SESSION_VERSION,
+  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION, ACTIVE_FILE_SESSION_VERSION, SUSPENDED_TURN_SESSION_VERSION,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
@@ -44,7 +44,7 @@ const projectLogoRecordSchema = z.object({ logo: projectLogoSchema, repository: 
   .refine(record => record.logo.repositoryId === record.repository.id);
 
 function upgradeForMessage(session: DurableSession, message: ChatMessage): void {
-  const needed = message.role === 'user' && message.activeFile ? ACTIVE_FILE_SESSION_VERSION : message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
+  const needed = message.role === 'user' && message.turn?.lifecycle === 'suspended' ? SUSPENDED_TURN_SESSION_VERSION : message.role === 'user' && message.activeFile ? ACTIVE_FILE_SESSION_VERSION : message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
     : message.role === 'user' && message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
     : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
     : message.role === 'user' && message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
@@ -204,13 +204,14 @@ export async function atomicWrite(
   targetPath: string,
   value: unknown,
   beforeRename?: SessionStoreOptions['beforeRename'],
+  compact = false,
 ): Promise<void> {
   const directory = path.dirname(targetPath);
   const temporaryPath = path.join(directory, `.${path.basename(targetPath)}-${randomUUID()}.tmp`);
   let handle: FileHandle | undefined;
   try {
     handle = await open(temporaryPath, 'wx', 0o600);
-    await handle.writeFile(json(value), 'utf8');
+    await handle.writeFile(compact ? `${JSON.stringify(value)}\n` : json(value), 'utf8');
     await handle.sync();
     await handle.close();
     handle = undefined;
@@ -613,6 +614,12 @@ export class SessionStore {
       }
       await this.expectNoSessionAt(this.archivedSessionPath(id), 'Archive already contains this session.');
       const archived = structuredClone(session);
+      for (const message of archived.messages) {
+        if (message.role === 'user' && message.turn?.lifecycle === 'suspended') {
+          message.status = 'cancelled';
+          message.turn = { ...finishTurn(message.turn, 'cancelled'), history: 'saved' };
+        }
+      }
       if (agentCheckId) archived.agentArchiveCheck!.status = 'archived';
       else delete archived.agentArchiveCheck;
       archived.archivedAt = this.now().toISOString();
@@ -919,6 +926,26 @@ export class SessionStore {
       message.delivery = delivery;
       if (message.turn) message.turn = { ...finishTurn(message.turn, status), history: 'saved' };
       session.messages = boundSessionActivity(session.messages, message.turn?.runId);
+      return { result: session, changed: true };
+    });
+  }
+
+  async suspendUserMessage(id: string, messageId: string): Promise<void> {
+    await this.mutate(id, session => {
+      const message = session.messages.find(item => item.id === messageId);
+      if (!message || message.role !== 'user' || message.status !== 'sending' || !message.turn) throw new SessionStoreError('conflict', 'That turn can no longer be suspended.');
+      message.turn = { ...finishTurn(message.turn, 'suspended'), history: 'saved' };
+      upgradeForMessage(session, message);
+      return { result: undefined, changed: true };
+    });
+  }
+
+  async resumeSuspendedMessage(id: string, messageId: string, runId: string): Promise<DurableSession> {
+    return this.mutate(id, session => {
+      const message = session.messages.find(item => item.id === messageId);
+      if (session.archivedAt || !message || message.role !== 'user' || message.status !== 'sending'
+        || message.turn?.runId !== runId || message.turn.lifecycle !== 'suspended') throw new SessionStoreError('conflict', 'That suspended turn is no longer available.');
+      message.turn = { ...message.turn, lifecycle: 'queued', sequence: message.turn.sequence + 1 };
       return { result: session, changed: true };
     });
   }

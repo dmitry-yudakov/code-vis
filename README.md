@@ -413,7 +413,7 @@ npm run build          # once, so there is a release to serve
 npm run start:managed  # the start:remote settings and origin, plus Build & restart
 ```
 
-In a [self project](#use-reports-in-codeais-own-project), **More → Build & restart CodeAI** in the
+From any workspace, **More → Build & restart CodeAI** in the
 flat shell and **Session tools → CodeAI → Build & restart** in the headset start it. The first
 activation shows what will happen; a second, separate **Build and restart** starts it. Nothing an
 agent writes can press it: an agent may suggest a restart, but only you confirm one.
@@ -421,16 +421,23 @@ agent writes can press it: an agent may suggest a restart, but only you confirm 
 - **It runs the code you are about to test.** The build compiles the checkout as it is, uncommitted
   changes included, and the new release runs on this machine as you. This gives no agent a new
   capability; Local Agent actions still need their own approvals.
-- **It waits for the machine to be idle.** It is refused while any agent turn is queued or running
-  on this machine, a peer home's turn here included. While it builds, the current release keeps
-  serving for reading, and new turns are refused with *Send again once it is back*. A turn this home
-  runs on an attached executor keeps running there, and the page finds it again after the reload.
+- **It prepares active work for restart.** New turns and queued launches stop. Running turns wait
+  for an observed response/tool boundary, then stop through provider cleanup; unfinished work and
+  its original attachments are saved on disk. Work that finishes naturally stays complete. The
+  build starts after all turns and checkout helpers have stopped. A turn this home runs on an
+  attached executor keeps running there, and the page finds it again after the reload.
+- **Suspended work survives a failed build.** The old release keeps serving, while suspended tasks
+  stay paused. Fix the checkout from the console and retry Build & restart, or rebuild and start
+  CodeAI manually with the same data directory and provider homes. Startup continues cleanly
+  suspended work without a browser or the old managing process. Pending approvals are requested
+  again; completed actions are not deliberately replayed. An uncertain crash or failed suspension
+  is reported in the terminal and is not automatically retried.
 - **The build leaves your checkout as it was.** `next build` points `next-env.d.ts` and
   `tsconfig.json` at its build directory; both are restored byte for byte when the build ends,
   however it ends. An edit you make to either file while a build runs is lost.
 - **The swap.** A build goes into `.next-managed-a` or `.next-managed-b`, whichever is not serving.
-  If it fails, takes longer than 20 minutes, or produces no `BUILD_ID`, nothing else changes and the
-  menu says *the build failed*. Otherwise CodeAI says it is restarting, stops the old server (open
+  If it fails, takes longer than 20 minutes, or produces no `BUILD_ID`, the old release remains and
+  suspended work stays paused. Otherwise CodeAI says it is restarting, stops the old server (open
   connections close after two seconds), and starts the new release. The new release counts only
   once it tells the parent, over a private channel, that Next is prepared and TLS is listening. If it
   does not within two minutes, it is deleted and the previous release starts again: *rolled back*.
@@ -441,6 +448,12 @@ agent writes can press it: an agent may suggest a restart, but only you confirm 
   and reloads once CodeAI answers. The session and draft come back through their usual owners. A VR
   session ends with the page; enter VR again. The menu then names the release that is serving and
   the last outcome.
+
+The provider CLIs own their inference/tool loops. Boundary notifications support deferred
+interruption, but cannot guarantee an atomic pause between an LLM response and its next tool.
+Continuation checks existing work before repeating actions. Local Claude uses Linux process
+tracking for cleanup; on other hosts it waits for the whole provider attempt to finish. Suspended
+sessions use format 17; older releases preserve them as newer records and cannot resume them.
 
 **What the previous release covers.** A build slot holds compiled output only.
 `scripts/start-remote.mjs`, `next.config.ts`, `public/`, `node_modules`, and `.env*` are read from

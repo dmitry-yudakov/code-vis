@@ -2,6 +2,46 @@ import { expect, test } from '@playwright/test';
 import type { CheckoutsResponse, DurableProject } from '../src/shared/types';
 import { LIFECYCLE_REQUEST_TIMEOUT_MS, RECONNECT_LIMIT_MS } from '../src/features/lifecycle/lifecycleFlow';
 
+for (const theme of ['light', 'dark']) for (const width of [960, 360]) {
+  test(`restart preparation and failed-build suspension remain clear in ${theme} at ${width}px`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 640 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const { project } = await (await request.post('/api/projects', { data: {
+      name: `Restart suspension ${theme} ${width} ${Date.now()}`, checkoutIds: [checkouts.find(item => item.relativePath === 'alpha')!.id],
+    } })).json();
+    const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json();
+    let phase: 'idle' | 'suspending' | 'paused' = 'idle';
+    const operationId = 'b0571d1a-b249-4cbd-8f5e-630390f2d320';
+    await page.route('**/api/codeai-lifecycle**', route => {
+      if (route.request().method() === 'POST') phase = 'suspending';
+      const snapshot = { available: true, releaseId: 'old-release', phase,
+        ...(phase === 'idle' ? {} : { operationId, startedAt: new Date().toISOString() }),
+        ...(phase === 'paused' ? { detail: 'The build failed. Sessions remain suspended; fix the build and retry or restart CodeAI from the terminal.' } : {}),
+      };
+      return route.fulfill({ status: route.request().method() === 'POST' ? 202 : 200,
+        json: route.request().method() === 'POST' ? { snapshot } : snapshot });
+    });
+    await page.goto(`/?session=${session.id}`);
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: 'Build & restart CodeAI' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Active work pauses and continues after restart');
+    await dialog.getByRole('button', { name: 'Build and restart', exact: true }).click();
+    await expect(dialog).toContainText('Waiting for active responses and commands to pause');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`suspending-${theme}-${width}.png`), animations: 'disabled' });
+    phase = 'paused';
+    await expect(dialog.getByRole('alert')).toContainText('Sessions remain suspended');
+    await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`paused-${theme}-${width}.png`), animations: 'disabled' });
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toBeHidden();
+  });
+}
+
 // The end-to-end server is plain `next start`, which no start:managed parent spawned (Story 64).
 test('an unmanaged server offers no Build & restart, even in CodeAI’s own project, and refuses the request', async ({ page, request, baseURL }) => {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;

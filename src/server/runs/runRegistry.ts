@@ -48,6 +48,8 @@ interface RunRecord {
   cancelBlocked: boolean;
   cancelPromise?: Promise<RunCancelOutcome>;
   cancel(): void;
+  suspend?(): Promise<void>;
+  suspending?: boolean;
   cancelQueued?(): Promise<void>;
   execute?(): Promise<void>;
   permissions?: PermissionBroker;
@@ -99,6 +101,8 @@ export interface WorktreeCreationLease {
 export interface MaintenanceLease {
   acquireMaintenance(): MaintenanceAdmission;
   releaseMaintenance(): void;
+  beginDrain?(): MaintenanceAdmission;
+  drain?(): Promise<void>;
 }
 
 export interface ReserveRunInput {
@@ -117,6 +121,7 @@ export interface ReserveRunInput {
   mode?: AgentMode;
   changeMode?(mode: AgentMode): Promise<RunModeOutcome>;
   cancel(): void;
+  suspend?(): Promise<void>;
 }
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
@@ -133,6 +138,7 @@ export class RunRegistry implements MaintenanceLease {
   private readonly checkoutReaders = new Map<symbol, { path: string; creationCompatible: boolean }>();
   private readonly checkoutWriters = new Map<symbol, string>();
   private maintenance = false;
+  private excludeMaintenanceReads = false;
   private creation?: { token: symbol; paths: string[]; proof?: CheckoutScopeProof };
   private readonly archivingSessions = new Set<string>();
   private readonly liveByRunId = new Map<string, RunRecord>();
@@ -181,6 +187,7 @@ export class RunRegistry implements MaintenanceLease {
    * an incompatible lease even though its common Git root is mounted read-only.
    */
   acquireCheckoutRead(checkoutPath: string, writeLease?: symbol, creationCompatible = false): (() => void) | undefined {
+    if (this.maintenance && this.excludeMaintenanceReads) return undefined;
     if (this.creation && this.creation.token !== writeLease && this.creationContains(checkoutPath)
       && !(creationCompatible && this.creationReaderCompatible(this.creation.proof, checkoutPath))) return undefined;
     if ([...this.checkoutWriters.entries()].some(([token, writer]) => token !== writeLease && pathsOverlap(writer, checkoutPath))) return undefined;
@@ -189,7 +196,7 @@ export class RunRegistry implements MaintenanceLease {
       && run.checkoutPath !== checkoutPath && pathContains(run.checkoutPath, checkoutPath))) return undefined;
     const token = Symbol();
     this.checkoutReaders.set(token, { path: checkoutPath, creationCompatible });
-    return () => { this.checkoutReaders.delete(token); this.schedule(); };
+    return () => { this.checkoutReaders.delete(token); this.schedule(); this.notifyChanges(); };
   }
 
   /** Recovery cannot reorder runnable accepted work. Ideas waiting for session archives yield. */
@@ -202,16 +209,16 @@ export class RunRegistry implements MaintenanceLease {
         ? pathsOverlap(run.checkoutPath, checkoutPath) : run.access === 'write'))) return undefined;
     const token = Symbol();
     this.checkoutWriters.set(token, checkoutPath);
-    return Object.assign(() => { this.checkoutWriters.delete(token); this.schedule(); }, { token });
+    return Object.assign(() => { this.checkoutWriters.delete(token); this.schedule(); this.notifyChanges(); }, { token });
   }
 
   /**
    * Atomically claims the session/provider identity before the durable message append. Reserved
    * records are not discoverable or runnable until `activate` confirms that append succeeded.
    */
-  reserve(input: ReserveRunInput): RunReservation {
+  reserve(input: ReserveRunInput, restartRecovery = false): RunReservation {
     this.evictExpired();
-    if (this.maintenance) return { accepted: false, reason: 'maintenance' };
+    if (this.maintenance && !restartRecovery) return { accepted: false, reason: 'maintenance' };
     if (this.archivingSessions.has(input.sessionId)) return { accepted: false, reason: 'session-archiving' };
     const sessionConflict = [...this.liveByRunId.values()].find((run) => run.sessionId === input.sessionId);
     if (sessionConflict) {
@@ -225,10 +232,13 @@ export class RunRegistry implements MaintenanceLease {
     // them with activated queue entries instead of inferring the queue from machine capacity: a
     // checkout lock can leave capacity idle while all 32 waiting places are still occupied.
     const waiting = [...this.liveByRunId.values()].filter((run) => run.state === 'queued').length;
-    if (waiting >= MAX_QUEUED_RUNS) return { accepted: false, reason: 'queue-full' };
+    // Startup holds dispatch while restoring ownership. Previously running entries also look
+    // queued here, so reserve room for the eight supported executing slots as well as the queue.
+    if (waiting >= MAX_QUEUED_RUNS + (restartRecovery ? 8 : 0)) return { accepted: false, reason: 'queue-full' };
 
     const completion = deferred();
     const blockedBySessions = new Set(input.blockedBySessions);
+    this.recentByRunId.delete(input.runId);
     const provisionalBlockers = new Set<string>();
     if (input.waitForCheckout) {
       for (const earlier of this.liveByRunId.values()) {
@@ -267,11 +277,57 @@ export class RunRegistry implements MaintenanceLease {
     if (this.maintenance) return 'held';
     if (this.creation || this.liveByRunId.size || this.archivingSessions.size || this.checkoutWriters.size || this.checkoutReaders.size) return 'live-runs';
     this.maintenance = true;
+    this.excludeMaintenanceReads = true;
     return 'acquired';
+  }
+
+  holdStartupRecovery(): MaintenanceAdmission {
+    const admission = this.acquireMaintenance();
+    if (admission === 'acquired') this.excludeMaintenanceReads = false;
+    return admission;
   }
 
   releaseMaintenance(): void {
     this.maintenance = false;
+    this.excludeMaintenanceReads = false;
+    this.schedule();
+  }
+
+  /** Close admission and queue dispatch atomically, retaining ownership until cleanup ends. */
+  beginDrain(): MaintenanceAdmission {
+    if (this.maintenance) return 'held';
+    if (this.creation || this.archivingSessions.size || [...this.liveByRunId.values()].some(run => !run.suspend)) return 'live-runs';
+    this.maintenance = true;
+    this.excludeMaintenanceReads = false; // Current turns still need read leases for checkpoint finalization.
+    return 'acquired';
+  }
+
+  async drain(): Promise<void> {
+    if (!this.maintenance) throw new Error('Maintenance must own admission before draining.');
+    const pending: Promise<void>[] = [];
+    while (this.liveByRunId.size || this.checkoutReaders.size || this.checkoutWriters.size) {
+      // Subscribe before inspecting/awaiting: activation, failed appends and helper releases can
+      // all make progress without leaving a discoverable active run.
+      let wake!: () => void;
+      const changed = new Promise<void>(resolve => { wake = resolve; });
+      this.changeListeners.add(wake);
+      try {
+        for (const run of this.liveByRunId.values()) {
+          if (!run.activated || run.suspending) continue;
+          run.suspending = true;
+          const suspension = Promise.resolve().then(async () => {
+            await run.editing;
+            await run.modeChange;
+            await run.cancelPromise;
+            if (this.liveByRunId.get(run.runId) === run) await run.suspend!();
+          });
+          pending.push(suspension);
+        }
+        await Promise.race([changed, ...pending.map(promise => promise.then(() => changed))]);
+      } finally { this.changeListeners.delete(wake); }
+    }
+    this.excludeMaintenanceReads = true; // No helper can enter between the final check and the build.
+    await Promise.all(pending);
   }
 
   /** Reserve journal mutation before reading dependencies, then grant all affected scopes atomically.
@@ -398,7 +454,7 @@ export class RunRegistry implements MaintenanceLease {
   async changeMode(runId: string, mode: AgentMode): Promise<RunModeOutcome> {
     const run = this.liveByRunId.get(runId);
     const unavailable: RunModeOutcome = { ok: false, status: 409, error: 'That turn can no longer change mode.' };
-    if (!run?.activated || !run.changeMode) return unavailable;
+    if (this.maintenance || !run?.activated || !run.changeMode) return unavailable;
     const operation = (run.modeChange ?? Promise.resolve({ ok: true } as const)).then(async () => {
       if (this.liveByRunId.get(runId) !== run || run.cancelling) return unavailable;
       const result = await run.changeMode!(mode);
@@ -475,7 +531,8 @@ export class RunRegistry implements MaintenanceLease {
         run.status = event.message;
         run.outcome = event.code === 'cancelled' ? 'cancelled' : 'failed';
       } else if (event.type === 'done') {
-        run.outcome = event.cancelled ? 'cancelled' : run.outcome || 'completed';
+        run.outcome = event.suspended ? 'suspended' : event.cancelled ? 'cancelled' : run.outcome || 'completed';
+        if (event.suspended) run.status = 'Suspended for CodeAI restart';
         if (run.outcome === 'completed') run.status = 'Turn completed';
       }
       if (event.type === 'context-usage') {
@@ -641,7 +698,7 @@ export class RunRegistry implements MaintenanceLease {
 
   async editQueuedMessage(runId: string, text: string, expectedText: string): Promise<RunModeOutcome> {
     const run = this.liveByRunId.get(runId);
-    if (!run?.activated || !run.editQueued || run.startedAt !== undefined || run.cancelling || run.cancelBlocked || run.editing) {
+    if (this.maintenance || !run?.activated || !run.editQueued || run.startedAt !== undefined || run.cancelling || run.cancelBlocked || run.editing) {
       return { ok: false, status: 409, error: 'This message can only be edited before its queued turn starts. Reload the session to check its state.' };
     }
     const editing = Promise.resolve().then(() => run.editQueued!(text, expectedText));
@@ -697,6 +754,7 @@ export class RunRegistry implements MaintenanceLease {
   }
 
   private schedule(): void {
+    if (this.maintenance) return;
     const starting: RunRecord[] = [];
     while (this.runningCount() < this.maxConcurrentRuns) {
       const index = this.queue.findIndex((runId) => {

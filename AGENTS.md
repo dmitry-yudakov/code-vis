@@ -35,6 +35,13 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 149](stories/STORY-20261118-restart-session-continuity.md) — Build & restart
+  suspends active and queued work, retains it through failed builds, and continues it on startup
+  with original evidence, saved progress and fresh Undo baselines that preserve console repairs.
+  Verification: 2,297 unit checks, 15 production-browser cases, TypeScript, isolated build,
+  light/dark desktop/phone screenshot inspection, real Claude/Codex read-only suspension probes
+  and independent review pass; one unchanged Google-font assertion is recorded in the story.
+  The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 148](stories/STORY-20261118-observer-session-actions.md) — Observer acts as
   the user's assistant across sessions, with editable follow-ups, exact approval/denial previews,
   run cancellation, queued corrections and the existing home Build & restart flow. All 228 focused

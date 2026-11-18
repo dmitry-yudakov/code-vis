@@ -85,6 +85,15 @@ describe.sequential('CodexProcessRunner', () => {
     ]);
   });
 
+  it('does not mistake a streaming plan item for a completed response', async () => {
+    process.env.CODEAI_FAKE_CODEX_MODE = 'maintenance-plan';
+    const { events } = await run();
+    expect(events.filter(event => event.type === 'response-boundary')).toEqual([{ type: 'response-boundary', responseFinal: false }]);
+    const boundary = events.findIndex(event => event.type === 'response-boundary');
+    expect(events.slice(0, boundary).some(event => event.type === 'history' && event.activity?.kind === 'assistant'
+      && event.activity.text === 'Completed plan item.' && event.activity.complete)).toBe(true);
+  });
+
   it.each(['title', 'archive-check', 'observer'] as const)('restricts a fresh ephemeral %s request without repository tools or inherited instructions', async backgroundTask => {
     const { invocation } = await run({ backgroundTask });
     const start = invocation.requests.find((request: RecordedRequest) => request.method === 'thread/start').params;

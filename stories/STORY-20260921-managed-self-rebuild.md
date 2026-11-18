@@ -654,3 +654,10 @@ September 23, 2026, on Ubuntu 26.04.1 with Node 24.20.0 and Next 16.3.1.
   reload/draft preservation, attached-executor targeting, and immersive failure feedback. The
   executor suite's stale offline-link assertion now matches the existing disabled button.
 - No live application rebuild/restart or physical Quest acceptance was performed for this follow-up.
+
+### November 18 — continuity through restart
+
+[Story 149](STORY-20261118-restart-session-continuity.md) replaces live-turn refusal with planned
+suspension, durable startup continuation and failed-build retention. Its verification record also
+covers preservation of console repairs, provider cleanup and native-history recovery. The earlier
+verification above describes the original idle-only admission contract.

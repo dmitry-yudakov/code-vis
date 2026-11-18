@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { agentProviderSchema, agentRoleSchema } from './protocol';
 import { globalInstructionsChoiceSchema } from './sessionSchema';
+import type { CodeAiLifecyclePhase } from './codeAiLifecycle';
 
 export const CODEAI_SESSION_PATH = '/api/codeai-session';
 export const preparedCodeAiContextSchema = z.object({
@@ -9,7 +10,7 @@ export const preparedCodeAiContextSchema = z.object({
 }).strict();
 export type PreparedCodeAiContext = z.infer<typeof preparedCodeAiContextSchema>;
 export type CodeAiSessionAvailability = { available: false; reason: 'not-managed' | 'checkout-unavailable'; message?: string }
-  | { available: true; machineId: string; phase: 'idle' | 'building' | 'restarting'; checkoutId: string; checkoutName: string };
+  | { available: true; machineId: string; phase: CodeAiLifecyclePhase; checkoutId: string; checkoutName: string };
 
 export const codeAiSessionRequestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('prepare') }).strict(),

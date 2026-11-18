@@ -822,6 +822,13 @@ export class CodexProcessRunner implements AgentProcessRunner {
         if (method === 'item/started' || method === 'item/completed') {
           const item = threadItem(params?.item);
           if (item) emitItem(item, method === 'item/completed', sessionId, params?.turnId);
+          // A tool has been produced by the model. Wait for observed tools to settle before
+          // interrupting. Notifications are observations, not a gate on subsequent execution.
+          if (item && (['commandExecution', 'fileChange', 'imageView', 'subAgentActivity', 'collabAgentToolCall',
+            'mcpToolCall', 'dynamicToolCall', 'webSearch', 'hookPrompt'].includes(String(item.type))
+            || method === 'item/completed' && item.type === 'functionCallOutput')) {
+            input.emit({ type: 'response-boundary', responseFinal: false });
+          }
           return;
         }
         if (method === 'item/agentMessage/delta' && typeof params?.delta === 'string') {

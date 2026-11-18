@@ -3,6 +3,39 @@ import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { MAX_QUEUED_RUNS, RunRegistry, type RunAccess } from '@/server/runs/runRegistry';
 import type { AgentEvent, AgentExecution } from '@/shared/types';
 
+describe('planned restart admission', () => {
+  it('restores all eight execution slots and 32 queued turns before startup releases dispatch', async () => {
+    const registry = new RunRegistry(8);
+    expect(registry.holdStartupRecovery()).toBe('acquired');
+    const running = vi.fn(async () => undefined);
+    const ids = Array.from({ length: 40 }, () => crypto.randomUUID());
+    for (const runId of ids) {
+      expect(registry.reserve({ runId, sessionId: runId, participantId: 'agent', providerKey: runId,
+        checkoutId: 'repo', access: 'read', cancel: vi.fn() }, true)).toMatchObject({ accepted: true });
+      registry.activate(runId, { execute: running, cancelQueued: async () => undefined });
+    }
+    expect(registry.list().active).toHaveLength(40);
+    expect(registry.list().active.every(run => run.state === 'queued')).toBe(true);
+    expect(running).not.toHaveBeenCalled();
+    registry.releaseMaintenance();
+    expect(registry.list().active.filter(run => run.state === 'running')).toHaveLength(8);
+    await Promise.all(ids.map(runId => registry.wait(runId)));
+    expect(running).toHaveBeenCalledTimes(40);
+  });
+
+  it('permits checkpoint reads during drain and closes helper admission before building', async () => {
+    const registry = new RunRegistry();
+    const read = registry.acquireCheckoutRead('/repo')!;
+    expect(registry.beginDrain()).toBe('acquired');
+    const finalization = registry.acquireCheckoutRead('/repo');
+    expect(finalization).toBeTypeOf('function');
+    const drained = registry.drain();
+    read(); finalization!();
+    await drained;
+    expect(registry.acquireCheckoutRead('/repo')).toBeUndefined();
+  });
+});
+
 interface TurnOptions {
   sessionId?: string;
   participantId?: string;

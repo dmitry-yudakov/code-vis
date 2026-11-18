@@ -259,7 +259,8 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 16;
+export const MAX_READABLE_SESSION_VERSION = 17;
+export const SUSPENDED_TURN_SESSION_VERSION = 17;
 export const ACTIVE_FILE_SESSION_VERSION = 16;
 export const AGENT_ARCHIVE_SESSION_VERSION = 15;
 
@@ -311,7 +312,7 @@ const sessionBase = {
     z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION), z.literal(SESSION_SETUP_VERSION), z.literal(TURN_ACTIVITY_SESSION_VERSION),
     z.literal(CONTEXT_USAGE_SESSION_VERSION),
     z.literal(AGENT_ARCHIVE_SESSION_VERSION),
-    z.literal(ACTIVE_FILE_SESSION_VERSION),
+    z.literal(ACTIVE_FILE_SESSION_VERSION), z.literal(SUSPENDED_TURN_SESSION_VERSION),
   ]),
   allowAgentArchive: z.boolean().optional(),
   agentArchiveCheck: agentArchiveCheckSchema.optional(),
@@ -336,7 +337,7 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17;
     allowAgentArchive?: boolean;
     agentArchiveCheck?: { messageId: string };
     creationReceipt?: unknown;
@@ -389,6 +390,9 @@ function validateSession(
     ctx.addIssue({ code: 'custom', message: 'Session activity exceeds byte limit.', path: ['messages'] });
   }
   value.messages.forEach((message, index) => {
+    if (message.turn?.lifecycle === 'suspended' && value.version < SUSPENDED_TURN_SESSION_VERSION) {
+      ctx.addIssue({ code: 'custom', message: 'Suspended turns require format 17.', path: ['messages', index, 'turn'] });
+    }
     if (message.activeFile !== undefined && value.version < ACTIVE_FILE_SESSION_VERSION) {
       ctx.addIssue({ code: 'custom', message: 'Active-file context requires format 16.', path: ['messages', index, 'activeFile'] });
     }

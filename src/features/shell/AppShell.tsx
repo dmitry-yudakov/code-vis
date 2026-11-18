@@ -1710,6 +1710,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     onAccepted?(runId: string): void;
   }) => {
     let receivedFinal = false;
+    let suspended = false;
     let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
     let userMessageId = turn.userMessageId;
     let streamRunId = turn.runId;
@@ -1734,6 +1735,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (event.type === 'turn-activity' && event.turn.runId === event.runId) {
         if (event.turn.userMessageId === userMessageId) turn.onAccepted?.(event.runId);
         mutateSession(turn.sessionId, (current) => mergeTurnActivity(current, event.turn));
+      }
+      if (event.type === 'done' && event.suspended) {
+        suspended = true;
+        await refreshSession(turn.sessionId);
       }
       if (event.type === 'context-usage') {
         mutateSession(turn.sessionId, (current) => ({ ...current, participants: current.participants.map(participant =>
@@ -1842,7 +1847,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       && sessionsRef.current.find((item) => item.id === turn.sessionId)?.repositories.some((binding) => binding.checkoutId === target.checkoutId)) {
       target.refresh();
     }
-    return { receivedFinal, streamError, userMessageId, runId: streamRunId };
+    return { receivedFinal, suspended, streamError, userMessageId, runId: streamRunId };
   }, [mutateSession, refreshSession, repositoryApiBase, setRunOutcome, updatePreferences, updateRun, workspace.updateView]);
 
   const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
@@ -2082,7 +2087,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         });
         streamError = outcome.streamError;
         streamRunId = outcome.runId;
-        if (!outcome.receivedFinal && !streamError) throw new Error('Agent stream ended without a final response.');
+        if (!outcome.receivedFinal && !outcome.suspended && !streamError) throw new Error('Agent stream ended without a final response.');
         if (outcome.receivedFinal) acknowledge(outcome.runId);
       } catch (error) {
         const cancelled = controller.signal.aborted;
@@ -2518,7 +2523,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         for (const run of [...data.active, ...retained]) {
           // A local send already owns this session's response stream. Never replace its subscriber.
           if (runsBySessionRef.current[run.sessionId] || sendingSessions.current.has(run.sessionId)
-            || attachmentControllers.has(run.runId) || completedRunIds.has(run.runId)) continue;
+            || attachmentControllers.has(run.runId) || completedRunIds.has(run.runId)
+            || run.state === 'finished' && run.outcome === 'suspended') continue;
           // Reserve before any await so overlapping launch/open discovery cannot attach twice.
           const controller = new AbortController();
           attachmentControllers.set(run.runId, controller);
@@ -2596,10 +2602,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               recovering: true,
               userMessageId: acceptedMessage?.id,
             });
-            if (!result.receivedFinal && !result.streamError && stream.headers.get('X-CodeAI-Run-Finished') !== 'true') {
+            if (!result.receivedFinal && !result.suspended && !result.streamError && stream.headers.get('X-CodeAI-Run-Finished') !== 'true') {
               throw new Error('The run stream ended before its result.');
             }
-            completedRunIds.add(run.runId);
+            if (!result.suspended) completedRunIds.add(run.runId);
           } catch {
             if (!controller.signal.aborted) {
               reconnectingRuns.current.set(run.sessionId, { runId: run.runId, machineId });

@@ -7,6 +7,7 @@ import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
 import { getSessionStore, type SessionStore } from '@/server/storage/sessionStore';
 import { runRegistry } from '@/server/runs/runRegistry';
 import type { DurableSession } from '@/shared/types';
+import { createTurn } from '@/shared/turnActivity';
 
 const recovery = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('@/server/execution/dockerRecovery', () => ({ recoverDockerExecution: recovery }));
@@ -49,6 +50,22 @@ afterEach(async () => {
 });
 
 describe('48-hour conversation auto archive', () => {
+  it('retains suspended work indefinitely and cancels it only on explicit archive', async () => {
+    const session = await seed(AGE + 1);
+    const messageId = crypto.randomUUID();
+    await store.appendUserMessage(session.id, { id: messageId, role: 'user',
+      authorId: session.participants.find(participant => participant.kind === 'human')!.id,
+      addressedParticipantId: session.primaryAgentId, text: 'Paused work', createdAt: new Date(NOW - AGE).toISOString(),
+      status: 'sending', diagramAttachments: [], turn: createTurn(crypto.randomUUID(), messageId, session.primaryAgentId, new Date(NOW - AGE).toISOString()) });
+    await store.suspendUserMessage(session.id, messageId);
+    const suspended = await store.getSession(session.id);
+    await writeFile(path.join(store.sessionsDirectory, `${session.id}.json`), JSON.stringify({ ...suspended, updatedAt: session.updatedAt }));
+    await autoArchiveSessions(config, NOW);
+    expect((await store.getSession(session.id)).messages[0]).toMatchObject({ status: 'sending', turn: { lifecycle: 'suspended' } });
+    const archived = await store.archiveSession(session.id, suspended.revision);
+    expect(archived.messages[0]).toMatchObject({ status: 'cancelled', turn: { lifecycle: 'cancelled' } });
+  });
+
   it('releases an idle predecessor only after inactivity archiving succeeds', async () => {
     const predecessor = await seed(AGE + 1);
     const runId = crypto.randomUUID();
@@ -195,7 +212,7 @@ describe('48-hour conversation auto archive', () => {
   it('does not rewrite or move records from a newer session format', async () => {
     const session = await seed(AGE + 1);
     const file = path.join(store.sessionsDirectory, `${session.id}.json`);
-    const contents = JSON.stringify({ ...session, version: 17, future: 'opaque' });
+    const contents = JSON.stringify({ ...session, version: 18, future: 'opaque' });
     await writeFile(file, contents);
     await autoArchiveSessions(config, NOW);
     expect(await readFile(file, 'utf8')).toBe(contents);

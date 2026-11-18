@@ -47,11 +47,12 @@ const BUILD_POLL_MS = 2_000;
 const RECONNECT_POLL_MS = { first: 1_000, factor: 1.5, max: 5_000 };
 
 function canRequest(flow: LifecycleFlow): boolean {
-  return flow.snapshot?.available === true && flow.snapshot.phase === 'idle' && !flow.watch && !flow.submitting;
+  return flow.snapshot?.available === true && ['idle', 'paused'].includes(flow.snapshot.phase)
+    && flow.snapshot.retryable !== false && !flow.watch && !flow.submitting;
 }
 
 function watchFor(snapshot: AvailableLifecycleSnapshot): LifecycleWatch | undefined {
-  return snapshot.phase !== 'idle' && snapshot.operationId ? {
+  return snapshot.phase !== 'idle' && snapshot.phase !== 'paused' && snapshot.operationId ? {
     operationId: snapshot.operationId, formerReleaseId: snapshot.releaseId,
     restarting: snapshot.phase === 'restarting', failures: 0,
   } : undefined;
@@ -69,6 +70,7 @@ function observe(flow: LifecycleFlow, snapshot: CodeAiLifecycleSnapshot): Lifecy
     return { ...answered, confirming: false, watch: undefined, reload: flow.reload || reload };
   }
   const previous = flow.snapshot?.available ? flow.snapshot : undefined;
+  if (snapshot.phase === 'paused') return { ...answered, submitting: false, watch: undefined, error: snapshot.detail || 'Sessions remain suspended until CodeAI restarts.' };
   // A lost POST response can outlast the whole operation. Reconcile its newly recorded outcome
   // against the pre-submit snapshot even when no building snapshot reached this page.
   const completed = flow.submitting && snapshot.lastOperation?.operationId !== previous?.lastOperation?.operationId
@@ -167,6 +169,8 @@ export function lifecycleView(flow: LifecycleFlow, now: number): LifecycleView {
   }
   if (flow.watch && snapshot) {
     const time = elapsed(now - (snapshot.startedAt ? Date.parse(snapshot.startedAt) : now));
+    if (snapshot.phase === 'suspending') return { ...view, badge: `Preparing restart · ${time}`,
+      status: 'Waiting for active responses and commands to pause. Sessions are saved before the build starts.' };
     return {
       ...view, badge: `Building CodeAI · ${time}`,
       status: `Building CodeAI · ${time}. The current release keeps serving; new agent turns wait until it restarts.`,
@@ -174,6 +178,7 @@ export function lifecycleView(flow: LifecycleFlow, now: number): LifecycleView {
   }
   if (flow.error) return { ...view, status: flow.error };
   if (!snapshot) return view;
+  if (snapshot.phase === 'paused') return { ...view, badge: 'Sessions suspended', status: snapshot.detail || 'Sessions remain suspended until CodeAI restarts.' };
   const last = snapshot.lastOperation;
   return {
     ...view,
@@ -187,5 +192,5 @@ export function lifecycleView(flow: LifecycleFlow, now: number): LifecycleView {
 
 /** The one warning both confirmations show. */
 export function lifecycleConfirmation(): string {
-  return 'Build and restart CodeAI from the installed CodeAI checkout? This builds the checkout as it is now, uncommitted changes included, and runs it on this machine. CodeAI is unavailable while it restarts, and a VR session ends; enter VR again afterwards.';
+  return 'Build and restart CodeAI from the installed CodeAI checkout? This builds the checkout as it is now, uncommitted changes included, and runs it on this machine. Active work pauses and continues after restart. If the build fails, it stays suspended until you repair the build and restart. CodeAI is unavailable while it restarts, and a VR session ends; enter VR again afterwards.';
 }
