@@ -25,16 +25,16 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     if (width > 740) await page.getByRole('button', { name: 'Tiles', exact: true }).click();
     const group = page.getByRole('region', { name: project.name, exact: true });
     const open = group.getByRole('link', { name: `Open project ${project.name}`, exact: true });
-    await expect(group).toContainText('0 sessions');
+    await expect(group.locator('.arena-card')).toHaveCount(0);
     const groupBox = (await group.boundingBox())!, actions = (await group.locator('.arena-project-actions').boundingBox())!;
     expect(groupBox.x + groupBox.width - actions.x - actions.width).toBeLessThan(24);
-    const [heading, count, repositories] = await Promise.all([
-      group.getByRole('heading', { name: project.name, exact: true }), group.getByText('0 sessions', { exact: true }),
+    const [heading, repositories] = await Promise.all([
+      group.getByRole('heading', { name: project.name, exact: true }),
       group.locator('.arena-project-repositories'),
     ].map(item => item.boundingBox()));
     // Metadata on the same row must share its vertical center with the logo/title.
-    for (const item of [count!, repositories!]) if (item.y < heading!.y + heading!.height) {
-      expect(Math.abs(item.y + item.height / 2 - heading!.y - heading!.height / 2)).toBeLessThan(2);
+    if (repositories!.y < heading!.y + heading!.height) {
+      expect(Math.abs(repositories!.y + repositories!.height / 2 - heading!.y - heading!.height / 2)).toBeLessThan(2);
     }
     await group.screenshot({ path: testInfo.outputPath('project-header.png') });
     // The logo edits its image in place; only the title navigates to the project.

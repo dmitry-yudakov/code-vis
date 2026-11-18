@@ -23,7 +23,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     await expect(projectDialog).not.toBeVisible();
     await expect(page).toHaveURL(/\/arena$/);
     const group = arena.getByRole('region', { name, exact: true });
-    await expect(group).toContainText('0 sessions');
+    await expect(group.locator('.arena-project-repositories')).toContainText(checkout.name);
     await expect(newProject).toBeFocused();
     await page.reload();
     await expect(group).toBeVisible();
@@ -44,7 +44,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     expect(sessions[0].repositories.map(item => item.checkoutId)).toEqual([checkout.id]);
     if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^More/ }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
-    await expect(group).toContainText('1 session');
+    await expect(group.locator('.arena-card')).toHaveCount(1);
     expect(await arena.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await group.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath('arena-project.png'), animations: 'disabled' });
@@ -89,7 +89,7 @@ test('project form supports cancel, retry, repository-free creation, and guards 
   await dialog.getByRole('textbox', { name: 'Project name', exact: true }).press('Enter');
   await expect(dialog).not.toBeVisible();
   const group = page.getByRole('region', { name, exact: true });
-  await expect(group).toContainText('0 sessions');
+  await expect(group.locator('.arena-project-repositories')).toHaveText('No repository');
   const { projects } = await (await request.get('/api/projects')).json() as { projects: DurableProject[] };
   expect(projects.filter(item => item.name === name)).toHaveLength(1);
   expect(projects.find(item => item.name === name)!.repositories).toEqual([]);
@@ -221,7 +221,7 @@ for (const section of ['inbox', 'archived']) {
     await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page).toHaveURL(/\/arena$/);
-    await expect(page.getByRole('region', { name, exact: true })).toContainText('0 sessions');
+    await expect(page.getByRole('region', { name, exact: true }).locator('.arena-project-repositories')).toHaveText('No repository');
   });
 }
 

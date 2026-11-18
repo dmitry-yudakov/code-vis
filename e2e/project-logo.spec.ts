@@ -37,6 +37,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await loaded(group.locator('img.project-logo'));
+    await expect(group.locator('img.project-logo')).toHaveCSS('border-radius', '4px');
     await expect(open).toBeFocused();
     if (width === 1440) {
       await page.getByRole('button', { name: 'Tiles', exact: true }).click();

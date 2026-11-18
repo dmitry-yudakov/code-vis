@@ -1,4 +1,4 @@
-import { expect, test, fulfillArenaSnapshot, type APIRequestContext, type Page } from './arena-stream';
+import { expect, test, fulfillArenaSnapshot, pushArenaSnapshot, type APIRequestContext, type Page } from './arena-stream';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 async function headerFixture(request: APIRequestContext, count = 2) {
@@ -12,6 +12,7 @@ async function headerFixture(request: APIRequestContext, count = 2) {
   owner.projects = [project]; owner.archivedSessions = [];
   owner.sessions = sessions.map(session => owner.sessions.find(item => item.id === session.id)!);
   owner.checkouts.find(item => item.id === source.id)!.name = 'fm/bookinggood-next';
+  owner.checkouts.find(item => item.id === source.id)!.worktreeCreation = { available: true, branch: 'feature/project-header' };
   owner.sessions.forEach((session, i) => {
     session.title = i ? 'Recent SEO Issues and Documentation' : 'Review and implement the new designs with a deliberately long title';
     session.updatedAt = new Date(Date.now() - i * 86_400_000).toISOString();
@@ -36,8 +37,9 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 1000, 390]) {
     await page.goto('/arena');
     if (width > 740) await page.getByRole('button', { name: 'Tiles', exact: true }).click();
     const group = page.getByRole('region', { name: project.name, exact: true });
-    await expect(group.locator(':scope > header .arena-project-repositories')).toHaveText('fm/bookinggood-next');
-    await expect(group.getByText('fm/bookinggood-next', { exact: true })).toHaveCount(1);
+    await expect(group.locator(':scope > header .arena-project-repositories')).toHaveText('fm/bookinggood-next · feature/project-header');
+    await expect(group.getByText('fm/bookinggood-next · feature/project-header', { exact: true })).toHaveCount(1);
+    await expect(group.locator(':scope > header')).not.toContainText(/\d+ sessions?/);
     const first = cardFor(page, sessions[0].id), idle = cardFor(page, sessions[1].id);
     const blockedArchive = first.getByRole('button', { name: 'Archive session', exact: true });
     await expect(blockedArchive).toBeDisabled();
@@ -116,8 +118,43 @@ test('different checkouts, loose sessions, worktrees and multiple agents retain 
   await group.screenshot({ path: testInfo.outputPath('exceptional-targets.png'), animations: 'disabled' });
   // Even an unbroken project/repository name must fit the narrow list fallback.
   project.name = 'Project'.repeat(25); owner.checkouts.find(item => item.id === source.id)!.name = 'Repository'.repeat(30);
+  owner.checkouts.find(item => item.id === source.id)!.worktreeCreation!.branch = 'feature/'.repeat(40);
   await page.reload(); await page.setViewportSize({ width: 390, height: 900 });
   await expect(page.getByRole('main', { name: 'Arena', exact: true })).toBeVisible();
   expect(await page.getByRole('main', { name: 'Arena', exact: true }).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('long-names-phone.png'), animations: 'disabled' });
+});
+
+test('project branches follow each machine snapshot with multiple and unavailable repositories', async ({ page, request }) => {
+  const { project, snapshot, owner, source } = await headerFixture(request, 1);
+  const alternate = owner.checkouts.find(item => item.relativePath === 'beta')!;
+  alternate.branch = 'Detached HEAD';
+  project.repositories.push({ ...project.repositories[0], checkoutId: alternate.id }, { ...project.repositories[0], checkoutId: 'missing' });
+  const empty = { ...project, id: crypto.randomUUID(), name: 'No repositories', repositories: [] };
+  owner.projects.push(empty);
+  const remote = structuredClone(owner);
+  remote.machine = { ...remote.machine, id: crypto.randomUUID(), label: 'Other machine', kind: 'remote', state: 'offline' };
+  remote.checkouts.find(item => item.id === source.id)!.worktreeCreation!.branch = 'remote-branch';
+  snapshot.machines.push(remote);
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
+  await page.goto('/arena');
+  const localProject = page.getByRole('region', { name: owner.machine.label, exact: true })
+    .getByRole('region', { name: project.name, exact: true });
+  const header = localProject.locator(':scope > header .arena-project-repositories');
+  await expect(header).toHaveText(`fm/bookinggood-next · feature/project-header, ${alternate.name} · Detached HEAD, Repository`);
+  await expect(page.getByRole('region', { name: 'Other machine', exact: true })
+    .getByRole('region', { name: project.name, exact: true }).locator(':scope > header')).toContainText('fm/bookinggood-next · remote-branch');
+  await expect(page.getByRole('region', { name: owner.machine.label, exact: true })
+    .getByRole('region', { name: empty.name, exact: true }).locator(':scope > header')).toContainText('No repository');
+  const checkout = owner.checkouts.find(item => item.id === source.id)!;
+  checkout.worktreeCreation!.available = false;
+  checkout.worktreeCreation!.branch = 'renamed-branch';
+  await pushArenaSnapshot(page);
+  await expect(header).toContainText('fm/bookinggood-next · renamed-branch');
+  checkout.branch = 'managed-current';
+  await pushArenaSnapshot(page);
+  await expect(header).toContainText('fm/bookinggood-next · managed-current');
+  delete checkout.branch; delete checkout.worktreeCreation;
+  await pushArenaSnapshot(page);
+  await expect(header).toHaveText(`fm/bookinggood-next, ${alternate.name} · Detached HEAD, Repository`);
 });

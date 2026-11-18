@@ -101,7 +101,11 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
   each workspace's tabs and full-screen document after Arena/project navigation; 85 focused unit
   checks, 30 production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
   inspection and independent review pass. Two pre-existing phone session
-  toolbar overflow assertions are recorded in the story. The running app has not been rebuilt or restarted.
+  toolbar overflow assertions are recorded in the story. The November 18 header follow-up replaces
+  per-project counts with current repository branches and subtly rounds project logos; 114 focused
+  unit checks, eight final header-browser cases, TypeScript, isolated build, both-theme screenshot
+  inspection and independent review pass. The same two phone overflow assertions reproduce on the
+  preceding build. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 140](stories/STORY-20261115-tabbed-file-pane.md) — repository files, chat
   file links and Changes open in a separate tabbed File view beside the browser, canvas and chat,
   with retained reading positions, independent toggles/resizing and maximize with navigation.

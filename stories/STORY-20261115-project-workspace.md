@@ -9,7 +9,7 @@ Repository remain available for browsing bound repositories, Git changes/history
 Markdown and diffs. New session remains available in the header and on the desktop welcome surface.
 Multiple repositories have a selector. Browsing creates no session. Clicking the logo or placeholder
 opens its editor, with no duplicate action on the right. The project header aligns its title,
-session count and repository names centrally.
+repository names and current branches centrally.
 Opening a file gives its contents the remaining workspace width; closing it restores the welcome
 surface. The project header's actions stay grouped at the right edge in List and Tiles.
 
@@ -108,3 +108,49 @@ Verified November 16, 2026:
   physical devices and real attached-executor transport were not exercised. No dependency or server
   contract changes. The user requested committing this follow-up; the running application was not
   rebuilt or restarted.
+
+## November 18 project header follow-up
+
+**Status:** Shipped
+
+Show each bound repository's current branch beside its name in Arena and remove the per-project
+session count. Reuse the checkout snapshot's managed branch or advisory source branch, retaining
+the source branch even when managed worktree creation is unavailable. Do not add Git commands,
+helpers or polling. Round the shared 24px project logo with a small 4px corner radius.
+
+Acceptance criteria:
+
+- [x] List and Tiles show repository/branch pairs, including multiple repositories and detached
+      HEAD; unknown branches retain the repository name and repository-free projects keep their fallback.
+- [x] Branch labels follow refreshed machine snapshots and per-project session counts are removed.
+- [x] Shared project logos have subtly rounded corners, retaining their existing sizing and fit.
+- [x] Header browser checks, TypeScript, isolated production build and both-theme desktop/phone
+      screenshot inspection pass; wider browser failures are recorded below. Preserve title/logo
+      actions; do not restart the running app.
+
+Where the code is: `src/features/arena/Arena.tsx:51`, `src/app/globals.css:53`,
+`src/server/repository/managedWorktrees.ts:238`, `test/sessionWorktrees.test.ts:247`,
+`e2e/arena-tile-headers.spec.ts:30`, `e2e/project-logo.spec.ts:18`.
+
+How to verify: build into an isolated `.next-e2e` subdirectory and run the Arena header/project,
+project-workspace and logo browser checks against that build, plus `npm run lint`.
+
+Verified November 18, 2026:
+
+- All **114 focused unit checks** pass across Arena grouping/subscriptions, logos, checkout discovery
+  and session worktrees. The new registry regression fails before the producer fix and proves
+  unavailable worktree creation still reports a valid source branch without Git helpers or leases.
+  Malformed/missing/redirected HEAD reads preserve the existing machine-level denial.
+- **53 of 55 production-browser cases** pass across project headers, creation, workspace navigation
+  and logos. Both failures are the previously recorded phone session-toolbar overflow assertions;
+  both reproduce with the original tests on the preceding `.next-e2e` production build. The temporary
+  baseline probe was removed. Logo sizing/rounding and Arena behavior pass before those assertions.
+- All **eight header cases** pass again against the final isolated build in `.next-e2e/project-header`.
+  Coverage includes List/Tiles, both themes, desktop/phone layouts, long branch names, multiple
+  repositories, detached HEAD, unavailable branches, machine isolation and refreshed snapshots.
+  The new branch browser regression fails on the preceding build because branch labels are absent.
+- TypeScript, isolated production build, light/dark desktop/phone screenshot inspection,
+  `git diff --check` and independent read-only review pass. Next generated its isolated type-directory
+  entries in `tsconfig.json`. No dependencies, Git commands, polling, persistence or API fields were
+  added. The user requested committing this follow-up. The running application was not rebuilt or
+  restarted; no deployment was made.

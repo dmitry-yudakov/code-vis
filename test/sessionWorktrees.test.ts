@@ -244,6 +244,17 @@ describe('managed session worktrees with real Git', () => {
     }
   });
 
+  it('keeps the source branch visible when managed worktree creation is unavailable', async () => {
+    const branch = await git(source, 'branch', '--show-current');
+    vi.stubEnv('CODEAI_WORKTREES_ROOT', source);
+    const helper = vi.spyOn(gitReader, 'isolatedGitRead').mockRejectedValue(new Error('Listing must not execute Git'));
+    const readLease = vi.spyOn(runRegistry, 'acquireCheckoutRead');
+    const [checkout] = await getCheckoutRegistry(source).list();
+    expect(checkout.worktreeCreation).toMatchObject({ available: false, branch });
+    expect(helper).not.toHaveBeenCalled();
+    expect(readLease).not.toHaveBeenCalled();
+  });
+
   it.each(['missing', 'oversized', 'malformed', 'directory', 'fifo', 'symlink'] as const)('does not offer worktree creation for a %s HEAD', async (kind) => {
     const checkout = (await new CheckoutRegistry(source).refresh())[0];
     const head = path.join(source, '.git/HEAD');
@@ -258,6 +269,8 @@ describe('managed session worktrees with real Git', () => {
       await symlink(outside, head);
     }
     expect(await sourceWorktreeCapability(checkout, { available: true })).toMatchObject({ available: false });
+    const unavailable = { available: false, message: 'Worktrees root is unavailable.' };
+    expect(await sourceWorktreeCapability(checkout, unavailable)).toEqual(unavailable);
   });
 
   it('does not offer another worktree from a non-Git source, redirected metadata, or a managed worktree', async () => {

@@ -48,9 +48,14 @@ const STATE_LABELS = {
   offline: 'Offline',
 } as const;
 
-function repositoryNames(checkoutIds: readonly string[], checkouts: Map<string, CheckoutSummary>): string {
+function repositoryNames(checkoutIds: readonly string[], checkouts: Map<string, CheckoutSummary>, showBranch = false): string {
   if (!checkoutIds.length) return 'No repository';
-  return checkoutIds.map((checkoutId) => checkouts.get(checkoutId)?.name || 'Repository').join(', ');
+  return checkoutIds.map((checkoutId) => {
+    const checkout = checkouts.get(checkoutId);
+    const name = checkout?.name || 'Repository';
+    const branch = checkout?.branch || checkout?.worktreeCreation?.branch;
+    return showBranch && branch ? `${name} · ${branch}` : name;
+  }).join(', ');
 }
 
 function SessionFacts({ session, checkouts, inLink = false, showTitle = true, showRepository = true }: {
@@ -210,8 +215,8 @@ export function Arena({
                           disabled={!online} sx={{ font: 'inherit', textAlign: 'left', borderRadius: 1 }}>
                           {group.name}
                         </ButtonBase> : group.name}
-                        </h3></div><span>{group.sessions.length} {group.sessions.length === 1 ? 'session' : 'sessions'}</span>
-                        {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById)}</span>}
+                        </h3></div>
+                        {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById, true)}</span>}
                       </div>
                       <div className="arena-project-actions">
                       {(group.id === 'none' || project) && <IconButton type="button" disabled={!online}

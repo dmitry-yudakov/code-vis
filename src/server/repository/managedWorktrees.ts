@@ -236,7 +236,6 @@ async function inspectSource(checkout: ServerCheckout, baseCommit?: string, full
 
 /** Listing is advisory: full, fresh source preflight runs only before creation, never on Arena polls. */
 export async function sourceWorktreeCapability(checkout: ServerCheckout, machine: WorktreeCapability, config = getConfig()): Promise<WorktreeCapability> {
-  if (!machine.available) return machine;
   try {
     const { gitPath } = await sourceGitDirectory(checkout);
     const headFile = await readBoundedTextFile(path.join(gitPath, 'HEAD'), 4096, { exactly: true });
@@ -245,6 +244,8 @@ export async function sourceWorktreeCapability(checkout: ServerCheckout, machine
     const ref = /^ref: refs\/heads\/([^\s]+)$/.exec(head);
     const branch = ref ? ref[1] : /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head) ? 'Detached HEAD' : undefined;
     if (!branch) conflict('The source Git HEAD is invalid.');
+    // Arena still needs the branch when this machine cannot create managed worktrees.
+    if (!machine.available) return { ...machine, branch };
     if (await lstat(path.join(config.dataDir, 'docker', 'profile.json')).catch((error) => { if (missing(error)) return undefined; throw error; })) {
       commonGitReadBind(path.join(checkout.realPath, '.git'));
     }
@@ -253,7 +254,10 @@ export async function sourceWorktreeCapability(checkout: ServerCheckout, machine
     catch (error) { return { available: true, branch, dockerUnavailableReason: error instanceof Error ? error.message.slice(0, 500) : 'Docker cannot mount this source.' }; }
     return { available: true, branch };
   }
-  catch (error) { return { available: false, message: error instanceof SessionStoreError ? error.message : 'Source checkout is unavailable.' }; }
+  catch (error) {
+    if (!machine.available) return machine;
+    return { available: false, message: error instanceof SessionStoreError ? error.message : 'Source checkout is unavailable.' };
+  }
 }
 
 export async function readWorktreeRecords(dataDir: string): Promise<WorktreeRecord[]> {
