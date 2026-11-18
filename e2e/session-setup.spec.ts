@@ -288,6 +288,7 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
     await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').filter({ has: page.locator('a[href="/?session=' + session.id + '"]') })).not.toHaveClass(/working|awaiting-approval/);
 
     await conversation.getByRole('button', { name: 'Session agents', exact: true }).click();
+    await page.getByRole('button', { name: 'Add participant', exact: true }).click();
     await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
     await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
     await expect(conversation.getByRole('button', { name: 'Session agents', exact: true })).toContainText('Claude Reviewer');

@@ -306,6 +306,7 @@ test('a new Docker session never inherits Agent, and continuing carries the agen
   await choose('Opus', 'High');
   const agents = conversation.getByRole('button', { name: 'Session agents', exact: true });
   await agents.click();
+  await page.getByRole('button', { name: 'Add participant', exact: true }).click();
   await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
   await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
   await expect(agents).toContainText('Claude Reviewer');

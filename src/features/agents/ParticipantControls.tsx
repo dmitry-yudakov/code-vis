@@ -1,5 +1,6 @@
 'use client';
 
+import { useId, useState } from 'react';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -39,13 +40,16 @@ export function ParticipantControls({
   onAdd(provider: AgentProvider, role: AgentRole): void;
   onHandoff(participantId: string, text: string, mode: AgentMode): void;
 }) {
+  const [adding, setAdding] = useState(false);
+  const addFormId = useId();
   const role = choice.role ?? 'reviewer';
   const selected = agents.find((agent) => agent.id === activeAgentId) || agents[0];
   const quickAgents = agents.filter((agent) => agent.id !== selected?.id);
   const safeProvider = choice.provider && providers.includes(choice.provider) ? choice.provider : providers[0];
 
   return <div className="participant-controls">
-    <DesktopPopover className="agent-menu" label="Session agents" summary={`@${selected?.displayName || 'Agent'} ▾`} disabled={disabled || busy}>
+    <DesktopPopover className="agent-menu" label="Session agents" summary={`@${selected?.displayName || 'Agent'} ▾`} disabled={disabled || busy}
+      onOpenChange={open => { if (!open) setAdding(false); }}>
       {(close) => <div className="participant-menu">
         <Box component="section" aria-label="Next message to">
           <Typography variant="caption" color="text.secondary">Next message to</Typography>
@@ -74,14 +78,15 @@ export function ParticipantControls({
           </Box>
         </>}
         <Divider />
-        <Box component="section" className="participant-add-form" aria-label="Add participant">
-          <Typography variant="caption" color="text.secondary">Add participant</Typography>
+        <Button variant="text" sx={{ justifySelf: 'start' }} aria-expanded={adding} aria-controls={adding ? addFormId : undefined}
+          onClick={() => setAdding(current => !current)}>Add participant</Button>
+        {adding && <Box component="section" id={addFormId} className="participant-add-form" aria-label="Add participant">
           <ProviderChips value={safeProvider} available={providers} onChange={provider => onChoiceChange({ provider })} />
           <label>Role<NativeSelect inputProps={{ 'aria-label': 'Role' }} value={role} onChange={event => onChoiceChange({ role: event.target.value as AgentRole })}>
             {AGENT_ROLES.map(item => <option key={item} value={item}>{AGENT_ROLE_LABELS[item]}</option>)}
           </NativeSelect></label>
           <Button variant="contained" disabled={!safeProvider} onClick={() => { if (safeProvider) onAdd(safeProvider, role); close(); }}>Add agent</Button>
-        </Box>
+        </Box>}
       </div>}
     </DesktopPopover>
     {selected && <ContextUsage name={selected.displayName} usage={selected.contextUsage} />}

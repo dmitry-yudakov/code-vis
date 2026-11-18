@@ -20,6 +20,7 @@ async function open(page: Page, session: PublicSession) {
   return conversation;
 }
 function panel(page: Page) { return page.locator('.desktop-picker-paper:visible').filter({ has: page.locator('.participant-menu') }); }
+function addParticipantButton(page: Page) { return panel(page).getByRole('button', { name: 'Add participant', exact: true }); }
 
 for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
   test(`participant selection and message drafts are distinct: ${theme} ${width}`, async ({ page, request }, testInfo) => {
@@ -37,7 +38,15 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     const handoffs = menu.getByRole('region', { name: 'Draft a message', exact: true });
     await expect(recipients.getByRole('button', { pressed: true })).toContainText('Main');
     await expect(handoffs.getByRole('button')).toHaveText('Review this → @Claude Reviewer');
+    const addParticipant = addParticipantButton(page);
     const providers = menu.getByRole('group', { name: 'Provider', exact: true });
+    await expect(addParticipant).toHaveAttribute('aria-expanded', 'false');
+    await expect(providers).toBeHidden();
+    await expect(menu.getByLabel('Role', { exact: true })).toBeHidden();
+    await expect(menu.getByRole('button', { name: 'Add agent', exact: true })).toBeHidden();
+    await page.screenshot({ path: testInfo.outputPath('participants-collapsed.png'), animations: 'disabled' });
+    await addParticipant.click();
+    await expect(addParticipant).toHaveAttribute('aria-expanded', 'true');
     await expect(providers.getByRole('button', { name: 'Claude', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(providers.getByRole('button', { name: 'Codex', exact: true })).toBeDisabled();
     await page.screenshot({ path: testInfo.outputPath('participants.png'), animations: 'disabled' });
@@ -57,11 +66,14 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(conversation.locator('.chat-message.user')).toHaveCount(0);
     await expect(agents).toContainText('Reviewer');
     await agents.click();
+    await expect(addParticipant).toHaveAttribute('aria-expanded', 'false');
+    await addParticipant.click();
     await menu.getByLabel('Role', { exact: true }).selectOption('coder');
     await menu.getByRole('button', { name: 'Add agent', exact: true }).click();
     await expect(agents).toContainText('Claude Coder');
     await page.reload();
     await agents.click();
+    await addParticipant.click();
     await expect(menu.getByLabel('Role', { exact: true })).toHaveValue('coder');
     await expect(recipients.locator('.participant-row').getByRole('button')).toHaveCount(3);
     await page.screenshot({ path: testInfo.outputPath('remembered-role.png'), animations: 'disabled' });
@@ -73,6 +85,7 @@ test('a chosen role survives failed addition, reload, and both new-session forms
   const conversation = await open(page, session);
   const agents = conversation.getByRole('button', { name: 'Session agents', exact: true });
   await agents.click();
+  await addParticipantButton(page).click();
   await expect(panel(page).getByLabel('Role', { exact: true })).toHaveValue('reviewer');
   await panel(page).getByLabel('Role', { exact: true }).selectOption('tester');
   const requests: Array<{ role: string; requestId: string }> = [];
@@ -85,6 +98,7 @@ test('a chosen role survives failed addition, reload, and both new-session forms
   await panel(page).getByRole('button', { name: 'Add agent', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('Try adding again.');
   await agents.click();
+  await addParticipantButton(page).click();
   await expect(panel(page).getByLabel('Role', { exact: true })).toHaveValue('tester');
   await panel(page).getByRole('button', { name: 'Add agent', exact: true }).click();
   await expect(agents).toContainText('Claude Tester');
@@ -118,6 +132,7 @@ test('a chosen role survives failed addition, reload, and both new-session forms
   await expect(page).toHaveURL(new RegExp(second.id));
   await page.reload();
   await agents.click();
+  await addParticipantButton(page).click();
   await expect(panel(page).getByLabel('Role', { exact: true })).toHaveValue('coder');
 });
 
@@ -132,23 +147,38 @@ test('available providers can be switched with the keyboard and keep the chosen 
   const conversation = await open(page, session);
   const agents = conversation.getByRole('button', { name: 'Session agents', exact: true });
   await agents.click();
-  await panel(page).getByLabel('Role', { exact: true }).selectOption('coder');
+  const addParticipant = addParticipantButton(page);
+  const role = panel(page).getByLabel('Role', { exact: true });
+  await addParticipant.press('Enter');
+  await expect(addParticipant).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(panel(page).getByRole('button', { name: 'Claude', exact: true })).toBeFocused();
+  await role.selectOption('coder');
   const codex = panel(page).getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Codex', exact: true });
   await codex.focus();
   await page.keyboard.press('Enter');
   await expect(codex).toHaveAttribute('aria-pressed', 'true');
-  await expect(panel(page).getByLabel('Role', { exact: true })).toHaveValue('coder');
+  await addParticipant.press('Space');
+  await expect(addParticipant).toHaveAttribute('aria-expanded', 'false');
+  await expect(role).toBeHidden();
+  await addParticipant.press('Enter');
+  await expect(codex).toHaveAttribute('aria-pressed', 'true');
+  await expect(role).toHaveValue('coder');
   await page.keyboard.press('Escape');
   await expect(agents).toBeFocused();
+  await agents.press('Enter');
+  await expect(addParticipant).toHaveAttribute('aria-expanded', 'false');
   await page.reload();
   await agents.click();
+  await addParticipant.click();
   await expect(codex).toHaveAttribute('aria-pressed', 'true');
-  await expect(panel(page).getByLabel('Role', { exact: true })).toHaveValue('coder');
+  await expect(role).toHaveValue('coder');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:preferences')!))).toMatchObject({ provider: 'codex', role: 'coder' });
   await page.unroute('**/api/health');
   await page.reload();
   await agents.click();
+  await addParticipant.click();
   await expect(codex).toBeDisabled();
   await expect(panel(page).getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(panel(page).getByLabel('Role', { exact: true })).toHaveValue('coder');
+  await expect(role).toHaveValue('coder');
 });

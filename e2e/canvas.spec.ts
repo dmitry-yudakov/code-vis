@@ -1440,6 +1440,7 @@ test('adds a role participant and performs an explicit quick handoff', async ({ 
   expect(addAgentPanelBox!.x + addAgentPanelBox!.width).toBeLessThanOrEqual(
     drawerBox!.x + drawerBox!.width,
   );
+  await addAgentPanel.getByRole('button', { name: 'Add participant', exact: true }).click();
   await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
   await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
   await expect(addAgentPanel).toBeHidden();
@@ -1527,6 +1528,7 @@ test('sends each agent\'s own model and effort, keeps them across a reload, and 
 
   // A second agent starts at this device's last choice for its provider and keeps its own choice.
   await sessionAgents(page).click();
+  await page.getByRole('button', { name: 'Add participant', exact: true }).click();
   await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption('reviewer');
   await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
   await expect(sessionAgents(page)).toContainText('Claude Reviewer');
@@ -1650,6 +1652,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
   // another agent's choice moves the device's last one.
   const addAgent = async (role: string) => {
     await sessionAgents(page).click();
+    await page.getByRole('button', { name: 'Add participant', exact: true }).click();
     await page.locator('.desktop-picker-paper:visible').getByLabel('Role').selectOption(role);
     await page.locator('.desktop-picker-paper:visible').getByRole('button', { name: 'Add agent', exact: true }).click();
     await expect(sessionAgents(page)).toContainText(`Claude ${role[0].toUpperCase()}${role.slice(1)}`);
