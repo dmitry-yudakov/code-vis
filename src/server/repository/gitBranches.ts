@@ -49,7 +49,7 @@ export async function switchGitBranch(cwd: string, branch: string, expectedHead:
   if (!branch || branch.length > 512 || branch.startsWith('-') || /[\s\x00-\x1f\x7f~^:?*\[\\]|@\{|\.\./.test(branch)) {
     throw new Error('Choose an existing local branch.');
   }
-  return withGitMutation(cwd, async lease => {
+  return withGitMutation(cwd, 'switch', async lease => {
     const snapshot = await listGitBranches(cwd, lease);
     const target = snapshot.branches.find(item => item.name === branch);
     if (!target) throw new Error('This local branch is no longer available. Refresh the branch list.');

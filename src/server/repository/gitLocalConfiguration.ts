@@ -5,6 +5,7 @@ const ALLOWED_LOCAL_KEY = new RegExp(`^(?:${[
   'user\\.(?:name|email|signingkey)', 'commit\\.gpgsign', 'pull\\.(?:rebase|ff)', 'fetch\\.prune', 'rerere\\.enabled',
   'remote\\.pushdefault', 'remote\\..+\\.(?:url|pushurl|fetch|tagopt|prune|gh-resolved)', 'branch\\..+\\.[^.]+', 'submodule\\..+\\.(?:url|active)',
 ].join('|')})$`, 's');
+const DESKTOP_PREFERENCES = new Set(['gitg.mainline', 'taggrouping.groups', 'taggrouping.singles']);
 
 export type GitConfiguration = Map<string, string[]>;
 
@@ -20,6 +21,7 @@ export function configuration(output: string): GitConfiguration {
   return config;
 }
 
-export function unsupportedLocalGitKey(config: GitConfiguration): string | undefined {
-  return [...config.keys()].find(key => !ALLOWED_LOCAL_KEY.test(key));
+export function unsupportedLocalGitKey(config: GitConfiguration, { allowDesktopPreferences = false } = {}): string | undefined {
+  return [...config.keys()].find(key => !ALLOWED_LOCAL_KEY.test(key)
+    && !(allowDesktopPreferences && DESKTOP_PREFERENCES.has(key)));
 }

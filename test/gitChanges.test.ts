@@ -40,6 +40,37 @@ it('stages chosen literal files, commits only the index and leaves later working
   expect(await readFile(path.join(cwd, 'tracked.txt'), 'utf8')).toBe('later\n');
   expect(await git('status', '--porcelain')).toContain('?? leave.txt');
 });
+it('stages and commits with a stale worktree registration and desktop Git settings', async () => {
+  const temp = path.join(scratch, 'temporary');
+  await git('worktree', 'add', '--detach', '-q', temp);
+  await rm(temp, { recursive: true });
+  for (const key of ['gitg.mainline', 'taggrouping.groups', 'taggrouping.singles']) await git('config', key, 'main');
+  await write('tracked.txt', 'change with stale registration\n');
+  const state = await readGitIndexState(cwd);
+  const release = runRegistry.acquireCheckoutWrite(temp)!;
+  try { await expect(changeGitIndex(cwd, 'stage', ['tracked.txt'], state)).rejects.toThrow(/using this checkout/); }
+  finally { release(); }
+  await change('stage', ['tracked.txt']);
+  await commit();
+  expect(await git('show', 'HEAD:tracked.txt')).toBe('change with stale registration');
+  expect(await git('worktree', 'list', '--porcelain')).toContain('prunable');
+});
+it.each(['moved', 'locked and missing'])('refuses a %s unmanaged worktree without losing staged work', async worktree => {
+  const sibling = path.join(scratch, 'linked');
+  await git('worktree', 'add', '--detach', '-q', sibling);
+  await write('tracked.txt', 'keep this edit\n');
+  await git('add', 'tracked.txt');
+  const release = runRegistry.acquireCheckoutWrite(sibling)!;
+  try {
+    if (worktree === 'moved') await git('worktree', 'move', sibling, path.join(scratch, 'moved'));
+    else {
+      await git('worktree', 'lock', sibling);
+      await rm(sibling, { recursive: true });
+    }
+    await expect(commit()).rejects.toThrow(/worktrees outside CodeAI management/);
+    expect(await git('diff', '--cached')).toContain('+keep this edit');
+  } finally { release(); }
+});
 it('unstages renames and deletions without altering working files', async () => {
   await rename(path.join(cwd, 'tracked.txt'), path.join(cwd, 'renamed.txt')); await git('add', '-A');
   await change('unstage', ['renamed.txt']);

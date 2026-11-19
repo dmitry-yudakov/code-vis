@@ -29,9 +29,11 @@ with the empty tree. Empty commits remain inspectable.
   leases, contained metadata and local-configuration proof. Branch switching uses this same owner.
   Source/sibling agents cannot write shared metadata during a mutation. Host mutations disable
   hooks, filters, credentials, network, submodule recursion and signing. A commit-button tooltip
-  identifies the hooks/signing behavior. Terminal workflows remain necessary for unsupported local
-  configuration or unmanaged linked worktrees. Independent terminal operations retain Git's own
-  locking; CodeAI's scheduler ownership only coordinates CodeAI operations.
+  identifies the hooks/signing behavior. Stage, Unstage and Commit tolerate unlocked registrations
+  for missing worktree directories after excluding CodeAI writers at their recorded paths. The
+  registrations stay in place. Terminal workflows remain necessary for unsupported local
+  configuration or live unmanaged linked worktrees. A moved unmanaged worktree can retain an agent
+  at its previous path. Independent terminal operations retain Git's own locking.
 - The device-authorized, exact-origin `POST /api/repository/index` and
   `POST /api/repository/commit` accept opaque checkout IDs and strict bounded bodies. Index requests
   allow 1–1,000 paths, each at most 4,096 characters, and 256 KiB total request bytes; commit messages

@@ -32,7 +32,7 @@ async function checkState(cwd: string, expected: string, lease: symbol) {
 
 export async function changeGitIndex(cwd: string, action: 'stage' | 'unstage', paths: string[], expectedState: string): Promise<void> {
   if (!paths.length || paths.length > 1000) throw new Error('Choose between 1 and 1,000 changed files.');
-  return withGitMutation(cwd, async lease => {
+  return withGitMutation(cwd, 'index', async lease => {
     await checkState(cwd, expectedState, lease);
     const tree = parseGitStatus(await runGitRead(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.'], { checkoutWriteLease: lease }));
     const selected = [...new Set(paths)].map(filePath => {
@@ -66,7 +66,7 @@ async function commitIdentity(cwd: string, local: GitConfiguration): Promise<{ n
 
 export async function commitGitIndex(cwd: string, message: string, expectedState: string): Promise<string> {
   if (!message.trim() || message.length > 16_000 || message.includes('\0')) throw new Error('Enter a commit message of at most 16,000 characters.');
-  return withGitMutation(cwd, async (lease, local) => {
+  return withGitMutation(cwd, 'index', async (lease, local) => {
     await checkState(cwd, expectedState, lease);
     const read = (args: string[], allowedExitCodes?: number[]) => runGitRead(cwd, args, { checkoutWriteLease: lease, allowedExitCodes });
     const head = (await read(['symbolic-ref', '-q', 'HEAD'], [1])).trim();

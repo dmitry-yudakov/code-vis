@@ -74,6 +74,27 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
   });
 }
 
+test('stages and commits with a stale worktree registration', async ({ page, request }) => {
+  const { cwd, git } = await fixture(page, request);
+  const sibling = await mkdtemp(`${cwd}-temporary-`);
+  try {
+    await git('worktree', 'add', '--detach', '-q', sibling);
+    await rm(sibling, { recursive: true });
+    await git('config', 'gitg.mainline', 'main');
+    const panel = repositoryPanel(page);
+    await panel.getByRole('button', { name: 'Stage tracked.txt', exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Unstage tracked.txt', exact: true })).toBeEnabled();
+    await panel.getByRole('textbox', { name: 'Commit message' }).fill('Commit with a stale worktree');
+    await panel.getByRole('button', { name: 'Commit staged (1)', exact: true }).click();
+    await expect(panel.getByRole('alert')).toContainText('Committed');
+    expect(await git('show', 'HEAD:tracked.txt')).toBe('changed');
+    expect(await git('worktree', 'list', '--porcelain')).toContain('prunable');
+  } finally {
+    await rm(sibling, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('staging/commit failures preserve drafts, allow retry and prevent duplicate submissions', async ({ page, request }) => {
   const { cwd, git } = await fixture(page, request);
   try {
