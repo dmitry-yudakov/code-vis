@@ -97,6 +97,32 @@ test.describe('paired HTTPS through multiple IPs', () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
+  test('serves the standalone web app manifest before pairing on each origin', async () => {
+    for (const origin of origins) {
+      const page = await send(origin, '/');
+      expect(page.status).toBe(200);
+      expect(page.body.match(/<link\b[^>]*\brel="manifest"[^>]*>/)?.[0])
+        .toContain('href="/manifest.webmanifest"');
+
+      const response = await send(origin, '/manifest.webmanifest');
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/^application\/manifest\+json\b/);
+      const manifest = JSON.parse(response.body);
+      expect(manifest).toMatchObject({
+        id: '/', name: 'CodeAI', start_url: '/', scope: '/', display: 'standalone',
+        icons: [
+          { src: '/icons/codeai-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icons/codeai-512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      });
+      for (const { src } of manifest.icons) {
+        const icon = await send(origin, src);
+        expect(icon.status).toBe(200);
+        expect(icon.headers['content-type']).toBe('image/png');
+      }
+    }
+  });
+
   test('serves, pairs, authorizes and signs out through each IP while rejecting other origins', async () => {
     for (const origin of origins) {
       const otherOrigin = origins.find((candidate) => candidate !== origin)!;
