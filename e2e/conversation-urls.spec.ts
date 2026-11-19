@@ -31,6 +31,33 @@ async function expectSession(page: Page, session: PublicSession) {
   await expect(composer(page)).toBeVisible();
 }
 
+for (const width of [1440, 360]) {
+  test(`CodeAI navbar link opens Arena at ${width}px`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const { session } = await fixture(request);
+    await page.goto(href(session));
+    await expect(composer(page)).toBeVisible();
+    await composer(page).fill('Draft before opening Arena');
+
+    const navbar = page.locator('.app-header');
+    const brand = navbar.getByRole('link', { name: 'CodeAI Arena', exact: true });
+    await expect(brand).toHaveAttribute('href', '/arena');
+    expect(await navbar.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    if (width === 1440) {
+      await brand.press('Enter');
+    } else {
+      await brand.click();
+    }
+    await expect(page).toHaveURL('/arena');
+    await expect(page.getByRole('main', { name: 'Arena', exact: true })).toBeVisible();
+    await expect(brand).toHaveAttribute('aria-current', 'page');
+
+    await page.goBack();
+    await expect(page).toHaveURL(href(session));
+    await expect(composer(page)).toHaveValue('Draft before opening Arena');
+  });
+}
+
 for (const path of ['/arena', '/arena/inbox', '/arena/archived']) {
   test(`direct entry and reload preserve ${path}`, async ({ page }) => {
     await page.goto(path);

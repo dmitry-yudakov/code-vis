@@ -57,7 +57,7 @@ import { Arena } from '@/features/arena/Arena';
 import { MachineSettingsDialog } from '@/features/arena/MachineSettingsDialog';
 import { ObserverDialog } from '@/features/observer/ObserverDialog';
 import { buildMultiMachineInbox, unreadArenaAttention, viewedArenaCompletionIds, type ArenaAttentionItem } from '@/features/arena/arenaModel';
-import { arenaSectionForPathname } from '@/features/arena/routes';
+import { ARENA_SECTION_PATHS, arenaSectionForPathname } from '@/features/arena/routes';
 import { useArena } from '@/features/arena/useArena';
 import { useArenaReplies, type ArenaReplyOptions } from '@/features/arena/useArenaReplies';
 import { ConversationDrawer } from '@/features/conversation/ConversationDrawer';
@@ -2831,7 +2831,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       style={panelLayout.shellStyle}
     >
       <header className="app-header">
-        <div className="brand"><span className="brand-mark">C</span><strong>CodeAI</strong></div>
+        <Link className="brand" href={ARENA_SECTION_PATHS.sessions} scroll={false}
+          aria-label="CodeAI Arena" aria-current={arenaSection === 'sessions' ? 'page' : undefined}>
+          <span className="brand-mark" aria-hidden="true">C</span><strong>CodeAI</strong>
+        </Link>
         <nav className="header-breadcrumbs" aria-label="Current project and session">
           {!loading && <>
             <span className="breadcrumb-separator" aria-hidden="true">/</span>

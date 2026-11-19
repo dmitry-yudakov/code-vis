@@ -106,7 +106,7 @@ test('title-bar tabs return the separate row to the canvas in both themes', asyn
   expect(canvas.y).toBe(52);
   expect(canvas.height).toBe(844);
   const count = await visibleControls(page);
-  expect(count).toBeLessThanOrEqual(36); // Current workspace baseline: 35 controls, plus the project archive.
+  expect(count).toBeLessThanOrEqual(37); // Workspace baseline plus the project archive and CodeAI link.
   await page.locator('.more-menu > button').click();
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await page.locator('.more-menu > button').click();
