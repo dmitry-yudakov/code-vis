@@ -3262,6 +3262,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Arena
           machines={arena.machines}
           activeOrder={arena.activeOrder}
+          onMoveProject={arena.moveProject}
           deviceState={arena.deviceState}
           section={arenaSection}
           refreshError={arena.refreshError}

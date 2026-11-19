@@ -28,6 +28,78 @@ async function projectFixture(request: APIRequestContext, sessionCounts = [3, 1,
   return { snapshot, owner, projects, sessions };
 }
 
+test('project handles reorder tiles within their machine and keep the chosen order', async ({ page, request }) => {
+  await page.setViewportSize({ width: 2048, height: 1200 });
+  const { snapshot, owner, projects } = await projectFixture(request, [1, 1, 0]);
+  const remote = structuredClone(owner);
+  remote.machine = { ...remote.machine, id: crypto.randomUUID(), kind: 'remote', label: 'Other machine', state: 'offline' };
+  snapshot.machines.push(remote);
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
+  await page.goto('/arena');
+  await page.getByRole('button', { name: 'Tiles', exact: true }).click();
+
+  const local = page.getByRole('region', { name: owner.machine.label, exact: true });
+  const other = page.getByRole('region', { name: remote.machine.label, exact: true });
+  const names = (machine: typeof local) => machine.locator('.arena-group > header h3');
+  const [first, second, empty] = projects.map(project => project.name);
+  const firstTile = local.getByRole('region', { name: first, exact: true });
+  const handle = firstTile.getByRole('button', { name: `Reorder ${first}`, exact: true });
+  const newSession = firstTile.getByRole('button', { name: `New session in ${first}`, exact: true });
+  const emptyTile = local.getByRole('region', { name: empty, exact: true });
+  const input = firstTile.getByRole('textbox');
+  await input.fill('Keep my draft with its project');
+  await expect(names(local)).toHaveText([first, second, empty]);
+  expect((await handle.boundingBox())!.x).toBeGreaterThan((await newSession.boundingBox())!.x);
+  const otherOrder = await names(other).allTextContents();
+
+  await handle.dragTo(emptyTile);
+  await expect(names(local)).toHaveText([second, empty, first]);
+  await expect(input).toHaveValue('Keep my draft with its project');
+
+  await handle.dragTo(other.getByRole('region', { name: second, exact: true }));
+  await expect(names(other)).toHaveText(otherOrder);
+  await expect(names(local)).toHaveText([second, empty, first]);
+
+  await handle.focus();
+  await handle.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Move later' })).toBeDisabled();
+  await page.getByRole('menuitem', { name: 'Move earlier' }).press('Enter');
+  await expect(names(local)).toHaveText([second, first, empty]);
+  await expect(handle).toBeFocused();
+  await expect(page.getByRole('status').filter({ hasText: `Moved ${first}` })).toHaveText(`Moved ${first} to position 2 of 3.`);
+
+  await handle.press('Enter');
+  await page.getByRole('menuitem', { name: 'Move later' }).press('Enter');
+  await expect(names(local)).toHaveText([second, empty, first]);
+  await expect(handle).toBeFocused();
+  await expect(page.getByRole('status').filter({ hasText: `Moved ${first}` })).toHaveText(`Moved ${first} to position 3 of 3.`);
+
+  owner.projects.push({ ...projects[2], id: crypto.randomUUID(), name: 'New project' });
+  await pushArenaSnapshot(page);
+  const chosenOrder = [second, empty, first, 'New project'];
+  await expect(names(local)).toHaveText(chosenOrder);
+
+  // A handle can disappear before dragend reaches it when the view switches to the phone layout.
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await handle.dispatchEvent('dragstart', { dataTransfer });
+  await expect(local.locator('.arena-project-dragging')).toHaveCount(1);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(handle).toHaveCount(0);
+  await page.setViewportSize({ width: 2048, height: 1200 });
+  await expect(handle).toBeVisible();
+  await expect(local.locator('.arena-project-dragging')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await expect(handle).toHaveCount(0);
+  await expect(names(local)).toHaveText(chosenOrder);
+  await page.getByRole('button', { name: 'Tiles', exact: true }).click();
+  await page.reload();
+  await expect(handle).toBeVisible();
+  await expect(names(local)).toHaveText(chosenOrder);
+  await expect(names(other)).toHaveText(otherOrder);
+  await expect(input).toHaveValue('Keep my draft with its project');
+});
+
 for (const theme of ['light', 'dark']) test(`project tiles use desktop width and adapt without losing drafts: ${theme}`, async ({ page, request }, testInfo) => {
   await page.setViewportSize({ width: 2048, height: 1200 });
   await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), theme);

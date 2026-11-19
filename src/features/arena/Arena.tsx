@@ -16,7 +16,7 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { ShellIcon } from '@/features/shell/ShellIcon';
-import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { relativeActivityTime } from '@/features/shell/immersive/conversationListModel';
 import type {
   ArenaMachineSnapshot, ArenaSessionSummary, CheckoutSummary,
@@ -33,10 +33,12 @@ import { machineApiBase } from '@/features/machines/routes';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
 import { ContextUsage, contextUsageLabel } from '@/features/agents/ContextUsage';
 import { ArenaTileBody } from './ArenaTileBody';
+import { ArenaProjectHandle } from './ArenaProjectHandle';
 import { useArenaNow } from './useArenaNow';
 import type { ArenaReplyOptions, useArenaReplies } from './useArenaReplies';
 
 const LAYOUT_KEY = 'code-ai:device:arena-layout';
+const PROJECT_DRAG_TYPE = 'application/x-codeai-arena-project';
 
 const STATE_LABELS = {
   idle: 'Idle',
@@ -91,6 +93,7 @@ function machineTime(machine: ArenaMachineSnapshot): string {
 export function Arena({
   machines,
   activeOrder,
+  onMoveProject,
   deviceState,
   section,
   refreshError,
@@ -108,6 +111,7 @@ export function Arena({
 }: {
   machines: ArenaMachineSnapshot[];
   activeOrder: ReadonlyMap<string, ArenaActiveOrder>;
+  onMoveProject(machineId: string, projectId: string, targetId: string): void;
   deviceState: DeviceArenaState;
   section: ArenaSection;
   refreshError?: string;
@@ -133,11 +137,20 @@ export function Arena({
   const [archiving, setArchiving] = useState<string>();
   const [restoring, setRestoring] = useState<string>();
   const [archiveLimit, setArchiveLimit] = useState(ARENA_ARCHIVE_PAGE_SIZE);
+  const [projectDrag, setProjectDrag] = useState<{ machineId: string; projectId: string; targetId?: string }>();
+  const [moveAnnouncement, setMoveAnnouncement] = useState('');
   const archiveGroups = useMemo(() => section === 'archived' ? groupArchivedArenaSessions(machines, archiveLimit) : [], [machines, archiveLimit, section]);
   const desktop = useMediaQuery('(min-width: 741px)');
   const [layout, setLayout] = useState<'list' | 'tiles'>('list');
   useEffect(() => { try { if (localStorage.getItem(LAYOUT_KEY) === 'tiles') setLayout('tiles'); } catch { /* optional device preference */ } }, []);
   const tiles = desktop && layout === 'tiles';
+
+  useEffect(() => {
+    if (!projectDrag) return;
+    const machine = machines.find(entry => entry.machine.id === projectDrag.machineId);
+    if (!tiles || section !== 'sessions' || !machine || machine.projects.length < 2
+      || !machine.projects.some(project => project.id === projectDrag.projectId)) setProjectDrag(undefined);
+  }, [machines, projectDrag, section, tiles]);
 
   // One online machine is simply "here"; naming it on every screen says nothing.
   const offlineMachines = machines.length - onlineMachines.length;
@@ -185,10 +198,23 @@ export function Arena({
 
       {section === 'sessions' ? (
         <div className={`arena-groups ${tiles ? 'arena-tiles' : ''}`} role="tabpanel">
+          <span className="sr-only" role="status">{moveAnnouncement}</span>
           {!sessions.length && !machines.some(machine => machine.projects.length) && <div className="arena-empty"><h2>No active sessions</h2><p>Create a project or start a new session.</p></div>}
           {machines.map((machine) => {
+            const machineId = machine.machine.id;
             const online = machine.machine.state === 'online';
-            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false, true, activeOrder.get(machine.machine.id), now);
+            const groups = groupArenaSessions(machine.projects, machine.sessions, machine.runs, online, machine.snapshotFresh !== false, true, activeOrder.get(machineId), now);
+            const projectsById = new Map(machine.projects.map(project => [project.id, project]));
+            const orderedProjects = groups.filter(group => projectsById.has(group.id));
+            const drag = projectDrag?.machineId === machineId ? projectDrag : undefined;
+            const moveProject = (projectId: string, targetId: string) => {
+              const source = projectsById.get(projectId);
+              const position = orderedProjects.findIndex(group => group.id === targetId);
+              if (!source || position < 0) return;
+              onMoveProject(machineId, projectId, targetId);
+              // The move menu briefly hides the Arena from assistive technology until it closes.
+              requestAnimationFrame(() => setMoveAnnouncement(`Moved ${source.name} to position ${position + 1} of ${orderedProjects.length}.`));
+            };
             const checkoutById = new Map(machine.checkouts.map((checkout) => [checkout.id, checkout]));
             return (
               <section className={`arena-machine ${online ? 'online' : 'offline'} ${showMachines ? '' : 'solo'}`} aria-label={machine.machine.label} key={machine.machine.id}>
@@ -201,10 +227,33 @@ export function Arena({
                 {!groups.length && <div className="arena-machine-empty">No active sessions on this machine.</div>}
                 <div className="arena-project-grid">
                 {groups.map((group) => {
-                  const project = machine.projects.find(project => project.id === group.id);
+                  const project = projectsById.get(group.id);
                   const projectCheckoutIds = project?.repositories.map(binding => binding.checkoutId);
+                  const canReorder = tiles && Boolean(project) && orderedProjects.length > 1;
+                  const source = canReorder && drag?.projectId === group.id;
+                  const target = canReorder && drag?.targetId === group.id;
+                  const dropHandlers = canReorder && drag && !source ? {
+                    onDragOver: (event: DragEvent<HTMLElement>) => {
+                      if (!event.dataTransfer.types.includes(PROJECT_DRAG_TYPE)) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      if (!target) setProjectDrag({ ...drag, targetId: group.id });
+                    },
+                    onDragLeave: (event: DragEvent<HTMLElement>) => {
+                      if (target && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                        setProjectDrag(current => current?.targetId === group.id ? { ...current, targetId: undefined } : current);
+                      }
+                    },
+                    onDrop: (event: DragEvent<HTMLElement>) => {
+                      if (event.dataTransfer.getData(PROJECT_DRAG_TYPE) !== drag.projectId) return;
+                      event.preventDefault();
+                      setProjectDrag(undefined);
+                      moveProject(drag.projectId, group.id);
+                    },
+                  } : undefined;
+                  const projectIndex = canReorder ? orderedProjects.indexOf(group) : -1;
                   return (
-                  <Paper component="section" className={`arena-group${group.sessions.length ? '' : ' arena-group-empty'}`} sx={tiles ? undefined : { border: 0, background: 'transparent', borderRadius: 0 }} aria-labelledby={`arena-project-${machine.machine.id}-${group.id}`} key={group.id}>
+                  <Paper component="section" className={`arena-group${group.sessions.length ? '' : ' arena-group-empty'}${source ? ' arena-project-dragging' : ''}${target ? ' arena-project-drop-target' : ''}`} sx={tiles ? undefined : { border: 0, background: 'transparent', borderRadius: 0 }} aria-labelledby={`arena-project-${machineId}-${group.id}`} key={group.id} {...dropHandlers}>
                     <header>
                       <div><div className="project-logo-name">
                         {project && <ProjectLogoButton project={project} apiBase={machineApiBase(machine.machine.id, localMachine?.machine.id)}
@@ -222,6 +271,14 @@ export function Arena({
                       {(group.id === 'none' || project) && <IconButton type="button" disabled={!online}
                         aria-label={`New session in ${group.name}`} title={`New session in ${group.name}`}
                         onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}><ShellIcon name="newChat" /></IconButton>}
+                      {canReorder && <ArenaProjectHandle name={group.name} previousId={orderedProjects[projectIndex - 1]?.id} nextId={orderedProjects[projectIndex + 1]?.id}
+                        onMove={targetId => moveProject(group.id, targetId)}
+                        onDragStart={event => {
+                          event.dataTransfer.setData(PROJECT_DRAG_TYPE, group.id);
+                          event.dataTransfer.effectAllowed = 'move';
+                          setProjectDrag({ machineId, projectId: group.id });
+                        }}
+                        onDragEnd={() => setProjectDrag(undefined)} />}
                       </div>
                     </header>
                     <div className="arena-card-grid">

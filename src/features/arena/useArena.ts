@@ -1,13 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ArenaMachineSnapshot, ArenaSnapshot, RunDiscovery } from '@/shared/types';
 import { useDeviceAccess } from '@/features/devices/DeviceAccess';
 import { subscribeArena } from './arenaSubscription';
 import {
   acknowledgeAttention, buildMultiMachineInbox, DEVICE_ARENA_STORAGE_KEY, EMPTY_DEVICE_ARENA_STATE,
-  groupArenaSessions, parseDeviceArenaState, rememberArenaActiveOrder, type ArenaActiveOrder, type DeviceArenaState,
+  groupArenaSessions, moveArenaProject, parseArenaProjectOrder, parseDeviceArenaState, rememberArenaActiveOrder,
+  type ArenaActiveOrder, type DeviceArenaState,
 } from './arenaModel';
+
+const projectOrderKey = (machineId: string) => `code-ai:device:v1:arena-project-order:${machineId}`;
+
+function loadProjectOrder(machineId: string): ArenaActiveOrder {
+  try { return parseArenaProjectOrder(localStorage.getItem(projectOrderKey(machineId))); } catch { return new Map(); }
+}
 
 export function useArena() {
   const [connected, setConnected] = useState(false);
@@ -20,6 +27,7 @@ export function useArena() {
   })), [machines]);
   const subscription = useRef<ReturnType<typeof subscribeArena> | undefined>(undefined);
   const activeOrder = useRef(new Map<string, ArenaActiveOrder>());
+  const [, showProjectOrder] = useReducer((revision: number) => revision + 1, 0);
   const { refresh: refreshAccess } = useDeviceAccess();
 
   useEffect(() => {
@@ -53,7 +61,7 @@ export function useArena() {
     const owner = subscribeArena({
       snapshot: (snapshot: ArenaSnapshot) => {
         for (const machine of snapshot.machines) {
-          const order = activeOrder.current.get(machine.machine.id) ?? new Map();
+          const order = activeOrder.current.get(machine.machine.id) ?? loadProjectOrder(machine.machine.id);
           rememberArenaActiveOrder(order, groupArenaSessions(
             machine.projects, machine.sessions, machine.runs, machine.machine.state === 'online', true, true,
           ));
@@ -83,6 +91,14 @@ export function useArena() {
     };
   }, [refreshAccess]);
 
+  const moveProject = (machineId: string, projectId: string, targetId: string) => {
+    const order = activeOrder.current.get(machineId);
+    const ids = order && moveArenaProject(order, projectId, targetId);
+    if (!ids) return;
+    try { localStorage.setItem(projectOrderKey(machineId), JSON.stringify(ids)); } catch { /* the current view still keeps the order */ }
+    showProjectOrder();
+  };
+
   const acknowledge = useCallback((itemIds: string[]) => {
     setDeviceState((current) => {
       const inbox = buildMultiMachineInbox(attentionMachines, current);
@@ -104,6 +120,7 @@ export function useArena() {
   return {
     machines: machines.map((entry) => ({ ...entry, snapshotFresh: connected && !refreshError })),
     activeOrder: activeOrder.current,
+    moveProject,
     sessions,
     archivedSessions,
     discovery,

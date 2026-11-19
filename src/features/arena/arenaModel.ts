@@ -59,8 +59,33 @@ export function groupArchivedArenaSessions(
   return [...groups.values()];
 }
 
-/** In-memory positions for one machine's Active view, retained until the page reloads. */
+/** An explicit move saves group positions. Session positions stay in memory. */
 export type ArenaActiveOrder = Map<string, { index: number; sessions: Map<string, number> }>;
+
+export function parseArenaProjectOrder(value: string | null): ArenaActiveOrder {
+  const order: ArenaActiveOrder = new Map();
+  try {
+    const ids: unknown = JSON.parse(value ?? '[]');
+    if (Array.isArray(ids)) {
+      for (const id of ids) {
+        if (typeof id === 'string' && id && !order.has(id)) order.set(id, { index: order.size, sessions: new Map() });
+      }
+    }
+  } catch { /* optional device preference */ }
+  return order;
+}
+
+export function moveArenaProject(order: ArenaActiveOrder, projectId: string, targetId: string): string[] | undefined {
+  const source = order.get(projectId);
+  const target = order.get(targetId);
+  if (!source || !target || source === target) return;
+
+  const ids = [...order.keys()].sort((left, right) => order.get(left)!.index - order.get(right)!.index);
+  ids.splice(source.index, 1);
+  ids.splice(target.index, 0, projectId);
+  ids.forEach((id, index) => { order.get(id)!.index = index; });
+  return ids;
+}
 
 export function rememberArenaActiveOrder(order: ArenaActiveOrder, groups: readonly ArenaProjectGroup[]): void {
   for (const group of groups) {
