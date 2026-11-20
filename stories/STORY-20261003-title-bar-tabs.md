@@ -133,6 +133,59 @@ pass. Generated test-build additions to `tsconfig.json` were removed. Browser ch
 providers; real attached executors and physical devices were not exercised. The running
 application has not been rebuilt or restarted.
 
+## November 20 follow-up — active tabs and one archive chevron
+
+**Status:** Shipped
+
+Show every active session in the selected project/machine as a tab, including sessions whose
+device view was closed or has never been opened. Keep view closing separate from archiving:
+Delete and `/close` retain their navigation/draft behavior, and the active session remains
+available as a tab. Replace All sessions and the separate archive icon with one large downward
+chevron labelled Archived sessions. Remove the header's slash separators, enlarge the project
+chevron, and reserve status dots for live work. Desktop overflow has scroll arrows; phones keep
+room for titles and archive actions through horizontal touch scrolling and keyboard navigation.
+Tabs retain their displayed order as conversations load and new sessions append. Keyboard focus
+stays on the selected tab when its composer mounts; explicit setup/launch focus requests still
+work. This refines the [arena's device workspace](../docs/vision.md) without changing saved records.
+
+Where the code is: `src/features/conversation/WorkspaceTabs.tsx:23` owns tab rendering and focus;
+`SessionPicker.tsx:150` owns header actions; `SessionArchivePicker.tsx:41` owns archive recovery;
+`src/features/projects/ProjectPicker.tsx:31` owns the project trigger;
+`src/features/shell/AppShell.tsx:225` supplies scoped summaries and mounts the header;
+`src/app/globals.css:29` owns header spacing.
+
+- [x] Every active scoped session appears as a tab on initial load, after view closing/reload,
+      and after subscription updates; unrelated projects/machines and archives stay excluded.
+- [x] One accessible archive chevron replaces both old session menus; existing scoped Restore,
+      offline/error retry, pending guards, drafts and late-navigation protection still work.
+- [x] No slash separators; larger matching project/archive chevrons; idle dots removed.
+      Crowded tabs remain reachable with desktop scroll controls and phone keyboard/touch scrolling.
+- [x] Focused unit/browser checks, TypeScript, isolated build, light/dark desktop/phone screenshot
+      inspection and independent review pass. Do not restart the running application.
+
+Verification: **114 focused unit checks** pass across workspace tabs/views/locations, conversation
+archive, Arena subscriptions, pane layout and composer menus. **77 distinct production-browser
+cases** pass across title-bar tabs, conversation URLs, incremental loading, New chat, chat commands
+and Arena archives; the final responsive/scroll-control refinements pass all **19 title-bar cases**
+again on `.next-e2e/active-session-tabs-phone`. Coverage includes unvisited/closed active tabs,
+stable ordering, scoped subscription additions without transcript reads, status badges, overflow
+selection, disabled-arrow keyboard access, Restore/retry/pending guards, drafts and delayed focus
+ownership. The new visibility/neighbor/focus regressions failed before their fixes.
+
+TypeScript, isolated production build, whitespace checks, light/dark desktop/phone screenshot
+inspection and independent review pass. Review findings about native scroll controls, visible
+archive neighbors, composer autofocus and hidden disabled arrows are addressed. Generated test-build
+entries in `tsconfig.json` are removed. Test providers are fake; the running app is not restarted.
+
+Two wider checks remain outside this follow-up's passing set. The external-archive URL journey
+still expects an unavailable view while existing reconciliation selects a surviving conversation;
+the original test fails identically on the preceding `.next-e2e/incremental` build. The broader
+canvas multi-view reload journey reaches the correct saved session/order but remains at Loading
+canvas while waiting for its restored sketch. Its original preceding-build test fails earlier on
+the recovered run's working class, including with empty test data, so that comparison does not
+establish the canvas-loading failure's cause. No canvas-loading or saved canvas-state code changes
+are included here. These gaps do not count as passing verification.
+
 ## How to verify
 
 1. Run `npm run lint` and the focused workspace-tab, workspace-view, panel-layout, and token unit tests.

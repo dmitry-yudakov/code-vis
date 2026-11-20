@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -37,7 +38,7 @@ async function openConversation(page: Page, request: APIRequestContext, theme: '
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const target = (id: string) => conversation.locator(`[data-navigation-id="${id}"]`);
   const responses = [target(`message:${first.id}`), target(`activity:${users[1].turn!.runId}:${users[1].turn!.entries.at(-1)!.id}`), target(`message:${last.id}`)];
@@ -96,10 +97,9 @@ for (const theme of ['light', 'dark'] as const) {
     await atStart(users[1]);
     const scroll = conversation.locator('.conversation-scroll');
     const position = await scroll.evaluate(element => element.scrollTop);
-    const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
-    await picker.selectOption(other.id);
+    await sessionTab(page, other.id).click();
     await expect(conversation.getByRole('button', { name: 'Previous user message', exact: true })).toHaveCount(0);
-    await picker.selectOption(session.id);
+    await sessionTab(page, session.id).click();
     await expect.poll(() => scroll.evaluate(element => element.scrollTop)).toBeCloseTo(position, 0);
     await expect(field).toHaveValue('Keep this draft');
     await mkdir('test-results/message-navigation', { recursive: true });
@@ -155,10 +155,9 @@ test('a jump clamped at the bottom keeps following paused after switching sessio
   await atStart(conversation.locator('.chat-message.user').last());
   const scroll = conversation.locator('.conversation-scroll');
   expect(await scroll.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThan(40);
-  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
-  await picker.selectOption(other.id);
+  await sessionTab(page, other.id).click();
   await expect(conversation.locator('.chat-message.user')).toHaveCount(0);
-  await picker.selectOption(session.id);
+  await sessionTab(page, session.id).click();
   await expect(approvals).toContainText('1 of 1');
   await approvals.getByRole('button', { name: 'Deny', exact: true }).click();
   await expect(conversation).toContainText('Edit denied');

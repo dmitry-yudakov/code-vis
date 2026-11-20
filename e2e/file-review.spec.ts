@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse } from '../src/shared/types';
 
@@ -33,7 +34,7 @@ async function openReview(page: Page, request: APIRequestContext) {
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
   await input.fill('Keep this review draft');
   await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();

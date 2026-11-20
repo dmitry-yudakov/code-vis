@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
@@ -12,8 +13,8 @@ async function openSource(page: Page, request: APIRequestContext, loose = false)
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: loose ? 'No project' : new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sibling.id);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, sibling.id).click();
+  await sessionTab(page, session.id).click();
   return { session, sibling };
 }
 
@@ -35,7 +36,7 @@ for (const choice of [
   { mode: 'auto', label: 'Auto', native: false, loose: true },
   { mode: 'full', label: 'Full access', native: true, loose: false },
 ]) {
-  test(`starts a fresh ${choice.mode} chat with the same settings and closes only its source tab`, async ({ page, request }) => {
+  test(`starts a fresh ${choice.mode} chat with the same settings and retains active source tabs`, async ({ page, request }) => {
     await offerCodex(page, choice.native);
     const { session, sibling } = await openSource(page, request, choice.loose);
     const conversation = page.getByRole('complementary', { name: 'Conversation' });
@@ -63,8 +64,8 @@ for (const choice of [
       provider: 'codex', role: 'tester',
     });
     expect(created.primaryAgentId).not.toBe(session.primaryAgentId);
-    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(created.id);
-    await expect(page.getByRole('tab', { name: session.title, exact: true })).toHaveCount(0);
+    await expect(sessionTab(page, created.id)).toHaveAttribute('aria-selected', 'true');
+    await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'false');
     await expect(page.getByRole('tab', { name: sibling.title, exact: true })).toBeVisible();
     await expect(conversation.locator('textarea')).toHaveValue('');
     await expect(conversation.locator('.chat-message')).toHaveCount(0);
@@ -75,7 +76,7 @@ for (const choice of [
       await page.locator('.project-search-trigger').click();
       await page.getByRole('option', { name: 'No project' }).click();
     }
-    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(created.id);
+    await expect(sessionTab(page, created.id)).toHaveAttribute('aria-selected', 'true');
     await expect(conversation.getByLabel(/^Mode: /)).toHaveText(choice.label);
     await expect(conversation.locator('.model-menu > button')).toHaveText('Test model · High');
 
@@ -88,7 +89,7 @@ for (const choice of [
     expect(button.x + button.width).toBeLessThanOrEqual(header.x + header.width);
     expect(button.x).toBeGreaterThanOrEqual(header.x);
     expect((await request.get(`/api/sessions/${session.id}`)).ok()).toBe(true);
-    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+    await sessionTab(page, session.id).click();
     await expect(conversation).toBeVisible();
     await expect(conversation.locator('textarea')).toHaveValue('Keep this draft in the old chat.');
   });
@@ -119,7 +120,7 @@ test('disables New chat while creating and keeps the original tab and draft afte
   await expect(page.getByText('New chat fixture failure.', { exact: true })).toBeVisible();
   await expect(newChat).toBeEnabled();
   await expect(conversation.locator('textarea')).toHaveValue('Keep me.');
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: sibling.title, exact: true })).toBeVisible();
   let finishSend!: () => void;
   const preparing = new Promise<void>((resolve) => { finishSend = resolve; });
@@ -131,5 +132,5 @@ test('disables New chat while creating and keeps the original tab and draft afte
   await expect(newChat).toBeDisabled();
   finishSend();
   await expect(newChat).toBeEnabled();
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
 });

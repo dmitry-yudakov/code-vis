@@ -13,11 +13,11 @@ import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   AgentExecution, AgentProvider, AgentRole, CheckoutSummary, DurableProject, ExecutionHealth, GlobalInstructionsChoice, ProviderHealth,
-  SessionSnapshot, WorktreeCapability,
+  WorktreeCapability,
 } from '@/shared/types';
 import { launchInstructions, namedLaunchInstructions, type LaunchInstructions } from '@/features/shell/devicePreferences';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
-import { AGENT_ROLES, AGENT_ROLE_LABELS, findAgentParticipant } from '@/shared/participants';
+import { AGENT_ROLES, AGENT_ROLE_LABELS } from '@/shared/participants';
 import { CheckoutChoice, useCreationRequestId } from './CheckoutChoice';
 import { worktreeChoice } from './worktreeChoice';
 
@@ -148,34 +148,13 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
   );
 }
 
-export function SessionPicker({ sessions, value, onChange, onQueueSetup, archiveControl, ...creation }: SessionCreationProps & {
-  sessions: Array<import('@/shared/types').ArenaSessionSummary | SessionSnapshot>;
+export function SessionPicker({ value, onQueueSetup, archiveControl, ...creation }: SessionCreationProps & {
   value?: string;
-  onChange(value: string): void;
   onQueueSetup?(): void;
   archiveControl?: ReactNode;
 }) {
   return (
     <div className="session-picker">
-      <label className="all-sessions-picker">
-        <span className="all-sessions-label" aria-hidden="true">All sessions <span>⌄</span></span>
-        <NativeSelect disableUnderline IconComponent={() => null}
-          sx={{
-            position: 'absolute', inset: 0, width: '100%', height: '100%',
-            '& select': { color: 'transparent', p: 0, height: '100%', width: '100%' },
-            // MUI's disabled text fill otherwise paints the placeholder over our visible label.
-            '& select.Mui-disabled': { WebkitTextFillColor: 'transparent' },
-            '& option': { color: 'text.primary', bgcolor: 'background.paper' },
-          }} id="all-sessions" title="All sessions" value={value || ''} disabled={!sessions.length} onChange={(event) => onChange(event.target.value)} inputProps={{ "aria-label": "All sessions", title: "All sessions" }}>
-          {!value && <option value="" disabled>{sessions.length ? 'Choose a session' : 'No sessions yet'}</option>}
-          {sessions.map((session) => (
-            <option value={session.id} key={session.id}>
-              {('agents' in session ? session.agents.find(agent => agent.id === session.primaryAgentId)?.displayName
-                : findAgentParticipant(session.participants, session.primaryAgentId)?.displayName) || 'Agent'} · {session.title} · {session.execution === 'docker' ? 'Docker' : 'Local'}
-            </option>
-          ))}
-        </NativeSelect>
-      </label>
       {archiveControl}
       <DesktopPopover keepMounted className="new-session-menu" label="New session" summary={<><span aria-hidden="true">＋</span><span className="new-session-label">New</span></>} placement="bottom-end">
         {(close) => <div>

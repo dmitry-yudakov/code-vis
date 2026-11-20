@@ -4,7 +4,8 @@ import Link from 'next/link';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import IconButton from '@mui/material/IconButton';
-import { useEffect, useRef } from 'react';
+import TabScrollButton, { type TabScrollButtonProps } from '@mui/material/TabScrollButton';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { RunState, SessionSnapshot } from '@/shared/types';
 
 export interface WorkspaceRunState {
@@ -14,9 +15,13 @@ export interface WorkspaceRunState {
   pendingApprovals: number;
 }
 
+function SessionTabScrollButton(props: TabScrollButtonProps) {
+  return <TabScrollButton {...props} component="button" role="button" tabIndex={props.disabled ? -1 : 0} aria-disabled={props.disabled}
+    aria-label={`Scroll session tabs ${props.direction}`} sx={{ width: 24, flexShrink: 0 }} />;
+}
+
 export function WorkspaceTabs({
   sessions,
-  openSessionIds,
   focusedSessionId,
   runsBySession,
   unreadBySession,
@@ -28,7 +33,6 @@ export function WorkspaceTabs({
   archiveDisabledReasons = {},
 }: {
   sessions: Pick<SessionSnapshot, 'id' | 'title'>[];
-  openSessionIds: string[];
   focusedSessionId?: string;
   runsBySession: Record<string, WorkspaceRunState>;
   unreadBySession: Record<string, number>;
@@ -41,14 +45,30 @@ export function WorkspaceTabs({
 }) {
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const tablistRef = useRef<HTMLDivElement>(null);
-  const sessionById = new Map(sessions.map((session) => [session.id, session]));
-  const openSessions = openSessionIds.flatMap((id) => {
-    const session = sessionById.get(id);
-    return session ? [session] : [];
-  });
+  const archiveTriggers = useRef(new Set<HTMLElement>());
+  const keepSelectionVisible = useRef(true);
 
-  // MUI owns selection scrolling. Its scrollButtons=false mode needs help only when the
-  // clipping viewport changes size without changing the selected tab's own geometry.
+  function revealSelected() {
+    const scroller = tablistRef.current;
+    const tab = focusedSessionId && tabRefs.current.get(focusedSessionId);
+    if (!scroller || !tab) return;
+    const bounds = scroller.getBoundingClientRect();
+    const selected = tab.getBoundingClientRect();
+    if (selected.left < bounds.left) scroller.scrollLeft += selected.left - bounds.left;
+    else if (selected.right > bounds.right) scroller.scrollLeft += selected.right - bounds.right;
+  }
+
+  useLayoutEffect(() => { keepSelectionVisible.current = true; }, [focusedSessionId]);
+
+  useLayoutEffect(() => {
+    // Keep tab-owned focus when an archived tab disappears, before the new composer mounts.
+    // A pending archive must not move focus from a control the user has chosen in the meantime.
+    if (document.activeElement !== document.body || !focusedSessionId
+      || ![...archiveTriggers.current].some(trigger => !trigger.isConnected)) return;
+    tabRefs.current.get(focusedSessionId)?.focus();
+  }, [focusedSessionId, sessions]);
+
+  // Reveal selection when the viewport changes without changing the tab's own geometry.
   useEffect(() => {
     const scroller = tablistRef.current;
     if (!scroller) return;
@@ -57,12 +77,7 @@ export function WorkspaceTabs({
       const nextWidth = scroller.clientWidth;
       if (nextWidth === width) return;
       width = nextWidth;
-      const tab = focusedSessionId && tabRefs.current.get(focusedSessionId);
-      if (!tab) return;
-      const bounds = scroller.getBoundingClientRect();
-      const selected = tab.getBoundingClientRect();
-      if (selected.left < bounds.left) scroller.scrollLeft += selected.left - bounds.left;
-      else if (selected.right > bounds.right) scroller.scrollLeft += selected.right - bounds.right;
+      revealSelected();
     });
     observer.observe(scroller);
     return () => observer.disconnect();
@@ -70,22 +85,21 @@ export function WorkspaceTabs({
 
   function closeView(id: string) {
     if (runsBySession[id] || closeDisabledReasons[id]) return;
-    const index = openSessions.findIndex((session) => session.id === id);
-    const next = id === focusedSessionId
-      ? openSessions[index === openSessions.length - 1 ? index - 1 : index + 1]
-      : openSessions.find(session => session.id === focusedSessionId);
     onClose(id);
     requestAnimationFrame(() => {
-      if (next) tabRefs.current.get(next.id)?.focus();
-      else document.getElementById('all-sessions')?.focus();
+      // Closing a device view keeps its active-session tab available for reopening.
+      const selected = [...tabRefs.current.values()].find(tab => tab.getAttribute('aria-selected') === 'true');
+      (selected || tabRefs.current.get(id))?.focus();
     });
   }
 
   async function archiveSession(id: string) {
     if (runsBySession[id] || closeDisabledReasons[id] || archiveDisabledReasons[id]) return;
     const trigger = document.activeElement as HTMLElement | null;
+    if (trigger && tablistRef.current?.contains(trigger)) archiveTriggers.current.add(trigger);
     const archived = await onArchive(id);
     requestAnimationFrame(() => {
+      if (trigger) archiveTriggers.current.delete(trigger);
       const focused = document.activeElement;
       // A delayed response must not take focus from a composer or another control.
       if (focused !== document.body && !tablistRef.current?.contains(focused)) return;
@@ -97,24 +111,29 @@ export function WorkspaceTabs({
       const selected = [...tabRefs.current.values()].find(tab => tab.getAttribute('aria-selected') === 'true');
       if (selected) selected.focus();
       else {
-        const picker = document.getElementById('all-sessions') as HTMLSelectElement | null;
-        if (picker && !picker.disabled) picker.focus();
-        else document.querySelector<HTMLElement>('.new-session-menu > button')?.focus();
+        document.querySelector<HTMLElement>('.session-archive-menu > button')?.focus();
       }
     });
   }
 
-  if (!openSessions.length) return null;
+  if (!sessions.length) return null;
 
   return (
-    <div className="workspace-tabs" style={{ maxWidth: openSessions.length * 360 }}>
+    <div className="workspace-tabs" style={{ maxWidth: sessions.length * 360 }}>
       <Tabs className="workspace-tablist" aria-label="Open session views" value={focusedSessionId ?? false}
-        variant="scrollable" scrollButtons={false} slotProps={{
-          scroller: { ref: tablistRef, style: { containerType: 'inline-size' } },
+        onWheel={() => { keepSelectionVisible.current = false; }}
+        onTouchStart={() => { keepSelectionVisible.current = false; }}
+        onClickCapture={event => { keepSelectionVisible.current = Boolean((event.target as Element).closest('[role="tab"]')); }}
+        variant="scrollable" scrollButtons="auto" slots={{ scrollButtons: SessionTabScrollButton }} slotProps={{
+          scroller: { ref: tablistRef, style: { containerType: 'inline-size' },
+            // An earlier MUI scroll animation can finish after a newer selection. Keep the
+            // selected tab visible until the user deliberately scrolls with arrows/wheel/touch.
+            onScroll: () => { if (keepSelectionVisible.current) revealSelected(); },
+          },
           list: { sx: { width: '100%' } },
         }}
         onChange={(_, id: string) => onFocus(id)}>
-        {openSessions.map((session, index) => {
+        {sessions.map((session, index) => {
           const selected = session.id === focusedSessionId;
           const run = runsBySession[session.id];
           const running = run?.state === 'running';
@@ -135,7 +154,7 @@ export function WorkspaceTabs({
               }}
               aria-selected={selected}
               aria-controls="active-session-view"
-              tabIndex={selected ? 0 : -1}
+              tabIndex={selected || (!focusedSessionId && index === 0) ? 0 : -1}
               aria-label={`${session.title}${run ? ` — ${run.status}` : ''}`}
               title={run ? `${session.title} — ${run.status}` : session.title}
               onKeyDown={(event) => {
@@ -148,12 +167,12 @@ export function WorkspaceTabs({
                 if (!direction) return;
                 event.preventDefault();
                 event.stopPropagation();
-                const next = openSessions[(index + direction + openSessions.length) % openSessions.length];
+                const next = sessions[(index + direction + sessions.length) % sessions.length];
                 onFocus(next.id);
                 tabRefs.current.get(next.id)?.focus();
               }}
               label={<>
-              <span className="workspace-tab-state" aria-hidden="true" />
+              {run && <span className="workspace-tab-state" aria-hidden="true" />}
               {sessionHref ? <Link className="workspace-tab-title" href={sessionHref(session.id)} prefetch={false} tabIndex={-1}
                 style={{ color: 'inherit', textDecoration: 'none' }}
                 onClick={(event) => {

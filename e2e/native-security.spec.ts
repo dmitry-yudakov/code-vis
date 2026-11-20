@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -54,7 +55,7 @@ async function openFixture(page: Page, provider: 'claude' | 'codex', isolated = 
   await page.goto(origin);
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   return session;
 }
 

@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { spawn, execFile as callbackExecFile, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -63,7 +64,7 @@ test('gear launches an independent worktree while the source task waits for appr
   });
   await page.goto(origin);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(sourceSession.id);
+  await expect(sessionTab(page, sourceSession.id)).toHaveAttribute('aria-selected', 'true');
   await conversation.locator('.mode-menu > button').click();
   await page.getByRole('radio', { name: 'Agent', exact: true }).click();
   await conversation.locator('textarea').fill('Continue the source task');
@@ -85,7 +86,7 @@ test('gear launches an independent worktree while the source task waits for appr
     const response = await created; expect(response.status()).toBe(201);
     const { session } = await response.json() as { session: PublicSession };
     await expect(dialog).not.toBeVisible();
-    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(sourceSession.id);
+    await expect(sessionTab(page, sourceSession.id)).toHaveAttribute('aria-selected', 'true');
     await expect(conversation.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
     await expect.poll(relatedRuns).toEqual(expect.arrayContaining([
       expect.objectContaining({ sessionId: sourceSession.id, state: 'needs-you' }),
@@ -220,7 +221,7 @@ test('retries a lost creation response with the same identity and exposes manage
   await expect(form.getByRole('combobox', { name: 'Session checkout' })).toHaveValue('worktree');
   await expect(form.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled();
   await form.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(saved!.id);
+  await expect(sessionTab(page, saved!.id)).toHaveAttribute('aria-selected', 'true');
   expect(payloads).toHaveLength(2); expect(payloads[1]).toEqual(payloads[0]);
   await page.getByRole('button', { name: /^Repository(?:,|$)/ }).click();
   await page.getByRole('button', { name: 'Manage repositories', exact: true }).click();

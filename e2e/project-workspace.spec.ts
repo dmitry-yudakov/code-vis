@@ -86,7 +86,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await group.getByRole('link', { name: `Open project ${project.name}`, exact: true }).click();
     await expect(page).toHaveURL(`/?project=${project.id}`);
     await expect(files).toBeVisible();
-    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue('');
+    await expect(page.getByRole('tab', { selected: true })).toHaveCount(0);
     expect(await page.locator('body').evaluate(node => node.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }

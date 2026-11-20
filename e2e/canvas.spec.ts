@@ -1,3 +1,4 @@
+import { sessionTab, selectedSessionId } from './session-tabs';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
@@ -621,7 +622,7 @@ test('enters and cleans up the immersive workspace through an injectable XR adap
 test('keeps multiple session views and their device layout usable during background work', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.new-session-menu > button')).toBeVisible();
-  while (await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').count()) await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true }).press('Delete');
+  await createNamedProject(page, `Background views ${Date.now()}`);
   await startSession(page);
   const firstConversation = page.getByRole('complementary', { name: 'Conversation' });
   await firstConversation.locator('textarea').fill('first view draft');
@@ -674,8 +675,8 @@ test('keeps multiple session views and their device layout usable during backgro
   await expect(page.getByRole('complementary', { name: 'Conversation' }).locator('textarea')).toHaveValue('first view draft, edited while another turn runs');
   await expect(page.locator('.canvas-controls > span').first()).toHaveText(firstViewZoom!);
   await page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab').nth(0).press('Delete');
-  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(1);
-  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toBeFocused();
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tablist', { name: 'Open session views', exact: true }).getByRole('tab', { selected: true })).toBeFocused();
 });
 
 test('runs two turns, queues a third, and recovers background approval and promotion', async ({ page }) => {
@@ -793,7 +794,7 @@ test('orchestrates cross-project attention, archives from the Inbox, and starts 
 
   await createNamedProject(page, alphaProject);
   await startSession(page);
-  const alphaSessionId = await page.getByRole('combobox', { name: 'All sessions', exact: true }).inputValue();
+  const alphaSessionId = await selectedSessionId(page);
   await attachRepository(page, 'alpha');
 
   await createNamedProject(page, betaProject);
@@ -1704,7 +1705,7 @@ test('starts new sessions and agents at this device\'s last mode, model, and eff
     .json() as { session: { id: string } };
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.project-search-trigger')).toContainText(projectName);
-  await page.getByRole('combobox', { name: 'All sessions' }).selectOption(elsewhere.id);
+  await sessionTab(page, elsewhere.id).click();
   await ensureConversationOpen(page);
   await expect(modePicker(conversation)).toHaveText('Plan');
   await expect(summary).toHaveText('Sonnet · Low');

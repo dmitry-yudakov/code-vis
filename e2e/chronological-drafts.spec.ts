@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { AgentEvent, AssistantMessage, CheckoutsResponse, DurableProject, PublicSession, UserMessage } from '../src/shared/types';
 
@@ -129,8 +130,8 @@ async function openDraftFixture(page: Page, request: APIRequestContext, reply: '
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  if (otherSessionId) await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  if (otherSessionId) await sessionTab(page, session.id).click();
+  await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
   return page.getByRole('textbox', { name: 'Instruction', exact: true });
 }
 
@@ -296,14 +297,14 @@ for (const unrelated of [false, true]) test(`background completion ${unrelated ?
     } });
     expect(updated.ok()).toBe(true);
     await page.reload();
-    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(ids.current);
+    await expect(sessionTab(page, ids.current)).toHaveAttribute('aria-selected', 'true');
   }
   await field.fill('Complete while another session is open');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.draftFixture.requests.length)).toBe(1);
   await page.evaluate(() => window.draftFixture.accept());
   await expect(field).toHaveValue('');
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(ids.other);
+  await sessionTab(page, ids.other).click();
   await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
   const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
   await expect(repository.locator('.repository-name')).toHaveText(unrelated ? 'beta' : 'alpha');
@@ -591,10 +592,10 @@ test('scroll anchors survive switching sessions, background activity and reconne
   await scroll.evaluate(element => { element.scrollTop = 420; element.dispatchEvent(new Event('scroll')); });
   const anchor = await scroll.evaluate(element => element.scrollTop);
   expect(anchor).toBeGreaterThan(0);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(ids.other);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(ids.other);
+  await sessionTab(page, ids.other).click();
+  await expect(sessionTab(page, ids.other)).toHaveAttribute('aria-selected', 'true');
   await page.evaluate(() => window.draftFixture.activity('Activity received while reading another session.'));
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(ids.current);
+  await sessionTab(page, ids.current).click();
   await expect(page.locator('.turn-activity')).toContainText('Activity received while reading another session.');
   await expect.poll(() => scroll.evaluate(element => element.scrollTop)).toBe(anchor);
   await page.evaluate(() => { window.draftFixture.discoveryReadable = false; window.draftFixture.disconnect(); });

@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -274,7 +275,7 @@ for (const width of [1440, 390]) {
     await page.locator(`a[href="/?project=${session.projectId}"]`).click();
     await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
     await expect(pane(page)).toBeHidden();
-    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+    await sessionTab(page, session.id).click();
     await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
     await expect(pane(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');

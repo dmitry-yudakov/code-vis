@@ -69,7 +69,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 360])
       expect(reads.some(url => new URL(url).pathname.endsWith(`/${sibling.id}`))).toBe(false);
       expect(reads.filter(url => /\/api\/sessions\//.test(url)).every(url => new URL(url).searchParams.has('view'))).toBe(true);
       release();
-      await expect(page.getByRole('combobox', { name: 'All sessions', exact: true }).locator('option')).toHaveCount(2);
+      await expect(page.getByRole('tablist', { name: 'Open session views' }).getByRole('tab')).toHaveCount(2);
       await expect(composer(page)).toHaveValue('My independent next draft');
       await mkdir('test-results/incremental-screenshots', { recursive: true });
       await page.screenshot({ path: `test-results/incremental-screenshots/${theme}-${width}.png`, animations: 'disabled' });

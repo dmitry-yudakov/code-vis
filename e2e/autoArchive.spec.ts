@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { fulfillArenaSnapshot, pushArenaSnapshot, restartArenaSubscription } from './arena-stream';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -60,8 +61,7 @@ test('workspace notifications archive old conversations, close their views, and 
     createdAt: original.updatedAt, status: 'sent', diagramAttachments: [], mode: 'ask' });
   await writeFile(sessionPath(session.id), JSON.stringify(original));
   await page.goto(origin);
-  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
-  await picker.selectOption(session.id);
+  await sessionTab(page, session.id).click();
   const openViews = page.getByRole('tablist', { name: 'Open session views' });
   await expect(openViews.getByRole('tab')).toHaveCount(1);
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
@@ -97,7 +97,7 @@ test('workspace notifications archive old conversations, close their views, and 
     };
     return Object.values(stored.scopes || {}).flatMap((scope) => scope.openSessionIds || []);
   })).not.toContain(session.id);
-  await expect(picker.locator(`option[value="${session.id}"]`)).toHaveCount(0);
+  await expect(sessionTab(page, session.id)).toHaveCount(0);
   const archivedSnapshot = await (await page.request.get(`${origin}/api/arena`)).json() as ArenaSnapshot;
 
   await expect(page.getByRole('region', { name: 'Workspace unavailable', exact: true })).toBeVisible();
@@ -132,7 +132,7 @@ test('workspace notifications archive old conversations, close their views, and 
   const { session: old } = await (await page.request.post(`${origin}/api/sessions`, { data: { projectId: project.id, provider: 'claude' } })).json();
   await ageSession(old.id);
   await page.reload();
-  await expect(picker.locator(`option[value="${session.id}"]`)).toHaveCount(1);
-  await expect(picker.locator(`option[value="${old.id}"]`)).toHaveCount(0);
+  await expect(sessionTab(page, session.id)).toHaveCount(1);
+  await expect(sessionTab(page, old.id)).toHaveCount(0);
   await expect(openViews.getByRole('tab')).toHaveCount(1);
 });

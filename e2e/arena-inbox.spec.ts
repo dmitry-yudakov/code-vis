@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { fulfillArenaSnapshot } from './arena-stream';
 import { expect, test } from './arena-stream';
 import type { ArenaSnapshot, PublicSession } from '../src/shared/types';
@@ -38,7 +39,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     // Padding belongs to the same action as the title and status badge.
     await open.click({ position: { x: 8, y: 8 } });
     await expect(page).toHaveURL(/\/\?(?:session|project)=/);
-    await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+    await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
     const openInbox = async () => {
       const views = page.getByRole('navigation', { name: 'Views', exact: true });
       if (width === 360) await views.getByRole('button', { name: /^More/ }).click();
@@ -52,7 +53,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
       await open.focus();
       await page.keyboard.press(key);
       await expect(page).toHaveURL(/\/\?(?:session|project)=/);
-      await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+      await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
       await openInbox();
     }
     await page.unrouteAll({ behavior: 'wait' });

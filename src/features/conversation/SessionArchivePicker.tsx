@@ -39,7 +39,7 @@ export function SessionArchivePicker({ sessions, online, refreshError, onRefresh
   }
 
   return <DesktopPopover className="session-archive-menu" label="Archived sessions" icon
-    summary={<ShellIcon name="archive" />} placement="bottom-end" width={400}
+    summary={<ShellIcon name="chevronDown" />} placement="bottom-end" width={400}
     onOpenChange={open => { opened.current = open; if (open) void onRefresh(); }}>
     {close => <Box component="section" aria-label="Project archive">
       <Typography variant="subtitle2" sx={{ mb: 1 }}>Project archive</Typography>

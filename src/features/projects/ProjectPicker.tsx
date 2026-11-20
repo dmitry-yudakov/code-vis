@@ -6,6 +6,7 @@ import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';
 
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
+import { ShellIcon } from '@/features/shell/ShellIcon';
 import { useState } from 'react';
 import type { DurableProject } from '@/shared/types';
 import { ProjectLogoButton } from './ProjectLogo';
@@ -30,7 +31,7 @@ export function ProjectPicker({ projects, value, disabled, apiBase, onChange, on
     {selected && <ProjectLogoButton project={selected} apiBase={apiBase} disabled={disabled} onClick={() => onLogo(selected)} />}
     <DesktopPopover className="project-search-picker" triggerClassName="project-search-trigger" disabled={disabled}
       label={`Project: ${selected?.name || 'No project'}`} width={390} placement="bottom-start"
-      summary={<><span>{selected?.name || 'No project'}</span><span aria-hidden="true">⌄</span></>}>
+      summary={<><span>{selected?.name || 'No project'}</span><ShellIcon name="chevronDown" /></>}>
       {(close) =>
         <div className="project-search-popover">
           <div className="project-search-meta">

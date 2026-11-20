@@ -446,7 +446,10 @@ export function InstructionComposer({
     event.preventDefault();
     onAddImages(files);
   };
-  useEffect(() => { if (autoFocus) ref.current?.focus(); }, [autoFocus]);
+  useEffect(() => {
+    // Session navigation owns keyboard focus on its tab; explicit focus requests still win.
+    if (autoFocus && document.activeElement?.getAttribute('role') !== 'tab') ref.current?.focus();
+  }, [autoFocus]);
   useEffect(() => { if (focusRequest && ref.current) { ref.current.focus(); onFocusRequestHandled?.(); } }, [focusRequest, onFocusRequestHandled]);
   useEffect(() => {
     if (suggestions.length) document.getElementById(`${listId}-${selectedIndex}`)?.scrollIntoView({ block: 'nearest' });

@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext, Page } from '@playwright/test';
 import type { CheckoutsResponse, PublicSession } from '../src/shared/types';
@@ -11,7 +12,7 @@ async function openConversation(page: Page, request: APIRequestContext) {
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   return { session, conversation };
 }

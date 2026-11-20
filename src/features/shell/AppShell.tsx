@@ -222,10 +222,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const projectWorkspace = !sessionId && Boolean(selectedProject);
   const projectScope = JSON.stringify([machineId, projectId]);
+  const reconciledArchiveRevisions = useRef(new Map<string, number>());
+  const sessionChoicesRef = useRef<ArenaSessionSummary[]>([]);
+  const sessionChoicesScope = useRef<string | undefined>(undefined);
   const sessionChoices = useMemo(() => {
     const choices = new Map((sessionList.scope === projectScope ? sessionList.items : []).map(item => [item.id, item]));
     for (const summary of arena.machines.find(item => item.machine.id === machineId)?.sessions || []) {
-      if (summary.projectId === projectId && choices.has(summary.id) && summary.revision >= choices.get(summary.id)!.revision) choices.set(summary.id, summary);
+      const archivedRevision = reconciledArchiveRevisions.current.get(JSON.stringify([machineId, summary.id])) ?? -1;
+      if (summary.projectId === projectId && summary.revision >= archivedRevision
+        && summary.revision >= (choices.get(summary.id)?.revision ?? -1)) choices.set(summary.id, summary);
     }
     for (const saved of sessions) {
       if (saved.machineId !== machineId || saved.projectId !== projectId || (choices.get(saved.id)?.revision ?? -1) > saved.revision) continue;
@@ -235,8 +240,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         agents: saved.participants.flatMap(item => item.kind === 'agent' ? [item] : []),
       });
     }
-    return [...choices.values()];
-  }, [arena.machines, machineId, projectId, projectScope, sessionList, sessions]);
+    // Once the initial catalog arrives, retain displayed order as sessions load or append.
+    // Until then, keep the full saved order so an early URL read cannot replace its seed.
+    const order = sessionChoicesScope.current === projectScope && sessionChoicesRef.current.length
+      ? sessionChoicesRef.current.map(item => item.id) : workspace.scope.openSessionIds;
+    return [...new Set([...order, ...choices.keys()])].flatMap(id => choices.has(id) ? [choices.get(id)!] : []);
+  }, [arena.machines, machineId, projectId, projectScope, sessionList, sessions, workspace.scope.openSessionIds]);
+  sessionChoicesRef.current = sessionChoices;
+  sessionChoicesScope.current = sessionList.scope === projectScope ? projectScope : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId) || projectWorkspace, sessionId,
     session ? (session.history?.canvasIds.length ?? getArtifacts(session).length + getSketches(session).length) > 0 : undefined, projectWorkspace ? projectScope : undefined);
   const [projectCheckout, setProjectCheckout] = useState<{ scope: string; id: string }>();
@@ -267,7 +278,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [newerFormatNoticeDismissed, setNewerFormatNoticeDismissed] = useState(false);
   const [archivingSessionIds, setArchivingSessionIds] = useState<string[]>([]);
   const [inlineSetupRequest, setInlineSetupRequest] = useState<{ machineId: string; projectId: string; sessionId: string }>();
-  const reconciledArchiveRevisions = useRef(new Map<string, number>());
   const [participantBusy, setParticipantBusy] = useState(false);
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
   const sendingSessions = useRef(new Set<string>());
@@ -2327,12 +2337,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
     : undefined;
   const unreadBySession = Object.fromEntries(Object.entries(workspace.scope.views).map(([id, state]) => [id, state.unread]));
-  const runTabsBySession = Object.fromEntries(Object.entries(runsBySession).map(([id, run]) => [id, {
-    state: run.state,
-    status: run.status,
-    queuePosition: run.queuePosition,
-    pendingApprovals: Math.max(run.pendingPermissionCount || 0, run.permissions.length),
-  }]));
+  const runTabsBySession = Object.fromEntries([
+    ...(arena.machines.find(item => item.machine.id === machineId)?.runs.active || []).map(run => [run.sessionId, {
+      state: run.state, status: run.status, queuePosition: run.queuePosition, pendingApprovals: run.pendingPermissionCount,
+    }]),
+    ...Object.entries(runsBySession).map(([id, run]) => [id, {
+      state: run.state,
+      status: run.status,
+      queuePosition: run.queuePosition,
+      pendingApprovals: Math.max(run.pendingPermissionCount || 0, run.permissions.length),
+    }]),
+  ]);
   const arenaInbox = buildMultiMachineInbox(arena.machines, arena.deviceState);
   const arenaUnread = unreadArenaAttention(arenaInbox);
   const arenaReplies = useArenaReplies(localMachineId, lifecycle.busy ? 'CodeAI is restarting. Your draft is kept.' : undefined);
@@ -2495,8 +2510,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (data.session.revision < latestRevision) { await arena.refresh(); return true; }
       reconciledArchiveRevisions.current.set(archiveKey, data.session.revision);
       const targetWorkspaceMachineId = targetMachineId !== localMachineId ? targetMachineId : undefined;
-      const nextFocus = workspace.closeInProject(target.projectId, target.id, targetWorkspaceMachineId);
+      workspace.closeInProject(target.projectId, target.id, targetWorkspaceMachineId);
       if (targetMachineId === machineIdRef.current && target.id === focusedSessionIdRef.current && navigationKeyRef.current.startsWith('/?')) {
+        // Visible tabs include unvisited sessions; choose a neighbour from that same list.
+        const choices = sessionChoicesRef.current;
+        const index = choices.findIndex(item => item.id === target.id);
+        const remaining = choices.filter(item => item.id !== target.id);
+        const nextFocus = remaining[Math.min(Math.max(index, 0), remaining.length - 1)]?.id;
+        if (nextFocus) workspace.openInProject(target.projectId, nextFocus, undefined, targetWorkspaceMachineId);
         navigateWorkspace({ sessionId: nextFocus, projectId: target.projectId, machineId: targetMachineId }, true);
       }
       if (targetMachineId === machineIdRef.current && target.projectId === projectIdRef.current) {
@@ -2524,7 +2545,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       notifyError(error, 'Could not archive the session.');
       return false;
     }
-  }, [arena.refresh, localMachineId, machineId, navigateWorkspace, projectId, removeRun, setRunOutcome, workspace.closeInProject]);
+  }, [arena.refresh, localMachineId, machineId, navigateWorkspace, projectId, removeRun, setRunOutcome, workspace.closeInProject, workspace.openInProject]);
 
   const restoreArenaSession = useCallback(async (targetMachineId: string, target: ArenaSessionSummary): Promise<boolean> => {
     try {
@@ -2976,7 +2997,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
         <nav className="header-breadcrumbs" aria-label="Current project and session">
           {!loading && <>
-            <span className="breadcrumb-separator" aria-hidden="true">/</span>
             {arenaOpen ? <h1 className="arena-breadcrumb">Arena</h1> : (
               <>
                 <ProjectPicker
@@ -2988,10 +3008,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onManage={(project, action) => { if (machineId) setProjectManagementTarget({ machineId, project, action }); }}
                   onLogo={project => { if (machineId) setProjectLogoTarget({ machineId, project }); }}
                 />
-                <span className="breadcrumb-separator" aria-hidden="true">/</span>
                 <WorkspaceTabs
                   sessions={sessionChoices}
-                  openSessionIds={workspace.scope.openSessionIds}
                   focusedSessionId={sessionId}
                   runsBySession={runTabsBySession}
                   unreadBySession={unreadBySession}
@@ -3016,7 +3034,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                     }} />}
                   onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
                   worktrees={health?.worktrees}
-                  sessions={sessionChoices}
                   value={sessionId}
                   initialExecution={session?.execution}
                   executionHealth={health?.executions}
@@ -3030,7 +3047,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                   preferredRole={preferences.role}
                   onNewRole={chooseNewRole}
                   preferredInstructions={preferences.instructions}
-                  onChange={focusSession}
                   onQueueSetup={machineId && selectedProject ? () => launcher.openForProject(machineId, selectedProject.id) : undefined}
                   onNewProvider={chooseNewProvider}
                   onNew={createSession}
@@ -3450,7 +3466,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="eyebrow">Your local workspace</span>
             <h1>{sessionChoices.length ? 'No open sessions' : 'Good ideas start here.'}</h1>
             <p>{sessionChoices.length
-              ? 'Reopen a conversation from All sessions, or start something new.'
+              ? 'Choose a session tab, or start something new.'
               : `Explore, plan, and build${selectedProject ? ` in ${selectedProject.name}` : ' with your agents'}. Choose your setup to get started.`}</p>
             {selectedProject && <Button variant="contained" onClick={() => launcher.openForProject(machineId!, selectedProject.id)}>New session</Button>}
           </div>

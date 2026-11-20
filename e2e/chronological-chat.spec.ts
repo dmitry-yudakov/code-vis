@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type Page, type APIRequestContext, type Locator } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -13,7 +14,7 @@ async function openSession(page: Page, request: APIRequestContext, theme: 'light
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await conversation.getByLabel(/^Mode: /).click();
   await page.getByRole('radio', { name: /^Agent/ }).click();

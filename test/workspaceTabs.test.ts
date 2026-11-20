@@ -11,13 +11,20 @@ const SESSION_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function tabs(props: Partial<ComponentProps<typeof WorkspaceTabs>> = {}) {
   return renderToStaticMarkup(createElement(WorkspaceTabs, {
     sessions: [{ id: SESSION_A, title: 'First session' }, { id: SESSION_B, title: 'Second session' }] as SessionSnapshot[],
-    openSessionIds: [SESSION_A, SESSION_B], focusedSessionId: SESSION_A,
+    focusedSessionId: SESSION_A,
     runsBySession: {}, unreadBySession: {}, onFocus: vi.fn(), onClose: vi.fn(), onArchive: vi.fn(),
     ...props,
   })).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 }
 
 describe('workspace tabs', () => {
+  it('shows every active session without requiring an open device view', () => {
+    const markup = tabs({ focusedSessionId: undefined });
+    expect(markup).toContain('First session');
+    expect(markup).toContain('Second session');
+    expect(markup.match(/<div(?=[^>]*role="tab")(?=[^>]*tabindex="0")[^>]*>/g)).toHaveLength(1);
+    expect(markup).not.toContain('class="workspace-tab-state"');
+  });
   it('puts a named archive button on every tab without nested native buttons or detached actions', () => {
     const markup = tabs();
     expect(markup).toContain('aria-label="Archive this session: First session"');
@@ -63,21 +70,16 @@ describe('workspace tabs', () => {
   });
 });
 
-describe('All sessions picker', () => {
-  it('lists the full scope and provides a placeholder when its last view closes', () => {
+describe('header session controls', () => {
+  it('keeps archive and creation without a duplicate active-session picker', () => {
     const markup = renderToStaticMarkup(createElement(SessionPicker, {
-      sessions: [{ id: SESSION_A, title: 'Closed view', participants: [] },
-        { id: SESSION_B, title: 'Overflow view', participants: [] }] as unknown as SessionSnapshot[],
-      newProvider: 'claude', creating: false, checkouts: [], onChange: vi.fn(),
+      archiveControl: createElement('button', { 'aria-label': 'Archived sessions' }, 'Archive'),
+      newProvider: 'claude', creating: false, checkouts: [],
       onNewProvider: vi.fn(), onNewRole: vi.fn(), onNew: vi.fn(),
     }));
-    expect(markup).toMatch(/<select(?=[^>]*id="all-sessions")(?=[^>]*aria-label="All sessions")(?=[^>]*title="All sessions")[^>]*>/);
-    expect(markup).toContain('<option value="" disabled="" selected="">Choose a session</option>');
-    expect(markup).toContain('Closed view');
-    expect(markup).toContain('Overflow view');
+    expect(markup).toContain('aria-label="Archived sessions"');
     expect(markup).toMatch(/<button(?=[^>]*aria-label="New session")(?=[^>]*title="New session")[^>]*>/);
-    expect(markup).not.toContain('aria-label="Session"');
-    expect(markup).toContain('class="all-sessions-label"');
-    expect(markup).toContain('All sessions <span>⌄</span>');
+    expect(markup).not.toContain('All sessions');
+    expect(markup).not.toContain('id="all-sessions"');
   });
 });

@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { fulfillArenaSnapshot, pushArenaSnapshot } from './arena-stream';
 import { readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -3092,7 +3093,7 @@ for (const theme of ['light', 'dark']) test(`session setup ${theme}: keyboard, r
   await expect(page.locator('.conversation-drawer textarea')).toHaveValue('Preserve my source task');
   await expect.poll(() => page.evaluate(() => Boolean(window.xrScene?.scene.getObjectByName('Session setup')))).toBe(false);
   await controls(page).locator('[data-immersive-action="setup:outcome"]').click();
-  await expect.poll(() => page.evaluate(() => document.querySelector<HTMLSelectElement>('.all-sessions-picker select')?.value)).toBe(sent[0].sessionId);
+  await expect(sessionTab(page, sent[0].sessionId)).toHaveAttribute('aria-selected', 'true');
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);
 });
 
@@ -3146,7 +3147,7 @@ test('session setup managed: CodeAI entry from another project creates and opens
   await expect.poll(() => setupDetails(page)).toContain(self.name);
   await setupAction(page, 'settings'); await setupAction(page, 'submit');
   await expect.poll(() => createdId).not.toBe('');
-  await expect.poll(() => page.evaluate(() => document.querySelector<HTMLSelectElement>('.all-sessions-picker select')?.value)).toBe(createdId);
+  await expect(sessionTab(page, createdId)).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.project-search-trigger')).toContainText(self.name); expect(turns).toBe(0);
   expect(await page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(true);
   await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click(); await released(page);

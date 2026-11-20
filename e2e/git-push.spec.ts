@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse, GitWorkingTree, PublicSession } from '../src/shared/types';
 
@@ -11,7 +12,7 @@ async function openChanges(page: Page, request: APIRequestContext) {
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
   return checkout;
 }
@@ -111,7 +112,7 @@ test('fits a phone beside a long branch name', async ({ page, request }, testInf
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
   const summary = page.locator('.git-branch-summary');
   const button = summary.getByRole('button', { name: /^Push 12 commits/ });

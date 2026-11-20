@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { fetchArenaSnapshot, fulfillArenaSnapshot } from './arena-stream';
 import { expect, test, type APIRequestContext, type Locator, type Page } from './arena-stream';
 import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
@@ -105,7 +106,7 @@ test('same-project Arena card opens a background turn that completed before acce
   const { project: target } = await project(request);
   const source = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
   await page.goto('/'); await chooseProject(page, target);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  await expect(sessionTab(page, source.id)).toHaveAttribute('aria-selected', 'true');
   await page.locator('.conversation-drawer textarea').fill('Keep the source draft');
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   // Buffer the real provider response so the accepted run is already retained when launch returns.
@@ -136,7 +137,7 @@ test('same-project background approvals and replies stay connected while another
   const { project: target } = await project(request);
   const source = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
   await page.goto('/'); await chooseProject(page, target);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  await expect(sessionTab(page, source.id)).toHaveAttribute('aria-selected', 'true');
   const launches: PublicSession[] = [];
   const start = async (text: string, mode: 'ask' | 'agent') => {
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
@@ -181,7 +182,7 @@ for (const scope of ['same-project', 'other-project']) test(`${scope} background
   const sourceProject = scope === 'same-project' ? target : (await project(request, `Other ${Date.now()}`, 'beta')).project;
   const source = (await (await request.post('/api/sessions', { data: { projectId: sourceProject.id, provider: 'claude' } })).json()).session as PublicSession;
   await page.goto('/'); await chooseProject(page, sourceProject);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  await expect(sessionTab(page, source.id)).toHaveAttribute('aria-selected', 'true');
   const runId = crypto.randomUUID();
   const failure = 'The turn checkpoint could not be saved. The agent did not start.';
   await page.route('**/api/agent/message', async (route) => {
@@ -222,7 +223,7 @@ test('same-project background stream reconnects after a failed attachment when i
   const { project: target } = await project(request);
   const source = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
   await page.goto('/'); await chooseProject(page, target);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(source.id);
+  await expect(sessionTab(page, source.id)).toHaveAttribute('aria-selected', 'true');
   let releaseFailure!: () => void;
   const failure = new Promise<void>((resolve) => { releaseFailure = resolve; });
   let attachments = 0;
@@ -272,7 +273,7 @@ test('opening a completed Arena turn preserves the next agent and mode after a r
   const { project: target } = await project(request);
   const session = (await (await request.post('/api/sessions', { data: { projectId: target.id, provider: 'claude' } })).json()).session as PublicSession;
   await page.goto('/'); await chooseProject(page, target);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   try {
     await conversation.getByLabel(/^Mode: /).click();
@@ -559,7 +560,7 @@ test('same-project empty gear launch focuses once, and title-tab return keeps ke
   const old = (await (await request.post('/api/sessions', { data: { projectId: self.id, provider: 'claude' } })).json()).session as PublicSession;
   await managedSetup(page, request, self, catalog, checkout.id);
   await page.goto('/'); await chooseProject(page, self);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(old.id);
+  await sessionTab(page, old.id).click();
   const dialog = await gear(page);
   await expect(dialog.getByRole('textbox')).toBeFocused();
   await dialog.getByRole('textbox').press('Enter');
@@ -580,14 +581,13 @@ test('delayed background gear launch pins source choices through navigation and 
   let release!: () => void; const held = new Promise<void>((resolve) => { release = resolve; });
   await managedSetup(page, request, self, catalog, checkout.id, undefined, held);
   await page.goto('/'); await chooseProject(page, source);
-  const picker = page.getByRole('combobox', { name: 'All sessions', exact: true });
-  await picker.selectOption(sessions[0].id);
+  await sessionTab(page, sessions[0].id).click();
   const dialog = await gear(page); await dialog.getByLabel('Mode', { exact: true }).selectOption('plan');
   await dialog.getByRole('textbox').fill('Work in background'); await dialog.getByRole('textbox').press('Enter');
   await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
-  await picker.selectOption(sessions[1].id); release();
+  await sessionTab(page, sessions[1].id).click(); release();
   await expect(page.getByRole('button', { name: 'Open session', exact: true })).toBeVisible();
-  await picker.selectOption(sessions[0].id);
+  await sessionTab(page, sessions[0].id).click();
   await expect(page.locator('.conversation-drawer').getByLabel(/^Mode: Ask\./)).toBeVisible();
 });
 

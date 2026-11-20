@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { spawn, execFile as callbackExecFile, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -57,7 +58,7 @@ test('offers file restoration only for a recovery point, confirms its scope, and
   await page.addInitScript(() => { if (!localStorage.getItem('code-ai:theme')) localStorage.setItem('code-ai:theme', 'dark'); });
   await page.goto(origin);
   await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: /Checkpoint journey/ }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   const originalStatus = await git('status', '--porcelain');
   const index = await readFile(path.join(checkout, '.git/index'));

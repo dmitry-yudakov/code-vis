@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext, Page } from '@playwright/test';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
@@ -233,10 +234,10 @@ for (const revisit of [false, true]) test(`a pending command stays with its sess
     await input.fill('/autoclose');
     await input.press('Enter');
     await expect.poll(() => held).toBe(true);
-    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sibling.id);
+    await sessionTab(page, sibling.id).click();
     await input.fill('Draft for the other conversation.');
     if (revisit) {
-      await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+      await sessionTab(page, session.id).click();
       await input.fill('Edited after returning.');
       await input.fill('/autoclose');
       await conversation.getByRole('button', { name: 'Session settings', exact: true }).click();
@@ -248,7 +249,7 @@ for (const revisit of [false, true]) test(`a pending command stays with its sess
     await expect(input).toHaveValue('/autoclose');
   } else {
     await expect(input).toHaveValue('Draft for the other conversation.');
-    await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+    await sessionTab(page, session.id).click();
     await expect(input).toBeEmpty();
   }
   await expect(conversation.locator('.instruction-composer').getByRole('status')).toHaveCount(0);
@@ -374,7 +375,7 @@ test('a late pre-archive response cannot reopen the removed conversation', async
   } finally { release(); }
   await expect.poll(() => released).toBe(true);
   await expect(page).not.toHaveURL(new RegExp(`session=${session.id}`));
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true }).locator(`option[value="${session.id}"]`)).toHaveCount(0);
+  await expect(sessionTab(page, session.id)).toHaveCount(0);
 });
 
 test('agent archive releases a queued idea and remains restorable with its final response', async ({ page, request }) => {

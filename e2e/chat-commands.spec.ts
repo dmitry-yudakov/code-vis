@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
@@ -148,8 +149,8 @@ test('failed archive and new commands retain evidence and retry once', async ({ 
 
 test('archive keeps another open project session focused', async ({ page, request }) => {
   const { sessions, input } = await open(page, request, 1);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sessions[1].id);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sessions[0].id);
+  await sessionTab(page, sessions[1].id).click();
+  await sessionTab(page, sessions[0].id).click();
   await input.fill('/close');
   await input.press('Enter');
   await expect(page).toHaveURL(new RegExp(sessions[1].id));
@@ -291,7 +292,7 @@ test('inline setup reveals the canvas after a retained maximized project file', 
   await files.getByRole('button', { name: 'pyproject.toml', exact: true }).click();
   const fileView = page.getByRole('region', { name: 'File view', exact: true });
   await fileView.getByRole('button', { name: 'Maximize File view', exact: true }).click();
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(session.id);
+  await sessionTab(page, session.id).click();
   const input = page.getByRole('complementary', { name: 'Conversation', exact: true }).getByRole('textbox', { name: 'Instruction', exact: true });
   await input.fill('/archive');
   await input.press('Enter');
@@ -315,8 +316,8 @@ test('one snapshot archiving several open sessions uses the final surviving focu
     return route.fulfill({ json: heldSnapshot });
   });
   const { project, sessions } = await open(page, request, 1);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sessions[1].id);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(sessions[0].id);
+  await sessionTab(page, sessions[1].id).click();
+  await sessionTab(page, sessions[0].id).click();
   // Focused first reproduces navigation toward the other tab removed later in the same snapshot.
   for (const session of sessions) {
     const response = await request.post(`/api/sessions/${session.id}/archive`, { data: { expectedRevision: session.revision } });

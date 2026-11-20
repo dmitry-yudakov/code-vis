@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { expect, test, fulfillArenaSnapshot, type APIRequestContext, type Page } from './arena-stream';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -12,7 +13,7 @@ async function openSession(page: Page, request: APIRequestContext, provider: Age
   await page.goto('/');
   await page.locator('.project-search-trigger').click();
   await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
   const conversation = page.getByRole('complementary', { name: 'Conversation' });
   await expect(conversation).toBeVisible();
   return { session, conversation };
@@ -116,7 +117,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(rowTooltip).toContainText('20% used');
       // Context remains informative without taking over the row's navigation action.
       await link.click();
-      await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+      await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
     });
   }
 

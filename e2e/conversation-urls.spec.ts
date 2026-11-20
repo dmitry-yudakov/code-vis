@@ -1,3 +1,4 @@
+import { sessionTab } from './session-tabs';
 import { fulfillArenaSnapshot } from './arena-stream';
 import { expect, test, type APIRequestContext, type Page } from './arena-stream';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
@@ -28,7 +29,7 @@ async function fixture(request: APIRequestContext, project?: DurableProject) {
 
 async function expectSession(page: Page, session: PublicSession) {
   await expect(page).toHaveURL(new RegExp(`\\?session=${session.id}$`));
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(session.id);
+  await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
   await expect(composer(page)).toBeVisible();
 }
 
@@ -201,7 +202,7 @@ test('session links support new tabs and Back/Forward without remounting the she
   await page.goto(href(first.session));
   await composer(page).fill('Retained through history');
   await page.evaluate(() => { document.querySelector('.app-shell')!.setAttribute('data-persistent-shell', 'yes'); });
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(second.session.id);
+  await sessionTab(page, second.session.id).click();
   await expectSession(page, second.session);
   await page.goBack();
   await expectSession(page, first.session);
@@ -265,7 +266,7 @@ test('an externally archived tab preserves its URL and reopens that conversation
   const second = await fixture(request, first.project);
   await page.goto(href(second.session));
   await expectSession(page, second.session);
-  await page.getByRole('combobox', { name: 'All sessions', exact: true }).selectOption(first.session.id);
+  await sessionTab(page, first.session.id).click();
   await expectSession(page, first.session);
   await composer(page).fill('Keep this draft through external archive');
   const response = await request.post(`/api/sessions/${first.session.id}/archive`, { data: { expectedRevision: first.session.revision } });
@@ -342,9 +343,9 @@ test('an explicit host id canonicalizes away and an attached executor retains it
   await page.route(`**/api/machines/${remoteId}/sessions?*`, route => route.fulfill({ json: { sessions: remote.sessions } }));
   await page.route(`**/api/machines/${remoteId}/agent/runs*`, route => route.fulfill({ json: { active: [], recent: [] } }));
   await page.goto(`/?session=${remoteSession.id}&machine=${remoteId}`);
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(remoteSession.id);
+  await expect(sessionTab(page, remoteSession.id)).toHaveAttribute('aria-selected', 'true');
   await expect(composer(page)).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(remoteSession.id);
+  await expect(sessionTab(page, remoteSession.id)).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveURL(new RegExp(`machine=${remoteId}$`));
 });
