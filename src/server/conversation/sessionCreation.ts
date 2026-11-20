@@ -29,7 +29,9 @@ export async function createRequestedSession(request: SessionCreationRequest, co
       }
       await validateDockerCheckout((await registry.resolve(bindings[0].checkoutId)).realPath, config);
     }
-    return store.createSession({ ...request, ...(source ? { expectedSourceRevision: source.revision } : {}),
-      ...(request.creationRequestId ? { creationReceipt: { requestId: request.creationRequestId, fingerprint: creationFingerprint(request) } } : {}) });
+    await beforeCreate?.();
+    return store.createSession({ ...request, beforeSave: beforeCreate, ...(source ? { expectedSourceRevision: source.revision } : {}),
+      ...(request.creationRequestId ? { creationReceipt: { requestId: request.creationRequestId, fingerprint: creationFingerprint(request),
+        ...(request.mcpLaunchFingerprint ? { mcpLaunchFingerprint: request.mcpLaunchFingerprint } : {}) } } : {}) });
   });
 }

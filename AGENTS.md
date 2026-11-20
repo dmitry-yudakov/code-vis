@@ -35,6 +35,11 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **In flight:** [Story 151](stories/STORY-20261120-mcp-external-observer.md) — scoped MCP project/session
+  reads, session creation/archiving, participant additions and addressed sends through a stdio adapter,
+  with an external monitoring example. Focused tests, SDK runtime journeys, TypeScript, isolated build
+  and independent review pass; real external-model-host acceptance remains pending permission.
+  The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 150](stories/STORY-20261118-participant-controls.md) — Session agents separates
   recipients, message drafts and participant creation; desktop setup uses Claude/Codex chips and
   remembers provider/role choices. Focused units, TypeScript, isolated build, production-browser

@@ -1709,3 +1709,9 @@ not inspect environment values or provider credential files.
   replaced only through clean planned suspension; an uncertain interrupted execution is not replayed.
 - The real-agent experiment matrix is manual and is tracked in
   [docs/experiment-log.md](docs/experiment-log.md).
+
+### External Observer through MCP
+
+Use a scoped local stdio connection to discover projects, read sessions and explicitly manage work
+from an external agent host. CodeAI retains execution ownership. See [MCP setup and contracts](docs/mcp.md)
+for grant provisioning/revocation, copyable client configuration and the runnable monitoring example.

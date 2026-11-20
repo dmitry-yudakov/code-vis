@@ -30,12 +30,18 @@
     "tokens": "tsx scripts/generate-tokens.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "CODEAI_DIST_DIR=.next-e2e npm run build && CODEAI_DIST_DIR=.next-e2e playwright test"
+    "test:e2e": "CODEAI_DIST_DIR=.next-e2e npm run build && CODEAI_DIST_DIR=.next-e2e playwright test",
+    "mcp": "node --import tsx scripts/mcp.ts",
+    "mcp:grant": "node --import tsx scripts/mcp-grants.ts grant",
+    "mcp:revoke": "node --import tsx scripts/mcp-grants.ts revoke",
+    "mcp:list": "node --import tsx scripts/mcp-grants.ts list",
+    "mcp:observer": "node --import tsx scripts/mcp-observer.ts"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@mui/material": "9.5.0",
     "@mui/material-nextjs": "9.5.0",
     "@pmndrs/uikit": "1.0.76",

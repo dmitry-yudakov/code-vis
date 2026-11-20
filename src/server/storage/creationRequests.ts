@@ -2,12 +2,17 @@ import { createHash } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 import type { z } from 'zod';
-import type { createSessionRequestSchema } from '@/shared/protocol';
+import { createSessionRequestSchema } from '@/shared/protocol';
+import { z as schema } from 'zod';
 import type { DurableProject } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import { getSessionStore, SessionStoreError, sessionStoreErrorCode } from './sessionStore';
 
-export type SessionCreationRequest = z.infer<typeof createSessionRequestSchema>;
+/** Internal only: ordinary creation routes do not accept integration metadata. */
+export const internalSessionCreationSchema = createSessionRequestSchema.safeExtend({
+  mcpLaunchFingerprint: schema.string().regex(/^[0-9a-f]{64}$/).optional(),
+});
+export type SessionCreationRequest = z.infer<typeof internalSessionCreationSchema>;
 const scope = globalThis as typeof globalThis & { __codeAiCreationQueues?: Map<string, Promise<void>> };
 
 /** Both creation branches use one queue; Git materialization must not race ordinary receipt save. */
@@ -31,6 +36,7 @@ export function creationFingerprint(request: SessionCreationRequest): string {
     expectedProjectBindings: request.expectedProjectBindings,
     expectedPrimaryCheckoutId: request.expectedPrimaryCheckoutId,
     ...(request.allowAgentArchive ? { allowAgentArchive: true } : {}),
+    ...(request.mcpLaunchFingerprint ? { mcpLaunchFingerprint: request.mcpLaunchFingerprint } : {}),
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 }

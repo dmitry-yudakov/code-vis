@@ -48,11 +48,12 @@ feature has shipped. The order is priority, not a new dependency chain.
 ## Additional work
 
 - [Story 151 — MCP access for an external Observer](../stories/STORY-20261120-mcp-external-observer.md)
-  is a draft for listing local projects and active sessions, scoped session creation/archiving,
+  implements listing local projects and active sessions, scoped session creation/archiving,
   participant additions and explicitly addressed messages through a stdio MCP adapter. New work
   can run or queue in the current checkout or a managed worktree. The external agent owns
   monitoring/conversation; other action proposals and an in-app backend are follow-ups.
-  No queue priority was changed.
+  SDK runtime journeys, focused regressions, TypeScript, isolated build and independent review pass;
+  real external-model-host acceptance remains pending permission. No queue priority was changed.
 - [Story 147 — Global text and voice observer](../stories/STORY-20261117-global-observer.md)
   implements cross-session briefings and confirmed follow-ups, including foreground conversational
   voice. Automated verification and a real Codex inference pass; physical phone/Whisper acceptance

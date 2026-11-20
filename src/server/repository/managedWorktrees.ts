@@ -1,4 +1,4 @@
-import { creationFingerprint, replaySessionCreation, withSessionCreationLock } from '@/server/storage/creationRequests';
+import { creationFingerprint, internalSessionCreationSchema, replaySessionCreation, withSessionCreationLock } from '@/server/storage/creationRequests';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -23,7 +23,7 @@ const MAX_RECORD_BYTES = 128 * 1024;
 const UUID_FILE = /^[0-9a-f-]{36}\.json$/i;
 const identitySchema = z.object({ path: z.string().max(4096), identity: z.string().max(100) }).strict();
 const recordSchema = z.object({
-  version: z.literal(1), request: createSessionRequestSchema,
+  version: z.literal(1), request: internalSessionCreationSchema,
   session: durableSessionSchema,
   originPath: z.string().max(4096), originGit: identitySchema,
   root: z.string().max(4096), parents: z.array(identitySchema).max(100),
@@ -31,12 +31,12 @@ const recordSchema = z.object({
   state: z.enum(['intent', 'creating', 'materialized', 'ready', 'unavailable']),
   gitDirectory: identitySchema.optional(), checkoutDirectory: identitySchema.optional(), reason: z.string().max(500).optional(),
 }).strict().refine((record) => record.request.checkoutMode === 'worktree' && Boolean(record.request.creationRequestId)
-  && record.session.worktree !== undefined && [10, 11, 15].includes(record.session.version)
+  && record.session.worktree !== undefined && [10, 11, 15, 18].includes(record.session.version)
   && record.session.repositories[0].checkoutId === record.checkoutId
   && record.session.worktree.branch === `codeai/session-${record.session.id}`
   && (record.state !== 'ready' || record.gitDirectory !== undefined && record.checkoutDirectory !== undefined), 'Invalid worktree intent identity.');
 export type WorktreeRecord = z.infer<typeof recordSchema>;
-type CreationRequest = z.infer<typeof createSessionRequestSchema>;
+type CreationRequest = z.infer<typeof internalSessionCreationSchema>;
 
 export const managedCheckoutId = (location: string) => createHash('sha256').update(location).digest('base64url').slice(0, 22);
 function conflict(message: string): never { throw new SessionStoreError('conflict', message); }
@@ -493,14 +493,14 @@ export async function createManagedWorktree(request: CreationRequest, config: Ap
       const prior = await replaySessionCreation(request, config);
       if (prior) return prior;
       await beforeCreate?.();
-      return materializeWorktree(request, config);
+      return materializeWorktree(request, config, beforeCreate);
     });
   } finally {
     if (--entry.count === 0) requests.delete(config.dataDir);
   }
 }
 
-async function materializeWorktree(request: CreationRequest, config: AppConfig): Promise<DurableSession> {
+async function materializeWorktree(request: CreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>): Promise<DurableSession> {
   const admission = runRegistry.acquireWorktreeCreation();
   if (!admission.acquired) return creationBusy(config, admission.conflict);
   const lease = admission.lease;
@@ -540,8 +540,9 @@ async function materializeWorktree(request: CreationRequest, config: AppConfig):
       const baseline = await sourcePreflight(source, undefined, true, lease.token);
       const rootProof = await validateRoot(config, ordinary, true);
       const worktree: SessionWorktree = { id, originCheckoutId: source.id, baseCommit: baseline.commit, branch: `codeai/session-${sessionId}` };
+      await beforeCreate?.();
       let record!: WorktreeRecord;
-      await store.prepareWorktreeSession({ ...request, id: sessionId, checkoutId: managedCheckoutId(destination), worktree,
+      await store.prepareWorktreeSession({ ...request, beforeSave: beforeCreate, ...(request.mcpLaunchFingerprint ? { creationReceipt: { requestId: request.creationRequestId!, fingerprint: creationFingerprint(request), mcpLaunchFingerprint: request.mcpLaunchFingerprint } } : {}), id: sessionId, checkoutId: managedCheckoutId(destination), worktree,
         ...(project ? { expectedProjectRevision: project.revision, repositories: [{ ...project.repositories[0], checkoutId: managedCheckoutId(destination) }] } : {}) }, async (session) => {
         record = { version: 1, request, session, originPath: source.realPath, originGit: baseline.originGit,
           root: config.worktreesRoot, parents: rootProof, destination, checkoutId: managedCheckoutId(destination), state: 'intent' };

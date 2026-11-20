@@ -61,7 +61,9 @@
     ".next-e2e/restart-queue-fix/types/**/*.ts",
     ".next-e2e/restart-queue-fix/dev/types/**/*.ts",
     ".next-e2e/project-header/types/**/*.ts",
-    ".next-e2e/project-header/dev/types/**/*.ts"
+    ".next-e2e/project-header/dev/types/**/*.ts",
+    ".next-e2e/mcp/types/**/*.ts",
+    ".next-e2e/mcp/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

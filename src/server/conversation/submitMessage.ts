@@ -42,6 +42,7 @@ import type {
 
 export async function submitMessage(
   request: Request, recovery?: SuspendedTurn, laterQueuedSessions: ReadonlySet<string> = new Set(),
+  integration?: { fingerprint: string; authorize(): Promise<void> },
 ): Promise<Response> {
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (contentLength > 6_000_000) return safeJsonResponse({ error: 'Request body is too large.' }, { status: 413 });
@@ -327,6 +328,7 @@ export async function submitMessage(
     }, { status: 409 });
   }
   const userMessage: UserMessage = {
+    ...(integration ? { mcpFingerprint: integration.fingerprint } : {}),
     turn: createTurn(runId, data.messageId, participant.id, new Date().toISOString()),
     id: data.messageId,
     role: 'user',
@@ -356,6 +358,7 @@ export async function submitMessage(
       session = await store.resumeSuspendedMessage(session.id, data.messageId, runId);
     } else {
       const accepted = await store.appendUserMessage(session.id, userMessage, async () => {
+        await integration?.authorize();
         try { await promoteReportEvidence(config.dataDir, session.id, reportEvidence); }
         catch (error) { promotionFailed = true; throw error; }
         try { await journal.save(pendingRequest); }

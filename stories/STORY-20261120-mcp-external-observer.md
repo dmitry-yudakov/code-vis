@@ -1,6 +1,6 @@
 # Story 151 — Expose projects and session management to an external Observer through MCP
 
-**Status:** Draft · **Type:** Full-stack · **Depends on:** [Story 129](STORY-20261106-workspace-subscriptions.md), [Story 135](STORY-20261107-queue-project-sessions.md), [Story 147](STORY-20261117-global-observer.md), [Story 148](STORY-20261118-observer-session-actions.md), [Story 149](STORY-20261118-restart-session-continuity.md), [Story 150](STORY-20261118-participant-controls.md)
+**Status:** In progress · **Type:** Full-stack · **Depends on:** [Story 129](STORY-20261106-workspace-subscriptions.md), [Story 135](STORY-20261107-queue-project-sessions.md), [Story 147](STORY-20261117-global-observer.md), [Story 148](STORY-20261118-observer-session-actions.md), [Story 149](STORY-20261118-restart-session-continuity.md), [Story 150](STORY-20261118-participant-controls.md)
 
 ## Motivation
 
@@ -16,8 +16,8 @@ exposes sessions owned by the serving machine, including its Local and Docker se
 
 The proposed delivery includes observation, session creation/archiving, participant additions and
 addressed messages through the external agent's own host. Replacing the in-app Observer and native
-reviewer/coder orchestration are follow-ups below. This is a specification; MCP support and an
-external Observer have not been implemented.
+reviewer/coder orchestration are follow-ups below. The MCP bridge, stdio adapter and external monitoring example are implemented; real external-host
+acceptance remains pending approval.
 
 ## Current behavior (where the code is)
 
@@ -57,7 +57,7 @@ external Observer have not been implemented.
 - [observerDelivery.ts:58](../src/features/observer/observerDelivery.ts#L58) preserves immutable
   follow-up identities and reconciles acceptance after an uncertain response.
 
-There is no CodeAI MCP server or MCP SDK dependency today. Native writing sessions can already
+Before this story there was no CodeAI MCP server or MCP SDK dependency. Native writing sessions can already
 load integrations from the user's provider setup; Guarded and Ask/Plan isolation remains a
 separate contract. [Reserved Story 11](EPIC-20260705-north-star-roadmap.md#phase-a--re-found-the-model-on-the-running-product-now)
 concerns software-model queries and write-back, which can later share this transport.
@@ -354,42 +354,42 @@ No new orchestration engine or parallel-turn support within one session is part 
 
 ## Acceptance criteria
 
-- [ ] A documented MCP client connects to the running installation through stdio without editing
+- [x] A documented MCP client connects to the running installation through stdio without editing
       provider setup, spawning a second server or taking ownership of session execution.
-- [ ] Provision/revoke works in local and paired HTTPS modes. Revoked, missing and wrong-scope
+- [x] Provision/revoke works in local and paired HTTPS modes. Revoked, missing and wrong-scope
       credentials fail at the bridge; grants cannot authenticate browser/machine routes in paired
       mode, and existing ordinary local-route authorization remains unchanged.
-- [ ] `list_projects` includes all local projects, including empty/repository-less projects;
+- [x] `list_projects` includes all local projects, including empty/repository-less projects;
       `list_sessions` defaults to every active session across projects and unassigned work, with
       explicit project filtering and opt-in archive reads.
-- [ ] Workspace reads, paginated summaries and bounded session detail expose only local allowlisted
+- [x] Workspace reads, paginated summaries and bounded session detail expose only local allowlisted
       facts, with explicit observation time, identity, revision and omission metadata.
-- [ ] Management grants can create an empty session or submit a first message to run/queue in
+- [x] Management grants can create an empty session or submit a first message to run/queue in
       the current checkout or a managed worktree, preserving execution choices and canonical
       acceptance state. A `sessions:create` grant covers the bound first launch without requiring
       `messages:send`; read-only grants cannot create or archive.
-- [ ] Creation retries, lost responses and first-message failures retain one session, worktree and
+- [x] Creation retries, lost responses and first-message failures retain one session, worktree and
       message identity, including through restart. A durable full-launch fingerprint rejects
       changed message ids, content or launch choices before/after acceptance and after restart,
       including changing an empty launch to run. No partial result is reported as started.
-- [ ] Archiving preserves history/worktree resources, rejects busy or stale targets, reconciles
+- [x] Archiving preserves history/worktree resources, rejects busy or stale targets, reconciles
       unknown responses without rearchiving restored sessions, and releases eligible queued work.
-- [ ] A participant-addition grant can add Claude as Reviewer to a Codex session without starting
+- [x] A participant-addition grant can add Claude as Reviewer to a Codex session without starting
       a turn or changing the main agent; exact retries return the same participant through restart.
-- [ ] An addressed-send grant supports the Codex implementation → Claude review → original Codex
+- [x] An addressed-send grant supports the Codex implementation → Claude review → original Codex
       correction journey, with each participant's own provider session and authored shared context.
-- [ ] Read-only and session-creation/archival grants cannot add participants or call `send_message`.
+- [x] Read-only and session-creation/archival grants cannot add participants or call `send_message`.
       Foreign/missing participants, busy sessions, unavailable providers and archived targets fail
       without implicit changes. Exact send retries reconcile once; changed payloads/recipients
       conflict, including model/effort changes after restart or a main-agent change.
 - [ ] The external example observes a session needing attention, reads its saved progress and
       communicates a useful briefing through the host's user conversation while CodeAI is unfocused.
-- [ ] A change during inference reaches the next agent turn without duplicate announcements;
+- [x] A change during inference reaches the next agent turn without duplicate announcements;
       successive permission requests within one run remain distinguishable. Counts and a
       1,000-session listing remain usable under sustained workspace invalidation.
-- [ ] Slow readers, disconnection, revocation, stopped agents and CodeAI restarts preserve running
+- [x] Slow readers, disconnection, revocation, stopped agents and CodeAI restarts preserve running
       and queued work. Reconnect resynchronizes facts and explains missed-transition limitations.
-- [ ] Transcript instructions cannot authorize management actions. Existing built-in Observer
+- [x] Transcript instructions cannot authorize management actions. Existing built-in Observer
       delivery, action previews, draft recovery and Guarded/Native provider policies retain their
       contracts; new session work still uses existing provider permission ownership.
 - [ ] Focused unit/integration checks, TypeScript, an isolated build and independent review pass;
@@ -468,3 +468,62 @@ the participant-management extension. Native reviewer/coder relaying is recorded
 Independent review clarified initial-launch versus separate-message grant scope; the final
 participant-management revision has no remaining actionable review findings.
 Runtime acceptance above remains unchecked until implementation.
+
+## Implementation and verification — November 20, 2026
+
+The implementation is complete; real external-model-host acceptance is pending. Status remains
+In progress until that acceptance and the final verification checkbox are satisfied.
+
+Where the code is:
+
+- `src/shared/mcp.ts:1` owns the strict tool/bridge schemas, scopes and request/response budgets.
+- `src/server/integrations/mcp/grants.ts:1` owns private connection provisioning, digest grants,
+  exact origin/machine/transport authentication and revocation. `scripts/mcp-grants.ts:1` supplies
+  grant/list/revoke commands and copyable absolute client configuration without credentials.
+- `src/server/integrations/mcp/bridge.ts:1` owns scoped dispatch, per-grant operation admission,
+  eight shared executor subscriptions and teardown. `reads.ts:1` projects public fields, stable
+  tokens, complete attention identities, serialized-byte-bounded detail and pinned listing leases.
+  Canonical project/active/archive captures serialize with archive and Restore in SessionStore.
+- `src/server/integrations/mcp/actions.ts:1` delegates creation, participant addition, archive and
+  addressed sends to existing owners. The complete launch fingerprint persists in creation
+  receipts/worktree intents; accepted send fingerprints persist in the existing user message.
+  Private format 18 metadata is removed from public snapshots. Ordinary creation/message schemas
+  reject these internal fields. `src/server/conversation/archiveSession.ts:1` is shared with the
+  browser archive route; queued-work release remains in the existing scheduler.
+- `scripts/mcp.ts:1` is an official SDK 1.32.2 stdio server. Its thin HTTP client under
+  `src/integrations/mcp/bridgeClient.ts:1` imports no application/server owners. It handles
+  resource subscriptions, bounded pending notifications, reconnect, certificate trust and EOF.
+- `scripts/mcp-observer.ts:1` and `src/integrations/mcp/observer.ts:1` supply the external-host
+  example: independent inference, five-second fallback polling, exact attention deduplication,
+  fresh reads between bounded briefing batches, explicit user tool commands and owned-process
+  shutdown. [Setup and contracts](../docs/mcp.md) document the protocol/client and recovery limits.
+
+Verification:
+
+- 167 final focused tests pass across MCP schemas/auth/actions, storage/creation/worktree,
+  scheduler, Observer and workspace suites; five final real MCP runtime journeys pass separately.
+- The runtime host is official SDK Client **1.32.2**, negotiated protocol **2025-11-25**, spawned
+  from `/tmp`. Protocol-only stdout, scoped tools, resources/notifications, creation/run/queue,
+  queue release on archive, real Git worktrees, Codex → Claude → original Codex addressing,
+  exact replays, provider continuation, revocation and stdin-EOF teardown all pass with fake
+  providers. The executable Observer example also receives synthetic attention and kills an
+  uncooperative model double on shutdown while leaving CodeAI's run live.
+- Regressions cover 1,000-row traversal, lease admission/expiry/supersession/revocation, eight
+  slow subscriptions, two-operation admission, five-second revocation, changed attention IDs,
+  escaping-heavy/multibyte detail, concurrent archive capture, partial/lost submission responses,
+  sustained invalidations during slow capability reads and all 45 simultaneous attention sessions
+  across fresh inference batches. Existing restart owners continue to retain accepted work.
+- Source TypeScript and a separate strict TypeScript check of all three MCP scripts pass. The
+  isolated production build passes. No desktop/phone UI changed, so screenshot acceptance is not
+  applicable. Independent review found no remaining actionable issues after these regressions.
+- The broad suite with inherited CodeAI installation settings removed passed **2,343 / 2,344**
+  tests before the final review follow-ups. Its sole failure is the unchanged
+  `visualLanguage.test.ts` expectation for Google font imports; the application already uses
+  bundled fonts (Story 139). Final review follow-ups pass the focused checks above. Earlier broad
+  attempts inherited paired-origin/time-limit settings; they are superseded by that isolated run.
+- An isolated production server accepted project setup and read-only MCP grant provisioning.
+  Automatic approval review rejected the planned Claude Code **2.1.325** real-host inference,
+  stating that workspace/project/session data could be disclosed to the external Claude process.
+  That action was not retried or bypassed. A real-model-host briefing/reconnect journey still
+  requires permission; the corresponding acceptance boxes remain open. No provider configuration
+  was edited, and the user's running application was not rebuilt or restarted.

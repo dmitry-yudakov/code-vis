@@ -327,6 +327,16 @@ images; rejection or uncertain delivery retains them. Frozen delivery persists o
 after reload, canonical acceptance can still be checked, but a missing image prevents retransmission
 with incomplete evidence.
 
+Story 151 adds a grant-authenticated private `/api/integrations/mcp` bridge for the serving
+machine only. The stdio SDK adapter imports shared schemas and a thin HTTP client, never server
+storage, providers or a scheduler. Explicit public projections and bounded pinned listings reuse
+the canonical store; subscriptions share `workspaceFeeds().executor`. Grant scopes are rechecked
+at dispatch, mutation boundaries and five-second subscription heartbeats. Creation/worktree intents
+and accepted user messages retain private full-payload fingerprints at format 18 for exact retries;
+ordinary browser requests cannot supply those fields. Session actions reuse the existing creation,
+archive, participant and submission owners. The external host owns inference, polling/notifications
+and user communication; stopping it never releases CodeAI run ownership. See [MCP setup](mcp.md).
+
 Story 147 adds a shell-owned Observer dialog under More. Live counts reuse Arena observations and
 its aging clock. The personal-device-only `POST /api/observer` takes a question and bounded
 disposable history, obtains authoritative shared snapshots server-side, and runs isolated, tool-free

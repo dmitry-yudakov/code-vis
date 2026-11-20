@@ -16,7 +16,7 @@ import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
   NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema, agentContextUsageSchema, CONTEXT_USAGE_SESSION_VERSION,
-  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION, ACTIVE_FILE_SESSION_VERSION, SUSPENDED_TURN_SESSION_VERSION,
+  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION, ACTIVE_FILE_SESSION_VERSION, SUSPENDED_TURN_SESSION_VERSION, MCP_SESSION_VERSION,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
@@ -47,7 +47,7 @@ const projectLogoRecordSchema = z.object({ logo: projectLogoSchema, repository: 
   .refine(record => record.logo.repositoryId === record.repository.id);
 
 function upgradeForMessage(session: DurableSession, message: ChatMessage): void {
-  const needed = message.role === 'user' && message.turn?.lifecycle === 'suspended' ? SUSPENDED_TURN_SESSION_VERSION : message.role === 'user' && message.activeFile ? ACTIVE_FILE_SESSION_VERSION : message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
+  const needed = message.role === 'user' && message.mcpFingerprint ? MCP_SESSION_VERSION : message.role === 'user' && message.turn?.lifecycle === 'suspended' ? SUSPENDED_TURN_SESSION_VERSION : message.role === 'user' && message.activeFile ? ACTIVE_FILE_SESSION_VERSION : message.role === 'user' && message.turn ? 13 : message.role === 'user' && message.fileAttachments?.length ? SESSION_SETUP_VERSION : isNativeMessage(message) ? NATIVE_MODE_SESSION_VERSION
     : message.role === 'user' && message.imageAttachments?.length ? IMAGE_ATTACHMENT_SESSION_VERSION
     : message.mode === 'auto' ? AUTO_MODE_SESSION_VERSION
     : message.role === 'user' && message.reportAttachments?.length ? REPORT_EVIDENCE_SESSION_VERSION : session.version;
@@ -217,6 +217,7 @@ export function publicSession(session: DurableSession): PublicSession {
   };
   delete snapshot.creationReceipt;
   for (const message of snapshot.messages) {
+    if (message.role === 'user') delete message.mcpFingerprint;
     if (message.role === 'user' && message.turn) message.turn = repairClaudeActivity(message.turn);
   }
   return publicSessionSchema.parse(snapshot) as PublicSession;
@@ -574,7 +575,7 @@ export class SessionStore {
     }
   }
 
-  async archiveSession(id: string, expectedRevision: number, agentCheckId?: string): Promise<DurableSession> {
+  async archiveSession(id: string, expectedRevision: number, agentCheckId?: string, beforeSave?: () => Promise<void>): Promise<DurableSession> {
     return this.enqueue(async () => {
       const session = await this.getSession(id);
       this.expectRevision(session, expectedRevision);
@@ -596,6 +597,7 @@ export class SessionStore {
       archived.updatedAt = archived.archivedAt;
       archived.revision += 1;
       durableSessionSchema.parse(archived);
+      await beforeSave?.();
       // The marker is written before the move so startup can finish an interrupted transition.
       await atomicWrite(this.sessionPath(id), archived, this.beforeRename);
       try {
@@ -613,6 +615,14 @@ export class SessionStore {
   /** Admission sees a settled snapshot and reserves before any archive/restore can change it. */
   withActiveSessionSnapshot<T>(admit: (sessions: StoredSessionSummary[]) => Promise<T>): Promise<T> {
     return this.enqueue(async () => admit(await this.listSessionSummaries()));
+  }
+
+  /** Pinned integrations must observe archive/Restore moves wholly before or after the snapshot. */
+  withWorkspaceSummarySnapshot<T>(read: (snapshot: {
+    projects: DurableProject[]; sessions: StoredSessionSummary[]; archivedSessions: StoredSessionSummary[];
+  }) => T): Promise<T> {
+    return this.enqueue(async () => read({ projects: await this.listProjects(),
+      sessions: await this.listSessionSummaries(), archivedSessions: await this.listSessionSummaries({ archived: true }) }));
   }
 
   async restoreSession(id: string, expectedRevision: number): Promise<DurableSession> {
@@ -672,6 +682,7 @@ export class SessionStore {
     worktree?: SessionWorktree;
     repositories?: RepositoryBinding[];
     persistWorktreeIntent?: (session: DurableSession) => Promise<void>;
+    beforeSave?: () => Promise<void>;
   }): Promise<DurableSession> {
     return this.enqueue(async () => {
       await this.openStore();
@@ -734,7 +745,7 @@ export class SessionStore {
         throw new SessionStoreError('conflict', LOCAL_CODEX_ISOLATION_MESSAGE);
       }
       const session: DurableSession = {
-        version: input.allowAgentArchive ? AGENT_ARCHIVE_SESSION_VERSION : input.creationReceipt ? SESSION_SETUP_VERSION : worktree ? input.execution === 'docker' ? 11 : 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
+        version: input.creationReceipt?.mcpLaunchFingerprint ? MCP_SESSION_VERSION : input.allowAgentArchive ? AGENT_ARCHIVE_SESSION_VERSION : input.creationReceipt ? SESSION_SETUP_VERSION : worktree ? input.execution === 'docker' ? 11 : 10 : instructions ? INSTRUCTIONS_SESSION_VERSION : SESSION_RECORD_VERSION,
         ...(input.allowAgentArchive ? { allowAgentArchive: true } : {}),
         ...(input.creationReceipt ? { creationReceipt: input.creationReceipt } : {}),
         ...(worktree ? { worktree } : {}),
@@ -766,6 +777,7 @@ export class SessionStore {
         sketches: [],
       };
       durableSessionSchema.parse(session);
+      await input.beforeSave?.();
       if (input.persistWorktreeIntent) await input.persistWorktreeIntent(session);
       else await this.writeSession(session);
       return structuredClone(session);
@@ -820,6 +832,7 @@ export class SessionStore {
           && prior.text === message.text
           && prior.mode === message.mode
           && prior.level === message.level
+          && prior.mcpFingerprint === message.mcpFingerprint
           && same(prior.diagramAttachments, message.diagramAttachments)
           && same(prior.reportAttachments ?? [], message.reportAttachments ?? [])
           && same(prior.imageAttachments ?? [], message.imageAttachments ?? [])
@@ -1005,8 +1018,9 @@ export class SessionStore {
     provider: AgentProvider,
     role: AgentRole,
     requestId: string,
+    beforeSave?: () => Promise<void>,
   ): Promise<DurableSession> {
-    return this.mutate(id, (session) => {
+    return this.mutate(id, async (session) => {
       const prior = session.participants.find((item): item is ServerAgentParticipant => (
         item.kind === 'agent' && item.creationRequestId === requestId
       ));
@@ -1028,6 +1042,7 @@ export class SessionStore {
       let displayName = rootName;
       let suffix = 2;
       while (session.participants.some((item) => item.displayName === displayName)) displayName = `${rootName} ${suffix++}`;
+      await beforeSave?.();
       session.participants.push({
         id: randomUUID(),
         kind: 'agent',

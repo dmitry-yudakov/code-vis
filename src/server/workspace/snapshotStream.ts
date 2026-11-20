@@ -7,8 +7,9 @@ export function snapshotStream<T>(request: Request, input: {
   subscribe(receive: (value: T) => void, fail: (cause: unknown) => void): () => void;
   authorize(): Promise<Response | undefined>;
   maximumBytes?: number;
+  browserBudget?: boolean;
 }): Response {
-  const budget = reserveBrowserWorkspace(request);
+  const budget = input.browserBudget === false ? undefined : reserveBrowserWorkspace(request);
   if (budget === false) return safeJsonResponse({ error: 'Workspace updates are paused while agent connections are busy.' },
     { status: 429, headers: { 'Retry-After': '1' } });
   let controller: ReadableStreamDefaultController<Uint8Array>;

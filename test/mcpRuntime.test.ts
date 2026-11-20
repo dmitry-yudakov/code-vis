@@ -1,0 +1,177 @@
+import { createServer, type Server as HttpServer } from 'node:http';
+import { spawn, execFile } from 'node:child_process';
+import { once } from 'node:events';
+import { promisify } from 'node:util';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { getConfig } from '@/server/config';
+import { getSessionStore } from '@/server/storage/sessionStore';
+import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
+import { provisionGrant, revokeGrant } from '@/server/integrations/mcp/grants';
+import { bridgeOperation, bridgeSubscription } from '@/server/integrations/mcp/bridge';
+import { runRegistry } from '@/server/runs/runRegistry';
+import { readWorktreeRecords } from '@/server/repository/managedWorktrees';
+
+const git = promisify(execFile); let root: string, server: HttpServer, origin: string, connectionPath: string, grantId: string;
+const clients: Client[] = []; const transports: StdioClientTransport[] = [];
+const script = path.resolve('scripts/mcp.ts'); const loader = path.resolve('node_modules/tsx/dist/loader.mjs');
+async function connect(file = connectionPath) {
+  let protocol: string | undefined;
+  class ObservedTransport extends StdioClientTransport {
+    override async start() {
+      const receive = this.onmessage;
+      this.onmessage = message => {
+        if ('result' in message && message.result && typeof message.result === 'object' && 'protocolVersion' in message.result) protocol = String(message.result.protocolVersion);
+        receive?.(message);
+      };
+      return super.start();
+    }
+  }
+  const transport = new ObservedTransport({ command: process.execPath, args: ['--import', loader, script, file], cwd: '/tmp', stderr: 'pipe' });
+  transports.push(transport); let errors = ''; transport.stderr?.on('data', b => { errors += b.toString(); });
+  const client = new Client({ name: 'codeai-runtime-test-host', version: '1.0.0' }); clients.push(client);
+  try { await client.connect(transport); } catch (error) { throw new Error(`${error}: ${errors}`); }
+  return { client, transport, protocol };
+}
+async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
+  const result = await client.callTool({ name, arguments: args });
+  if (result.isError) throw new Error(JSON.stringify(result.content));
+  return result.structuredContent as Record<string, any>;
+}
+async function settled(id: string) { await vi.waitFor(() => expect(runRegistry.hasLiveSession(id)).toBe(false), { timeout: 15000 }); }
+beforeAll(async () => {
+  root = await mkdtemp(path.join(os.tmpdir(), 'codeai-mcp-runtime-')); const repo = path.join(root, 'repos', 'sample'); await mkdir(repo, { recursive: true });
+  await git('git', ['init', '-q', repo]); await git('git', ['-C', repo, 'config', 'user.name', 'MCP fixture']); await git('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+  await writeFile(path.join(repo, 'file.txt'), 'source\n'); await git('git', ['-C', repo, 'add', '.']); await git('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-C', repo, 'commit', '-qm', 'fixture']);
+  vi.stubEnv('CODEAI_DATA_DIR', path.join(root, 'data')); vi.stubEnv('CODEAI_REPOSITORIES_ROOT', path.join(root, 'repos')); vi.stubEnv('CODEAI_WORKTREES_ROOT', path.join(root, 'worktrees'));
+  vi.stubEnv('CODEAI_REMOTE_ACCESS', 'local'); vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false'); vi.stubEnv('CODEAI_CODEX_AGENT', 'true'); vi.stubEnv('CODEAI_DEBUG_AGENT', 'false'); vi.stubEnv('CODEAI_CLAUDE_BIN', path.resolve('test/fixtures/fake-claude.mjs'));
+  vi.stubEnv('CODEAI_CODEX_BIN', path.resolve('test/fixtures/fake-codex.mjs')); vi.stubEnv('CODEAI_FAKE_TOOL_DELAY_MS', '5'); vi.stubEnv('CODEAI_FAKE_MODE', 'normal');
+  server = createServer(async (req, res) => {
+    const abort = new AbortController(); res.once('close', () => abort.abort());
+    try {
+      const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const headers = new Headers(); for (const [key, value] of Object.entries(req.headers)) if (value) headers.set(key, Array.isArray(value) ? value.join(',') : value);
+      const request = new Request(`${origin}${req.url}`, { method: req.method, headers, signal: abort.signal,
+        ...(req.method === 'POST' ? { body: Buffer.concat(chunks).toString('utf8') } : {}) });
+      const response = await (req.method === 'GET' ? bridgeSubscription(request) : bridgeOperation(request));
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      if (response.body) {
+        const reader = response.body.getReader(); abort.signal.addEventListener('abort', () => void reader.cancel().catch(() => undefined), { once: true });
+        try { while (!abort.signal.aborted) { const { done, value } = await reader.read(); if (done) break; if (!res.write(value)) await once(res, 'drain'); } }
+        finally { await reader.cancel().catch(() => undefined); }
+      }
+      res.end();
+    } catch { if (!res.headersSent) res.writeHead(500); res.end(); }
+  });
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`; vi.stubEnv('CODEAI_MCP_ORIGIN', origin);
+  await getSessionStore(getConfig().dataDir).host();
+  const grant = await provisionGrant(getConfig(), 'Runtime host', ['sessions:create', 'sessions:archive', 'participants:add', 'messages:send']);
+  connectionPath = grant.connectionPath; grantId = grant.grant.id;
+}, 20000);
+afterAll(async () => {
+  for (const client of clients) await client.close().catch(() => undefined);
+  for (const transport of transports) await transport.close().catch(() => undefined);
+  for (const run of runRegistry.currentRuns) await runRegistry.cancel(run.runId);
+  if (server?.listening) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+  await getSessionStore(path.join(root, 'data')).close(); vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true });
+});
+
+it('negotiates SDK stdio from outside the checkout and advertises only scoped tools', async () => {
+  const readonly = await provisionGrant(getConfig(), 'Read only');
+  const { client, protocol } = await connect(readonly.connectionPath);
+  expect(protocol).toBe('2025-11-25'); expect((await client.listTools()).tools.map(t => t.name)).toEqual(['get_workspace', 'list_projects', 'list_sessions', 'read_session']);
+  const header = await call(client, 'get_workspace'); expect(header.machine.id).toBe(readonly.grant.machineId);
+  expect(header.choices.executions.docker.enabled).toBe(false);
+  expect((await client.listResources()).resources[0].uri).toBe('codeai://local/workspace');
+  await client.close();
+}, 20000);
+it('delivers creation, queue release, worktree placement, addressed review/correction and exact replay through a real MCP client', async () => {
+  const { client } = await connect(); const config = getConfig(); const store = getSessionStore(config.dataDir);
+  const checkout = (await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).list())[0];
+  const project = await store.createProject('MCP project', [checkout.id]); await store.createProject('Empty project', []);
+  const projects = await call(client, 'list_projects'); expect(projects.rows).toHaveLength(2);
+  const token = projects.rows.find((p: { id: string }) => p.id === project.id).bindingToken;
+  const first = { creationRequestId: randomUUID(), projectId: project.id, expectedProjectBindings: token, provider: 'codex', execution: 'local', checkoutMode: 'current', launch: 'run',
+    firstMessage: { messageId: randomUUID(), text: 'Implement a bounded example', mode: 'ask' } };
+  const created = await call(client, 'create_session', first); expect(created.accepted).toBe(true); await settled(created.sessionId);
+  const replay = await call(client, 'create_session', first); expect(replay.runId).toBe(created.runId);
+  const queued = await call(client, 'create_session', { ...first, creationRequestId: randomUUID(), launch: 'queue', firstMessage: { ...first.firstMessage, messageId: randomUUID(), text: 'Queued successor' } });
+  expect(queued.state).toBe('queued');
+  const worktreeInput = { ...first, creationRequestId: randomUUID(), checkoutMode: 'worktree', launch: 'queue', firstMessage: { ...first.firstMessage, messageId: randomUUID(), text: 'Independent worktree' } };
+  const worktree = await call(client, 'create_session', worktreeInput); expect(worktree.accepted).toBe(true); expect(worktree.worktree.originCheckoutId).toBe(checkout.id);
+  expect(runRegistry.list(worktree.sessionId).active[0]?.queuePosition ?? 0).toBeLessThanOrEqual(2); await settled(worktree.sessionId);
+  expect((await call(client, 'create_session', worktreeInput)).sessionId).toBe(worktree.sessionId);
+  expect((await readWorktreeRecords(config.dataDir))).toHaveLength(1);
+  const reviewerInput = { sessionId: created.sessionId, requestId: randomUUID(), provider: 'claude', role: 'reviewer' };
+  const reviewer = await call(client, 'add_participant', reviewerInput);
+  expect((await call(client, 'add_participant', reviewerInput)).participant.id).toBe(reviewer.participant.id);
+  const review = { sessionId: created.sessionId, participantId: reviewer.participant.id, messageId: randomUUID(), text: 'Review the implementation in this conversation.', mode: 'ask' };
+  const reviewed = await call(client, 'send_message', review); expect(reviewed.accepted).toBe(true); await settled(created.sessionId);
+  const correction = await call(client, 'send_message', { ...review, participantId: created.primaryAgentId, messageId: randomUUID(), text: 'Apply the requested corrections.', mode: 'agent' });
+  expect(correction.accepted).toBe(true); await settled(created.sessionId);
+  const saved = await store.getSession(created.sessionId); expect(saved.primaryAgentId).toBe(created.primaryAgentId);
+  const agents = saved.participants.filter(p => p.kind === 'agent'); expect(agents.every(p => p.kind === 'agent' && p.session.started)).toBe(true);
+  expect(saved.messages.filter(m => m.role === 'user')).toHaveLength(3);
+  const archive = await call(client, 'archive_session', { sessionId: saved.id, expectedRevision: saved.revision }); expect(archive.state).toBe('archived');
+  await settled(queued.sessionId); expect((await store.getSession(queued.sessionId)).messages.some(m => m.role === 'assistant')).toBe(true);
+  await client.close();
+}, 60000);
+it('stops the example and its uncooperative inference child while leaving CodeAI work live', async () => {
+  const config = getConfig(); const store = getSessionStore(config.dataDir);
+  const session = await store.createSession({ provider: 'codex' });
+  const runId = randomUUID();
+  const reserved = runRegistry.reserve({ runId, sessionId: session.id, participantId: session.primaryAgentId, providerKey: `observer-${runId}`,
+    checkoutId: 'observer-fixture', access: 'read', cancel: () => runRegistry.release(runId) });
+  expect(reserved.accepted).toBe(true);
+  runRegistry.activate(runId, { execute: () => new Promise<void>(() => undefined), cancelQueued: async () => undefined });
+  await Promise.resolve();
+  runRegistry.record(runId, { type: 'permission-request', runId, requestId: randomUUID(), participantId: session.primaryAgentId, tool: 'shell', detail: 'Synthetic attention' });
+  const grant = await provisionGrant(config, 'External loop'); const marker = path.join(root, 'inference-started');
+  const agent = path.join(root, 'external-agent.mjs');
+  await writeFile(agent, `import { writeFileSync } from 'node:fs';
+process.on('SIGTERM', () => {});
+process.stdin.resume();
+process.stdin.on('end', () => { writeFileSync(${JSON.stringify(marker)}, String(process.pid)); setInterval(() => {}, 1000); });
+`);
+  const child = spawn(process.execPath, ['--import', loader, path.resolve('scripts/mcp-observer.ts'), grant.connectionPath, process.execPath, agent], { stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdout.resume(); child.stderr.resume(); let pid: number | undefined;
+  try {
+    await vi.waitFor(async () => { pid = Number(await readFile(marker, 'utf8')); expect(pid).toBeGreaterThan(0); }, { timeout: 10000 });
+    child.kill('SIGTERM');
+    await vi.waitFor(() => expect(child.exitCode !== null || child.signalCode !== null).toBe(true), { timeout: 6000 });
+    expect(() => process.kill(pid!, 0)).toThrow();
+    expect(runRegistry.hasLiveSession(session.id)).toBe(true);
+  } finally {
+    child.kill('SIGKILL'); if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    runRegistry.release(runId);
+  }
+}, 20000);
+it('notifies resource changes and rejects revocation without stopping canonical work', async () => {
+  const { client } = await connect(); const notices = vi.fn(); client.setNotificationHandler(ResourceUpdatedNotificationSchema, notices);
+  await client.subscribeResource({ uri: 'codeai://local/workspace' }); await vi.waitFor(() => expect(notices).toHaveBeenCalled(), { timeout: 5000 });
+  const before = notices.mock.calls.length; await getSessionStore(getConfig().dataDir).createProject('Notification', []);
+  await vi.waitFor(() => expect(notices.mock.calls.length).toBeGreaterThan(before), { timeout: 5000 });
+  await revokeGrant(getConfig(), grantId);
+  const result = await client.callTool({ name: 'get_workspace', arguments: {} }); expect(result.isError).toBe(true);
+  expect((await getSessionStore(getConfig().dataDir).listSessions()).length).toBeGreaterThan(0);
+  await client.close();
+}, 15000);
+it('exits on host stdin EOF without a termination signal', async () => {
+  const grant = await provisionGrant(getConfig(), 'EOF');
+  const child = spawn(process.execPath, ['--import', loader, script, grant.connectionPath], { cwd: '/tmp', stdio: ['pipe', 'pipe', 'pipe'] });
+  let output = ''; child.stdout.on('data', b => { output += b.toString(); });
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'EOF host', version: '1' } } })}\n`);
+  await vi.waitFor(() => expect(output).toContain('protocolVersion'), { timeout: 5000 });
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  child.stdin.end();
+  try { await Promise.race([once(child, 'exit'), new Promise((_, reject) => { timeout = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Adapter did not exit after EOF')); }, 5000); })]); }
+  finally { if (timeout) clearTimeout(timeout); }
+  expect(child.exitCode).toBe(0);
+}, 15000);
