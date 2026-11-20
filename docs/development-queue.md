@@ -47,6 +47,12 @@ feature has shipped. The order is priority, not a new dependency chain.
 
 ## Additional work
 
+- [Story 151 — MCP access for an external Observer](../stories/STORY-20261120-mcp-external-observer.md)
+  is a draft for listing local projects and active sessions, scoped session creation/archiving,
+  participant additions and explicitly addressed messages through a stdio MCP adapter. New work
+  can run or queue in the current checkout or a managed worktree. The external agent owns
+  monitoring/conversation; other action proposals and an in-app backend are follow-ups.
+  No queue priority was changed.
 - [Story 147 — Global text and voice observer](../stories/STORY-20261117-global-observer.md)
   implements cross-session briefings and confirmed follow-ups, including foreground conversational
   voice. Automated verification and a real Codex inference pass; physical phone/Whisper acceptance
@@ -203,6 +209,12 @@ After persistence, Story 9's first lens should query those records and emit Merm
 existing canvas. Q2's running-app/provider/headset acceptance stays separate.
 
 ## Deferred work
+
+**Native reviewer/coder workflows** are a separate CodeAI orchestration follow-up to
+[Story 151](../stories/STORY-20261120-mcp-external-observer.md#native-codeai-reviewercoder-workflows--follow-up):
+linked reviewer/coder sessions exchange findings and corrections through CodeAI-owned handoffs,
+with explicit user control, durable identities and stop/retry behavior. The external Observer
+supplies individual commands; it does not own an ongoing relay loop. No priority is assigned.
 
 **Story 84 Guarded Claude Auto** remains deferred until there is concrete demand and the missing
 machine dependencies are available. The
