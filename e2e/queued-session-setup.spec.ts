@@ -2,6 +2,133 @@ import { expect, test, fulfillArenaSnapshot, pushArenaSnapshot, type APIRequestC
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession, RunDiscovery } from '../src/shared/types';
 
 for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+  test(`queue setup closes before creation and acceptance respond: ${theme} ${width}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+    const project = (await (await request.post('/api/projects', { data: { name: `Optimistic queue ${theme} ${width} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    let releaseCreation!: () => void;
+    let releaseMessage!: () => void;
+    const creationHeld = new Promise<void>(resolve => { releaseCreation = resolve; });
+    const messageHeld = new Promise<void>(resolve => { releaseMessage = resolve; });
+    let creations = 0;
+    let messages = 0;
+    await page.route('**/api/sessions', async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      creations++;
+      await creationHeld;
+      const response = await route.fetch();
+      await route.fulfill({ response });
+    });
+    await page.route('**/api/agent/message', async route => {
+      messages++;
+      expect(route.request().postDataJSON()).toMatchObject({ text: 'Keep this queued idea', waitForCheckout: true,
+        fileAttachments: [{ name: 'idea.txt', text: 'Keep this evidence' }] });
+      await messageHeld;
+      await route.fulfill({ status: 200, headers: { 'X-CodeAI-Run-Id': 'optimistic-queue', 'X-CodeAI-Run-State': 'queued' }, body: '' });
+    });
+    try {
+      await page.goto(`/?project=${project.id}`);
+      const shortcut = page.locator('.app-header').getByRole('button', { name: 'New session', exact: true });
+      await shortcut.click();
+      await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+      const notices = page.getByRole('region', { name: 'Notifications', exact: true });
+      await dialog.getByRole('textbox').fill('Keep this queued idea');
+      await dialog.locator('input[type=file]').setInputFiles({ name: 'idea.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this evidence') });
+      await dialog.getByRole('button', { name: 'Queue session', exact: true }).click();
+      await expect(dialog).toBeHidden();
+      await expect(shortcut).toBeFocused();
+      await expect(notices.getByText('Queueing session…', { exact: true })).toBeVisible();
+      expect(creations).toBe(1);
+      expect(messages).toBe(0);
+      await page.screenshot({ path: testInfo.outputPath('queue-pending.png'), animations: 'disabled' });
+      await page.getByRole('link', { name: 'Arena', exact: true }).click();
+      await page.getByRole('button', { name: `New session in ${project.name}`, exact: true }).click();
+      await expect(dialog.getByRole('status')).toHaveText('Queueing session…');
+      await expect(dialog.getByRole('button', { name: 'Queue session', exact: true })).toHaveCount(0);
+      await dialog.getByRole('button', { name: 'Close setup', exact: true }).click();
+      releaseCreation();
+      await expect.poll(() => messages).toBe(1);
+      await expect(dialog).toBeHidden();
+      await expect(notices.getByText('Queueing session…', { exact: true })).toBeVisible();
+      await expect(notices.getByText('Session queued. It will start after earlier sessions are archived.', { exact: true })).toHaveCount(0);
+      releaseMessage();
+      await expect(page.getByText('Session queued. It will start after earlier sessions are archived.', { exact: true })).toBeVisible();
+      await expect(notices.getByText('Queueing session…', { exact: true })).toHaveCount(0);
+      await expect(page).toHaveURL(/\/arena$/);
+      expect(creations).toBe(1);
+      expect(messages).toBe(1);
+      await page.screenshot({ path: testInfo.outputPath('queue-accepted.png'), animations: 'disabled' });
+    } finally {
+      releaseCreation(); releaseMessage();
+    }
+  });
+}
+
+for (const recovery of ['rejected', 'uncertain'] as const) {
+  test(`optimistic queue restores ${recovery} creation after navigation`, async ({ page, request }, testInfo) => {
+    const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+    const project = (await (await request.post('/api/projects', { data: { name: `Queue creation ${recovery} ${Date.now()}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    const creations: unknown[] = [];
+    let releaseCreation!: () => void;
+    const creationHeld = new Promise<void>(resolve => { releaseCreation = resolve; });
+    await page.route('**/api/sessions', async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      creations.push(route.request().postDataJSON());
+      if (creations.length > 1) return route.continue();
+      // An uncertain response can hide a successfully persisted session.
+      if (recovery === 'uncertain') await route.fetch();
+      await creationHeld;
+      return recovery === 'uncertain' ? route.abort('failed')
+        : route.fulfill({ status: 409, json: { error: 'Creation unavailable. Try again.', creationState: 'none' } });
+    });
+    const messages: unknown[] = [];
+    await page.route('**/api/agent/message', route => {
+      messages.push(route.request().postDataJSON());
+      return route.fulfill({ status: 200, headers: { 'X-CodeAI-Run-Id': 'creation-retry', 'X-CodeAI-Run-State': 'queued' }, body: '' });
+    });
+    try {
+      await page.goto(`/?project=${project.id}`);
+      await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
+      await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+      await dialog.getByRole('textbox').fill('Retain this queued setup');
+      await dialog.locator('input[type=file]').setInputFiles({ name: 'idea.txt', mimeType: 'text/plain', buffer: Buffer.from('Retained evidence') });
+      await dialog.getByRole('button', { name: 'Queue session', exact: true }).click();
+      await expect(dialog).toBeHidden();
+      await page.getByRole('link', { name: 'Arena', exact: true }).click();
+      releaseCreation();
+      const notice = page.getByRole('region', { name: 'Notifications', exact: true });
+      await expect(notice.getByRole('alert')).toContainText(recovery === 'uncertain' ? 'Creation status is unknown' : 'Creation unavailable');
+      await expect(dialog).toBeHidden();
+      await expect(page.getByText('Queueing session…', { exact: true })).toHaveCount(0);
+      await page.screenshot({ path: testInfo.outputPath('queue-creation-failed.png'), animations: 'disabled' });
+      if (recovery === 'rejected') await page.getByRole('button', { name: `New session in ${project.name}`, exact: true }).click();
+      else await notice.getByRole('button', { name: 'Review setup', exact: true }).click();
+      await expect(notice.getByRole('button', { name: 'Review setup', exact: true })).toHaveCount(0);
+      await expect(dialog.getByRole('textbox')).toHaveValue('Retain this queued setup');
+      await expect(dialog).toContainText('idea.txt');
+      if (recovery === 'uncertain') await expect(dialog.getByRole('textbox')).toBeDisabled();
+      await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
+      await expect(dialog).toBeHidden();
+      await expect(page.getByText('Session queued. It will start after earlier sessions are archived.', { exact: true })).toBeVisible();
+      expect(creations).toHaveLength(2);
+      if (recovery === 'uncertain') expect(creations[1]).toEqual(creations[0]);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ text: 'Retain this queued setup', waitForCheckout: true,
+        fileAttachments: [{ name: 'idea.txt', text: 'Retained evidence' }] });
+      expect((await (await request.get(`/api/sessions?projectId=${project.id}`)).json()).sessions).toHaveLength(1);
+      await expect(page).toHaveURL(/\/arena$/);
+    } finally {
+      releaseCreation();
+    }
+  });
+}
+
+for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
   test(`queue setup opens inside a project and retains its draft: ${theme} ${width}`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 844 });
     await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
@@ -70,6 +197,7 @@ for (const modifier of ['Control', 'Meta']) {
     expect(creations).toBe(0);
     await dialog.getByLabel('Session checkout', { exact: true }).selectOption('current');
     await message.press(`${modifier}+Enter`);
+    await page.getByRole('button', { name: 'Review setup', exact: true }).click();
     await expect(dialog.getByRole('alert')).toContainText('queue is full');
     expect(creations).toBe(1);
     expect(messages).toHaveLength(1);
@@ -226,6 +354,7 @@ for (const recovery of ['rejected', 'uncertain', 'edit-and-send'] as const) {
     const message = dialog.getByRole('textbox', { name: 'First message (optional)' });
     await message.fill('Queue this task');
     await dialog.getByRole('button', { name: 'Queue session', exact: true }).click();
+    await page.getByRole('button', { name: 'Review setup', exact: true }).click();
     await expect(dialog.getByRole('alert')).toContainText(recovery === 'uncertain' ? 'Delivery status is unknown' : 'queue is full');
     expect(messages[0]).toMatchObject({ text: 'Queue this task', waitForCheckout: true });
     await expect(dialog.getByRole('button', { name: 'Queue session', exact: true })).toHaveCount(0);

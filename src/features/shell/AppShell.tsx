@@ -2311,11 +2311,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     origin: launchOrigin,
     // Pin the origin before awaiting creation, and the current task before remembering defaults.
     onSubmit: preserveCurrentChoices,
+    onQueuePending: () => notify({ key: 'queue-session', tone: 'info', persistent: true, message: 'Queueing session…' }),
+    onQueueError: (error) => notify({ key: 'queue-session', tone: 'error', message: error,
+      actions: [{ label: 'Review setup', onSelect: () => { dismissToast('queue-session'); launcher.open(); } }],
+    }),
     onCreated: (created, settings) => {
       rememberLaunchChoices(created, settings);
       void arena.refresh();
     },
     onResult: (result, settings, autoOpen) => {
+      dismissToast('queue-session');
       rememberLaunchChoices(result.session, settings);
       void arena.refresh();
       if (settings.machineId === machineId && result.session.projectId === projectId) {
@@ -2327,6 +2332,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     },
     onOpen: (created, settings) => { void openLaunchedSession(created, settings); },
   });
+
+  useEffect(() => {
+    if (!launcher.busy && (launcher.isOpen || !launcher.error)) dismissToast('queue-session');
+  }, [launcher.busy, launcher.isOpen, launcher.error, dismissToast]);
 
   useEffect(() => {
     if (!inlineSetupRequest) return;

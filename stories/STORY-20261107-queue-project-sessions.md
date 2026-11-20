@@ -242,3 +242,58 @@ includes attached-machine targeting, retained setup/source drafts, rejected and 
 and a queued task starting after archive. Providers and attached-machine routing use fixtures;
 physical devices and real provider/remote transport were not exercised. The running installation
 was not rebuilt or restarted.
+
+## Optimistic queue setup — November 20, 2026
+
+**Status:** Shipped
+
+Queue submission currently leaves the setup dialog open through durable session creation and
+first-message acceptance. Close the dialog as soon as **Queue session** or Ctrl/Cmd+Enter submits,
+and show a persistent **Queueing session…** notice while those requests finish. Only announce
+success after acceptance. Keep the existing single pending draft, captured target, creation UUID,
+message UUID and evidence; reopening setup while pending must not allow duplicate submission.
+
+Failure leaves a persistent notice with **Review setup**, which restores the retained draft and
+existing Retry behavior without interrupting navigation. Retrying a queued launch closes the dialog
+again. Inline setup and ordinary starts keep their current presentation and navigation behavior.
+This changes client feedback only; durable queue admission and execution remain server-owned.
+
+Where the code is:
+
+- `src/features/session-launch/useSessionLauncher.ts:222` — captured submission, visibility and recovery.
+- `src/features/shell/AppShell.tsx:2308` — pending, accepted and failed launch notices.
+- `e2e/queued-session-setup.spec.ts:1` — delayed creation/acceptance and exact retry journeys.
+
+- [x] Queued dialog submissions close before creation or message acceptance responds, restore focus,
+      show pending feedback, and report success only after acceptance on desktop and phone.
+- [x] Reopening pending setup retains its target and prevents duplicates; completion preserves the
+      current navigation and source draft.
+- [x] Creation and delivery failures retain evidence and exact retry identity, expose Review setup,
+      and retry without duplicating the session or changing scheduling.
+- [x] Focused ordinary/inline launch and queued delivery/recovery checks, TypeScript, an isolated
+      production build, both-theme desktop/phone screenshot inspection and independent review pass;
+      wider failures are recorded with a comparison against the preceding build.
+
+How to verify: run `sessionLaunch`, `devicePreferences` and `sessionQueue` unit checks, then
+`queued-session-setup`, `session-setup` and `compact-session-setup` against an isolated production
+build. Hold creation and message responses independently and inspect pending feedback in both
+themes at desktop/phone widths. Exercise creation failure, delivery rejection/uncertainty and
+recovery after navigating away.
+
+The delayed-creation browser regression fails against the preceding production build because the
+dialog stays visible until creation responds. All **36 focused unit checks** (`sessionLaunch`,
+`devicePreferences`, `sessionQueue`), `npm run lint` and the isolated
+`.next-e2e/optimistic-queue-final` production build pass. All **28 queue browser cases**, **eight
+compact-setup cases** and **five inline setup cases** pass against the final bundle. Pending and
+accepted notices were inspected in light/dark at 1280px and 390px. Independent read-only review
+identified a stale failure notice after alternate reopening or draft clearing; the cleanup and
+alternate-reopening regression pass, and follow-up review found no remaining issue.
+
+Across segmented production-browser runs, **68 of 69 distinct checks pass**. The long combined
+process ended with SIGTERM after 61 outcomes; the remaining three cases pass in a separate run.
+The wider `session-setup` suite's existing “same-project empty gear launch focuses once, and
+title-tab return keeps keyboard focus” assertion at `e2e/session-setup.spec.ts:570` also fails on
+the preceding `.next-e2e` build at the same selected-tab focus check. This follow-up leaves title-tab
+keyboard behavior unchanged. Verification uses fixture providers; physical devices and real
+provider/attached-machine transport were not exercised. The running installation has not been
+rebuilt or restarted.

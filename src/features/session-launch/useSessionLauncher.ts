@@ -23,6 +23,8 @@ export interface LauncherOptions {
   authorized: boolean; localMachineId?: string; machines: ArenaMachineSnapshot[]; executions?: ExecutionHealth;
   preferences: DevicePreferences; currentMachineId?: string; currentProjectId?: string; origin: string;
   onSubmit(): void;
+  onQueuePending(): void;
+  onQueueError(error: string): void;
   onCreated(session: PublicSession, settings: LaunchSettings): void;
   onResult(result: LaunchResult, settings: LaunchSettings, autoOpen: boolean): void;
   onOpen(session: PublicSession, settings: LaunchSettings): void;
@@ -222,13 +224,15 @@ export function useSessionLauncher(options: LauncherOptions) {
     // Capture the action before creation; Retry preserves the exact submitted scheduling choice.
     if (!current.current.frozen && !current.current.error) setSettings({ waitForCheckout: start?.waitForCheckout || undefined });
     const draft = current.current.draft!;
+    const backgroundQueue = Boolean(draft.settings.waitForCheckout && !current.current.inline);
     const serial = generation.current; const origin = props.current.origin;
     props.current.onSubmit();
     if (!attempt.current) attempt.current = { settings: structuredClone(draft.settings), content: { text: draft.text,
       images: draft.images.map(({ dataUrl }) => ({ dataUrl })), files: structuredClone(draft.files), reportIds: [...draft.reportIds] },
       creationRequestId: createUuid(), messageId: createUuid() };
     else attempt.current.content = { text: draft.text, images: draft.images.map(({ dataUrl }) => ({ dataUrl })), files: structuredClone(draft.files), reportIds: [...draft.reportIds] };
-    patch({ busy: true, frozen: true, error: undefined, targetNotice: undefined });
+    patch({ busy: true, frozen: true, error: undefined, targetNotice: undefined, ...(backgroundQueue ? { open: false } : {}) });
+    if (backgroundQueue) props.current.onQueuePending();
     try {
       const result = await launchSession(attempt.current, props.current.localMachineId, fetch, (session) => { if (generation.current === serial) props.current.onCreated(session, draft.settings); });
       if (generation.current !== serial) return;
@@ -240,7 +244,9 @@ export function useSessionLauncher(options: LauncherOptions) {
       if (generation.current !== serial) return;
       const failure = error instanceof LaunchFailure ? error : new LaunchFailure('Setup failed. Retry keeps this request.', false, true);
       if (failure.editable && !attempt.current?.session) attempt.current = undefined;
-      patch({ busy: false, frozen: !failure.editable, error: worktreeCreationError({ error: failure.message, worktreeConflict: failure.worktreeConflict }, props.current.machines) });
+      const message = worktreeCreationError({ error: failure.message, worktreeConflict: failure.worktreeConflict }, props.current.machines);
+      patch({ busy: false, frozen: !failure.editable, error: message });
+      if (backgroundQueue) props.current.onQueueError(message);
     }
   };
   const invalidateCapture = useCallback(() => { captureGeneration.current++; }, []);
