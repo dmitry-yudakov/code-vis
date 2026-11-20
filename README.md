@@ -745,6 +745,10 @@ machine and then by project. The security notice can be dismissed; this device r
 choice for this machine and security level. **More → Machine settings** keeps security details,
 Docker controls, and global-instructions defaults available. Available Docker provider updates
 appear as a count on the More gear, including while a conversation is open.
+Each project heading has a three-dot menu with **Rename project** and **Delete project**; these
+actions are also available in the workspace's project picker. Deleting a project keeps repository
+files and moves its active and archived conversations to **No project**. Deletion waits for active
+conversations to finish.
 Cards show Idle, Running, Needs you, Queued, or Failed state plus their repositories, agents, and
 latest activity. An inactive session can be archived from its card, or from inside it with
 **More → Archive session**. Desktop archiving takes one click without a confirmation dialog;

@@ -47,6 +47,8 @@ import {
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { ProjectLogoDialog } from '@/features/projects/ProjectLogoDialog';
+import { ProjectManagementDialog } from '@/features/projects/ProjectManagementDialog';
+import type { ProjectAction } from '@/features/projects/ProjectActions';
 import { SessionCreationForm, SessionPicker } from '@/features/conversation/SessionPicker';
 import { WorkspaceTabs } from '@/features/conversation/WorkspaceTabs';
 import { SessionArchivePicker } from '@/features/conversation/SessionArchivePicker';
@@ -449,6 +451,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     })];
     return result?.pending || result?.retryable;
   })?.requestId;
+  const [projectManagementTarget, setProjectManagementTarget] = useState<{ machineId: string; project: DurableProject; action: ProjectAction }>();
   const [projectLogoTarget, setProjectLogoTarget] = useState<{ machineId: string; project: DurableProject }>();
   const orderedCheckouts = useMemo(() => {
     const recentOrder = new Map(recentCheckoutIds.map((id, index) => [id, index]));
@@ -1286,43 +1289,49 @@ export function AppShell({ children }: { children: ReactNode }) {
     void arena.refresh();
   };
 
-  const renameProject = useCallback(async (project: DurableProject, name: string) => {
-    try {
-      const response = await fetch(apiPath(`/api/projects/${encodeURIComponent(project.id)}`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedRevision: project.revision, name }),
-      });
-      const data = await response.json() as { project?: DurableProject; error?: string };
-      if (!response.ok || !data.project) {
-        if (response.status === 409) await refreshProjects().catch(() => undefined);
-        throw new Error(data.error || 'Could not rename the project.');
+  const manageProject = async (targetMachineId: string, project: DurableProject, action: ProjectAction, name?: string) => {
+    if (action === 'delete' && projectDeletionBusy) throw new Error('Wait for active conversations to finish before deleting this project.');
+    const destination = navigationKeyRef.current;
+    const url = machineApiPath(`/api/projects/${encodeURIComponent(project.id)}`, targetMachineId, localMachineId);
+    const response = await fetch(url, {
+      method: action === 'rename' ? 'PATCH' : 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: project.revision, ...(action === 'rename' ? { name } : {}) }),
+    });
+    const data = await response.json() as { project?: DurableProject; detachedSessionCount?: number; error?: string };
+    // A lost DELETE response can be retried after the record has already gone.
+    const alreadyDeleted = action === 'delete' && response.status === 404 && data.error === 'Unknown project';
+    if ((!response.ok && !alreadyDeleted) || (action === 'rename' && !data.project)) {
+      if (response.status === 409) {
+        const latest = await fetch(url, { cache: 'no-store' }).then(result => result.ok ? result.json() : undefined)
+          .catch(() => undefined) as { project?: DurableProject } | undefined;
+        if (latest?.project) {
+          setProjectManagementTarget(current => current?.machineId === targetMachineId && current.project.id === project.id
+            ? { ...current, project: latest.project! } : current);
+          if (machineIdRef.current === targetMachineId) setProjects(current => current.map(item => item.id === project.id ? latest.project! : item));
+        }
       }
-      setProjects((current) => [data.project!, ...current.filter((item) => item.id !== project.id)]);
-    } catch (error) {
-      notifyError(error, 'Could not rename the project.');
+      void arena.refresh();
+      throw new Error(data.error || `Could not ${action} the project.`);
     }
-  }, [apiPath, refreshProjects]);
-
-  const deleteProject = useCallback(async (project: DurableProject) => {
-    try {
-      const response = await fetch(apiPath(`/api/projects/${encodeURIComponent(project.id)}`), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedRevision: project.revision }),
-      });
-      const data = await response.json() as { detachedSessionCount?: number; error?: string };
-      if (!response.ok) {
-        if (response.status === 409) await refreshProjects().catch(() => undefined);
-        throw new Error(data.error || 'Could not delete the project.');
+    if (machineIdRef.current === targetMachineId) {
+      setProjects(current => action === 'rename'
+        ? current.map(item => item.id === project.id && item.revision <= data.project!.revision ? data.project! : item)
+        : current.filter(item => item.id !== project.id));
+    }
+    if (action === 'delete') {
+      if (navigationKeyRef.current === destination && destination.startsWith('/?')
+        && machineIdRef.current === targetMachineId && projectIdRef.current === project.id) {
+        // Re-resolve the same conversation in No project; its tab-local draft follows its id.
+        if (focusedSessionIdRef.current) setNavigationRetry(value => value + 1);
+        else navigateWorkspace({ projectId: undefined, machineId: targetMachineId }, true);
       }
-      setProjects((current) => current.filter((item) => item.id !== project.id));
-      if (projectId === project.id) switchProject(undefined);
-      notify({ tone: 'success', message: `${data.detachedSessionCount || 0} session${data.detachedSessionCount === 1 ? '' : 's'} moved to No project.` });
-    } catch (error) {
-      notifyError(error, 'Could not delete the project.');
+      const count = data.detachedSessionCount;
+      notify({ tone: 'success', message: count === undefined ? 'Project deleted. Conversations are kept in No project.'
+        : `Project deleted. ${count} conversation${count === 1 ? '' : 's'} moved to No project.` });
     }
-  }, [apiPath, projectId, refreshProjects]);
+    void arena.refresh();
+  };
 
   const selectCheckout = useCallback((checkoutId: string) => {
     setSelectedCheckoutId(checkoutId);
@@ -2944,6 +2953,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener('visibilitychange', acknowledge);
   }, [arenaOpen, openingWorkspace, resolvedNavigation, navigationKey, navigationError, panelLayout.conversationShown, session, machineId, location.kind, selectedDestinationLoaded, arenaInbox, arena.acknowledge]);
 
+  const managementMachine = arena.machines.find(machine => machine.machine.id === projectManagementTarget?.machineId);
+  const managedSessions = [...(managementMachine?.sessions ?? []), ...sessions.filter(item => item.machineId === projectManagementTarget?.machineId)]
+    .filter(item => item.projectId === projectManagementTarget?.project.id);
+  const projectDeletionBusy = projectManagementTarget?.action === 'delete' && managedSessions.some(item =>
+    sendingSessions.current.has(item.id) || acceptanceChecks.current.has(item.id) || reconnectingRuns.current.has(item.id)
+    || Boolean(runsBySession[item.id]) || managementMachine?.runs.active.some(run => run.sessionId === item.id));
+
   return (
     <RepositoryFilesProvider value={repositoryFiles}>
     {!loading && !arenaOpen && !immersiveActive && (session || projectWorkspace) && <WorkspaceShortcuts
@@ -2969,8 +2985,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   apiBase={machineApiBase(machineId, localMachineId)}
                   onChange={switchProject}
                   onCreate={(name) => { void createProject(machineId, name, []).then(project => switchProject(project.id)).catch(error => notifyError(error, 'Could not create the project.')); }}
-                  onRename={(project, name) => void renameProject(project, name)}
-                  onDelete={(project) => void deleteProject(project)}
+                  onManage={(project, action) => { if (machineId) setProjectManagementTarget({ machineId, project, action }); }}
                   onLogo={project => { if (machineId) setProjectLogoTarget({ machineId, project }); }}
                 />
                 <span className="breadcrumb-separator" aria-hidden="true">/</span>
@@ -3374,6 +3389,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>}
 
       <ToastStack toasts={shownToasts} className={toastPlacement} onRemove={dismissToast} />
+      {projectManagementTarget && <ProjectManagementDialog key={`${projectManagementTarget.machineId}:${projectManagementTarget.project.id}:${projectManagementTarget.action}`}
+        project={projectManagementTarget.project} action={projectManagementTarget.action}
+        online={arena.machines.some(machine => machine.machine.id === projectManagementTarget.machineId && machine.machine.state === 'online')}
+        blockedReason={projectDeletionBusy ? 'Wait for active conversations to finish before deleting this project.' : undefined}
+        onSubmit={name => manageProject(projectManagementTarget.machineId, projectManagementTarget.project, projectManagementTarget.action, name)}
+        onClose={() => setProjectManagementTarget(undefined)} />}
       {projectLogoTarget && <ProjectLogoDialog key={`${projectLogoTarget.machineId}:${projectLogoTarget.project.id}`}
         project={projectLogoTarget.project} machineId={projectLogoTarget.machineId}
         checkouts={arena.machines.find(machine => machine.machine.id === projectLogoTarget.machineId)?.checkouts ?? []}
@@ -3400,6 +3421,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onOpenSession={openArenaSession}
           onNewProjectSession={launcher.openForProject}
           onProjectLogo={(machineId, project) => setProjectLogoTarget({ machineId, project })}
+          onManageProject={(machineId, project, action) => setProjectManagementTarget({ machineId, project, action })}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
           onDecidePermission={decideArenaPermission}

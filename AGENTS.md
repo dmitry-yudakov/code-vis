@@ -412,9 +412,12 @@ Updated 2026-11-20. When a story ships, change the line that names it; each stor
   in the story. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 127](stories/STORY-20261104-arena-project-actions.md) — Arena creates projects
   with an optional repository and starts sessions from each active project heading; empty projects
-  remain visible, and pending setup/recovery stays intact. All 46 focused unit checks, 41 distinct
-  production-browser cases, TypeScript, isolated build, both-theme desktop/phone screenshot
-  inspection and independent review pass. The running app has not been restarted.
+  remain visible, and pending setup/recovery stays intact. The November 20 follow-up adds project
+  Rename/Delete in Arena and shared retryable dialogs in the project picker, preserving repository
+  files, conversations and drafts. All 104 focused unit checks, 15 new and 51 existing browser cases,
+  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review
+  pass; two existing phone overflow assertions reproduce on the preceding build and are recorded
+  in the story. The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 123](stories/STORY-20261103-conversation-titles.md) — conversations receive a
   short background-generated title after their first successful reply, using the same provider and
   login, with small-model selection, bounded failure fallback and live tab/header updates. All

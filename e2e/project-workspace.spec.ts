@@ -40,7 +40,8 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     // The logo edits its image in place; only the title navigates to the project.
     const logo = group.getByRole('button', { name: `Project logo for ${project.name}`, exact: true });
     await expect(logo).toHaveCount(1);
-    await expect(group.locator('.arena-project-actions').getByRole('button')).toHaveCount(1);
+    await expect(group.getByRole('button', { name: `Project actions for ${project.name}`, exact: true })).toBeVisible();
+    await expect(group.getByRole('button', { name: `New session in ${project.name}`, exact: true })).toBeVisible();
     await logo.click();
     const logoDialog = page.getByRole('dialog', { name: 'Project logo', exact: true });
     await expect(logoDialog).toBeVisible();

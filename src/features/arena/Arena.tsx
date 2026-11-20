@@ -29,6 +29,7 @@ import {
 import { SecurityLevelNotice } from './SecurityLevelNotice';
 import { ARENA_SECTION_PATHS, type ArenaSection } from './routes';
 import { ProjectLogoButton } from '@/features/projects/ProjectLogo';
+import { ProjectActions, type ProjectAction } from '@/features/projects/ProjectActions';
 import { machineApiBase } from '@/features/machines/routes';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
 import { ContextUsage, contextUsageLabel } from '@/features/agents/ContextUsage';
@@ -102,6 +103,7 @@ export function Arena({
   onOpenSession,
   onNewProjectSession,
   onProjectLogo,
+  onManageProject,
   onArchiveSession,
   onRestoreSession,
   onDecidePermission,
@@ -120,6 +122,7 @@ export function Arena({
   onOpenSession(machine: ArenaMachineSnapshot, session: ArenaSessionSummary): void;
   onNewProjectSession(machineId: string, projectId?: string): void;
   onProjectLogo(machineId: string, project: DurableProject): void;
+  onManageProject(machineId: string, project: DurableProject, action: ProjectAction): void;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
@@ -268,6 +271,8 @@ export function Arena({
                         {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById, true)}</span>}
                       </div>
                       <div className="arena-project-actions">
+                      {project && <ProjectActions name={project.name} disabled={!online}
+                        onAction={action => onManageProject(machineId, project, action)} />}
                       {(group.id === 'none' || project) && <IconButton type="button" disabled={!online}
                         aria-label={`New session in ${group.name}`} title={`New session in ${group.name}`}
                         onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}><ShellIcon name="newChat" /></IconButton>}

@@ -9,16 +9,16 @@ import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { useState } from 'react';
 import type { DurableProject } from '@/shared/types';
 import { ProjectLogoButton } from './ProjectLogo';
+import type { ProjectAction } from './ProjectActions';
 
-export function ProjectPicker({ projects, value, disabled, apiBase, onChange, onCreate, onRename, onDelete, onLogo }: {
+export function ProjectPicker({ projects, value, disabled, apiBase, onChange, onCreate, onManage, onLogo }: {
   projects: DurableProject[];
   value?: string;
   disabled?: boolean;
   apiBase?: string;
   onChange(value?: string): void;
   onCreate(name: string): void;
-  onRename(project: DurableProject, name: string): void;
-  onDelete(project: DurableProject): void;
+  onManage(project: DurableProject, action: ProjectAction): void;
   onLogo(project: DurableProject): void;
 }) {
   const [creating, setCreating] = useState(false);
@@ -66,13 +66,8 @@ export function ProjectPicker({ projects, value, disabled, apiBase, onChange, on
                   <small>{project.repositories.length} {project.repositories.length === 1 ? 'repository' : 'repositories'}</small>
                   {project.id === value && <i aria-hidden="true">✓</i>}
                 </ListItemButton>
-                <IconButton type="button" aria-label={`Rename ${project.name}`} onClick={() => {
-                  const next = window.prompt('Project name', project.name)?.trim();
-                  if (next && next !== project.name) onRename(project, next);
-                }}>✎</IconButton>
-                <IconButton type="button" aria-label={`Delete ${project.name}`} onClick={() => {
-                  if (window.confirm(`Delete “${project.name}”? Its sessions will move to No project.`)) onDelete(project);
-                }}>×</IconButton>
+                <IconButton type="button" aria-label={`Rename ${project.name}`} onClick={() => { close(); onManage(project, 'rename'); }}>✎</IconButton>
+                <IconButton type="button" aria-label={`Delete ${project.name}`} onClick={() => { close(); onManage(project, 'delete'); }}>×</IconButton>
               </div>
             ))}
           </div>
